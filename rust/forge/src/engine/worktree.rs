@@ -100,6 +100,23 @@ fn git(cwd: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Resolve `base_ref` to a 40-char commit. Does not create a worktree.
+/// The live engine stamps this onto `storyboard_story_run.base_commit_hash` even when
+/// `FORGE_PROVISION` is off (NO TREES): the receipt still has to name the base the run read.
+pub fn resolve_base_commit(repo_root: &Path, base_ref: &str) -> Result<String, String> {
+    let base_commit = git(
+        repo_root,
+        &["rev-parse", "--verify", &format!("{base_ref}^{{commit}}")],
+    )
+    .map_err(|e| format!("base ref {base_ref:?} could not be resolved to a commit: {e}"))?;
+    if base_commit.len() != 40 || !base_commit.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!(
+            "base ref {base_ref:?} could not be resolved to a commit."
+        ));
+    }
+    Ok(base_commit)
+}
+
 pub fn resolve_repo_root(repo_root: Option<&Path>) -> Result<PathBuf, String> {
     let cwd = repo_root
         .map(PathBuf::from)
@@ -130,16 +147,7 @@ pub fn provision_worker_workspace(
     if base_ref.is_empty() {
         return Err("baseRef is required: pass an explicit approved integration base.".into());
     }
-    let base_commit = git(
-        &repo_root,
-        &["rev-parse", "--verify", &format!("{base_ref}^{{commit}}")],
-    )
-    .map_err(|e| format!("base ref {base_ref:?} could not be resolved to a commit: {e}"))?;
-    if base_commit.len() != 40 || !base_commit.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(format!(
-            "base ref {base_ref:?} could not be resolved to a commit."
-        ));
-    }
+    let base_commit = resolve_base_commit(&repo_root, &base_ref)?;
     let run = derive_run_id(run_id);
     let branch_name = derive_branch_name(story_id, &run);
     let root = worktrees_root.map(PathBuf::from).unwrap_or_else(|| {

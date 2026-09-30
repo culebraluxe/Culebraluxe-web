@@ -17,7 +17,7 @@ pub mod store;
 pub mod types;
 pub mod value;
 
-pub use engine::{command_id, EngineOptions, WorkflowEngine};
+pub use engine::{command_id, wall_clock_ms, EngineOptions, WorkflowEngine};
 pub use error::{Result, WorkflowError};
 pub use expr::{evaluate_condition, is_supported_expression};
 pub use memory::MemoryStore;

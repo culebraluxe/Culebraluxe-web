@@ -156,15 +156,18 @@ impl<S: TxStore> WorkflowEngine<S> {
                     variables: json!({}),
                 }) {
                     Ok(()) => report.fired += 1,
-                    Err(_) => report.failed += 1,
+                    Err(error) => {
+                        self.fail_job(&job.id, worker_id, &error.to_string(), false)?;
+                        report.failed += 1;
+                    }
                 }
             } else {
-                let _ = self.fail_job(
+                self.fail_job(
                     &job.id,
                     worker_id,
                     &format!("no executor registered for job type '{}'", job.job_type),
                     false,
-                );
+                )?;
                 report.failed += 1;
             }
         }
@@ -228,7 +231,7 @@ impl<S: TxStore> WorkflowEngine<S> {
         self.store.with_tx(|tx| {
             let peek = tx.get_job(job_id)?;
             if let Some(pid) = &peek.process_instance_id {
-                let _ = tx.lock_instance(pid)?;
+                let _locked = tx.lock_instance(pid)?;
             }
             let mut job = tx.lock_job(job_id)?;
             if job.status.is_settled() {
@@ -261,7 +264,7 @@ impl<S: TxStore> WorkflowEngine<S> {
         self.store.with_tx(|tx| {
             let peek = tx.get_job(job_id)?;
             if let Some(pid) = &peek.process_instance_id {
-                let _ = tx.lock_instance(pid)?;
+                let _locked = tx.lock_instance(pid)?;
             }
             let mut job = tx.lock_job(job_id)?;
             if job.status.is_settled() {

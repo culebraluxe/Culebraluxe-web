@@ -68,6 +68,21 @@ pub fn model_for_policy(raw: Option<&str>) -> &'static str {
     }
 }
 
+/// The model the lane will bill. Defaults match `model_for_policy`.
+/// `OPENCODE_JUDGMENT_MODEL` is the only way the judgment policy names a different model
+/// than cheap — the 2026-09-16 pin made both flash because pro could not be billed per token.
+/// Setting the env is how that rail becomes observable without changing the default pin.
+pub fn resolve_model_for_policy(raw: Option<&str>) -> String {
+    match as_model_policy(raw) {
+        "judgment" => std::env::var("OPENCODE_JUDGMENT_MODEL")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| MODEL_FOR_JUDGMENT.to_string()),
+        _ => MODEL_FOR_CHEAP.to_string(),
+    }
+}
+
 pub fn resolve_opencode_model(model: Option<&str>) -> Result<String> {
     match model {
         None => Ok(std::env::var("OPENCODE_MODEL")
@@ -147,7 +162,7 @@ impl OpenCodeHarness {
             .filter(|value| !value.is_empty())
         {
             Some(model) => resolve_opencode_model(Some(model))?,
-            None => model_for_policy(model_policy).to_string(),
+            None => resolve_model_for_policy(model_policy),
         };
         Ok(harness)
     }
@@ -385,8 +400,12 @@ mod tests {
     #[test]
     fn the_row_decides_the_model_and_an_explicit_override_still_wins() {
         // The row's policy is what the harness would run on when no explicit model is set.
-        let policy_model = model_for_policy(Some("cheap")).to_string();
+        let policy_model = resolve_model_for_policy(Some("cheap"));
         assert_eq!(policy_model, resolve_opencode_model(Some(&policy_model)).unwrap());
+        assert_eq!(
+            resolve_model_for_policy(Some("cheap")),
+            model_for_policy(Some("cheap"))
+        );
         // An explicit empty override is refused rather than silently replaced (the harness's own rule).
         assert!(resolve_opencode_model(Some("")).is_err());
     }

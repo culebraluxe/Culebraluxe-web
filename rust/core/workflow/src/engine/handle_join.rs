@@ -15,9 +15,9 @@ impl<S: TxStore> WorkflowEngine<S> {
         variables: &Value,
     ) -> Result<()> {
         let Some(parent_id) = token.parent_token_id.clone() else {
-            if let Some(transition) = node.transitions.as_ref().and_then(|ts| ts.first()) {
+            if let Some(transition) = self.evaluate_decision(node, variables, None) {
                 let new_token = Token {
-                    id: tx.new_id("id"),
+                    id: tx.new_id("tok"),
                     tenant_id: token.tenant_id.clone(),
                     process_instance_id: token.process_instance_id.clone(),
                     parent_token_id: None,
@@ -37,13 +37,13 @@ impl<S: TxStore> WorkflowEngine<S> {
             return Ok(());
         };
 
-        let _ = tx.lock_token(&parent_id)?;
+        let parent = tx.lock_token(&parent_id)?;
         self.complete_token(tx, token, actor, TokenOutcome::Completed)?;
-        if tx.count_required_active_siblings(&parent_id)? > 0 {
+        if tx.count_required_active_siblings(&parent.id)? > 0 {
             return Ok(());
         }
 
-        for row in tx.list_optional_active_siblings(&parent_id)? {
+        for row in tx.list_optional_active_siblings(&parent.id)? {
             tx.complete_token(&row.id, TokenOutcome::Skipped, self.now())?;
             self.event(
                 tx,
@@ -57,21 +57,7 @@ impl<S: TxStore> WorkflowEngine<S> {
                 },
             )?;
             for task in tx.open_tasks_for_token(&row.id)? {
-                let mut next = task.clone();
-                next.status = TaskStatus::Obsolete;
-                next.version += 1;
-                let _ = tx.cas_task(&next)?;
-                self.event(
-                    tx,
-                    EventInput {
-                        process_instance_id: instance.id.clone(),
-                        task_id: Some(task.id),
-                        event_type: "task.obsoleted",
-                        actor: actor.to_string(),
-                        data: json!({"reason": "branch skipped"}),
-                        ..Default::default()
-                    },
-                )?;
+                self.obsolete_task(tx, &task, actor, Some("branch skipped"))?;
             }
             for mut job in tx.open_jobs_for_token(&row.id)? {
                 job.status = JobStatus::Cancelled;
@@ -94,19 +80,19 @@ impl<S: TxStore> WorkflowEngine<S> {
         }
 
         let branch_ids: Vec<_> = tx
-            .list_children(&parent_id)?
+            .list_children(&parent.id)?
             .into_iter()
             .map(|t| t.id)
             .collect();
-        let Some(transition) = node.transitions.as_ref().and_then(|ts| ts.first()).cloned() else {
+        let Some(transition) = self.evaluate_decision(node, variables, None) else {
             return self.check_process_completion(tx, &instance.id, actor);
         };
 
         let new_token = Token {
-            id: tx.new_id("id"),
+            id: tx.new_id("tok"),
             tenant_id: token.tenant_id.clone(),
             process_instance_id: token.process_instance_id.clone(),
-            parent_token_id: Some(parent_id),
+            parent_token_id: Some(parent.id),
             node_id: transition.to,
             status: TokenStatus::Active,
             outcome: None,
@@ -159,7 +145,7 @@ impl<S: TxStore> WorkflowEngine<S> {
             }
         }
         let job = Job {
-            id: tx.new_id("id"),
+            id: tx.new_id("job"),
             tenant_id: token.tenant_id.clone(),
             process_instance_id: Some(instance.id.clone()),
             token_id: Some(token.id.clone()),

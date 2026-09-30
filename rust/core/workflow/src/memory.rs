@@ -183,6 +183,8 @@ impl Store for MemoryTx<'_> {
     }
 
     fn lock_instance(&mut self, id: &str) -> Result<ProcessInstance> {
+        // The mutex on `MemoryStore` is the transaction lock. This still has to *load*
+        // the row: callers use the returned snapshot, the same way Neon `FOR UPDATE` does.
         self.get_instance(id)
     }
 
@@ -345,32 +347,14 @@ impl Store for MemoryTx<'_> {
     }
 
     fn cas_task(&mut self, task: &Task) -> Result<bool> {
+        // Same predicate as Neon: `UPDATE ... WHERE id = $1 AND version = $2` with `$2 = task.version - 1`.
+        // Same-version writes are not success. Missing rows are not success.
         match self.inner.tasks.get_mut(&task.id) {
             Some(existing) if existing.version == task.version - 1 => {
                 *existing = task.clone();
                 Ok(true)
             }
-            Some(existing) if existing.version == task.version => {
-                // caller already bumped
-                if existing.version + 1 == task.version {
-                    *existing = task.clone();
-                    Ok(true)
-                } else if existing.version == task.version - 1 {
-                    *existing = task.clone();
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
-            }
-            Some(existing) => {
-                if existing.version + 1 == task.version {
-                    *existing = task.clone();
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
-            }
-            None => Ok(false),
+            _ => Ok(false),
         }
     }
 
@@ -665,5 +649,59 @@ impl Store for MemoryTx<'_> {
             return Ok(vec![]);
         }
         Ok(v[offset..end].to_vec())
+    }
+}
+
+#[cfg(test)]
+mod cas_task_tests {
+    use super::*;
+    use crate::store::Store;
+    use crate::value::Value;
+
+    fn ready_task(id: &str, version: i32) -> Task {
+        Task {
+            id: id.into(),
+            tenant_id: None,
+            process_instance_id: "pi-1".into(),
+            token_id: Some("tok-1".into()),
+            node_id: Some("smith".into()),
+            name: "smith".into(),
+            description: None,
+            status: TaskStatus::Ready,
+            assignee: None,
+            candidates: vec![],
+            swimlane: None,
+            priority: 0,
+            due_date: None,
+            form_key: None,
+            form_data: Value::Null,
+            created_at: 0,
+            claimed_at: None,
+            completed_at: None,
+            completed_by: None,
+            version,
+        }
+    }
+
+    #[test]
+    fn cas_succeeds_only_when_the_row_is_exactly_one_behind() {
+        let store = MemoryStore::new();
+        store
+            .with_tx(|tx| {
+                tx.insert_task(ready_task("t-1", 1))?;
+                let mut next = ready_task("t-1", 2);
+                next.status = TaskStatus::Obsolete;
+                assert!(tx.cas_task(&next)?, "version 1 -> 2 must land");
+                let mut again = ready_task("t-1", 2);
+                again.status = TaskStatus::Completed;
+                assert!(!tx.cas_task(&again)?, "same-version write is not success");
+                let mut stale = ready_task("t-1", 4);
+                stale.status = TaskStatus::Completed;
+                assert!(!tx.cas_task(&stale)?, "skipping a version is not success");
+                let missing = ready_task("t-missing", 2);
+                assert!(!tx.cas_task(&missing)?, "missing row is not success");
+                Ok(())
+            })
+            .unwrap();
     }
 }

@@ -42,11 +42,9 @@ fn engine() -> WorkflowEngine<NeonStore> {
             now: Box::new(now_millis),
         },
     );
-    if let Ok(def) = definition_from_xml(FORGE_SDLC_V6_XML) {
-        let _ = eng.seed_definition(def);
-    } else {
-        let _ = eng.seed_definition(forge_sdlc_definition());
-    }
+    let def = definition_from_xml(FORGE_SDLC_V6_XML).unwrap_or_else(|_| forge_sdlc_definition());
+    eng.seed_definition(def)
+        .expect("seed FORGE_SDLC definition");
     eng
 }
 

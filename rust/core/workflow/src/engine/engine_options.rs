@@ -11,12 +11,36 @@ pub struct EngineOptions {
     pub now: Box<dyn Fn() -> i64 + Send + Sync>,
 }
 
+/// Wall clock in milliseconds since epoch. Production and `EngineOptions::default` use this.
+/// A frozen `0` clock is a test fixture only — construct `EngineOptions { now: Box::new(|| 0), .. }` explicitly.
+pub fn wall_clock_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 impl Default for EngineOptions {
     fn default() -> Self {
         Self {
             app: None,
-            now: Box::new(|| 0),
+            now: Box::new(wall_clock_ms),
         }
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::*;
+
+    #[test]
+    fn default_clock_is_wall_time_not_epoch() {
+        let opts = EngineOptions::default();
+        let n = (opts.now)();
+        assert!(
+            n > 1_700_000_000_000,
+            "default clock must not be 0; got {n}"
+        );
     }
 }
 

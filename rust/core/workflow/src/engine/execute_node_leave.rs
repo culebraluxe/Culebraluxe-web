@@ -136,6 +136,40 @@ impl<S: TxStore> WorkflowEngine<S> {
         )
     }
 
+    /// Mark a task obsolete. A failed CAS is a hard error: the event log must not claim
+    /// `task.obsoleted` when the row is still Ready/Claimed.
+    pub(super) fn obsolete_task(
+        &self,
+        tx: &mut dyn Store,
+        task: &Task,
+        actor: &str,
+        reason: Option<&str>,
+    ) -> Result<()> {
+        let mut next = task.clone();
+        next.status = TaskStatus::Obsolete;
+        next.version += 1;
+        if !tx.cas_task(&next)? {
+            return Err(WorkflowError::conflict(
+                "STALE_TASK",
+                format!(
+                    "Task {} could not be obsoleted (expected version {})",
+                    task.id, task.version
+                ),
+            ));
+        }
+        self.event(
+            tx,
+            EventInput {
+                process_instance_id: task.process_instance_id.clone(),
+                task_id: Some(task.id.clone()),
+                event_type: "task.obsoleted",
+                actor: actor.to_string(),
+                data: json!({"reason": reason}),
+                ..Default::default()
+            },
+        )
+    }
+
     pub(super) fn check_process_completion(
         &self,
         tx: &mut dyn Store,
@@ -204,21 +238,7 @@ impl<S: TxStore> WorkflowEngine<S> {
         }
 
         for task in tx.open_tasks_for_instance(process_instance_id)? {
-            let mut next = task.clone();
-            next.status = TaskStatus::Obsolete;
-            next.version += 1;
-            let _ = tx.cas_task(&next)?;
-            self.event(
-                tx,
-                EventInput {
-                    process_instance_id: process_instance_id.to_string(),
-                    task_id: Some(task.id),
-                    event_type: "task.obsoleted",
-                    actor: actor.to_string(),
-                    data: json!({"reason": reason}),
-                    ..Default::default()
-                },
-            )?;
+            self.obsolete_task(tx, &task, actor, reason)?;
         }
 
         for mut job in tx.open_jobs_for_instance(process_instance_id)? {
@@ -287,7 +307,7 @@ impl<S: TxStore> WorkflowEngine<S> {
     ) -> Result<()> {
         let candidates = node.candidate_groups.clone().unwrap_or_default();
         let task = Task {
-            id: tx.new_id("id"),
+            id: tx.new_id("task"),
             tenant_id: instance.tenant_id.clone(),
             process_instance_id: instance.id.clone(),
             token_id: Some(token_id.to_string()),
@@ -367,7 +387,7 @@ impl<S: TxStore> WorkflowEngine<S> {
             }
             let required = transition.required.unwrap_or(true);
             let child = Token {
-                id: tx.new_id("id"),
+                id: tx.new_id("tok"),
                 tenant_id: parent.tenant_id.clone(),
                 process_instance_id: parent.process_instance_id.clone(),
                 parent_token_id: Some(parent.id.clone()),
@@ -442,7 +462,7 @@ impl<S: TxStore> WorkflowEngine<S> {
                 break;
             }
             let child = Token {
-                id: tx.new_id("id"),
+                id: tx.new_id("tok"),
                 tenant_id: parent.tenant_id.clone(),
                 process_instance_id: parent.process_instance_id.clone(),
                 parent_token_id: Some(parent.id.clone()),

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use workflow::{
-    json, CompleteTaskParams, EngineOptions, MemoryStore, ProcessStatus, Result,
+    json, wall_clock_ms, CompleteTaskParams, EngineOptions, MemoryStore, ProcessStatus, Result,
     StartProcessParams, StartProcessResult, Task, TaskStatus, TxStore, Value, WorkflowEngine,
     WorkflowError, WorkflowSubject,
 };
@@ -138,12 +138,7 @@ impl<S: TxStore> ForgeRuntime<S> {
             store,
             EngineOptions {
                 app: Some(Box::new(PortClone(port_for_engine))),
-                now: Box::new(|| {
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_millis() as i64)
-                        .unwrap_or(0)
-                }),
+                now: Box::new(wall_clock_ms),
             },
         );
         engine.seed_definition(def)?;

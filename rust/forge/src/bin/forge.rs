@@ -15,7 +15,9 @@ use forge::engine::packet::{ExecutionWorkspace, StoryPacket};
 use forge::engine::runner::ProductionRoleRunner;
 use forge::engine::runtime::ForgeRuntime;
 use forge::engine::vendor_session::database_url;
-use forge::engine::worktree::{provision_worker_workspace, resolve_approved_base_ref};
+use forge::engine::worktree::{
+    provision_worker_workspace, resolve_approved_base_ref, resolve_base_commit, resolve_repo_root,
+};
 use forge::engine::writer::{ForgeReleaseExecutor, ForgeStateWriter, NullWriter};
 use std::env;
 use std::sync::Arc;
@@ -339,6 +341,43 @@ fn main() {
                     work_item.as_deref(),
                     AgentWorkOutcome::Abandoned,
                     Some(&format!("provision: {e}")),
+                )
+                .is_err()
+                {
+                    eprintln!("work_item could not be settled; the claim is left to recovery");
+                }
+                std::process::exit(2);
+            }
+        }
+    } else if let Some(run_id) = story_run_id.as_deref() {
+        // Default path: no worktree. Stamp the integration base so the run receipt is not
+        // missing `base_commit_hash` just because FORGE_PROVISION was off.
+        match resolve_repo_root(env::current_dir().ok().as_deref())
+            .and_then(|root| resolve_base_commit(&root, &resolve_approved_base_ref()))
+        {
+            Ok(base_commit) => match agent_work::stamp_run_base_commit(run_id, &base_commit) {
+                Ok(true) => eprintln!("run base_commit_hash={base_commit} (in-repo)"),
+                Ok(false) => eprintln!("run base_commit_hash left unset (already stamped or empty)"),
+                Err(e) => {
+                    eprintln!("base_commit_hash: {e}");
+                    if settle_work_item(
+                        work_item.as_deref(),
+                        AgentWorkOutcome::Abandoned,
+                        Some(&format!("base_commit_hash: {e}")),
+                    )
+                    .is_err()
+                    {
+                        eprintln!("work_item could not be settled; the claim is left to recovery");
+                    }
+                    std::process::exit(2);
+                }
+            },
+            Err(e) => {
+                eprintln!("base_commit_hash: {e}");
+                if settle_work_item(
+                    work_item.as_deref(),
+                    AgentWorkOutcome::Abandoned,
+                    Some(&format!("base_commit_hash: {e}")),
                 )
                 .is_err()
                 {

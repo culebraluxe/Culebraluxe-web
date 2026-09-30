@@ -76,7 +76,7 @@ fn build_re_engine() -> Result<WorkflowEngine<NeonStore>> {
         },
     );
     let def = parse_re_supermodel().map_err(|e| WorkflowError::generic(e.0))?;
-    let _ = engine.seed_definition(def);
+    engine.seed_definition(def)?;
     Ok(engine)
 }
 
