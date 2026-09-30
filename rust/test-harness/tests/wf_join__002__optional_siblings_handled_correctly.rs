@@ -386,6 +386,10 @@ fn wf_join_002__optional_siblings_handled_correctly() {
     // The parked optional branches exist: an open task at `hold`, an open timer job at `sla`. These are what the
     // join must retire, so their absence would make the retirement assertions vacuous.
     let hold_task = task_at(reader.memory(), &instance, HOLD_NODE);
+    let hold_token_id = hold_task
+        .token_id
+        .clone()
+        .expect("the optional hold task is linked to its token");
     let wait_token = token_at(reader.memory(), &instance, WAIT_NODE);
     let jobs_before: Vec<Job> = reader
         .memory()
@@ -459,6 +463,10 @@ fn wf_join_002__optional_siblings_handled_correctly() {
 
     // ── The join step dies once; the production retry repeats it and the run converges ──────────────────────────
     let main_task = task_at(reader.memory(), &instance, MAIN_NODE);
+    let main_token_id = main_task
+        .token_id
+        .clone()
+        .expect("the required main task is linked to its token");
     complete_task(&engine, &main_task.id)
         .expect("the production retry repeats the broken join step and the repeat commits");
     assert_eq!(
@@ -483,6 +491,36 @@ fn wf_join_002__optional_siblings_handled_correctly() {
         Some(4),
         "{HARNESS}: the join accounts for every branch, required and optional"
     );
+    // The roster is the four siblings BY TOKEN IDENTITY, not merely by count: the join names the required branch
+    // and each optional branch — the one that arrived and the two it retired — and no other token. A join that
+    // listed an unrelated token, dropped an optional sibling, or double-counted one would satisfy the count above
+    // but fail here, so this clause pins `branches` to the sibling set the fork actually minted
+    // (`rust/core/workflow/src/engine/handle_join.rs:82-86`, fed to the event at `:106-117`).
+    let mut joined_branches: Vec<String> = joined[0]
+        .data
+        .get("branches")
+        .and_then(Value::as_array)
+        .expect("the token.joined event carries its branch roster")
+        .iter()
+        .map(|branch| {
+            branch
+                .as_str()
+                .expect("every entry in the join roster is a token id")
+                .to_string()
+        })
+        .collect();
+    joined_branches.sort();
+    let mut expected_branches = vec![
+        main_token_id,
+        review_token_id.clone(),
+        hold_token_id.clone(),
+        wait_token.id.clone(),
+    ];
+    expected_branches.sort();
+    assert_eq!(
+        joined_branches, expected_branches,
+        "{HARNESS}: the join roster is exactly the four siblings the fork minted, by token id — required and optional alike"
+    );
     let settle = token_at(reader.memory(), &instance, END_NODE);
     assert_eq!(
         joined[0].data.get("resultTokenId").and_then(Value::as_str),
@@ -498,10 +536,6 @@ fn wf_join_002__optional_siblings_handled_correctly() {
     // The optional branches that never arrived were retired: one `token.skipped` each, no more. The event carries the
     // branch's own token id, so the durable log names which token was retired — not just which node it sat at. A join
     // that skipped a different token, or emitted the event for a token it did not actually complete, fails here.
-    let hold_token_id = hold_task
-        .token_id
-        .clone()
-        .expect("the optional hold task is linked to its token");
     let mut skipped: Vec<(String, String)> = events_of_type(reader.memory(), &instance, "token.skipped")
         .into_iter()
         .map(|event| {

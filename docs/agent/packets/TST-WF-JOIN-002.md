@@ -169,3 +169,57 @@ An unrelated, pre-existing untracked file `rust/test-harness/tests/arch_boundary
 was present in the working tree at run time; it was left untouched and is not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"a607b8bda798823f9df589ee8eee71c52b0dcaa4"}
+
+## Repair — fast_repair_smith (2026-09-30)
+
+The FAST QA verdict on candidate `a607b8bd` was `qaPassed=false`, so this node repairs the candidate in the same
+workspace and lands a new commit (the runner's `candidate_sha` is the workspace `git HEAD` after the node, so a
+delivered candidate is a commit, not a chat line). The change strengthens the canonical test on the contract it
+already names; no production code changed.
+
+What changed in
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs`:
+
+1. The `token.joined` roster was pinned only by **count** (`branches.len() == 4`). It is now pinned by **token
+   identity**: the roster must be exactly the four sibling tokens the fork minted — the required branch, the optional
+   branch that arrived, and the two optional branches the join retired — with no unrelated token, no dropped optional
+   sibling and no double count. A join that produced four wrong ids, or listed an unrelated token, satisfied the old
+   count and would now fail (`rust/core/workflow/src/engine/handle_join.rs:82-86`, fed to the event at `:106-117`).
+2. `hold_token_id` is captured once, where the parked `hold` task is first read, and reused by both the roster
+   assertion and the `token.skipped` assertion, so the two clauses cannot silently diverge on which token they name.
+
+The commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+running 1 test
+test wf_join_002__optional_siblings_handled_correctly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 15s
+CHECK_EXIT=0
+```
+
+Mutation check (the new roster clause is load-bearing, and not covered by the count it sits beside): corrupting every
+branch id while preserving the count — mapping each child token id to `format!("{id}-corrupted")` at
+`rust/core/workflow/src/engine/handle_join.rs:85` — leaves `branches.len() == 4` but makes the test fail at
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:520`
+(`the join roster is exactly the four siblings the fork minted, by token id — required and optional alike`),
+`test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+test wf_join_002__optional_siblings_handled_correctly ... FAILED
+thread '...' panicked at test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:520:5:
+assertion `left == right` failed: WorkflowHarness/L4 Adversarial: the join roster is exactly the four siblings the fork minted, by token id — required and optional alike
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+MUTATION_EXIT=101
+```
+
+The production file was restored byte-for-byte with `git checkout --` (`cmp` clean against the pre-mutation copy) and
+the test is green again (`TEST_EXIT=0`). The unrelated, pre-existing untracked file
+`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` was present in the working tree at run
+time; it was left untouched and is not part of this candidate.
