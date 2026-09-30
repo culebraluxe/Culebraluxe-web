@@ -48,6 +48,7 @@ pub mod level;
 pub mod mvi;
 pub mod providers;
 pub mod snapshot;
+pub mod source;
 
 pub use clock::TestClock;
 pub use database::{guard_target, resolve_test_target, HarnessDbError, TestDatabase, TestTransaction};
