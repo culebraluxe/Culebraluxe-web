@@ -397,3 +397,50 @@ An untracked `arch_boundary__011__qa_cannot_own_git_mutations.rs` (another lane)
 time; it was left untouched and is not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"8f99b3944da12b0d88e375d6d33715782e551f92"}
+
+## QA re-verify — fast_qa_verify (2026-09-30, task 2e62b9ac)
+
+The `fast_qa_verify` node (task `2e62b9ac-73f5-4def-8b56-0021a898847a`) re-ran the story's own acceptance commands
+against the current tree. Verdict: **PASS**. The canonical file
+`rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs` is tracked, contains the
+test `wf_definition_013__forge_v6_xml_structural_equality_where_intended`, and proves "Forge v6 XML structural equality
+where intended" at the production XML/version-policy boundary. The verified candidate is the `fast_repair_smith`
+commit `8f99b394`, the last commit to touch the canonical test (unchanged at the current HEAD `f09459c8`); this node
+changes documentation only — no production or test behaviour changed.
+
+Both commands are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+running 1 test
+test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 21s
+CHECK_EXIT=0
+```
+
+Mutation check (the structural-equality predicate is load-bearing): forcing `graphs_equal` to a constant `true` at
+`rust/forge/src/engine/version_policy.rs:39-41` makes the test fail exactly at the structural-inequality clause
+`rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:313`
+(`a changed transition target is a structural difference, not a cosmetic one`), `test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... FAILED
+thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:313:5:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+MUTATION_EXIT=101
+```
+
+The production file was restored byte-for-byte (`cmp` clean against the pre-mutation copy) and the test is green again
+(`TEST_EXIT=0`), so the equality contract is not vacuous and the cosmetic-vs-structural split is genuinely exercised.
+
+An in-flight WF-JOIN-002 lane had a modified `rust/core/workflow/src/engine/execute_node_leave.rs` and
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` in the working tree, plus an untracked
+`arch_boundary__011__qa_cannot_own_git_mutations.rs`; they were left untouched and are not part of this candidate.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"8f99b3944da12b0d88e375d6d33715782e551f92"}
