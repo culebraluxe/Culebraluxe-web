@@ -19,12 +19,14 @@
 //! WHERE INTENDED is the point of the contract, and it is demonstrated in both directions:
 //!
 //! - cosmetic XML (a comment — before the root or between nodes, extra whitespace, the declaration, the explicit
-//!   `<x></x>` form of a self-closing tag, an element whose **attributes are reordered**) parses to a
-//!   **structurally equal** graph, because the parser intentionally drops what is not structure; and
+//!   `<x></x>` form of a self-closing tag, an element whose **attributes are reordered**, and an end-state that
+//!   declares the parser's default `outcome="completed"`) parses to a **structurally equal** graph, because the
+//!   parser intentionally drops what is not structure; and
 //! - a structural edit (a transition target or its condition/required flag, a decision condition or its
 //!   `refresh-facts`, a command type, a task `priority`, a task's `form-key`/`label`/`description`, an end-state
 //!   `outcome`, a dynamic-fork `count-variable`/`plan-variable`/`branch-node`/`minimum`/`maximum`, a display-order
-//!   entry) parses to a **structurally unequal** graph, because those are the parts the definition intends to mean.
+//!   entry **or the order of two display-order entries**) parses to a **structurally unequal** graph, because those
+//!   are the parts the definition intends to mean.
 //!
 //! A structural edit that would make the graph dishonest (a transition to a node that does not exist, an unknown
 //! element, a duplicate node id) is not a different graph — it is a refusal, so equality can never paper over a
@@ -300,6 +302,23 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         "{HARNESS}: an entity reference names the same value — `&apos;` must parse equal to `'`"
     );
 
+    // 3h. WHERE INTENDED (default outcome) — an end-state that does not declare an outcome means Completed; the
+    //     parser supplies that default (`rust/forge/src/engine/xml.rs:280-285`). Declaring the default explicitly is
+    //     therefore not structure: removing `outcome="completed"` from an end-state must parse to a structurally
+    //     equal graph. The anchor is asserted first so the clause cannot pass vacuously — a no-op `replacen` would
+    //     leave the source byte-identical and the equality would hold for the wrong reason.
+    assert!(
+        FORGE_SDLC_V6_XML.contains("outcome=\"completed\""),
+        "{HARNESS}: the definition declares an explicit default outcome for this clause"
+    );
+    let default_outcome = FORGE_SDLC_V6_XML.replacen("outcome=\"completed\"", "", 1);
+    let default_outcome_def = definition_from_xml(&default_outcome)
+        .expect("an end-state whose explicit default outcome is removed still parses");
+    assert!(
+        graphs_equal(&def.definition, &default_outcome_def.definition),
+        "{HARNESS}: an end-state's default outcome is not structure — omitting `outcome=\"completed\"` must parse to an equal graph"
+    );
+
     // 4. WHERE INTENDED (structural) — a real structural edit parses, but is NOT equal. Four independent facets are
     //    edited so the equality cannot be pinned to one serialized field: an edge (transition target), a decision
     //    arm's condition, a command node's command type, and the declared display order. Each parse must SUCCEED (the
@@ -344,6 +363,23 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     assert!(
         !graphs_equal(&def.definition, &reordered_def.definition),
         "{HARNESS}: a changed display order is a structural difference"
+    );
+
+    // 4e. WHERE INTENDED (display order is ordered) — `display-order` is the definition's explicit sequence, so
+    //     order is structure: swapping two adjacent entries changes the declared order even though the set of nodes
+    //     is unchanged. The parse must succeed (the source stays legal) and the graphs must NOT be equal. The anchor
+    //     is a two-line block, so if it were absent the `replacen` would no-op and `assert!(!graphs_equal(..))` would
+    //     fail — the clause is self-proving.
+    let swapped_order = FORGE_SDLC_V6_XML.replacen(
+        "    <node ref=\"start\"/>\n    <node ref=\"classify_work\"/>",
+        "    <node ref=\"classify_work\"/>\n    <node ref=\"start\"/>",
+        1,
+    );
+    let swapped_order_def = definition_from_xml(&swapped_order)
+        .expect("a display order with two adjacent entries swapped still parses");
+    assert!(
+        !graphs_equal(&def.definition, &swapped_order_def.definition),
+        "{HARNESS}: display order is ordered structure — swapping two entries is a structural difference"
     );
 
     // 4b. WHERE INTENDED (control fields) — the remaining control fields the production parser reads and the production
