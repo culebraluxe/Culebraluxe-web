@@ -47,11 +47,19 @@ jobs:
       # direct pool access is the subject being measured; they are not linked into application/runtime crates.
       # If a new runtime path needs an exception,
       # it must become a repository/store first rather than expanding this list casually.
+      # TEST CODE IS OUT OF SCOPE, AND THE HARNESS IS TEST CODE (2026-09-30). `rust/test-harness/` is the
+      # fixture client the arch-boundary suite runs on: it reads and writes canonical rows directly, because
+      # asking the rows rather than a DAO is the method — and several of its cases carry SQL as a *planted
+      # sample string* inside an `assert!`, which a textual grep cannot tell from a real query. That is
+      # exactly how this step reddened: the "violations" it reported from `arch_boundary__008` were the
+      # samples that test asserts against, and from `forge_claim__00*` the fixture writes. The boundary this
+      # step protects is PRODUCTION code; `tests/` trees were already excluded for the same reason, and the
+      # harness crate — which is linked into no production binary — is excluded here.
       - name: Rust persistence boundary
         run: |
           set -euo pipefail
           violations="$(
-            grep -RInE 'sqlx::(query|query_as|query_scalar)|\.pool\(\)' rust --include='*.rs'               | grep -v '^rust/core/db/'               | grep -v '^rust/core/workflow/src/neon.rs:'               | grep -v '^rust/core/workflow/src/neon/'               | grep -v '^rust/integrations/src/boldsign/store.rs:'               | grep -v '^rust/core/db/tests/'               | grep -v '^rust/server/tests/'               | grep -v '^rust/experiments/'               || true
+            grep -RInE 'sqlx::(query|query_as|query_scalar)|\.pool\(\)' rust --include='*.rs'               | grep -v '^rust/core/db/'               | grep -v '^rust/core/workflow/src/neon.rs:'               | grep -v '^rust/core/workflow/src/neon/'               | grep -v '^rust/integrations/src/boldsign/store.rs:'               | grep -v '^rust/core/db/tests/'               | grep -v '^rust/server/tests/'               | grep -v '^rust/experiments/'               | grep -v '^rust/test-harness/'               || true
           )"
           if [ -n "$violations" ]; then
             echo "Raw database access escaped the approved Rust persistence boundaries:"
