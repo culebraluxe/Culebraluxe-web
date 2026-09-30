@@ -132,3 +132,40 @@ The production file was restored byte-for-byte with `git checkout --` and the te
 (`TEST_EXIT=0`), so the clause is load-bearing and the contract is not vacuous. Unrelated, pre-existing working-tree
 changes elsewhere in the workspace were present at run time; they were left untouched and are not part of this
 candidate.
+
+## QA verdict — fast_qa_verify (2026-09-30)
+
+The `fast_qa_verify` node (task `d57e40d7-0213-48c6-8ee7-f787e4f2b31b`) re-ran the story's own acceptance commands
+against the current tree. Verdict: **PASS**. The canonical file
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` exists, tracked, with the test
+`wf_join_002__optional_siblings_handled_correctly`, and it proves "optional siblings handled correctly" at the
+production `WorkflowEngine`/`TxStore`/`Store` boundary. The verified candidate is the `fast_smith` self-heal commit
+`a607b8bd` (HEAD before this node; this node changes documentation only — no production or test behavior changed).
+
+Both commands are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+running 1 test
+test wf_join_002__optional_siblings_handled_correctly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 51s
+CHECK_EXIT=0
+```
+
+Mutation check (the required-only join gate is load-bearing): removing the `&& t.required` filter from
+`count_required_active_siblings` at `rust/core/workflow/src/memory.rs:291` makes the gate count all active siblings
+(4 instead of 1) and the test fails at
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:359`
+(`the one required branch is counted — the optional siblings are not`), `test result: FAILED` (exit 101). The
+production file was restored byte-for-byte with `git checkout --` and the test is green again (`TEST_EXIT=0`), so the
+optional-sibling split is not vacuous.
+
+An unrelated, pre-existing untracked file `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs`
+was present in the working tree at run time; it was left untouched and is not part of this candidate.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"a607b8bda798823f9df589ee8eee71c52b0dcaa4"}
