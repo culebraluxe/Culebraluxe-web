@@ -27,13 +27,15 @@ curl -s -H "x-culebra-internal-key: $KEY" localhost:8080/v1/diagnostics/db
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `FORGE_DB_POOL_MAX` | 5 | Connections. Raise if engine volume grows; the endpoint is a pooler, so connections are cheap. |
-| `FORGE_DB_POOL_MIN` | 1 | The warm floor. **Never set this to 0 in production** — a cold connect measures 498ms. |
-| `FORGE_DB_POOL_IDLE_MS` | 60000 | Reclaims connections above the floor. |
-| `FORGE_DB_IDLE_PROBE_MS` | 30000 | Probe a connection only after it has been idle this long. 0 probes every checkout (~80ms each). |
+| `FORGE_DB_POOL_MAX` | 30 | Ceiling on simultaneous connections, per process. The engine and the app hold separate pools, so these do not add up into one number. |
+| `FORGE_DB_POOL_MIN` | 20 | The warm floor: open and ready, so a request pays a round trip instead of a 498ms handshake. **Never set this to 0 in production.** |
+| `FORGE_DB_POOL_IDLE_MS` | 60000 | Reclaims connections above the floor, never the floor itself. |
+| `FORGE_DB_POOL_MAX_LIFETIME_MS` | 1800000 | Retire a connection by age (30m) and replace it; a socket the pooler has forgotten looks exactly like a good one. 0 disables. |
+| `FORGE_DB_IDLE_PROBE_MS` | 30000 | Probe a connection after it has been idle this long. 0 probes every checkout (~80ms each). |
+| `FORGE_DB_RECHECK_MS` | 60000 | After a connection-class failure, verify EVERY checkout for this long, because a socket that broke while checked out comes back looking new. 0 disables. |
 | `FORGE_DB_KEEPALIVE_MS` | 60000 | Branch keepalive. Can be 0 in production, where real traffic keeps it awake. |
 | `FORGE_DB_RETRY_ATTEMPTS` / `_BASE_MS` | 3 / 150 | Retry for retryable failures only. |
-| `FORGE_ENGINE_WORKERS` | 4 | Concurrent engine commands. Deliberately one below the pool default. |
+| `FORGE_ENGINE_WORKERS` | 4 | Concurrent engine commands. Far below the pool ceiling (30) so the engine cannot take the connections ordinary reads need. |
 | `FORGE_IDENTITY_CACHE_MS` | 30000 | Identity cache. A role change can take up to this long to apply. 0 disables. |
 
 ## The deploy itself (one release = one container + schema)

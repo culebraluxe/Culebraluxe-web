@@ -96,10 +96,10 @@ had nothing warm to reuse.
 10-30ms there. The engine is not going to be slower in production than the TypeScript path was; it should be faster,
 because it now shares the server's pool instead of building one.
 
-**Knobs, if engine traffic grows in production.** The engine shares the server's pool (`FORGE_DB_POOL_MAX`, default 5)
-and runs `FORGE_ENGINE_WORKERS` commands at once (default 4). Four workers plus ordinary reads against five connections
-is a deliberate fit, not a coincidence, but if engine volume rises the pool is the thing to raise - connections through a
-pooler are cheap, and `FORGE_DB_POOL_MIN` keeps one warm.
+**Knobs, if engine traffic grows in production.** The engine runs `FORGE_ENGINE_WORKERS` commands at once (default 4)
+against its own pool — `FORGE_DB_POOL_MIN` 20 hot inside `FORGE_DB_POOL_MAX` 30, per process, since the engine and the
+app are separate processes and never share a pool (resized 2026-09-29; both were 5 and 1). Four workers is a small
+fraction of twenty ready connections, so engine work and ordinary reads do not compete for a handshake.
 
 
 Two things were wrong with "the engine inherits the server's pool", and both were measured rather than assumed.
@@ -137,7 +137,7 @@ a process that cached that would be wedged until someone restarted it. Successes
 
 The first working version ran each command on a fresh thread, because `block_on` is only legal on a thread with no
 runtime context. That works, and it is unbounded: one OS thread per in-flight command, held for the whole transaction.
-It is now a fixed pool of `FORGE_ENGINE_WORKERS` threads (default 4, one below `FORGE_DB_POOL_MAX` so the engine cannot
+It is now a fixed pool of `FORGE_ENGINE_WORKERS` threads (default 4, well inside the pool ceiling so the engine cannot
 take the last connection an ordinary read needs) behind a bounded queue, with overload answered as
 `503 ENGINE_BUSY`, `retryable: true` instead of by exhausting the machine.
 

@@ -17,8 +17,10 @@ report the target. **Check it before believing a command is on dev.**
 
 | setting | value | why |
 | --- | --- | --- |
-| `FORGE_DB_POOL_MIN` | 1 | a cold connect is 498ms; keep one warm |
-| checkout ping | **off** | sqlx pings by default and that is a full round trip; probe only when idle ≥ `FORGE_DB_IDLE_PROBE_MS` (30s) |
+| `FORGE_DB_POOL_MIN` | 20 | the floor: connections open and ready, so work pays a round trip (~72ms) and not a handshake (498ms). The engine and the app are separate processes with separate pools, so each holds its own twenty |
+| `FORGE_DB_POOL_MAX` | 30 | the ceiling on simultaneous connections, leaving the floor room to grow with load |
+| checkout ping | **off** | sqlx pings by default and that is a full round trip; probe when idle ≥ `FORGE_DB_IDLE_PROBE_MS` (30s), and for `FORGE_DB_RECHECK_MS` (60s) after any connection-class failure |
+| `FORGE_DB_POOL_MAX_LIFETIME_MS` | 30min | retire a connection by age and replace it; the pooler retires server connections on its own schedule, and an old socket is the likeliest one to be half-dead |
 | `FORGE_DB_POOL_IDLE_MS` | 60s | reclaims only connections above the floor |
 | statement cache | **on** | turning it off doubles every query (80ms). It works through the pooler; do not disable it |
 | retry | `fork` for retryable kinds only | exponential + jitter; **never** retry an unguarded write |

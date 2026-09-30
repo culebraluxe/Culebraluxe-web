@@ -228,8 +228,8 @@ printf '  shared bridge key synchronized to frontend + Rust projects\n'
 # Production pool settings are operational configuration, not secrets. Pin them here so an
 # older value on the source frontend project cannot silently override the Rust service defaults.
 for POOL_SETTING in \
-  'FORGE_DB_POOL_MAX=12' \
-  'FORGE_DB_POOL_MIN=5' \
+  'FORGE_DB_POOL_MAX=30' \
+  'FORGE_DB_POOL_MIN=20' \
   'FORGE_DB_POOL_CONNECT_MS=15000'
 do
   KEY="${POOL_SETTING%%=*}"

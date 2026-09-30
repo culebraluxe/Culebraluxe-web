@@ -17,6 +17,20 @@ const DEFAULT_STATEMENT_TIMEOUT_MS: u64 = 30_000;
 /// The ceiling, resolved once per process and settable to 0 by `disable_statement_timeout`.
 static STATEMENT_TIMEOUT_MS: OnceLock<AtomicU64> = OnceLock::new();
 
+/// Production keeps this many connections OPEN and idle, ready to be used: the pool's floor.
+///
+/// It is a floor and not a target — `idle_timeout` never reclaims a connection that would take the pool below it — so
+/// this is the number of handshakes the system does not pay for. See `default_pool_bounds` for why it is 20.
+const PROD_POOL_MIN: u32 = 20;
+
+/// Production's ceiling on simultaneous connections. Thirty leaves the twenty-connection floor room to grow with load.
+const PROD_POOL_MAX: u32 = 30;
+
+/// Development keeps almost nothing warm: a developer's loop does not have the concurrency, and every warm connection
+/// is a Neon connection somebody is paying for.
+const DEV_POOL_MIN: u32 = 1;
+const DEV_POOL_MAX: u32 = 5;
+
 /// The moment the pool stops trusting connections it has not just verified, as millis since process start. 0 means
 /// "nothing has failed"; see `note_connection_failure`.
 static SUSPECT_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
@@ -97,7 +111,7 @@ impl Database {
         // A CEILING ON EVERY STATEMENT — APPLIED AS A STATEMENT, NOT AS A STARTUP PARAMETER.
         //
         // Without a ceiling, a query that goes wrong holds its connection until Postgres or the network gives up.
-        // There are thirty-two connections in production, so a handful of stuck statements is the whole portal
+        // There are thirty connections in production, so a handful of stuck statements is the whole portal
         // waiting, and the symptom reads as "the site is slow" rather than "this statement never returned".
         // Thirty seconds is far above the slowest page (the worst statement measured here is 872ms) and far
         // below the patience of a person.
@@ -135,28 +149,25 @@ impl Database {
         // If prepared statements ever do start failing on this endpoint, the symptom will be loud ("prepared statement
         // does not exist", SQLSTATE 26000) and this is the line to revisit. Until then the cache stays on.
 
-        // Production serves the whole portal through one long-lived Rust service. Several screens issue
-        // independent reads in parallel (Cockpit alone has ten projections), so the old max=5 caused real
-        // requests to queue behind connection creation while readiness still looked healthy on its single
-        // warm connection. Keep DEV conservative, but size PROD for the concurrency the service actually has.
+        // PRODUCTION SIZING: 20 HOT, 30 TOTAL, PER PROCESS (captain, 2026-09-29).
         //
-        // RAISED TO THIRTY-TWO (2026-09-29), and the honest scope of what that does. One Rust process now holds a
-        // pool for the portal AND one for the engine's own steps, and the engine's steps queue behind each other
-        // while a role runs: at twelve, a burst of Cockpit projections plus an engine step waits for a handshake
-        // (~498ms each) rather than for work. Thirty-two removes that queueing.
+        // The engine and the application are SEPARATE PROCESSES with SEPARATE POOLS. They are never up at once on the
+        // same pool, so "the engine borrows the app's connections" is not a thing that happens — and that is what made
+        // the old numbers undersized rather than conservative: five hot connections had to cover Cockpit's ten
+        // parallel projections, a burst of ordinary reads, and every engine step, and a checkout that waits for a
+        // handshake against Neon (~498ms) looks to a person like the database being slow.
         //
-        // It does NOT fix a dead socket. The run that died at 19:25 on 2026-09-29 was killed by a connection that
-        // broke while it was checked out, and no ceiling size can repair that - a bigger pool would only have had
+        // The FLOOR is the number that matters. These connections are already open when work arrives, so a page load or
+        // an engine step pays a round trip (~72ms) and never a handshake. `idle_timeout` only reclaims connections
+        // ABOVE the floor, so the twenty are held deliberately; `FORGE_DB_POOL_MIN=0` restores the old hold-nothing
+        // behaviour, which is what tests want.
+        //
+        // The ceiling does NOT fix a dead socket. The run that died at 19:25 on 2026-09-29 was killed by a connection
+        // that broke while it was checked out, and no ceiling size can repair that — a bigger pool would only have had
         // more good connections to hand out around the broken one. The repairs for that are `max_lifetime`, the
-        // post-failure verification window below, and the step retry in the workflow store; this line is headroom.
-        let default_max_connections = if target == DbTarget::Prod { 32 } else { 5 };
+        // post-failure verification window below, and the step retry in the workflow store; this is headroom.
+        let (default_min_connections, default_max_connections) = default_pool_bounds(target);
         let max_connections = positive_u32("FORGE_DB_POOL_MAX", default_max_connections);
-        // KEEP ONE CONNECTION WARM. Without a floor the pool holds nothing when idle, so the next request pays a full
-        // connect: measured at 498ms for the handshake plus authentication, against ~72ms for a round trip on a
-        // connection that is already open. That is the difference between a page feeling instant and feeling slow, and
-        // it hit the engine hardest because engine commands are far apart in time. `FORGE_DB_POOL_MIN=0` restores the
-        // old hold-nothing behaviour, which is what tests want.
-        let default_min_connections = if target == DbTarget::Prod { 5 } else { 1 };
         let min_connections =
             non_negative_u32("FORGE_DB_POOL_MIN", default_min_connections).min(max_connections);
         // `idle_timeout` only reclaims connections ABOVE the floor. 10s was aggressive enough that a burst of activity
@@ -599,6 +610,23 @@ pub fn disable_statement_timeout() {
     }
 }
 
+/// The pool bounds for a target: connections kept hot (`min`) and the ceiling (`max`).
+///
+/// A FUNCTION SO THE DECISION CAN BE TESTED (2026-09-29). These numbers used to be inline in `connect_target`, which
+/// only runs with a real database URL, so nothing could assert them — and the sizing is a decision rather than a
+/// detail: the floor is how many handshakes the system does not pay for, and the engine and the application each pay
+/// their own, because they are separate processes.
+///
+/// PRODUCTION: 20 hot, 30 total. DEV: 1 hot, 5 total — a development loop has no concurrency and every warm connection
+/// is one somebody is paying for. See `connect_target` for what the production numbers replaced and what they do NOT
+/// fix.
+const fn default_pool_bounds(target: DbTarget) -> (u32, u32) {
+    match target {
+        DbTarget::Prod => (PROD_POOL_MIN, PROD_POOL_MAX),
+        DbTarget::Dev => (DEV_POOL_MIN, DEV_POOL_MAX),
+    }
+}
+
 /// Whether the pool must verify a connection before it is handed to a caller.
 ///
 /// Two independent reasons. The first is the age of an idle connection: the pooler may have dropped it, and 72ms of
@@ -733,6 +761,24 @@ mod tests {
         assert_eq!(
             normalize_ssl_mode("postgres://x/db?sslmode=require"),
             "postgres://x/db?sslmode=verify-full"
+        );
+    }
+
+    /// THE SIZING IS A DECISION, SO IT IS PINNED (captain, 2026-09-29). Production holds twenty connections open and
+    /// ready — the engine and the application each hold their own twenty, because they are separate processes with
+    /// separate pools — inside a ceiling of thirty. DEV stays small on purpose.
+    #[test]
+    fn production_keeps_twenty_hot_connections_inside_a_ceiling_of_thirty() {
+        assert_eq!(default_pool_bounds(DbTarget::Prod), (20, 30));
+        assert_eq!(default_pool_bounds(DbTarget::Dev), (1, 5));
+
+        // A floor above the ceiling is silently clamped by `min_connections`, so the two have to stay ordered or the
+        // floor stops meaning what it says. This is the assertion that fails when someone raises one and forgets the
+        // other.
+        let (min, max) = default_pool_bounds(DbTarget::Prod);
+        assert!(
+            min <= max,
+            "the floor ({min}) cannot exceed the ceiling ({max})"
         );
     }
 
