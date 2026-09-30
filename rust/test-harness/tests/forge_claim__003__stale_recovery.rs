@@ -32,8 +32,10 @@
 //!
 //! THE NEGATIVE CASES ARE LOAD-BEARING, not garnish. A live peer (fresh `updated_at`) must survive the sweep; an
 //! already-settled claim must not be recovered twice; and a stale claim over landed or human-held work must NOT be
-//! requeued into a rerun. Remove any of those and the test still passes on the easy path — which is exactly the
-//! vacuous pass this file refuses. Level: L2 Persistence, harness ForgeHarness.
+//! requeued into a rerun. Each survivor is compared against its own pre-recovery row **including `updated_at`**, so a
+//! recovery that rewrote or re-timestamped a row it decided not to move fails, not merely one that changed its state.
+//! Remove any of those and the test still passes on the easy path — which is exactly the vacuous pass this file
+//! refuses. Level: L2 Persistence, harness ForgeHarness.
 
 use db::{DbFailure, ForgeControlDao};
 use sqlx::{FromRow, PgPool};
@@ -246,6 +248,12 @@ async fn forge_claim_003__stale_recovery() {
     );
     assert_eq!(stale_row.max_attempts, 3);
 
+    // Rows recovery must leave BYTE-FOR-BYTE alone. A recovery that rewrote every row it was handed — or that bumped
+    // `updated_at` on a row it decided not to move — would still satisfy a state-only assertion, so the no-write half
+    // of the contract is measured against the full committed row, captured here before any recovery write.
+    let fresh_before = item(pool, &fresh_item).await;
+    let settled_before = item(pool, &settled_item).await;
+
     // ---------------------------------------------------------------------------------------------------------
     // POSITIVE — recovery of a stale claim the board still expects: item back to the queue, story with it.
     // ---------------------------------------------------------------------------------------------------------
@@ -339,6 +347,11 @@ async fn forge_claim_003__stale_recovery() {
     );
     assert_eq!(survivor.claimed_by.as_deref(), Some("proof-worker-builder"));
     assert_eq!(story_status(pool, &fresh_story).await, "In Progress");
+    assert_eq!(
+        survivor.updated_at, fresh_before.updated_at,
+        "{HARNESS}: the recovery sweep must not touch a live peer at all — not even its `updated_at`. A boundary \
+         that rewrote or re-timestamped every row it was handed would pass the state assertion above and fail here"
+    );
 
     // ---------------------------------------------------------------------------------------------------------
     // NEGATIVE — landed work is not rerun; a held story is not reopened. Both are board-driven refusals inside the
@@ -386,6 +399,11 @@ async fn forge_claim_003__stale_recovery() {
         "{HARNESS}: a terminal claim must not be recovered twice"
     );
     assert_eq!(story_status(pool, &settled_story).await, "Complete");
+    assert_eq!(
+        settled.updated_at, settled_before.updated_at,
+        "{HARNESS}: a no-op recovery must commit NOTHING — the terminal row is byte-for-byte what it was, so a \
+         recovery that ran the guard-clause update anyway would move `updated_at` and fail here"
+    );
 
     // ---------------------------------------------------------------------------------------------------------
     // POSITIVE (hold outcome) — the other recovery write: a claim that must not be retried is terminalized and the

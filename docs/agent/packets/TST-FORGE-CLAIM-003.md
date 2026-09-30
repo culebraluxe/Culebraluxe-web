@@ -953,3 +953,57 @@ typo) and an untracked `rust/test-harness/tests/arch_boundary__010__entitlement_
 left in the shared checkout by a concurrent writer belong to other in-flight stories; they were left untouched and are
 deliberately not part of this candidate. The candidate this node commits is the git commit this section is committed
 with.
+
+## Verification — repair_smith self-heal (task 0bd01c42, 2026-09-30)
+
+The `repair_smith` node was re-issued again (task `0bd01c42-ab66-4977-83d4-146943325151`; self-heal prompt: a prior run
+was HELD for a missing `smith-candidate`). The missing artifact is a descendant candidate commit for this run, not a
+test defect: the canonical test already names and proves "stale recovery" at the production `ForgeControlDao` boundary.
+Rather than land a docs-only section and leave the artifact frozen, this node closed the one real gap that remained in
+the negative half — the *no-write* proof — and lands it as the candidate.
+
+What changed in the canonical test (`rust/test-harness/tests/forge_claim__003__stale_recovery.rs`, +20/-2 lines):
+
+1. Two pre-recovery captures of the rows recovery must not write: the live peer (`fresh_before`) and the already-settled
+   claim (`settled_before`), taken right after the discovery assertions and before any recovery call.
+2. NEGATIVE (live peer): `survivor.updated_at == fresh_before.updated_at` — a recovery that rewrote or re-timestamped a
+   row it decided not to move passes the state-only assertion and fails this one.
+3. NEGATIVE (settled no-op): `settled.updated_at == settled_before.updated_at` — a no-op recovery must commit *nothing*,
+   so the guard-clause branch of `requeue_stale_work` (`rust/core/db/src/forge_control.rs:133-135`) is now pinned by a
+   whole-row comparison rather than only by `state`.
+
+The contract is otherwise unchanged; the header paragraph now names the no-write proof. The production bytes are
+unchanged for this node: `stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate
+`updated_at < now() - ($1::text || ' minutes')::interval` at `:47`), `hold_stale_work` at `:78`, `requeue_stale_work` at
+`:117`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176`, `guard_target` at
+`rust/test-harness/src/database.rs:68`, and `connect_declared` at `:116`. New test-file sha256:
+`a2e78bd618c400191dca0d830e092f26001c20d8818d44224ada46bd11e9df56`.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.32s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 23s
+CHECK_EXIT=0
+```
+
+The live run asserts `target() == "dev"` before any assertion, calls `TestDatabase::connect_declared(None, Some("test"))`
+with an explicit declared environment, and reads only `DATABASE_URL_DEV`; PRODUCTION was never connected to. The six
+proof stories are deleted at the end, leaving the disposable DEV branch as it was found. Unrelated concurrent commits
+landed on `main` during this node (`690d24f5`, `a5f4edb2`); they do not touch this test or its boundary, and the
+acceptance commands above were run against a tree that includes them. The candidate this node commits is the git commit
+this section is committed with.
