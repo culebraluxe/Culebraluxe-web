@@ -94,6 +94,16 @@ export default tseslint.config(
       // references the browser's own globals - Element, WebAssembly, window - which `no-undef` cannot see, and it is
       // not ours to restyle. Ignored for the same reason as the vendored directories above.
       'lib/rust-ui/ui.js',
+      // RETIRED TYPESCRIPT IS NOT LINTED, AND THIS LINE IS THE REASON (2026-09-30).
+      //
+      // `legacy/` is the ported-out TypeScript stack. It is kept on purpose so its intent can be read
+      // (`docs/agent/BROKEN-TS-INVENTORY.md`, the ⚠ BROKEN ON PURPOSE banner) and the handbook forbids
+      // repairing it in place. Linting it can only produce findings nobody is allowed to fix: the `lint`
+      // step of the `gates` workflow was red on every push with 37 of them, every one an unused variable
+      // or a `this` alias in `legacy/workflow_app/tests/**` — files that cannot load at all, because the
+      // modules they import were deleted. A gate that can only fail is a red light people learn to scroll
+      // past. The live scope of this config is stated at the head of this file; `legacy/` is not in it.
+      'legacy/**',
     ],
   },
   js.configs.recommended,
