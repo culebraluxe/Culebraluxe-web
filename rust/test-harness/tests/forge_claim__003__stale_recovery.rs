@@ -2,7 +2,7 @@
 //!
 //! Contract: a claim whose owner stopped heartbeating is **recovered** from the durable queue, and recovery never
 //! touches a claim that is still alive. The production boundary is the Forge control-plane DAO the worker pass calls
-//! through (`recover_stale_agent_work`, `rust/forge/src/engine/worker.rs:141-189`, is a thin policy over exactly these
+//! through (`recover_stale_agent_work`, `rust/forge/src/engine/worker.rs:176-224`, is a thin policy over exactly these
 //! three methods):
 //!
 //!   * `ForgeControlDao::stale_agent_work` — DISCOVERY. A claim is stale when `state in ('Claimed','Running',

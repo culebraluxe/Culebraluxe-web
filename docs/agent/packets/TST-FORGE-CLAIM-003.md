@@ -20,7 +20,7 @@ and executable).
 ## Architect brief
 
 Taxonomy FORGE.CLAIM; level L2 Persistence; harness `ForgeHarness`. The production worker pass is
-`recover_stale_agent_work` (`rust/forge/src/engine/worker.rs:141-189`), a thin policy over exactly three
+`recover_stale_agent_work` (`rust/forge/src/engine/worker.rs:176-224`), a thin policy over exactly three
 `ForgeControlDao` methods:
 
 - `stale_agent_work` — DISCOVERY (`rust/core/db/src/forge_control.rs:39-54`): a claim is stale when `state in
@@ -44,7 +44,7 @@ into a rerun. Remove any of those and the test would pass vacuously on the easy 
 - `rust/core/db/src/forge_control.rs:39-54` — `stale_agent_work`, the windowed discovery predicate.
 - `rust/core/db/src/forge_control.rs:117-202` — `requeue_stale_work`, the board-driven recovery transaction.
 - `rust/core/db/src/forge_control.rs:78-108` — `hold_stale_work`, the terminal recovery transaction.
-- `rust/forge/src/engine/worker.rs:141-189` — `recover_stale_agent_work`, the production policy over the three methods.
+- `rust/forge/src/engine/worker.rs:176-224` — `recover_stale_agent_work`, the production policy over the three methods.
 - `rust/test-harness/src/database.rs:68-75` — `guard_target`, the pure PROD refusal every constructor is built on.
 - `rust/test-harness/src/database.rs:116-123` — `connect_declared`, the declaration resolved as production does.
 
@@ -102,7 +102,7 @@ SCOPED
 
 The canonical file was inspected against the current tree: its production citations resolve (`stale_agent_work` at
 `rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
-`recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:141-189`). No production or test code changed in this
+`recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`). No production or test code changed in this
 node; the architect deliverable is this brief. Commands run from the repo root, output pasted:
 
 ```
@@ -205,7 +205,7 @@ on the base (`0e7964a7`, refined) and every acceptance criterion is met by it; t
 authored) and no production or test code needed to change. The candidate this node freezes for QA is the git commit this
 block is committed with. Production citations were re-checked against the current tree and all resolve:
 `stale_agent_work` at `rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work`
-at `:117-202`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:141-189`, `guard_target` at
+at `:117-202`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`, `guard_target` at
 `rust/test-harness/src/database.rs:68-75`.
 
 This node's own run of the story's two acceptance commands is pasted with its exit status:
@@ -249,3 +249,54 @@ The predicate was restored byte-for-byte with the editor (`git diff` is empty), 
 (`LIVE_EXIT=0`, `1 passed`, 18.08s). The staleness window is therefore load-bearing and the contract is not vacuous.
 The DEV target asserted `target = Dev` before any assertion ran; PRODUCTION was never connected to. No working-tree
 changes beyond this packet section were carried into the frozen candidate.
+
+## Raw verification — repair_smith (2026-09-30)
+
+The `repair_smith` node was re-issued for this story. The canonical test
+`rust/test-harness/tests/forge_claim__003__stale_recovery.rs` already proved "stale recovery" at the production
+`ForgeControlDao` boundary, but the migration-259 commit `728c107e` (declared work type) inserted the work-type
+resolution helpers above `recover_stale_agent_work` in `rust/forge/src/engine/worker.rs`, so the production citation
+the test header and this packet named for that policy no longer resolved: `worker.rs:141-189` pointed at
+`work_type_for_kind`/`work_type_for_item`/`assay_terminal_role`, not at the recovery policy. The QA bar for this
+sibling story (`TST-FORGE-CLAIM-002`) already requires the named evidence to resolve after `728c107e`; this run repairs
+the citation to the current tree. No production behavior changed and no migration was run.
+
+What changed:
+
+1. Test header `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:5` — `recover_stale_agent_work`
+   citation `rust/forge/src/engine/worker.rs:141-189 → 176-224` (the function spans `176` to its closing brace on
+   `224`).
+2. Packet architect brief (`:23`), Context refs (`:47`) and the two verification blocks that re-check the citation
+   against the current tree (`:105`, `:208`) — the same `worker.rs:141-189 → 176-224` correction, so both halves of
+   the story's evidence name the policy's actual lines.
+
+The other citations were re-checked against the current tree and all resolve: `stale_agent_work` at
+`rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
+`guard_target` at `rust/test-harness/src/database.rs:68-75`, `connect_declared` at `:116-123`, and the canonical test
+at `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:1-462`. The test body is unchanged.
+
+Commands run from the repo root, output pasted:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.29s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.13s
+CHECK_EXIT=0
+```
+
+The live run asserted `target = Dev` before any assertion ran and deletes its proof stories at the end, so the
+disposable DEV branch is left as it was found and PRODUCTION is never connected to. The candidate this node freezes
+for QA is the git commit this block is committed with.
