@@ -1738,3 +1738,70 @@ branch is left as it was found. The workspace check emitted only pre-existing wa
 `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` in this shared checkout belongs to another
 in-flight story, was left untouched, and is deliberately not part of this candidate. The only change this node commits is
 this packet section; its `FORGE_EVIDENCE_JSON` carries `qaPassed = true`.
+
+## Verification — qa_verify (task f213debd re-run / self-heal, 2026-09-30)
+
+**Verdict: PASS (qaPassed = true).** The prior run of this node was held for a missing `qa-verdict` deliverable: the
+section above explained the evidence in prose but the reply emitted no literal `FORGE_EVIDENCE_JSON:` marker, and the
+engine reads `evidence.qa_passed` only from that marker (`rust/forge/src/engine/role_mapping.rs:154,167`, gated at
+`rust/forge/src/engine/phase.rs:151-155`). Nothing in the candidate was wrong; only the deliverable was missing. This
+re-run re-verified the frozen candidate and now emits the marker.
+
+The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is byte-identical to the frozen
+artifact (sha256 `635016b2adb004a3f0a547df58794c6c983d3b1a8d9dde6e9b65d04916fbf2de`, 482 lines), declares exactly one
+`#[tokio::test]` (`:126`) named `forge_claim_003__stale_recovery` (`:129`), exercises the production `ForgeControlDao`
+boundary (`stale_agent_work` / `requeue_stale_work` / `hold_stale_work`) on a disposable DEV target asserted before any
+other assertion, reads committed truth back on the pool, and carries a `with_rollback` probe plus negative/refusal
+cases (live-peer survival compared on the whole row including `updated_at`, no double recovery, landed → `Done`,
+held → `Error`, settled no-op). PROD is never connected: the test declares the environment itself
+(`ForgeHarness::connect_declared(None, Some("test"))`), so the shell environment cannot route it; the harness refuses
+PROD before any socket (`rust/test-harness/src/database.rs:68`), and the DEV host is `ep-muddy-lab-axtgckj9-pooler`
+(PROD is `ep-flat-art-ax92tn7a-pooler`). The production bytes are unchanged for this node
+(`rust/core/db/src/forge_control.rs` sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`,
+`git status` clean for that path). The workspace check emitted only pre-existing warnings (`workflow` unused imports at
+`core/workflow/src/concurrency.rs:70`), unrelated to this candidate. The untracked
+`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` in this shared checkout belongs to another
+in-flight story, was left untouched, and is not part of this candidate. The only change this node commits is this
+packet section; its `FORGE_EVIDENCE_JSON` carries `qaPassed = true`.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ shasum -a 256 rust/test-harness/tests/forge_claim__003__stale_recovery.rs
+635016b2adb004a3f0a547df58794c6c983d3b1a8d9dde6e9b65d04916fbf2de  rust/test-harness/tests/forge_claim__003__stale_recovery.rs
+
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+test forge_claim_003__stale_recovery ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.80s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+warning: `workflow` (lib test) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.92s
+CHECK_EXIT=0
+
+$ # independent non-vacuity: invert the discovery predicate rust/core/db/src/forge_control.rs:47 (< -> >)
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+thread 'forge_claim_003__stale_recovery' panicked at test-harness/tests/forge_claim__003__stale_recovery.rs:223:5:
+ForgeHarness/L2 Persistence: a claim silently older than the window must be discovered as stale
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.27s
+MUTATION_EXIT=101
+
+$ git checkout -- rust/core/db/src/forge_control.rs   # sha256 back to a8f0e22a…; git status clean for that path
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+test forge_claim_003__stale_recovery ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.04s
+LIVE_AFTER_RESTORE_EXIT=0
+```
+
+The mutant run panicked before its own cleanup and stranded six proof stories under the `FORGE-CLAIM-003-%` prefix;
+this node reaped exactly those through a disposable scratch test (removed immediately after it ran), reporting
+`stranded before: 6; deleted: 6; after: 0`, so the disposable DEV branch is left as it was found.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":true,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"1f4a99e087ce1974996c46a5edf375e27d00abc5"}
