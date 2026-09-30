@@ -190,6 +190,59 @@ Never
 - Derive conditional UI capabilities from available data.
 - Avoid listing-specific hardcoding.
 
+## Timeless Constraints (Rust edition)
+
+Ten constraints that age well. When two collide, pick the one that cuts future cost in *this* codebase — and
+**refactor to the principle FIRST, then change behaviour**; never smuggle a structural fix inside a behaviour change.
+
+1. **Separation of concerns.** One kind of work per crate, module or type: UI, domain, persistence and infrastructure
+   stay apart. Prefer small crates over one giant `lib.rs`.
+2. **Encapsulation / information hiding.** Small, stable public API; everything else `pub(crate)` or private. Never
+   expose internal representation because it is convenient for the agent. Newtypes, sealed traits and private fields
+   are the tool.
+3. **High cohesion, loose coupling.** Things that change together live together; they communicate through narrow,
+   well-named traits or free functions, not by reaching into each other's guts.
+4. **DRY, the real one.** One authoritative representation of each piece of *knowledge*. Do not DRY incidental
+   similarity — over-abstraction is worse than duplication here. A little duplication beats a premature generic or
+   trait object.
+5. **KISS.** The simplest design that is correct and readable. Complexity is a long-term tax: explicit code beats
+   clever macros, deep type-level tricks and "elegant" frameworks when a straightforward approach works.
+6. **Single responsibility.** One reason to change. A type, function or module doing three jobs is already wrong.
+7. **Depend on abstractions.** Policy (domain) does not depend on detail (Postgres, Mux, a particular HTTP client);
+   both depend on contracts living in a lower or sibling crate. Prefer static dispatch (`impl Trait`, generics) over
+   `dyn Trait` unless runtime polymorphism is genuinely required.
+8. **YAGNI.** No speculative features, no "we might need this later" hooks, no premature trait hierarchies, no unused
+   generics for flexibility. Delete the code you just wrote. (The retired TypeScript under `legacy/` is the one thing
+   marked rather than deleted — see *Rust First* — and that is history, not a licence.)
+9. **Composition over inheritance.** Rust has no classical inheritance for a reason: assemble small types. Structs,
+   traits, free functions and newtypes beat type hierarchies; a builder only where it is actually needed.
+10. **Open/closed, with discipline.** Extend at stable boundaries (trait, module, crate). Introduce an extension point
+    only after the same change has appeared twice: add a type or a trait impl before editing existing concrete code.
+
+Also: **Law of Demeter** — a meaningful method beats `foo.bar().baz().quux()`. **Fail fast, and make illegal states
+unrepresentable** — `enum`, newtype, `NonZero*`, `Result`, a meaningful `Option`, the typestate; not a runtime check.
+**Optimise for deletion** — easy-to-delete code is worth more than clever code. **Unix philosophy** — do one thing well
+and compose. **Ownership discipline** over `Arc`/`Mutex` soup and `clone()` everywhere. **Explicit error handling** —
+`Result` with `thiserror`/`anyhow` as appropriate, never a panic and never a hidden error path (a failure you decided
+not to report is `let _ =` only after that decision). **Zero-cost abstractions only while they stay zero-cost and
+readable** — otherwise write the boring version.
+
+Where these already live in this file: *Error Capture Obligation* is constraint 7, *Repository Boundary Type
+Normalization* is constraint 2, and "Extend existing abstractions before inventing parallel systems" is constraint 10.
+
+### Applying them to agent work
+
+- Name the constraint when ordering the change ("refactor to single responsibility + encapsulation before adding the
+  feature"). A slogan binds only when it is named.
+- Rust style alongside them: `cargo fmt`, `cargo clippy --workspace --all-targets`, no `unwrap()`/`expect()` in
+  library code (tests may), and the workspace check in *Build and QA* before any push.
+- Propose the *structure* — modules, traits, public API, where the new code lives — before writing the
+  implementation. Bad agent code is mostly a jump straight to the happy path.
+- Review your own diff against this list before handing it over, and be able to say which constraint each new file
+  serves.
+- Keep the domain core (`rust/core/domain`, `rust/core/workflow`) free of frameworks and I/O. That is the single
+  highest-leverage decision for a long-lived Rust system.
+
 ## Reporting to the captain
 
 Default report is four items, in this order, and nothing else:
