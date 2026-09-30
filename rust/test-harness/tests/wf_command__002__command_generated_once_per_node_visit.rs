@@ -12,9 +12,9 @@
 //! production `Store` (`command_visit_count`, `insert_command`, `history`, `get_instance`). Level: L3 Composition.
 //!
 //! The production lines this contract pins:
-//! `rust/core/workflow/src/engine/handle_join.rs:215-216` derives the visit sequence from the committed
-//! `command_visit_count` and the command id from it; `rust/core/workflow/src/engine/handle_join.rs:239-254` calls
-//! the adapter once and records the command once; `rust/core/workflow/src/memory.rs:598-625` refuses a second
+//! `rust/core/workflow/src/engine/handle_join.rs:201-202` derives the visit sequence from the committed
+//! `command_visit_count` and the command id from it; `rust/core/workflow/src/engine/handle_join.rs:225-240` calls
+//! the adapter once and records the command once; `rust/core/workflow/src/memory.rs:582-609` refuses a second
 //! command for an already-used visit (`COMMAND_VISIT_DUPLICATE`), which the production unique index
 //! `db/migrations/108_forge_v10_command_visits.sql:10-11` mirrors.
 
@@ -403,8 +403,8 @@ fn wf_command_002__command_generated_once_per_node_visit() {
     );
 
     // PER-NODE ("once per *node* visit"). The visit is counted per `(instance, node)` — production's
-    // `command_visit_count` filters on both columns (rust/core/workflow/src/neon/new_id.rs:710-711, mirrored at
-    // rust/core/workflow/src/memory.rs:589-596) — not per instance. A second command node reached once is its own
+    // `command_visit_count` filters on both columns (rust/core/workflow/src/neon/new_id.rs:705-717, mirrored at
+    // rust/core/workflow/src/memory.rs:573-580) — not per instance. A second command node reached once is its own
     // visit 1, so its command is derived with visit sequence 1, never a per-instance visit 2. A single command node
     // cannot expose the difference: every command is that node's, so an instance-wide counter would still sequence
     // 1 then 2 and the main case would pass. This scenario is the bypass that closes it — if the counter ever

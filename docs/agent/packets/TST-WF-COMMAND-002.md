@@ -26,12 +26,12 @@ adapter seam, and reads commands back through the production `Store`.
 
 - `rust/test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs:136-536` — the canonical test.
 - `rust/test-harness/src/engine.rs:51-61` — `with_application_port`, the production engine wired to the `ApplicationPort` seam.
-- `rust/core/workflow/src/engine/handle_join.rs:215-216` — `visit_sequence = command_visit_count + 1`, then `command_id` from the triple.
-- `rust/core/workflow/src/engine/handle_join.rs:239-254` — the adapter is called once and the command is recorded once.
-- `rust/core/workflow/src/engine/handle_join.rs:373` — `command_id(instance, node, visit_sequence)`, the derivation production runs.
+- `rust/core/workflow/src/engine/handle_join.rs:201-202` — `visit_sequence = command_visit_count + 1`, then `command_id` from the triple.
+- `rust/core/workflow/src/engine/handle_join.rs:225-240` — the adapter is called once and the command is recorded once.
+- `rust/core/workflow/src/engine/handle_join.rs:359` — `command_id(instance, node, visit_sequence)`, the derivation production runs.
 - `rust/core/workflow/src/store.rs:103-104` — the `Store` contract: `command_visit_count` and `insert_command`.
-- `rust/core/workflow/src/memory.rs:589-596` — the visit count filters on `process_instance_id` AND `node_id` (per node).
-- `rust/core/workflow/src/memory.rs:598-625` — the duplicate-command and duplicate-visit refusal (`COMMAND_VISIT_DUPLICATE`).
+- `rust/core/workflow/src/memory.rs:573-580` — the visit count filters on `process_instance_id` AND `node_id` (per node).
+- `rust/core/workflow/src/memory.rs:582-609` — the duplicate-command and duplicate-visit refusal (`COMMAND_VISIT_DUPLICATE`).
 - `rust/core/workflow/src/neon/new_id.rs:705-717` — the production query behind `command_visit_count`, the same per-node filter.
 - `db/migrations/108_forge_v10_command_visits.sql:1-14` — the unique index on `(process_instance_id, node_id, visit_sequence)` the store guard mirrors.
 
@@ -132,3 +132,31 @@ CHECK_EXIT=0
 
 Unrelated, pre-existing working-tree changes under `rust/core/workflow/` and `rust/forge/` were present at run time;
 they were left untouched and are not part of this story's candidate.
+
+## QA verdict — qa_verify (2026-09-30)
+
+The `qa_verify` node was re-run after a hold that was missing the `qa-verdict` deliverable. The verdict is **PASS**:
+the canonical test at `rust/test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs` exists and
+proves "command generated once per node visit" at the production `WorkflowEngine`/`ApplicationPort`/`Store` boundary.
+The production line numbers in the test header and body had drifted under `1951c451` (handle_join, memory and id
+lines moved); they were corrected to the current tree so the named evidence still resolves. No production behavior
+changed.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+running 1 test
+test wf_command_002__command_generated_once_per_node_visit ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 36s
+CHECK_EXIT=0
+```
+
+Mutation check (the per-node bypass): removing the `node_id` filter from
+`rust/core/workflow/src/memory.rs:578` (`command_visit_count`) makes the test fail at
+`rust/test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs:505`
+(`the second node's first visit is its own visit 1, not a per-instance visit 2`), `test result: FAILED` (exit 101).
+The production file was restored with `git checkout --` and the test is green again, so the per-node clause is
+load-bearing and the contract is not vacuous.
