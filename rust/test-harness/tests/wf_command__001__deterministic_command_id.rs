@@ -395,6 +395,31 @@ fn wf_command_001__deterministic_command_id() {
         "{HARNESS}: the deterministic id is the dedup key the store refuses to duplicate"
     );
 
+    // 4b. NEGATIVE/FAULT (visit backstop) — the id dedup is the *fast* guard, but the authoritative one is the
+    //     commanded triple: `(instance, node, visit)` may be commanded exactly once. A *fresh* id (what a
+    //     non-deterministic derivation would mint) for a visit already recorded is still refused, so an id that was not
+    //     a pure function of the triple could not smuggle a second command into a spent visit.
+    let fresh_id = sha256_hex(b"tst:replayed-visit:fresh-id");
+    let visit_replay = ProcessCommand {
+        command_id: fresh_id,
+        // The same committed triple as `replay`; only the id differs.
+        visit_sequence: 1,
+        ..replay.clone()
+    };
+    assert_ne!(
+        visit_replay.command_id, replay.command_id,
+        "{HARNESS}: the visit case uses an id distinct from the recorded one, so only the triple can refuse it"
+    );
+    let visit_refusal = harness
+        .store()
+        .with_tx(|tx| tx.insert_command(visit_replay.clone()))
+        .expect_err("an already-commanded visit must be refused even under a fresh id");
+    assert_eq!(
+        visit_refusal.code(),
+        "COMMAND_VISIT_DUPLICATE",
+        "{HARNESS}: the committed triple, not just the id, is the authoritative one-command-per-visit guard"
+    );
+
     // 5. NEGATIVE (instance input) — the id is keyed to the whole instance, not a constant or a run-wide value. Two
     //    starts in one engine are two distinct identities (production mints each with `uuid_v4()` and never re-derives
     //    it), so the same node's first visit must mint two distinct command ids. If the derivation dropped the

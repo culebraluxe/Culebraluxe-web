@@ -114,3 +114,36 @@ Mutation check: appending the live `SystemTime::now()` nanos to the canonical pr
 `rust/test-harness/tests/wf_command__001__deterministic_command_id.rs:317` (`test result: FAILED`, exit 101); the
 production file was restored with `git checkout --` and the test is green again. A clock or entropy added inside the
 derivation therefore cannot pass this contract.
+
+## Raw verification — repair_smith re-run (2026-09-30)
+
+This node was re-run to deliver a fresh `smith-candidate` after the prior run's commit was already HEAD at retry
+start. The canonical test
+`rust/test-harness/tests/wf_command__001__deterministic_command_id.rs` already proved the contract, so the candidate
+strengthens the one gap left in the fault coverage — the store's authoritative one-command-per-visit guard — and
+touches no production code. The candidate is the git commit this block is committed with.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
+running 1 test
+test wf_command_001__deterministic_command_id ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EXIT=0
+
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness
+test result: ok. 10 passed; 0 failed; ... (harness self test)
+test wf_command_001__deterministic_command_id ... ok
+test wf_command_002__command_generated_once_per_node_visit ... ok
+test wf_command_003__retry_produces_same_identity ... ok
+test result: ok. all test binaries 0 failed
+EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 35s
+CHECK_EXIT=0
+```
+
+The added fault case: a command carrying a **fresh** command id (`sha256_hex("tst:replayed-visit:fresh-id")`) for the
+already-commanded `(instance, emit, visit 1)` triple is still refused with `COMMAND_VISIT_DUPLICATE`, so a
+non-deterministic id cannot mint a second command into a spent visit; the id dedup (`COMMAND_DUPLICATE`) is not the
+only guard.
