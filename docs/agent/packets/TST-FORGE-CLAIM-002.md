@@ -356,3 +356,59 @@ Unrelated, pre-existing working-tree changes under
 `rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs` and `docs/agent/packets/TST-FORGE-CLAIM-001.md`
 (another in-flight story) were present at run time; they were left untouched and are deliberately not part of this
 candidate.
+
+## Verification — qa_verify re-run (2026-09-30)
+
+**Verdict: PASS (qaPassed = true).** The canonical test
+`rust/test-harness/tests/forge_claim__002__second_begin_refused.rs` is unchanged from `6b076831` (sha256
+`d9f48214066c06cd9d89bb0f5ca8f8d0448db7942fc4eabb3920eeb593fb1e1f` in both the worktree and the repair commit; `git
+diff 6b076831 -- …` empty). The `lead_post` node froze the candidate at `87fbb383`; while this node ran, a concurrent
+sibling's commit `554150e3` (TST-FORGE-CLAIM-003) landed on the shared checkout — it touches neither this story's test
+nor `rust/core/db/src/forge_engine.rs`, so the tested artifact and the production begin path are identical to the
+frozen candidate. Both acceptance commands are green and the live L2 DEV contract is green on the current tree.
+
+The refusal is independently proven load-bearing. Dropping the `and state='Claimed'` predicate from the production
+CAS read (`rust/core/db/src/forge_engine.rs:808`) makes the second `begin_agent_work_run` insert and commit a phantom
+`storyboard_story_run` (the method still returns `None`, because the update predicate refuses the item move). Under
+that mutant the canonical test fails at
+`rust/test-harness/tests/forge_claim__002__second_begin_refused.rs:171` — `left: 2, right: 1`, `test result: FAILED`,
+exit 101. The production file was restored (`git diff` clean) and every subsequent run is green, so the refusal
+clause is not vacuous.
+
+One transient, non-contract failure was observed and explained: a live run launched alongside `cargo check
+--workspace --all-targets` and the concurrent `TST-FORGE-CLAIM-001`/`003` sibling agents (shared checkout, shared
+DEV) failed at `forge_claim__002__second_begin_refused.rs:49` inside `connect_from_env` with
+`db.connect … "error communicating with database: unexpected end of file"` — a DEV connection drop before any
+assertion or write, not a contract violation. The contract then passed every isolated re-run. No residue was left:
+the DEV branch holds 0 stories, 0 `agent_work_item` rows and 0 `storyboard_story_run` rows for
+`TST-FORGE-CLAIM-002-%` (checked over SQL after the mutant, whose pre-cleanup panic had left rows). Commands run from
+the repo root, output pasted:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__002__second_begin_refused
+running 1 test
+test forge_claim_002__second_begin_refused ... ignored, needs DATABASE_URL_DEV: runs only against the disposable DEV branch (PROD is refused)
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__002__second_begin_refused -- --ignored
+running 1 test
+test forge_claim_002__second_begin_refused ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.73s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.22s
+CHECK_EXIT=0
+```
+
+The candidate's header citations resolve against the current tree — `begin_agent_work_run` at
+`rust/core/db/src/forge_engine.rs:798`, the CAS read `where id=$1::uuid and state='Claimed' for update` at `:806-810`,
+the run insert at `:835-859`, the predicate update at `:864-870`, `claim_specific_agent_work` at `:651` and
+`finish_agent_work_run` at `:1025`. All eleven acceptance criteria are met; the live run asserts `target = Dev`
+before any assertion executes, exercises the production `ForgeEngineDao` claim / begin / settle boundary, and deletes
+its proof stories at the end, so PRODUCTION is never connected to and the disposable DEV branch is left as found.
+The uncommitted `forge_claim__001__only_owner_starts_run.rs` edit present in the shared checkout belongs to another
+in-flight story and is deliberately not part of this candidate.
