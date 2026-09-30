@@ -1278,3 +1278,74 @@ untracked `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutatio
 checkout; both belong to another story, were left untouched, and are deliberately not part of this candidate. The
 candidate this node commits is the git commit this block is committed with; its `SMITH_CANDIDATE` marker carries the
 same SHA.
+
+## Verification — lead_post re-freeze (task ee651cb5, 2026-09-30)
+
+**Integration frozen.** This `lead_post` node was issued after the `repair_smith` (task `87981938`) routed the stale
+recovery test through the mandated `ForgeHarness` and landed candidate `fbacfb2d`. There was no split to integrate (the
+story is serially authored) and no production or test code needed to change — the canonical test is judged correct as
+it stands, so this node re-inspects the tree, re-runs the story's two acceptance commands plus the live L2 DEV
+contract, and freezes a fresh candidate for QA. The only working-tree change this node commits is this packet section.
+
+The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is the `ForgeHarness`-routed artifact
+(sha256 `635016b2adb004a3f0a547df58794c6c983d3b1a8d9dde6e9b65d04916fbf2de`), which supersedes the earlier
+`a2e78bd6…` no-write artifact by routing the same assertions through `ForgeHarness::connect_declared` /
+`harness.control()` / `harness.pool()` / `harness.database()`. Every production citation it names re-resolves against
+the current tree by declaration line: `stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate
+`updated_at < now() - ($1::text || ' minutes')::interval` at `:47`), `hold_stale_work` at `:78`, `requeue_stale_work`
+at `:117`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target`
+at `rust/test-harness/src/database.rs:68`, and `connect_declared` at `:116`. The production bytes are unchanged for this
+node: `rust/core/db/src/forge_control.rs` sha256
+`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `rust/forge/src/engine/worker.rs` sha256
+`4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`, `rust/test-harness/src/database.rs` sha256
+`493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`, and the only harness file this story's
+`repair_smith` changed, `rust/test-harness/src/forge.rs`, sha256
+`82ea34239b7b60791061198ed77df2368aba8d9f6014112c925773f015aa8225`.
+
+The staleness window is load-bearing and the contract is not vacuous: `stale_agent_work` admits a row only when
+`state in ('Claimed','Running','Paused')` **and** `updated_at < now() - interval`, so a claim heartbeated inside the
+window cannot be discovered and a settled `Done` row is excluded by the state filter — the two properties the test's
+live-peer-survival and settled-no-op assertions pin, the former compared on the whole row including `updated_at`. The
+`qa_verify` nodes inverted `:47` twice independently and observed the test fail at the discovery assertion; this node
+read the code only.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.45s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+warning: unused import: `Store`
+  --> core/workflow/src/concurrency.rs:70:24
+warning: `workflow` (lib test) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.90s
+CHECK_EXIT=0
+```
+
+The live run asserts `target() == "dev"` before any assertion, calls `ForgeHarness::connect_declared(None, Some("test"))`
+with an explicit declared environment (the shell's `APP_ENV` is overridden by the explicit declaration), and
+`Database::connect_target(DbTarget::Dev)` reads only `DATABASE_URL_DEV`
+(`ep-muddy-lab-axtgckj9-pooler`, distinct from the PROD host `ep-flat-art-ax92tn7a-pooler`); PRODUCTION was never
+connected to. The six proof stories are deleted at the end, leaving the disposable DEV branch as it was found. The live
+run demonstrates the contract end to end: the windowed predicate discovers the silently-stale claim and not the live
+peer; `requeue_stale_work` returns it to `Ready`/`Ready` and advances `updated_at`; landed work settles `Done`, a
+human-held story settles `Error`, and an already-settled claim is left `Done`; the terminal `hold_stale_work` path moves
+the claim to `Error` and the board to `Hold` in one write; and the `with_rollback` probe shows the committed `Ready` row
+survives an uncommitted rewrite. The negative cases (live survivor, no double recovery, landed/held refusals) keep the
+test non-vacuous. The workspace check emitted only pre-existing warnings (`forge` lib/bin/test dead-code and `workflow`
+unused imports at `core/workflow/src/concurrency.rs:70`), unrelated to this candidate. The untracked
+`rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` in this shared checkout belongs to another
+in-flight story, was left untouched, and is deliberately not part of this candidate. The candidate this node freezes
+for QA is the git commit this block is committed with.
