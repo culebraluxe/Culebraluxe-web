@@ -33,7 +33,7 @@
 //! The plain command (no `--ignored`) passes with the test skipped, because the L2 contract needs a disposable
 //! DEV database and the harness will never open a PRODUCTION one.
 
-use db::{AgentWorkOutcome, DbTarget, ForgeControlDao, ForgeEngineDao};
+use db::{AgentWorkOutcome, DbFailure, DbTarget, ForgeControlDao, ForgeEngineDao};
 use sqlx::PgPool;
 use test_harness::TestDatabase;
 
@@ -313,6 +313,55 @@ async fn forge_claim_001__only_owner_starts_run() {
         durable_item_row(&pool, &owned_item).await,
         durable_before_second,
         "{HARNESS}: a refused second begin must commit nothing — state, owner, run id and timestamps are unchanged"
+    );
+
+    // -----------------------------------------------------------------------------------------------------------
+    // 3b. COMMITTED TRUTH SURVIVES A ROLLBACK. The owner's `Claimed → Running` move is durable, not a snapshot the
+    //     DAO's connection happened to hold: a transaction that rewrites the item back to `Ready` sees its own
+    //     uncommitted write inside the transaction, and rolling back restores exactly what the production begin
+    //     committed. This is the "assert committed database truth and rollback" half of the L2 boundary rule, and it
+    //     is what makes the state assertions above evidence rather than a read of the writer's own connection.
+    // -----------------------------------------------------------------------------------------------------------
+    let probe_item = owned_item.clone();
+    let inside_probe = test_db
+        .with_rollback(|conn| {
+            Box::pin(async move {
+                sqlx::query("update agent_work_item set state = 'Ready' where id = $1::uuid")
+                    .bind(&probe_item)
+                    .execute(&mut *conn)
+                    .await
+                    .map_err(|error| {
+                        DbFailure::from_sqlx("test-harness.forge_claim.rollback_probe_update", &error)
+                    })?;
+                let state: String =
+                    sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
+                        .bind(&probe_item)
+                        .fetch_one(&mut *conn)
+                        .await
+                        .map_err(|error| {
+                            DbFailure::from_sqlx(
+                                "test-harness.forge_claim.rollback_probe_read",
+                                &error,
+                            )
+                        })?;
+                Ok(state)
+            })
+        })
+        .await
+        .expect("the rolled-back probe must run");
+    assert_eq!(
+        inside_probe, "Ready",
+        "{HARNESS}: inside its own transaction the probe sees the write it made"
+    );
+    let committed_after_rollback: String =
+        sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
+            .bind(&owned_item)
+            .fetch_one(&pool)
+            .await
+            .expect("the committed item is readable after the rollback");
+    assert_eq!(
+        committed_after_rollback, "Running",
+        "{HARNESS}: rollback restored the committed truth the owner's begin wrote"
     );
 
     // -----------------------------------------------------------------------------------------------------------
