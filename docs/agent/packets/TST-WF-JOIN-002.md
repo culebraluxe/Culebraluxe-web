@@ -497,3 +497,62 @@ untracked file `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mu
 present in the working tree at run time; it was left untouched and is not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"41c697465a78e0d8f16ee1cf7dc79b3de9589ba2"}
+
+## Repair — fast_repair_smith (2026-09-30, task bd6c240a)
+
+The canonical test was re-inspected for a reachable, on-contract clause it did not actually pin. One was found and it
+was a real hole: the join's job-retirement path clears both the worker and the lease on a cancelled job
+(`rust/core/workflow/src/engine/handle_join.rs:63-66`), but the test only asserted `locked_by == None` on a job that
+was **never locked in the first place** — the optional `sla` branch was left `Pending`, so the "clear the worker lock"
+assertion was **vacuous** and passed even if the production clear were deleted. This node makes that setup adversarial
+and the clause load-bearing; no production code changed.
+
+What changed in
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs`:
+
+1. Before the required branch arrives, a worker now claims the optional `sla` job through the production `Store`
+   method `claim_due_jobs` (`rust/core/workflow/src/memory.rs:450-479`), evaluated at the job's own far-future due
+   date so the engine's clock never moves. The test asserts the claim succeeded, that it is the optional branch's own
+   timer job, that it is `JobStatus::Locked`, and that `locked_by == Some(WORKER)` — so the lease genuinely exists
+   before the join runs.
+2. After the join retires the branch, the test now also asserts `sla_job.locked_until == None` alongside the existing
+   `locked_by == None`, pinning the lease clear as well as the worker clear
+   (`rust/core/workflow/src/engine/handle_join.rs:64-65`).
+
+The commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+running 1 test
+test wf_join_002__optional_siblings_handled_correctly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 28s
+CHECK_EXIT=0
+```
+
+Mutation check (the now-non-vacuous lease clear is load-bearing): deleting `job.locked_by = None;` at
+`rust/core/workflow/src/engine/handle_join.rs:64`, leaving the job cancelled but still held by the worker, makes the
+test fail at
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:647`
+(`a cancelled job releases the worker that held it`), `test result: FAILED` (exit 101):
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+thread 'wf_join_002__optional_siblings_handled_correctly' panicked at test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs:647:5:
+assertion `left == right` failed: WorkflowHarness/L4 Adversarial: a cancelled job releases the worker that held it
+  left: Some("worker-1")
+ right: None
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+MUTATION_EXIT=101
+```
+
+The production file was restored byte-for-byte with `git checkout --` (`git diff --quiet` clean) and the test is green
+again (`TEST_EXIT=0`), so the clause is now load-bearing and the contract is not vacuous. An unrelated, pre-existing
+untracked file `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` (another agent's) was
+present in the working tree at run time; it was left untouched and is not part of this candidate.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false}

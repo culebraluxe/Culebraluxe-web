@@ -38,8 +38,9 @@
 //!            '-- wait   (optional) -> sla     (timer) -> converge
 //! ```
 //!
-//! `review` is completed by a human (an optional branch that does arrive); `hold` and `sla` are left parked so the
-//! join's retirement path is exercised for an open task and for an open job.
+//! `review` is completed by a human (an optional branch that does arrive); `hold` is left parked on an open task, and
+//! `sla` is left parked on an open timer job that an adversarial worker claims under a live lease first, so the join's
+//! retirement path is exercised for an open task and for a held (locked) job whose lease it must clear.
 //!
 //! Run with:
 //!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
@@ -81,6 +82,12 @@ const BRANCH_TRANSITION: &str = "go";
 const RETRY_ATTEMPTS: u32 = 3;
 /// Far-future due date so the sla timer job stays open for the join to cancel.
 const FAR_FUTURE_MS: &str = "4102444800000";
+/// The far-future due date as an integer `now` (and a lease beyond it): the worker's claim is evaluated at the job's
+/// own due time, so the engine's clock never moves for the setup.
+const FAR_FUTURE_NOW: i64 = 4_102_444_800_000;
+const FAR_FUTURE_LEASE: i64 = 4_102_444_800_000 + 86_400_000;
+/// The worker that holds the optional sla job's lease before the join retires its branch.
+const WORKER: &str = "worker-1";
 
 /// The production `MemoryStore` behind a scripted broken connection, retried by the production rule.
 ///
@@ -412,6 +419,35 @@ fn wf_join_002__optional_siblings_handled_correctly() {
     );
     let sla_job_id = jobs_before[0].id.clone();
 
+    // ── ADVERSARIAL: a worker holds the optional branch's timer job under a live lease ─────────────────────────
+    // Before the required branch arrives, a worker claims the sla job, so the optional branch is not merely
+    // parked — its job is held. The join must still cancel it and clear the lease: a skipped optional branch may
+    // not leave a worker lock behind. `claim_due_jobs` is the production `Store` method a worker uses; it is given
+    // a `now` at the job's own far-future due date, so the claim succeeds without moving the engine's clock.
+    let claimed = reader
+        .memory()
+        .with_tx(|tx| tx.claim_due_jobs(WORKER, FAR_FUTURE_NOW, FAR_FUTURE_LEASE, 8))
+        .expect("the optional sla job is claimable by a worker");
+    assert_eq!(
+        claimed.len(),
+        1,
+        "{HARNESS}: exactly the optional sla job was claimable"
+    );
+    assert_eq!(
+        claimed[0].id, sla_job_id,
+        "{HARNESS}: the worker claimed the optional sla branch's own timer job"
+    );
+    assert_eq!(
+        claimed[0].status,
+        JobStatus::Locked,
+        "{HARNESS}: the optional sla job is held under a worker lease before the join"
+    );
+    assert_eq!(
+        claimed[0].locked_by.as_deref(),
+        Some(WORKER),
+        "{HARNESS}: the lease is held by the worker, so the join's clear below is not vacuous"
+    );
+
     // ── NEGATIVE: a required sibling still active must keep the join from firing ────────────────────────────────
     // `review` is optional, so completing it arrives at the join; the join must see the still-active required
     // `approve` and wait, not fire. If the gate counted optional siblings too, or if it fired on first arrival, this
@@ -610,7 +646,11 @@ fn wf_join_002__optional_siblings_handled_correctly() {
     );
     assert_eq!(
         sla_job.locked_by, None,
-        "{HARNESS}: a cancelled job holds no worker"
+        "{HARNESS}: a cancelled job releases the worker that held it"
+    );
+    assert_eq!(
+        sla_job.locked_until, None,
+        "{HARNESS}: a cancelled job releases the lease the worker held on the optional branch"
     );
     assert_eq!(
         reader
