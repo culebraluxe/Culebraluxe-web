@@ -110,3 +110,25 @@ $ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.39s
 CHECK_EXIT=0
 ```
+
+## Raw verification — lead_post integration (2026-09-30)
+
+Lead post inspected the candidate and re-ran the story's own acceptance commands against the current tree. The
+canonical test `rust/test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs` is committed at
+`88b14e19`; the frozen candidate SHA for QA is `1aff9afa`. Both commands are this node's own run, pasted with their
+exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+running 1 test
+test wf_command_002__command_generated_once_per_node_visit ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 01s
+CHECK_EXIT=0
+```
+
+Unrelated, pre-existing working-tree changes under `rust/core/workflow/` and `rust/forge/` were present at run time;
+they were left untouched and are not part of this story's candidate.
