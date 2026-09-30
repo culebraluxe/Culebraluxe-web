@@ -382,3 +382,69 @@ cases make the test non-vacuous, so it cannot pass without exercising "stale rec
 The unrelated in-flight working-tree change in `rust/test-harness/tests/forge_claim__001__only_owner_starts_run.rs`
 (another story) was present at run time, left untouched, and is **not** part of this candidate. The candidate this
 node freezes for QA is the git commit this block is committed with.
+
+## Verification — qa_verify (2026-09-30)
+
+**Verdict: PASS (qaPassed = true).** The frozen candidate is `314b4e8f` (HEAD). The canonical test
+`rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is byte-identical from `a92ae424` to HEAD
+(`git diff a92ae424 HEAD -- …` empty; sha256
+`d2e54b8a633747bdf622b33f2d9d42da65edc75cb4ebff9c50fbfc4594ac97dc`). It names exactly the contract, exercises the
+production `ForgeControlDao` boundary (`stale_agent_work` / `requeue_stale_work` / `hold_stale_work`) on a disposable
+DEV target, reads committed truth back on the pool, carries a rollback probe plus a suite of
+negative/refusal/fault cases, and deletes its proof stories at the end. Both acceptance commands are green and the
+live L2 DEV contract is green. All eleven acceptance criteria are met.
+
+**Independent non-vacuity check (this node's own).** Inverting the discovery predicate's comparison in
+`stale_agent_work` from `updated_at < now() - interval` to `updated_at > now() - interval`
+(`rust/core/db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the
+canonical test fails exactly at its discovery assertion
+(`rust/test-harness/tests/forge_claim__003__stale_recovery.rs:220`, `a claim silently older than the window must be
+discovered as stale`), `test result: FAILED`, exit 101. The production file was restored with `git checkout --`
+(sha256 back to `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `git status` clean) and the live
+run is green again. The staleness window is therefore load-bearing and the contract is not vacuous.
+
+Commands run from the repo root, output pasted with exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+running 1 test
+test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+PLAIN_EXIT=0
+
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+running 1 test
+test forge_claim_003__stale_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.26s
+LIVE_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.69s
+CHECK_EXIT=0
+
+$ # mutation — discovery predicate inverted (rust/core/db/src/forge_control.rs:47)
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+test forge_claim_003__stale_recovery ... FAILED
+thread '...' panicked at test-harness/tests/forge_claim__003__stale_recovery.rs:220:5:
+ForgeHarness/L2 Persistence: a claim silently older than the window must be discovered as stale
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.64s
+MUTATION_EXIT=101
+
+$ # restore + re-run
+$ git checkout -- rust/core/db/src/forge_control.rs   # sha256 a8f0e22a…, git status clean
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+test forge_claim_003__stale_recovery ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.89s
+LIVE_AFTER_RESTORE_EXIT=0
+```
+
+The live run asserted `target = dev` before any assertion ran; only `DATABASE_URL_DEV` was read and PRODUCTION was
+never connected to. The mutant run panicked before its own cleanup, stranding 6 proof stories under the
+`FORGE-CLAIM-003-%` prefix; this node reaped exactly those stale stories (items cascade), leaving the disposable DEV
+branch as it was found. Pre-existing `workflow`-crate warnings (`unused import` at
+`core/workflow/src/concurrency.rs:70`) were present at check time and are not part of this candidate. A concurrent
+writer's untracked `arch_boundary__00*`/`source.rs` files and `rust/test-harness/src/lib.rs` edit appeared in the
+shared checkout during this node's run; they belong to another in-flight story, were left untouched, and are
+deliberately not part of this candidate. The only change this node commits is this packet section.
