@@ -188,6 +188,7 @@ impl OpenCodeHarness {
                 special_instructions: std::env::var("FORGE_STORY_INSTRUCTIONS").ok(),
                 architect_brief: std::env::var("FORGE_ARCHITECT_BRIEF").ok(),
                 acceptance_criteria: std::env::var("FORGE_ACCEPTANCE").ok(),
+                test_mode: std::env::var("FORGE_TEST_MODE").ok(),
                 assay_commands: std::env::var("FORGE_ASSAY_COMMANDS")
                     .ok()
                     .map(|s| {
