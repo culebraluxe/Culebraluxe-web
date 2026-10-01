@@ -344,7 +344,7 @@ mod rust_contract_tests {
             ..ForgeGateEvidence::default()
         };
         gate.extra.insert(
-            "recordedBase".into(),
+            "recordedBase",
             workflow::Value::from("89abcdef0123456789abcdef0123456789abcdef"),
         );
         gate

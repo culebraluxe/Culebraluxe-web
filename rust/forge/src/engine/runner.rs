@@ -145,7 +145,7 @@ impl<'a> ProductionRoleRunner<'a> {
         if let Some(base) = self.harness.execution_base_commit() {
             current
                 .extra
-                .insert("recordedBase".into(), workflow::Value::from(base));
+                .insert("recordedBase", workflow::Value::from(base));
         }
         let AssayEvidence { evidence, verdict } = collect_rust_contract_assay_evidence(
             current,
