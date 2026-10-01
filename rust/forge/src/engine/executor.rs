@@ -7,7 +7,6 @@ use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::path::shared_path;
 use crate::engine::role_slice::forge_lane_surface;
 use crate::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
-use crate::engine::writer::ForgeStateWriter;
 use workflow::{ProcessOutcome, ProcessStatus, Result, TaskStatus, TxStore, WorkflowError};
 
 pub struct ForgeRoleOutcome {
@@ -463,6 +462,13 @@ pub fn drive_forge_story<S: TxStore>(
         stopped_after,
         reconciled,
     })
+}
+
+fn instance_status<S: TxStore>(rt: &mut ForgeRuntime<S>, instance_id: &str) -> Result<String> {
+    Ok(format!(
+        "{:?}",
+        rt.engine().get_process_instance(instance_id)?.status
+    ))
 }
 
 fn process_completes_story(status: ProcessStatus, outcome: Option<ProcessOutcome>) -> bool {
