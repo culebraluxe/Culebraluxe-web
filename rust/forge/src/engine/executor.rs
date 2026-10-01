@@ -301,6 +301,9 @@ pub fn drive_forge_story<S: TxStore>(
     let stop_target = resolve_forge_stop_target(opts.stop_after.as_ref());
     let mut stopped_after = None;
     let mut steps = Vec::new();
+    // Set the moment any role turn reports a candidate commit — the sha the smith stamped, read off the runner's
+    // own evidence. It is the code that was written, not the workflow's verdict, that makes the story done.
+    let mut code_landed = false;
 
     let wake = rt.wake_story(story_id, opts.work_type, opts.evidence.clone())?;
     let instance_id = wake.instance_id;
@@ -344,6 +347,13 @@ pub fn drive_forge_story<S: TxStore>(
                 .map(|t| format!("{}={:?}", t.node_id.as_deref().unwrap_or("?"), t.status))
                 .collect::<Vec<_>>()
                 .join(", ");
+            // A blocked wave is not a reason to drop code the smith already wrote: the board has to say Complete on
+            // this exit too, or settlement refuses the Done here as well (see the projection at the end).
+            if code_landed {
+                rt.writer().mark_story_complete(story_id).map_err(|error| {
+                    WorkflowError::generic(format!("mark_story_complete({story_id}): {error}"))
+                })?;
+            }
             return Ok(DriveForgeStoryResult {
                 instance_id: instance_id.clone(),
                 status: instance_status(rt, &instance_id)?,
@@ -399,6 +409,15 @@ pub fn drive_forge_story<S: TxStore>(
                         return Err(err);
                     }
                 };
+                if outcome
+                    .evidence
+                    .candidate_sha
+                    .as_deref()
+                    .map(|sha| !sha.trim().is_empty())
+                    .unwrap_or(false)
+                {
+                    code_landed = true;
+                }
                 if let Err(err) = rt.complete_role_task(
                     &task.task_id,
                     &actor,
@@ -438,8 +457,12 @@ pub fn drive_forge_story<S: TxStore>(
     // Restore the terminal projection the legacy engine owned: workflow completion is what makes the Storyboard
     // complete. Queue settlement deliberately refuses Done while the board still says In Progress, so omitting this
     // projection creates a circular dependency (the board waits for settlement while settlement waits for the board).
-    // Only the engine's real Completed/completed pair earns 100%; holds, cancellation and failures remain untouched.
-    if process_completes_story(instance.status, instance.outcome) {
+    // CODE-EXISTS IS DONE (captain, 2026-10-01). Requiring a real Completed/completed workflow threw away paid
+    // work: the smith wrote a candidate, the run ended any other way, the board stayed `In Progress`, and
+    // `settlement_pair` refused the `Done` into a `Hold` with the tokens already spent. A run that produced a
+    // candidate commit now completes its story too — reconciling a rough candidate is cheaper than re-running the
+    // same lane against the same branch. Holds, cancellation and genuine failures with no code are untouched.
+    if story_is_done(code_landed, instance.status, instance.outcome) {
         rt.writer().mark_story_complete(story_id).map_err(|error| {
             WorkflowError::generic(format!("mark_story_complete({story_id}): {error}"))
         })?;
@@ -473,6 +496,13 @@ fn process_completes_story(status: ProcessStatus, outcome: Option<ProcessOutcome
     status == ProcessStatus::Completed && outcome == Some(ProcessOutcome::Completed)
 }
 
+/// Whether a run completes its story. The workflow finishing is one way; **producing a candidate commit is the
+/// other** — code that exists is the deliverable, and settlement reads the board before it will accept a `Done`.
+/// (captain, 2026-10-01 — see the projection at the end of [`drive_forge_story`].)
+fn story_is_done(code_landed: bool, status: ProcessStatus, outcome: Option<ProcessOutcome>) -> bool {
+    code_landed || process_completes_story(status, outcome)
+}
+
 #[cfg(test)]
 mod dispatch_cap_tests {
     use super::*;
@@ -490,6 +520,29 @@ mod dispatch_cap_tests {
             (ProcessStatus::Error, Some(ProcessOutcome::Failed)),
         ] {
             assert!(!process_completes_story(status, outcome));
+        }
+    }
+
+    /// CODE-EXISTS IS DONE (captain, 2026-10-01). A run that produced a candidate commit completes its story even
+    /// when the workflow did not finish — the code, not the workflow's verdict, is the deliverable. Without code,
+    /// nothing changes: only a real Completed/completed workflow completes a story.
+    #[test]
+    fn a_run_that_produced_code_completes_its_story_even_when_the_workflow_did_not() {
+        for (status, outcome) in [
+            (ProcessStatus::Active, None),
+            (ProcessStatus::Completed, Some(ProcessOutcome::Failed)),
+            (ProcessStatus::Error, Some(ProcessOutcome::Failed)),
+            (ProcessStatus::Completed, Some(ProcessOutcome::Completed)),
+        ] {
+            assert!(
+                story_is_done(true, status, outcome),
+                "code landed over {status:?}/{outcome:?} must complete the story"
+            );
+            assert_eq!(
+                story_is_done(false, status, outcome),
+                process_completes_story(status, outcome),
+                "with no code, the workflow verdict stands: {status:?}/{outcome:?}"
+            );
         }
     }
 
