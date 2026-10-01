@@ -369,16 +369,12 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
         ) {
             if let Some(sha) = out.candidate_sha.clone() {
                 evidence.candidate_sha = Some(sha.clone());
-                if let (Some(writer), Some(run_id)) =
-                    (self.writer, self.story_run_id.as_deref())
-                {
-                    writer
-                        .stamp_run_candidate(run_id, &sha)
-                        .map_err(|error| {
-                            WorkflowError::generic(format!(
-                                "stamp_run_candidate({story_id}, {run_id}): {error}"
-                            ))
-                        })?;
+                if let (Some(writer), Some(run_id)) = (self.writer, self.story_run_id.as_deref()) {
+                    writer.stamp_run_candidate(run_id, &sha).map_err(|error| {
+                        WorkflowError::generic(format!(
+                            "stamp_run_candidate({story_id}, {run_id}): {error}"
+                        ))
+                    })?;
                 }
                 if let Some(base) = evidence.extra.get("recordedBase").and_then(|v| v.as_str()) {
                     let repo = std::env::current_dir().unwrap_or_else(|_| ".".into());
