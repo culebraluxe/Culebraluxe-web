@@ -138,4 +138,58 @@ mod tests {
         ];
         assert_eq!(conflict_copies(&paths), vec!["docs/notes 2.md"]);
     }
+
+    /// Ported from `legacy/workflow_app/tests/sync-conflict.test.ts` — the cases the module covered but no
+    /// test pinned, which is what kept the ledger row a `gap`.
+    ///
+    /// The legacy fence used bare filenames; the same judgement must hold when the scan hands back paths,
+    /// and it must never cross a directory boundary — `src/a 2.ts` beside `src/a.ts` is debris, `other/a 2.ts`
+    /// beside `src/a.ts` (with no `other/a.ts`) is a file someone named.
+    #[test]
+    fn debris_is_never_matched_across_a_directory_boundary() {
+        let across = vec!["src/a.ts".to_string(), "other/a 2.ts".to_string()];
+        assert!(
+            conflict_copies(&across).is_empty(),
+            "a numbered sibling with no original beside it is not debris"
+        );
+        let beside = vec!["src/a.ts".to_string(), "src/a 2.ts".to_string()];
+        assert_eq!(conflict_copies(&beside), vec!["src/a 2.ts".to_string()]);
+        let orphan = vec!["src/a 2.ts".to_string()];
+        assert!(
+            conflict_copies(&orphan).is_empty(),
+            "without the sibling test the rule is a guess"
+        );
+    }
+
+    /// The legacy `conflictCopies(files)` returns the debris names exactly sorted: `package 3.json` before
+    /// `routes.d 2.ts`. The order is part of the contract — the cleaner prints every path it removes.
+    #[test]
+    fn the_legacy_list_is_reported_exactly_and_sorted() {
+        let files: Vec<String> = [
+            "routes.d.ts",
+            "routes.d 2.ts",
+            "package.json",
+            "package 3.json",
+            "only.ts",
+        ]
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect();
+        assert_eq!(
+            conflict_copies(&files),
+            vec!["package 3.json".to_string(), "routes.d 2.ts".to_string()]
+        );
+    }
+
+    /// The data-loss case: a four-digit YEAR is not a counter, so a dated document is never debris, even
+    /// beside its undated twin. This is the same judgement as [`a_year_is_a_document_not_debris`], asserted
+    /// through the directory-level entry point the cleaner actually calls.
+    #[test]
+    fn a_year_is_not_a_counter_at_the_directory_level() {
+        let files: Vec<String> = ["CHANGELOG.md", "CHANGELOG 2026.md", "Budget.xlsx", "Budget 2026.xlsx"]
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect();
+        assert!(conflict_copies(&files).is_empty());
+    }
 }

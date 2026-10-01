@@ -23,15 +23,15 @@ piece of context, not forty separate ones.
 ## Counts
 
 - legacy test files: **465**
-- ported: **2**
+- ported: **5**
 - in_force_unported: **0**
 - missing_capability: **2**
 - diverged: **1**
 - retired: **1**
 - held_back: **3**
 - already_covered: **0**
-- gap: **14**
-- unassessed: **442**
+- gap: **12**
+- unassessed: **441**
 - rows not matching a legacy file: **0**
 - areas: **26** (\`docs/agent/LEGACY-TEST-DOMAINS.md\`)
 
@@ -475,7 +475,7 @@ piece of context, not forty separate ones.
 | 434 | `legacy/workflow_app/tests/storyboard-runs.test.ts` | ui/core/storyboard | unassessed | - | - |
 | 435 | `legacy/workflow_app/tests/storyboard-yew-port.test.ts` | ui/core/storyboard | unassessed | - | - |
 | 436 | `legacy/workflow_app/tests/storyboard.test.ts` | ui/core/storyboard | unassessed | - | - |
-| 437 | `legacy/workflow_app/tests/sync-conflict.test.ts` | platform | gap | rust/forge/src/sync_conflict.rs | 1 file(s); rust_tests=4 legacy_cases=6 case_overlap=3 [symbol] |
+| 437 | `legacy/workflow_app/tests/sync-conflict.test.ts` | platform | ported | rust/forge/src/sync_conflict.rs | directory boundary never crossed + exact sorted list; the scripts/sprint-cleanup source-scan case retired with the TS scripts |
 | 438 | `legacy/workflow_app/tests/syndication-adapters.test.ts` | core/property | unassessed | - | - |
 | 439 | `legacy/workflow_app/tests/task-completion.test.ts` | core/projects | unassessed | - | - |
 | 440 | `legacy/workflow_app/tests/task-update.test.ts` | ui/core/portal | unassessed | - | - |
@@ -497,8 +497,8 @@ piece of context, not forty separate ones.
 | 456 | `legacy/workflow_app/tests/webhook-schema.test.ts` | core/comms | unassessed | - | - |
 | 457 | `legacy/workflow_app/tests/whatsapp-attribution.test.ts` | core/comms | held_back | - | Captain carve-out 2026-09-29: WhatsApp |
 | 458 | `legacy/workflow_app/tests/whatsapp-cloud-webhook.test.ts` | core/comms | held_back | - | Captain carve-out 2026-09-29: WhatsApp |
-| 459 | `legacy/workflow_app/tests/worker-commit-identity.test.ts` | platform | unassessed | - | - |
-| 460 | `legacy/workflow_app/tests/worker-workspace-branch-naming.test.ts` | platform | gap | rust/forge/src/engine/worktree.rs | 1 file(s); rust_tests=1 legacy_cases=4 case_overlap=1 [symbol] |
+| 459 | `legacy/workflow_app/tests/worker-commit-identity.test.ts` | platform | ported | rust/forge/tests/worker_commit_identity.rs | author+committer stamped forge-salvage in a placeholder-identity repo; nothing-to-commit writes no commit |
+| 460 | `legacy/workflow_app/tests/worker-workspace-branch-naming.test.ts` | platform | ported | rust/forge/src/engine/worktree.rs | 4 cases: split siblings differ (-split-0/-split-1 survive the 60-char bound), serial run id shape unchanged, replan generation differs, sanitize bounds segment |
 | 461 | `legacy/workflow_app/tests/worker-workspace.test.ts` | platform | unassessed | - | - |
 | 462 | `legacy/workflow_app/tests/workflow-trace.test.ts` | core/db | unassessed | - | - |
 | 463 | `legacy/workflow_app/tests/workshop-tools.test.ts` | forge | unassessed | - | - |

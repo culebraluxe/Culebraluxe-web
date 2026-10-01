@@ -435,7 +435,7 @@ legacy/workflow_app/tests/storyboard-rollup.test.ts	unassessed
 legacy/workflow_app/tests/storyboard-runs.test.ts	unassessed		
 legacy/workflow_app/tests/storyboard-yew-port.test.ts	unassessed		
 legacy/workflow_app/tests/storyboard.test.ts	unassessed		
-legacy/workflow_app/tests/sync-conflict.test.ts	unassessed		
+legacy/workflow_app/tests/sync-conflict.test.ts	ported	rust/forge/src/sync_conflict.rs	directory boundary never crossed + exact sorted list; the scripts/sprint-cleanup source-scan case retired with the TS scripts
 legacy/workflow_app/tests/syndication-adapters.test.ts	unassessed		
 legacy/workflow_app/tests/task-completion.test.ts	unassessed		
 legacy/workflow_app/tests/task-update.test.ts	unassessed		
@@ -457,8 +457,8 @@ legacy/workflow_app/tests/versioning.test.ts	unassessed
 legacy/workflow_app/tests/webhook-schema.test.ts	unassessed		
 legacy/workflow_app/tests/whatsapp-attribution.test.ts	held_back	-	Captain carve-out 2026-09-29: WhatsApp
 legacy/workflow_app/tests/whatsapp-cloud-webhook.test.ts	held_back	-	Captain carve-out 2026-09-29: WhatsApp
-legacy/workflow_app/tests/worker-commit-identity.test.ts	unassessed		
-legacy/workflow_app/tests/worker-workspace-branch-naming.test.ts	unassessed		
+legacy/workflow_app/tests/worker-commit-identity.test.ts	ported	rust/forge/tests/worker_commit_identity.rs	author+committer stamped forge-salvage in a placeholder-identity repo; nothing-to-commit writes no commit
+legacy/workflow_app/tests/worker-workspace-branch-naming.test.ts	ported	rust/forge/src/engine/worktree.rs	4 cases: split siblings differ (-split-0/-split-1 survive the 60-char bound), serial run id shape unchanged, replan generation differs, sanitize bounds segment
 legacy/workflow_app/tests/worker-workspace.test.ts	unassessed		
 legacy/workflow_app/tests/workflow-trace.test.ts	unassessed		
 legacy/workflow_app/tests/workshop-tools.test.ts	unassessed		

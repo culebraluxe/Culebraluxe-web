@@ -414,13 +414,43 @@ pub fn salvage_worker_workspace(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Ported from `legacy/workflow_app/tests/worker-workspace-branch-naming.test.ts`.
+    ///
+    /// REGRESSION (2026-09-10 "mangled branch" incident, ENG-FORGE-SPLIT-01): a SPLIT child's run id is
+    /// `<uuid 36>-e<generation>-split-<slot>`. The TypeScript branch name truncated the run id to 40 chars,
+    /// which cut the `-split-N` suffix off, so BOTH siblings derived the SAME branch (`…-e0-`) and the
+    /// second child was refused as an attempt to steal another workspace. Two children must never share a
+    /// branch. The bound here is 60, so the suffix survives — and this test fails if it is ever lowered
+    /// back under it.
     #[test]
-    fn split_suffix_survives() {
-        let story = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-        let run = format!("{story}-e0-split-1");
-        let branch = derive_branch_name(story, &run);
-        assert!(branch.ends_with("split-1"), "{branch}");
-        assert!(branch.starts_with("agent/"));
+    fn split_siblings_derive_different_branch_names() {
+        let uuid = "f8aa02a6-6cf7-4506-9a58-b8b648df7fe8"; // 36 chars
+        let a = derive_branch_name("eng-forge-split-dogfood-01", &format!("{uuid}-e0-split-0"));
+        let b = derive_branch_name("eng-forge-split-dogfood-01", &format!("{uuid}-e0-split-1"));
+        assert_ne!(a, b, "two split children must never share a branch");
+        assert!(a.ends_with("-split-0"), "{a}");
+        assert!(b.ends_with("-split-1"), "{b}");
+    }
+
+    /// `<uuid>-e0` is 39 chars: it was never truncated and must not change shape.
+    #[test]
+    fn a_serial_run_id_is_unaffected_by_the_split_fix() {
+        let uuid = "f8aa02a6-6cf7-4506-9a58-b8b648df7fe8";
+        let serial = derive_branch_name("some-story", &format!("{uuid}-e0"));
+        assert_eq!(serial, format!("agent/some-story/{uuid}-e0"));
+    }
+
+    #[test]
+    fn a_replan_generation_survives() {
+        let uuid = "f8aa02a6-6cf7-4506-9a58-b8b648df7fe8";
+        let g0 = derive_branch_name("s", &format!("{uuid}-e0-split-0"));
+        let g1 = derive_branch_name("s", &format!("{uuid}-e1-split-0"));
+        assert_ne!(g0, g1);
+    }
+
+    #[test]
+    fn sanitization_still_bounds_the_segment() {
+        assert_eq!(sanitize_branch_segment("A/B C", 10), "a-b-c");
     }
 
     /// The salvage's whole decision, without a repository: dirty is always unsaved, a clean tree at an unpushed
