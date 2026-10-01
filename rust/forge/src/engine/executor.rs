@@ -8,7 +8,7 @@ use crate::engine::path::shared_path;
 use crate::engine::role_slice::forge_lane_surface;
 use crate::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
 use crate::engine::writer::ForgeStateWriter;
-use workflow::{Result, TaskStatus, TxStore, WorkflowError};
+use workflow::{ProcessOutcome, ProcessStatus, Result, TaskStatus, TxStore, WorkflowError};
 
 pub struct ForgeRoleOutcome {
     pub transition_name: Option<String>,
@@ -434,9 +434,23 @@ pub fn drive_forge_story<S: TxStore>(
     }
 
     let tasks = rt.list_role_tasks(story_id)?;
+    let instance = rt.engine().get_process_instance(&instance_id)?;
+
+    // Restore the terminal projection the legacy engine owned: workflow completion is what makes the Storyboard
+    // complete. Queue settlement deliberately refuses Done while the board still says In Progress, so omitting this
+    // projection creates a circular dependency (the board waits for settlement while settlement waits for the board).
+    // Only the engine's real Completed/completed pair earns 100%; holds, cancellation and failures remain untouched.
+    if process_completes_story(instance.status, instance.outcome) {
+        rt.writer()
+            .mark_story_complete(story_id)
+            .map_err(|error| {
+                WorkflowError::generic(format!("mark_story_complete({story_id}): {error}"))
+            })?;
+    }
+
     Ok(DriveForgeStoryResult {
         instance_id: instance_id.clone(),
-        status: instance_status(rt, &instance_id)?,
+        status: format!("{:?}", instance.status),
         steps,
         exhausted: !tasks.is_empty(),
         blocked_reason: None,
@@ -451,16 +465,29 @@ pub fn drive_forge_story<S: TxStore>(
     })
 }
 
-fn instance_status<S: TxStore>(rt: &mut ForgeRuntime<S>, instance_id: &str) -> Result<String> {
-    Ok(format!(
-        "{:?}",
-        rt.engine().get_process_instance(instance_id)?.status
-    ))
+fn process_completes_story(status: ProcessStatus, outcome: Option<ProcessOutcome>) -> bool {
+    status == ProcessStatus::Completed && outcome == Some(ProcessOutcome::Completed)
 }
 
 #[cfg(test)]
 mod dispatch_cap_tests {
     use super::*;
+
+    #[test]
+    fn only_completed_completed_projects_story_complete() {
+        assert!(process_completes_story(
+            ProcessStatus::Completed,
+            Some(ProcessOutcome::Completed)
+        ));
+        for (status, outcome) in [
+            (ProcessStatus::Active, None),
+            (ProcessStatus::Completed, Some(ProcessOutcome::Cancelled)),
+            (ProcessStatus::Completed, Some(ProcessOutcome::Failed)),
+            (ProcessStatus::Error, Some(ProcessOutcome::Failed)),
+        ] {
+            assert!(!process_completes_story(status, outcome));
+        }
+    }
 
     /// The three words the column allows (migration 167) map to the three stop targets the driver understands.
     #[test]
