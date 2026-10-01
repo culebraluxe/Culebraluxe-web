@@ -69,6 +69,9 @@ pub struct ProductionRoleRunner<'a> {
     /// Storyboard-declared test policy. RUST_CONTRACT means this story authors a test artifact; runtime assertion
     /// failures are findings about the application, not a reason to rewrite the test until green.
     pub test_mode: Option<String>,
+    /// Authoritative Storyboard assay commands for test-authoring mode. These let RUST_CONTRACT QA stay
+    /// deterministic and model-free: the test command is evidence about the application, not another model turn.
+    pub contract_assay_commands: Vec<String>,
     pub require_prod: bool,
 }
 
@@ -81,6 +84,7 @@ impl<'a> ProductionRoleRunner<'a> {
             story_run_id: None,
             bench_intent: None,
             test_mode: None,
+            contract_assay_commands: Vec::new(),
             require_prod: false,
         }
     }
@@ -102,6 +106,76 @@ impl<'a> ProductionRoleRunner<'a> {
     pub fn with_test_mode(mut self, test_mode: Option<String>) -> Self {
         self.test_mode = test_mode;
         self
+    }
+
+    pub fn with_contract_assay_commands(mut self, assay_commands: Vec<String>) -> Self {
+        self.contract_assay_commands = assay_commands;
+        self
+    }
+
+    fn run_rust_contract_qa(
+        &self,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+    ) -> Result<ForgeRoleOutcome> {
+        let story_id = task.story_id.as_str();
+        if story_id.trim().is_empty() {
+            return Err(WorkflowError::generic(format!(
+                "role task {} carries no story id; refusing RUST_CONTRACT QA",
+                task.task_id
+            )));
+        }
+
+        let AssayEvidence {
+            evidence,
+            verdict,
+        } = collect_rust_contract_assay_evidence(
+            self.current.clone(),
+            Some(&|cmd| self.harness.run_command(cmd)),
+            &self.contract_assay_commands,
+            true,
+        );
+
+        if let Some(writer) = self.writer {
+            writer
+                .record_tool_artifact(&assay_tool_artifact(
+                    story_id,
+                    self.story_run_id.as_deref(),
+                    &evidence,
+                    verdict,
+                ))
+                .map_err(|error| {
+                    WorkflowError::generic(format!("record_tool_artifact({story_id}): {error}"))
+                })?;
+
+            if let Some(reason) = evidence.deliverable_rejection.clone() {
+                writer
+                    .mark_story_human_hold(story_id, &reason)
+                    .map_err(|error| {
+                        WorkflowError::generic(format!(
+                            "mark_story_human_hold({story_id}): {error}"
+                        ))
+                    })?;
+                writer
+                    .open_hold(&OpenHold {
+                        process_instance_id: task.process_instance_id.clone(),
+                        task_id: Some(task.task_id.clone()),
+                        story_id: story_id.to_string(),
+                        reason,
+                        originating_node: Some(node_id.into()),
+                        failure_class: Some("DELIVERABLE_REJECTED".into()),
+                        resume_target: None,
+                    })
+                    .map_err(|error| {
+                        WorkflowError::generic(format!("forge_hold_record({story_id}): {error}"))
+                    })?;
+            }
+        }
+
+        Ok(ForgeRoleOutcome {
+            transition_name: Some("complete".into()),
+            evidence,
+        })
     }
 
     /// The envelope this lane runs under. Built in one place because the ports are read at two points in the turn
@@ -178,6 +252,12 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
                     .map_err(|e| WorkflowError::generic(e.0))?;
             }
         }
+        if matches!(node_id, "qa_verify" | "fast_qa_verify")
+            && self.test_mode.as_deref() == Some("RUST_CONTRACT")
+        {
+            return self.run_rust_contract_qa(node_id, task);
+        }
+
         let enforce = deliverable_enforcement_enabled(
             std::env::var("FORGE_ENFORCE_DELIVERABLES").ok().as_deref(),
         );
