@@ -335,14 +335,9 @@ jobs:
         working-directory: rust
         run: |
           set -euo pipefail
-          deferred='^Diff in .*/(cli/src/(apple_mail|forge/lint)|core/domain/src/(applemail|apple_messages))(\.rs|/)'
-          unformatted="$(cargo fmt --all -- --check 2>&1 | grep '^Diff in' | grep -Ev "$deferred" || true)"
-          if [ -n "$unformatted" ]; then
-            printf '%s\n' "$unformatted"
-            echo "rustfmt: the files above are not formatted. Fix with: cd rust && cargo fmt --all"
-            exit 1
-          fi
-          echo "rustfmt clean — four module trees deferred to their owner (cli/src/apple_mail, cli/src/forge/lint, core/domain/src/applemail, core/domain/src/apple_messages)"
+          # TEMP PR diagnostic: print rustfmt's exact patch so this branch can be formatted without touching
+          # unrelated concurrent files. Removed before merge.
+          cargo fmt --all -- --check
 
       - name: install cargo-nextest
         if: ${{ !cancelled() }}
