@@ -43,6 +43,9 @@ pub fn policy_domain_for(action: &'static str) -> &'static str {
     match action.split('.').next().unwrap_or_default() {
         "security" => "security",
         "contract" => "contract",
+        "documentSign" => "document-sign",
+        "signer" => "signer",
+        "email" => "email",
         "tech" => "tech",
         _ => "application",
     }

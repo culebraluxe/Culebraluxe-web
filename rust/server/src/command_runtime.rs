@@ -1,12 +1,21 @@
 use crate::contracts::ContractService;
+use crate::document_sign::ProductionDocumentSignService;
+use crate::email::EmailService;
 use crate::service_support::CoreServiceError;
+use crate::signer::SignerService;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use db::{
     CommandReceiptDao, CommandReceiptRow, ContractDao, Database, DbFailure, DbTransaction,
-    DomainEventOutboxDao, OutboxEventInput, SecurityAuditDao,
+    DomainEventOutboxDao, EmailDao, OutboxEventInput, SecurityAuditDao, SignerDao,
 };
-use domain::ExecuteContractRequest;
+use domain::{
+    AcceptSignerConsentRequest, CompleteSignatureFieldRequest, CompleteSignerRequest,
+    DeclineSignerRequest, ExecuteContractRequest, IssueDocumentSignRequest,
+    OpenSignerRequest, PrepareDocumentSignRequest, PutSignatureFieldRequest, QueueEmailRequest,
+    RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest,
+};
+use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 use service::{
     CommandDomainEvent, CommandEnvelope, CommandOutcome, CommandReceipt, CommandReceiptStatus,
@@ -81,9 +90,39 @@ impl CommandDispatcher {
     pub fn for_kernel(
         db: Database,
         contract: Arc<ContractService<ContractDao>>,
+        document_sign: Arc<ProductionDocumentSignService>,
+        signer: Arc<SignerService<SignerDao>>,
+        email: Arc<EmailService<EmailDao>>,
     ) -> Result<Self, CommandDispatchError> {
         let mut registry = CommandRegistry::default();
         registry.register(Arc::new(ContractExecuteCommand { service: contract }))?;
+        for kind in [
+            DocumentSignCommandKind::Prepare,
+            DocumentSignCommandKind::SetRecipients,
+            DocumentSignCommandKind::PutField,
+            DocumentSignCommandKind::RemoveField,
+            DocumentSignCommandKind::Issue,
+            DocumentSignCommandKind::Void,
+        ] {
+            registry.register(Arc::new(DocumentSignCommand {
+                service: document_sign.clone(),
+                kind,
+            }))?;
+        }
+        for kind in [
+            SignerCommandKind::Open,
+            SignerCommandKind::AcceptConsent,
+            SignerCommandKind::CompleteField,
+            SignerCommandKind::Complete,
+            SignerCommandKind::Decline,
+        ] {
+            registry.register(Arc::new(SignerCommand {
+                signer: signer.clone(),
+                document_sign: document_sign.clone(),
+                kind,
+            }))?;
+        }
+        registry.register(Arc::new(EmailQueueCommand { service: email }))?;
 
         Ok(Self {
             receipts: CommandReceiptDao::new(db.clone()),
@@ -390,6 +429,823 @@ fn outbox_event(event: &CommandDomainEvent) -> OutboxEventInput {
         occurred_at: event.occurred_at.clone(),
         payload: Value::Object(event.payload.clone()),
     }
+}
+
+
+#[derive(Debug, Clone, Copy)]
+enum DocumentSignCommandKind {
+    Prepare,
+    SetRecipients,
+    PutField,
+    RemoveField,
+    Issue,
+    Void,
+}
+
+impl DocumentSignCommandKind {
+    const fn command_type(self) -> &'static str {
+        match self {
+            Self::Prepare => "documentSign.prepare",
+            Self::SetRecipients => "documentSign.setRecipients",
+            Self::PutField => "documentSign.putField",
+            Self::RemoveField => "documentSign.removeField",
+            Self::Issue => "documentSign.issue",
+            Self::Void => "documentSign.void",
+        }
+    }
+}
+
+struct DocumentSignCommand {
+    service: Arc<ProductionDocumentSignService>,
+    kind: DocumentSignCommandKind,
+}
+
+#[async_trait]
+impl DurableCommandHandler for DocumentSignCommand {
+    fn command_type(&self) -> &'static str {
+        self.kind.command_type()
+    }
+
+    fn service_domain(&self) -> &'static str {
+        "document-sign"
+    }
+
+    fn scheduling_payload(&self, request: &CommandRequest) -> Option<Value> {
+        match self.kind {
+            DocumentSignCommandKind::Prepare => request
+                .input
+                .get("transactionDocumentId")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| json!({ "transactionDocumentId": value })),
+            _ => request
+                .input
+                .get("signatureRequestId")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .or(request.aggregate_id.as_deref())
+                .map(|value| json!({ "signatureRequestId": value })),
+        }
+    }
+
+    async fn handle(
+        &self,
+        tx: &mut DbTransaction,
+        envelope: &CommandEnvelope,
+        context: &ServiceContext,
+    ) -> Result<CommandResult, CommandDispatchError> {
+        match self.kind {
+            DocumentSignCommandKind::Prepare => {
+                let request: PrepareDocumentSignRequest =
+                    match decode_command_input(envelope) {
+                        Ok(value) => value,
+                        Err(result) => return Ok(result),
+                    };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "transaction_document",
+                    &request.transaction_document_id,
+                    "DOCUMENT_SIGN_DOCUMENT_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                let snapshot = match self
+                    .service
+                    .prepare_transactional(tx, &request, context)
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => return core_command_error(envelope, None, error),
+                };
+                let signature_request_id = snapshot.signature_request.id.clone();
+                let mut result = CommandResult::success(
+                    envelope.command_id.clone(),
+                    Some(signature_request_id.clone()),
+                    Some(serialize_value(&snapshot)?),
+                );
+                result.emitted_events.push(command_event(
+                    envelope,
+                    "DOCUMENT_SIGN_PREPARED",
+                    "signature_request",
+                    &signature_request_id,
+                    json!({
+                        "signatureRequestId": signature_request_id,
+                        "transactionDocumentId": snapshot.signature_request.transaction_document_id,
+                    }),
+                ));
+                Ok(result)
+            }
+            DocumentSignCommandKind::SetRecipients => {
+                let request: SetDocumentSignRecipientsRequest =
+                    match decode_command_input(envelope) {
+                        Ok(value) => value,
+                        Err(result) => return Ok(result),
+                    };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "signature_request",
+                    &request.signature_request_id,
+                    "DOCUMENT_SIGN_REQUEST_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                let recipients = match self
+                    .service
+                    .set_recipients_transactional(tx, &request, context)
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return core_command_error(
+                            envelope,
+                            Some(request.signature_request_id.clone()),
+                            error,
+                        )
+                    }
+                };
+                let mut result = CommandResult::success(
+                    envelope.command_id.clone(),
+                    Some(request.signature_request_id.clone()),
+                    Some(serialize_value(&recipients)?),
+                );
+                result.emitted_events.push(command_event(
+                    envelope,
+                    "DOCUMENT_SIGN_RECIPIENTS_SET",
+                    "signature_request",
+                    &request.signature_request_id,
+                    json!({
+                        "signatureRequestId": request.signature_request_id,
+                        "recipientCount": recipients.len(),
+                    }),
+                ));
+                Ok(result)
+            }
+            DocumentSignCommandKind::PutField => {
+                let request: PutSignatureFieldRequest = match decode_command_input(envelope) {
+                    Ok(value) => value,
+                    Err(result) => return Ok(result),
+                };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "signature_request",
+                    &request.signature_request_id,
+                    "DOCUMENT_SIGN_REQUEST_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                let field = match self
+                    .service
+                    .put_field_transactional(tx, &request, context)
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return core_command_error(
+                            envelope,
+                            Some(request.signature_request_id.clone()),
+                            error,
+                        )
+                    }
+                };
+                let mut result = CommandResult::success(
+                    envelope.command_id.clone(),
+                    Some(request.signature_request_id.clone()),
+                    Some(serialize_value(&field)?),
+                );
+                result.emitted_events.push(command_event(
+                    envelope,
+                    "DOCUMENT_SIGN_FIELD_PUT",
+                    "signature_request",
+                    &request.signature_request_id,
+                    json!({
+                        "signatureRequestId": request.signature_request_id,
+                        "fieldId": field.id,
+                        "recipientId": field.recipient_id,
+                    }),
+                ));
+                Ok(result)
+            }
+            DocumentSignCommandKind::RemoveField => {
+                let request: RemoveSignatureFieldRequest = match decode_command_input(envelope) {
+                    Ok(value) => value,
+                    Err(result) => return Ok(result),
+                };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "signature_request",
+                    &request.signature_request_id,
+                    "DOCUMENT_SIGN_REQUEST_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                if let Err(error) = self
+                    .service
+                    .remove_field_transactional(tx, &request, context)
+                    .await
+                {
+                    return core_command_error(
+                        envelope,
+                        Some(request.signature_request_id.clone()),
+                        error,
+                    );
+                }
+                let mut result = CommandResult::success(
+                    envelope.command_id.clone(),
+                    Some(request.signature_request_id.clone()),
+                    None,
+                );
+                result.emitted_events.push(command_event(
+                    envelope,
+                    "DOCUMENT_SIGN_FIELD_REMOVED",
+                    "signature_request",
+                    &request.signature_request_id,
+                    json!({
+                        "signatureRequestId": request.signature_request_id,
+                        "fieldId": request.field_id,
+                    }),
+                ));
+                Ok(result)
+            }
+            DocumentSignCommandKind::Issue => {
+                let request: IssueDocumentSignRequest = match decode_command_input(envelope) {
+                    Ok(value) => value,
+                    Err(result) => return Ok(result),
+                };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "signature_request",
+                    &request.signature_request_id,
+                    "DOCUMENT_SIGN_REQUEST_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                let issued = match self
+                    .service
+                    .issue_transactional(tx, &request, context)
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return core_command_error(
+                            envelope,
+                            Some(request.signature_request_id.clone()),
+                            error,
+                        )
+                    }
+                };
+                let mut result = CommandResult::success(
+                    envelope.command_id.clone(),
+                    Some(request.signature_request_id.clone()),
+                    Some(serialize_value(&issued)?),
+                );
+                result.emitted_events.push(command_event(
+                    envelope,
+                    "DOCUMENT_SIGN_ISSUED",
+                    "signature_request",
+                    &request.signature_request_id,
+                    json!({
+                        "signatureRequestId": request.signature_request_id,
+                        "expiresAt": issued.expires_at,
+                        "invitationCount": issued.invitation_message_ids.len(),
+                    }),
+                ));
+                for message_id in &issued.invitation_message_ids {
+                    result.emitted_events.push(command_event(
+                        envelope,
+                        crate::email::EMAIL_DELIVERY_ROUTING_KEY,
+                        "email_message",
+                        message_id,
+                        json!({
+                            "messageId": message_id,
+                            "signatureRequestId": request.signature_request_id,
+                        }),
+                    ));
+                }
+                Ok(result)
+            }
+            DocumentSignCommandKind::Void => {
+                let signature_request_id = envelope
+                    .input
+                    .get("signatureRequestId")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .or_else(|| envelope.aggregate_id.clone());
+                let Some(signature_request_id) = signature_request_id else {
+                    return Ok(CommandResult::failure(
+                        envelope.command_id.clone(),
+                        CommandOutcome::ValidationFailure,
+                        envelope.aggregate_id.clone(),
+                        "DOCUMENT_SIGN_REQUEST_REQUIRED",
+                        "documentSign.void requires signatureRequestId.",
+                    ));
+                };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "signature_request",
+                    &signature_request_id,
+                    "DOCUMENT_SIGN_REQUEST_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                if let Err(error) = self
+                    .service
+                    .void_transactional(tx, &signature_request_id, context)
+                    .await
+                {
+                    return core_command_error(
+                        envelope,
+                        Some(signature_request_id.clone()),
+                        error,
+                    );
+                }
+                let mut result = CommandResult::success(
+                    envelope.command_id.clone(),
+                    Some(signature_request_id.clone()),
+                    None,
+                );
+                result.emitted_events.push(command_event(
+                    envelope,
+                    "DOCUMENT_SIGN_VOIDED",
+                    "signature_request",
+                    &signature_request_id,
+                    json!({ "signatureRequestId": signature_request_id }),
+                ));
+                Ok(result)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SignerCommandKind {
+    Open,
+    AcceptConsent,
+    CompleteField,
+    Complete,
+    Decline,
+}
+
+impl SignerCommandKind {
+    const fn command_type(self) -> &'static str {
+        match self {
+            Self::Open => "signer.open",
+            Self::AcceptConsent => "signer.acceptConsent",
+            Self::CompleteField => "signer.completeField",
+            Self::Complete => "signer.complete",
+            Self::Decline => "signer.decline",
+        }
+    }
+}
+
+struct SignerCommand {
+    signer: Arc<SignerService<SignerDao>>,
+    document_sign: Arc<ProductionDocumentSignService>,
+    kind: SignerCommandKind,
+}
+
+#[async_trait]
+impl DurableCommandHandler for SignerCommand {
+    fn command_type(&self) -> &'static str {
+        self.kind.command_type()
+    }
+
+    fn service_domain(&self) -> &'static str {
+        "signer"
+    }
+
+    fn scheduling_payload(&self, request: &CommandRequest) -> Option<Value> {
+        request
+            .input
+            .get("recipientId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .or(request.aggregate_id.as_deref())
+            .map(|recipient_id| json!({ "recipientId": recipient_id }))
+    }
+
+    async fn handle(
+        &self,
+        tx: &mut DbTransaction,
+        envelope: &CommandEnvelope,
+        context: &ServiceContext,
+    ) -> Result<CommandResult, CommandDispatchError> {
+        match self.kind {
+            SignerCommandKind::Open => {
+                let request: OpenSignerRequest = match decode_command_input(envelope) {
+                    Ok(value) => value,
+                    Err(result) => return Ok(result),
+                };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "signature_recipient",
+                    &request.recipient_id,
+                    "SIGNER_RECIPIENT_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                let action = match self
+                    .signer
+                    .open_transactional(tx, &request, context)
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return core_command_error(
+                            envelope,
+                            Some(request.recipient_id.clone()),
+                            error,
+                        )
+                    }
+                };
+                Ok(signer_result(envelope, &action, "SIGNER_OPENED", None)?)
+            }
+            SignerCommandKind::AcceptConsent => {
+                let request: AcceptSignerConsentRequest = match decode_command_input(envelope) {
+                    Ok(value) => value,
+                    Err(result) => return Ok(result),
+                };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "signature_recipient",
+                    &request.recipient_id,
+                    "SIGNER_RECIPIENT_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                let action = match self
+                    .signer
+                    .accept_consent_transactional(tx, &request, context)
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return core_command_error(
+                            envelope,
+                            Some(request.recipient_id.clone()),
+                            error,
+                        )
+                    }
+                };
+                Ok(signer_result(
+                    envelope,
+                    &action,
+                    "SIGNER_CONSENT_ACCEPTED",
+                    None,
+                )?)
+            }
+            SignerCommandKind::CompleteField => {
+                let request: CompleteSignatureFieldRequest = match decode_command_input(envelope) {
+                    Ok(value) => value,
+                    Err(result) => return Ok(result),
+                };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "signature_recipient",
+                    &request.recipient_id,
+                    "SIGNER_RECIPIENT_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                let action = match self
+                    .signer
+                    .complete_field_transactional(tx, &request, context)
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return core_command_error(
+                            envelope,
+                            Some(request.recipient_id.clone()),
+                            error,
+                        )
+                    }
+                };
+                Ok(signer_result(
+                    envelope,
+                    &action,
+                    "SIGNER_FIELD_COMPLETED",
+                    Some(json!({ "fieldId": request.field_id })),
+                )?)
+            }
+            SignerCommandKind::Complete => {
+                let request: CompleteSignerRequest = match decode_command_input(envelope) {
+                    Ok(value) => value,
+                    Err(result) => return Ok(result),
+                };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "signature_recipient",
+                    &request.recipient_id,
+                    "SIGNER_RECIPIENT_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                let action = match self
+                    .signer
+                    .complete_transactional(tx, &request, context)
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return core_command_error(
+                            envelope,
+                            Some(request.recipient_id.clone()),
+                            error,
+                        )
+                    }
+                };
+                if let Err(error) = self
+                    .document_sign
+                    .signer_completed_transactional(
+                        tx,
+                        &action.signature_request_id,
+                        action.envelope_ready_to_finalize,
+                        context,
+                    )
+                    .await
+                {
+                    return core_command_error(
+                        envelope,
+                        Some(request.recipient_id.clone()),
+                        error,
+                    );
+                }
+                let mut result =
+                    signer_result(envelope, &action, "SIGNER_COMPLETED", None)?;
+                if action.envelope_ready_to_finalize {
+                    result.emitted_events.push(command_event(
+                        envelope,
+                        "DOCUMENT_SIGN_READY_TO_FINALIZE",
+                        "signature_request",
+                        &action.signature_request_id,
+                        json!({
+                            "signatureRequestId": action.signature_request_id,
+                        }),
+                    ));
+                }
+                Ok(result)
+            }
+            SignerCommandKind::Decline => {
+                let request: DeclineSignerRequest = match decode_command_input(envelope) {
+                    Ok(value) => value,
+                    Err(result) => return Ok(result),
+                };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "signature_recipient",
+                    &request.recipient_id,
+                    "SIGNER_RECIPIENT_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                let action = match self
+                    .signer
+                    .decline_transactional(tx, &request, context)
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return core_command_error(
+                            envelope,
+                            Some(request.recipient_id.clone()),
+                            error,
+                        )
+                    }
+                };
+                if let Err(error) = self
+                    .document_sign
+                    .signer_declined_transactional(
+                        tx,
+                        &action.signature_request_id,
+                        context,
+                    )
+                    .await
+                {
+                    return core_command_error(
+                        envelope,
+                        Some(request.recipient_id.clone()),
+                        error,
+                    );
+                }
+                let mut result =
+                    signer_result(envelope, &action, "SIGNER_DECLINED", None)?;
+                result.emitted_events.push(command_event(
+                    envelope,
+                    "DOCUMENT_SIGN_DECLINED",
+                    "signature_request",
+                    &action.signature_request_id,
+                    json!({
+                        "signatureRequestId": action.signature_request_id,
+                        "recipientId": action.recipient_id,
+                    }),
+                ));
+                Ok(result)
+            }
+        }
+    }
+}
+
+struct EmailQueueCommand {
+    service: Arc<EmailService<EmailDao>>,
+}
+
+#[async_trait]
+impl DurableCommandHandler for EmailQueueCommand {
+    fn command_type(&self) -> &'static str {
+        "email.queue"
+    }
+
+    fn service_domain(&self) -> &'static str {
+        "email"
+    }
+
+    fn scheduling_payload(&self, request: &CommandRequest) -> Option<Value> {
+        request
+            .input
+            .get("dedupeKey")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(|dedupe_key| json!({ "dedupeKey": dedupe_key }))
+    }
+
+    async fn handle(
+        &self,
+        tx: &mut DbTransaction,
+        envelope: &CommandEnvelope,
+        context: &ServiceContext,
+    ) -> Result<CommandResult, CommandDispatchError> {
+        let request: QueueEmailRequest = match decode_command_input(envelope) {
+            Ok(value) => value,
+            Err(result) => return Ok(result),
+        };
+        let queued = match self.service.queue_transactional(tx, &request, context).await {
+            Ok(value) => value,
+            Err(error) => return core_command_error(envelope, envelope.aggregate_id.clone(), error),
+        };
+        let mut result = CommandResult::success(
+            envelope.command_id.clone(),
+            Some(queued.message_id.clone()),
+            Some(serialize_value(&queued)?),
+        );
+        if !queued.existing {
+            result.emitted_events.push(command_event(
+                envelope,
+                crate::email::EMAIL_DELIVERY_ROUTING_KEY,
+                "email_message",
+                &queued.message_id,
+                json!({ "messageId": queued.message_id }),
+            ));
+        }
+        Ok(result)
+    }
+}
+
+fn decode_command_input<T: DeserializeOwned>(
+    envelope: &CommandEnvelope,
+) -> Result<T, CommandResult> {
+    serde_json::from_value(Value::Object(envelope.input.clone())).map_err(|error| {
+        CommandResult::failure(
+            envelope.command_id.clone(),
+            CommandOutcome::ValidationFailure,
+            envelope.aggregate_id.clone(),
+            "COMMAND_INPUT_INVALID",
+            format!("{} input is invalid: {error}", envelope.command_type),
+        )
+    })
+}
+
+fn serialize_value<T: serde::Serialize>(value: &T) -> Result<Value, CommandDispatchError> {
+    serde_json::to_value(value).map_err(|error| CommandDispatchError::Serialization(error.to_string()))
+}
+
+fn validate_command_target(
+    envelope: &CommandEnvelope,
+    aggregate_type: &str,
+    target_id: &str,
+    mismatch_code: &'static str,
+) -> Option<CommandResult> {
+    if envelope.aggregate_type != aggregate_type {
+        return Some(CommandResult::failure(
+            envelope.command_id.clone(),
+            CommandOutcome::ValidationFailure,
+            envelope.aggregate_id.clone(),
+            mismatch_code,
+            format!(
+                "{} requires aggregateType='{}'.",
+                envelope.command_type, aggregate_type
+            ),
+        ));
+    }
+    match envelope.aggregate_id.as_deref() {
+        Some(aggregate_id) if aggregate_id == target_id => None,
+        _ => Some(CommandResult::failure(
+            envelope.command_id.clone(),
+            CommandOutcome::ValidationFailure,
+            envelope.aggregate_id.clone(),
+            mismatch_code,
+            "aggregateId must match the command input target id.",
+        )),
+    }
+}
+
+fn core_command_error(
+    envelope: &CommandEnvelope,
+    aggregate_id: Option<String>,
+    error: CoreServiceError,
+) -> Result<CommandResult, CommandDispatchError> {
+    match error {
+        CoreServiceError::Business { code, message } => Ok(CommandResult::failure(
+            envelope.command_id.clone(),
+            business_outcome(code),
+            aggregate_id,
+            code,
+            message,
+        )),
+        CoreServiceError::Runtime(ServiceRuntimeError::Forbidden { reason, .. }) => {
+            Ok(CommandResult::failure(
+                envelope.command_id.clone(),
+                CommandOutcome::Unauthorized,
+                aggregate_id,
+                "FORBIDDEN",
+                reason,
+            ))
+        }
+        other => Err(other.into()),
+    }
+}
+
+fn business_outcome(code: &str) -> CommandOutcome {
+    if code.ends_with("_NOT_FOUND") {
+        CommandOutcome::NotFound
+    } else if code.contains("ALREADY")
+        || code.contains("CONFLICT")
+        || code.ends_with("_NOT_MUTABLE")
+    {
+        CommandOutcome::Conflict
+    } else if code.contains("REQUIRED")
+        || code.contains("NOT_YOUR_TURN")
+        || code.contains("INCOMPLETE")
+        || code.contains("EXPIRED")
+        || code.contains("REVOKED")
+    {
+        CommandOutcome::PreconditionFailure
+    } else {
+        CommandOutcome::ValidationFailure
+    }
+}
+
+fn command_event(
+    envelope: &CommandEnvelope,
+    event_type: &str,
+    aggregate_type: &str,
+    aggregate_id: &str,
+    payload: Value,
+) -> CommandDomainEvent {
+    CommandDomainEvent {
+        event_id: Uuid::new_v4().to_string(),
+        event_type: event_type.to_owned(),
+        occurred_at: Utc::now().to_rfc3339(),
+        actor_app_user_id: envelope.actor_app_user_id.clone(),
+        aggregate_type: aggregate_type.to_owned(),
+        aggregate_id: aggregate_id.to_owned(),
+        correlation_id: envelope.correlation_id.clone(),
+        causation_id: Some(envelope.command_id.clone()),
+        payload: payload.as_object().cloned().unwrap_or_default(),
+    }
+}
+
+fn signer_result(
+    envelope: &CommandEnvelope,
+    action: &domain::SignerActionResult,
+    event_type: &str,
+    extra_payload: Option<Value>,
+) -> Result<CommandResult, CommandDispatchError> {
+    let mut payload = json!({
+        "signatureRequestId": action.signature_request_id,
+        "recipientId": action.recipient_id,
+        "state": action.state,
+        "envelopeReadyToFinalize": action.envelope_ready_to_finalize,
+    });
+    if let (Some(target), Some(extra)) = (payload.as_object_mut(), extra_payload) {
+        if let Some(extra) = extra.as_object() {
+            target.extend(extra.clone());
+        }
+    }
+    let mut result = CommandResult::success(
+        envelope.command_id.clone(),
+        Some(action.recipient_id.clone()),
+        Some(serialize_value(action)?),
+    );
+    result.emitted_events.push(command_event(
+        envelope,
+        event_type,
+        "signature_recipient",
+        &action.recipient_id,
+        payload,
+    ));
+    Ok(result)
 }
 
 struct ContractExecuteCommand {

@@ -1,6 +1,7 @@
 use crate::{
-    CommandDispatchError, CommandDispatcher, Crm26AgreementExecutionSubscriber, MqProofSubscriber,
-    MqRuntime, ServiceCatalog, ServiceGateway, ServiceKernel, ServiceKernelHealth,
+    CommandDispatchError, CommandDispatcher, Crm26AgreementExecutionSubscriber,
+    EmailDeliverySubscriber, MqProofSubscriber, MqRuntime, ServiceCatalog, ServiceGateway,
+    ServiceKernel, ServiceKernelHealth,
 };
 use db::{Database, DomainEventOutboxDao};
 use serde::{Deserialize, Serialize};
@@ -62,14 +63,21 @@ impl ServiceHarness {
         let mq_infrastructure = infrastructure.clone();
         let kernel = ServiceKernel::new(db.clone(), infrastructure)?;
         let gateway = ServiceGateway::new(kernel.registry());
-        let commands =
-            CommandDispatcher::for_kernel(db.clone(), kernel.contract()).map_err(|error| {
-                ServiceDispatchError::infrastructure(
-                    "COMMAND_RUNTIME_INIT",
-                    error.to_string(),
-                    false,
-                )
-            })?;
+        let catalog = kernel.catalog();
+        let commands = CommandDispatcher::for_kernel(
+            db.clone(),
+            kernel.contract(),
+            catalog.document_sign(),
+            catalog.signer(),
+            catalog.email(),
+        )
+        .map_err(|error| {
+            ServiceDispatchError::infrastructure(
+                "COMMAND_RUNTIME_INIT",
+                error.to_string(),
+                false,
+            )
+        })?;
         let outbox = DomainEventOutboxDao::new(db.clone());
         let subscribers: Vec<Arc<dyn crate::MqSubscriber>> = if production_mq_subscribers {
             let crm26 = Crm26AgreementExecutionSubscriber::production(
@@ -77,9 +85,11 @@ impl ServiceHarness {
                 commands.clone(),
                 kernel.registry(),
             );
+            let email_delivery = EmailDeliverySubscriber::new(catalog.email());
             vec![
                 Arc::new(MqProofSubscriber::new(outbox.clone())),
                 Arc::new(crm26),
+                Arc::new(email_delivery),
             ]
         } else {
             Vec::new()

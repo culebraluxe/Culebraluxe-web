@@ -102,6 +102,42 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             && request.operation == "contract.execute"
             && request.action == "contract.execute"
             && request.kind == OperationKind::Command;
+        // NATIVE DOCUMENT SIGNING: the orchestrator may call exactly the canonical
+        // service operations needed to prepare/issue a native envelope. This is service-to-service
+        // authority, not a grant to an anonymous caller or to every System actor.
+        let document_sign_service = system
+            && request.actor.id.as_deref() == Some(crate::document_sign::DOCUMENT_SIGN_SERVICE_ACTOR)
+            && request.kind == OperationKind::Command
+            && matches!(
+                (request.domain, request.operation, request.action),
+                ("signature", "signature.prepare", "signature.write")
+                    | ("signature", "signature.replaceRecipients", "signature.write")
+                    | ("signature", "signature.transition", "signature.write")
+                    | ("signer", "signer.issueAccess", "signer.access.issue")
+                    | ("email", "email.queue", "email.queue")
+            );
+        // The public signing edge has no portal principal. Its signed recipient capability is
+        // validated by SignerService; Casbin admits only the signer operations named here.
+        let document_sign_edge = system
+            && request.actor.id.as_deref() == Some(crate::signer::DOCSIGN_EDGE_ACTOR)
+            && request.domain == "signer"
+            && matches!(
+                (request.operation, request.action, request.kind),
+                ("signer.session", "signer.read", OperationKind::Query)
+                    | ("signer.open", "signer.act", OperationKind::Command)
+                    | ("signer.acceptConsent", "signer.act", OperationKind::Command)
+                    | ("signer.completeField", "signer.act", OperationKind::Command)
+                    | ("signer.complete", "signer.act", OperationKind::Command)
+                    | ("signer.decline", "signer.act", OperationKind::Command)
+            );
+        // Existing MQ owns retries/leases. The worker may deliver exactly one queued email and
+        // cannot queue arbitrary messages or call any other application command.
+        let email_delivery = system
+            && request.actor.id.as_deref() == Some(crate::email::EMAIL_DELIVERY_ACTOR)
+            && request.domain == "email"
+            && request.operation == "email.deliver"
+            && request.action == "email.deliver"
+            && request.kind == OperationKind::Command;
         // GUEST SIGN-IN (security/guest.rs). The public website asks for and checks emailed codes for a visitor who
         // has no principal yet; the Auth.js edge provisions the external guest behind an identity it has proved.
         // A guest is an external account, so the principal branch below refuses it every grant.
@@ -154,6 +190,9 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             || db_diagnostics
             || website_intake
             || agreement_execution
+            || document_sign_service
+            || document_sign_edge
+            || email_delivery
             || guest_code
             || guest_provision
             || published;
@@ -167,6 +206,7 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             || request.action == "vault.publicListingDocument.read"
             || request.action == "website.lead.notify"
             || request.action == "website.intake.submit"
+            || request.action == "email.deliver"
             || request.action.starts_with("security.guestCode.")
             || request.action == "security.guest.provision"
         {
@@ -193,6 +233,11 @@ impl AuthorizationPort for CasbinAuthorizationPort {
                 && principal.level != "BUSINESS_POWER_USER"
             {
                 (false, "rule:contract.execute.level")
+            } else if request.domain == "document-sign"
+                && matches!(request.action, "documentSign.issue" | "documentSign.void")
+                && principal.level != "BUSINESS_POWER_USER"
+            {
+                (false, "rule:document-sign.issue.level")
             } else {
                 let kind = match request.kind {
                     OperationKind::Query => "query",
@@ -279,6 +324,24 @@ mod tests {
         assert!(
             auth.authorize(execute).await.unwrap().allowed,
             "BUSINESS_POWER_USER is the floor for contract.execute"
+        );
+
+        let mut issue = request(
+            "documentSign.issue",
+            OperationKind::Command,
+            &["documentSign.issue"],
+        );
+        issue.domain = "document-sign";
+        issue.operation = "documentSign.issue";
+        issue.principal.as_mut().unwrap().level = "USER".into();
+        assert!(
+            !auth.authorize(issue.clone()).await.unwrap().allowed,
+            "USER must not issue a document even if a grant is accidentally present"
+        );
+        issue.principal.as_mut().unwrap().level = "BUSINESS_POWER_USER".into();
+        assert!(
+            auth.authorize(issue).await.unwrap().allowed,
+            "BUSINESS_POWER_USER is the floor for documentSign.issue"
         );
 
         // A missing principal (GUEST) never commands, whatever the action.
@@ -382,6 +445,54 @@ mod tests {
         assert!(auth.authorize(req.clone()).await.unwrap().allowed);
         req.action = "vault.read";
         assert!(!auth.authorize(req.clone()).await.unwrap().allowed);
+
+        // Native document signing system actors are narrow and operation-specific.
+        let mut docsign = request("signature.write", OperationKind::Command, &[]);
+        docsign.principal = None;
+        docsign.actor = ServiceActor {
+            id: Some(crate::document_sign::DOCUMENT_SIGN_SERVICE_ACTOR.into()),
+            kind: ServiceActorKind::System,
+        };
+        docsign.domain = "signature";
+        docsign.operation = "signature.prepare";
+        assert!(auth.authorize(docsign.clone()).await.unwrap().allowed);
+        docsign.operation = "signature.send";
+        assert!(
+            !auth.authorize(docsign.clone()).await.unwrap().allowed,
+            "native orchestration must not inherit raw provider send authority"
+        );
+
+        let mut signer = request("signer.act", OperationKind::Command, &[]);
+        signer.principal = None;
+        signer.actor = ServiceActor {
+            id: Some(crate::signer::DOCSIGN_EDGE_ACTOR.into()),
+            kind: ServiceActorKind::System,
+        };
+        signer.domain = "signer";
+        signer.operation = "signer.complete";
+        assert!(auth.authorize(signer.clone()).await.unwrap().allowed);
+        signer.operation = "signer.issueAccess";
+        signer.action = "signer.access.issue";
+        assert!(
+            !auth.authorize(signer).await.unwrap().allowed,
+            "public signing edge may never mint signer capabilities"
+        );
+
+        let mut delivery = request("email.deliver", OperationKind::Command, &[]);
+        delivery.principal = None;
+        delivery.actor = ServiceActor {
+            id: Some(crate::email::EMAIL_DELIVERY_ACTOR.into()),
+            kind: ServiceActorKind::System,
+        };
+        delivery.domain = "email";
+        delivery.operation = "email.deliver";
+        assert!(auth.authorize(delivery.clone()).await.unwrap().allowed);
+        delivery.operation = "email.queue";
+        delivery.action = "email.queue";
+        assert!(
+            !auth.authorize(delivery).await.unwrap().allowed,
+            "delivery worker may not manufacture email"
+        );
 
         // A website lead's emails: the public website may command exactly this, and nobody else may.
         req.action = "website.lead.notify";
