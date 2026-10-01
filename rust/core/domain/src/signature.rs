@@ -127,6 +127,40 @@ pub struct SignatureRecipient {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PreparedSignatureRecipient {
+    pub role: SignatureRecipientRole,
+    pub name: String,
+    pub email: String,
+    pub order: i32,
+    pub signing_step: i32,
+    pub execution_role: Option<String>,
+    pub execution_slot_id: Option<String>,
+}
+
+impl PreparedSignatureRecipient {
+    pub fn as_signature_recipient(&self) -> SignatureRecipient {
+        SignatureRecipient {
+            role: self.role,
+            name: self.name.clone(),
+            email: self.email.clone(),
+            order: self.order,
+            execution_role: self.execution_role.clone(),
+            execution_slot_id: self.execution_slot_id.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareSignatureRequest {
+    pub transaction_document_id: String,
+    pub recipients: Vec<PreparedSignatureRecipient>,
+    pub message: Option<String>,
+    pub created_by_user_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignatureRequest {
     pub id: String,
     pub transaction_document_id: String,

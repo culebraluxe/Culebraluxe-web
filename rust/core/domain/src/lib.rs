@@ -14,6 +14,8 @@ pub mod cockpit;
 pub mod comms;
 pub mod contract;
 pub mod deal_portal;
+pub mod document_sign;
+pub mod email;
 pub mod firm;
 pub mod flight_recorder;
 pub mod forms;
@@ -39,6 +41,7 @@ pub mod publishing;
 pub mod relationship_evidence;
 pub mod security;
 pub mod showing;
+pub mod signer;
 pub mod signature;
 pub mod support;
 pub mod task;
@@ -101,6 +104,7 @@ pub use security::{
 };
 
 pub use showing::{SaveShowingReportRequest, Showing, ShowingReportOutcome};
+pub use signer::*;
 pub use support::*;
 
 pub use wbs::{
@@ -162,7 +166,7 @@ pub use media::{
 
 pub use signature::{
     normalize_signature_email, validate_signature_recipients, ApplySignatureStatusRequest,
-    IssuedParticipantSlot, SendSignatureRequest, SignatureArtifactDownload,
+    IssuedParticipantSlot, PrepareSignatureRequest, PreparedSignatureRecipient, SendSignatureRequest, SignatureArtifactDownload,
     SignatureCommandOutcome, SignatureCommandResult, SignatureProviderActionResult,
     SignatureProviderEvent, SignatureProviderSendRequest, SignatureProviderSendResult,
     SignatureProviderStatusResult, SignatureRecipient, SignatureRecipientRole, SignatureRequest,
@@ -176,3 +180,5 @@ pub use tech::*;
 pub use workflow_portal::*;
 
 pub use deal_portal::*;
+pub use document_sign::*;
+pub use email::*;

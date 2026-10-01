@@ -80,6 +80,291 @@ impl SignatureDao {
         rows.into_iter().map(map_signature).collect()
     }
 
+    pub async fn prepare_tx(
+        &self,
+        tx: &mut DbTransaction,
+        request: &PrepareSignatureRequest,
+    ) -> DbResult<SignatureRequestResult> {
+        let recipients = request
+            .recipients
+            .iter()
+            .map(PreparedSignatureRecipient::as_signature_recipient)
+            .collect::<Vec<_>>();
+        let errors = validate_signature_recipients(&recipients);
+        if !errors.is_empty() {
+            return Err(DbFailure::schema_mismatch(
+                "signature.prepare.recipients",
+                errors.join(" "),
+            ));
+        }
+        if request
+            .recipients
+            .iter()
+            .any(|recipient| recipient.signing_step < 1)
+        {
+            return Err(DbFailure::schema_mismatch(
+                "signature.prepare.recipients",
+                "Recipient signingStep must be positive.",
+            ));
+        }
+
+        let document = sqlx::query_as::<_, DocumentSnapshotRow>(
+            r#"
+            select source_snapshot
+              from transaction_document
+             where id = $1::uuid
+             limit 1
+            "#,
+        )
+        .bind(&request.transaction_document_id)
+        .fetch_optional(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signature.prepare.document", &error))?
+        .ok_or_else(|| {
+            DbFailure::schema_mismatch(
+                "signature.prepare.document",
+                "Transaction document not found.",
+            )
+        })?;
+
+        if request
+            .recipients
+            .iter()
+            .any(|recipient| recipient.execution_slot_id.is_some())
+        {
+            let slots = parse_slots(document.source_snapshot.as_ref()).map_err(|error| {
+                DbFailure::schema_mismatch(
+                    "signature.prepare.snapshot",
+                    format!("Invalid issued-participant snapshot: {error}"),
+                )
+            })?;
+            validate_bound_recipients(&slots, &recipients).map_err(|error| {
+                DbFailure::schema_mismatch("signature.prepare.snapshot", error)
+            })?;
+        }
+
+        let inserted = sqlx::query_as::<_, SignatureRow>(
+            r#"
+            insert into signature_request (
+                transaction_document_id, status, message, created_by_user_id
+            )
+            values ($1::uuid, 'requested', $2, $3::uuid)
+            on conflict (transaction_document_id)
+              where status in ('requested', 'sent', 'viewed', 'signed')
+              do nothing
+            returning id::text as id,
+                      transaction_document_id::text as transaction_document_id,
+                      status, message, execution_role, execution_slot_id,
+                      created_by_user_id::text as created_by_user_id,
+                      created_at, updated_at
+            "#,
+        )
+        .bind(&request.transaction_document_id)
+        .bind(request.message.as_deref())
+        .bind(request.created_by_user_id.as_deref())
+        .fetch_optional(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signature.prepare.insert", &error))?;
+
+        let (signature, existing) = if let Some(row) = inserted {
+            let signature = map_signature(row)?;
+            for recipient in &request.recipients {
+                sqlx::query(
+                    r#"
+                    insert into signature_envelope_recipient (
+                        signature_request_id, execution_role, execution_slot_id,
+                        recipient_name, recipient_email, signer_order,
+                        recipient_role, signing_step
+                    )
+                    values ($1::uuid, $2, $3, $4, $5, $6, $7, $8)
+                    "#,
+                )
+                .bind(&signature.id)
+                .bind(recipient.execution_role.as_deref())
+                .bind(recipient.execution_slot_id.as_deref())
+                .bind(recipient.name.trim())
+                .bind(recipient.email.trim())
+                .bind(recipient.order)
+                .bind(recipient.role.as_str())
+                .bind(recipient.signing_step)
+                .execute(tx.connection())
+                .await
+                .map_err(|error| DbFailure::from_sqlx("signature.prepare.recipient", &error))?;
+            }
+            (signature, false)
+        } else {
+            let row = sqlx::query_as::<_, SignatureRow>(
+                r#"
+                select id::text as id,
+                       transaction_document_id::text as transaction_document_id,
+                       status, message, execution_role, execution_slot_id,
+                       created_by_user_id::text as created_by_user_id,
+                       created_at, updated_at
+                  from signature_request
+                 where transaction_document_id = $1::uuid
+                   and status in ('requested', 'sent', 'viewed', 'signed')
+                 order by created_at, id
+                 limit 1
+                "#,
+            )
+            .bind(&request.transaction_document_id)
+            .fetch_one(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("signature.prepare.active", &error))?;
+            (map_signature(row)?, true)
+        };
+
+        Ok(SignatureRequestResult {
+            signature_request: signature,
+            existing,
+        })
+    }
+
+    pub async fn replace_recipients_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        recipients: &[PreparedSignatureRecipient],
+    ) -> DbResult<bool> {
+        let canonical = recipients
+            .iter()
+            .map(PreparedSignatureRecipient::as_signature_recipient)
+            .collect::<Vec<_>>();
+        let errors = validate_signature_recipients(&canonical);
+        if !errors.is_empty() || recipients.iter().any(|recipient| recipient.signing_step < 1) {
+            return Err(DbFailure::schema_mismatch(
+                "signature.replace_recipients",
+                if errors.is_empty() {
+                    "Recipient signingStep must be positive.".into()
+                } else {
+                    errors.join(" ")
+                },
+            ));
+        }
+
+        let row = sqlx::query_as::<_, (String, Option<Value>)>(
+            r#"
+            select sr.status, td.source_snapshot
+              from signature_request sr
+              join transaction_document td on td.id = sr.transaction_document_id
+             where sr.id = $1::uuid
+             for update of sr
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_optional(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signature.replace_recipients.lock", &error))?;
+
+        let Some((status, source_snapshot)) = row else {
+            return Ok(false);
+        };
+        if status != "requested" {
+            return Ok(false);
+        }
+
+        if recipients
+            .iter()
+            .any(|recipient| recipient.execution_slot_id.is_some())
+        {
+            let slots = parse_slots(source_snapshot.as_ref()).map_err(|error| {
+                DbFailure::schema_mismatch(
+                    "signature.replace_recipients.snapshot",
+                    format!("Invalid issued-participant snapshot: {error}"),
+                )
+            })?;
+            validate_bound_recipients(&slots, &canonical).map_err(|error| {
+                DbFailure::schema_mismatch("signature.replace_recipients.snapshot", error)
+            })?;
+        }
+
+        sqlx::query(
+            "delete from signature_envelope_recipient where signature_request_id = $1::uuid",
+        )
+        .bind(signature_request_id)
+        .execute(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signature.replace_recipients.delete", &error))?;
+
+        for recipient in recipients {
+            sqlx::query(
+                r#"
+                insert into signature_envelope_recipient (
+                    signature_request_id, execution_role, execution_slot_id,
+                    recipient_name, recipient_email, signer_order,
+                    recipient_role, signing_step
+                )
+                values ($1::uuid, $2, $3, $4, $5, $6, $7, $8)
+                "#,
+            )
+            .bind(signature_request_id)
+            .bind(recipient.execution_role.as_deref())
+            .bind(recipient.execution_slot_id.as_deref())
+            .bind(recipient.name.trim())
+            .bind(recipient.email.trim())
+            .bind(recipient.order)
+            .bind(recipient.role.as_str())
+            .bind(recipient.signing_step)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("signature.replace_recipients.insert", &error))?;
+        }
+        Ok(true)
+    }
+
+    pub async fn get_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<SignatureRequest>> {
+        let row = sqlx::query_as::<_, SignatureRow>(
+            r#"
+            select id::text as id,
+                   transaction_document_id::text as transaction_document_id,
+                   status, message, execution_role, execution_slot_id,
+                   created_by_user_id::text as created_by_user_id,
+                   created_at, updated_at
+              from signature_request
+             where id = $1::uuid
+             for update
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_optional(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signature.get_tx", &error))?;
+        row.map(map_signature).transpose()
+    }
+
+    pub async fn set_status_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        expected: SignatureRequestStatus,
+        target: SignatureRequestStatus,
+    ) -> DbResult<Option<SignatureRequest>> {
+        let row = sqlx::query_as::<_, SignatureRow>(
+            r#"
+            update signature_request
+               set status = $3, updated_at = now()
+             where id = $1::uuid
+               and status = $2
+            returning id::text as id,
+                      transaction_document_id::text as transaction_document_id,
+                      status, message, execution_role, execution_slot_id,
+                      created_by_user_id::text as created_by_user_id,
+                      created_at, updated_at
+            "#,
+        )
+        .bind(signature_request_id)
+        .bind(expected.as_str())
+        .bind(target.as_str())
+        .fetch_optional(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signature.set_status_tx", &error))?;
+        row.map(map_signature).transpose()
+    }
+
     pub async fn send(
         &self,
         request: &SendSignatureRequest,
@@ -293,9 +578,10 @@ impl SignatureDao {
                         r#"
                         insert into signature_envelope_recipient (
                             signature_request_id, execution_role, execution_slot_id,
-                            recipient_name, recipient_email, signer_order
+                            recipient_name, recipient_email, signer_order,
+                            recipient_role, signing_step
                         )
-                        values ($1::uuid,$2,$3,$4,$5,$6)
+                        values ($1::uuid,$2,$3,$4,$5,$6,$7,$8)
                         "#,
                     )
                     .bind(&row.id)
@@ -303,6 +589,8 @@ impl SignatureDao {
                     .bind(recipient.execution_slot_id.as_deref())
                     .bind(recipient.name.trim())
                     .bind(recipient.email.trim())
+                    .bind(recipient.order)
+                    .bind(recipient.role.as_str())
                     .bind(recipient.order)
                     .execute(tx.connection())
                     .await
