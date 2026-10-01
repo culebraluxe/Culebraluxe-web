@@ -8,6 +8,8 @@ use crate::{
     communications::CommsService,
     contracts::ContractService,
     deals::DealPortalService,
+    document_sign::{DocumentSignService, ProductionDocumentSignService},
+    email::{transport_from_env as email_transport_from_env, EmailService},
     firms::FirmService,
     flight_recorder::FlightRecorderService,
     forms::FormService,
@@ -26,6 +28,7 @@ use crate::{
     security::{GuestSignInService, SecurityService},
     showings::ShowingService,
     signature::SignatureService,
+    signer::{SignerAccessTokenCodec, SignerService},
     support::SupportDiagnosticsService,
     task::TaskService,
     tech::TechCockpitService,
@@ -38,21 +41,19 @@ use crate::{
 use async_trait::async_trait;
 use db::{
     AccountingDao, CalendarDao, CatchUpDao, ClientDao, ClientRoomDao, CockpitDao, CommsDao,
-    ContractDao, Database, DealPortalDao, FirmDao, FlightRecorderDao, FormDao, GuestDao, GuideDao,
-    IntakeDao, IssueDao, MarketingDao, MediaDao, PersonDao, ProjectDao, PropertyDao,
+    ContractDao, Database, DealPortalDao, DocumentSignDao, EmailDao, FirmDao, FlightRecorderDao,
+    FormDao, GuestDao, GuideDao, IntakeDao, IssueDao, MarketingDao, MediaDao, PersonDao, ProjectDao, PropertyDao,
     PublicListingDao, PublishingDao, RelationshipEvidenceDao, SecurityDao, ShowingDao,
-    SignatureDao, SupportDiagnosticsDao, TaskDao, TechCockpitDao, VaultDao, WbsDao, WebsiteLeadDao,
-    WhatsAppDao, WorkflowPortalDao,
+    SignatureDao, SignerDao, SupportDiagnosticsDao, TaskDao, TechCockpitDao, VaultDao, WbsDao,
+    WebsiteLeadDao, WhatsAppDao, WorkflowPortalDao,
 };
 use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use service::{
-    AbstractService, ServiceContext, ServiceDescriptor, ServiceDispatchError, ServiceEnvelope,
-    ServiceInfrastructure,
+    AbstractService, ServiceDescriptor, ServiceDispatchError, ServiceInfrastructure,
+    SignatureProvider,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
-
-type SignatureCatalogEntry = Result<Arc<SignatureService<SignatureDao>>, Arc<str>>;
 
 struct ProjectServiceHost {
     service: Arc<Mutex<ProjectService<ProjectDao>>>,
@@ -199,40 +200,6 @@ impl AbstractService for ProjectServiceHost {
     }
 }
 
-struct UnavailableService {
-    domain: &'static str,
-    reason: Arc<str>,
-}
-
-#[async_trait]
-impl AbstractService for UnavailableService {
-    fn descriptor(&self) -> ServiceDescriptor {
-        ServiceDescriptor {
-            domain: self.domain.into(),
-            version: "1".into(),
-            description: format!("Unavailable service: {}", self.reason),
-            capabilities: Vec::new(),
-            dependencies: Vec::new(),
-            invariants: Vec::new(),
-        }
-    }
-
-    async fn dispatch(
-        &self,
-        envelope: &ServiceEnvelope,
-        _context: &ServiceContext,
-    ) -> Result<serde_json::Value, ServiceDispatchError> {
-        Err(ServiceDispatchError::infrastructure(
-            "SERVICE_UNAVAILABLE",
-            format!(
-                "{}.{} is unavailable: {}",
-                self.domain, envelope.operation, self.reason
-            ),
-            false,
-        ))
-    }
-}
-
 /// Long-lived, typed ownership for every route-facing business service.
 ///
 /// Services are constructed once with the application infrastructure. Project is the
@@ -262,7 +229,10 @@ pub struct ServiceCatalog {
     deal_portal: Arc<DealPortalService<DealPortalDao>>,
     contract: Arc<ContractService<ContractDao>>,
     showing: Arc<ShowingService<ShowingDao>>,
-    signature: SignatureCatalogEntry,
+    signature: Arc<SignatureService<SignatureDao>>,
+    email: Arc<EmailService<EmailDao>>,
+    signer: Arc<SignerService<SignerDao>>,
+    document_sign: Arc<ProductionDocumentSignService>,
     support: Arc<SupportDiagnosticsService<SupportDiagnosticsDao>>,
     security: Arc<SecurityService<SecurityDao>>,
     vault: Arc<VaultService<VaultDao>>,
@@ -295,16 +265,34 @@ impl ServiceCatalog {
             firm.clone(),
             property.clone(),
         ));
-        let signature = BoldSignConfig::from_env()
+        let signature_provider: Option<Arc<dyn SignatureProvider>> = BoldSignConfig::from_env()
             .and_then(|config| BoldSignSignatureProvider::new(db.clone(), config))
-            .map(|provider| {
-                Arc::new(SignatureService::new(
-                    SignatureDao::new(db.clone()),
-                    Arc::new(provider),
-                    infrastructure.clone(),
-                ))
-            })
-            .map_err(Arc::<str>::from);
+            .ok()
+            .map(|provider| Arc::new(provider) as Arc<dyn SignatureProvider>);
+        let signature = Arc::new(SignatureService::new_optional(
+            SignatureDao::new(db.clone()),
+            signature_provider,
+            infrastructure.clone(),
+        ));
+        let email = Arc::new(EmailService::new(
+            EmailDao::new(db.clone()),
+            email_transport_from_env(),
+            infrastructure.clone(),
+        ));
+        let signer_codec = SignerAccessTokenCodec::from_env()
+            .unwrap_or_else(SignerAccessTokenCodec::unavailable);
+        let signer = Arc::new(SignerService::new(
+            SignerDao::new(db.clone()),
+            signer_codec,
+            infrastructure.clone(),
+        ));
+        let document_sign = Arc::new(DocumentSignService::new(
+            DocumentSignDao::new(db.clone()),
+            signature.clone(),
+            signer.clone(),
+            email.clone(),
+            infrastructure.clone(),
+        ));
         Self {
             clients: Arc::new(ClientService::new(
                 ClientDao::new(db.clone()),
@@ -394,6 +382,9 @@ impl ServiceCatalog {
                 infrastructure.clone(),
             )),
             signature,
+            email,
+            signer,
+            document_sign,
             support: Arc::new(SupportDiagnosticsService::new(
                 SupportDiagnosticsDao::new(db.clone()),
                 infrastructure.clone(),
@@ -439,12 +430,12 @@ impl ServiceCatalog {
         }
     }
 
-    pub fn signature(&self) -> Result<Arc<SignatureService<SignatureDao>>, Arc<str>> {
+    pub fn signature(&self) -> Arc<SignatureService<SignatureDao>> {
         self.signature.clone()
     }
 
     pub(crate) fn registrations(&self) -> Vec<Arc<dyn AbstractService>> {
-        let mut services: Vec<Arc<dyn AbstractService>> = vec![
+        let services: Vec<Arc<dyn AbstractService>> = vec![
             self.person.clone(),
             self.firm.clone(),
             self.property.clone(),
@@ -467,6 +458,10 @@ impl ServiceCatalog {
             self.comms.clone(),
             self.deal_portal.clone(),
             self.showing.clone(),
+            self.signature.clone(),
+            self.email.clone(),
+            self.signer.clone(),
+            self.document_sign.clone(),
             self.support.clone(),
             self.security.clone(),
             self.vault.clone(),
@@ -479,13 +474,6 @@ impl ServiceCatalog {
             self.whatsapp.clone(),
             self.accounting.clone(),
         ];
-        match &self.signature {
-            Ok(signature) => services.push(signature.clone()),
-            Err(reason) => services.push(Arc::new(UnavailableService {
-                domain: "signature",
-                reason: reason.clone(),
-            })),
-        }
         services
     }
 }
@@ -506,6 +494,7 @@ catalog_accessors! {
     relationship_evidence: RelationshipEvidenceService<RelationshipEvidenceDao>, property: PropertyService<PropertyDao>,
     calendar: CalendarService<CalendarDao>, comms: CommsService<CommsDao>, deal_portal: DealPortalService<DealPortalDao>,
     contract: ContractService<ContractDao>, showing: ShowingService<ShowingDao>, support: SupportDiagnosticsService<SupportDiagnosticsDao>,
+    email: EmailService<EmailDao>, signer: SignerService<SignerDao>, document_sign: ProductionDocumentSignService,
     security: SecurityService<SecurityDao>, vault: VaultService<VaultDao>, task: TaskService<TaskDao>, wbs: WbsService<WbsDao>,
     workflow_portal: WorkflowPortalService<WorkflowPortalDao>, flight_recorder: FlightRecorderService<FlightRecorderDao>,
     tech: TechCockpitService<TechCockpitDao>, whatsapp: WhatsAppService<WhatsAppDao>, accounting: AccountingService<AccountingDao>,

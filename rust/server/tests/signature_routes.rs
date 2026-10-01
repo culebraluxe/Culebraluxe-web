@@ -115,7 +115,7 @@ fn every_signature_handler_exists_and_uses_the_provider() {
             "handler {handler} is mounted by the router but not defined"
         );
     }
-    assert!(source.contains("signature_service(&state)?"));
+    assert!(source.contains("signature_service(&state)"));
     assert!(
         composition_source().contains("BoldSignSignatureProvider::new"),
         "the long-lived service catalog no longer constructs the BoldSign adapter"

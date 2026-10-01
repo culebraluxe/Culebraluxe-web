@@ -5,13 +5,8 @@ use super::*;
 
 pub(super) fn signature_service(
     state: &ApiState,
-) -> Result<Arc<crate::signature::SignatureService<db::SignatureDao>>, ApiError> {
-    state.services().signature().map_err(|message| {
-        ApiError::from(CoreServiceError::business(
-            "SIGNATURE_NOT_CONFIGURED",
-            message.to_string(),
-        ))
-    })
+) -> Arc<crate::signature::SignatureService<db::SignatureDao>> {
+    state.services().signature()
 }
 
 /// The provider's callback.
@@ -170,7 +165,7 @@ pub(super) async fn signature_webhook(
         principal: None,
     };
 
-    let service = signature_service(&state)?;
+    let service = signature_service(&state);
     let value = service
         .handle_webhook(&body, &signature, &context)
         .await
@@ -188,7 +183,7 @@ pub(super) async fn signature_send(
     Json(request): Json<domain::SendSignatureRequest>,
 ) -> Result<Json<ApiSuccess<domain::SignatureCommandResult>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let service = signature_service(&state)?;
+    let service = signature_service(&state);
     let value = service
         .send(&request, &resolved.service)
         .await
@@ -202,7 +197,7 @@ pub(super) async fn signature_request(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::SignatureRequest>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let service = signature_service(&state)?;
+    let service = signature_service(&state);
     let value = service
         .get(&id, &resolved.service)
         .await
@@ -225,7 +220,7 @@ pub(super) async fn signature_refresh(
     Path(id): Path<String>,
 ) -> Result<Json<ApiSuccess<domain::SignatureCommandResult>>, ApiError> {
     let resolved = resolve_request_context(&state, &headers).await?;
-    let service = signature_service(&state)?;
+    let service = signature_service(&state);
     let value = service
         .refresh_status(&id, &resolved.service)
         .await

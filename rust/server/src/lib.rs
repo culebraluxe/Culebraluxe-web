@@ -16,6 +16,8 @@ pub mod communications;
 pub mod composition;
 pub mod contracts;
 pub mod deals;
+pub mod document_sign;
+pub mod email;
 pub mod firms;
 pub mod flight_recorder;
 pub mod forms;
@@ -43,6 +45,7 @@ pub mod service_kernel;
 pub mod service_observability;
 pub mod service_support;
 pub mod showings;
+pub mod signer;
 pub mod signature;
 pub mod site;
 pub mod support;
@@ -57,6 +60,7 @@ pub mod workflow_portal;
 pub use agreement_execution::Crm26AgreementExecutionSubscriber;
 pub use command_runtime::{CommandDispatchError, CommandDispatcher};
 pub use composition::ServiceCatalog;
+pub use email::EmailDeliverySubscriber;
 pub use mq_runtime::{
     MqProofSubscriber, MqRuntime, MqRuntimeConfig, MqSubscriber, MqSubscriberError,
 };

@@ -1,9 +1,10 @@
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
-use db::{Database, DbResult, SignatureDao};
+use db::{Database, DbFailure, DbResult, DbTransaction, SignatureDao};
 use domain::{
-    validate_signature_recipients, ApplySignatureStatusRequest, SendSignatureRequest,
-    SignatureArtifactDownload, SignatureCommandOutcome, SignatureCommandResult,
+    validate_signature_recipients, ApplySignatureStatusRequest, PrepareSignatureRequest,
+    PreparedSignatureRecipient, SendSignatureRequest, SignatureArtifactDownload,
+    SignatureCommandOutcome, SignatureCommandResult,
     SignatureProviderSendRequest, SignatureRequest, SignatureRequestResult, SignatureRequestStatus,
     SignatureStatusResult, SignatureWebhookVerification,
 };
@@ -16,7 +17,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 #[async_trait]
-pub trait SignatureRepository: Send {
+pub trait SignatureRepository: Send + Sync {
     fn database(&self) -> Option<Database> {
         None
     }
@@ -29,6 +30,50 @@ pub trait SignatureRepository: Send {
         &self,
         transaction_document_id: &str,
     ) -> DbResult<Vec<SignatureRequest>>;
+    async fn prepare_tx(
+        &self,
+        _tx: &mut DbTransaction,
+        _request: &PrepareSignatureRequest,
+    ) -> DbResult<SignatureRequestResult> {
+        Err(DbFailure::configuration(
+            "signature.prepare_tx",
+            "Repository does not support transactional signature preparation.",
+        ))
+    }
+    async fn replace_recipients_tx(
+        &self,
+        _tx: &mut DbTransaction,
+        _signature_request_id: &str,
+        _recipients: &[PreparedSignatureRecipient],
+    ) -> DbResult<bool> {
+        Err(DbFailure::configuration(
+            "signature.replace_recipients_tx",
+            "Repository does not support transactional recipient replacement.",
+        ))
+    }
+    async fn get_tx(
+        &self,
+        _tx: &mut DbTransaction,
+        _signature_request_id: &str,
+    ) -> DbResult<Option<SignatureRequest>> {
+        Err(DbFailure::configuration(
+            "signature.get_tx",
+            "Repository does not support transactional signature reads.",
+        ))
+    }
+    async fn set_status_tx(
+        &self,
+        _tx: &mut DbTransaction,
+        _signature_request_id: &str,
+        _expected: SignatureRequestStatus,
+        _target: SignatureRequestStatus,
+    ) -> DbResult<Option<SignatureRequest>> {
+        Err(DbFailure::configuration(
+            "signature.set_status_tx",
+            "Repository does not support transactional status updates.",
+        ))
+    }
+
     async fn send(
         &self,
         request: &SendSignatureRequest,
@@ -87,6 +132,41 @@ impl SignatureRepository for SignatureDao {
         transaction_document_id: &str,
     ) -> DbResult<Vec<SignatureRequest>> {
         SignatureDao::list_by_document(self, transaction_document_id).await
+    }
+
+    async fn prepare_tx(
+        &self,
+        tx: &mut DbTransaction,
+        request: &PrepareSignatureRequest,
+    ) -> DbResult<SignatureRequestResult> {
+        SignatureDao::prepare_tx(self, tx, request).await
+    }
+
+    async fn replace_recipients_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        recipients: &[PreparedSignatureRecipient],
+    ) -> DbResult<bool> {
+        SignatureDao::replace_recipients_tx(self, tx, signature_request_id, recipients).await
+    }
+
+    async fn get_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<SignatureRequest>> {
+        SignatureDao::get_tx(self, tx, signature_request_id).await
+    }
+
+    async fn set_status_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        expected: SignatureRequestStatus,
+        target: SignatureRequestStatus,
+    ) -> DbResult<Option<SignatureRequest>> {
+        SignatureDao::set_status_tx(self, tx, signature_request_id, expected, target).await
     }
 
     async fn send(
@@ -153,7 +233,7 @@ impl SignatureRepository for SignatureDao {
 
 pub struct SignatureService<R> {
     repository: R,
-    provider: Arc<dyn SignatureProvider>,
+    provider: Option<Arc<dyn SignatureProvider>>,
     runtime: ServiceRuntime,
 }
 
@@ -165,9 +245,30 @@ impl<R: SignatureRepository> SignatureService<R> {
     ) -> Self {
         Self {
             repository,
+            provider: Some(provider),
+            runtime: ServiceRuntime::new(infrastructure),
+        }
+    }
+
+    pub fn new_optional(
+        repository: R,
+        provider: Option<Arc<dyn SignatureProvider>>,
+        infrastructure: ServiceInfrastructure,
+    ) -> Self {
+        Self {
+            repository,
             provider,
             runtime: ServiceRuntime::new(infrastructure),
         }
+    }
+
+    fn provider(&self) -> Result<&Arc<dyn SignatureProvider>, CoreServiceError> {
+        self.provider.as_ref().ok_or_else(|| {
+            CoreServiceError::business(
+                "SIGNATURE_PROVIDER_NOT_CONFIGURED",
+                "No external signature provider is configured for this operation.",
+            )
+        })
     }
 
     pub async fn get(
@@ -238,6 +339,161 @@ impl<R: SignatureRepository> SignatureService<R> {
         result
     }
 
+    pub async fn prepare_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        request: &PrepareSignatureRequest,
+        context: &ServiceContext,
+    ) -> Result<SignatureRequestResult, CoreServiceError> {
+        const OP: &str = "signature.prepare";
+        let decision = authorize(
+            &self.runtime,
+            "signature",
+            "signature.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let canonical = request
+            .recipients
+            .iter()
+            .map(PreparedSignatureRecipient::as_signature_recipient)
+            .collect::<Vec<_>>();
+        let errors = validate_signature_recipients(&canonical);
+        let result = if request.transaction_document_id.trim().is_empty() {
+            Err(CoreServiceError::business(
+                "SIGNATURE_DOCUMENT_REQUIRED",
+                "transactionDocumentId is required.",
+            ))
+        } else if request
+            .message
+            .as_ref()
+            .is_some_and(|message| message.len() > 500)
+        {
+            Err(CoreServiceError::business(
+                "SIGNATURE_MESSAGE_TOO_LONG",
+                "message must be 500 characters or fewer.",
+            ))
+        } else if !errors.is_empty()
+            || request
+                .recipients
+                .iter()
+                .any(|recipient| recipient.signing_step < 1)
+        {
+            Err(CoreServiceError::business(
+                "SIGNATURE_RECIPIENT_INVALID",
+                if errors.is_empty() {
+                    "Recipient signingStep must be positive.".into()
+                } else {
+                    errors.join(" ")
+                },
+            ))
+        } else {
+            self.repository.prepare_tx(tx, request).await.map_err(Into::into)
+        };
+
+        audit_result(&self.runtime, "signature", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn replace_recipients_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        recipients: &[PreparedSignatureRecipient],
+        context: &ServiceContext,
+    ) -> Result<(), CoreServiceError> {
+        const OP: &str = "signature.replaceRecipients";
+        let decision = authorize(
+            &self.runtime,
+            "signature",
+            "signature.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = match self
+            .repository
+            .replace_recipients_tx(tx, signature_request_id, recipients)
+            .await
+        {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(CoreServiceError::business(
+                "SIGNATURE_NOT_MUTABLE",
+                "Signature recipients can only be replaced while the request is in requested state.",
+            )),
+            Err(error) => Err(error.into()),
+        };
+        audit_result(&self.runtime, "signature", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn transition_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        target: SignatureRequestStatus,
+        context: &ServiceContext,
+    ) -> Result<SignatureStatusResult, CoreServiceError> {
+        const OP: &str = "signature.transition";
+        let decision = authorize(
+            &self.runtime,
+            "signature",
+            "signature.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            let Some(current) = self.repository.get_tx(tx, signature_request_id).await? else {
+                return Err(CoreServiceError::business(
+                    "SIGNATURE_REQUEST_NOT_FOUND",
+                    "Signature request not found.",
+                ));
+            };
+            if current.status == target {
+                return Ok(SignatureStatusResult {
+                    signature_request: current,
+                    transitioned: false,
+                });
+            }
+            if !current.status.can_transition_to(target) {
+                return Err(CoreServiceError::business(
+                    "SIGNATURE_TRANSITION_INVALID",
+                    format!(
+                        "Transition {} -> {} is not allowed.",
+                        current.status.as_str(),
+                        target.as_str()
+                    ),
+                ));
+            }
+            let Some(updated) = self
+                .repository
+                .set_status_tx(tx, signature_request_id, current.status, target)
+                .await?
+            else {
+                return Err(CoreServiceError::business(
+                    "SIGNATURE_TRANSITION_CONFLICT",
+                    "Signature request changed concurrently.",
+                ));
+            };
+            Ok(SignatureStatusResult {
+                signature_request: updated,
+                transitioned: true,
+            })
+        }
+        .await;
+
+        audit_result(&self.runtime, "signature", OP, context, decision, &result).await?;
+        result
+    }
+
     pub async fn send(
         &self,
         request: &SendSignatureRequest,
@@ -299,8 +555,8 @@ impl<R: SignatureRepository> SignatureService<R> {
                     )
                 })?;
 
-            let delivery = self
-                .provider
+            let provider = self.provider()?;
+            let delivery = provider
                 .send(SignatureProviderSendRequest {
                     signature_request_id: recorded.signature_request.id.clone(),
                     transaction_document_id: recorded
@@ -321,7 +577,7 @@ impl<R: SignatureRepository> SignatureService<R> {
                     CoreServiceError::business("SIGNATURE_PROVIDER_FAILURE", message)
                 })?;
 
-            let target = self.provider.map_status(&delivery.provider_status);
+            let target = provider.map_status(&delivery.provider_status);
             let status = self
                 .repository
                 .apply_status(
@@ -361,7 +617,7 @@ impl<R: SignatureRepository> SignatureService<R> {
 
         let result = db::service_mutation(self.repository.database(), async {
             let observed = self
-                .provider
+                .provider()?
                 .status(signature_request_id)
                 .await
                 .map_err(|message| {
@@ -406,7 +662,7 @@ impl<R: SignatureRepository> SignatureService<R> {
 
         let result = db::service_mutation(self.repository.database(), async {
             let provider = self
-                .provider
+                .provider()?
                 .cancel(signature_request_id)
                 .await
                 .map_err(|message| {
@@ -499,7 +755,7 @@ impl<R: SignatureRepository> SignatureService<R> {
 
         let signed_artifact = if needs_artifact {
             Some(
-                self.provider
+                self.provider()?
                     .download_signed_artifact(signature_request_id)
                     .await
                     .map_err(|message| {
@@ -510,7 +766,7 @@ impl<R: SignatureRepository> SignatureService<R> {
             None
         };
         let audit_artifact = if needs_artifact {
-            self.provider
+            self.provider()?
                 .download_audit_trail(signature_request_id)
                 .await
                 .map_err(|message| {
@@ -575,7 +831,7 @@ impl<R: SignatureRepository> SignatureService<R> {
 
         let result = db::service_mutation(self.repository.database(), async {
             let verified: SignatureWebhookVerification = self
-                .provider
+                .provider()?
                 .verify_webhook(raw_payload, signature)
                 .await
                 .map_err(|message| {
