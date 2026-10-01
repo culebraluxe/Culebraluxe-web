@@ -333,14 +333,12 @@ pub(super) async fn forms_page(
         .await
         .map_err(failed(resolved))?;
     let signature = if let Some(document) = issued.as_ref() {
-        match services.signature() {
-            Ok(signature) => signature
-                .active_for_document(&document.document_id, &resolved.service)
-                .await
-                .ok()
-                .flatten(),
-            Err(_) => None,
-        }
+        services
+            .signature()
+            .active_for_document(&document.document_id, &resolved.service)
+            .await
+            .ok()
+            .flatten()
     } else {
         None
     };

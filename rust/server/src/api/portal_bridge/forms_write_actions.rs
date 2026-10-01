@@ -450,17 +450,7 @@ pub(super) async fn send_signature(
     save_form_values(&state, &resolved, form_id, field_values, sections).await?;
 
     let services = state.services();
-    let signature = services.signature().map_err(|reason| {
-        correlate(
-            ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "SIGNATURE_UNAVAILABLE",
-                format!("Signature service is unavailable: {reason}"),
-                true,
-            ),
-            &resolved,
-        )
-    })?;
+    let signature = services.signature();
 
     if let Some(existing_document) = services
         .vault()

@@ -223,14 +223,6 @@ pub trait SignerRepository: Send + Sync {
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<usize>;
-    async fn revoke_request_access_tx(
-        &self,
-        tx: &mut DbTransaction,
-        signature_request_id: &str,
-    ) -> DbResult<usize> {
-        SignerDao::revoke_request_access_tx(self, tx, signature_request_id).await
-    }
-
     async fn append_evidence_tx(
         &self,
         tx: &mut DbTransaction,
@@ -339,6 +331,13 @@ impl SignerRepository for SignerDao {
         signature_request_id: &str,
     ) -> DbResult<bool> {
         SignerDao::envelope_ready_tx(self, tx, signature_request_id).await
+    }
+    async fn revoke_request_access_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<usize> {
+        SignerDao::revoke_request_access_tx(self, tx, signature_request_id).await
     }
     async fn append_evidence_tx(
         &self,
@@ -740,14 +739,15 @@ impl<R: SignerRepository> SignerService<R> {
             validate_actor_binding(context, &access.recipient_id)?;
             let state = self.current_state(&access.recipient_id).await?;
             if state.state == SignerState::Completed {
+                let envelope_ready_to_finalize = self
+                    .repository
+                    .envelope_ready_tx(tx, &access.signature_request_id)
+                    .await?;
                 return Ok(SignerActionResult {
                     signature_request_id: access.signature_request_id,
                     recipient_id: access.recipient_id,
                     state: SignerState::Completed,
-                    envelope_ready_to_finalize: self
-                        .repository
-                        .envelope_ready_tx(tx, &access.signature_request_id)
-                        .await?,
+                    envelope_ready_to_finalize,
                 });
             }
             if state.state.is_terminal() {
