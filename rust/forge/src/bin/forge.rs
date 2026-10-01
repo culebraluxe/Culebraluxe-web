@@ -196,6 +196,10 @@ fn main() {
     // deterministic QA lane so RUST_CONTRACT can judge the authored test without pretending the application must
     // already satisfy the newly-written assertion.
     let test_mode = packet.as_ref().and_then(|packet| packet.test_mode.clone());
+    let contract_assay_commands = packet
+        .as_ref()
+        .map(|packet| packet.assay_commands.clone())
+        .unwrap_or_default();
     let mut story_run_id: Option<String> = None;
     // The row's dispatch envelope, carried on from the claim to the lane it configures.
     let mut run_model_policy: Option<String> = None;
@@ -445,6 +449,7 @@ fn main() {
             story_run_id.clone(),
             run_launch_intent.clone(),
             test_mode.clone(),
+            contract_assay_commands.clone(),
         )
     } else {
         match NeonStore::connect_from_env() {
@@ -461,6 +466,7 @@ fn main() {
                     story_run_id.clone(),
                     run_launch_intent.clone(),
                     test_mode.clone(),
+                    contract_assay_commands.clone(),
                 )
             }
             Err(e) => Err(format!("neon store: {e}")),
@@ -524,6 +530,7 @@ fn drive<S: TxStore>(
     story_run_id: Option<String>,
     bench_intent: Option<String>,
     test_mode: Option<String>,
+    contract_assay_commands: Vec<String>,
 ) -> Result<String, String> {
     let mut rt = match ForgeRuntime::from_store(
         store,
@@ -550,7 +557,8 @@ fn drive<S: TxStore>(
     let runner = ProductionRoleRunner::new(harness, evidence.clone())
         .with_story_run(story_run_id)
         .with_bench_intent(bench_intent)
-        .with_test_mode(test_mode);
+        .with_test_mode(test_mode)
+        .with_contract_assay_commands(contract_assay_commands);
     match drive_forge_story(
         &mut rt,
         story,
