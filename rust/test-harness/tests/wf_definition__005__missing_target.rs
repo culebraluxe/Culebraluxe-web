@@ -22,8 +22,8 @@
 //!
 //! - an honest definition — every target declared, including a legal self-reference — parses; and
 //! - a definition with a missing target is **refused**, on every node kind that can carry a `<transition>`
-//!   (`start-state`, `state`, `task-node`, `fork`, `join`), because the check is a property of the edge and not of
-//!   one node type.
+//!   (`start-state`, `state`, `task-node`, `fork`, `join`, `end-state`), because the check is a property of the edge
+//!   and not of one node type, and over **every declared node** — including one unreachable from the start.
 //!
 //! The distinguishing negatives are what stop the test passing vacuously: the "exists" set is the **node map**, so a
 //! target declared only in `<display-order>` is still missing; the lookup is **exact**, so a case variant, a padded
@@ -210,6 +210,42 @@ fn wf_definition_005__missing_target() {
             "{HARNESS}: a missing target is refused on node '{declaring}': {message}"
         );
     }
+
+    // 2d. THE CHECK IS OVER EVERY DECLARED NODE, NOT ONLY THOSE REACHABLE FROM START. Production walks the whole node
+    //     map (`rust/forge/src/engine/xml.rs:387-396`), so an edge on an orphan node — one no path from the start ever
+    //     reaches — is still refused. A parser that validated only reachable nodes would ship a definition with a
+    //     dangling edge hidden behind an unreachable node, and this clause fails.
+    let orphan = r#"<process-definition key="TST-WF-DEFINITION-005-ORPHAN" version="1" name="Orphan">
+  <start-state id="start">
+    <transition name="begin" to="done"/>
+  </start-state>
+  <end-state id="done"/>
+  <state id="orphan">
+    <transition name="drift" to="ghost"/>
+  </state>
+</process-definition>"#;
+    let orphan_message = refusal_message(orphan);
+    assert!(
+        orphan_message.contains("on 'orphan' targets missing 'ghost'"),
+        "{HARNESS}: a missing target on a node unreachable from start is still refused: {orphan_message}"
+    );
+
+    // 2e. AN END-STATE'S OWN EDGE IS CHECKED TOO. `collect_transitions` runs before the element-name switch
+    //     (`rust/forge/src/engine/xml.rs:266`), so an `<end-state>` that declares a `<transition>` is subject to the
+    //     same rule; a missing target there is refused, not ignored because the node is a terminus.
+    let end_edge = r#"<process-definition key="TST-WF-DEFINITION-005-END-EDGE" version="1" name="End edge">
+  <start-state id="start">
+    <transition name="begin" to="done"/>
+  </start-state>
+  <end-state id="done">
+    <transition name="bounce" to="ghost"/>
+  </end-state>
+</process-definition>"#;
+    let end_edge_message = refusal_message(end_edge);
+    assert!(
+        end_edge_message.contains("on 'done' targets missing 'ghost'"),
+        "{HARNESS}: an end-state's edge to a missing node is refused: {end_edge_message}"
+    );
 
     // 3. BYPASS (exact, not fuzzy) — "missing" means no node carries that id. A target that is a case variant, a
     //    padded or whitespace-damaged id, or a prefix of a real id must ALL be refused. A parser that normalised
