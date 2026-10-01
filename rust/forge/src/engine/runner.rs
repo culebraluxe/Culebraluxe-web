@@ -5,7 +5,10 @@ use crate::engine::agents::forge_agent_collect;
 use crate::engine::architect::{
     assess_architect_handoff, parse_architect_handoff, ArchitectAssessment,
 };
-use crate::engine::assay::{collect_assay_evidence, AssayEvidence, AssayVerdict, CommandResult};
+use crate::engine::assay::{
+    collect_assay_evidence, collect_rust_contract_assay_evidence, AssayEvidence, AssayVerdict,
+    CommandResult,
+};
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
@@ -63,6 +66,9 @@ pub struct ProductionRoleRunner<'a> {
     /// The bench intent the dispatch carried (migration 167 `launch_intent`) — the Cockpit's cap on the Lead,
     /// travelling with the run it caps.
     pub bench_intent: Option<String>,
+    /// Storyboard-declared test policy. RUST_CONTRACT means this story authors a test artifact; runtime assertion
+    /// failures are findings about the application, not a reason to rewrite the test until green.
+    pub test_mode: Option<String>,
     pub require_prod: bool,
 }
 
@@ -74,6 +80,7 @@ impl<'a> ProductionRoleRunner<'a> {
             writer: None,
             story_run_id: None,
             bench_intent: None,
+            test_mode: None,
             require_prod: false,
         }
     }
@@ -89,6 +96,11 @@ impl<'a> ProductionRoleRunner<'a> {
     /// answer — never a default this code invents.
     pub fn with_bench_intent(mut self, bench_intent: Option<String>) -> Self {
         self.bench_intent = bench_intent;
+        self
+    }
+
+    pub fn with_test_mode(mut self, test_mode: Option<String>) -> Self {
+        self.test_mode = test_mode;
         self
     }
 
@@ -146,7 +158,10 @@ pub fn assay_tool_artifact(
         tool: "assay".to_string(),
         kind: "qa-assay-evidence".to_string(),
         verdict: Some(verdict.to_string()),
-        summary: evidence.deliverable_rejection.clone(),
+        summary: evidence
+            .deliverable_rejection
+            .clone()
+            .or_else(|| evidence.last_failure.clone()),
         detail: None,
         sha: evidence.candidate_sha.clone(),
     }
@@ -277,6 +292,15 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
         ) {
             if let Some(sha) = out.candidate_sha.clone() {
                 evidence.candidate_sha = Some(sha.clone());
+                if let (Some(writer), Some(run_id)) = (self.writer, self.story_run_id.as_deref()) {
+                    writer
+                        .stamp_run_candidate(run_id, &sha)
+                        .map_err(|error| {
+                            WorkflowError::generic(format!(
+                                "stamp_run_candidate({story_id}, {run_id}): {error}"
+                            ))
+                        })?;
+                }
                 if let Some(base) = evidence.extra.get("recordedBase").and_then(|v| v.as_str()) {
                     let repo = std::env::current_dir().unwrap_or_else(|_| ".".into());
                     match candidate_own_changed_files(
@@ -298,13 +322,22 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
         }
 
         if matches!(node_id, "qa_verify" | "fast_qa_verify") {
-            let collected = collect_assay_evidence(
-                evidence,
-                &ports,
-                Some(&|cmd| self.harness.run_command(cmd)),
-                &out.assay_commands,
-                out.acceptance_mapped,
-            );
+            let collected = if self.test_mode.as_deref() == Some("RUST_CONTRACT") {
+                collect_rust_contract_assay_evidence(
+                    evidence,
+                    Some(&|cmd| self.harness.run_command(cmd)),
+                    &out.assay_commands,
+                    out.acceptance_mapped,
+                )
+            } else {
+                collect_assay_evidence(
+                    evidence,
+                    &ports,
+                    Some(&|cmd| self.harness.run_command(cmd)),
+                    &out.assay_commands,
+                    out.acceptance_mapped,
+                )
+            };
             let AssayEvidence {
                 evidence: measured,
                 verdict,
