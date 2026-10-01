@@ -398,6 +398,11 @@ async fn accounting_core_008__date_filtering() {
         ("0", "0", "0"),
         "{HARNESS}: an empty period totals zero rather than nothing"
     );
+    assert_eq!(
+        (empty.from.as_str(), empty.to.as_str()),
+        ("2099-02-01", "2099-02-28"),
+        "{HARNESS}: even an empty statement echoes the period it was asked for"
+    );
 
     // 7. NEGATIVE / SINGLE-DAY PERIOD — `from == to` is a legal one-day filter, and it is inclusive on that day. A
     //    filter that treated a same-day period as backwards, or excluded the endpoint, would not return r8/e5.
@@ -422,6 +427,11 @@ async fn accounting_core_008__date_filtering() {
         one_day.net_income.as_str(),
         "4.00",
         "{HARNESS}: the single-day net is filtered income minus filtered cost (7.00 - 3.00)"
+    );
+    assert_eq!(
+        (one_day.from.as_str(), one_day.to.as_str()),
+        ("2099-09-15", "2099-09-15"),
+        "{HARNESS}: a single-day statement echoes both ends of the one-day period"
     );
 
     // 8. COMMITTED TRUTH — the filter reads what is committed, and a rolled-back probe changes nothing. The probe
