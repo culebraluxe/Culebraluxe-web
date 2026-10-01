@@ -60,6 +60,16 @@ impl ForgeStateWriter for DbForgeStateWriter {
         })
     }
 
+    fn stamp_run_candidate(&self, run_id: &str, candidate_sha: &str) -> Result<(), String> {
+        self.run(|dao, rt| {
+            rt.block_on(async {
+                dao.stamp_run_candidate(run_id, candidate_sha)
+                    .await
+                    .map_err(|e| e.to_string())
+            })
+        })
+    }
+
     fn append_run_detail(&self, run_id: &str, detail: &str) -> Result<(), String> {
         self.run(|dao, rt| {
             rt.block_on(async {
