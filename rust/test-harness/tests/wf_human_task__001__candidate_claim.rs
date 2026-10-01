@@ -267,6 +267,20 @@ fn wf_human_task_001__candidate_claim() {
         vec![ALICE.to_string(), BOB.to_string()],
         "{HARNESS}: the durable task.created event names the same candidates the claim gate will enforce"
     );
+    // The creation event is attributed to the instance and the token the claim will later name. A task.created row
+    // filed against another instance or token would make the roster above dangle off the task that actually parked.
+    assert_eq!(
+        created[0].process_instance_id, instance,
+        "{HARNESS}: the task.created event is attributed to the owning process instance"
+    );
+    assert!(
+        parked.token_id.is_some(),
+        "{HARNESS}: the parked task names the token whose claim the durable events must attribute"
+    );
+    assert_eq!(
+        created[0].token_id, parked.token_id,
+        "{HARNESS}: the task.created event is attributed to the task's own token"
+    );
 
     // ── 2. NEGATIVE / REFUSAL — A NON-CANDIDATE CANNOT CLAIM ───────────────────────────────────────────────────
     // Carol is not in the roster and there is no assignee to fall back on, so the candidate gate must refuse her
@@ -362,6 +376,16 @@ fn wf_human_task_001__candidate_claim() {
         Some("ready"),
         "{HARNESS}: the claim event records the status the task left behind"
     );
+    // Attribution: the claim event is filed against the same instance and the same token as the task it claimed, so
+    // the durable log ties the claim to the exact work it moved — not merely to *a* task id.
+    assert_eq!(
+        claimed_events[0].process_instance_id, instance,
+        "{HARNESS}: the claim event is attributed to the claimed task's process instance"
+    );
+    assert_eq!(
+        claimed_events[0].token_id, parked.token_id,
+        "{HARNESS}: the claim event is attributed to the claimed task's own token"
+    );
 
     // ── 4. NEGATIVE — A SECOND CANDIDATE CANNOT STEAL THE CLAIM ────────────────────────────────────────────────
     // Bob is a candidate, but the task is no longer open: it is reserved to Alice. The gate must refuse him with
@@ -410,9 +434,18 @@ fn wf_human_task_001__candidate_claim() {
         Some(DAVE),
         "{HARNESS}: the open task records the arbitrary claimant as assignee"
     );
+    let open_claimed_events = events_of_type(&harness, &open_instance, "task.claimed");
     assert_eq!(
-        events_of_type(&harness, &open_instance, "task.claimed").len(),
+        open_claimed_events.len(),
         1,
         "{HARNESS}: the open-task claim is announced exactly once"
+    );
+    assert_eq!(
+        open_claimed_events[0].process_instance_id, open_instance,
+        "{HARNESS}: the open-task claim is attributed to its own process instance"
+    );
+    assert_eq!(
+        open_claimed_events[0].token_id, open_task.token_id,
+        "{HARNESS}: the open-task claim is attributed to the open task's own token"
     );
 }
