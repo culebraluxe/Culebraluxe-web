@@ -483,6 +483,7 @@ fn main() {
                     run_launch_intent.clone(),
                     test_mode.clone(),
                     contract_assay_commands.clone(),
+                    contract_acceptance_mapped,
                 )
             }
             Err(e) => Err(format!("neon store: {e}")),
