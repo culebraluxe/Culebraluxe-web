@@ -217,6 +217,7 @@ async fn close_story_run_in(
     sqlx::query(
         "update storyboard_story_run
             set ended_at=now(), result_status=$2,
+                completion=case when $2='Complete' then 100 else completion end,
                 notes=case
                   when nullif(trim(coalesce($3,'')),'') is null then notes
                   when notes is null or notes='' then $3
