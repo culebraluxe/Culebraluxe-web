@@ -41,12 +41,6 @@ pub fn preview_publish(repo: &Path, candidate: &str) -> PublishOutcome {
             reason: format!("candidate {candidate} is not a commit in {repo:?}"),
         };
     }
-    if std::env::var("FORGE_ALLOW_PUBLISH").ok().as_deref() != Some("1") {
-        return PublishOutcome::PublishConflict {
-            reason: "Forge publication is disabled (FORGE_ALLOW_PUBLISH != 1)".into(),
-        };
-    }
-
     // Multiple Smiths may finish from the same base. Publication is therefore an optimistic CAS on origin/main:
     // fast-forward when possible; otherwise make a merge commit whose parents are the latest main and the exact
     // QA-approved candidate. A racing publisher simply refreshes main and retries the integration.
@@ -141,6 +135,11 @@ pub fn preview_publish(repo: &Path, candidate: &str) -> PublishOutcome {
             (commit, true)
         };
 
+        if std::env::var("FORGE_ALLOW_PUBLISH").ok().as_deref() != Some("1") {
+            return PublishOutcome::PublishConflict {
+                reason: "Forge publication is disabled (FORGE_ALLOW_PUBLISH != 1)".into(),
+            };
+        }
         match git(
             repo,
             &["push", "origin", &format!("{publish_sha}:refs/heads/main")],
