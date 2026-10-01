@@ -12,26 +12,30 @@ know" must be a file on `origin/main`, never a chat log the next agent cannot re
 ## House Rules — one house, one bathroom
 
 Several agents (Claude, GPT, DeepSeek, Cline) work in this repository at the same time. These rules keep it livable,
-and they override anything later in this file that says otherwise (including "worker branch" wording).
+and they override anything later in this file that says otherwise.
 
-1. **Main only.** All work lands on `main`. No feature, worker or sandbox branches. Work that is not on `origin/main`
-   does not exist: nobody can pull it, review it or deploy it.
-2. **Push after every commit.** Every commit is followed at once by `git pull --rebase && git push`. Never leave
-   commits only on your machine or in a sandbox — they strand the work and collide with everyone else's.
+1. **Your branch is yours; `main` is the publish path's.** An agent checks in its own work on its worker branch
+   (`agent/<story>/<run>`) and pushes that branch — even code that fails, because a checked-in failure can be
+   fixed later and a stranded one cannot. `main` is the integration target: only the DevOps publish path pushes
+   it, behind `FORGE_ALLOW_PUBLISH=1`, so `origin/main` stays something a human can review and deploy.
+2. **Push after every commit.** Every commit is followed at once by a push of your worker branch. Never leave
+   commits only on your machine or in a sandbox — they strand the work and collide with everyone else's. You
+   reach `main` only through the publish path, never by pushing it yourself.
 3. **Small commits, often.** One working change per commit, committed as soon as it builds and its tests pass. No
    multi-hour sessions of unpushed work.
-4. **Your own checkout.** When another agent works in the same folder, work in a separate `git worktree` checked out
-   from `origin/main`, and still push to `main`. Never commit changes you did not make.
+4. **Your own checkout.** When another agent works in the same folder, work in a separate `git worktree` on your
+   own `agent/*` branch, and push that branch. Never commit changes you did not make, and never push `main`.
 5. **`Cargo.lock` travels with `Cargo.toml`.** A commit that changes any `Cargo.toml` includes the updated
    `rust/Cargo.lock`. The deploy builds with `--locked` and fails without it.
 6. **Never hold work back.** Running out of time, budget or context is not a reason to keep work on your side: push
    what builds first, then say what is unfinished.
 7. **Leave the kitchen clean.** No uncommitted changes, stray files or running test servers left behind.
-8. **Done means pushed.** It builds, its tests pass, and `git log origin/main` shows your commit — report the commit
-   ids.
+8. **Done means pushed.** It builds (or the failure is named), its tests pass, and your worker branch is on
+   `origin` — report the branch and the commit ids. `main` shows it once the publish path lands it.
 
-The pre-push hook in `.githooks/` enforces rules 1 and 5 on this machine: it refuses to push any branch but `main`,
-and refuses a push whose `rust/Cargo.lock` is out of date. A new clone turns it on with
+The pre-push hook in `.githooks/` enforces rules 1 and 5 on this machine: it allows an `agent/*` worker branch,
+refuses `main` unless `FORGE_ALLOW_PUBLISH=1` (the publish path's switch), refuses any other branch, and on a
+`main` push refuses a `rust/Cargo.lock` that is out of date. A new clone turns it on with
 `git config core.hooksPath .githooks`.
 
 ## Rust First — the application is Rust
@@ -164,7 +168,7 @@ Never
   QA-held sha that `ENG-FORGE-QA-NO-GIT-GUARD-01` deleted for refusing every release. When a review or an
   order asks for a policy the code explicitly refuses, name the conflict and stop. See `docs/agent/MEMORY.md`.
   guard: rust/forge/tests/handbook_engine_guards.rs
-- Push, merge, or rebase from a worker. guard: rust/forge/tests/handbook_engine_guards.rs
+- Push `main`, or push any branch that is not your own `agent/*` worker branch. guard: rust/forge/tests/handbook_engine_guards.rs
 - Run Forge against DEV. Forge runs (engine lanes, dogfoods, splits, role attempts) execute against PROD only — the environment is not something a run may flip (see `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` §0). guard: rust/core/db/src/pool.rs
 - Reset PROD, copy DEV over PROD, or truncate canonical history. guard: NONE — no automated check; a destructive database action is a human decision the operator makes himself, and no test can stand between him and his own console.
 - Keep a git commit as Scout, Assay, or Inspector. guard: rust/cli/src/forge/lint.rs

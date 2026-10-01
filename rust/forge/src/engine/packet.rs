@@ -70,6 +70,23 @@ pub struct ExecutionWorkspace {
     pub base_commit: String,
 }
 
+/// The roles that write code and therefore own a check-in: the Builder lane alone. Every other node — QA,
+/// Scout, Architect, Lead, DevOps — verifies or routes and owns no git. This is the runtime half of the
+/// handbook's rule ("Commit on the worker branch only when the role is Builder" / "Only the Builder role
+/// commits. Scout, Assay and Inspector never do."); the packet lint guards the *file* text, this gates what
+/// the engine actually hands the model. `opencode::smith_writes_code` is the same set for the candidate gate.
+pub fn node_owns_a_commit(node_id: &str) -> bool {
+    matches!(
+        node_id,
+        "smith"
+            | "smith_split_work"
+            | "repair_smith"
+            | "fast_smith"
+            | "fast_repair_smith"
+            | "lead_solo_implement"
+    )
+}
+
 pub fn build_task_text(
     node_id: &str,
     task_id: &str,
@@ -129,15 +146,29 @@ pub fn build_task_text_with_context(
         parts.push(block.to_string());
     }
     if let Some(w) = workspace {
-        parts.push(format!(
-            "Execution isolation (ENG-21): you are working in an isolated Git worktree on branch {}, created from approved base {}@{}. Commit your changes on this branch only; never push, merge, rebase, or touch files outside this checkout.",
-            w.branch_name, w.base_ref, w.base_commit
-        ));
+        parts.push(if node_owns_a_commit(node_id) {
+            format!(
+                "Execution isolation (ENG-21): you are working in an isolated Git worktree on branch {}, created from approved base {}@{}. Commit your changes on this branch and push that branch (git push origin HEAD); never push main, never merge or rebase, and never touch files outside this checkout.",
+                w.branch_name, w.base_ref, w.base_commit
+            )
+        } else {
+            format!(
+                "Execution isolation (ENG-21): you are working in an isolated Git worktree on branch {}, created from approved base {}@{}. Do not commit and do not push; never touch files outside this checkout.",
+                w.branch_name, w.base_ref, w.base_commit
+            )
+        });
     }
-    parts.push(
-        "Work in the current repository. Verify your work by running tests/typecheck/build within the runtime policy above. Create a local git commit with the intended changes when the story requires it. Do NOT push. Do NOT mutate production data or schema. Report what you did."
-            .into(),
-    );
+    if node_owns_a_commit(node_id) {
+        parts.push(
+            "Work in the current repository. Verify your work by running tests/typecheck/build within the runtime policy above. Create a local git commit with the intended changes and push it to your worker branch. Never push main. Do NOT mutate production data or schema. Report what you did."
+                .into(),
+        );
+    } else {
+        parts.push(
+            "Work in the current repository. Verify your work by running tests/typecheck/build within the runtime policy above. Do not commit and do not push: only the Builder role owns a check-in. Do NOT mutate production data or schema. Report what you did."
+                .into(),
+        );
+    }
     if packet.test_mode.as_deref() == Some("RUST_CONTRACT") {
         parts.push(
             "TEST-AUTHORING STORY (RUST_CONTRACT). The deliverable is a TEST ARTIFACT, not a product fix. \

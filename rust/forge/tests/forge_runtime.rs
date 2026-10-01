@@ -985,7 +985,31 @@ fn packet_includes_isolation_and_architect_brief() {
     );
     assert!(text.contains("Architect brief: use existing URL"));
     assert!(text.contains("isolated Git worktree on branch forge/s1"));
-    assert!(text.contains("Do NOT push"));
+    assert!(text.contains("Do not commit and do not push"));
+}
+
+/// Only the Builder role owns a check-in: the task text tells Smith to commit and push its worker branch, and
+/// tells QA to verify and report without touching git. This is the runtime half of the handbook rule
+/// "Only the Builder role commits. Scout, Assay and Inspector never do." (AGENTS.md).
+#[test]
+fn packet_lets_only_the_builder_check_in() {
+    let workspace = packet::ExecutionWorkspace {
+        worktree_path: "/tmp/wt".into(),
+        branch_name: "agent/s1/run-1".into(),
+        base_ref: "main".into(),
+        base_commit: "abc1234def".into(),
+    };
+    let story = packet::StoryPacket {
+        id: "s1".into(),
+        title: "Wire neon".into(),
+        ..Default::default()
+    };
+    let builder = packet::build_task_text("fast_smith", "t1", &story, Some(&workspace));
+    assert!(builder.contains("Create a local git commit"));
+    assert!(builder.contains("push it to your worker branch"));
+    let qa = packet::build_task_text("fast_qa_verify", "t1", &story, Some(&workspace));
+    assert!(qa.contains("Do not commit and do not push"));
+    assert!(!qa.contains("Create a local git commit"));
 }
 
 #[test]

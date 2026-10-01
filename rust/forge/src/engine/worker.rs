@@ -7,8 +7,8 @@ use crate::engine::agent_work;
 use crate::engine::learn::run_learn_pass;
 use crate::engine::routing_brain::{parse_forge_routing_brain, ForgeRoutingBrain};
 use crate::engine::vendor_session::with_shared;
-use crate::engine::worktree::cleanup_worker_workspace;
-use db::{AgentWorkOutcome, ForgeControlDao};
+use crate::engine::worktree::{cleanup_worker_workspace, salvage_worker_workspace, SalvagedWork};
+use db::{AgentWorkOutcome, ForgeControlDao, ForgeEngineDao};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -530,6 +530,42 @@ fn run_claimed_dispatch(
     };
     heartbeat.store(true, Ordering::Relaxed);
 
+    // BEFORE THE SANDBOX IS DELETED, take the last way for paid code to die inside it out of the picture. A lane
+    // that died mid-edit leaves an uncommitted tree, and `cleanup_worker_workspace` deletes that tree with
+    // `--force` — so the code has to be committed onto the branch, and recorded, first, or it is gone. The
+    // committed path already does this for the exits that are normal; this covers the ones that are not.
+    match salvage_worker_workspace(
+        std::env::current_dir().ok().as_deref(),
+        &dispatch.story_id,
+        &dispatch.work_item_id,
+        None,
+    ) {
+        Ok(Some(saved)) => {
+            let short = &saved.commit_sha[..saved.commit_sha.len().min(12)];
+            if saved.made_commit {
+                eprintln!(
+                    "forge-worker: salvaged {} on {} ({} file(s)) — the turn died before it committed",
+                    short,
+                    saved.branch_name,
+                    saved.changed_files.len()
+                );
+            } else {
+                eprintln!(
+                    "forge-worker: salvaged {} on {} ({} file(s)) — committed but never recorded",
+                    short,
+                    saved.branch_name,
+                    saved.changed_files.len()
+                );
+            }
+            record_salvaged_code(&dispatch.story_id, &saved);
+        }
+        Ok(None) => {}
+        Err(error) => eprintln!(
+            "forge-worker: salvage failed story={} item={}: {error}",
+            dispatch.story_id, dispatch.work_item_id
+        ),
+    }
+
     // A worktree is an execution sandbox, not workflow state. Remove it after every child run. The cleanup helper
     // keeps the branch only when its candidate is not yet contained in origin/main, so a Hold cannot erase paid code.
     if let Err(error) = cleanup_worker_workspace(
@@ -571,6 +607,43 @@ fn run_claimed_dispatch(
     }
 
     Ok(status.code().unwrap_or(1))
+}
+
+/// Write the code a teardown salvaged into the control plane, in the same shape and under the same
+/// `kind='candidate-code'` the committed path uses.
+///
+/// ONE KIND, ONE READER, ON PURPOSE: a recovered candidate must be indistinguishable from a captured one, so
+/// that `forge salvage --story …` is the only thing anyone has to know about, and the tool that already exists
+/// is the tool that gets the code back. The row is keyed to the story and never to the run (the salvage runs
+/// after the run may already be closed), exactly as the committed path's capture is. Best effort: a database
+/// that will not take the row must not stop the teardown, because the commit on the branch is already the code
+/// saved — this is the second copy, not the only one.
+fn record_salvaged_code(story_id: &str, saved: &SalvagedWork) {
+    let artifact = crate::engine::runner::smith_candidate_artifact(
+        story_id,
+        None,
+        &saved.commit_sha,
+        &saved.base_sha,
+        &saved.patch,
+        &saved.changed_files,
+    );
+    let result = with_shared(|db, rt| {
+        let dao = ForgeEngineDao::new(db.clone());
+        rt.block_on(async {
+            dao.record_tool_artifact(&artifact)
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+    });
+    match result {
+        Ok(Ok(())) => {
+            eprintln!("forge-worker: recorded salvaged code for {story_id} in the control plane")
+        }
+        Ok(Err(error)) | Err(error) => {
+            eprintln!("forge-worker: could not record salvaged code for {story_id}: {error}")
+        }
+    }
 }
 
 #[cfg(test)]

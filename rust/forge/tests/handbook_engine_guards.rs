@@ -124,11 +124,12 @@ fn the_qa_release_path_runs_no_git_command_and_checks_no_lineage() {
     );
 }
 
-/// AGENTS.md:161 — "Push, merge, or rebase from a worker."
+/// AGENTS.md — "Push `main`, or push any branch that is not your own `agent/*` worker branch."
 ///
 /// The engine has exactly one pusher: the DevOps publish path (`git_publish.rs`), and it pushes only
-/// behind `FORGE_ALLOW_PUBLISH=1`. This fails if any other engine source names a `push`, `merge` or
-/// `rebase` git subcommand. `merge-base` is a lineage read, not a merge, and is not matched.
+/// behind `FORGE_ALLOW_PUBLISH=1`. A worker checks in its own `agent/*` branch through git, not through
+/// engine source; this fails if any engine source names a `push`, `merge` or `rebase` git subcommand.
+/// `merge-base` is a lineage read, not a merge, and is not matched.
 #[test]
 fn only_the_publish_path_may_push_merge_or_rebase() {
     let mut files: Vec<PathBuf> = Vec::new();

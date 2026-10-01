@@ -52,6 +52,7 @@ fn blocked_model_env_key(key: &str) -> bool {
     upper == "APP_ENV"
         || upper == "EXECUTION_ENV"
         || upper == "VERCEL_ENV"
+        || upper == "FORGE_ALLOW_PUBLISH"
         || upper == "DATABASE_URL"
         || upper.starts_with("DATABASE_URL_")
         || upper.starts_with("NEON_")
@@ -63,15 +64,14 @@ fn blocked_model_env_key(key: &str) -> bool {
 }
 
 /// Smith runs code with the machine's normal toolchain/provider configuration, but it does not inherit the
-/// control plane's production database authority. Git publication is also disabled inside the model subprocess:
-/// DEV_OPS/Forge publishes the accepted candidate, never Smith.
+/// control plane's production database authority. Smith owns its own check-in: it commits and pushes its
+/// `agent/*` worker branch (a checked-in failure can be fixed later; a stranded one cannot), so the subprocess
+/// keeps its push access. It can never publish — `FORGE_ALLOW_PUBLISH`, the switch the pre-push hook requires to
+/// push `main`, is stripped here, and DEV_OPS/Forge integrates the accepted candidate.
 pub fn sanitize_model_env(
     mut env: HashMap<String, String>,
 ) -> HashMap<String, String> {
     env.retain(|key, _| !blocked_model_env_key(key));
-    env.insert("GIT_CONFIG_COUNT".into(), "1".into());
-    env.insert("GIT_CONFIG_KEY_0".into(), "remote.origin.pushurl".into());
-    env.insert("GIT_CONFIG_VALUE_0".into(), "/dev/null".into());
     env
 }
 
@@ -528,13 +528,14 @@ mod tests {
     }
 
     #[test]
-    fn smith_subprocess_has_no_prod_database_authority_and_cannot_push() {
+    fn smith_subprocess_has_no_prod_database_authority_and_can_never_publish() {
         let mut env = HashMap::new();
         env.insert("PATH".into(), "/usr/bin".into());
         env.insert("DATABASE_URL_PROD".into(), "postgres://prod".into());
         env.insert("NEON_API_KEY".into(), "secret".into());
         env.insert("APP_ENV".into(), "production".into());
         env.insert("EXECUTION_ENV".into(), "PROD".into());
+        env.insert("FORGE_ALLOW_PUBLISH".into(), "1".into());
         env.insert("OPENCODE_TOKEN".into(), "keep-me".into());
 
         let clean = sanitize_model_env(env);
@@ -547,14 +548,10 @@ mod tests {
         assert!(!clean.contains_key("NEON_API_KEY"));
         assert!(!clean.contains_key("APP_ENV"));
         assert!(!clean.contains_key("EXECUTION_ENV"));
-        assert_eq!(
-            clean.get("GIT_CONFIG_KEY_0").map(String::as_str),
-            Some("remote.origin.pushurl")
-        );
-        assert_eq!(
-            clean.get("GIT_CONFIG_VALUE_0").map(String::as_str),
-            Some("/dev/null")
-        );
+        // Smith owns its own check-in, so its push is NOT redirected to /dev/null — but the publish switch is
+        // stripped, so it can never satisfy the pre-push hook that guards `main`.
+        assert!(!clean.contains_key("FORGE_ALLOW_PUBLISH"));
+        assert!(!clean.contains_key("GIT_CONFIG_KEY_0"));
     }
 
     #[test]

@@ -208,7 +208,7 @@ const VENDOR_GUARDRAIL_ANCHOR: &str = "Commit on the worker branch only when the
 /// The handbook's two `Never` lines on this subject, verbatim, each with the guard it declares. The guard
 /// path is parsed back out of the line and must resolve to a file naming the test that holds the rule.
 const AGENTS_GUARD_LINES: [&str; 2] = [
-    "- Push, merge, or rebase from a worker. guard: rust/forge/tests/handbook_engine_guards.rs",
+    "- Push `main`, or push any branch that is not your own `agent/*` worker branch. guard: rust/forge/tests/handbook_engine_guards.rs",
     "- Keep a git commit as Scout, Assay, or Inspector. guard: rust/cli/src/forge/lint.rs",
 ];
 
