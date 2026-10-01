@@ -84,29 +84,46 @@ const PRODUCTION_ROOTS: [&str; 6] = [
     "rust/ui/",
 ];
 
-/// The production files the candidate commit touched, asked of git through the same command runner the assay
-/// uses. Empty when there is no candidate, or when git cannot answer — the authoring checks still stand in that
-/// case, so an unreadable git is not by itself a reason to block an honestly-authored story.
+pub fn is_rust_contract_production_path(path: &str) -> bool {
+    let path = path.trim();
+    PRODUCTION_ROOTS.iter().any(|root| path.starts_with(root))
+}
+
+/// The production files changed by the exact Smith execution range. QA deliberately uses the SAME
+/// base..candidate range Smith validates, so a repair commit cannot hide a production edit made by an earlier
+/// Smith attempt in the same story workspace.
 pub fn rust_contract_production_edits(
+    base_sha: Option<&str>,
     candidate_sha: Option<&str>,
     run: &dyn Fn(&str) -> CommandResult,
-) -> Vec<String> {
-    let Some(sha) = candidate_sha.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Vec::new();
-    };
-    let listed = run(&format!("git show --name-only --format= {sha}"));
+) -> Result<Vec<String>, String> {
+    let base = base_sha
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "QA FAIL: RUST_CONTRACT execution base is missing.".to_string())?;
+    let candidate = candidate_sha
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "QA FAIL: RUST_CONTRACT exact candidate SHA is missing.".to_string())?;
+
+    let command = format!("git diff --name-only {base}..{candidate}");
+    let listed = run(&command);
+    if listed.unmeasurable || !listed.passed {
+        return Err(format!(
+            "QA FAIL: RUST_CONTRACT could not measure exact candidate range {base}..{candidate}."
+        ));
+    }
+
     let mut found: Vec<String> = listed
         .output
         .lines()
         .map(str::trim)
-        .filter(|line| {
-            !line.is_empty() && PRODUCTION_ROOTS.iter().any(|root| line.starts_with(root))
-        })
+        .filter(|line| !line.is_empty() && is_rust_contract_production_path(line))
         .map(str::to_string)
         .collect();
     found.sort();
     found.dedup();
-    found
+    Ok(found)
 }
 
 /// Test-authoring stories measure two different facts:
@@ -202,7 +219,22 @@ pub fn collect_rust_contract_assay_evidence(
     // THE TEST-ONLY RULE. A test-authoring story's deliverable is a test; production code is not its to move.
     // This is an AUTHORING defect, so it lives in the structural gate that is allowed to fail — never in the
     // runtime bucket below, where a failing test is legitimate evidence about the application.
-    let production_edits = rust_contract_production_edits(evidence.candidate_sha.as_deref(), run);
+    let base_sha = evidence
+        .extra
+        .get("recordedBase")
+        .and_then(|value| value.as_str());
+    let production_edits =
+        match rust_contract_production_edits(base_sha, evidence.candidate_sha.as_deref(), run) {
+            Ok(edits) => edits,
+            Err(reason) => {
+                evidence.qa_passed = Some(false);
+                evidence.deliverable_rejection = Some(reason);
+                return AssayEvidence {
+                    evidence,
+                    verdict: AssayVerdict::Fail,
+                };
+            }
+        };
     if !production_edits.is_empty() {
         evidence.qa_passed = Some(false);
         evidence.deliverable_rejection = Some(format!(
@@ -306,6 +338,18 @@ mod rust_contract_tests {
         }
     }
 
+    fn contract_gate() -> ForgeGateEvidence {
+        let mut gate = ForgeGateEvidence {
+            candidate_sha: Some("0123456789abcdef0123456789abcdef01234567".into()),
+            ..ForgeGateEvidence::default()
+        };
+        gate.extra.insert(
+            "recordedBase".into(),
+            workflow::Value::from("89abcdef0123456789abcdef0123456789abcdef"),
+        );
+        gate
+    }
+
     #[test]
     fn runtime_failure_is_product_evidence_not_test_authoring_failure() {
         let commands = vec![
@@ -314,7 +358,7 @@ mod rust_contract_tests {
             "cargo check --manifest-path rust/Cargo.toml --workspace --all-targets".to_string(),
         ];
         let evidence = collect_rust_contract_assay_evidence(
-            ForgeGateEvidence::default(),
+            contract_gate(),
             Some(&|command| {
                 if command.starts_with("cargo test") {
                     result(command, false)
@@ -341,15 +385,12 @@ mod rust_contract_tests {
         let commands = vec![
             "cargo check --manifest-path rust/Cargo.toml --workspace --all-targets".to_string(),
         ];
-        let gate = ForgeGateEvidence {
-            candidate_sha: Some("0123456789abcdef0123456789abcdef01234567".into()),
-            ..ForgeGateEvidence::default()
-        };
+        let gate = contract_gate();
         let evidence = collect_rust_contract_assay_evidence(
             gate,
             Some(&|command| {
-                if command.starts_with("git show") {
-                    // The candidate touched its own test — and the production file it should never have moved.
+                if command.starts_with("git diff --name-only") {
+                    // An earlier commit in the Smith execution range touched production code; QA must still see it.
                     CommandResult {
                         command: command.into(),
                         exit_code: 0,
@@ -372,6 +413,30 @@ mod rust_contract_tests {
         let rejection = evidence.evidence.deliverable_rejection.unwrap_or_default();
         assert!(rejection.contains("modified production code"));
         assert!(rejection.contains("engine_options.rs"));
+    }
+
+    #[test]
+    fn production_edit_check_uses_the_whole_execution_range() {
+        let gate = contract_gate();
+        let observed = std::sync::Mutex::new(String::new());
+        let commands =
+            vec!["cargo check --manifest-path rust/Cargo.toml --workspace --all-targets".to_string()];
+        let evidence = collect_rust_contract_assay_evidence(
+            gate,
+            Some(&|command| {
+                if command.starts_with("git diff --name-only") {
+                    *observed.lock().expect("range observation lock") = command.to_string();
+                }
+                result(command, true)
+            }),
+            &commands,
+            true,
+        );
+        assert_eq!(evidence.verdict, AssayVerdict::Pass);
+        assert_eq!(
+            observed.lock().expect("range observation lock").as_str(),
+            "git diff --name-only 89abcdef0123456789abcdef0123456789abcdef..0123456789abcdef0123456789abcdef01234567"
+        );
     }
 
     #[test]

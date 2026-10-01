@@ -52,6 +52,7 @@ pub trait RoleHarness: Send + Sync {
     /// reached for it through the harness and got `E0599`. Both errors were the same missing line. The full path
     /// is spelled out rather than imported so this file needs no new `use`.
     fn assay_cwd(&self) -> &std::path::Path;
+    fn execution_base_commit(&self) -> Option<&str>;
     fn run_command(&self, command: &str) -> CommandResult;
 }
 
@@ -72,6 +73,7 @@ pub struct ProductionRoleRunner<'a> {
     /// Authoritative Storyboard assay commands for test-authoring mode. These let RUST_CONTRACT QA stay
     /// deterministic and model-free: the test command is evidence about the application, not another model turn.
     pub contract_assay_commands: Vec<String>,
+    pub contract_acceptance_mapped: bool,
     pub require_prod: bool,
 }
 
@@ -85,6 +87,7 @@ impl<'a> ProductionRoleRunner<'a> {
             bench_intent: None,
             test_mode: None,
             contract_assay_commands: Vec::new(),
+            contract_acceptance_mapped: false,
             require_prod: false,
         }
     }
@@ -113,6 +116,11 @@ impl<'a> ProductionRoleRunner<'a> {
         self
     }
 
+    pub fn with_contract_acceptance_mapped(mut self, acceptance_mapped: bool) -> Self {
+        self.contract_acceptance_mapped = acceptance_mapped;
+        self
+    }
+
     fn run_rust_contract_qa(
         &self,
         node_id: &str,
@@ -127,21 +135,23 @@ impl<'a> ProductionRoleRunner<'a> {
         }
 
         let mut current = self.current.clone();
-        if current.candidate_sha.is_none() {
-            let head = self.harness.run_command("git rev-parse HEAD");
-            let sha = head.output.trim();
-            if head.passed
-                && sha.len() == 40
-                && sha.bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
-                current.candidate_sha = Some(sha.to_ascii_lowercase());
-            }
+        let head = self.harness.run_command("git rev-parse HEAD");
+        let sha = head.output.trim();
+        if head.passed && sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            current.candidate_sha = Some(sha.to_ascii_lowercase());
+        } else {
+            current.candidate_sha = None;
+        }
+        if let Some(base) = self.harness.execution_base_commit() {
+            current
+                .extra
+                .insert("recordedBase".into(), workflow::Value::from(base));
         }
         let AssayEvidence { evidence, verdict } = collect_rust_contract_assay_evidence(
             current,
             Some(&|cmd| self.harness.run_command(cmd)),
             &self.contract_assay_commands,
-            true,
+            self.contract_acceptance_mapped,
         );
 
         if let Some(writer) = self.writer {
@@ -424,7 +434,7 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
                     evidence,
                     Some(&|cmd| self.harness.run_command(cmd)),
                     &out.assay_commands,
-                    out.acceptance_mapped,
+                    self.contract_acceptance_mapped,
                 )
             } else {
                 collect_assay_evidence(

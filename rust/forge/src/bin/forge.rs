@@ -200,6 +200,19 @@ fn main() {
         .as_ref()
         .map(|packet| packet.assay_commands.clone())
         .unwrap_or_default();
+    let contract_acceptance_mapped = packet
+        .as_ref()
+        .and_then(|packet| {
+            packet.acceptance_criteria.as_deref().map(|criteria| {
+                !criteria.trim().is_empty()
+                    && !packet.assay_commands.is_empty()
+                    && packet
+                        .assay_commands
+                        .iter()
+                        .all(|command| criteria.contains(command))
+            })
+        })
+        .unwrap_or(false);
     let mut story_run_id: Option<String> = None;
     // The row's dispatch envelope, carried on from the claim to the lane it configures.
     let mut run_model_policy: Option<String> = None;
@@ -451,6 +464,7 @@ fn main() {
             run_launch_intent.clone(),
             test_mode.clone(),
             contract_assay_commands.clone(),
+            contract_acceptance_mapped,
         )
     } else {
         match NeonStore::connect_from_env() {
@@ -534,6 +548,7 @@ fn drive<S: TxStore>(
     bench_intent: Option<String>,
     test_mode: Option<String>,
     contract_assay_commands: Vec<String>,
+    contract_acceptance_mapped: bool,
 ) -> Result<String, String> {
     let mut rt = match ForgeRuntime::from_store(
         store,
@@ -561,7 +576,8 @@ fn drive<S: TxStore>(
         .with_story_run(story_run_id)
         .with_bench_intent(bench_intent)
         .with_test_mode(test_mode)
-        .with_contract_assay_commands(contract_assay_commands);
+        .with_contract_assay_commands(contract_assay_commands)
+        .with_contract_acceptance_mapped(contract_acceptance_mapped);
     match drive_forge_story(
         &mut rt,
         story,

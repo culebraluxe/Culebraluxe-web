@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::engine::assay::CommandResult;
+use crate::engine::assay::{is_rust_contract_production_path, CommandResult};
 use crate::engine::opencode_client::{start_opencode_run, OpenCodeRunResult, OpenCodeStartOptions};
 use crate::engine::packet::{build_task_text_with_context, ExecutionWorkspace, StoryPacket};
 use crate::engine::runner::{HarnessOutput, RoleHarness};
@@ -415,19 +415,9 @@ impl RoleHarness for OpenCodeHarness {
                                 )),
                                 Some(changed)
                                     if self.packet.test_mode.as_deref() == Some("RUST_CONTRACT")
-                                        && changed.lines().any(|path| {
-                                            let path = path.trim();
-                                            [
-                                                "rust/core/",
-                                                "rust/forge/",
-                                                "rust/server/",
-                                                "rust/integrations/",
-                                                "rust/cli/",
-                                                "rust/ui/",
-                                            ]
-                                            .iter()
-                                            .any(|root| path.starts_with(root))
-                                        }) =>
+                                        && changed
+                                            .lines()
+                                            .any(is_rust_contract_production_path) =>
                                 {
                                     Some(format!(
                                         "Smith candidate refused for {node_id}: RUST_CONTRACT candidate modified production code across {range}"
@@ -472,6 +462,12 @@ impl RoleHarness for OpenCodeHarness {
             return Path::new(&ws.worktree_path);
         }
         self.workspace.as_path()
+    }
+
+    fn execution_base_commit(&self) -> Option<&str> {
+        self.execution_workspace
+            .as_ref()
+            .map(|workspace| workspace.base_commit.as_str())
     }
 
     fn run_command(&self, command: &str) -> CommandResult {
