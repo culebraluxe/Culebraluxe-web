@@ -27,7 +27,7 @@ structural-equality predicate is `graphs_equal` (`rust/forge/src/engine/version_
 
 ## Context refs
 
-- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-748` — the canonical test.
+- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-810` — the canonical test.
 - `rust/forge/src/engine/xml.rs:352-426` — `parse_process_definition_xml` / `definition_from_xml`, the production parser.
 - `rust/forge/src/engine/xml.rs:196-199` — the nested-comment skip inside an element's children.
 - `rust/forge/src/engine/version_policy.rs:39-41` — `graphs_equal`, the production equality predicate.
@@ -679,6 +679,73 @@ MUTATION_B_EXIT=101
 ```
 
 The production file was restored byte-for-byte (`cmp` clean against the pre-mutation copy) and the test is green again
+(`TEST_EXIT=0`), so both new clauses are load-bearing and the contract is not vacuous.
+
+An unrelated in-flight WF-JOIN-002 lane had a modified
+`rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` in the working tree at run time; it was
+left untouched and is not part of this candidate. Nothing outside the canonical test file and this packet changed.
+
+FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"<this commit>"}
+
+## Raw verification — fast_repair_smith self-heal re-run (2026-09-30, task 58e9c9b5)
+
+This run was HELD because it did not deliver a `smith-candidate`: the smith deliverable is the run's workspace HEAD
+(`OpenCodeHarness::run_role` sets `candidate_sha = git rev-parse HEAD`, `rust/forge/src/engine/opencode.rs:316-324`).
+The canonical test was already committed and green at the run's base, so this node lands a fresh, load-bearing commit —
+the candidate is this run's workspace HEAD, which owns the canonical test change below — and changes no production
+code.
+
+What changed in the canonical test (this node's own candidate):
+
+1. WHERE INTENDED (outcome variants are distinct) — an end-state's `outcome` is the terminus the runtime records, and
+   the production parser maps `failed` to its own value, distinct from `cancelled`
+   (`rust/forge/src/engine/xml.rs:280-285`). Editing the definition's `failed` end-state to `cancelled` parses and is
+   structurally unequal — a parser that collapsed the two terminuses would make them indistinguishable. The anchor is
+   the single `outcome="failed"` the definition declares, so an absent anchor would no-op and the `assert!` would fail.
+2. NEGATIVE (refusal) — a dynamic fork must declare the command its branches run; the parser requires
+   `branch-command-type` (`rust/forge/src/engine/xml.rs:331`, `req(..)`), so a definition that omits it is REFUSED, not
+   parsed into a fork with nothing to spawn. The anchor is the whole attribute, so the edit always changes the source.
+
+Commands below are this node's own run, pasted with their exit status.
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+running 1 test
+test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+TEST_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 03s
+CHECK_EXIT=0
+```
+
+Mutation check A (this node's own, the failed-terminus clause): collapsing the production `failed` arm to `Cancelled`
+(`rust/forge/src/engine/xml.rs:283`, `Some("failed") => ProcessOutcome::Failed,` →
+`Some("failed") => ProcessOutcome::Cancelled,`) makes the test fail exactly at the new clause
+(`.../wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:442`), `test result: FAILED` (exit 101):
+
+```
+thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at .../wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:442:5:
+WorkflowHarness/L0 Pure: a `failed` terminus is structurally distinct from a `cancelled` one
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+MUTATION_A_EXIT=101
+```
+
+Mutation check B (this node's own, the required-branch-command-type clause): relaxing the production requirement to an
+optional read (`rust/forge/src/engine/xml.rs:331`, `Some(req(el, "branch-command-type")?)` →
+`el.attrs.get("branch-command-type").cloned()`) makes the fork parse and the test fail exactly at the new clause
+(`.../wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:794`), `test result: FAILED` (exit 101):
+
+```
+thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at .../wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:794:5:
+WorkflowHarness/L0 Pure: a dynamic fork that declares no branch command type is refused, not parsed into an empty fork
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+MUTATION_B_EXIT=101
+```
+
+The production file was restored byte-for-byte (`git diff --stat` clean, `RESTORED_CLEAN`) and the test is green again
 (`TEST_EXIT=0`), so both new clauses are load-bearing and the contract is not vacuous.
 
 An unrelated in-flight WF-JOIN-002 lane had a modified

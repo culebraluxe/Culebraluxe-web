@@ -574,6 +574,7 @@ fn drive<S: TxStore>(
         ..Default::default()
     };
     let runner = ProductionRoleRunner::new(harness, evidence.clone())
+        .with_writer(writer.as_ref())
         .with_story_run(story_run_id)
         .with_bench_intent(bench_intent)
         .with_test_mode(test_mode)

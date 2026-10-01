@@ -29,6 +29,7 @@ pub mod read_tools;
 pub mod repo_guards;
 pub mod reset;
 pub mod roi;
+pub mod salvage;
 pub mod secret_shapes;
 pub mod sql;
 pub mod sync_agents;
@@ -121,8 +122,12 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         // The read path for a question nobody has a tool for yet: one read-only query, against a database the
         // caller must name. It exists so an audit is a command instead of a throwaway script.
         "sql" => sql::run(&args[1..]).await,
+        // The fail-safe's way back out: Smith's candidate code, as it was written into `forge_tool_artifact`
+        // when the commit was stamped. Read-only, and it names the database it read for the same reason `sql`
+        // does — a candidate recovered from the wrong control plane is worse than none.
+        "salvage" => salvage::run(&args[1..]).await,
         other => Err(Failure::usage(format!(
-            "unknown forge command `{other}`; usage: forge <harness-lint|guard-lint|sync-agents|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|sql|reset|recover|clean> [options]"
+            "unknown forge command `{other}`; usage: forge <harness-lint|guard-lint|sync-agents|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|sql|salvage|reset|recover|clean> [options]"
         ))),
     }
 }

@@ -1500,6 +1500,32 @@ impl ForgeEngineDao {
         }
     }
 
+    /// The code a Smith lane captured for a story, read back out of the control plane.
+    ///
+    /// `kind='candidate-code'` is the row `engine::runner::smith_candidate_artifact` writes at the moment the
+    /// candidate commit is stamped, and its `detail` holds the patch itself. This is the way back out of the
+    /// fail-safe: every other record of a candidate is a `candidate_sha` pointer into git, and the fail-safe
+    /// exists for the case where git is what went missing — a snapshot nobody can read back is not a fail-safe,
+    /// it is a copy.
+    ///
+    /// READ ONLY. `record_tool_artifact` stays the one write of `forge_tool_artifact`; this adds no second door
+    /// onto it. `created_at desc, id desc` with a `limit 1` because a story can legitimately have several runs,
+    /// and the newest reading is the one that describes the candidate that was lost.
+    pub async fn candidate_code_for_story(&self, story_id: &str) -> DbResult<Option<Value>> {
+        sqlx::query_scalar::<_, Option<Value>>(
+            "select detail
+             from forge_tool_artifact
+             where story_id=$1 and kind='candidate-code' and detail is not null
+             order by created_at desc, id desc
+             limit 1",
+        )
+        .bind(story_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map(|row| row.flatten())
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.candidate_code_for_story", &error))
+    }
+
     pub async fn active_decisions(
         &self,
         domain: &str,

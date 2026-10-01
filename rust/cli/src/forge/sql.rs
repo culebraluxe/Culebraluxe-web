@@ -162,7 +162,10 @@ fn strip_leading_comments(sql: &str) -> &str {
 /// sentence is a CLI concern and refusing it at the server is not.
 /// `--flag value` / `--flag=value`. Absent = `None`; present with no value = the next argument as-is, which the
 /// callers validate rather than assume.
-fn flag(args: &[String], name: &str) -> Option<String> {
+///
+/// `pub(crate)` rather than private to this module: `forge salvage` reads the same flags the same way, and a
+/// second copy of this parser is a second answer to "what does `--target prod` mean".
+pub(crate) fn flag(args: &[String], name: &str) -> Option<String> {
     let mut index = 0;
     while index < args.len() {
         let arg = &args[index];
