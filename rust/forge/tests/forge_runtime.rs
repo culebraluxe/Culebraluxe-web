@@ -684,6 +684,9 @@ fn a_hold_that_cannot_be_recorded_fails_the_lane() {
         fn mark_story_in_progress(&self, _s: &str) -> Result<(), String> {
             Ok(())
         }
+        fn stamp_run_candidate(&self, _r: &str, _s: &str) -> Result<(), String> {
+            Ok(())
+        }
         fn append_run_detail(&self, _r: &str, _d: &str) -> Result<(), String> {
             Ok(())
         }
@@ -828,6 +831,9 @@ fn an_artifact_that_cannot_be_recorded_fails_the_lane() {
             Ok(())
         }
         fn mark_story_in_progress(&self, _s: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn stamp_run_candidate(&self, _r: &str, _s: &str) -> Result<(), String> {
             Ok(())
         }
         fn append_run_detail(&self, _r: &str, _d: &str) -> Result<(), String> {
