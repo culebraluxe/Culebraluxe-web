@@ -479,6 +479,10 @@ fn run_claimed_dispatch(
         // /tmp worktree from origin/main, keyed by this durable work-item id.
         .env("FORGE_PROVISION", "1")
         .env("FORGE_RUN_ID", &dispatch.work_item_id)
+        .env(
+            "FORGE_ALLOW_PUBLISH",
+            std::env::var("FORGE_ALLOW_PUBLISH").unwrap_or_else(|_| "1".into()),
+        )
         // THE FLOOR BELONGS TO THE COORDINATOR, NOT TO EVERY CHILD. Each story runs in its own process with its own
         // pool, so four concurrent stories must not each hold the engine's warm floor open against one Neon branch
         // (`FORGE_DB_POOL_MIN`, default 20 in `rust/core/db/src/pool.rs:193`). The children are short-lived and

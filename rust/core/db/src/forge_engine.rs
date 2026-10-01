@@ -1753,7 +1753,7 @@ impl ForgeEngineDao {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, FromRow)]
 pub struct ForgeEvidencePatch {
     pub work_type: Option<String>,
     pub scout_required: Option<bool>,
@@ -1806,6 +1806,26 @@ pub enum WorkflowReceiptClaim {
 }
 
 impl ForgeEngineDao {
+    pub async fn workflow_evidence_for_story(
+        &self,
+        story_id: &str,
+    ) -> DbResult<Option<ForgeEvidencePatch>> {
+        sqlx::query_as::<_, ForgeEvidencePatch>(
+            "select work_type, scout_required, lead_decision,
+                    qa_review_required, qa_review_passed, qa_passed,
+                    failure_class, failed_release_stage, last_failure,
+                    publish_succeeded, candidate_sha, qa_verified_sha, published_sha
+               from forge_workflow_evidence
+              where story_id=$1
+              order by updated_at desc
+              limit 1",
+        )
+        .bind(story_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.workflow_evidence_for_story", &error))
+    }
+
     pub async fn merge_workflow_evidence(
         &self,
         process_instance_id: &str,

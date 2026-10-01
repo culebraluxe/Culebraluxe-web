@@ -137,7 +137,21 @@ impl ForgeCommandRegistry {
                 handlers.insert(
                     name.clone(),
                     Box::new(move |req| match &exec {
-                        Some(e) => e.execute(&name, &req.input),
+                        Some(e) => {
+                            let mut input = req.input.clone();
+                            if input.get("storyId").is_none() {
+                                if let Some(story_id) = req.subject_id.as_deref() {
+                                    input.insert("storyId", workflow::Value::from(story_id));
+                                }
+                            }
+                            if input.get("processInstanceId").is_none() {
+                                input.insert(
+                                    "processInstanceId",
+                                    workflow::Value::from(req.correlation_id.as_str()),
+                                );
+                            }
+                            e.execute(&name, &input)
+                        }
                         None => cmd_result(
                             &req.command_id,
                             ApplicationCommandOutcome::PreconditionFailure,

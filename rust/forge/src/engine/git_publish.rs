@@ -4,7 +4,13 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::engine::release::{ForgeOperationResult, ForgeReleaseOperations, PublishOutcome};
+use crate::engine::evidence_store::evidence_patch;
+use crate::engine::facts::{evidence_from_value, ForgeGateEvidence};
+use crate::engine::release::{
+    EvidenceStore, ForgeOperationResult, ForgeReleaseOperations, PublishOutcome,
+};
+use crate::engine::vendor_session::with_shared;
+use db::ForgeEngineDao;
 
 fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git")
@@ -35,61 +41,175 @@ pub fn preview_publish(repo: &Path, candidate: &str) -> PublishOutcome {
             reason: format!("candidate {candidate} is not a commit in {repo:?}"),
         };
     }
-    let remote = git(repo, &["ls-remote", "origin", "refs/heads/main"]).unwrap_or_default();
-    let remote_main = remote.split_whitespace().next().unwrap_or("").to_string();
-    if remote_main.is_empty() {
+    if std::env::var("FORGE_ALLOW_PUBLISH").ok().as_deref() != Some("1") {
         return PublishOutcome::PublishConflict {
-            reason: "origin/main is unreadable (offline or no remote)".into(),
+            reason: "Forge publication is disabled (FORGE_ALLOW_PUBLISH != 1)".into(),
         };
     }
-    if remote_main == candidate {
-        return PublishOutcome::Published {
-            published_main_hash: candidate.into(),
+
+    // Multiple Smiths may finish from the same base. Publication is therefore an optimistic CAS on origin/main:
+    // fast-forward when possible; otherwise make a merge commit whose parents are the latest main and the exact
+    // QA-approved candidate. A racing publisher simply refreshes main and retries the integration.
+    let mut last_push_error = String::new();
+    for _attempt in 0..4 {
+        if let Err(error) = git(repo, &["fetch", "origin", "main"]) {
+            return PublishOutcome::PublishConflict {
+                reason: format!("cannot refresh origin/main before publish: {error}"),
+            };
+        }
+        let remote_main = match git(repo, &["rev-parse", "--verify", "origin/main^{commit}"]) {
+            Ok(sha) => sha,
+            Err(error) => {
+                return PublishOutcome::PublishConflict {
+                    reason: format!("origin/main is unreadable: {error}"),
+                }
+            }
         };
-    }
-    if git(
-        repo,
-        &["merge-base", "--is-ancestor", &remote_main, candidate],
-    )
-    .is_err()
-    {
-        return PublishOutcome::PublishConflict {
-            reason: format!(
-                "origin/main ({}) is not an ancestor of candidate {} — push would NOT fast-forward",
-                &remote_main[..remote_main.len().min(12)],
+
+        if remote_main == candidate {
+            return PublishOutcome::Published {
+                published_main_hash: candidate.into(),
+            };
+        }
+
+        // Another publisher may already have integrated this candidate.
+        if git(
+            repo,
+            &["merge-base", "--is-ancestor", candidate, &remote_main],
+        )
+        .is_ok()
+        {
+            return PublishOutcome::IntegratedAndPublished {
+                published_main_hash: remote_main,
+            };
+        }
+
+        let (publish_sha, integrated) = if git(
+            repo,
+            &["merge-base", "--is-ancestor", &remote_main, candidate],
+        )
+        .is_ok()
+        {
+            (candidate.to_string(), false)
+        } else {
+            let merged_tree = match git(
+                repo,
+                &["merge-tree", "--write-tree", &remote_main, candidate],
+            ) {
+                Ok(output) => output.lines().next().unwrap_or("").trim().to_string(),
+                Err(error) => {
+                    return PublishOutcome::IntegrationConflict {
+                        reason: format!(
+                            "candidate {candidate} does not merge cleanly with origin/main {remote_main}: {error}"
+                        ),
+                    }
+                }
+            };
+            if merged_tree.len() != 40
+                || !merged_tree.bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                return PublishOutcome::IntegrationConflict {
+                    reason: format!(
+                        "git merge-tree returned no usable tree for candidate {candidate}: {merged_tree:?}"
+                    ),
+                };
+            }
+            let message = format!(
+                "forge: integrate candidate {}",
                 &candidate[..candidate.len().min(12)]
-            ),
+            );
+            let commit = match git(
+                repo,
+                &[
+                    "commit-tree",
+                    &merged_tree,
+                    "-p",
+                    &remote_main,
+                    "-p",
+                    candidate,
+                    "-m",
+                    &message,
+                ],
+            ) {
+                Ok(commit) => commit,
+                Err(error) => {
+                    return PublishOutcome::IntegrationConflict {
+                        reason: format!("could not create integration commit: {error}"),
+                    }
+                }
+            };
+            (commit, true)
         };
-    }
-    if std::env::var("FORGE_ALLOW_PUBLISH").ok().as_deref() == Some("1") {
+
         match git(
             repo,
-            &["push", "origin", &format!("{candidate}:refs/heads/main")],
+            &["push", "origin", &format!("{publish_sha}:refs/heads/main")],
         ) {
-            Ok(_) => PublishOutcome::Published {
-                published_main_hash: candidate.into(),
-            },
-            Err(e) => PublishOutcome::PublishConflict { reason: e },
+            Ok(_) => {
+                return if integrated {
+                    PublishOutcome::IntegratedAndPublished {
+                        published_main_hash: publish_sha,
+                    }
+                } else {
+                    PublishOutcome::Published {
+                        published_main_hash: publish_sha,
+                    }
+                };
+            }
+            Err(error) => {
+                // A sibling may have won main between fetch and push. Refresh/reintegrate up to the bounded retry
+                // count; a persistent auth/network/protection error comes back after the same bounded attempts.
+                last_push_error = error;
+            }
         }
-    } else {
-        PublishOutcome::Published {
-            published_main_hash: remote_main,
-        }
+    }
+
+    PublishOutcome::PublishConflict {
+        reason: format!(
+            "origin/main moved or refused the candidate after 4 publish attempts: {last_push_error}"
+        ),
     }
 }
 
-pub struct EmptyEvidence;
+pub struct DbReleaseEvidenceStore;
 
-impl crate::engine::release::EvidenceStore for EmptyEvidence {
-    fn read(&self, _story_id: &str) -> crate::engine::facts::ForgeGateEvidence {
-        Default::default()
+impl EvidenceStore for DbReleaseEvidenceStore {
+    fn read(&self, story_id: &str) -> ForgeGateEvidence {
+        crate::engine::db_writer::read_story_evidence(story_id)
     }
-    fn merge(&self, _i: &str, _s: &str, _p: crate::engine::facts::ForgeGateEvidence) {}
-    fn latest_refresh_command_id(&self, _i: &str) -> Option<String> {
+
+    fn merge(&self, process_instance_id: &str, story_id: &str, patch: ForgeGateEvidence) {
+        let mapped = evidence_patch(&patch);
+        let resolved = patch.publish_succeeded == Some(true);
+        let result = with_shared(|db, rt| {
+            let dao = ForgeEngineDao::new(db.clone());
+            rt.block_on(async {
+                dao.merge_workflow_evidence(
+                    process_instance_id,
+                    story_id,
+                    &mapped,
+                    resolved,
+                )
+                .await
+                .map_err(|error| error.to_string())
+            })
+        });
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) | Err(error) => {
+                eprintln!(
+                    "forge release evidence merge failed story={story_id} process={process_instance_id}: {error}"
+                );
+            }
+        }
+    }
+
+    fn latest_refresh_command_id(&self, _process_instance_id: &str) -> Option<String> {
         None
     }
-    fn frozen_proofs(&self, _s: &str) -> Vec<String> {
-        vec![]
+
+    fn frozen_proofs(&self, _story_id: &str) -> Vec<String> {
+        Vec::new()
     }
 }
 
@@ -122,8 +242,8 @@ impl crate::engine::writer::ForgeReleaseExecutor for HostReleaseExecutor {
             operations: GitReleaseOps {
                 repo_root: self.ops.repo_root.clone(),
             },
-            evidence: EmptyEvidence,
-            pending: None,
+            evidence: DbReleaseEvidenceStore,
+            pending: Some(evidence_from_value(input)),
         }
         .execute(&crate::engine::release::ForgeCommandEnvelope {
             command_type: command_type.into(),

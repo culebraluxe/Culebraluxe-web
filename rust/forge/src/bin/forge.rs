@@ -3,7 +3,7 @@
 
 use db::{AgentWorkOutcome, AgentWorkSettlement};
 use forge::engine::agent_work;
-use forge::engine::db_writer::DbForgeStateWriter;
+use forge::engine::db_writer::{DbForgeEvidenceReader, DbForgeStateWriter};
 use forge::engine::definition::forge_sdlc_definition;
 use forge::engine::executor::{
     drive_forge_story, parse_forge_stop_after, DriveForgeStoryOptions, ForgeStopTarget,
@@ -18,7 +18,7 @@ use forge::engine::vendor_session::database_url;
 use forge::engine::worktree::{
     provision_worker_workspace, resolve_approved_base_ref, resolve_base_commit, resolve_repo_root,
 };
-use forge::engine::writer::{ForgeReleaseExecutor, ForgeStateWriter, NullWriter};
+use forge::engine::writer::{ForgeEvidenceReader, ForgeReleaseExecutor, ForgeStateWriter, NullWriter};
 use std::env;
 use std::sync::Arc;
 use workflow::{MemoryStore, NeonStore, TxStore};
@@ -442,6 +442,7 @@ fn main() {
             MemoryStore::new(),
             release,
             writer.clone(),
+            None,
             &harness,
             &story,
             &work_type,
@@ -459,6 +460,7 @@ fn main() {
                     store,
                     release,
                     writer.clone(),
+                    Some(Arc::new(DbForgeEvidenceReader)),
                     &harness,
                     &story,
                     &work_type,
@@ -523,6 +525,7 @@ fn drive<S: TxStore>(
     store: S,
     release: Arc<dyn ForgeReleaseExecutor>,
     writer: Arc<dyn ForgeStateWriter>,
+    evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
     harness: &OpenCodeHarness,
     story: &str,
     work_type: &str,
@@ -536,7 +539,7 @@ fn drive<S: TxStore>(
         store,
         writer.clone(),
         Some(release),
-        None,
+        evidence_reader,
         // The receipt row, not a process-local set: this binary IS a child process per dispatch, so a
         // memory ledger would let every new process re-apply each completion in the instance history
         // (2026-09-29). The ledger is a required argument for exactly this reason.
