@@ -378,58 +378,71 @@ fn wf_command_006__conflict_semantics() {
         "{HARNESS}: the conflict command is durable, so its identity is refused on replay"
     );
 
-    // ── SCENARIO 2: the distinguishing negative — a conflict is not a generic failure ────────────────────────────
-    // The SAME graph, the SAME boundary, a non-conflict failure. It must terminate as `Failed` with `process.failed`
-    // and must NOT be labelled a conflict. This is the case that fails if the boundary conflates the two: if all
-    // non-success outcomes were recorded as conflict (or conflict were downgraded to failed), step 1 and this step
-    // would disagree with production.
-    let (failure_harness, failure_recorder, failure_id) = run_command(
-        "TST-WF-COMMAND-006-FAILED",
+    // ── SCENARIO 2: the distinguishing negative — a conflict is not every other non-success ──────────────────────
+    // The production rule is an exact dichotomy (`handle_join.rs:299-303`): `Conflict` maps to
+    // `ProcessOutcome::Conflict`, and *every other* non-success outcome maps to `ProcessOutcome::Failed`. Testing a
+    // single non-conflict outcome would leave a boundary that relabelled, say, `Unauthorized` as `Conflict`
+    // undetected, so all four non-conflict non-success outcomes are pinned here. Each must terminate as `Failed`
+    // with `process.failed` and must never be labelled a conflict, and each must record the provider's own outcome
+    // string — not a relabelled one. This is the case that fails if the boundary conflates the two.
+    for outcome in [
         ApplicationCommandOutcome::ValidationFailure,
-    );
-    let failure_instance = failure_harness
-        .store()
-        .with_tx(|tx| tx.get_instance(&failure_id))
-        .expect("the failed instance is readable");
-    assert_eq!(
-        failure_instance.status,
-        ProcessStatus::Error,
-        "{HARNESS}: a non-conflict failure also terminates the process"
-    );
-    assert_eq!(
-        failure_instance.outcome,
-        Some(ProcessOutcome::Failed),
-        "{HARNESS}: a non-conflict failure is Failed, not Conflict"
-    );
-    let failure_types = event_types(&failure_harness, &failure_id);
-    assert!(
-        failure_types.iter().any(|t| t == "process.failed"),
-        "{HARNESS}: a non-conflict failure records process.failed"
-    );
-    assert!(
-        !failure_types.iter().any(|t| t == "process.conflict"),
-        "{HARNESS}: a non-conflict failure is never labelled a conflict"
-    );
-    assert_eq!(
-        failure_recorder.requests().len(),
-        1,
-        "{HARNESS}: the failing command still ran exactly once"
-    );
-    let failure_command_failed = failure_harness
-        .store()
-        .with_tx(|tx| tx.history(&failure_id, 128))
-        .expect("the failed instance history reads")
-        .into_iter()
-        .find(|event| event.event_type == "command.failed")
-        .expect("the failure records a command.failed event");
-    assert_eq!(
-        failure_command_failed
-            .data
-            .get("outcome")
-            .and_then(Value::as_str),
-        Some("validation_failure"),
-        "{HARNESS}: the recorded command outcome is the provider's, not a relabelled conflict"
-    );
+        ApplicationCommandOutcome::NotFound,
+        ApplicationCommandOutcome::Unauthorized,
+        ApplicationCommandOutcome::PreconditionFailure,
+    ] {
+        let key = format!("TST-WF-COMMAND-006-{}", outcome.as_str());
+        let (failure_harness, failure_recorder, failure_id) = run_command(&key, outcome);
+        let failure_instance = failure_harness
+            .store()
+            .with_tx(|tx| tx.get_instance(&failure_id))
+            .expect("the failed instance is readable");
+        assert_eq!(
+            failure_instance.status,
+            ProcessStatus::Error,
+            "{HARNESS}: a non-conflict failure ({}) also terminates the process",
+            outcome.as_str()
+        );
+        assert_eq!(
+            failure_instance.outcome,
+            Some(ProcessOutcome::Failed),
+            "{HARNESS}: a non-conflict failure ({}) is Failed, not Conflict",
+            outcome.as_str()
+        );
+        let failure_types = event_types(&failure_harness, &failure_id);
+        assert!(
+            failure_types.iter().any(|t| t == "process.failed"),
+            "{HARNESS}: a non-conflict failure ({}) records process.failed",
+            outcome.as_str()
+        );
+        assert!(
+            !failure_types.iter().any(|t| t == "process.conflict"),
+            "{HARNESS}: a non-conflict failure ({}) is never labelled a conflict",
+            outcome.as_str()
+        );
+        assert_eq!(
+            failure_recorder.requests().len(),
+            1,
+            "{HARNESS}: the failing command ({}) still ran exactly once",
+            outcome.as_str()
+        );
+        let failure_command_failed = failure_harness
+            .store()
+            .with_tx(|tx| tx.history(&failure_id, 128))
+            .expect("the failed instance history reads")
+            .into_iter()
+            .find(|event| event.event_type == "command.failed")
+            .expect("the failure records a command.failed event");
+        assert_eq!(
+            failure_command_failed
+                .data
+                .get("outcome")
+                .and_then(Value::as_str),
+            Some(outcome.as_str()),
+            "{HARNESS}: the recorded command outcome is the provider's own ({})",
+            outcome.as_str()
+        );
+    }
 
     // ── SCENARIO 3: positive control — the success transition really exists ──────────────────────────────────────
     // Without this, "the conflict did not reach the end node" could be true because the graph is broken. On success
