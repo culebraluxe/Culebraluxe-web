@@ -23,10 +23,11 @@
 //! (`Money`, `rust/core/domain/src/accounting.rs:69-134`). `0.10 + 0.20` here is `0.30`, never
 //! `0.30000000000000004`.
 //!
-//! Negative/refusal cases: a row dated one day before `from`, one day after `to`, and a `PAID` receivable whose
-//! `issued_on` is inside but whose `paid_on` is outside are all excluded; a backwards or malformed period is REFUSED
-//! (`PnlRequest::validate`, `rust/core/domain/src/accounting.rs:296-313`) rather than reported as an empty report; and
-//! a period with no rows totals `0` rather than nothing.
+//! Negative/refusal cases: a row dated one day before `from`, one day after `to`, a `PAID` receivable whose
+//! `issued_on` is inside but whose `paid_on` is outside, and a `PAID` receivable whose `due_on` is inside but whose
+//! `paid_on` is outside are all excluded; a backwards or malformed period is REFUSED
+//! (`PnlRequest::validate`, `rust/core/domain/src/accounting.rs:296-313`) rather than reported as an empty report; a
+//! single-day period is a legal window, not a backwards one; and a period with no rows totals `0` rather than nothing.
 //!
 //! THE PERIOD IS ISOLATED. The proof runs over calendar year 2099, a window no other accounting fixture can occupy,
 //! so the totals cannot be disturbed by rows that were already committed in DEV. Every seeded row is named under a
@@ -94,7 +95,9 @@ fn amount_of(lines: &[PnlLine], label: &str) -> String {
 /// - `r5`/`r6` are PAID one day outside the period — excluded;
 /// - `r7` is OPEN inside the period — no income (status);
 /// - `e1`/`e2` sit exactly on the expense bounds, `e3`/`e4` one day outside;
-/// - `r8`/`e5` sit on a single day in September, for the `from == to` period.
+/// - `r8`/`e5` sit on a single day in September, for the `from == to` period;
+/// - `r9` is due in October but paid in November and `r10` is due in December but paid in November, so the November
+///   period has both and the October period has neither — the proof that income is filtered on `paid_on`, not `due_on`.
 async fn seed_fixture(
     harness: &AccountingHarness,
     marker: &str,
@@ -229,6 +232,34 @@ async fn seed_fixture(
             "POSTED",
         )
         .await?;
+
+    // The `due_on` probe — income is filtered on `paid_on`, not on the receivable's due date. Both rows are placed
+    // across November 2099 so no other assertion's period is disturbed:
+    //  - r9 is DUE in October but PAID in November: not October income, but November income;
+    //  - r10 is DUE in December but PAID in November: November income, even though its due date is outside.
+    // A query that filtered income on `due_on` instead of `paid_on` would report the exact opposite for both.
+    harness
+        .seed_receivable_dated(
+            &format!("{marker}-r9"),
+            "DUE_WINDOW",
+            "44444.00",
+            "2099-05-25",
+            Some("2099-10-05"),
+            "PAID",
+            Some("2099-11-10"),
+        )
+        .await?;
+    harness
+        .seed_receivable_dated(
+            &format!("{marker}-r10"),
+            "PAID_WINDOW",
+            "55555.00",
+            "2099-05-25",
+            Some("2099-12-05"),
+            "PAID",
+            Some("2099-11-20"),
+        )
+        .await?;
     Ok(())
 }
 
@@ -261,6 +292,15 @@ async fn accounting_core_008__date_filtering() {
     );
     let dao: &AccountingDao = harness.dao();
     let marker = format!("TST-ACC008-{}", harness.namespace());
+
+    // SELF-HEAL. The totals below are exact over their periods, so a previous run of THIS story that failed before
+    // its own cleanup would leave rows in June/September 2099 and make every later run red for the wrong reason. The
+    // `TST-ACC008-` prefix belongs to this story alone, so clearing it first makes the periods deterministic and the
+    // contract repeatable even immediately after a genuine failure. A first, clean run deletes nothing.
+    harness
+        .cleanup("TST-ACC008-")
+        .await
+        .expect("stale TST-ACCOUNTING-CORE-008 rows are cleared before seeding");
 
     seed_fixture(&harness, &marker)
         .await
@@ -433,6 +473,61 @@ async fn accounting_core_008__date_filtering() {
         ("2099-09-15", "2099-09-15"),
         "{HARNESS}: a single-day statement echoes both ends of the one-day period"
     );
+    // The refusal is a strict ordering: equal ends are a legal one-day window, not a backwards range. If the
+    // validator treated `from == to` as invalid, the callers that guard on `validate()` would reject it.
+    assert!(
+        PnlRequest {
+            from: "2099-09-15".into(),
+            to: "2099-09-15".into(),
+        }
+        .validate()
+        .is_ok(),
+        "{HARNESS}: a single-day period is valid, not backwards"
+    );
+
+    // 7c. WHICH DATE COLUMN — a receivable carries `issued_on`, `due_on` and `paid_on`; the P&L filters income on
+    //     `paid_on`. r9 is due in October but paid in November and r10 is due in December but paid in November, so
+    //     October must have neither and November must have both. A query filtering on `due_on` would report r9 in
+    //     October and misplace r10 out of November — a plausible-looking quarter that is simply the wrong cash.
+    let october = dao
+        .pnl(&PnlRequest {
+            from: "2099-10-01".into(),
+            to: "2099-10-31".into(),
+        })
+        .await
+        .expect("October projects");
+    assert_eq!(
+        amount_of(&october.income, "DUE_WINDOW"),
+        "<no DUE_WINDOW line>",
+        "{HARNESS}: income is filtered on paid_on — a receivable due in-period but paid outside it is not income"
+    );
+    assert_eq!(
+        october.total_income.as_str(),
+        "0",
+        "{HARNESS}: October has no PAID receivable whose paid_on is in October"
+    );
+    let november = dao
+        .pnl(&PnlRequest {
+            from: "2099-11-01".into(),
+            to: "2099-11-30".into(),
+        })
+        .await
+        .expect("November projects");
+    assert_eq!(
+        amount_of(&november.income, "DUE_WINDOW"),
+        "44444.00",
+        "{HARNESS}: the same receivable is income in the period it was paid, not the period it fell due"
+    );
+    assert_eq!(
+        amount_of(&november.income, "PAID_WINDOW"),
+        "55555.00",
+        "{HARNESS}: a receivable paid in-period is income even though its due date is outside the period"
+    );
+    assert_eq!(
+        november.total_income.as_str(),
+        "99999.00",
+        "{HARNESS}: November income is exactly r9 + r10 (44444.00 + 55555.00)"
+    );
 
     // 8. COMMITTED TRUTH — the filter reads what is committed, and a rolled-back probe changes nothing. The probe
     //    inserts an enormous PAID receivable inside June inside a transaction the harness can only roll back; inside
@@ -480,8 +575,8 @@ async fn accounting_core_008__date_filtering() {
         .expect("the fixture rows are removed");
     assert_eq!(
         (receivables, expenses),
-        (8, 5),
-        "{HARNESS}: exactly this run's eight receivables and five expenses are removed"
+        (10, 5),
+        "{HARNESS}: exactly this run's ten receivables and five expenses are removed"
     );
     assert_eq!(
         harness

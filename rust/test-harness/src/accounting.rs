@@ -86,15 +86,37 @@ impl AccountingHarness {
         status: &str,
         paid_on: Option<&str>,
     ) -> Result<String, HarnessDbError> {
+        self.seed_receivable_dated(
+            reference, category, amount, issued_on, None, status, paid_on,
+        )
+        .await
+    }
+
+    /// Like [`seed_receivable`](Self::seed_receivable), with the receivable's `due_on` also set.
+    ///
+    /// The projection filters income on `paid_on`; `due_on` is the third date a receivable carries and the one a
+    /// contract test must be able to place independently of `paid_on` to prove the filter uses the right column. One
+    /// SQL body backs both seeders so the two cannot drift.
+    pub async fn seed_receivable_dated(
+        &self,
+        reference: &str,
+        category: &str,
+        amount: &str,
+        issued_on: &str,
+        due_on: Option<&str>,
+        status: &str,
+        paid_on: Option<&str>,
+    ) -> Result<String, HarnessDbError> {
         let id = sqlx::query_scalar(
-            "insert into account_receivable (reference, description, category, amount, issued_on, status, paid_on)
-             values ($1, $1, $2, $3::numeric, $4::date, $5, $6::date)
+            "insert into account_receivable (reference, description, category, amount, issued_on, due_on, status, paid_on)
+             values ($1, $1, $2, $3::numeric, $4::date, $5::date, $6, $7::date)
              returning id::text",
         )
         .bind(reference)
         .bind(category)
         .bind(amount)
         .bind(issued_on)
+        .bind(due_on)
         .bind(status)
         .bind(paid_on)
         .fetch_one(self.pool())
