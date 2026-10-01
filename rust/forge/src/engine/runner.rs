@@ -52,7 +52,9 @@ pub trait RoleHarness: Send + Sync {
     /// reached for it through the harness and got `E0599`. Both errors were the same missing line. The full path
     /// is spelled out rather than imported so this file needs no new `use`.
     fn assay_cwd(&self) -> &std::path::Path;
-    fn execution_base_commit(&self) -> Option<&str>;
+    fn execution_base_commit(&self) -> Option<&str> {
+        None
+    }
     fn run_command(&self, command: &str) -> CommandResult;
 }
 
