@@ -26,6 +26,7 @@ use crate::app::screens::clients::{ClientRecord, Clients};
 use crate::app::screens::cockpit::{Attention, Cockpit};
 use crate::app::screens::db_test::DbTest;
 use crate::app::screens::deals::{DealRecord, Deals};
+use crate::app::screens::document_signing::DocumentSigning;
 use crate::app::screens::flight_recorder::FlightRecorder;
 use crate::app::screens::forms::{FormRecord, Forms};
 use crate::app::screens::listing_media::ListingMedia;
@@ -34,6 +35,7 @@ use crate::app::screens::publishing::Publishing;
 use crate::app::screens::security::Security;
 use crate::app::screens::security_users::SecurityUsers;
 use crate::app::screens::seller_strategy::SellerStrategy;
+use crate::app::screens::sign_document::SignDocument;
 use crate::app::screens::site;
 use crate::app::screens::storyboard::{StoryRecord, Storyboard};
 use crate::app::screens::support_rows::{Authorities, Review, Roles, VideoTest};
@@ -167,6 +169,7 @@ pub const ENTRIES: &[Entry] = &[
     entry("marketing-syndication", "/portal/marketing/syndication", Surface::Marketing, "Publishing", Menu::None, "portal.read", "property.read", Kind::Screen(mount::<Publishing>)).of("marketing"),
     entry("property-admin", "/portal/property-admin", Surface::Ops, "Data Workbench", Menu::Rail("Records"), "portal.read", "property.read", Kind::Screen(mount::<Workbench>)),
     entry("property-media", "/portal/property-media", Surface::Ops, "Property Media", Menu::Rail("Listing Media"), "portal.read", "property.read", Kind::Screen(mount::<ListingMedia>)),
+    entry("document-signing", "/portal/document-signing", Surface::Ops, "Document Signing", Menu::Rail("Document Signing"), "portal.read", "documentSign.read", Kind::Screen(mount::<DocumentSigning>)),
     entry("tech", "/portal/tech", Surface::Tech, "Cockpit", Menu::Rail("Cockpit"), "tech.access", "tech.access", Kind::Screen(mount::<TechCockpit>)),
     entry("storyboard", "/portal/storyboard", Surface::Tech, "Story Board", Menu::Rail("Story Board"), "tech.access", "tech.access", Kind::Screen(mount::<Storyboard>)),
     entry("design-lab", "/portal/design-lab", Surface::Tech, "UI Lab", Menu::Rail("UI Lab"), "tech.access", "tech.access", Kind::Screen(mount::<UiLab>)),
@@ -197,6 +200,7 @@ pub const ENTRIES: &[Entry] = &[
     entry("property-record", "/portal/property-admin/:propertyId", Surface::Ops, "Property record", Menu::None, "portal.read", "", Kind::Screen(mount::<Workbench>)).of("property-admin"),
     entry("story-record", "/portal/storyboard/:id", Surface::Tech, "Story", Menu::None, "portal.read", "", Kind::Screen(mount::<StoryRecord>)).of("storyboard"),
     entry("trace-record", "/portal/tech/flight-recorder/:instanceId", Surface::Tech, "Trace", Menu::None, "portal.read", "", Kind::Screen(mount::<FlightRecorder>)).of("tech"),
+    entry("sign-document", "/sign/:token", Surface::Site, "Secure Signing", Menu::None, "", "", Kind::Screen(mount::<SignDocument>)),
     entry("site-home", "/", Surface::Site, "Home", Menu::None, "", "", Kind::Screen(mount::<site::pages::Home>)),
     entry("site-properties", "/properties", Surface::Site, "Properties", Menu::None, "", "", Kind::Screen(mount::<site::pages::Properties>)).of("site-buyers"),
     entry("site-property-detail", "/properties/:slug", Surface::Site, "Property", Menu::None, "", "", Kind::Screen(mount::<site::pages::PropertyDetail>)).of("site-buyers"),
@@ -429,7 +433,7 @@ mod tests {
                 "Receipt Scanner"
             ]
         );
-        assert_eq!(labels(Surface::Ops), ["Records", "Listing Media"]);
+        assert_eq!(labels(Surface::Ops), ["Records", "Listing Media", "Document Signing"]);
         assert_eq!(
             labels(Surface::Support),
             [

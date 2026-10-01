@@ -1,4 +1,4 @@
-//! The Model: every screen the application serves, and the state the shell renders.
+    Screen { key: "sign-document", title: "Secure Signing", path: "/sign/[token]", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },\n//! The Model: every screen the application serves, and the state the shell renders.
 //!
 //! THE SCOPE IS THE APPLICATION, NOT A MENU. This module used to list only the portal menu, which meant screens that
 //! exist and are reachable were "out of scope" by my judgement rather than by fact. The captain's rule now: every
@@ -225,6 +225,7 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "property-admin", title: "Data Workbench", path: "/portal/property-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "media-admin", title: "Media Audit", path: "/portal/media-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "property-media", title: "Property Media", path: "/portal/property-media", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "document-signing", title: "Document Signing", path: "/portal/document-signing", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "identity-quality", title: "Identity Quality", path: "/portal/identity-quality", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "client-admin", title: "Client Administration", path: "/portal/client-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "reporting", title: "Reporting", path: "/portal/reporting", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
