@@ -539,6 +539,7 @@ pub struct StoryPacketRow {
     pub goal: Option<String>,
     pub architect_brief: Option<String>,
     pub acceptance_criteria: Option<String>,
+    pub test_mode: Option<String>,
     pub assay_commands: Option<String>,
 }
 
@@ -1335,6 +1336,29 @@ impl ForgeEngineDao {
         Ok(changed.rows_affected() > 0)
     }
 
+    /// Record the candidate commit produced by this Story Run.
+    ///
+    /// A run may pass through repair Smith more than once, so the newest candidate replaces the older one. This is
+    /// execution evidence, not publication evidence: the SHA is captured as soon as Smith produces it, even when a
+    /// later QA observation exposes a product defect. That keeps Git and the Story Run ledger joined after crashes.
+    pub async fn stamp_run_candidate(&self, run_id: &str, candidate_sha: &str) -> DbResult<()> {
+        let sha = candidate_sha.trim();
+        if sha.is_empty() {
+            return Ok(());
+        }
+        sqlx::query(
+            "update storyboard_story_run
+                set commit_hash=$2, updated_at=now()
+              where id=$1::uuid",
+        )
+        .bind(run_id)
+        .bind(sha)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.stamp_run_candidate", &error))?;
+        Ok(())
+    }
+
     pub async fn mark_story_in_progress(&self, story_id: &str) -> DbResult<()> {
         sqlx::query(
             "update storyboard_story
@@ -1615,7 +1639,7 @@ impl ForgeEngineDao {
     pub async fn story_packet(&self, story_id: &str) -> DbResult<Option<StoryPacketRow>> {
         sqlx::query_as::<_, StoryPacketRow>(
             "select id, coalesce(title,'') as title, goal, architect_brief,
-                    acceptance_criteria, assay_commands
+                    acceptance_criteria, test_mode, assay_commands
              from storyboard_story where id=$1 limit 1",
         )
         .bind(story_id)
