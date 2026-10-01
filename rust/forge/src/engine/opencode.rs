@@ -352,7 +352,7 @@ impl RoleHarness for OpenCodeHarness {
                 }
             )));
         }
-        let raw = result.stdout;
+        let mut raw = result.stdout;
         if let Some(story) = self.story_id.as_deref() {
             let _ = vendor_session::write_vendor_session_id(story, "opencode", session.as_deref());
         }
@@ -360,56 +360,89 @@ impl RoleHarness for OpenCodeHarness {
             write_session_id(&cwd, Some(id));
         }
         let sha = self.run_git(&["rev-parse", "HEAD"]);
+        let mut candidate_sha = sha.clone();
         if smith_writes_code(node_id) {
-            let before = before_sha.as_deref().ok_or_else(|| {
-                WorkflowError::generic(format!(
-                    "Smith candidate refused for {node_id}: HEAD was unreadable before the role turn"
-                ))
-            })?;
-            let after = sha.as_deref().ok_or_else(|| {
-                WorkflowError::generic(format!(
+            let execution_base = self
+                .execution_workspace
+                .as_ref()
+                .map(|workspace| workspace.base_commit.as_str())
+                .or(before_sha.as_deref());
+            let rejection = match (execution_base, sha.as_deref()) {
+                (None, _) => Some(format!(
+                    "Smith candidate refused for {node_id}: execution base is unreadable"
+                )),
+                (_, None) => Some(format!(
                     "Smith candidate refused for {node_id}: HEAD was unreadable after the role turn"
-                ))
-            })?;
-            if after == before {
-                return Err(WorkflowError::generic(format!(
+                )),
+                (Some(base), Some(after)) if after == base => Some(format!(
                     "Smith candidate refused for {node_id}: no new commit was created (HEAD stayed {after})"
-                )));
-            }
-            if after.len() != 40 || !after.bytes().all(|b| b.is_ascii_hexdigit()) {
-                return Err(WorkflowError::generic(format!(
-                    "Smith candidate refused for {node_id}: {after:?} is not a full commit SHA"
-                )));
-            }
-            if self
-                .run_git(&["merge-base", "--is-ancestor", before, after])
-                .is_none()
-            {
-                return Err(WorkflowError::generic(format!(
-                    "Smith candidate refused for {node_id}: candidate {after} is not a descendant of pre-turn HEAD {before}"
-                )));
-            }
-            let dirty = self.run_git(&["status", "--porcelain"]).ok_or_else(|| {
-                WorkflowError::generic(format!(
-                    "Smith candidate refused for {node_id}: git status is unreadable"
-                ))
-            })?;
-            if !dirty.trim().is_empty() {
-                return Err(WorkflowError::generic(format!(
-                    "Smith candidate refused for {node_id}: uncommitted work remains after candidate {after}: {}",
-                    dirty.lines().take(8).collect::<Vec<_>>().join(" | ")
-                )));
-            }
-            let range = format!("{before}..{after}");
-            let changed = self.run_git(&["diff", "--name-only", &range]).ok_or_else(|| {
-                WorkflowError::generic(format!(
-                    "Smith candidate refused for {node_id}: changed paths are unreadable for {range}"
-                ))
-            })?;
-            if changed.trim().is_empty() {
-                return Err(WorkflowError::generic(format!(
-                    "Smith candidate refused for {node_id}: new commit {after} changes no files"
-                )));
+                )),
+                (Some(_), Some(after))
+                    if after.len() != 40
+                        || !after.bytes().all(|byte| byte.is_ascii_hexdigit()) =>
+                {
+                    Some(format!(
+                        "Smith candidate refused for {node_id}: {after:?} is not a full commit SHA"
+                    ))
+                }
+                (Some(base), Some(after))
+                    if self
+                        .run_git(&["merge-base", "--is-ancestor", base, after])
+                        .is_none() =>
+                {
+                    Some(format!(
+                        "Smith candidate refused for {node_id}: candidate {after} is not a descendant of execution base {base}"
+                    ))
+                }
+                (Some(_), Some(after)) => {
+                    match self.run_git(&["status", "--porcelain"]) {
+                        None => Some(format!(
+                            "Smith candidate refused for {node_id}: git status is unreadable"
+                        )),
+                        Some(dirty) if !dirty.trim().is_empty() => Some(format!(
+                            "Smith candidate refused for {node_id}: uncommitted work remains after candidate {after}: {}",
+                            dirty.lines().take(8).collect::<Vec<_>>().join(" | ")
+                        )),
+                        Some(_) => {
+                            let base = execution_base.unwrap_or(after);
+                            let range = format!("{base}..{after}");
+                            match self.run_git(&["diff", "--name-only", &range]) {
+                                None => Some(format!(
+                                    "Smith candidate refused for {node_id}: changed paths are unreadable for {range}"
+                                )),
+                                Some(changed) if changed.trim().is_empty() => Some(format!(
+                                    "Smith candidate refused for {node_id}: candidate {after} changes no files from execution base {base}"
+                                )),
+                                Some(changed)
+                                    if self.packet.test_mode.as_deref() == Some("RUST_CONTRACT")
+                                        && changed.lines().any(|path| {
+                                            let path = path.trim();
+                                            [
+                                                "rust/core/",
+                                                "rust/forge/",
+                                                "rust/server/",
+                                                "rust/integrations/",
+                                                "rust/cli/",
+                                                "rust/ui/",
+                                            ]
+                                            .iter()
+                                            .any(|root| path.starts_with(root))
+                                        }) =>
+                                {
+                                    Some(format!(
+                                        "Smith candidate refused for {node_id}: RUST_CONTRACT candidate modified production code across {range}"
+                                    ))
+                                }
+                                Some(_) => None,
+                            }
+                        }
+                    }
+                }
+            };
+            if let Some(reason) = rejection {
+                candidate_sha = None;
+                raw.push_str("\nSMITH_CANDIDATE_REJECTED: ");
+                raw.push_str(&reason);
             }
         }
         let assay = if self.assay_commands.is_empty() {
@@ -419,7 +452,7 @@ impl RoleHarness for OpenCodeHarness {
         };
         Ok(HarnessOutput {
             raw,
-            candidate_sha: sha,
+            candidate_sha,
             assay_commands: assay,
             acceptance_mapped: self.acceptance_mapped,
         })

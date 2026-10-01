@@ -293,6 +293,17 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             let ports = self.effect_ports();
             evidence = forge_agent_collect(node_id, self.current.clone(), &out.raw, &ports)
                 .map_err(WorkflowError::generic)?;
+            if matches!(
+                node_id,
+                "smith"
+                    | "smith_split_work"
+                    | "repair_smith"
+                    | "fast_smith"
+                    | "fast_repair_smith"
+                    | "lead_solo_implement"
+            ) {
+                evidence.candidate_sha = out.candidate_sha.clone();
+            }
             // The bench intent the dispatch carried, applied the moment the proposal is read, so a decision outside
             // the Cap is a rejected deliverable on the same attempt rather than a surprise at settle time.
             self.apply_bench_intent(&mut evidence);
