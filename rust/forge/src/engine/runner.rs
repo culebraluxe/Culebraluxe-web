@@ -126,10 +126,7 @@ impl<'a> ProductionRoleRunner<'a> {
             )));
         }
 
-        let AssayEvidence {
-            evidence,
-            verdict,
-        } = collect_rust_contract_assay_evidence(
+        let AssayEvidence { evidence, verdict } = collect_rust_contract_assay_evidence(
             self.current.clone(),
             Some(&|cmd| self.harness.run_command(cmd)),
             &self.contract_assay_commands,
@@ -372,7 +369,9 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
         ) {
             if let Some(sha) = out.candidate_sha.clone() {
                 evidence.candidate_sha = Some(sha.clone());
-                if let (Some(writer), Some(run_id)) = (self.writer, self.story_run_id.as_deref()) {
+                if let (Some(writer), Some(run_id)) =
+                    (self.writer, self.story_run_id.as_deref())
+                {
                     writer
                         .stamp_run_candidate(run_id, &sha)
                         .map_err(|error| {
