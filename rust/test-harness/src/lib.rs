@@ -33,6 +33,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod accounting;
 pub mod actors;
 pub mod barrier;
 pub mod clock;
@@ -52,6 +53,7 @@ pub mod runtime;
 pub mod snapshot;
 pub mod source;
 
+pub use accounting::AccountingHarness;
 pub use clock::TestClock;
 pub use database::{
     guard_target, resolve_test_target, HarnessDbError, TestDatabase, TestTransaction,
