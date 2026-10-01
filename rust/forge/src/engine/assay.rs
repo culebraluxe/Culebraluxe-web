@@ -69,6 +69,46 @@ fn is_rust_contract_runtime_test(command: &str) -> bool {
         || command.starts_with("cargo nextest ")
 }
 
+/// The roots that hold PRODUCTION code. A test-authoring story may not change anything under these: the
+/// deliverable of a RUST_CONTRACT story is a TEST ARTIFACT, never a product fix.
+///
+/// A test that fails against this code is a FINDING to be scheduled as its own product work. Moving, relaxing
+/// or silencing production code so a test turns green destroys the very evidence the story exists to add — the
+/// point of the test is to FIND the bug, not to hide it.
+const PRODUCTION_ROOTS: [&str; 6] = [
+    "rust/core/",
+    "rust/forge/",
+    "rust/server/",
+    "rust/integrations/",
+    "rust/cli/",
+    "rust/ui/",
+];
+
+/// The production files the candidate commit touched, asked of git through the same command runner the assay
+/// uses. Empty when there is no candidate, or when git cannot answer — the authoring checks still stand in that
+/// case, so an unreadable git is not by itself a reason to block an honestly-authored story.
+pub fn rust_contract_production_edits(
+    candidate_sha: Option<&str>,
+    run: &dyn Fn(&str) -> CommandResult,
+) -> Vec<String> {
+    let Some(sha) = candidate_sha.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Vec::new();
+    };
+    let listed = run(&format!("git show --name-only --format= {sha}"));
+    let mut found: Vec<String> = listed
+        .output
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            !line.is_empty() && PRODUCTION_ROOTS.iter().any(|root| line.starts_with(root))
+        })
+        .map(str::to_string)
+        .collect();
+    found.sort();
+    found.dedup();
+    found
+}
+
 /// Test-authoring stories measure two different facts:
 ///
 /// 1. Is the authored test artifact structurally valid and compilable? This is the QA gate.
@@ -152,6 +192,23 @@ pub fn collect_rust_contract_assay_evidence(
         evidence.deliverable_rejection = Some(format!(
             "QA FAIL: RUST_CONTRACT authoring checks failed=[{}]",
             structural_failures.join(" | ")
+        ));
+        return AssayEvidence {
+            evidence,
+            verdict: AssayVerdict::Fail,
+        };
+    }
+
+    // THE TEST-ONLY RULE. A test-authoring story's deliverable is a test; production code is not its to move.
+    // This is an AUTHORING defect, so it lives in the structural gate that is allowed to fail — never in the
+    // runtime bucket below, where a failing test is legitimate evidence about the application.
+    let production_edits = rust_contract_production_edits(evidence.candidate_sha.as_deref(), run);
+    if !production_edits.is_empty() {
+        evidence.qa_passed = Some(false);
+        evidence.deliverable_rejection = Some(format!(
+            "QA FAIL: RUST_CONTRACT artifact modified production code; the deliverable is a test, not a product \
+             fix. Commit the failing test as the finding and schedule the product fix as its own story. touched=[{}]",
+            production_edits.join(" | ")
         ));
         return AssayEvidence {
             evidence,
@@ -277,6 +334,44 @@ mod rust_contract_tests {
             .as_deref()
             .unwrap_or_default()
             .contains("product debugging is separate work"));
+    }
+
+    #[test]
+    fn test_authoring_story_may_not_move_production_code() {
+        let commands = vec![
+            "cargo check --manifest-path rust/Cargo.toml --workspace --all-targets".to_string(),
+        ];
+        let gate = ForgeGateEvidence {
+            candidate_sha: Some("0123456789abcdef0123456789abcdef01234567".into()),
+            ..ForgeGateEvidence::default()
+        };
+        let evidence = collect_rust_contract_assay_evidence(
+            gate,
+            Some(&|command| {
+                if command.starts_with("git show") {
+                    // The candidate touched its own test — and the production file it should never have moved.
+                    CommandResult {
+                        command: command.into(),
+                        exit_code: 0,
+                        passed: true,
+                        excerpt: String::new(),
+                        unmeasurable: false,
+                        output: "rust/test-harness/tests/wf_human_task__001__candidate_claim.rs\n\
+                                 rust/core/workflow/src/engine/engine_options.rs\n"
+                            .into(),
+                    }
+                } else {
+                    result(command, true)
+                }
+            }),
+            &commands,
+            true,
+        );
+        assert_eq!(evidence.verdict, AssayVerdict::Fail);
+        assert_eq!(evidence.evidence.qa_passed, Some(false));
+        let rejection = evidence.evidence.deliverable_rejection.unwrap_or_default();
+        assert!(rejection.contains("modified production code"));
+        assert!(rejection.contains("engine_options.rs"));
     }
 
     #[test]

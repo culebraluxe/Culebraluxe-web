@@ -138,6 +138,20 @@ pub fn build_task_text_with_context(
         "Work in the current repository. Verify your work by running tests/typecheck/build within the runtime policy above. Create a local git commit with the intended changes when the story requires it. Do NOT push. Do NOT mutate production data or schema. Report what you did."
             .into(),
     );
+    if packet.test_mode.as_deref() == Some("RUST_CONTRACT") {
+        parts.push(
+            "TEST-AUTHORING STORY (RUST_CONTRACT). The deliverable is a TEST ARTIFACT, not a product fix. \
+             Author the canonical Rust test under rust/test-harness/ and commit it. You may NOT modify the \
+             production crates (rust/core/**, rust/forge/**): a change there is an authoring defect, and the \
+             artifact is rejected for it. A \"test seam\" means code inside the test-harness crate (or behind \
+             #[cfg(test)]), never a change to production behaviour. If your test fails against the existing \
+             application code, that is a FINDING, not a failure: commit the failing test and report it. Product \
+             debugging is separate work with its own story. The point of the test is to FIND the bug, not to \
+             HIDE it: never move, relax, or silence production code, and never weaken an assertion, to make a \
+             test pass."
+                .into(),
+        );
+    }
     parts.push(
         "End your final report with one concise \"Tests: <summary>\" line so the harness can record a concrete tests/checks summary against this story."
             .into(),
