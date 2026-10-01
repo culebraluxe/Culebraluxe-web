@@ -440,11 +440,9 @@ pub fn drive_forge_story<S: TxStore>(
     // projection creates a circular dependency (the board waits for settlement while settlement waits for the board).
     // Only the engine's real Completed/completed pair earns 100%; holds, cancellation and failures remain untouched.
     if process_completes_story(instance.status, instance.outcome) {
-        rt.writer()
-            .mark_story_complete(story_id)
-            .map_err(|error| {
-                WorkflowError::generic(format!("mark_story_complete({story_id}): {error}"))
-            })?;
+        rt.writer().mark_story_complete(story_id).map_err(|error| {
+            WorkflowError::generic(format!("mark_story_complete({story_id}): {error}"))
+        })?;
     }
 
     Ok(DriveForgeStoryResult {
