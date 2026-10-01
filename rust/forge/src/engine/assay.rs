@@ -282,7 +282,8 @@ mod rust_contract_tests {
     #[test]
     fn authoring_check_failure_still_blocks_the_story() {
         let commands = vec![
-            "cargo test --manifest-path rust/Cargo.toml -p test-harness --test contract".to_string(),
+            "cargo test --manifest-path rust/Cargo.toml -p test-harness --test contract"
+                .to_string(),
             "cargo check --manifest-path rust/Cargo.toml --workspace --all-targets".to_string(),
         ];
         let evidence = collect_rust_contract_assay_evidence(
