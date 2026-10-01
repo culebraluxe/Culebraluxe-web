@@ -130,4 +130,53 @@ again (`TEST_EXIT=0`), so the clause is load-bearing and the contract is not vac
 An unrelated set of pre-existing working-tree changes from other lanes was present at run time; they were left
 untouched and are not part of this candidate.
 
+## Raw verification — fast_smith re-dispatch (2026-10-01, task 1f0304ac)
+
+The dispatch started from `origin/main@7f3714e9`, whose history already contains the canonical file and harness
+(`197f5c69`, `4ce77a6c`). The branch was therefore clean at base: the deliverable existed but the node had no new
+candidate, the same class of miss the prior self-heal recorded. This run adds one load-bearing adversarial clause to
+the canonical test — still no production change.
+
+What changed:
+
+1. Clause (8) `rust/test-harness/tests/runtime_pool__003__timeout.rs:265-333`: all six callers share ONE
+   `DbPoolFaultHarness` whose script holds exactly one `PoolFault::Ready` and whose fallback is `PoolFault::PoolTimedOut`.
+   Clause (7) gives each caller a private pool, so it cannot see contention for a single connection; clause (8) asserts
+   convergence to exactly one legal success (`winners == 1`, `shared.successes() == 1`) and that every losing caller
+   still spends the full retry ceiling (`attempts == ceiling`) surfacing `DbFailureKind::Timeout`.
+2. The top-of-file L4 rationale now names the shared-pool clause.
+
+This node's own commands, pasted with their exit status:
+
+```
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test runtime_pool__003__timeout
+running 1 test
+test runtime_pool_003__timeout ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+TEST_EXIT=0
+
+$ cargo test --manifest-path rust/Cargo.toml -p test-harness --lib pool
+running 3 tests
+test pool::tests::the_pool_timeout_is_the_drivers_own_error ... ok
+test pool::tests::acquire_classifies_through_the_production_boundary ... ok
+test pool::tests::a_work_failure_is_not_a_timeout ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 47 filtered out
+LIB_EXIT=0
+
+$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.23s
+CHECK_EXIT=0
+```
+
+Mutation check (this node's own): with `DbFailureKind::Timeout` dropped from the `retryable` match in
+`rust/core/db/src/error.rs` (`from_sqlx`), the test FAILS (`test result: FAILED`, exit 101) at
+`runtime_pool_003__timeout.rs:77` (`a Timeout is transient and must be retryable`); clause (8) depends on the same
+retryability and its ceiling assertion (`runtime_pool_003__timeout.rs:308-312`) fails the same run. The production file
+was restored byte-for-byte (`git checkout --`, `cmp` byte-identical, `git diff` empty) and the test is green again.
+
+Files in this candidate: `rust/test-harness/tests/runtime_pool__003__timeout.rs`,
+`docs/agent/packets/TST-RUNTIME-POOL-003.md`. No production crate is touched.
+
 FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false,"candidateSha":"<this commit>"}

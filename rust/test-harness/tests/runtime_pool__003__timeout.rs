@@ -14,9 +14,12 @@
 //! `DbFailure::from_sqlx` and returns the production result. The retry loop is production `db::retry`.
 //!
 //! WHY ADVERSARIAL (L4). The failure of a timeout policy is not that one call times out; it is that a burst of
-//! callers either stampedes (unbounded retries) or gives up inconsistently. The last section runs six callers that
-//! meet at a barrier and drive their own scripted pools at once, and asserts every one converges to exactly one
-//! success in exactly three bounded attempts.
+//! callers either stampedes (unbounded retries) or gives up inconsistently. One section runs six callers that meet at
+//! a barrier and drive their own scripted pools at once, and asserts every one converges to exactly one success in
+//! exactly three bounded attempts. The final section gives all six ONE shared pool holding a single connection: it
+//! asserts convergence to exactly one legal success (no double handout, no lost caller) while every losing caller's
+//! timeout is still retried to the policy ceiling — a `Timeout` production stopped treating as retryable would stop at
+//! one attempt and fail there.
 //!
 //! NEGATIVE CASES. A test that only saw timeouts could not tell the classification from a boundary that calls every
 //! driver error a timeout and retries everything. So a constraint violation (`23505`) and a missing relation
@@ -32,6 +35,7 @@
 //! Run with:
 //!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test runtime_pool__003__timeout
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use db::{retry, DbFailureKind, RetryPolicy};
@@ -257,4 +261,73 @@ async fn runtime_pool_003__timeout() {
             "{api}: every concurrent caller must reach exactly one success",
         );
     }
+
+    // (8) ADVERSARIAL: ONE POOL, SIX CALLERS, ONE CONNECTION. Clause (7) gives every caller its own pool, so it never
+    //     sees contention for a single connection. Here the six share ONE `DbPoolFaultHarness` whose script holds
+    //     exactly one `Ready` and whose fallback is a timeout. Under the barrier they race the same boundary, and the
+    //     contract is convergence to ONE legal durable success: exactly one caller gets the connection, and every
+    //     other caller keeps timing out and must still be retried to the policy ceiling. The latter is the load-bearing
+    //     half — a `Timeout` production stopped treating as retryable would leave each loser at one attempt and fail
+    //     here, where clause (7)'s private pools could not see it.
+    let ceiling = 5u32;
+    let shared = Arc::new(DbPoolFaultHarness::with_fallback(
+        vec![
+            PoolFault::PoolTimedOut,
+            PoolFault::StatementTimeout,
+            PoolFault::Ready,
+        ],
+        PoolFault::PoolTimedOut,
+    ));
+    let barrier = ConcurrencyBarrier::new(parties);
+    let mut handles = Vec::with_capacity(parties);
+    for _ in 0..parties {
+        let barrier = barrier.clone();
+        let shared = Arc::clone(&shared);
+        handles.push(tokio::spawn(async move {
+            barrier.arrive_and_wait().await;
+            let mut my_attempts = 0u32;
+            let outcome = retry(bounded_attempts(ceiling), |_| {
+                my_attempts += 1;
+                async { shared.acquire("db.acquire") }
+            })
+            .await;
+            let kind = outcome.as_ref().err().map(|failure| failure.kind);
+            (outcome.is_ok(), my_attempts, kind)
+        }));
+    }
+    let mut winners = 0usize;
+    let mut winner_attempts = 0u32;
+    let mut total_attempts = 0u32;
+    for handle in handles {
+        let (won, attempts, kind) = handle.await.expect("a caller must not panic");
+        total_attempts += attempts;
+        if won {
+            winners += 1;
+            winner_attempts = attempts;
+        } else {
+            assert_eq!(
+                kind,
+                Some(DbFailureKind::Timeout),
+                "{api}: a caller that does not get the connection must surface a Timeout",
+            );
+            assert_eq!(
+                attempts, ceiling,
+                "{api}: a losing caller's timeout must stay retryable to the policy ceiling",
+            );
+        }
+    }
+    assert_eq!(
+        winners, 1,
+        "{api}: six callers sharing one connection must converge to exactly one success",
+    );
+    assert_eq!(
+        shared.successes(),
+        1,
+        "{api}: the pool must hand out its single connection exactly once",
+    );
+    assert_eq!(
+        total_attempts,
+        ceiling * (parties as u32 - 1) + winner_attempts,
+        "{api}: the losers must each spend the full ceiling and the winner stop at its success",
+    );
 }
