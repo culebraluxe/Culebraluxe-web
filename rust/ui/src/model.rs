@@ -1,4 +1,4 @@
-    Screen { key: "sign-document", title: "Secure Signing", path: "/sign/[token]", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },\n//! The Model: every screen the application serves, and the state the shell renders.
+//! The Model: every screen the application serves, and the state the shell renders.
 //!
 //! THE SCOPE IS THE APPLICATION, NOT A MENU. This module used to list only the portal menu, which meant screens that
 //! exist and are reachable were "out of scope" by my judgement rather than by fact. The captain's rule now: every
@@ -300,6 +300,9 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "runtime-record", title: "Runtime inspector", path: "/portal/runtime-inspector/[instanceId]", surface: Surface::Support, nav: Nav::Unlisted, deferred: None, detail_of: None },
 
     // ---- SITE: the public front. Not covered by the portal registry, so these come from the route tree. ----
+    // The page a signer reaches from the signing email. It carries no session and no portal nav: the token in the
+    // path is the whole of its authority, which is why it is a Site screen rather than a portal one.
+    Screen { key: "sign-document", title: "Secure Signing", path: "/sign/[token]", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
     Screen { key: "site-home", title: "Home", path: "/", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
     // NO LIVE ROUTE: the app serves public properties only at /properties/[slug]; there is no index page, and
     // nothing links to one. This screen is a view over the public inventory read model (getProperties/getFilteredProperties)
