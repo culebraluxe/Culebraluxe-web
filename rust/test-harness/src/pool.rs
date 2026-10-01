@@ -78,6 +78,12 @@ pub enum PoolFault {
     StatementTimeout,
     /// A lock wait was cancelled: SQLSTATE `55P03`.
     LockTimeout,
+    /// `idle_in_transaction_session_timeout` fired: SQLSTATE `25P03`. The name says "timeout", but it TERMINATES THE
+    /// SESSION rather than cancelling a statement, so it is a connection failure (`DatabaseUnavailable`), not a
+    /// `Timeout` — the trap the classifier explicitly refuses (`rust/core/db/src/error.rs:161-170`).
+    IdleInTransactionTimeout,
+    /// The server has no free connection slots: SQLSTATE `53300`. A pool-boundary connection failure, not a `Timeout`.
+    ConnectionExhausted,
     /// A unique-key violation: SQLSTATE `23505` — a work failure, not a timeout.
     ConstraintViolation,
     /// A missing relation: SQLSTATE `42P01` — a work failure, not a timeout.
@@ -96,6 +102,11 @@ impl PoolFault {
                 "canceling statement due to statement timeout",
             )),
             Self::LockTimeout => Some(sqlstate("55P03", "canceling statement due to lock timeout")),
+            Self::IdleInTransactionTimeout => Some(sqlstate(
+                "25P03",
+                "terminating connection due to idle-in-transaction timeout",
+            )),
+            Self::ConnectionExhausted => Some(sqlstate("53300", "sorry, too many clients already")),
             Self::ConstraintViolation => Some(sqlstate(
                 "23505",
                 "duplicate key value violates unique constraint \"pool_fault_key\"",

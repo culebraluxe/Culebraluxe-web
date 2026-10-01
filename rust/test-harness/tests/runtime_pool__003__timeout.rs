@@ -22,7 +22,9 @@
 //! driver error a timeout and retries everything. So a constraint violation (`23505`) and a missing relation
 //! (`42P01`) are driven through the same boundary and must be neither `Timeout` nor retryable, and must be attempted
 //! exactly once — waiting does not fix either. A driver error with no timeout anywhere in it (`RowNotFound`) must not
-//! be promoted to `Timeout` either.
+//! be promoted to `Timeout` either. And a SQLSTATE whose NAME contains "timeout" is not enough: the
+//! idle-in-transaction timeout (`25P03`, which terminates the session) and "too many clients" (`53300`) are
+//! connection failures, not `Timeout`.
 //!
 //! NO EXTERNAL I/O. No socket is opened, no provider is called, no database is touched, and the harness cannot reach
 //! the PRODUCTION database (it never connects at all). Level: L4 Adversarial, harness `DbPoolFaultHarness`.
@@ -91,6 +93,35 @@ async fn runtime_pool_003__timeout() {
         assert!(failure.retryable, "{fault:?} is retryable");
     }
 
+    // (3b) NEGATIVE / ADVERSARIAL. A SQLSTATE whose NAME contains "timeout" is not automatically a `Timeout`. The
+    //      idle-in-transaction timeout (`25P03`) TERMINATES THE SESSION, and "too many clients" (`53300`) REFUSES the
+    //      connection: both are evidence about the session, and the production taxonomy classifies them
+    //      `DatabaseUnavailable` (`rust/core/db/src/error.rs:161-170`). A boundary that matched on the word "timeout"
+    //      would call these `Timeout` and still pass step (3); this clause refuses that shortcut. They stay retryable
+    //      — the work is fine, the session is not.
+    for fault in [
+        PoolFault::IdleInTransactionTimeout,
+        PoolFault::ConnectionExhausted,
+    ] {
+        let failure = DbPoolFaultHarness::always(fault)
+            .acquire("db.acquire")
+            .expect_err("a session failure is a failure");
+        assert_ne!(
+            failure.kind,
+            DbFailureKind::Timeout,
+            "{fault:?} names a timeout but must not be classified as one",
+        );
+        assert_eq!(
+            failure.kind,
+            DbFailureKind::DatabaseUnavailable,
+            "{fault:?} is a session/connection failure",
+        );
+        assert!(
+            failure.retryable,
+            "{fault:?} is retryable: the work is fine, the session is not",
+        );
+    }
+
     // (4) BOUNDED CONVERGENCE. Two timeouts then a connection: the production retry must converge to exactly one
     //     success, in exactly the scripted number of attempts, leaving no fault unspent.
     let converging = DbPoolFaultHarness::scripted(vec![
@@ -131,6 +162,32 @@ async fn runtime_pool_003__timeout() {
         failure.kind,
         DbFailureKind::Timeout,
         "{api}: the surfaced failure must still be a Timeout",
+    );
+
+    // (5b) BOUNDED BY THE POLICY, NOT BY THE POOL RUNNING DRY. A script longer than the policy's ceiling must leave
+    //      the excess faults unspent: that is the difference between "we stopped because the policy says so" and "we
+    //      stopped because the pool happened to run out of script". Without this, a loop that ignored `attempts` and
+    //      simply drained the script would still pass step (5).
+    let overlong = DbPoolFaultHarness::scripted(vec![PoolFault::PoolTimedOut; 10]);
+    let failure = retry(bounded_attempts(3), |_| async {
+        overlong.acquire("db.acquire")
+    })
+    .await
+    .expect_err("a pool that keeps timing out must surface the timeout");
+    assert_eq!(
+        failure.kind,
+        DbFailureKind::Timeout,
+        "{api}: the surfaced failure must still be a Timeout",
+    );
+    assert_eq!(
+        overlong.attempts(),
+        3,
+        "{api}: the policy's ceiling, not the script's length, must bound the retry",
+    );
+    assert_eq!(
+        overlong.remaining(),
+        7,
+        "{api}: the retry must stop at the ceiling and leave the rest of the script unspent",
     );
 
     // (6) NEGATIVE / REFUSAL. A non-timeout driver error must not be called a timeout and must not be retried: a
