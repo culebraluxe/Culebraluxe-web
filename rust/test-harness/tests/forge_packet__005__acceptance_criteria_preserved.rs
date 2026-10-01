@@ -16,10 +16,12 @@
 //!      `Acceptance criteria (do not mark Complete unless these are satisfied):`.
 //!
 //! "Preserved" means byte-exact for the authored content, absence-preserving for a blank criterion
-//! (`nullif(trim(...), '')`), and **frozen** — a later edit to the story must never rewrite the
-//! snapshot the run recorded, because migration 024 records "exactly what the coding agent executed
-//! against". The negative cases below (a blank criterion, cross-story substitution, and an edit after
-//! the run) are what keep this test from passing on a boundary that merely re-reads the live row.
+//! (`nullif(trim(...), '')` — Postgres `trim` strips spaces, so the blank the boundary recognises is
+//! a space-written one; a tab/newline-written criterion is content and is preserved as authored), and
+//! **frozen** — a later edit to the story must never rewrite the snapshot the run recorded, because
+//! migration 024 records "exactly what the coding agent executed against". The negative cases below (a
+//! blank criterion, cross-story substitution, and an edit after the run) are what keep this test from
+//! passing on a boundary that merely re-reads the live row.
 //!
 //! Greenfield Rust: this is not a port of any TypeScript test. It drives the real
 //! `ForgeEngineDao` claim/begin transitions and the real task-text builder through the `ForgeHarness`,
@@ -155,7 +157,10 @@ async fn forge_packet_005__acceptance_criteria_preserved() {
     //    packet DAO verbatim; the blank story must never read back the authored story's criteria.
     // -----------------------------------------------------------------------------------------------------------
     let authored_item = insert_ready_story(&pool, &authored_story, CRITERIA_A).await;
-    let blank_item = insert_ready_story(&pool, &blank_story, "   \n\t  ").await;
+    // Space-written only, because that is the blank the production seam defines via `trim` — the same
+    // blank an author who leaves the field padded leaves behind. A tab/newline-written criterion is
+    // content and is deliberately NOT this fixture: it must be preserved as authored, not nulled.
+    let blank_item = insert_ready_story(&pool, &blank_story, "     ").await;
 
     let authored_row = engine
         .story_packet(&authored_story)
