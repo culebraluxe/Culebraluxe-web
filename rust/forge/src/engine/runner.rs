@@ -126,8 +126,19 @@ impl<'a> ProductionRoleRunner<'a> {
             )));
         }
 
+        let mut current = self.current.clone();
+        if current.candidate_sha.is_none() {
+            let head = self.harness.run_command("git rev-parse HEAD");
+            let sha = head.output.trim();
+            if head.passed
+                && sha.len() == 40
+                && sha.bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                current.candidate_sha = Some(sha.to_ascii_lowercase());
+            }
+        }
         let AssayEvidence { evidence, verdict } = collect_rust_contract_assay_evidence(
-            self.current.clone(),
+            current,
             Some(&|cmd| self.harness.run_command(cmd)),
             &self.contract_assay_commands,
             true,

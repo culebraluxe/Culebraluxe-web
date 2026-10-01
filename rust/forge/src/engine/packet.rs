@@ -142,7 +142,7 @@ pub fn build_task_text_with_context(
         parts.push(
             "TEST-AUTHORING STORY (RUST_CONTRACT). The deliverable is a TEST ARTIFACT, not a product fix. \
              Author the canonical Rust test under rust/test-harness/ and commit it. You may NOT modify the \
-             production crates (rust/core/**, rust/forge/**): a change there is an authoring defect, and the \
+             production crates (rust/core/**, rust/forge/**, rust/server/**, rust/integrations/**, rust/cli/**, rust/ui/**): a change there is an authoring defect, and the \
              artifact is rejected for it. A \"test seam\" means code inside the test-harness crate (or behind \
              #[cfg(test)]), never a change to production behaviour. If your test fails against the existing \
              application code, that is a FINDING, not a failure: commit the failing test and report it. Product \

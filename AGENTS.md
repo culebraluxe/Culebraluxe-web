@@ -149,6 +149,11 @@ Never
   under `Documents/Culebraluxe-worktrees/` plus a `.assay-workspaces/` directory, all deleted. The estate is
   zero and it stays zero. Scratch that a command creates and consumes inside itself is fine; a directory
   that outlives the command, or that another lane reads, is a tree. See `docs/agent/MEMORY.md`.
+  **Captain exception (2026-10-01): parallel Forge execution may use one disposable Git worktree per story solely
+  as an isolation sandbox. Neon remains the only workflow/control-plane authority; no lane may read another
+  story's worktree; the worktree is removed when the child run ends; and only an unpublished/held candidate may
+  retain its Git branch so paid code is not lost. This exception exists to preserve multi-story Smith concurrency,
+  not to recreate the deleted tree-era workflow.**
   guard: rust/cli/src/forge/repo_guards.rs
 - Let git decide anything about work that exists. **PAID CODE > GIT SHA** — the work is the asset, the sha is
   a label. A git fact may never gate, void or replay work that has been paid for: QA answers "did the tests

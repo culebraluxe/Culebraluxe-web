@@ -7,6 +7,7 @@ use crate::engine::agent_work;
 use crate::engine::learn::run_learn_pass;
 use crate::engine::routing_brain::{parse_forge_routing_brain, ForgeRoutingBrain};
 use crate::engine::vendor_session::with_shared;
+use crate::engine::worktree::cleanup_worker_workspace;
 use db::{AgentWorkOutcome, ForgeControlDao};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -474,6 +475,10 @@ fn run_claimed_dispatch(
             "EXECUTION_ENV",
             std::env::var("EXECUTION_ENV").unwrap_or_else(|_| "PROD".into()),
         )
+        // Parallel stories MUST NOT share the control-plane checkout. The child provisions one disposable
+        // /tmp worktree from origin/main, keyed by this durable work-item id.
+        .env("FORGE_PROVISION", "1")
+        .env("FORGE_RUN_ID", &dispatch.work_item_id)
         // THE FLOOR BELONGS TO THE COORDINATOR, NOT TO EVERY CHILD. Each story runs in its own process with its own
         // pool, so four concurrent stories must not each hold the engine's warm floor open against one Neon branch
         // (`FORGE_DB_POOL_MIN`, default 20 in `rust/core/db/src/pool.rs:193`). The children are short-lived and
@@ -520,6 +525,19 @@ fn run_claimed_dispatch(
         }
     };
     heartbeat.store(true, Ordering::Relaxed);
+
+    // A worktree is an execution sandbox, not workflow state. Remove it after every child run. The cleanup helper
+    // keeps the branch only when its candidate is not yet contained in origin/main, so a Hold cannot erase paid code.
+    if let Err(error) = cleanup_worker_workspace(
+        std::env::current_dir().ok().as_deref(),
+        &dispatch.story_id,
+        &dispatch.work_item_id,
+    ) {
+        eprintln!(
+            "forge-worker: worktree cleanup failed story={} item={}: {error}",
+            dispatch.story_id, dispatch.work_item_id
+        );
+    }
 
     // The child settles its own run. This is the net under a child that died before it could (crash, kill, OOM):
     // the guard inside `finish_agent_work_run` makes it a no-op if the child already has a verdict, so it can

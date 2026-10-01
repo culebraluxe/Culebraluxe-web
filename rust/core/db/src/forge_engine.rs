@@ -1639,7 +1639,22 @@ impl ForgeEngineDao {
 
     pub async fn story_packet(&self, story_id: &str) -> DbResult<Option<StoryPacketRow>> {
         sqlx::query_as::<_, StoryPacketRow>(
-            "select id, coalesce(title,'') as title, goal, architect_brief,
+            "select id, coalesce(title,'') as title, goal,
+                    concat_ws(E'\\n\\n',
+                      case when nullif(trim(scope),'') is not null
+                           then 'SCOPE:' || E'\\n' || scope end,
+                      case when nullif(trim(dependencies),'') is not null
+                           then 'DEPENDENCIES:' || E'\\n' || dependencies end,
+                      case when nullif(trim(preconditions),'') is not null
+                           then 'PRECONDITIONS:' || E'\\n' || preconditions end,
+                      case when nullif(trim(context_refs),'') is not null
+                           then 'CONTEXT REFS:' || E'\\n' || context_refs end,
+                      case when nullif(trim(operating_surface),'') is not null
+                           then 'OPERATING SURFACE:' || E'\\n' || operating_surface end,
+                      architect_brief,
+                      case when nullif(trim(postconditions),'') is not null
+                           then 'POSTCONDITIONS:' || E'\\n' || postconditions end
+                    ) as architect_brief,
                     acceptance_criteria, test_mode, assay_commands
              from storyboard_story where id=$1 limit 1",
         )

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub const GIT_BRANCH_PREFIX: &str = "agent/";
-pub const DEFAULT_WORKTREES_DIRNAME: &str = "Culebraluxe-worktrees";
+pub const DEFAULT_WORKTREES_DIRNAME: &str = "culebraluxe-forge-worktrees";
 
 #[derive(Debug, Clone)]
 pub struct WorkerWorkspace {
@@ -150,12 +150,9 @@ pub fn provision_worker_workspace(
     let base_commit = resolve_base_commit(&repo_root, &base_ref)?;
     let run = derive_run_id(run_id);
     let branch_name = derive_branch_name(story_id, &run);
-    let root = worktrees_root.map(PathBuf::from).unwrap_or_else(|| {
-        repo_root
-            .parent()
-            .unwrap_or(&repo_root)
-            .join(DEFAULT_WORKTREES_DIRNAME)
-    });
+    let root = worktrees_root
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join(DEFAULT_WORKTREES_DIRNAME));
     if root == repo_root || root.starts_with(&repo_root) {
         return Err(format!(
             "worktreesRoot must be OUTSIDE the primary checkout: {}",
@@ -208,6 +205,66 @@ pub fn provision_worker_workspace(
         base_commit,
         run_id: run,
     })
+}
+
+/// Remove the disposable execution worktree for one scheduled story. The branch is deleted only after its
+/// candidate is contained in origin/main; an unpublished/held candidate keeps its branch so paid code is not lost.
+pub fn cleanup_worker_workspace(
+    repo_root: Option<&Path>,
+    story_id: &str,
+    run_id: &str,
+) -> Result<(), String> {
+    let repo_root = resolve_repo_root(repo_root)?;
+    let run = derive_run_id(Some(run_id));
+    let branch_name = derive_branch_name(story_id, &run);
+    let root = std::env::temp_dir().join(DEFAULT_WORKTREES_DIRNAME);
+    let worktree_path = derive_worktree_path(&root, story_id, &run);
+
+    if worktree_path.exists() {
+        git(
+            &repo_root,
+            &[
+                "worktree",
+                "remove",
+                "--force",
+                worktree_path.to_str().unwrap_or(""),
+            ],
+        )?;
+    }
+    let _ = git(&repo_root, &["worktree", "prune"]);
+
+    // Refresh only the tracking ref used to decide whether the candidate is safely reachable from main.
+    let _ = git(&repo_root, &["fetch", "origin", "main"]);
+    let branch_exists = git(
+        &repo_root,
+        &[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch_name}"),
+        ],
+    )
+    .is_ok();
+    if branch_exists {
+        let candidate = git(&repo_root, &["rev-parse", &branch_name])?;
+        if git(
+            &repo_root,
+            &["merge-base", "--is-ancestor", &candidate, "origin/main"],
+        )
+        .is_ok()
+        {
+            git(&repo_root, &["branch", "-D", &branch_name])?;
+        }
+    }
+
+    if root.exists()
+        && std::fs::read_dir(&root)
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(false)
+    {
+        let _ = std::fs::remove_dir(&root);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

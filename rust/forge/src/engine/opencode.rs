@@ -35,6 +35,50 @@ pub fn default_cli_bin() -> String {
         .unwrap_or_else(|| "opencode".into())
 }
 
+fn smith_writes_code(node_id: &str) -> bool {
+    matches!(
+        node_id,
+        "smith"
+            | "smith_split_work"
+            | "repair_smith"
+            | "fast_smith"
+            | "fast_repair_smith"
+            | "lead_solo_implement"
+    )
+}
+
+fn blocked_model_env_key(key: &str) -> bool {
+    let upper = key.to_ascii_uppercase();
+    upper == "APP_ENV"
+        || upper == "EXECUTION_ENV"
+        || upper == "VERCEL_ENV"
+        || upper == "DATABASE_URL"
+        || upper.starts_with("DATABASE_URL_")
+        || upper.starts_with("NEON_")
+        || matches!(
+            upper.as_str(),
+            "PGHOST" | "PGPORT" | "PGDATABASE" | "PGUSER" | "PGPASSWORD" | "PGSERVICE"
+                | "PGSERVICEFILE" | "PGPASSFILE"
+        )
+}
+
+/// Smith runs code with the machine's normal toolchain/provider configuration, but it does not inherit the
+/// control plane's production database authority. Git publication is also disabled inside the model subprocess:
+/// DEV_OPS/Forge publishes the accepted candidate, never Smith.
+pub fn sanitize_model_env(
+    mut env: HashMap<String, String>,
+) -> HashMap<String, String> {
+    env.retain(|key, _| !blocked_model_env_key(key));
+    env.insert("GIT_CONFIG_COUNT".into(), "1".into());
+    env.insert("GIT_CONFIG_KEY_0".into(), "remote.origin.pushurl".into());
+    env.insert("GIT_CONFIG_VALUE_0".into(), "/dev/null".into());
+    env
+}
+
+pub fn sanitized_model_env() -> HashMap<String, String> {
+    sanitize_model_env(std::env::vars().collect())
+}
+
 /// The two policies an `agent_work_item` may carry (migration 179: `cheap` | `judgment`, NULL reads as `cheap`).
 pub const FORGE_MODEL_POLICIES: [&str; 2] = ["cheap", "judgment"];
 
@@ -176,7 +220,7 @@ impl OpenCodeHarness {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
             model: resolve_opencode_model(None)?,
-            env: None,
+            env: Some(sanitized_model_env()),
             auto_approve: true,
             start_run: None,
             assay_commands: vec![],
@@ -266,6 +310,7 @@ impl RoleHarness for OpenCodeHarness {
             )));
         }
         let task_text = self.task_text(node_id, task, self_heal);
+        let before_sha = self.run_git(&["rev-parse", "HEAD"]);
         let lane = "opencode";
         let session = if session_continuity_enabled() {
             if let Some(story) = self.story_id.as_deref() {
@@ -315,6 +360,58 @@ impl RoleHarness for OpenCodeHarness {
             write_session_id(&cwd, Some(id));
         }
         let sha = self.run_git(&["rev-parse", "HEAD"]);
+        if smith_writes_code(node_id) {
+            let before = before_sha.as_deref().ok_or_else(|| {
+                WorkflowError::generic(format!(
+                    "Smith candidate refused for {node_id}: HEAD was unreadable before the role turn"
+                ))
+            })?;
+            let after = sha.as_deref().ok_or_else(|| {
+                WorkflowError::generic(format!(
+                    "Smith candidate refused for {node_id}: HEAD was unreadable after the role turn"
+                ))
+            })?;
+            if after == before {
+                return Err(WorkflowError::generic(format!(
+                    "Smith candidate refused for {node_id}: no new commit was created (HEAD stayed {after})"
+                )));
+            }
+            if after.len() != 40 || !after.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(WorkflowError::generic(format!(
+                    "Smith candidate refused for {node_id}: {after:?} is not a full commit SHA"
+                )));
+            }
+            if self
+                .run_git(&["merge-base", "--is-ancestor", before, after])
+                .is_none()
+            {
+                return Err(WorkflowError::generic(format!(
+                    "Smith candidate refused for {node_id}: candidate {after} is not a descendant of pre-turn HEAD {before}"
+                )));
+            }
+            let dirty = self.run_git(&["status", "--porcelain"]).ok_or_else(|| {
+                WorkflowError::generic(format!(
+                    "Smith candidate refused for {node_id}: git status is unreadable"
+                ))
+            })?;
+            if !dirty.trim().is_empty() {
+                return Err(WorkflowError::generic(format!(
+                    "Smith candidate refused for {node_id}: uncommitted work remains after candidate {after}: {}",
+                    dirty.lines().take(8).collect::<Vec<_>>().join(" | ")
+                )));
+            }
+            let range = format!("{before}..{after}");
+            let changed = self.run_git(&["diff", "--name-only", &range]).ok_or_else(|| {
+                WorkflowError::generic(format!(
+                    "Smith candidate refused for {node_id}: changed paths are unreadable for {range}"
+                ))
+            })?;
+            if changed.trim().is_empty() {
+                return Err(WorkflowError::generic(format!(
+                    "Smith candidate refused for {node_id}: new commit {after} changes no files"
+                )));
+            }
+        }
         let assay = if self.assay_commands.is_empty() {
             self.packet.assay_commands.clone()
         } else {
@@ -399,6 +496,36 @@ mod tests {
         assert_eq!(as_model_policy(Some("premium")), "cheap");
         assert_eq!(as_model_policy(Some(" judgment ")), "judgment");
         assert_eq!(as_model_policy(None), "cheap");
+    }
+
+    #[test]
+    fn smith_subprocess_has_no_prod_database_authority_and_cannot_push() {
+        let mut env = HashMap::new();
+        env.insert("PATH".into(), "/usr/bin".into());
+        env.insert("DATABASE_URL_PROD".into(), "postgres://prod".into());
+        env.insert("NEON_API_KEY".into(), "secret".into());
+        env.insert("APP_ENV".into(), "production".into());
+        env.insert("EXECUTION_ENV".into(), "PROD".into());
+        env.insert("OPENCODE_TOKEN".into(), "keep-me".into());
+
+        let clean = sanitize_model_env(env);
+        assert_eq!(clean.get("PATH").map(String::as_str), Some("/usr/bin"));
+        assert_eq!(
+            clean.get("OPENCODE_TOKEN").map(String::as_str),
+            Some("keep-me")
+        );
+        assert!(!clean.contains_key("DATABASE_URL_PROD"));
+        assert!(!clean.contains_key("NEON_API_KEY"));
+        assert!(!clean.contains_key("APP_ENV"));
+        assert!(!clean.contains_key("EXECUTION_ENV"));
+        assert_eq!(
+            clean.get("GIT_CONFIG_KEY_0").map(String::as_str),
+            Some("remote.origin.pushurl")
+        );
+        assert_eq!(
+            clean.get("GIT_CONFIG_VALUE_0").map(String::as_str),
+            Some("/dev/null")
+        );
     }
 
     #[test]
