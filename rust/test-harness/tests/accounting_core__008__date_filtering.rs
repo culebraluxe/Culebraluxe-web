@@ -577,6 +577,35 @@ async fn accounting_core_008__date_filtering() {
         "{HARNESS}: November income is exactly r9 + r10 (44444.00 + 55555.00)"
     );
 
+    // 7d. WHICH DATE COLUMN (the issued side) — the mirror of 7c. r3 was ISSUED in May but PAID in June, and r9/r10
+    //     were ISSUED in May but PAID in November. A query that filtered income on `issued_on` would report r3, r9 and
+    //     r10 as May income and would drop r3 from June; the `paid_on` filter leaves May with only r5, the single
+    //     receivable actually paid in May. This is the same date-column trap as 7c, entered from the other door: a
+    //     query that switched `paid_on` for `issued_on` would still print plausible quarterly totals, just the wrong
+    //     ones.
+    let may = dao
+        .pnl(&PnlRequest {
+            from: "2099-05-01".into(),
+            to: "2099-05-31".into(),
+        })
+        .await
+        .expect("May projects");
+    assert_eq!(
+        amount_of(&may.income, "SERVICE_FEE"),
+        "<no SERVICE_FEE line>",
+        "{HARNESS}: income is filtered on paid_on — a receivable issued in-period but paid outside it is not income"
+    );
+    assert_eq!(
+        may.total_income.as_str(),
+        "1111.00",
+        "{HARNESS}: May income is exactly r5 (1111.00); r3 (issued May, paid June) and r9/r10 (issued May, paid November) are not May income"
+    );
+    assert_eq!(
+        may.total_expenses.as_str(),
+        "4000.00",
+        "{HARNESS}: May cost is exactly e3, the only expense dated in May"
+    );
+
     // 8. COMMITTED TRUTH — the filter reads what is committed, and a rolled-back probe changes nothing. The probe
     //    inserts an enormous PAID receivable inside June inside a transaction the harness can only roll back; inside
     //    the transaction it is visible, after the rollback the projection sees the committed fixture again.
