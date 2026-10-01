@@ -117,7 +117,7 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         "roi" => roi::run(args).await,
         // The writer. Its guard rails (PROD only, --force, a positive stale window) are checked before
         // anything touches the database.
-        "reset" | "recover" | "clean" => reset::run(args).await,
+        "reset" | "recover" | "clean" => reset::run(&forward_reset_args(args)).await,
         // The read path for a question nobody has a tool for yet: one read-only query, against a database the
         // caller must name. It exists so an audit is a command instead of a throwaway script.
         "sql" => sql::run(&args[1..]).await,
@@ -125,6 +125,28 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
             "unknown forge command `{other}`; usage: forge <harness-lint|guard-lint|sync-agents|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|sql|reset|recover|clean> [options]"
         ))),
     }
+}
+
+/// Normalize a `reset` / `recover` / `clean` invocation into the shape [`reset::resolve_reset_config`] documents.
+///
+/// The CLI leads with the mode (`forge recover <story-id> --force`), but the resolver reads the mode from the
+/// SECOND positional — story first, mode second — and falls back to `Reset` when that slot is absent. Forwarding
+/// the command token untouched therefore put the mode in the story slot and the story in the mode slot, so
+/// `forge reset <story-id>` and `forge recover <story-id>` both died with `unknown mode "<story-id>"`, and
+/// `recover` could not be reached at all: the one remedy for a stuck `reserved` engine claim was unreachable,
+/// which is why a story blocked by a stale claim stayed blocked across sessions. Only `forge clean` worked, and
+/// only because the resolver special-cases a leading `clean`.
+///
+/// Appending rather than inserting the mode token keeps every flag parse intact: `--force` is recognized
+/// position-independently and `--stale-minutes` is stripped together with its value, so the appended token lands
+/// in the mode slot either way.
+fn forward_reset_args(args: &[String]) -> Vec<String> {
+    let Some((mode, rest)) = args.split_first() else {
+        return Vec::new();
+    };
+    let mut forwarded = rest.to_vec();
+    forwarded.push(mode.clone());
+    forwarded
 }
 
 /// The repository root these gates scan. `git rev-parse --show-toplevel` first, because a gate must
@@ -207,5 +229,38 @@ mod tests {
 
         assert!(message.contains("no further detail"), "{message}");
         assert!(message.contains("DATABASE_URL_DEV"), "{message}");
+    }
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|value| value.to_string()).collect()
+    }
+
+    /// Resolve the way `dispatch` does, so the assertion covers the forwarding and the resolver together.
+    fn resolve(list: &[&str]) -> reset::ResetConfig {
+        reset::resolve_reset_config(&forward_reset_args(&args(list)), Some("prod"))
+            .expect("a forced PROD invocation is exactly what this tool is for")
+    }
+
+    /// The bug this test exists for: `forge recover <story-id>` was unreachable, and the recover path is the CLI's
+    /// only remedy for a stuck `reserved` engine claim. With the token forwarded in the story slot, `recover`
+    /// resolved to a RESET of a story literally named "recover".
+    #[test]
+    fn a_leading_mode_token_reaches_the_resolver_in_its_mode_slot() {
+        let config = resolve(&["recover", "TST-WF-COMMAND-006", "--force"]);
+        assert_eq!(config.story, "TST-WF-COMMAND-006");
+        assert_eq!(config.mode, reset::ResetMode::Recover);
+    }
+
+    /// The modes that already worked must keep working, including `clean`'s valued flag.
+    #[test]
+    fn a_reset_and_a_clean_still_resolve_to_their_own_modes() {
+        let reset_config = resolve(&["reset", "TST-WF-COMMAND-006", "--force"]);
+        assert_eq!(reset_config.story, "TST-WF-COMMAND-006");
+        assert_eq!(reset_config.mode, reset::ResetMode::Reset);
+
+        let clean = resolve(&["clean", "--stale-minutes", "30", "--force"]);
+        assert!(clean.story.is_empty(), "clean is not story-scoped");
+        assert_eq!(clean.mode, reset::ResetMode::Clean);
+        assert_eq!(clean.stale_minutes, 30);
     }
 }
