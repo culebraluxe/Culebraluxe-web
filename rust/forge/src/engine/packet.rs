@@ -9,6 +9,7 @@ pub struct StoryPacket {
     pub special_instructions: Option<String>,
     pub architect_brief: Option<String>,
     pub acceptance_criteria: Option<String>,
+    pub test_mode: Option<String>,
     pub assay_commands: Vec<String>,
     pub branch_name: Option<String>,
     pub base_ref: Option<String>,
@@ -42,6 +43,7 @@ impl StoryPacket {
             acceptance_criteria: row
                 .acceptance_criteria
                 .filter(|value| !value.trim().is_empty()),
+            test_mode: row.test_mode.filter(|value| !value.trim().is_empty()),
             assay_commands: row
                 .assay_commands
                 .map(|value| {

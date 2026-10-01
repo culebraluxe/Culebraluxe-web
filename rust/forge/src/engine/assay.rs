@@ -61,6 +61,125 @@ pub fn adjudicate_assay(
     }
 }
 
+fn is_rust_contract_runtime_test(command: &str) -> bool {
+    let command = command.trim_start();
+    command == "cargo test"
+        || command.starts_with("cargo test ")
+        || command == "cargo nextest"
+        || command.starts_with("cargo nextest ")
+}
+
+/// Test-authoring stories measure two different facts:
+///
+/// 1. Is the authored test artifact structurally valid and compilable? This is the QA gate.
+/// 2. Does the current application satisfy the assertion the new test expresses? This is an observation.
+///
+/// A newly-authored regression/contract test is allowed to expose a real product defect. Rewriting that test until
+/// it turns green destroys the evidence the story was created to add. Therefore runtime test failures are recorded
+/// in `last_failure` but do not fail the authoring gate when the non-runtime assay checks (normally
+/// `cargo check --workspace --all-targets`) are clean.
+pub fn collect_rust_contract_assay_evidence(
+    mut evidence: ForgeGateEvidence,
+    run_command: Option<&dyn Fn(&str) -> CommandResult>,
+    assay_commands: &[String],
+    acceptance_mapped: bool,
+) -> AssayEvidence {
+    let Some(run) = run_command else {
+        evidence.qa_passed = Some(false);
+        evidence.deliverable_rejection =
+            Some("QA FAIL: the RUST_CONTRACT lane had no command runner.".into());
+        return AssayEvidence {
+            evidence,
+            verdict: AssayVerdict::Fail,
+        };
+    };
+
+    if assay_commands.is_empty() {
+        evidence.qa_passed = Some(false);
+        evidence.deliverable_rejection =
+            Some("QA FAIL: RUST_CONTRACT has no assay commands.".into());
+        return AssayEvidence {
+            evidence,
+            verdict: AssayVerdict::Fail,
+        };
+    }
+
+    let results: Vec<CommandResult> = assay_commands.iter().map(|command| run(command)).collect();
+
+    if results.iter().any(|result| result.unmeasurable) {
+        evidence.qa_passed = Some(false);
+        evidence.deliverable_rejection =
+            Some("QA FAIL: RUST_CONTRACT assay command was unmeasurable.".into());
+        return AssayEvidence {
+            evidence,
+            verdict: AssayVerdict::Fail,
+        };
+    }
+
+    if !acceptance_mapped {
+        evidence.qa_passed = Some(false);
+        evidence.deliverable_rejection =
+            Some("QA UNPROVEN: RUST_CONTRACT acceptance mapping is missing.".into());
+        return AssayEvidence {
+            evidence,
+            verdict: AssayVerdict::Unproven,
+        };
+    }
+
+    let structural: Vec<&CommandResult> = results
+        .iter()
+        .filter(|result| !is_rust_contract_runtime_test(&result.command))
+        .collect();
+    if structural.is_empty() {
+        evidence.qa_passed = Some(false);
+        evidence.deliverable_rejection = Some(
+            "QA FAIL: RUST_CONTRACT needs a non-runtime authoring check (for example cargo check --all-targets)."
+                .into(),
+        );
+        return AssayEvidence {
+            evidence,
+            verdict: AssayVerdict::Fail,
+        };
+    }
+
+    let structural_failures: Vec<String> = structural
+        .iter()
+        .filter(|result| !result.passed)
+        .map(|result| result.command.clone())
+        .collect();
+    if !structural_failures.is_empty() {
+        evidence.qa_passed = Some(false);
+        evidence.deliverable_rejection = Some(format!(
+            "QA FAIL: RUST_CONTRACT authoring checks failed=[{}]",
+            structural_failures.join(" | ")
+        ));
+        return AssayEvidence {
+            evidence,
+            verdict: AssayVerdict::Fail,
+        };
+    }
+
+    let runtime_failures: Vec<String> = results
+        .iter()
+        .filter(|result| is_rust_contract_runtime_test(&result.command) && !result.passed)
+        .map(|result| result.command.clone())
+        .collect();
+
+    evidence.qa_passed = Some(true);
+    evidence.deliverable_rejection = None;
+    if !runtime_failures.is_empty() {
+        evidence.last_failure = Some(format!(
+            "RUST_CONTRACT observation: authored test currently fails against existing application code;              test artifact accepted and product debugging is separate work. failed=[{}]",
+            runtime_failures.join(" | ")
+        ));
+    }
+
+    AssayEvidence {
+        evidence,
+        verdict: AssayVerdict::Pass,
+    }
+}
+
 /// The QA lane's reading, with the durable evidence it produced.
 ///
 /// The two are kept apart on purpose: `verdict` is the assay's **own three-way reading** (`PASS`/`FAIL`/`UNPROVEN`,
@@ -112,5 +231,74 @@ pub fn collect_assay_evidence(
     AssayEvidence {
         evidence,
         verdict: AssayVerdict::Pass,
+    }
+}
+
+#[cfg(test)]
+mod rust_contract_tests {
+    use super::*;
+
+    fn result(command: &str, passed: bool) -> CommandResult {
+        CommandResult {
+            command: command.into(),
+            exit_code: if passed { 0 } else { 101 },
+            passed,
+            excerpt: String::new(),
+            unmeasurable: false,
+            output: String::new(),
+        }
+    }
+
+    #[test]
+    fn runtime_failure_is_product_evidence_not_test_authoring_failure() {
+        let commands = vec![
+            "cargo test --manifest-path rust/Cargo.toml -p test-harness --test contract"
+                .to_string(),
+            "cargo check --manifest-path rust/Cargo.toml --workspace --all-targets".to_string(),
+        ];
+        let evidence = collect_rust_contract_assay_evidence(
+            ForgeGateEvidence::default(),
+            Some(&|command| {
+                if command.starts_with("cargo test") {
+                    result(command, false)
+                } else {
+                    result(command, true)
+                }
+            }),
+            &commands,
+            true,
+        );
+        assert_eq!(evidence.verdict, AssayVerdict::Pass);
+        assert_eq!(evidence.evidence.qa_passed, Some(true));
+        assert!(evidence.evidence.deliverable_rejection.is_none());
+        assert!(evidence
+            .evidence
+            .last_failure
+            .as_deref()
+            .unwrap_or_default()
+            .contains("product debugging is separate work"));
+    }
+
+    #[test]
+    fn authoring_check_failure_still_blocks_the_story() {
+        let commands = vec![
+            "cargo test --manifest-path rust/Cargo.toml -p test-harness --test contract"
+                .to_string(),
+            "cargo check --manifest-path rust/Cargo.toml --workspace --all-targets".to_string(),
+        ];
+        let evidence = collect_rust_contract_assay_evidence(
+            ForgeGateEvidence::default(),
+            Some(&|command| result(command, command.starts_with("cargo test"))),
+            &commands,
+            true,
+        );
+        assert_eq!(evidence.verdict, AssayVerdict::Fail);
+        assert_eq!(evidence.evidence.qa_passed, Some(false));
+        assert!(evidence
+            .evidence
+            .deliverable_rejection
+            .as_deref()
+            .unwrap_or_default()
+            .contains("authoring checks failed"));
     }
 }

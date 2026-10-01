@@ -5,6 +5,7 @@ pub trait ForgeStateWriter: Send + Sync {
     fn mark_story_human_hold(&self, story_id: &str, reason: &str) -> Result<(), String>;
     fn mark_story_complete(&self, story_id: &str) -> Result<(), String>;
     fn mark_story_in_progress(&self, story_id: &str) -> Result<(), String>;
+    fn stamp_run_candidate(&self, run_id: &str, candidate_sha: &str) -> Result<(), String>;
     fn append_run_detail(&self, run_id: &str, detail: &str) -> Result<(), String>;
     /// Open the durable `forge_hold_record` row for a held run and answer with its id.
     ///
@@ -45,6 +46,9 @@ impl ForgeStateWriter for NullWriter {
     fn mark_story_in_progress(&self, _s: &str) -> Result<(), String> {
         Ok(())
     }
+    fn stamp_run_candidate(&self, _r: &str, _s: &str) -> Result<(), String> {
+        Ok(())
+    }
     fn append_run_detail(&self, _r: &str, _d: &str) -> Result<(), String> {
         Ok(())
     }
@@ -60,6 +64,7 @@ pub struct RecordingWriter {
     pub holds: std::sync::Mutex<Vec<(String, String)>>,
     pub completed: std::sync::Mutex<Vec<String>>,
     pub in_progress: std::sync::Mutex<Vec<String>>,
+    pub run_candidates: std::sync::Mutex<Vec<(String, String)>>,
     pub details: std::sync::Mutex<Vec<(String, String)>>,
     /// `(story_id, failure_class, reason)` for every `forge_hold_record` the engine asked to open.
     pub opened_holds: std::sync::Mutex<Vec<(String, String, String)>>,
@@ -73,6 +78,7 @@ impl Default for RecordingWriter {
             holds: std::sync::Mutex::new(vec![]),
             completed: std::sync::Mutex::new(vec![]),
             in_progress: std::sync::Mutex::new(vec![]),
+            run_candidates: std::sync::Mutex::new(vec![]),
             details: std::sync::Mutex::new(vec![]),
             opened_holds: std::sync::Mutex::new(vec![]),
             artifacts: std::sync::Mutex::new(vec![]),
@@ -94,6 +100,13 @@ impl ForgeStateWriter for RecordingWriter {
     }
     fn mark_story_in_progress(&self, story_id: &str) -> Result<(), String> {
         self.in_progress.lock().unwrap().push(story_id.into());
+        Ok(())
+    }
+    fn stamp_run_candidate(&self, run_id: &str, candidate_sha: &str) -> Result<(), String> {
+        self.run_candidates
+            .lock()
+            .unwrap()
+            .push((run_id.into(), candidate_sha.into()));
         Ok(())
     }
     fn append_run_detail(&self, run_id: &str, detail: &str) -> Result<(), String> {

@@ -5,7 +5,10 @@ use crate::engine::agents::forge_agent_collect;
 use crate::engine::architect::{
     assess_architect_handoff, parse_architect_handoff, ArchitectAssessment,
 };
-use crate::engine::assay::{collect_assay_evidence, AssayEvidence, AssayVerdict, CommandResult};
+use crate::engine::assay::{
+    collect_assay_evidence, collect_rust_contract_assay_evidence, AssayEvidence, AssayVerdict,
+    CommandResult,
+};
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
@@ -63,6 +66,12 @@ pub struct ProductionRoleRunner<'a> {
     /// The bench intent the dispatch carried (migration 167 `launch_intent`) — the Cockpit's cap on the Lead,
     /// travelling with the run it caps.
     pub bench_intent: Option<String>,
+    /// Storyboard-declared test policy. RUST_CONTRACT means this story authors a test artifact; runtime assertion
+    /// failures are findings about the application, not a reason to rewrite the test until green.
+    pub test_mode: Option<String>,
+    /// Authoritative Storyboard assay commands for test-authoring mode. These let RUST_CONTRACT QA stay
+    /// deterministic and model-free: the test command is evidence about the application, not another model turn.
+    pub contract_assay_commands: Vec<String>,
     pub require_prod: bool,
 }
 
@@ -74,6 +83,8 @@ impl<'a> ProductionRoleRunner<'a> {
             writer: None,
             story_run_id: None,
             bench_intent: None,
+            test_mode: None,
+            contract_assay_commands: Vec::new(),
             require_prod: false,
         }
     }
@@ -90,6 +101,78 @@ impl<'a> ProductionRoleRunner<'a> {
     pub fn with_bench_intent(mut self, bench_intent: Option<String>) -> Self {
         self.bench_intent = bench_intent;
         self
+    }
+
+    pub fn with_test_mode(mut self, test_mode: Option<String>) -> Self {
+        self.test_mode = test_mode;
+        self
+    }
+
+    pub fn with_contract_assay_commands(mut self, assay_commands: Vec<String>) -> Self {
+        self.contract_assay_commands = assay_commands;
+        self
+    }
+
+    fn run_rust_contract_qa(
+        &self,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+    ) -> Result<ForgeRoleOutcome> {
+        let story_id = task.story_id.as_str();
+        if story_id.trim().is_empty() {
+            return Err(WorkflowError::generic(format!(
+                "role task {} carries no story id; refusing RUST_CONTRACT QA",
+                task.task_id
+            )));
+        }
+
+        let AssayEvidence { evidence, verdict } = collect_rust_contract_assay_evidence(
+            self.current.clone(),
+            Some(&|cmd| self.harness.run_command(cmd)),
+            &self.contract_assay_commands,
+            true,
+        );
+
+        if let Some(writer) = self.writer {
+            writer
+                .record_tool_artifact(&assay_tool_artifact(
+                    story_id,
+                    self.story_run_id.as_deref(),
+                    &evidence,
+                    verdict,
+                ))
+                .map_err(|error| {
+                    WorkflowError::generic(format!("record_tool_artifact({story_id}): {error}"))
+                })?;
+
+            if let Some(reason) = evidence.deliverable_rejection.clone() {
+                writer
+                    .mark_story_human_hold(story_id, &reason)
+                    .map_err(|error| {
+                        WorkflowError::generic(format!(
+                            "mark_story_human_hold({story_id}): {error}"
+                        ))
+                    })?;
+                writer
+                    .open_hold(&OpenHold {
+                        process_instance_id: task.process_instance_id.clone(),
+                        task_id: Some(task.task_id.clone()),
+                        story_id: story_id.to_string(),
+                        reason,
+                        originating_node: Some(node_id.into()),
+                        failure_class: Some("DELIVERABLE_REJECTED".into()),
+                        resume_target: None,
+                    })
+                    .map_err(|error| {
+                        WorkflowError::generic(format!("forge_hold_record({story_id}): {error}"))
+                    })?;
+            }
+        }
+
+        Ok(ForgeRoleOutcome {
+            transition_name: Some("complete".into()),
+            evidence,
+        })
     }
 
     /// The envelope this lane runs under. Built in one place because the ports are read at two points in the turn
@@ -146,7 +229,10 @@ pub fn assay_tool_artifact(
         tool: "assay".to_string(),
         kind: "qa-assay-evidence".to_string(),
         verdict: Some(verdict.to_string()),
-        summary: evidence.deliverable_rejection.clone(),
+        summary: evidence
+            .deliverable_rejection
+            .clone()
+            .or_else(|| evidence.last_failure.clone()),
         detail: None,
         sha: evidence.candidate_sha.clone(),
     }
@@ -163,6 +249,12 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
                     .map_err(|e| WorkflowError::generic(e.0))?;
             }
         }
+        if matches!(node_id, "qa_verify" | "fast_qa_verify")
+            && self.test_mode.as_deref() == Some("RUST_CONTRACT")
+        {
+            return self.run_rust_contract_qa(node_id, task);
+        }
+
         let enforce = deliverable_enforcement_enabled(
             std::env::var("FORGE_ENFORCE_DELIVERABLES").ok().as_deref(),
         );
@@ -277,6 +369,13 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
         ) {
             if let Some(sha) = out.candidate_sha.clone() {
                 evidence.candidate_sha = Some(sha.clone());
+                if let (Some(writer), Some(run_id)) = (self.writer, self.story_run_id.as_deref()) {
+                    writer.stamp_run_candidate(run_id, &sha).map_err(|error| {
+                        WorkflowError::generic(format!(
+                            "stamp_run_candidate({story_id}, {run_id}): {error}"
+                        ))
+                    })?;
+                }
                 if let Some(base) = evidence.extra.get("recordedBase").and_then(|v| v.as_str()) {
                     let repo = std::env::current_dir().unwrap_or_else(|_| ".".into());
                     match candidate_own_changed_files(
@@ -298,13 +397,22 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
         }
 
         if matches!(node_id, "qa_verify" | "fast_qa_verify") {
-            let collected = collect_assay_evidence(
-                evidence,
-                &ports,
-                Some(&|cmd| self.harness.run_command(cmd)),
-                &out.assay_commands,
-                out.acceptance_mapped,
-            );
+            let collected = if self.test_mode.as_deref() == Some("RUST_CONTRACT") {
+                collect_rust_contract_assay_evidence(
+                    evidence,
+                    Some(&|cmd| self.harness.run_command(cmd)),
+                    &out.assay_commands,
+                    out.acceptance_mapped,
+                )
+            } else {
+                collect_assay_evidence(
+                    evidence,
+                    &ports,
+                    Some(&|cmd| self.harness.run_command(cmd)),
+                    &out.assay_commands,
+                    out.acceptance_mapped,
+                )
+            };
             let AssayEvidence {
                 evidence: measured,
                 verdict,
