@@ -61,7 +61,6 @@ pub fn adjudicate_assay(
     }
 }
 
-
 fn is_rust_contract_runtime_test(command: &str) -> bool {
     let command = command.trim_start();
     command == "cargo test"
@@ -235,7 +234,6 @@ pub fn collect_assay_evidence(
     }
 }
 
-
 #[cfg(test)]
 mod rust_contract_tests {
     use super::*;
@@ -254,7 +252,8 @@ mod rust_contract_tests {
     #[test]
     fn runtime_failure_is_product_evidence_not_test_authoring_failure() {
         let commands = vec![
-            "cargo test --manifest-path rust/Cargo.toml -p test-harness --test contract".to_string(),
+            "cargo test --manifest-path rust/Cargo.toml -p test-harness --test contract"
+                .to_string(),
             "cargo check --manifest-path rust/Cargo.toml --workspace --all-targets".to_string(),
         ];
         let evidence = collect_rust_contract_assay_evidence(
