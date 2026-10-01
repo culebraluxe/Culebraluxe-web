@@ -93,7 +93,8 @@ fn amount_of(lines: &[PnlLine], label: &str) -> String {
 /// - `r3` was issued in May but paid inside June — income by `paid_on`;
 /// - `r4` was issued inside June but paid in July — NOT income by `paid_on`;
 /// - `r5`/`r6` are PAID one day outside the period — excluded;
-/// - `r7` is OPEN inside the period — no income (status);
+/// - `r7` is OPEN with an in-period `paid_on` — the status gate, not the date, is what excludes it, so a query that
+///   dropped `status = 'PAID'` cannot hide behind the date filter;
 /// - `e1`/`e2` sit exactly on the expense bounds, `e3`/`e4` one day outside;
 /// - `r8`/`e5` sit on a single day in September, for the `from == to` period;
 /// - `r9` is due in October but paid in November and `r10` is due in December but paid in November, so the November
@@ -170,7 +171,7 @@ async fn seed_fixture(
             "3333.00",
             "2099-06-15",
             "OPEN",
-            None,
+            Some("2099-06-15"),
         )
         .await?;
 
@@ -332,12 +333,13 @@ async fn accounting_core_008__date_filtering() {
         3,
         "{HARNESS}: the boundary rows r4/r5/r6/r7 contribute no June income line"
     );
-    // The out-of-range PAID receivables share the COMMISSION category with r1, so if the filter leaked them in, this
-    // line would read 100.00 + 1111.00 + 2222.00 + 3333.00 = 6666.00 rather than 100.00.
+    // The other COMMISSION receivables r5/r6 (one day outside the period) and r7 (OPEN, with a paid_on INSIDE the
+    // period) share this category with r1, so a filter that leaked any of them — by date OR by dropping the status
+    // gate — would make this line 3433.00 (r1 + one of the pairs) or 6766.00 (all three) rather than 100.00.
     assert_eq!(
         amount_of(&statement.income, "COMMISSION"),
         "100.00",
-        "{HARNESS}: only the in-period COMMISSION receivable is summed into its line"
+        "{HARNESS}: only the in-period PAID COMMISSION receivable is summed into its line"
     );
     assert_eq!(
         amount_of(&statement.income, "LEASING_FEE"),
