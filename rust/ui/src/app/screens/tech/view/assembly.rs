@@ -1,7 +1,7 @@
 //! TECH Cockpit / Assembly Line tab.
 //!
 //! Pass 1 preserves the screen's proven operating model: raw story supply, a collapsible daily Workbench, Flight staging,
-//! the engine queue/running/results lanes, selected-story introspection and the last four story outcomes. SVAR remains a
+//! the engine queue and Done/Error/Retry status, selected-story introspection and the last four story outcomes. SVAR remains a
 //! rendering-only React island for drag mechanics; Yew owns the screen, selection and canonical data refresh.
 
 use yew::prelude::*;
@@ -31,6 +31,7 @@ pub(super) fn assembly(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<
             { kpis(tech) }
             { command_notice(model) }
             { sorter(model, tech, on_msg) }
+            { engine_line(tech) }
             { flight_strip(model, tech, on_msg) }
             { workbench(model, tech, on_msg) }
         </div>
@@ -109,7 +110,7 @@ fn kpis(tech: &PortalTechPage) -> Html {
         ),
     ];
     html! {
-        <section class="mb-4 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+        <section class="mb-4 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
             { for values.into_iter().map(|(label, value, hint)| html! {
                 <article class="rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2.5">
                     <p class="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-500">{ label }</p>
@@ -136,7 +137,7 @@ fn sorter(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html
                     {"Drag freely · WORK BENCH is daily intent · FLIGHT STAGING does not dispatch · ENGINE RUN Q does"}
                 </p>
             </div>
-            <div class="grid grid-cols-2 gap-2 p-2 md:grid-cols-3 xl:grid-cols-6">
+            <div class="grid grid-cols-2 gap-2 p-2 md:grid-cols-3 xl:grid-cols-5">
                 {for tech.sorter_columns.iter().map(|column| {
                     let cards: Vec<_> = tech.sorter_cards.iter().filter(|card| card.column == column.id).collect();
                     let target = column.id.clone();
