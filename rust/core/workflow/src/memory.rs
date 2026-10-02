@@ -478,6 +478,42 @@ impl Store for MemoryTx<'_> {
         Ok(out)
     }
 
+    fn claim_due_jobs_by_type(
+        &mut self,
+        worker_id: &str,
+        job_type: &str,
+        now: i64,
+        lease_until: i64,
+        limit: usize,
+    ) -> Result<Vec<Job>> {
+        let mut due: Vec<_> = self
+            .inner
+            .jobs
+            .values()
+            .filter(|job| {
+                job.job_type == job_type
+                    && job.status == JobStatus::Pending
+                    && job.due_at <= now
+                    && job.attempts < job.max_attempts
+            })
+            .cloned()
+            .collect();
+        due.sort_by_key(|job| job.due_at);
+        due.truncate(limit);
+
+        let mut out = Vec::new();
+        for mut job in due {
+            job.status = JobStatus::Locked;
+            job.locked_by = Some(worker_id.to_string());
+            job.locked_until = Some(lease_until);
+            job.attempts += 1;
+            job.updated_at = now;
+            self.inner.jobs.insert(job.id.clone(), job.clone());
+            out.push(job);
+        }
+        Ok(out)
+    }
+
     fn reclaim_stale_jobs(
         &mut self,
         now: i64,
