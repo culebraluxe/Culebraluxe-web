@@ -2,8 +2,9 @@
 //!
 //! Forge owns the macro orchestration; OpenCode V2 is the execution substrate. This module is the ONE place that
 //! names a V2 execution agent, its authority, its child allowlist, its step ceiling and the skills it may load.
-//! Every profile is **derived from the existing Forge role taxonomy** (`role_mapping::forge_role_node_plan`), so
-//! there is no competing role table: an unknown Forge role is a hard error, never a silent default (FAIL CLOSED).
+//! Every profile is **derived from the node's lane as the workflow definition binds it**
+//! (`service_binding::lane_for_node`), so there is no competing role table: an unknown Forge role is a hard error,
+//! never a silent default (FAIL CLOSED).
 //!
 //! The rendered JSON reaches the vendor two ways, both rendered from this file — there is no second
 //! hand-maintained copy:
@@ -71,7 +72,9 @@
 //! subagent tool, and `subagent_depth` is 0 — so the unmeasurable spend cannot occur at all. When it is armed,
 //! the turn SAYS SO (`render_subagent_declaration`) instead of leaving the undercount to be rediscovered.
 
-use crate::engine::role_mapping::{forge_role_node_plan, LaneId, LeadPhase};
+use crate::engine::role_mapping::LaneId;
+use crate::engine::service_binding::lane_for_node;
+use crate::roles::lead;
 use serde_json::{json, Map, Value};
 
 /// The V2 execution agents Forge may select. Forge chooses the agent for a node; the model never does.
@@ -449,18 +452,17 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
 /// FAIL CLOSED: an unknown node id is an error and there is no default agent. A node Forge cannot map is a node
 /// Forge must not run, because "run it as Smith anyway" would hand implement authority to a role nobody granted.
 pub fn v2_agent_for_node(node_id: &str) -> Result<&'static str, String> {
-    let plan = forge_role_node_plan(node_id)?;
-    Ok(match (plan.lane, plan.lead_phase) {
-        (LaneId::Scout, _) => AGENT_SCOUT,
-        (LaneId::Architect, _) => AGENT_ARCHITECT,
+    Ok(match lane_for_node(node_id)? {
+        LaneId::Scout => AGENT_SCOUT,
+        LaneId::Architect => AGENT_ARCHITECT,
         // The lead has three phases. Only the solo-implement phase may write; pre/post are routing, judgment and
         // assembly, so they get the read-only lead rather than the implementing one.
-        (LaneId::Lead, Some(LeadPhase::Implement)) => AGENT_LEAD_IMPLEMENT,
-        (LaneId::Lead, _) => AGENT_LEAD,
-        (LaneId::Smith, _) => AGENT_SMITH,
-        (LaneId::Assay, _) => AGENT_ASSAY,
-        (LaneId::Inspector, _) => AGENT_INSPECTOR,
-        (LaneId::DevOps, _) => AGENT_DEVOPS,
+        LaneId::Lead if lead::implements(node_id) => AGENT_LEAD_IMPLEMENT,
+        LaneId::Lead => AGENT_LEAD,
+        LaneId::Smith => AGENT_SMITH,
+        LaneId::Assay => AGENT_ASSAY,
+        LaneId::Inspector => AGENT_INSPECTOR,
+        LaneId::DevOps => AGENT_DEVOPS,
     })
 }
 

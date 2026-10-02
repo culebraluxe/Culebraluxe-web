@@ -13,10 +13,9 @@
 
 use crate::engine::executor::ForgeRoleRunner;
 use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
-use crate::engine::phase::{
-    lane_deliverable_kind, PhaseDeliverableKind, RoleEffectPorts, FAILURE_CLASSES,
-};
-use crate::engine::role_mapping::{forge_role_node_plan, LaneId};
+use crate::engine::phase::{PhaseDeliverableKind, RoleEffectPorts, FAILURE_CLASSES};
+use crate::engine::role_mapping::LaneId;
+use crate::engine::service_binding::service_for_node;
 use crate::roles::hooks::ForgeRoleHooks;
 use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleTurn};
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
@@ -35,6 +34,21 @@ const LEAD_DECISIONS: &[&str] = &["SOLO", "SMITH", "SPLIT", "HOLD", "ASSAY"];
 /// The Lead node asked for the class of a failure rather than for a decision.
 pub const FAILURE_CLASSIFIER_NODE: &str = "failure_classifier";
 
+/// The Lead node that owes the run's decision: the PRE phase.
+///
+/// The Lead's phases are the one piece of node metadata the workflow definition does not carry (its service
+/// binding says `forge.lead` for all four Lead nodes), so they are stated here, by the lane they describe, rather
+/// than in a node table every lane would have to read. The other two are [`FAILURE_CLASSIFIER_NODE`] and the solo
+/// implement turn ([`implements`]).
+pub const LEAD_DECISION_NODE: &str = "lead_pre";
+
+/// Whether this Lead node writes code: the SOLO implement turn, which performs Smith's act of delivering code and
+/// is therefore named by Smith's own rule rather than by a second list. The OpenCode profile reads this to give
+/// that one Lead turn implement authority and every other Lead turn none.
+pub fn implements(node_id: &str) -> bool {
+    crate::roles::smith::delivers_code(node_id)
+}
+
 /// Whether this Lead node is the failure classifier.
 pub fn is_failure_classifier(node_id: &str) -> bool {
     node_id == FAILURE_CLASSIFIER_NODE
@@ -43,12 +57,11 @@ pub fn is_failure_classifier(node_id: &str) -> bool {
 /// Whether this Lead node's reply may not set a decision.
 ///
 /// Every Lead node but the classifier: the decision is taken once, in the PRE turn, and the implement and post
-/// turns run under it, so a reply that restates one there may not overwrite it. Asked of the lane table
-/// (`engine::role_mapping`) rather than of a second list of names, so a Lead node added there is covered
+/// turns run under it, so a reply that restates one there may not overwrite it. Asked of the workflow
+/// definition's service binding rather than of a second list of names, so a Lead node added there is covered
 /// without an edit here.
 fn may_not_set_decision(node_id: &str) -> bool {
-    !is_failure_classifier(node_id)
-        && matches!(forge_role_node_plan(node_id), Ok(plan) if plan.lane == LaneId::Lead)
+    !is_failure_classifier(node_id) && service_for_node(node_id) == Some(LEAD_SERVICE_ID)
 }
 
 /// Lead's own reading, supplied to the shared lifecycle as this lane's hooks.
@@ -94,12 +107,16 @@ impl ForgeRoleHooks for LeadHooks {
         Ok(next)
     }
 
-    /// The classifier's deliverable is a class, not a decision. Everything else is the lane table's answer.
+    /// The classifier's deliverable is a class and the PRE phase's is the decision. The implement and post turns
+    /// run under that decision and owe the gate nothing of their own.
     fn deliverable_kind(&self, node_id: &str) -> PhaseDeliverableKind {
         if is_failure_classifier(node_id) {
-            return PhaseDeliverableKind::FailureClass;
+            PhaseDeliverableKind::FailureClass
+        } else if node_id == LEAD_DECISION_NODE {
+            PhaseDeliverableKind::LeadDecision
+        } else {
+            PhaseDeliverableKind::None
         }
-        lane_deliverable_kind(node_id)
     }
 
     /// The classifier owes a class the gate can route, the decision nodes owe a decision it can route, and a

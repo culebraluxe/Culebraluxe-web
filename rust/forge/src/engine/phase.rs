@@ -10,7 +10,8 @@
 //! one, and the failure classes the gate can route.
 
 use crate::engine::facts::ForgeGateEvidence;
-use crate::engine::role_mapping::{forge_role_node_plan, LaneId, LeadPhase};
+use crate::engine::role_mapping::LaneId;
+use crate::engine::service_binding::lane_for_node;
 
 /// The failure classes the gate can route.
 ///
@@ -68,28 +69,23 @@ impl Default for RoleEffectPorts {
     }
 }
 
-/// What the lane table says a node owes, for every node no lane narrows further.
+/// What a node's lane owes, for every node no lane narrows further.
 ///
-/// The lane's own answer is `ForgeRoleHooks::deliverable_kind`; this is the default it inherits. Reading
-/// the table rather than a second list of node names is the point: `engine::role_mapping` is the one place
-/// a node is bound to a lane (the map `arch_boundary__011` pins), so a node added there is owed its lane's
-/// deliverable with no second edit — which is exactly what the two node-name lists deleted here used to
-/// re-derive by hand.
+/// The lane's own answer is `ForgeRoleHooks::deliverable_kind`; this is the default it inherits. The lane is
+/// read from the workflow definition's service binding ([`lane_for_node`]), so a node added to the definition is
+/// owed its lane's deliverable with no Rust edit.
 ///
-/// `None` for a node the table does not know (a caller that must refuse one asks the table directly) and
-/// for a node whose deliverable is not this gate's to name.
+/// `None` for a node the definition binds no service to, for a lane whose deliverable is not this gate's to name
+/// (Inspector), and for Lead: which Lead node owes a decision and which a failure class is Lead's own answer
+/// (`roles::lead::LeadHooks::deliverable_kind`), because the definition carries no Lead phase.
 pub fn lane_deliverable_kind(node_id: &str) -> PhaseDeliverableKind {
-    match forge_role_node_plan(node_id) {
-        Ok(plan) => match (plan.lane, plan.lead_phase) {
-            (LaneId::Scout, _) => PhaseDeliverableKind::ScoutPacket,
-            (LaneId::Architect, _) => PhaseDeliverableKind::ArchitectPlan,
-            (LaneId::Lead, Some(LeadPhase::Pre)) => PhaseDeliverableKind::LeadDecision,
-            (LaneId::Smith, _) => PhaseDeliverableKind::SmithCandidate,
-            (LaneId::Assay, _) => PhaseDeliverableKind::QaVerdict,
-            (LaneId::DevOps, _) => PhaseDeliverableKind::DevopsReceipt,
-            _ => PhaseDeliverableKind::None,
-        },
-        Err(_) => PhaseDeliverableKind::None,
+    match lane_for_node(node_id) {
+        Ok(LaneId::Scout) => PhaseDeliverableKind::ScoutPacket,
+        Ok(LaneId::Architect) => PhaseDeliverableKind::ArchitectPlan,
+        Ok(LaneId::Smith) => PhaseDeliverableKind::SmithCandidate,
+        Ok(LaneId::Assay) => PhaseDeliverableKind::QaVerdict,
+        Ok(LaneId::DevOps) => PhaseDeliverableKind::DevopsReceipt,
+        Ok(LaneId::Lead) | Ok(LaneId::Inspector) | Err(_) => PhaseDeliverableKind::None,
     }
 }
 

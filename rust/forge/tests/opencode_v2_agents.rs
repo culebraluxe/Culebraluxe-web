@@ -16,7 +16,7 @@
 //! rather than only where it happens to be convenient.
 
 use forge::engine::opencode_agents as agents;
-use forge::engine::role_mapping::forge_role_node_plan;
+use forge::engine::service_binding::{forge_service_bindings, lane_for_node};
 use serde_json::Value;
 
 fn config() -> Value {
@@ -578,34 +578,17 @@ fn v2_role_nodes_resolve_to_the_intended_agent() {
 
 #[test]
 fn v2_every_known_forge_node_resolves_to_a_real_primary_profile() {
-    // Every node id `role_mapping` names. If a node is added there and not here, the loop still holds because it
-    // is derived from the same function: this test proves there is no second, staler role table.
-    let nodes = [
-        "research_scout",
-        "feature_scout",
-        "diagnose_scout",
-        "repair_scout",
-        "research_architect",
-        "architect",
-        "repair_architect",
-        "lead_pre",
-        "lead_solo_implement",
-        "lead_post",
-        "failure_classifier",
-        "smith",
-        "smith_split_work",
-        "repair_smith",
-        "fast_smith",
-        "fast_repair_smith",
-        "qa_review",
-        "qa_verify",
-        "fast_qa_verify",
-        "repair_devops",
-        "deploy",
-        "production_smoke",
-    ];
-    for node in nodes {
-        let plan = forge_role_node_plan(node).expect("role_mapping accepts this node");
+    // Every node the workflow definition binds to an agent service. A node added there is covered here without an
+    // edit, because the list is read from the same binding the resolver reads: there is no second, staler role table.
+    let nodes = forge_service_bindings();
+    assert!(
+        nodes.len() >= 20,
+        "the definition binds only {} nodes",
+        nodes.len()
+    );
+    for node in nodes.keys() {
+        let node = node.as_str();
+        lane_for_node(node).expect("the definition gives this node a lane");
         let agent = agents::v2_agent_for_node(node).expect("node must resolve to an agent");
         let profile = agents::v2_profile(agent).expect("resolved agent must be a real profile");
         assert!(
@@ -617,8 +600,6 @@ fn v2_every_known_forge_node_resolves_to_a_real_primary_profile() {
             agent,
             "resolution must be deterministic for '{node}'"
         );
-        // The mapping is derived, not re-invented: an accepted node always yields a lane.
-        let _ = plan.lane;
     }
 }
 

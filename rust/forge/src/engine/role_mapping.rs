@@ -13,6 +13,41 @@ pub enum LaneId {
     DevOps,
 }
 
+impl LaneId {
+    /// Every lane, in the order the enum declares them.
+    pub const ALL: [LaneId; 7] = [
+        LaneId::Scout,
+        LaneId::Architect,
+        LaneId::Lead,
+        LaneId::Smith,
+        LaneId::Assay,
+        LaneId::Inspector,
+        LaneId::DevOps,
+    ];
+
+    /// The service key this lane is registered under — the key `FORGE_SDLC-v6.xml` writes as `service="…"`.
+    ///
+    /// A lane IS a service (the registry refuses a second owner for one), so this is the identity between the two
+    /// names, not a node table: which NODE belongs to which service is the definition's to say
+    /// ([`crate::engine::service_binding::lane_for_node`]).
+    pub fn service_key(self) -> &'static str {
+        match self {
+            LaneId::Scout => crate::roles::scout::SCOUT_SERVICE_ID,
+            LaneId::Architect => crate::roles::architect::ARCHITECT_SERVICE_ID,
+            LaneId::Lead => crate::roles::lead::LEAD_SERVICE_ID,
+            LaneId::Smith => crate::roles::smith::SMITH_SERVICE_ID,
+            LaneId::Assay => crate::roles::qa::ASSAY_SERVICE_ID,
+            LaneId::Inspector => crate::roles::inspector::INSPECTOR_SERVICE_ID,
+            LaneId::DevOps => crate::roles::dev_ops::DEVOPS_SERVICE_ID,
+        }
+    }
+
+    /// The lane a service key names, or `None` for a key no lane is registered under.
+    pub fn for_service_key(key: &str) -> Option<LaneId> {
+        Self::ALL.into_iter().find(|lane| lane.service_key() == key)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeadPhase {
     Pre,

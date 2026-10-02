@@ -16,19 +16,17 @@
 //! drive's own gate question is answered from the same parse (`is_human_gate`), so the engine no longer types that
 //! set out beside the definition that declares it.
 //!
-//! STAGED DEPRECATION. Service ownership already reads this binding: the READY→job bridge through
-//! `task.service_key()` (`engine/job.rs`) and `AbstractForgeService::supports_node` through `service_for_node`
-//! (`roles/service.rs`). What still reads `role_mapping::forge_role_node_plan` answers a DIFFERENT question — a
-//! node's LANE and lead phase (`engine/phase.rs`, `roles/lead.rs`), the V2 agent it resolves to
-//! (`engine/opencode_agents.rs`) and whether it is a node at all (`roles/lifecycle.rs`) — and
-//! `arch_boundary__011` additionally parses that function's source text for its node→lane map. The definition
-//! carries the service, not the lane, so the Rust match retires only when those readers can be answered from the
-//! definition too; until then `the_xml_and_the_rust_lane_mapping_agree` (below) is what keeps the two saying the
-//! same thing for every node.
+//! ONE NODE TABLE. Every reader that used to ask the Rust node match (`role_mapping::forge_role_node_plan`, kept
+//! only for `arch_boundary__011` until it is retired) asks this binding instead: the READY→job bridge through `task.service_key()` (`engine/job.rs`),
+//! `AbstractForgeService::supports_node` through [`service_for_node`] (`roles/service.rs`), and the readers that
+//! want a node's LANE — its deliverable (`engine/phase.rs`), its V2 agent (`engine/opencode_agents.rs`), whether it
+//! is a role node at all (`roles/lifecycle.rs`) — through [`lane_for_node`], since a service is a lane. The one
+//! thing the definition does not carry, the Lead's phase, is the Lead lane's own (`roles/lead.rs`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
+use crate::engine::role_mapping::LaneId;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::xml::{human_task_nodes_from_xml, service_bindings_from_xml, FORGE_SDLC_V6_XML};
 
@@ -44,6 +42,17 @@ pub fn forge_service_bindings() -> &'static BTreeMap<String, String> {
 /// The service the XML binds to `node_id`, or `None` for a human task-node or a node the definition lacks.
 pub fn service_for_node(node_id: &str) -> Option<&'static str> {
     forge_service_bindings().get(node_id).map(String::as_str)
+}
+
+/// The lane that owns `node_id`: the lane its XML service key names.
+///
+/// FAIL CLOSED: a node the definition binds no agent service to — a human gate, or a node it does not have — is an
+/// error, never a default lane. A node Forge cannot place is a node Forge must not run, because "run it as Smith
+/// anyway" would hand implement authority to a role nobody granted.
+pub fn lane_for_node(node_id: &str) -> Result<LaneId, String> {
+    service_for_node(node_id)
+        .and_then(LaneId::for_service_key)
+        .ok_or_else(|| format!("No Forge agent-runtime mapping for engine node '{node_id}'"))
 }
 
 /// The task-nodes the definition binds no service to — the human gates a person decides.
@@ -102,7 +111,6 @@ mod tests {
     use super::*;
     use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
     use crate::engine::facts::ForgeGateEvidence;
-    use crate::engine::role_mapping::{forge_role_node_plan, LaneId};
     use crate::engine::xml::definition_from_xml;
     use crate::roles::architect::{ArchitectService, ARCHITECT_SERVICE_ID};
     use crate::roles::dev_ops::{DevOpsService, DEVOPS_SERVICE_ID};
@@ -132,18 +140,6 @@ mod tests {
         definition_from_xml(FORGE_SDLC_V6_XML)
             .expect("the definition parses")
             .definition
-    }
-
-    fn lane_service_id(lane: LaneId) -> &'static str {
-        match lane {
-            LaneId::Scout => SCOUT_SERVICE_ID,
-            LaneId::Architect => ARCHITECT_SERVICE_ID,
-            LaneId::Lead => LEAD_SERVICE_ID,
-            LaneId::Smith => SMITH_SERVICE_ID,
-            LaneId::Inspector => INSPECTOR_SERVICE_ID,
-            LaneId::Assay => ASSAY_SERVICE_ID,
-            LaneId::DevOps => DEVOPS_SERVICE_ID,
-        }
     }
 
     /// Nodes reachable from `from`, never stepping onto a node in `avoid`.
@@ -266,24 +262,40 @@ mod tests {
         );
     }
 
-    /// The drift guard for the staged deprecation: the Rust lane map is still what names a node's lane and phase
-    /// (`phase.rs`, `lead.rs`, `opencode_agents.rs`, `lifecycle.rs`), so the XML's service binding and the Rust
-    /// map must agree for every node, in both directions, until those readers take the definition instead.
+    /// A service is a lane: every key the definition binds names exactly one lane, every lane is bound by some
+    /// node, and a node's lane is the one its service names. This is the whole of what replaced the Rust node
+    /// match, so it is checked in both directions.
     #[test]
-    fn the_xml_and_the_rust_lane_mapping_agree() {
-        let bindings = forge_service_bindings();
-        for (node, service) in bindings {
-            let plan = forge_role_node_plan(node)
-                .unwrap_or_else(|e| panic!("XML binds {node} but Rust cannot map it: {e}"));
-            assert_eq!(lane_service_id(plan.lane), service, "{node}");
+    fn a_nodes_lane_is_the_lane_its_service_names() {
+        for (node, service) in forge_service_bindings() {
+            let lane = lane_for_node(node).unwrap_or_else(|e| panic!("{node}: {e}"));
+            assert_eq!(lane.service_key(), service, "{node}");
         }
-        for (id, def) in &graph().nodes {
-            if def.node_type == "task" && forge_role_node_plan(id).is_ok() {
-                assert!(
-                    bindings.contains_key(id),
-                    "Rust maps {id} but the XML binds no service"
-                );
-            }
+        let bound: BTreeSet<&str> = forge_service_bindings()
+            .values()
+            .map(String::as_str)
+            .collect();
+        for lane in LaneId::ALL {
+            assert_eq!(LaneId::for_service_key(lane.service_key()), Some(lane));
+            assert!(
+                bound.contains(lane.service_key()),
+                "{lane:?} is a lane the definition binds no node to"
+            );
+        }
+        assert_eq!(bound.len(), LaneId::ALL.len(), "one service per lane");
+    }
+
+    #[test]
+    fn a_human_or_unknown_node_has_no_lane() {
+        for node in [
+            "hold",
+            "repair_requirements",
+            "fast_confirmation",
+            "not_a_node",
+            "",
+        ] {
+            let error = lane_for_node(node).expect_err("no lane for a node no agent service owns");
+            assert!(error.contains(&format!("'{node}'")), "{error}");
         }
     }
 

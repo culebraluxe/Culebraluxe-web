@@ -33,10 +33,10 @@ use crate::engine::hold::{
 };
 use crate::engine::observer::record_forge_observer;
 use crate::engine::phase::RoleEffectPorts;
-use crate::engine::role_mapping::forge_role_node_plan;
 use crate::engine::runner::{ForgeTurnPorts, HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::self_heal::{attempt_budget, build_self_heal_directive};
+use crate::engine::service_binding::lane_for_node;
 use crate::engine::writer::ForgeStateWriter;
 use crate::roles::hooks::ForgeRoleHooks;
 use workflow::{Result, WorkflowError};
@@ -178,10 +178,10 @@ pub fn run_forge_role_turn(
     // and a patch taken from it would silently drop them.
     let mut first_execution_base: Option<String> = None;
     let mut total_usage: Option<HarnessUsage> = None;
-    // A node the lane table does not know has no lane, so no lane can be asked what it owes — and a refusal
-    // belongs before a turn is paid for rather than after. This is the check the deleted
+    // A node the definition binds no agent service to has no lane, so no lane can be asked what it owes — and a
+    // refusal belongs before a turn is paid for rather than after. This is the check the deleted
     // `ForgePhaseAgent::new` made at the top of every collect.
-    forge_role_node_plan(node_id).map_err(WorkflowError::generic)?;
+    lane_for_node(node_id).map_err(WorkflowError::generic)?;
     for attempt in 0..budget {
         let out = ctx.harness.run_role(node_id, task, self_heal.as_deref())?;
         // Recorded per attempt, the moment it is known: a later attempt that errors out must not take the
