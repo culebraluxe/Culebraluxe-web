@@ -1,5 +1,14 @@
 # Forge Workflow Architecture — from the one-line idea to the invariants
 
+> **STATUS — DURABLE DOCTRINE / HISTORICAL IMPLEMENTATION MAP.**
+> Read `docs/agent/CURRENT.md` first for the live Rust topology and `docs/agent/QUEUE-2026-10-02.md` for current work.
+> This document preserves laws, failure taxonomy and design reasoning accumulated while Forge was being rebuilt.
+> Its older `[built]` labels and path examples describe the machine at the date they were written and may name retired
+> TypeScript paths. They are **not** an executable backlog and must not override current Rust or live control-plane rows.
+> In particular, the live role plane is now seven `AbstractForgeService` services behind XML `service=` bindings,
+> durable `forge.role` jobs and `ForgeRoleHooks`; the old TypeScript role/phase-agent topology is archived.
+
+
 **Status:** durable explainer. Owner: whoever holds the engine. Written 2026-09-13 from a session
 that fixed nine defects in one day; every law below was paid for.
 
