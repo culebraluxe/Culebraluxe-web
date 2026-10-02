@@ -34,6 +34,7 @@ pub mod migration_guard;
 pub mod neon_sql;
 pub mod observer;
 pub mod opencode;
+pub mod opencode_agents;
 pub mod opencode_client;
 pub mod opencode_events;
 pub mod packet;
