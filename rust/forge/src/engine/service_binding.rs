@@ -334,22 +334,38 @@ mod tests {
         }
     }
 
-    /// DOCUMENTED, NOT CHANGED (2026-10-02). The older `fast_gate` → `fast_confirmation` manual-review path is
-    /// still REACHABLE and CONFLICTS with the deterministic FAST lane: the FAST lane itself never reaches it, but
-    /// a FAST story parked in HOLD and resumed with `resumeTarget == 'LEAD'` runs lead_pre → … → lead_post →
-    /// fast_gate, where `workType == 'FAST'` sends it to the operator-review node instead of automated QA.
-    /// Removing or rerouting it is a behaviour decision for its own story; this test pins today's graph so that
-    /// decision is made on purpose.
+    /// A FAST story resumed from HOLD into Lead may pass through lead_post, but it must rejoin the same
+    /// deterministic Assay path as the native FAST lane. The legacy manual-review node remains defined only so an
+    /// already-running workflow instance parked there can still be resolved; new routing has no incoming edge to it.
     #[test]
-    fn the_legacy_fast_review_path_is_reachable_only_through_a_lead_resume() {
+    fn a_lead_resumed_fast_story_rejoins_deterministic_qa_not_manual_review() {
         let graph = graph();
-        assert!(
-            !reachable(&graph, "fast_lane_entry", &["hold"]).contains("fast_confirmation"),
-            "the FAST lane proper never reaches the legacy review"
+
+        assert_eq!(to("fast_gate", "fast"), "fast_resume_eligibility");
+        assert_eq!(
+            to("fast_resume_eligibility", "verify"),
+            "fast_qa_verify"
         );
-        assert!(reachable(&graph, "lead_post", &[]).contains("fast_confirmation"));
+        assert_eq!(to("fast_resume_eligibility", "hold"), "hold");
+
+        let from_lead_post = reachable(&graph, "lead_post", &[]);
+        assert!(
+            from_lead_post.contains("fast_qa_verify"),
+            "FAST resumed through Lead must reach deterministic verification"
+        );
+        assert!(
+            !from_lead_post.contains("fast_confirmation"),
+            "new routing must never send resumed FAST work to manual confirmation"
+        );
+        assert!(
+            !reachable(&graph, "start", &[]).contains("fast_confirmation"),
+            "no newly started v6 workflow may reach the legacy review"
+        );
         assert!(reachable(&graph, "hold", &[]).contains("lead_post"));
-        assert!(reachable(&graph, "start", &[]).contains("fast_confirmation"));
-        assert_eq!(service_for_node("fast_confirmation"), None);
+        assert_eq!(
+            service_for_node("fast_confirmation"),
+            None,
+            "legacy compatibility node remains human-owned for existing instances"
+        );
     }
 }
