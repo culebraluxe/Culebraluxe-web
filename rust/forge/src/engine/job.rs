@@ -38,9 +38,10 @@ pub struct ForgeJobLease {
 
 /// The only Forge-specific translation between workflow state and job execution.
 ///
-/// The bridge validates that the workflow task is READY, asks the registry which
-/// service owns its node, and emits a standard job request. It does not know what
-/// any role actually does.
+/// The bridge validates that the workflow task is READY, reads the canonical
+/// service binding from the workflow XML through `task.service_key()`, verifies
+/// that key is registered, and emits a standard job request. It does not infer
+/// service ownership from the node id and does not know what any role actually does.
 pub struct ForgeJobBridge<'registry, 'services> {
     registry: &'registry ForgeServiceRegistry<'services>,
 }
@@ -69,10 +70,19 @@ impl<'registry, 'services> ForgeJobBridge<'registry, 'services> {
                 ))
             })?;
 
-        let service = self.registry.resolve_node(node_id)?;
+        let service_key = task.service_key().ok_or_else(|| {
+            WorkflowError::generic(format!(
+                "workflow task {} node {node_id:?} has no agent service binding; refusing job creation",
+                task.task_id
+            ))
+        })?;
+
+        // Fail closed before a durable job is written if the XML names a service
+        // this process did not register. The registry remains a dumb key lookup.
+        self.registry.resolve(service_key)?;
 
         Ok(ForgeJobRequest {
-            service_key: service.descriptor().service_id.to_string(),
+            service_key: service_key.to_string(),
             node_id: node_id.to_string(),
             task: task.clone(),
         })
@@ -509,6 +519,20 @@ mod tests {
                 .expect("READY task becomes a job");
             assert_eq!(job.service_key, expected_service_key);
         }
+    }
+
+    #[test]
+    fn bridge_refuses_a_human_task_without_a_service_binding() {
+        let runner = RecordingRunner::new();
+        let (registry, _scout, _architect, _lead, _smith, _inspector, _assay, _devops) =
+            registry(&runner);
+
+        let error = ForgeJobBridge::new(&registry)
+            .job_for_ready_task(&task("hold", TaskStatus::Ready))
+            .expect_err("human Workflow tasks must never become agent jobs");
+
+        assert!(error.to_string().contains("no agent service binding"));
+        assert!(runner.calls().is_empty());
     }
 
     #[test]
