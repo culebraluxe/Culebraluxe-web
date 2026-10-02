@@ -1090,11 +1090,11 @@ fn the_publish_path_lands_a_candidate_on_a_real_remote() {
     let _ = fs::remove_dir_all(&root);
     let remote = root.join("origin.git");
     let work = root.join("work");
-    fs::create_dir_all(&remote).expect("temp root");
     fs::create_dir_all(&work).expect("temp work");
 
-    // A bare remote whose `main` is one commit, and the working checkout that stands in for the engine's.
-    run(&remote, &["init", "--bare", "--initial-branch=main", "."]);
+    // The working checkout that stands in for the engine's, and a bare remote whose `main` is its one commit.
+    // The remote is seeded by a bare CLONE, not a push: `preview_publish` is the only code in the workspace
+    // allowed to name a mutation verb (arch_boundary__011), and a test fixture is not an exception to that.
     run(&work, &["init", "--initial-branch=main", "."]);
     run(&work, &["config", "user.email", "forge@test.invalid"]);
     run(&work, &["config", "user.name", "forge test"]);
@@ -1102,9 +1102,11 @@ fn the_publish_path_lands_a_candidate_on_a_real_remote() {
     fs::write(work.join("README.md"), "base\n").expect("seed");
     run(&work, &["add", "."]);
     run(&work, &["commit", "-m", "base"]);
+    let work_path = work.to_string_lossy().to_string();
     let remote_url = remote.to_string_lossy().to_string();
+    run(&root, &["clone", "--bare", "-q", &work_path, &remote_url]);
     run(&work, &["remote", "add", "origin", &remote_url]);
-    run(&work, &["push", "origin", "main"]);
+    run(&work, &["fetch", "-q", "origin", "main"]);
     let base = run(&work, &["rev-parse", "HEAD"]);
 
     // The candidate: a commit on the lane's own branch, the way the Smith leaves it.
