@@ -64,6 +64,7 @@ pub mod runtime;
 pub mod scope;
 pub mod self_heal;
 pub mod serial_doors;
+pub mod service_binding;
 pub mod shaping;
 pub mod smith_candidate;
 pub mod spend_cap;
