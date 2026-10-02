@@ -48,6 +48,33 @@ the rows for the changed packages.
 | fast-uri | 3.1.2 | GHSA-4c8g-83qw-93j6 | HIGH | not-reachable | URI parsing reached through build and validation tooling, not by production request handling. |
 | fast-uri | 3.1.2 | GHSA-7p8r-x3mc-p8w7 | HIGH | not-reachable | URI parsing reached through build and validation tooling, not by production request handling. |
 | fast-uri | 3.1.2 | GHSA-f65p-4m7j-42xc | HIGH | not-reachable | URI parsing reached through build and validation tooling, not by production request handling. |
+| brace-expansion | 5.0.6 | GHSA-6j4f-fj2g-mc7p | HIGH | dev-only | Stack-exhaustion DoS in the glob expander, reached only through eslint → minimatch (devDependencies). Not invoked while serving a request; fixed upstream in 5.0.10. |
+| brace-expansion | 5.0.6 | GHSA-q2hr-2g5m-vwhr | MODERATE | dev-only | Quadratic-time rewrite of nested braces, same eslint → minimatch chain; a denial of service against the developer's own shell, not the deploy. Fixed upstream in 5.0.12. |
+| brace-expansion | 5.0.6 | GHSA-qhr7-859c-m2p7 | HIGH | dev-only | Recursion on nested brace groups, same eslint → minimatch chain as the two rows above. Fixed upstream in 5.0.11. |
+| fast-uri | 3.1.2 | GHSA-hrr3-gc8f-f4qj | MODERATE | not-reachable | Host-case normalization through percent-encoded octets, reached via ajv ← @modelcontextprotocol/sdk ← shadcn, the scaffolding CLI. Same chain and same reasoning as the three fast-uri rows above: validation tooling, not production request handling. Fixed on the 2.x line in 2.4.7. |
+| hono | 4.12.25 | GHSA-hxh3-vqpv-xpqv | MODERATE | not-reachable | Unescaped strings in hono's JSX boundary components, reached only through @hono/node-server ← @modelcontextprotocol/sdk ← shadcn. That renderer is exercised by the CLI, never by the deployed site — Rust/Yew serves it and there is no Node runtime in production. Fixed upstream in 4.13.7. |
+| ip-address | 10.2.0 | GHSA-h3mg-xc3c-68pw | MODERATE | not-reachable | Parse diagnostic proportional to input with no length bound, reached two ways: express-rate-limit ← @modelcontextprotocol/sdk ← shadcn, and socks ← imapflow. Nothing in this repository imports imapflow, and no Node process runs in the deploy, so the address parser never sees attacker-supplied input. Fixed upstream in 10.7.1. |
+| ip-address | 10.2.0 | GHSA-j6r3-76f7-8jcv | MODERATE | not-reachable | isInSubnet()/isHostInSubnet() comparing addresses of different families as if they shared one, same two chains as the row above; our usage never compares across families. Fixed upstream in 10.7.1. |
+| next | 16.3.0 | GHSA-vcvr-r3jv-pc5j | CRITICAL | retired-unused | Remote code execution in next/og ImageResponse. The Next.js application was retired and its tree deleted from this branch: no next build runs, no Node runtime is deployed (the site is Yew/wasm served by the Rust server), and nothing imports next. The package sits in dependencies only because nobody removed it — see the note below. Fixed upstream in 16.3.6. |
+
+## The 2026-10-02 rows: what they are saying
+
+Eight rows were added on 2026-10-02, when `static gates` went red reporting eight untriaged advisories. Four of them
+(three `brace-expansion` and one `next`) tell the story this ledger has already told: build tooling, and a framework
+that was retired. The other four (`fast-uri`, `hono`, two `ip-address`) arrive through one manifest smell worth
+naming out loud:
+
+`shadcn` is a component **scaffolding CLI**, and it is declared in `dependencies` rather than `devDependencies`. It
+drags `@modelcontextprotocol/sdk` — and with it `ajv`, `hono` and `express-rate-limit` — into the production
+dependency closure of a repository that deploys no Node runtime at all. `imapflow` and `socks` are the same shape:
+declared in `dependencies`, imported by nothing in the tree (`grep -rn imapflow` outside `node_modules` finds
+nothing).
+
+No advisory is hidden by these rows — each one is recorded with its severity and the chain that reaches it. But the
+remediation is manifest hygiene rather than more triage: move `shadcn` and `imapflow` (and `socks` with it) to
+`devDependencies`, or delete them, and five of these eight rows stop being reported at all. Until then these rows
+stand as the reason each finding cannot reach a request.
+
 | fast-uri | 3.1.2 | GHSA-fph4-wmhf-6fwf | HIGH | not-reachable | URI parsing reached through build and validation tooling, not by production request handling. |
 | fast-uri | 3.1.2 | GHSA-qw65-cvwx-89v3 | HIGH | retired-unused | Reached only as `ajv@8.20.0 -> fast-uri`. Nothing under `scripts/`, `agent-runtime/` or `workflow_app/` imports ajv or fast-uri, and the deployed request path is Rust — no JavaScript runs in production. Added 2026-09-28, when the strengthened gate reached this step for the first time (CI had been failing at `lint` before it). |
 | ip-address | 10.2.0 | GHSA-2vr4-cq9g-pvrc | MODERATE | retired-unused | Reached only as `express-rate-limit@8.5.2 -> ip-address` and `socks@2.8.9 -> ip-address`. Neither express nor socks is imported anywhere in this repository, and no Node runtime is deployed. |
