@@ -33,11 +33,7 @@ impl AbstractForgeService for LeadService<'_> {
         }
     }
 
-    fn execute(
-        &self,
-        node_id: &str,
-        task: &ActiveForgeRoleTask,
-    ) -> Result<ForgeRoleOutcome> {
+    fn execute(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
         self.assert_supports_node(node_id)?;
         self.runner.run(node_id, task)
     }
