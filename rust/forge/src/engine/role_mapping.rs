@@ -1,7 +1,21 @@
-//! Port of `workflow_app/forge/forge-role-mapping.ts` (plan + evidence marker).
+//! The lane identity a Forge service declares, and the evidence marker a role's reply may carry.
+//!
+//! WHAT IS NO LONGER HERE (2026-10-02, the taxonomy retirement). This module was the port of
+//! `workflow_app/forge/forge-role-mapping.ts` and held a twenty-two-node `node_id → lane` match
+//! (`forge_role_node_plan`). Which service owns a node is the workflow definition's (`service="forge.*"`, read
+//! through [`crate::engine::service_binding`]), and the one fact the definition cannot carry — which Lead turn
+//! implements — is Lead's own ([`crate::roles::lead::lead_phase`]). The match is gone rather than moved: a table
+//! that repeats what the definition already declares is exactly what this retirement removed, so nothing here
+//! answers a node question any more.
+//!
+//! What remains is the lane identity itself. Every concrete service names the lane it is in, in its descriptor
+//! (`crate::roles::service::ForgeServiceDescriptor::lane`), and `ForgeServiceRegistry` refuses a second service
+//! for a lane already owned — so `LaneId` is the service layer's vocabulary, not a node map. The evidence-marker
+//! half is unchanged.
 
 use crate::engine::facts::ForgeGateEvidence;
 
+/// The lanes a Forge service can belong to: one service each, and QA is two of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaneId {
     Scout,
@@ -11,73 +25,6 @@ pub enum LaneId {
     Assay,
     Inspector,
     DevOps,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LeadPhase {
-    Pre,
-    Implement,
-    Post,
-}
-
-#[derive(Debug, Clone)]
-pub struct ForgeRoleNodePlan {
-    pub lane: LaneId,
-    pub lead_phase: Option<LeadPhase>,
-}
-
-pub fn forge_role_node_plan(node_id: &str) -> Result<ForgeRoleNodePlan, String> {
-    Ok(match node_id {
-        "research_scout" | "feature_scout" | "diagnose_scout" | "repair_scout" => {
-            ForgeRoleNodePlan {
-                lane: LaneId::Scout,
-                lead_phase: None,
-            }
-        }
-        "research_architect" | "architect" | "repair_architect" => ForgeRoleNodePlan {
-            lane: LaneId::Architect,
-            lead_phase: None,
-        },
-        "lead_pre" => ForgeRoleNodePlan {
-            lane: LaneId::Lead,
-            lead_phase: Some(LeadPhase::Pre),
-        },
-        "lead_solo_implement" => ForgeRoleNodePlan {
-            lane: LaneId::Lead,
-            lead_phase: Some(LeadPhase::Implement),
-        },
-        "lead_post" => ForgeRoleNodePlan {
-            lane: LaneId::Lead,
-            lead_phase: Some(LeadPhase::Post),
-        },
-        "failure_classifier" => ForgeRoleNodePlan {
-            lane: LaneId::Lead,
-            lead_phase: Some(LeadPhase::Pre),
-        },
-        "smith" | "smith_split_work" | "repair_smith" | "fast_smith" | "fast_repair_smith" => {
-            ForgeRoleNodePlan {
-                lane: LaneId::Smith,
-                lead_phase: None,
-            }
-        }
-        "qa_review" => ForgeRoleNodePlan {
-            lane: LaneId::Inspector,
-            lead_phase: None,
-        },
-        "qa_verify" | "fast_qa_verify" => ForgeRoleNodePlan {
-            lane: LaneId::Assay,
-            lead_phase: None,
-        },
-        "repair_devops" | "deploy" | "production_smoke" => ForgeRoleNodePlan {
-            lane: LaneId::DevOps,
-            lead_phase: None,
-        },
-        other => {
-            return Err(format!(
-                "No Forge agent-runtime mapping for engine node '{other}'"
-            ))
-        }
-    })
 }
 
 const PREFIX: &str = "FORGE_EVIDENCE_JSON:";

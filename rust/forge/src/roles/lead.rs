@@ -41,6 +41,33 @@ pub fn is_failure_classifier(node_id: &str) -> bool {
     node_id == FAILURE_CLASSIFIER_NODE
 }
 
+/// The phase of the Lead turn a node runs — the Lead metadata the workflow definition does not carry.
+///
+/// The definition says which service owns a node (`service="forge.lead"`) and which form it fills
+/// (`form-key="forge.lead_implement"`), but not whether the turn *implements*: a form key names a form, and "this
+/// Lead turn may write code" is an execution policy rather than a form. So the three phases are named here, in
+/// the lane they belong to, and nowhere else — which is what keeps the engine's gate (`engine::phase`) and the
+/// harness's agent door (`engine::opencode_agents`) from having to know Lead's own phases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeadPhase {
+    Pre,
+    Implement,
+    Post,
+}
+
+/// Which of Lead's three turns `node_id` runs, or `None` for a node that is not Lead's.
+///
+/// Four names, all Lead's: the PRE decision, the one implementing turn, the integration turn, and the classifier
+/// — which answers the PRE question (what happened) rather than filling the pre form.
+pub fn lead_phase(node_id: &str) -> Option<LeadPhase> {
+    match node_id {
+        "lead_pre" | FAILURE_CLASSIFIER_NODE => Some(LeadPhase::Pre),
+        "lead_solo_implement" => Some(LeadPhase::Implement),
+        "lead_post" => Some(LeadPhase::Post),
+        _ => None,
+    }
+}
+
 /// Whether this Lead node's reply may not set a decision.
 ///
 /// Every Lead node but the classifier: the decision is taken once, in the PRE turn, and the implement and post
@@ -94,12 +121,23 @@ impl ForgeRoleHooks for LeadHooks {
         Ok(next)
     }
 
-    /// The classifier's deliverable is a class, not a decision. Everything else is the lane table's answer.
+    /// Lead's own deliverable, per node: a decision in the PRE turn, a class from the classifier, and nothing the
+    /// gate names for the implementing and integration turns.
+    ///
+    /// The phase split belongs here rather than in the gate. The gate's default (`lane_deliverable_kind`) answers
+    /// per service and all four Lead nodes are one service, so the lane with more than one answer inside it is the
+    /// lane that supplies the split — instead of every service being told about Lead's phases.
     fn deliverable_kind(&self, node_id: &str) -> PhaseDeliverableKind {
-        if is_failure_classifier(node_id) {
-            return PhaseDeliverableKind::FailureClass;
+        match lead_phase(node_id) {
+            Some(LeadPhase::Pre) if is_failure_classifier(node_id) => {
+                PhaseDeliverableKind::FailureClass
+            }
+            Some(LeadPhase::Pre) => PhaseDeliverableKind::LeadDecision,
+            Some(LeadPhase::Implement | LeadPhase::Post) => PhaseDeliverableKind::None,
+            // Not a Lead node at all: the service boundary never hands one here, and if it did, the gate's own
+            // default is the answer rather than a Lead claim about a node Lead does not own.
+            None => lane_deliverable_kind(node_id),
         }
-        lane_deliverable_kind(node_id)
     }
 
     /// The classifier owes a class the gate can route, the decision nodes owe a decision it can route, and a

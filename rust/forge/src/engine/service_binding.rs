@@ -16,16 +16,19 @@
 //! drive's own gate question is answered from the same parse (`is_human_gate`), so the engine no longer types that
 //! set out beside the definition that declares it.
 //!
-//! STAGED DEPRECATION. Service ownership already reads this binding everywhere it is asked: the READY→job bridge
-//! through `task.service_key()` (`engine/job.rs`), `AbstractForgeService::supports_node` through
-//! `service_for_node` (`roles/service.rs`), the existence check before a turn is paid for
-//! (`roles/lifecycle.rs`) and the lane that may not restate a decision (`roles/lead.rs`). What still reads
-//! `role_mapping::forge_role_node_plan` answers a DIFFERENT question — a node's lead phase and the V2 agent it
-//! resolves to (`engine/phase.rs`, `engine/opencode_agents.rs`) — and
-//! `arch_boundary__011` additionally parses that function's source text for its node→lane map. The definition
-//! carries the service, not the lane, so the Rust match retires only when those readers can be answered from the
-//! definition too; until then `the_xml_and_the_rust_lane_mapping_agree` (below) is what keeps the two saying the
-//! same thing for every node.
+//! THE DEFINITION IS THE ONLY MAP. This binding is the single answer to "which service owns this node": the
+//! READY→job bridge reads it through `task.service_key()` (`engine/job.rs`), a service accepts work through
+//! `service_for_node` (`roles/service.rs` and `AbstractForgeService::supports_node`), and so do the existence
+//! check before a turn is paid for (`roles/lifecycle.rs`), the lane that may not restate a decision
+//! (`roles/lead.rs`) and the gate's default deliverable (`engine/phase.rs`). The node → lane match this binding
+//! used to be held in lockstep with (`role_mapping::forge_role_node_plan`) is retired, and with it the guard that
+//! held the two equal: `the_definition_is_the_only_node_to_service_map_and_it_is_complete` (below) checks the one
+//! map against the document it is read from instead.
+//!
+//! TWO FACTS THE DEFINITION DOES NOT CARRY, and where they live instead — a deliberate boundary, not a gap:
+//! which Lead turn implements is Lead's own (`roles::lead::lead_phase`, whose four nodes are one service), and
+//! which V2 agent runs a node is OpenCode's (`engine/opencode_agents.rs`). Neither is a node → service map, so
+//! neither competes with this one.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
@@ -114,7 +117,6 @@ mod tests {
     use super::*;
     use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
     use crate::engine::facts::ForgeGateEvidence;
-    use crate::engine::role_mapping::{forge_role_node_plan, LaneId};
     use crate::engine::xml::definition_from_xml;
     use crate::roles::architect::{ArchitectService, ARCHITECT_SERVICE_ID};
     use crate::roles::dev_ops::{DevOpsService, DEVOPS_SERVICE_ID};
@@ -144,18 +146,6 @@ mod tests {
         definition_from_xml(FORGE_SDLC_V6_XML)
             .expect("the definition parses")
             .definition
-    }
-
-    fn lane_service_id(lane: LaneId) -> &'static str {
-        match lane {
-            LaneId::Scout => SCOUT_SERVICE_ID,
-            LaneId::Architect => ARCHITECT_SERVICE_ID,
-            LaneId::Lead => LEAD_SERVICE_ID,
-            LaneId::Smith => SMITH_SERVICE_ID,
-            LaneId::Inspector => INSPECTOR_SERVICE_ID,
-            LaneId::Assay => ASSAY_SERVICE_ID,
-            LaneId::DevOps => DEVOPS_SERVICE_ID,
-        }
     }
 
     /// Nodes reachable from `from`, never stepping onto a node in `avoid`.
@@ -278,24 +268,56 @@ mod tests {
         );
     }
 
-    /// The drift guard for the staged deprecation: the Rust lane map is still what names a node's lane and phase
-    /// (`phase.rs`, `lead.rs`, `opencode_agents.rs`, `lifecycle.rs`), so the XML's service binding and the Rust
-    /// map must agree for every node, in both directions, until those readers take the definition instead.
+    /// The definition is the only node → service map, and it is complete.
+    ///
+    /// This is what replaced `the_xml_and_the_rust_lane_mapping_agree`. That guard held TWO maps equal — the XML's
+    /// binding and the retired Rust node → lane plan — and there is one map now, so what is worth checking is that
+    /// the one map covers the document it is read from, in both directions: no executable role task without a
+    /// service, no service on a node that is not one, and no task-node that is neither run nor decided by a person.
     #[test]
-    fn the_xml_and_the_rust_lane_mapping_agree() {
+    fn the_definition_is_the_only_node_to_service_map_and_it_is_complete() {
+        let graph = graph();
         let bindings = forge_service_bindings();
+        assert!(
+            bindings.len() >= 20,
+            "the definition binds every executable role node ({} found)",
+            bindings.len()
+        );
+
         for (node, service) in bindings {
-            let plan = forge_role_node_plan(node)
-                .unwrap_or_else(|e| panic!("XML binds {node} but Rust cannot map it: {e}"));
-            assert_eq!(lane_service_id(plan.lane), service, "{node}");
+            let def = graph
+                .nodes
+                .get(node)
+                .unwrap_or_else(|| panic!("{node} is bound but the definition has no such node"));
+            assert_eq!(
+                def.node_type, "task",
+                "{node} names a service but is a {} node: only an executable role task has one",
+                def.node_type
+            );
+            assert!(
+                service.starts_with("forge."),
+                "{node} → {service}: a binding names a Forge service key"
+            );
+            assert!(
+                !is_human_gate(node),
+                "{node} is a human gate and cannot also be bound to {service}"
+            );
         }
-        for (id, def) in &graph().nodes {
-            if def.node_type == "task" && forge_role_node_plan(id).is_ok() {
+
+        for (id, def) in &graph.nodes {
+            if def.node_type != "task" {
                 assert!(
-                    bindings.contains_key(id),
-                    "Rust maps {id} but the XML binds no service"
+                    !bindings.contains_key(id),
+                    "{id} is a {} node and must not name a service",
+                    def.node_type
                 );
+                continue;
             }
+            assert!(
+                bindings.contains_key(id) || is_human_gate(id),
+                "{id} is a task-node and is neither bound to a service nor a human gate: nothing would run it \
+                 and no person would decide it"
+            );
         }
     }
 

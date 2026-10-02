@@ -5,12 +5,12 @@
 //! WHAT IS DELIBERATELY NOT HERE, and where it went (2026-10-02, the seam closure): the *reading of a
 //! reply* — the deleted `engine::agents` — is the lane's, through
 //! [`crate::roles::hooks::ForgeRoleHooks::collect_evidence`]; and which node owes which kind, or
-//! needs which routing decision, is the lane's too, with [`lane_deliverable_kind`] as the answer the lane
-//! table gives by default. What stays is the gate's own vocabulary: the kinds, what counts as a delivered
+//! needs which routing decision, is the lane's too, with [`lane_deliverable_kind`] as the answer the gate gives
+//! by default for a node's service. What stays is the gate's own vocabulary: the kinds, what counts as a delivered
 //! one, and the failure classes the gate can route.
 
 use crate::engine::facts::ForgeGateEvidence;
-use crate::engine::role_mapping::{forge_role_node_plan, LaneId, LeadPhase};
+use crate::engine::service_binding::service_for_node;
 
 /// The failure classes the gate can route.
 ///
@@ -68,28 +68,28 @@ impl Default for RoleEffectPorts {
     }
 }
 
-/// What the lane table says a node owes, for every node no lane narrows further.
+/// What a node's service owes the gate, for every node no lane narrows further.
 ///
-/// The lane's own answer is `ForgeRoleHooks::deliverable_kind`; this is the default it inherits. Reading
-/// the table rather than a second list of node names is the point: `engine::role_mapping` is the one place
-/// a node is bound to a lane (the map `arch_boundary__011` pins), so a node added there is owed its lane's
-/// deliverable with no second edit — which is exactly what the two node-name lists deleted here used to
-/// re-derive by hand.
+/// The lane's own answer is `ForgeRoleHooks::deliverable_kind`; this is the default it inherits. Which service
+/// owns a node is the workflow definition's (`service="forge.*"`, read through [`service_for_node`]), so a node
+/// added to the definition is owed its service's deliverable with no second edit here — which is what the
+/// retired node → lane table (`engine::role_mapping`) used to be consulted for, and what the two node-name
+/// lists deleted from this file before it re-derived by hand.
 ///
-/// `None` for a node the table does not know (a caller that must refuse one asks the table directly) and
-/// for a node whose deliverable is not this gate's to name.
+/// The arms are service KEYS, spelled as `FORGE_SDLC-v6.xml` spells them, not a second node list: the keys are
+/// the binding's vocabulary, and a key this match does not know answers `None` rather than a guessed deliverable.
+///
+/// `None` for a node no service owns (a caller that must refuse one asks the binding directly) and for a service
+/// whose deliverable is not this gate's to name: Lead's phases are Lead's own answer (`roles::lead`, one service
+/// across three turns) and the Inspector's semantic review names no artifact this gate can check.
 pub fn lane_deliverable_kind(node_id: &str) -> PhaseDeliverableKind {
-    match forge_role_node_plan(node_id) {
-        Ok(plan) => match (plan.lane, plan.lead_phase) {
-            (LaneId::Scout, _) => PhaseDeliverableKind::ScoutPacket,
-            (LaneId::Architect, _) => PhaseDeliverableKind::ArchitectPlan,
-            (LaneId::Lead, Some(LeadPhase::Pre)) => PhaseDeliverableKind::LeadDecision,
-            (LaneId::Smith, _) => PhaseDeliverableKind::SmithCandidate,
-            (LaneId::Assay, _) => PhaseDeliverableKind::QaVerdict,
-            (LaneId::DevOps, _) => PhaseDeliverableKind::DevopsReceipt,
-            _ => PhaseDeliverableKind::None,
-        },
-        Err(_) => PhaseDeliverableKind::None,
+    match service_for_node(node_id) {
+        Some("forge.scout") => PhaseDeliverableKind::ScoutPacket,
+        Some("forge.architect") => PhaseDeliverableKind::ArchitectPlan,
+        Some("forge.smith") => PhaseDeliverableKind::SmithCandidate,
+        Some("forge.assay") => PhaseDeliverableKind::QaVerdict,
+        Some("forge.devops") => PhaseDeliverableKind::DevopsReceipt,
+        Some(_) | None => PhaseDeliverableKind::None,
     }
 }
 

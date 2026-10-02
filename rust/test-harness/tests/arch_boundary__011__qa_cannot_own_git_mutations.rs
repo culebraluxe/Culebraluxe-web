@@ -16,11 +16,14 @@
 //!      so there is nothing in the QA surface to commit, push, rebase or "check the sha" *with*. QA's own
 //!      work runs through the engine's command port (`rust/forge/src/engine/runner.rs`, `run_command`), not
 //!      through a process a QA module spawns itself.
-//!   2. THE LANES. `rust/forge/src/engine/role_mapping.rs` is the one place that says which engine node is
-//!      which lane. The three QA nodes (`qa_review`, `qa_verify`, `fast_qa_verify`) resolve to the QA lanes
-//!      (Inspector, Assay) and never to DevOps. The entire node → lane map is pinned (twenty-two nodes), so
-//!      re-pointing a QA node at the release lane, or adding one, is a deliberate edit. What the release lane
-//!      owns is TST-ARCH-BOUNDARY-012's subject; what this test pins is that QA is not in it.
+//!   2. THE LANES. The workflow definition (`rust/forge/definitions/FORGE_SDLC-v6.xml`) is the one place that
+//!      says which engine node belongs to which service, and the three QA nodes (`qa_review`, `qa_verify`,
+//!      `fast_qa_verify`) resolve to the QA services — Inspector and Assay — never to the release service. The
+//!      node → service inventory itself is pinned where it is read (the binding's own
+//!      `every_lane_binds_to_its_canonical_service`, which lists all twenty-two pairs and refuses an unlisted
+//!      one), so this file does not repeat it: what it pins is that QA is not in the release service, which is
+//!      the re-pointing a QA node must never undergo. What the release service owns is TST-ARCH-BOUNDARY-012's
+//!      subject.
 //!   3. ONE DOOR IN THE WHOLE WORKSPACE. Across every `.rs` under `rust/`, the three mutation verbs of
 //!      `AGENTS.md` appear **once**, in one file: `rust/forge/src/engine/git_publish.rs`, behind
 //!      `FORGE_ALLOW_PUBLISH`. The release handle is constructed at exactly one site — the composition root
@@ -48,11 +51,14 @@
 //!     file holding a test. This test repeats neither: it pins *which* test, and it covers the tree those two
 //!     do not read.
 //!
-//! WHAT IT DOES NOT COVER, so a green run is not read for more than it is: it reads sources, not behaviour.
-//! It does not run the engine, does not prove which commands a lane is dispatched to run, and does not prove
-//! a packet's assay commands are safe — only that the QA surface has no git door to walk through.
+//! WHAT IT DOES NOT COVER, so a green run is not read for more than it is: it does not run the engine, does not
+//! prove which commands a lane is dispatched to run, and does not prove a packet's assay commands are safe —
+//! only that the QA surface has no git door to walk through. Its lane fact is read through the production
+//! definition parser and the binding, both pure functions of `include_str!` constants rather than filesystem
+//! reads, so the level below is unchanged.
 //!
-//! Level: L0 Pure — filesystem reads only. No database, no network, no process spawned.
+//! Level: L0 Pure — pure functions over compiled-in sources and the tree. No database, no network, no process
+//! spawned.
 //!
 //! Run with:
 //!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test arch_boundary__011__qa_cannot_own_git_mutations
@@ -60,6 +66,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use forge::engine::service_binding::{forge_service_bindings, is_human_gate, service_for_node};
+use forge::engine::xml::{definition_from_xml, FORGE_SDLC_V6_XML};
 use test_harness::source;
 
 /// The file doing the scanning. It names the mutation verbs it refuses, so the workspace sweep must not count
@@ -126,9 +134,6 @@ const PUBLISH_SWITCH: &str = "FORGE_ALLOW_PUBLISH";
 /// somewhere else in the file.
 const PUBLISH_GATE_WINDOW: usize = 12;
 
-/// How far under a `LaneId::` its `LeadPhase::` may stand — the Lead's phase is the line below its lane.
-const LEAD_PHASE_WINDOW: usize = 4;
-
 /// The only site that builds the release handle — the composition root, not a lane.
 const RELEASE_HANDLE_WIRED: &str = "rust/forge/src/bin/forge.rs";
 
@@ -140,49 +145,26 @@ const QA_LANE_EXPORTS: [&str; 4] = [
     "crate::engine::qa_repair::route_qa_result",
 ];
 
-/// The lane identifiers the engine declares, pinned: the release lane is a lane, and QA is not it.
-const LANE_IDS: [&str; 7] = [
-    "Scout",
-    "Architect",
-    "Lead",
-    "Smith",
-    "Assay",
-    "Inspector",
-    "DevOps",
+/// The service keys the definition binds, pinned: seven services, one per lane, and QA is two of them.
+const SERVICE_KEYS: [&str; 7] = [
+    "forge.architect",
+    "forge.assay",
+    "forge.devops",
+    "forge.inspector",
+    "forge.lead",
+    "forge.scout",
+    "forge.smith",
 ];
 
-/// The whole engine node → lane map, as `node -> Lane` (or `node -> Lane:Phase` for the Lead's three phases).
-const ENGINE_NODES: [&str; 22] = [
-    "architect -> Architect",
-    "deploy -> DevOps",
-    "diagnose_scout -> Scout",
-    "failure_classifier -> Lead:Pre",
-    "fast_qa_verify -> Assay",
-    "fast_repair_smith -> Smith",
-    "fast_smith -> Smith",
-    "feature_scout -> Scout",
-    "lead_post -> Lead:Post",
-    "lead_pre -> Lead:Pre",
-    "lead_solo_implement -> Lead:Implement",
-    "production_smoke -> DevOps",
-    "qa_review -> Inspector",
-    "qa_verify -> Assay",
-    "repair_architect -> Architect",
-    "repair_devops -> DevOps",
-    "repair_scout -> Scout",
-    "repair_smith -> Smith",
-    "research_architect -> Architect",
-    "research_scout -> Scout",
-    "smith -> Smith",
-    "smith_split_work -> Smith",
-];
-
-/// The QA nodes, and the QA lanes they must land in. The other nineteen nodes are 012's subject.
+/// The QA nodes, and the service each must resolve to. The other nineteen nodes are 012's subject.
 const QA_NODES: [&str; 3] = [
-    "fast_qa_verify -> Assay",
-    "qa_review -> Inspector",
-    "qa_verify -> Assay",
+    "fast_qa_verify -> forge.assay",
+    "qa_review -> forge.inspector",
+    "qa_verify -> forge.assay",
 ];
+
+/// The one service no QA node may ever resolve to.
+const RELEASE_SERVICE: &str = "forge.devops";
 
 /// The lint rule that refuses a packet telling a non-Builder role to commit, the message it carries, and the
 /// role pattern behind it — the same three names the handbook's `Never` line names.
@@ -343,15 +325,6 @@ fn copy_char_literal(characters: &mut std::iter::Peekable<std::str::Chars<'_>>, 
     }
 }
 
-/// The double-quoted literals in `text`, in order.
-fn literals(text: &str) -> Vec<String> {
-    text.split('"')
-        .skip(1)
-        .step_by(2)
-        .map(|literal| literal.to_string())
-        .collect()
-}
-
 /// A file NAME the QA surface is read from: an `.rs` file whose stem starts with `qa` or `assay`.
 fn is_qa_surface_name(name: &str) -> bool {
     let Some(stem) = name.strip_suffix(".rs") else {
@@ -417,119 +390,52 @@ fn role_exports(relative: &str) -> BTreeSet<String> {
     out
 }
 
-/// The `LaneId` variants the engine declares, in the order it declares them.
-fn lane_ids(text: &str) -> Vec<String> {
-    let body = text
-        .split_once("pub enum LaneId")
-        .expect("role_mapping.rs declares the LaneId enum")
-        .1
-        .split_once('{')
-        .expect("the LaneId enum has a body")
-        .1
-        .split_once('}')
-        .expect("the LaneId enum body closes")
-        .0;
-    body.lines()
-        .map(|line| {
-            source::code_of(line)
-                .trim()
-                .trim_end_matches(',')
-                .to_string()
-        })
-        .filter(|name| !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_'))
+/// The node → service map the definition declares, read through the production binding.
+fn definition_bindings() -> BTreeMap<String, String> {
+    forge_service_bindings()
+        .iter()
+        .map(|(node, service)| (node.clone(), service.clone()))
         .collect()
 }
 
-/// The node → lane map a `forge_role_node_plan` body declares.
-///
-/// A node arm is a line with `=>` that carries quoted node names; the lane is the `LaneId::…` on a line that
-/// follows it, and the Lead's `LeadPhase::…` stands on a line just under that (where rustfmt puts it). An arm
-/// whose shape this reader cannot follow is a failure, never a skip: a node missing from the map is exactly
-/// the hole this pin exists to show. The one arm that may carry no name is the wildcard refusal.
-fn node_lanes_in(body: &str) -> BTreeMap<String, String> {
-    let body = code_of_file(body);
-    let lines: Vec<&str> = body.lines().collect();
-    let mut lanes: BTreeMap<String, String> = BTreeMap::new();
-    let mut pending: Vec<String> = Vec::new();
-    for (index, line) in lines.iter().enumerate() {
-        if line.contains("=>") && !line.contains("LaneId::") {
-            let nodes = literals(line);
-            if nodes.is_empty() {
-                assert!(
-                    line.contains("other"),
-                    "an engine-node arm this reader cannot follow, so a node would be missing from the \
-                     pin: `{}`",
-                    line.trim()
-                );
-                pending.clear();
-                continue;
-            }
-            pending = nodes;
-            continue;
-        }
-        let Some(position) = line.find("LaneId::") else {
-            continue;
-        };
-        let lane: String = line[position + "LaneId::".len()..]
-            .chars()
-            .take_while(|c| c.is_alphanumeric() || *c == '_')
-            .collect();
-        assert!(
-            !lane.is_empty(),
-            "a `LaneId::` with no lane after it: `{}`",
-            line.trim()
-        );
-        // The phase is searched only in the lines under its own lane: three lines is room for rustfmt to
-        // wrap it, and too little to reach the next node's plan, which opens with an arm head.
-        let phase: Option<String> = lines[index + 1..(index + LEAD_PHASE_WINDOW).min(lines.len())]
-            .iter()
-            .find_map(|nearby| {
-                nearby.find("LeadPhase::").map(|at| {
-                    nearby[at + "LeadPhase::".len()..]
-                        .chars()
-                        .take_while(|c| c.is_alphanumeric() || *c == '_')
-                        .collect::<String>()
-                })
-            })
-            .filter(|phase| !phase.is_empty());
-        assert!(
-            !pending.is_empty(),
-            "a lane with no node above it: `{lane}` — the arm head was not read, which would hide a node"
-        );
-        let value = match phase {
-            Some(phase) => format!("{lane}:{phase}"),
-            None => lane,
-        };
-        for node in pending.drain(..) {
-            lanes.insert(node, value.clone());
-        }
-    }
-    lanes
+/// Every task-node the definition declares, with the service it binds (`None` for a human task).
+fn definition_tasks() -> BTreeMap<String, Option<String>> {
+    let definition = definition_from_xml(FORGE_SDLC_V6_XML)
+        .expect("the Forge definition parses — the same parse the deploy path uses")
+        .definition;
+    definition
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.node_type == "task")
+        .map(|(id, _)| (id.clone(), service_for_node(id).map(str::to_string)))
+        .collect()
 }
 
-/// The engine's node → lane map, read from the one match that declares it in
-/// `rust/forge/src/engine/role_mapping.rs`.
-fn engine_node_lanes() -> BTreeMap<String, String> {
-    let text = source::read(&in_repo("rust/forge/src/engine/role_mapping.rs"));
-    let body = text
-        .split_once("pub fn forge_role_node_plan")
-        .expect("role_mapping.rs declares forge_role_node_plan")
-        .1
-        .split_once("const PREFIX")
-        .expect("the node plan function stands before the directive prefix")
-        .0;
-    assert!(
-        body.contains("No Forge agent-runtime mapping for engine node"),
-        "the node plan must refuse an unknown node — a map that quietly falls back to a lane is how a node \
-         with no lane goes unnoticed"
-    );
-    let lanes = node_lanes_in(body);
-    assert!(
-        lanes.len() >= ENGINE_NODE_FLOOR,
-        "the node plan reader found only {} nodes (floor {ENGINE_NODE_FLOOR}); the map it reads has moved",
-        lanes.len()
-    );
-    lanes
+/// Whether `code` names the retired node → lane map, and which name it used.
+fn names_retired_node_map(code: &str) -> Option<&'static str> {
+    ["forge_role_node_plan", "ForgeRoleNodePlan"]
+        .into_iter()
+        .find(|needle| code.contains(needle))
+}
+
+/// The retired map's hits in production code (tests may name it; production may not).
+///
+/// The rail this replaces PARSED that function's source text to pin its twenty-two-node map. The map is gone —
+/// which service owns a node is the definition's — so what is left to guard is that it does not come back: a
+/// second production table answering "which service owns this node" is the drift this file exists to refuse, and
+/// the binding's own `the_definition_is_the_only_node_to_service_map_and_it_is_complete` checks the one map that
+/// is allowed to answer it.
+fn retired_node_map_hits() -> Vec<String> {
+    let mut hits = Vec::new();
+    for (path, code) in workspace_code() {
+        if path.contains("/tests/") {
+            continue;
+        }
+        if let Some(needle) = names_retired_node_map(&code) {
+            hits.push(format!("{path}: `{needle}`"));
+        }
+    }
+    hits
 }
 
 /// The index of the first line containing `needle`, for the publish-gate window check.
@@ -616,39 +522,23 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
         "a stem that merely starts with `a` is not QA"
     );
 
-    // The node-plan reader, on a planted body: one plain node, one Lead phase, and the wildcard refusal.
-    let planted = concat!(
-        "        match node_id {\n",
-        "            \"qa_review\" => ForgeRoleNodePlan {\n",
-        "                lane: LaneId::Inspector,\n",
-        "                lead_phase: None,\n",
-        "            },\n",
-        "            \"lead_pre\" | \"failure_classifier\" => ForgeRoleNodePlan {\n",
-        "                lane: LaneId::Lead,\n",
-        "                lead_phase: Some(LeadPhase::Pre),\n",
-        "            },\n",
-        "            other => {\n",
-        "                return Err(format!(\"No Forge agent-runtime mapping for engine node '{other}'\"));\n",
-        "            }\n",
-        "        }\n",
+    // The retired-map detector, in both directions: a real hit is seen, clean code is not.
+    assert!(
+        names_retired_node_map("let plan = forge_role_node_plan(id)?;").is_some(),
+        "the retired-map detector must see the name it refuses"
     );
-    let planted_lanes = node_lanes_in(planted);
-    assert_eq!(
-        planted_lanes.get("qa_review").map(String::as_str),
-        Some("Inspector")
+    assert!(
+        names_retired_node_map("let lane = LaneId::Lead;").is_none(),
+        "a lane identity is not a node → lane map"
     );
-    assert_eq!(
-        planted_lanes.get("lead_pre").map(String::as_str),
-        Some("Lead:Pre")
-    );
-    assert_eq!(
-        planted_lanes.get("failure_classifier").map(String::as_str),
-        Some("Lead:Pre")
-    );
-    assert_eq!(
-        planted_lanes.len(),
-        3,
-        "the planted map yielded {planted_lanes:?}"
+
+    // …and the tree: the map is retired, not merely unused.
+    let retired = retired_node_map_hits();
+    assert!(
+        retired.is_empty(),
+        "production code names the retired node → lane map again: {retired:?}. Which service owns a node is \
+         the definition's (`service=\"forge.*\"`), read through `engine::service_binding`; a second table that \
+         answers it is the drift this file refuses"
     );
 
     assert!(
@@ -707,56 +597,72 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
         }
     }
 
-    // ── 3. THE LANES. QA nodes resolve to QA lanes, and never to the release lane. ─────────────────────────
+    // ── 3. THE LANES. QA nodes resolve to the QA services, and never to the release service. ───────────────
 
-    let role_mapping = source::read(&in_repo("rust/forge/src/engine/role_mapping.rs"));
+    let bindings = definition_bindings();
+    assert!(
+        bindings.len() >= ENGINE_NODE_FLOOR,
+        "the definition binds {} nodes (floor {ENGINE_NODE_FLOOR}) — a map this file reads that came out \
+         nearly empty would make every check below vacuous",
+        bindings.len()
+    );
+    let services: BTreeSet<String> = bindings.values().cloned().collect();
     assert_eq!(
-        lane_ids(&role_mapping),
-        LANE_IDS
+        services,
+        SERVICE_KEYS
             .iter()
-            .map(|lane| lane.to_string())
-            .collect::<Vec<String>>(),
-        "the lane inventory changed"
+            .map(|key| key.to_string())
+            .collect::<BTreeSet<String>>(),
+        "the service inventory changed: seven services, one per lane, and QA is two of them"
     );
 
-    let lanes = engine_node_lanes();
-    let expected: BTreeMap<String, String> = ENGINE_NODES
-        .iter()
-        .map(|arm| {
-            let (node, lane) = arm
-                .split_once(" -> ")
-                .expect("every pinned arm is `node -> lane`");
-            (node.to_string(), lane.to_string())
-        })
-        .collect();
-    assert_eq!(
-        lanes, expected,
-        "the engine's node → lane map drifted. Every node is pinned: adding a node (especially a QA node) \
-         must be a deliberate edit here, and a QA node landing in the release lane is this test's whole point"
-    );
+    // Every task-node is either executable role work (bound to a registered service) or a person's decision.
+    for (node, service) in definition_tasks() {
+        match service {
+            Some(service) => assert!(
+                SERVICE_KEYS.contains(&service.as_str()),
+                "{node} is bound to {service}, which is not a registered Forge service"
+            ),
+            None => assert!(
+                is_human_gate(&node),
+                "{node} is a task-node with no service and is not a human gate: nothing owns it"
+            ),
+        }
+    }
 
     for arm in QA_NODES {
-        let (node, lane) = arm
+        let (node, service) = arm
             .split_once(" -> ")
-            .expect("every pinned QA arm is `node -> lane`");
+            .expect("every pinned QA arm is `node -> service`");
         assert_eq!(
-            lanes.get(node).map(String::as_str),
-            Some(lane),
-            "the QA node `{node}` must resolve to `{lane}`"
+            service_for_node(node),
+            Some(service),
+            "the QA node `{node}` must resolve to `{service}`"
         );
-        assert!(
-            !lane.starts_with("DevOps"),
-            "`{node}` resolves to the release lane — a QA node may not own release"
+        assert_ne!(
+            service, RELEASE_SERVICE,
+            "`{node}` resolves to the release service — a QA node may not own release"
         );
     }
-    let qa_lanes: BTreeSet<&str> = QA_NODES
+    let qa_services: BTreeSet<&str> = QA_NODES
         .iter()
-        .map(|arm| arm.split_once(" -> ").expect("`node -> lane`").1)
+        .map(|arm| arm.split_once(" -> ").expect("`node -> service`").1)
         .collect();
     assert_eq!(
-        qa_lanes,
-        BTreeSet::from(["Assay", "Inspector"]),
-        "the engine's QA nodes must land in the QA lanes and nowhere else"
+        qa_services,
+        BTreeSet::from(["forge.assay", "forge.inspector"]),
+        "the engine's QA nodes must land in the QA services and nowhere else"
+    );
+    assert_eq!(
+        service_for_node("qa_review"),
+        Some("forge.inspector"),
+        "the reviewer is its own service, not a mode of Assay"
+    );
+    assert_ne!(
+        service_for_node("qa_review"),
+        service_for_node("qa_verify"),
+        "Inspector and Assay are two services: collapsing them back into one generic QA is what the explicit \
+         `service=` attribute exists to prevent"
     );
 
     // ── 4. NO HANDLE: the QA lane exports verification, the release handle is built in one place. ──────────

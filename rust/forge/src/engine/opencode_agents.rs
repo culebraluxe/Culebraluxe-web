@@ -2,8 +2,10 @@
 //!
 //! Forge owns the macro orchestration; OpenCode V2 is the execution substrate. This module is the ONE place that
 //! names a V2 execution agent, its authority, its child allowlist, its step ceiling and the skills it may load.
-//! Every profile is **derived from the existing Forge role taxonomy** (`role_mapping::forge_role_node_plan`), so
-//! there is no competing role table: an unknown Forge role is a hard error, never a silent default (FAIL CLOSED).
+//! Every profile is **derived from the service the workflow definition binds to a node**
+//! (`engine::service_binding::service_for_node`), so there is no competing role table: a node no service owns is
+//! a hard error, never a silent default (FAIL CLOSED). The one thing the definition cannot say — which Lead turn
+//! implements, and so which lead agent may write — is Lead's own (`roles::lead::lead_phase`).
 //!
 //! The rendered JSON reaches the vendor two ways, both rendered from this file — there is no second
 //! hand-maintained copy:
@@ -71,7 +73,8 @@
 //! subagent tool, and `subagent_depth` is 0 — so the unmeasurable spend cannot occur at all. When it is armed,
 //! the turn SAYS SO (`render_subagent_declaration`) instead of leaving the undercount to be rediscovered.
 
-use crate::engine::role_mapping::{forge_role_node_plan, LaneId, LeadPhase};
+use crate::engine::service_binding::{service_for_node, unbound_node_refusal};
+use crate::roles::lead::{lead_phase, LeadPhase};
 use serde_json::{json, Map, Value};
 
 /// The V2 execution agents Forge may select. Forge chooses the agent for a node; the model never does.
@@ -446,21 +449,30 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
 
 /// Resolve a Forge engine node id to its V2 execution agent.
 ///
-/// FAIL CLOSED: an unknown node id is an error and there is no default agent. A node Forge cannot map is a node
+/// FAIL CLOSED: a node no service owns is an error and there is no default agent. A node Forge cannot map is a node
 /// Forge must not run, because "run it as Smith anyway" would hand implement authority to a role nobody granted.
+/// The arms are the definition's `service="forge.*"` keys, read through the binding rather than retyped from a node
+/// list — and a key the definition binds but this table does not know is a second refusal rather than a guess.
 pub fn v2_agent_for_node(node_id: &str) -> Result<&'static str, String> {
-    let plan = forge_role_node_plan(node_id)?;
-    Ok(match (plan.lane, plan.lead_phase) {
-        (LaneId::Scout, _) => AGENT_SCOUT,
-        (LaneId::Architect, _) => AGENT_ARCHITECT,
+    let Some(service) = service_for_node(node_id) else {
+        return Err(unbound_node_refusal(node_id));
+    };
+    Ok(match (service, lead_phase(node_id)) {
+        ("forge.scout", _) => AGENT_SCOUT,
+        ("forge.architect", _) => AGENT_ARCHITECT,
         // The lead has three phases. Only the solo-implement phase may write; pre/post are routing, judgment and
         // assembly, so they get the read-only lead rather than the implementing one.
-        (LaneId::Lead, Some(LeadPhase::Implement)) => AGENT_LEAD_IMPLEMENT,
-        (LaneId::Lead, _) => AGENT_LEAD,
-        (LaneId::Smith, _) => AGENT_SMITH,
-        (LaneId::Assay, _) => AGENT_ASSAY,
-        (LaneId::Inspector, _) => AGENT_INSPECTOR,
-        (LaneId::DevOps, _) => AGENT_DEVOPS,
+        ("forge.lead", Some(LeadPhase::Implement)) => AGENT_LEAD_IMPLEMENT,
+        ("forge.lead", _) => AGENT_LEAD,
+        ("forge.smith", _) => AGENT_SMITH,
+        ("forge.assay", _) => AGENT_ASSAY,
+        ("forge.inspector", _) => AGENT_INSPECTOR,
+        ("forge.devops", _) => AGENT_DEVOPS,
+        _ => {
+            return Err(format!(
+                "No V2 execution agent for the Forge service '{service}' the definition binds to '{node_id}'"
+            ))
+        }
     })
 }
 
