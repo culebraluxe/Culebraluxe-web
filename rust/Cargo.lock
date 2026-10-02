@@ -671,10 +671,12 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 name = "forge"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "db",
  "domain",
  "integrations",
  "serde_json",
+ "service",
  "sqlx",
  "tokio",
  "workflow",
