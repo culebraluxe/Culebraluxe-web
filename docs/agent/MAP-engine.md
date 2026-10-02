@@ -1,4 +1,8 @@
-# MAP - the engine and the harness (where to open a file)
+# MAP — current Forge engine and harness (where to open a file)
+
+> **CURRENT IMPLEMENTATION MAP.** Read `docs/agent/CURRENT.md` first for the short-form machine and
+> `docs/agent/QUEUE-2026-10-02.md` for open work. Older restoration docs explain provenance; they do not override
+> this map, current Rust, or live control-plane rows.
 
 Two layers, often confused.
 
@@ -26,7 +30,7 @@ process instances). `rust/forge` is the Forge SDLC on top of it.
 | `rust/forge/src/engine/definition.rs` | How the definition is parsed; `forge_sdlc_graph()` is a test fixture, not production. |
 | `rust/forge/src/engine/executor.rs` | Who advances the workflow, and on what. The production drive refuses a run with no role runner — there is no synthetic fallback. |
 | `rust/forge/src/engine/runtime.rs` | How an instance is started, completed and stepped through the workflow crate. |
-| `rust/forge/src/engine/phase.rs`, `topology.rs`, `role_mapping.rs` | How a phase maps to roles and to the commands it may run. |
+| `rust/forge/src/engine/phase.rs`, `topology.rs` | Gate vocabulary/deliverable kinds and topology. `role_mapping.rs` is residual taxonomy being retired; it is not the canonical service-ownership map. |
 | `rust/forge/src/engine/facts.rs` | The gate facts projected for a run - **booleans default FALSE, absent enums are omitted**: it fails closed. A stale read here has cost real hours. |
 | `rust/forge/src/engine/evidence_gate.rs` | Which evidence a phase must have before its result is accepted. |
 | `rust/forge/src/engine/first_violation.rs`, `failure.rs` | How a failure is classified (defect vs environment vs capacity). |
@@ -40,7 +44,7 @@ process instances). `rust/forge` is the Forge SDLC on top of it.
 | `rust/forge/src/engine/observer.rs`, `learn.rs` | The Flight Recorder trace and what a finished run teaches. |
 | `rust/forge/src/engine/packet.rs` | The canonical task text handed to a role. |
 | `rust/forge/src/engine/db_ledger.rs`, `db_writer.rs` | How the engine talks to Neon - the engine's own narrow door, not the service kernel. |
-| `rust/forge/src/roles/` | What each role (`scout`, `architect`, `lead`, `smith`, `qa`, `dev_ops`) is asked to produce. `roles/hooks.rs` is the one lane contract (`ForgeRoleHooks`): how a lane reads its own turn — which node seeds what, which node adopts a candidate SHA, which node publishes — so the shared lifecycle asks a lane instead of switching on a node id. |
+| `rust/forge/src/roles/` | Seven concrete services: Scout, Architect, Lead, Smith, Inspector, Assay (`qa.rs`) and DevOps (`dev_ops.rs`). `roles/service.rs` defines `AbstractForgeService`; `roles/registry.rs` is the lookup; `roles/hooks.rs` is the role-intelligence contract (`ForgeRoleHooks`) used by the shared lifecycle. Inspector and Assay are deliberately distinct. |
 | `rust/forge/src/bin/forge.rs`, `forge_worker.rs`, `forge_task.rs`, `re_workflow.rs` | The binaries: drive, worker, single task, RE workflow. |
 
 ## The harness gates (`rust/cli/src/forge` and `pnpm`)
@@ -90,5 +94,6 @@ local hygiene.
 Read the recent MEMORY entries before changing the engine: most of them are things that already cost a night.
 
 One more rule that is older than Forge and still settles arguments: **the domain is Rust.** If a change decides what is
-true about a client, deal, contract, property or workflow - or reads or writes the database - it is Rust, and the
-TypeScript under `legacy/` and `agent-runtime/` is reference, never a live path.
+true about a client, deal, contract, property or workflow - or reads or writes the database - it is Rust. The retired
+TypeScript estate is archived outside the repository at `~/Documents/forge-legacy-ts-archive-2026-10-02/`; it is
+historical reference only and must never be restored as a live path.
