@@ -8,11 +8,16 @@ use std::process::Command;
 
 use crate::engine::assay::{is_rust_contract_production_path, CommandResult};
 use crate::engine::harness_usage::UsageBaseline;
-use crate::engine::opencode_client::{start_opencode_run, OpenCodeRunResult, OpenCodeStartOptions};
+use crate::engine::opencode_agents;
+use crate::engine::opencode_client::{
+    live_turn_slot, start_opencode_run_streaming, LiveTurnSlot, OpenCodeStartOptions, StreamStop,
+    StreamedRunResult, TurnTermination,
+};
 use crate::engine::opencode_events;
 use crate::engine::packet::{build_task_text_with_context, ExecutionWorkspace, StoryPacket};
 use crate::engine::runner::{HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
+use crate::engine::spend_cap::{self, BUDGET_EXHAUSTED_CODE, SPEND_CAP_ENV};
 use crate::engine::vendor_session;
 use workflow::{Result, WorkflowError};
 
@@ -191,7 +196,46 @@ pub fn write_session_id(workspace: &str, session_id: Option<&str>) {
     }
 }
 
-pub type StartRunFn = Box<dyn Fn(OpenCodeStartOptions<'_>) -> OpenCodeRunResult + Send + Sync>;
+/// The stop code an interruption from outside the turn carries: a supervisory stop, distinct from the two budget
+/// stops because its cause is not a budget. The reason travels with it (see `LiveTurn.interrupt_reason`).
+pub const TURN_INTERRUPTED_CODE: &str = "TURN_INTERRUPTED";
+
+/// The seam a turn's vendor process is started through.
+///
+/// It is STREAMING because the enforcement is streaming: the second argument is Forge's per-line verdict (the live
+/// caps), and the third is the slot the turn publishes itself into so it can be stopped from another thread. A
+/// seam that returned a finished transcript could not express either, which is why there is no buffered seam.
+pub type StartRunFn = Box<
+    dyn Fn(
+            OpenCodeStartOptions<'_>,
+            &mut dyn FnMut(&str) -> Option<StreamStop>,
+            &LiveTurnSlot,
+        ) -> StreamedRunResult
+        + Send
+        + Sync,
+>;
+
+/// The environment Forge hands a model subprocess: the sanitized model env plus the Forge-owned V2 config.
+///
+/// The config travels as `OPENCODE_CONFIG_CONTENT` rather than only as a worktree file because Forge executes
+/// inside a LINKED GIT WORKTREE, and a worktree does not discover the repo-root `opencode.json` (measured on the
+/// live 2.x build: `debug config` run from a worktree lists only the global config). Delivering it by environment
+/// is the only path that applies from any cwd, and the vendor MERGES it with any project file that does exist, so
+/// the checked-in `opencode.json` stays the operator's readable copy rather than a second source of truth.
+///
+/// The content is the posture IN FORCE (`..._from_env`), not the shipped default: an operator who arms
+/// `FORGE_SUBAGENTS` must get the armed config on the subprocess, or the switch would be a comment. The
+/// default-off case is what `render_v2_agent_config_pretty()` — the checked-in file — records.
+///
+/// `base` is expected to be `sanitized_model_env()`, i.e. an allow-list rather than the operator's whole
+/// environment; this only adds a key to it.
+pub fn v2_agent_env(base: Option<&HashMap<String, String>>) -> Result<HashMap<String, String>> {
+    let mut env = base.cloned().unwrap_or_default();
+    let content = crate::engine::opencode_agents::v2_agent_config_content_from_env()
+        .map_err(WorkflowError::generic)?;
+    env.insert("OPENCODE_CONFIG_CONTENT".into(), content);
+    Ok(env)
+}
 
 pub struct OpenCodeHarness {
     pub cli_bin: String,
@@ -200,6 +244,19 @@ pub struct OpenCodeHarness {
     pub env: Option<HashMap<String, String>>,
     pub auto_approve: bool,
     pub start_run: Option<StartRunFn>,
+    /// The turn in flight, published so it can be stopped from another thread.
+    ///
+    /// A budget cap is not the only reason to stop a turn — a stale claim, a shutting-down worker or an operator
+    /// all qualify — and every one of them needs the same primitive: signal the real process tree. This is where a
+    /// caller finds it while the turn is running.
+    pub live_turn: LiveTurnSlot,
+    /// The cap on what ONE turn may spend, in USD. `None` is "no cap configured", which is NOT the same as a cap
+    /// of zero: Forge does not invent a dollar ceiling for work it was asked to do.
+    ///
+    /// Read ONCE, from `FORGE_SPEND_CAP_USD`, when the harness is built — a cap that could change in the middle of
+    /// a generation is a cap nobody can reason about. It is a field rather than an environment read at the point of
+    /// use so a test can hold a turn to a figure without setting a process-global variable that parallel tests share.
+    pub spend_cap_usd: Option<f64>,
     pub assay_commands: Vec<String>,
     pub acceptance_mapped: bool,
     pub packet: StoryPacket,
@@ -240,6 +297,10 @@ impl OpenCodeHarness {
             env: Some(sanitized_model_env()),
             auto_approve: true,
             start_run: None,
+            live_turn: live_turn_slot(),
+            spend_cap_usd: spend_cap::parse_forge_spend_cap_usd(
+                std::env::var(SPEND_CAP_ENV).ok().as_deref(),
+            ),
             assay_commands: vec![],
             acceptance_mapped: false,
             packet: StoryPacket {
@@ -328,6 +389,24 @@ impl RoleHarness for OpenCodeHarness {
         }
         let task_text = self.task_text(node_id, task, self_heal);
         let before_sha = self.run_git(&["rev-parse", "HEAD"]);
+        // The agent for this node, resolved FAIL CLOSED: a node Forge cannot map is refused here rather than run
+        // as the vendor's default agent, whose permissions Forge did not author (see `engine::opencode_agents`).
+        let agent = opencode_agents::v2_agent_for_node(node_id).map_err(WorkflowError::generic)?;
+        // The subagent gate is stated in the log for EVERY turn, both postures. The disarmed line says the
+        // recorded spend is the whole turn; the armed line says it is a lower bound, because that is the
+        // measured behaviour (`harness_usage`). A silence here would be the one place an undercount could hide.
+        eprintln!(
+            "opencode-harness node={node_id} agent={agent} {}",
+            opencode_agents::render_subagent_declaration(
+                opencode_agents::subagents_enabled_from_env(),
+                std::env::var(opencode_agents::SUBAGENTS_ENV)
+                    .ok()
+                    .as_deref(),
+            )
+        );
+        // The config travels with the process (§3): a worktree does not discover the repo-root `opencode.json`,
+        // so environment delivery is the path that actually applies.
+        let model_env = v2_agent_env(self.env.as_ref())?;
         let lane = VENDOR_SESSION_LANE;
         let session = if session_continuity_enabled() {
             if let Some(story) = self.story_id.as_deref() {
@@ -348,10 +427,11 @@ impl RoleHarness for OpenCodeHarness {
             cwd: &cwd,
             model: &self.model,
             task: &task_text,
-            env: self.env.as_ref(),
+            env: Some(&model_env),
             auto_approve: self.auto_approve,
             session: session.as_deref(),
             continue_session,
+            agent: Some(agent),
         };
         // Read BEFORE the turn: a resumed session's totals are cumulative, so its spend is a difference.
         let baseline = UsageBaseline::before_turn(
@@ -359,17 +439,84 @@ impl RoleHarness for OpenCodeHarness {
             session.as_deref(),
             continue_session,
             &self.cli_bin,
-            self.env.as_ref(),
+            Some(&model_env),
         );
-        let result = if let Some(start) = &self.start_run {
-            start(opts)
-        } else {
-            start_opencode_run(opts)
+        // A FRESH turn owns the slot: a reason left over from the previous turn would be reported against work it
+        // never touched.
+        if let Ok(mut slot) = self.live_turn.lock() {
+            *slot = crate::engine::opencode_client::LiveTurn::default();
+        }
+        // The live spend cap, read per turn the way the runner reads its own knobs: a cap is an operator decision,
+        // not a constant. Unset stays unset — Forge does not invent a dollar ceiling for work it was asked to do,
+        // and the turn-count ceiling below is the cap that always applies.
+        //
+        // WHAT THIS SEAM CAN AND CANNOT ENFORCE. The GENERATION turn cap is the DRIVER's to enforce
+        // (`executor::drive_forge_story` counts dispatches per generation, which is the unit V1 measured: "a healthy
+        // FEATURE generation costs five turns: architect, lead_pre, smith, post, qa"). This harness sees exactly one
+        // turn and cannot count a generation's, so it does not pretend to. What it can do is stop the turn it is
+        // holding, mid-flight, the moment the turn's own measured spend passes the cap — which is the difference
+        // between a cap and an obituary.
+        let spend_cap = self.spend_cap_usd;
+        let mut transcript = String::new();
+        let mut scanner = opencode_events::RunEventScanner::default();
+        let mut on_line = |line: &str| -> Option<StreamStop> {
+            // Kept verbatim: the transcript is what the turn is READ from below, so the live view and the recorded
+            // view cannot disagree.
+            transcript.push_str(line);
+            transcript.push('\n');
+            let _ = scanner.feed(line);
+            // A FLOOR, never a total: the live build does not reliably emit a `step_finish` for a turn's terminal
+            // step (see `engine::opencode_events`). A floor is the safe side to stop on — it can only delay a stop,
+            // never cause one for a turn that is still inside its cap.
+            let spend = scanner.turn().usage.as_ref().map(|usage| usage.cost_usd);
+            match spend_cap {
+                Some(cap) if spend_cap::forge_spend_should_hold(spend, Some(cap)) => {
+                    Some(StreamStop {
+                        code: BUDGET_EXHAUSTED_CODE.to_string(),
+                        detail: spend_cap::render_spend_cap_line(spend, cap),
+                    })
+                }
+                _ => None,
+            }
         };
+        let result = match &self.start_run {
+            Some(start) => start(opts, &mut on_line, &self.live_turn),
+            None => start_opencode_run_streaming(opts, &mut on_line, &self.live_turn),
+        };
+        drop(on_line);
+        // The heartbeat Forge actually observed. Recorded, never acted on: the loop counts the intervals in which
+        // the vendor said nothing, and silence is not a verdict — a long tool call is silent and healthy.
+        if result.silent_ticks > 0 || result.stop.is_some() {
+            eprintln!(
+                "opencode-harness turn node={node_id} lines={} last_line_ms={} silent_ticks={} stopped_by={}",
+                result.lines,
+                result.last_line_ms,
+                result.silent_ticks,
+                result
+                    .stop
+                    .as_ref()
+                    .map(|stop| stop.code.as_str())
+                    .unwrap_or("(none)")
+            );
+        }
+        // A stop from OUTSIDE the turn leaves no `stop` in the result: the process simply died, and without this it
+        // would be reported as a crash with no stderr. The reason was stored with the turn precisely so it survives
+        // to here.
+        let interrupt_reason = self.live_turn.lock().ok().and_then(|mut slot| {
+            let reason = slot.interrupt_reason.clone();
+            *slot = crate::engine::opencode_client::LiveTurn::default();
+            reason
+        });
+        let stop = result.stop.clone().or_else(|| {
+            interrupt_reason.map(|reason| StreamStop {
+                code: TURN_INTERRUPTED_CODE.to_string(),
+                detail: reason,
+            })
+        });
         // Read the V2 structured contract BEFORE judging the turn. A successful exit whose stream Forge cannot
         // read is NOT a successful turn (§3); failing closed here is the difference between "the harness is
         // broken" and "the role said nothing", which Forge would otherwise charge to the model.
-        let turn = opencode_events::parse_run_events(&result.stdout);
+        let turn = opencode_events::parse_run_events(&transcript);
         let reported_session = turn
             .as_ref()
             .ok()
@@ -393,6 +540,15 @@ impl RoleHarness for OpenCodeHarness {
                 )
             })
             .unwrap_or_default();
+        if let Some(stop) = stop.as_ref() {
+            // A TURN FORGE STOPPED IS NOT A TURN THAT FINISHED. However much text arrived before the stop, it is a
+            // truncated answer, and reading it as one is how a capped generation gets recorded as productive. The
+            // code and the reason are both in the record, and the spend measured up to the stop is with them.
+            return Err(WorkflowError::generic(format!(
+                "opencode-harness stopped for {node_id}: {} — {}{spent}",
+                stop.code, stop.detail
+            )));
+        }
         if result.status != crate::engine::opencode_client::OpenCodeRunStatus::Success {
             // A failed turn still cost money. The error carries the reading so the spend is at least on the
             // record of the failure instead of vanishing with it.
@@ -542,6 +698,32 @@ impl RoleHarness for OpenCodeHarness {
         })
     }
 
+    /// Stop the turn this harness is running, if it is running one.
+    ///
+    /// The vendor's own `POST /session/{id}/abort` is NOT reachable from here: a `--standalone` run speaks stdio to a
+    /// private child server and exposes no addressable HTTP endpoint (measured — see `engine::opencode_client`). The
+    /// primitive is therefore a signal to the process group Forge spawned, and the reason is stored on the turn so
+    /// the read that follows reports an interruption rather than a crash with no stderr.
+    fn interrupt_execution(&self, reason: &str) -> Result<Option<TurnTermination>> {
+        let running = {
+            let mut slot = self.live_turn.lock().map_err(|_| {
+                WorkflowError::generic("the live-turn slot is poisoned; refusing to claim a stop")
+            })?;
+            let Some(running) = slot.running else {
+                // Nothing is running: an answer, not a failure.
+                return Ok(None);
+            };
+            slot.interrupt_reason = Some(reason.to_string());
+            running
+        };
+        let termination = running.terminate();
+        eprintln!(
+            "opencode-harness interrupted pid={} reason={reason} existed={} killed={} signalled={:?}",
+            running.pid, termination.existed, termination.killed, termination.signalled
+        );
+        Ok(Some(termination))
+    }
+
     fn exists_on_base_ref(&self, base_ref: &str, path: &str) -> bool {
         self.run_git(&["cat-file", "-e", &format!("{base_ref}:{path}")])
             .is_some()
@@ -666,15 +848,19 @@ mod tests {
             process_instance_id: "proc-v2".into(),
             story_id: "STORY-V2".into(),
             token_id: None,
-            node_id: Some("scout".into()),
+            // A real dispatchable Scout node (`SCOUT_NODES` in `engine::phase`), not the bare position
+            // "scout": the harness now resolves its agent from this id and refuses an id the engine itself
+            // could not have dispatched (`forge_role_node_plan` is what `ForgePhaseAgent::new` applies first,
+            // for this same id, two lines into the runner's loop).
+            node_id: Some("feature_scout".into()),
             status: workflow::TaskStatus::Ready,
             assignee: None,
             candidates: vec![],
         }
     }
 
-    /// A harness whose model turn is a scripted V2 stream. `scout` writes no code, so no git repository is
-    /// needed; the temp workspace only has to exist.
+    /// A harness whose model turn is a scripted V2 stream. A Scout node writes no code, so no git repository
+    /// is needed; the temp workspace only has to exist.
     fn harness_with_stream(workspace: &Path, stream: &str) -> OpenCodeHarness {
         let stdout = stream.to_string();
         OpenCodeHarness {
@@ -685,12 +871,33 @@ mod tests {
             model: OPENCODE_PINNED_MODEL.into(),
             env: None,
             auto_approve: true,
-            start_run: Some(Box::new(move |_opts| OpenCodeRunResult {
-                status: crate::engine::opencode_client::OpenCodeRunStatus::Success,
-                exit_code: Some(0),
-                stdout: stdout.clone(),
-                stderr: String::new(),
+            // The seam replays the scripted transcript LINE BY LINE, exactly as the streaming client does, so the
+            // live guard and the post-turn read see the same input. A seam that returned a finished transcript could
+            // not exercise either.
+            start_run: Some(Box::new(move |_opts, on_line, _live| {
+                let mut stop = None;
+                let mut lines = 0usize;
+                for line in stdout.lines() {
+                    lines += 1;
+                    if let Some(verdict) = on_line(line) {
+                        stop = Some(verdict);
+                        break;
+                    }
+                }
+                StreamedRunResult {
+                    status: crate::engine::opencode_client::OpenCodeRunStatus::Success,
+                    exit_code: Some(0),
+                    stderr: String::new(),
+                    stop,
+                    lines,
+                    last_line_ms: 1,
+                    silent_ticks: 0,
+                    termination: None,
+                }
             })),
+            live_turn: live_turn_slot(),
+            // No dollar cap: the cap tests set the field directly, and a streamed Scout turn has no spend to cap.
+            spend_cap_usd: None,
             assay_commands: vec![],
             acceptance_mapped: false,
             packet: StoryPacket {
@@ -713,7 +920,7 @@ mod tests {
         fs::create_dir_all(&workspace).expect("temp workspace");
         let harness = harness_with_stream(&workspace, V2_STREAM);
 
-        let out = match harness.run_role("scout", &role_task(), None) {
+        let out = match harness.run_role("feature_scout", &role_task(), None) {
             Ok(out) => out,
             Err(error) => panic!("a readable v2 turn succeeds: {error}"),
         };
@@ -747,6 +954,7 @@ mod tests {
             true,
             stored.as_deref(),
             false,
+            None,
         );
         assert!(
             next.windows(2)
@@ -764,13 +972,61 @@ mod tests {
         fs::create_dir_all(&workspace).expect("temp workspace");
         let harness = harness_with_stream(&workspace, "this is not json at all\n");
 
-        let err = match harness.run_role("scout", &role_task(), None) {
+        let err = match harness.run_role("feature_scout", &role_task(), None) {
             Ok(_) => panic!("exit 0 with a broken structured contract must not read as a success"),
             Err(error) => error.to_string(),
         };
         assert!(
             err.contains("cannot read"),
             "the failure names the broken contract: {err}"
+        );
+        let _ = fs::remove_dir_all(&workspace);
+    }
+
+    /// The refusal for an unmappable node is PRE-FLIGHT: no vendor process is started, so no turn can be spent
+    /// and no default agent — whose permissions Forge did not author — can be reached by an id Forge has never
+    /// heard of. A post-flight check would be a receipt for work already done under an unknown authority.
+    #[test]
+    fn a_node_with_no_agent_is_refused_before_any_model_turn_is_started() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let workspace =
+            std::env::temp_dir().join(format!("forge-v2-unmapped-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&workspace);
+        fs::create_dir_all(&workspace).expect("temp workspace");
+
+        let starts = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&starts);
+        let mut harness = harness_with_stream(&workspace, V2_STREAM);
+        harness.start_run = Some(Box::new(move |_opts, _on_line, _live| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            StreamedRunResult {
+                status: crate::engine::opencode_client::OpenCodeRunStatus::Success,
+                exit_code: Some(0),
+                stderr: String::new(),
+                stop: None,
+                lines: 0,
+                last_line_ms: 0,
+                silent_ticks: 0,
+                termination: None,
+            }
+        }));
+
+        // "qa" is a POSITION, not a dispatchable node: `forge_role_node_plan` (which the runner applies through
+        // `ForgePhaseAgent::new` before it ever reaches a harness) does not name it.
+        let err = match harness.run_role("qa", &role_task(), None) {
+            Ok(_) => panic!("an unmappable node must not run a turn"),
+            Err(error) => error.to_string(),
+        };
+        assert!(
+            err.contains("No Forge agent-runtime mapping for engine node 'qa'"),
+            "the refusal must name the node and the missing mapping: {err}"
+        );
+        assert_eq!(
+            starts.load(Ordering::SeqCst),
+            0,
+            "the model must not be started at all: a turn under an unowned agent is unauthorized work"
         );
         let _ = fs::remove_dir_all(&workspace);
     }
@@ -789,5 +1045,188 @@ mod tests {
         );
         // An explicit empty override is refused rather than silently replaced (the harness's own rule).
         assert!(resolve_opencode_model(Some("")).is_err());
+    }
+
+    /// A transcript whose first step already costs real money: the shape a live spend cap is there to stop.
+    const SPEND_STREAM: &str = concat!(
+        r#"{"type":"step_finish","sessionID":"ses_spend","part":{"type":"step-finish","reason":"tool-calls","cost":0.0005,"tokens":{"input":10,"output":2}}}"#,
+        "\n",
+        r#"{"type":"step_finish","sessionID":"ses_spend","part":{"type":"step-finish","reason":"stop","cost":0.0005,"tokens":{"input":10,"output":2}}}"#,
+        "\n",
+        r#"{"type":"text","sessionID":"ses_spend","part":{"type":"text","text":"DONE"}}"#,
+        "\n",
+    );
+
+    /// `BUDGET_EXHAUSTED`, enforced DURING the turn rather than reported after it: the second step never runs, and
+    /// the text that would have followed it is never read as if the turn had finished nicely.
+    #[test]
+    fn a_turn_that_passes_the_spend_cap_is_stopped_and_is_not_read_as_an_answer() {
+        let workspace = std::env::temp_dir().join(format!("forge-v2-cap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&workspace);
+        fs::create_dir_all(&workspace).expect("temp workspace");
+        let mut harness = harness_with_stream(&workspace, SPEND_STREAM);
+        // A cap the FIRST step already exceeds: this is the smallest honest test of a live stop.
+        harness.spend_cap_usd = Some(0.000001);
+
+        let err = match harness.run_role("feature_scout", &role_task(), None) {
+            Ok(_) => {
+                panic!("a stopped turn must not be read as an answer, however much text arrived")
+            }
+            Err(error) => error.to_string(),
+        };
+        assert!(
+            err.contains("BUDGET_EXHAUSTED"),
+            "the stop must name its code: {err}"
+        );
+        assert!(
+            err.contains("FORGE_SPEND_CAP_USD"),
+            "and must say what would lift the cap: {err}"
+        );
+        assert!(
+            err.contains("stopped for feature_scout"),
+            "a stopped turn is not a failure of the harness: {err}"
+        );
+        let _ = fs::remove_dir_all(&workspace);
+    }
+
+    /// The control: the SAME transcript under a cap it never reaches runs to completion and reports its spend. A
+    /// stop that fires whatever the cap would not be a control, it would be a broken turn.
+    #[test]
+    fn the_same_turn_under_a_cap_it_respects_is_allowed_to_finish() {
+        let workspace = std::env::temp_dir().join(format!("forge-v2-nocap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&workspace);
+        fs::create_dir_all(&workspace).expect("temp workspace");
+        let mut harness = harness_with_stream(&workspace, SPEND_STREAM);
+        harness.spend_cap_usd = Some(0.01);
+
+        let out = match harness.run_role("feature_scout", &role_task(), None) {
+            Ok(out) => out,
+            Err(error) => panic!("a turn inside its cap must be allowed to finish: {error}"),
+        };
+        assert_eq!(out.raw, "DONE");
+        let usage = out
+            .usage
+            .expect("the stream's own step_finish sum measures it");
+        assert!(
+            (usage.cost_usd - 0.001).abs() < 1e-9,
+            "the spend is the sum the transcript reported: {usage:?}"
+        );
+        let _ = fs::remove_dir_all(&workspace);
+    }
+
+    /// A harness whose vendor is a script Forge really spawns. The seam cannot test an interruption — the whole
+    /// question is whether a signal reaches a process — so this one uses the real streaming path.
+    fn harness_with_real_cli(workspace: &Path, script: &str) -> OpenCodeHarness {
+        let path = workspace.join("fake-opencode.sh");
+        fs::write(&path, format!("#!/bin/sh\n{script}\n")).expect("script");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
+        }
+        let mut harness = harness_with_stream(workspace, "");
+        harness.cli_bin = path.to_string_lossy().to_string();
+        harness.start_run = None;
+        harness
+    }
+
+    /// `interrupt_execution` stops a REAL process, from ANOTHER thread, and the turn reports the stop by name.
+    ///
+    /// This is the test the whole interruption story rests on: a supervisor stopping a lane has no result to read
+    /// and no `stop` to inspect — it only has the harness, a reason, and a running process. If the signal does not
+    /// reach the process, the turn sits in its silence until the script decides to end, which is exactly the spend
+    /// a hard stop exists to prevent.
+    #[test]
+    fn an_interrupt_from_another_thread_stops_the_real_process_and_is_reported_by_name() {
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        let workspace =
+            std::env::temp_dir().join(format!("forge-v2-interrupt-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&workspace);
+        fs::create_dir_all(&workspace).expect("temp workspace");
+        // One readable line, then 30 seconds of silence. The `session` case matters: the harness reads a turn's
+        // spend through `session export`/`session list` AFTER the turn, so a stand-in that slept for those too would
+        // make a fast stop look slow — the delay would be the measurement, not the interruption.
+        let harness = Arc::new(harness_with_real_cli(
+            &workspace,
+            r#"case "$1" in
+  session) printf '{}'; exit 0 ;;
+esac
+printf '{"type":"step_start","sessionID":"ses_interrupt"}\n'
+sleep 30"#,
+        ));
+
+        let interrupter = {
+            let harness = Arc::clone(&harness);
+            std::thread::spawn(move || {
+                // An interrupt can only reach a process that exists, so wait for the turn to publish itself.
+                for _ in 0..400 {
+                    let published = harness
+                        .live_turn
+                        .lock()
+                        .map(|slot| slot.running.is_some())
+                        .unwrap_or(false);
+                    if published {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                harness.interrupt_execution("the test supervisor stopped this turn")
+            })
+        };
+
+        let started = Instant::now();
+        let err = match harness.run_role("feature_scout", &role_task(), None) {
+            Ok(_) => panic!("a stopped turn must not be read as an answer"),
+            Err(error) => error.to_string(),
+        };
+        let elapsed = started.elapsed();
+        let receipt = interrupter
+            .join()
+            .expect("the interrupter thread")
+            .expect("interrupt_execution")
+            .expect("a receipt: something was running");
+
+        assert!(
+            err.contains("TURN_INTERRUPTED"),
+            "an interruption from outside must be named, not reported as a crash: {err}"
+        );
+        assert!(
+            err.contains("the test supervisor stopped this turn"),
+            "the reason must survive into the record: {err}"
+        );
+        assert!(
+            receipt.existed,
+            "the interrupt reached a live process: {receipt:?}"
+        );
+        assert!(
+            !receipt.killed,
+            "TERM was enough, so no KILL was needed: {receipt:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(20),
+            "the turn must not have waited out the script's 30 seconds: {elapsed:?}"
+        );
+        let _ = fs::remove_dir_all(&workspace);
+    }
+
+    /// Nothing running is an ANSWER, not a failure: a supervisor that stops an idle harness must not be told a
+    /// process was killed, and a harness with no subprocess must not claim a stop it cannot perform.
+    #[test]
+    fn interrupting_an_idle_harness_reports_that_nothing_was_stopped() {
+        let workspace = std::env::temp_dir().join(format!("forge-v2-idle-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&workspace);
+        fs::create_dir_all(&workspace).expect("temp workspace");
+        let harness = harness_with_stream(&workspace, V2_STREAM);
+
+        assert!(
+            harness
+                .interrupt_execution("nothing is running")
+                .expect("no error")
+                .is_none(),
+            "an idle harness has nothing to stop and must say so"
+        );
+        let _ = fs::remove_dir_all(&workspace);
     }
 }

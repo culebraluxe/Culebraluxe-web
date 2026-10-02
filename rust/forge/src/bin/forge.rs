@@ -18,7 +18,9 @@ use forge::engine::vendor_session::database_url;
 use forge::engine::worktree::{
     provision_worker_workspace, resolve_approved_base_ref, resolve_base_commit, resolve_repo_root,
 };
-use forge::engine::writer::{ForgeEvidenceReader, ForgeReleaseExecutor, ForgeStateWriter, NullWriter};
+use forge::engine::writer::{
+    ForgeEvidenceReader, ForgeReleaseExecutor, ForgeStateWriter, NullWriter,
+};
 use std::env;
 use std::sync::Arc;
 use workflow::{MemoryStore, NeonStore, TxStore};
@@ -605,6 +607,9 @@ fn drive<S: TxStore>(
             worker_id: "forge",
             split_concurrency: 1,
             stop_after,
+            // The operator's ceiling, from the environment. Read here rather than in the loop so the cap a run is
+            // held to is fixed for the whole generation.
+            turn_cap: DriveForgeStoryOptions::turn_cap_from_env(),
         },
     ) {
         Ok(out) => Ok(format!(
