@@ -1,14 +1,16 @@
 //! Forge-internal service boundary.
 //!
 //! The application has `AbstractService`; Forge has the same pattern at the role layer.
-//! Workflow decides which logical role is ready. A future JobService will make that work
-//! durable/reliable. The concrete Forge service owns how that role behaves.
+//! Workflow decides which logical role is ready. JobService makes that work durable/reliable,
+//! and the XML service binding selects the concrete service. The concrete Forge service owns
+//! how that role behaves.
 //!
 //! `ForgeServiceRouter` is the strangler adapter from the established
 //! `ProductionRoleRunner` seam into concrete `AbstractForgeService` implementations.
 
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
-use crate::engine::role_mapping::{forge_role_node_plan, LaneId};
+use crate::engine::role_mapping::LaneId;
+use crate::engine::service_binding::service_for_node;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::architect::ArchitectService;
 use crate::roles::dev_ops::DevOpsService;
@@ -65,8 +67,8 @@ pub trait AbstractForgeService: Send + Sync {
     }
 
     fn supports_node(&self, node_id: &str) -> bool {
-        forge_role_node_plan(node_id)
-            .map(|plan| plan.lane == self.descriptor().lane)
+        service_for_node(node_id)
+            .map(|service_key| service_key == self.descriptor().service_id)
             .unwrap_or(false)
     }
 
@@ -126,7 +128,7 @@ impl ForgeRoleRunner for ForgeServiceRouter<'_> {
 ///
 /// ONE place lists the lanes, so the CLI's composition and the compatibility runner cannot disagree about
 /// which service owns what. The list is not role policy: it names services, and each service answers for
-/// itself which nodes are its own (`role_mapping`'s plan, applied by `supports_node`).
+/// itself which nodes are its own from the canonical XML service binding applied by `supports_node`.
 pub struct ForgeLaneServices<'a> {
     /// The runner the lane turns run through, and the fallback for a node no lane owns.
     fallback: SharedLifecycle<'a>,
