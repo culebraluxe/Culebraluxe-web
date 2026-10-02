@@ -147,6 +147,12 @@ pub struct Model {
     pub notice: Option<String>,
 }
 
+impl Default for Model {
+    fn default() -> Self {
+        demo_model()
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Msg {
     AgentSelected(String),
