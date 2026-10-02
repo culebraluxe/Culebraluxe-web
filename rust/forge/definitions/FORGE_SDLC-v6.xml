@@ -7,6 +7,11 @@
   The <dynamic-fork> split_dispatch creates real claimed smith_split_work
   task-nodes and rejoins once at split_join. Release command-nodes use durable
   evidence and real release executors; missing executors fail closed.
+  service="forge.*" on a task-node names the Forge service that executes it
+  (engine/service_binding.rs); the READY->job bridge reads it instead of a Rust
+  node-id map. qa_review is forge.inspector and qa_verify is forge.assay even
+  though both are responsibility="qa". Human tasks (hold, repair_requirements,
+  fast_confirmation) carry no service and are never made into agent jobs.
 -->
 <process-definition
     key="FORGE_SDLC"
@@ -103,13 +108,13 @@
     <transition name="hold" to="hold"/>
   </decision>
 
-  <task-node id="fast_smith" label="FAST — Smith" responsibility="smith" form-key="forge.smith"
+  <task-node id="fast_smith" service="forge.smith" label="FAST — Smith" responsibility="smith" form-key="forge.smith"
     description="Implement the frozen FAST contract and produce one exact candidate commit.">
     <transition name="complete" to="fast_qa_verify"/>
     <transition name="hold" to="hold"/>
   </task-node>
 
-  <task-node id="fast_qa_verify" label="FAST — Deterministic QA" responsibility="qa" form-key="forge.qa_verify"
+  <task-node id="fast_qa_verify" service="forge.assay" label="FAST — Deterministic QA" responsibility="qa" form-key="forge.qa_verify"
     description="Run the packet's deterministic tests/type-checks against the exact FAST candidate SHA. Never skipped.">
     <transition name="complete" to="fast_qa_result"/>
     <transition name="hold" to="hold"/>
@@ -131,7 +136,7 @@
     <transition name="hold" to="hold"/>
   </decision>
 
-  <task-node id="fast_repair_smith" label="FAST — Repair Smith" responsibility="smith" form-key="forge.repair_smith"
+  <task-node id="fast_repair_smith" service="forge.smith" label="FAST — Repair Smith" responsibility="smith" form-key="forge.repair_smith"
     description="Repair the failed FAST candidate in the SAME execution/workspace, then re-run deterministic QA.">
     <transition name="complete" to="fast_qa_verify"/>
     <transition name="hold" to="hold"/>
@@ -152,13 +157,13 @@
     <transition name="hold" to="hold"/>
   </decision>
 
-  <task-node id="research_scout" label="Research Scout" responsibility="scout" form-key="forge.research_scout"
+  <task-node id="research_scout" service="forge.scout" label="Research Scout" responsibility="scout" form-key="forge.research_scout"
     description="Investigate technology, repository state, external options, prior art, or unexplained behavior.">
     <transition name="complete" to="research_architect"/>
     <transition name="hold" to="hold"/>
   </task-node>
 
-  <task-node id="research_architect" label="Research Architecture Assessment" responsibility="architect" form-key="forge.research_architect"
+  <task-node id="research_architect" service="forge.architect" label="Research Architecture Assessment" responsibility="architect" form-key="forge.research_architect"
     description="Architect evaluates Scout findings and determines whether implementation work is warranted.">
     <transition name="complete" to="research_disposition"/>
     <transition name="hold" to="hold"/>
@@ -185,7 +190,7 @@
     <transition name="architect" to="architect"/>
   </decision>
 
-  <task-node id="feature_scout" label="Scout" responsibility="scout" form-key="forge.scout"
+  <task-node id="feature_scout" service="forge.scout" label="Scout" responsibility="scout" form-key="forge.scout"
     description="Gather repository facts and context before architecture.">
     <transition name="complete" to="architect"/>
     <transition name="hold" to="hold"/>
@@ -199,7 +204,7 @@
     <transition name="diagnose" to="diagnose_scout"/>
   </decision>
 
-  <task-node id="diagnose_scout" label="Diagnose" responsibility="scout" form-key="forge.diagnose"
+  <task-node id="diagnose_scout" service="forge.scout" label="Diagnose" responsibility="scout" form-key="forge.diagnose"
     description="Investigate the defect until root cause, evidence, or architecture gap can be stated.">
     <transition name="complete" to="diagnosis_result"/>
     <transition name="hold" to="hold"/>
@@ -222,7 +227,7 @@
     <transition name="architect" to="architect"/>
   </decision>
 
-  <task-node id="architect" label="Architect" responsibility="architect" form-key="forge.architect"
+  <task-node id="architect" service="forge.architect" label="Architect" responsibility="architect" form-key="forge.architect"
     description="Produce or validate the frozen implementation contract, boundaries, invariants, acceptance criteria, and QA plan.">
     <transition name="complete" to="architect_review"/>
     <transition name="research" to="research_scout"/>
@@ -237,7 +242,7 @@
     <transition name="proceed" to="lead_pre"/>
   </decision>
 
-  <task-node id="lead_pre" label="Lead — Execution Plan" responsibility="lead" form-key="forge.lead_pre"
+  <task-node id="lead_pre" service="forge.lead" label="Lead — Execution Plan" responsibility="lead" form-key="forge.lead_pre"
     description="Validate the architecture contract and choose the cheapest sound execution strategy.">
     <transition name="complete" to="execution_shape"/>
     <transition name="architect" to="architect"/>
@@ -263,14 +268,14 @@
     <transition name="hold" to="hold"/>
   </decision>
 
-  <task-node id="lead_solo_implement" label="Lead — Solo Implementation" responsibility="lead" form-key="forge.lead_implement"
+  <task-node id="lead_solo_implement" service="forge.lead" label="Lead — Solo Implementation" responsibility="lead" form-key="forge.lead_implement"
     description="Lead implements a small bounded change directly.">
     <transition name="complete" to="lead_post"/>
     <transition name="architect" to="architect"/>
     <transition name="hold" to="hold"/>
   </task-node>
 
-  <task-node id="smith" label="Smith" responsibility="smith" form-key="forge.smith"
+  <task-node id="smith" service="forge.smith" label="Smith" responsibility="smith" form-key="forge.smith"
     description="Implement the frozen contract and produce a candidate commit.">
     <transition name="complete" to="lead_post"/>
     <transition name="architect" to="architect"/>
@@ -283,7 +288,7 @@
     branch-command-type="forge.run_smith_split" branch-node="smith_split_work"
     join="split_join" minimum="2" maximum="8"/>
 
-  <task-node id="smith_split_work" label="Smith Split" responsibility="smith" form-key="forge.smith_split"
+  <task-node id="smith_split_work" service="forge.smith" label="Smith Split" responsibility="smith" form-key="forge.smith_split"
     description="One parallel Smith work item (a branch of a SPLIT). Produce the branch candidate; rejoin at split_join.">
     <transition name="complete" to="split_join"/>
     <transition name="hold" to="hold"/>
@@ -294,7 +299,7 @@
     <transition name="complete" to="lead_post"/>
   </join>
 
-  <task-node id="lead_post" label="Lead — Integration" responsibility="lead" form-key="forge.lead_post"
+  <task-node id="lead_post" service="forge.lead" label="Lead — Integration" responsibility="lead" form-key="forge.lead_post"
     description="Inspect implementation, integrate split results if necessary, and freeze the exact candidate SHA for QA.">
     <transition name="complete" to="fast_gate"/>
     <transition name="smith" to="smith"/>
@@ -324,7 +329,7 @@
     <transition name="verify" to="qa_verify"/>
   </decision>
 
-  <task-node id="qa_review" label="QA — Independent Review" responsibility="qa" form-key="forge.qa_review"
+  <task-node id="qa_review" service="forge.inspector" label="QA — Independent Review" responsibility="qa" form-key="forge.qa_review"
     description="Independent semantic review for architecture, requirements, regression, security, data, and implementation concerns.">
     <transition name="complete" to="qa_review_result"/>
     <transition name="hold" to="hold"/>
@@ -339,7 +344,7 @@
     <transition name="deferred" to="complete"/>
   </decision>
 
-  <task-node id="qa_verify" label="QA — Deterministic Verification" responsibility="qa" form-key="forge.qa_verify"
+  <task-node id="qa_verify" service="forge.assay" label="QA — Deterministic Verification" responsibility="qa" form-key="forge.qa_verify"
     description="Run packet-defined tests, type checks and acceptance commands against the exact candidate SHA.">
     <transition name="complete" to="qa_result"/>
     <transition name="hold" to="hold"/>
@@ -364,7 +369,7 @@
     <transition name="hold" to="hold"/>
   </decision>
 
-  <task-node id="failure_classifier" label="Classify Failure" responsibility="lead" form-key="forge.classify_failure"
+  <task-node id="failure_classifier" service="forge.lead" label="Classify Failure" responsibility="lead" form-key="forge.classify_failure"
     description="Convert failure evidence into a structured repair classification.">
     <transition name="complete" to="failure_route"/>
     <transition name="hold" to="hold"/>
@@ -392,7 +397,7 @@
   </decision>
 
 
-  <task-node id="repair_smith" label="Repair — Smith" responsibility="smith" form-key="forge.repair_smith"
+  <task-node id="repair_smith" service="forge.smith" label="Repair — Smith" responsibility="smith" form-key="forge.repair_smith"
     description="Repair an implementation or deterministic test defect.">
     <transition name="complete" to="lead_post"/>
     <transition name="architect" to="repair_architect"/>
@@ -400,7 +405,7 @@
     <transition name="hold" to="hold"/>
   </task-node>
 
-  <task-node id="repair_architect" label="Repair — Architect" responsibility="architect" form-key="forge.repair_architect"
+  <task-node id="repair_architect" service="forge.architect" label="Repair — Architect" responsibility="architect" form-key="forge.repair_architect"
     description="Correct or refreeze the implementation contract after architecture failure.">
     <transition name="complete" to="lead_pre"/>
     <transition name="diagnose" to="repair_scout"/>
@@ -415,7 +420,7 @@
     <transition name="hold" to="hold"/>
   </task-node>
 
-  <task-node id="repair_scout" label="Repair — Diagnose" responsibility="scout" form-key="forge.repair_scout"
+  <task-node id="repair_scout" service="forge.scout" label="Repair — Diagnose" responsibility="scout" form-key="forge.repair_scout"
     description="Investigate an unknown or disputed failure cause.">
     <transition name="complete" to="repair_diagnosis_result"/>
     <transition name="hold" to="hold"/>
@@ -430,7 +435,7 @@
     <transition name="hold" to="hold"/>
   </decision>
 
-  <task-node id="repair_devops" label="Repair — DEV_OPS" responsibility="dev_ops" form-key="forge.repair_devops"
+  <task-node id="repair_devops" service="forge.devops" label="Repair — DEV_OPS" responsibility="dev_ops" form-key="forge.repair_devops"
     description="Repair environment, publish, migration, deployment, or production verification failures.">
     <transition name="complete" to="devops_resume_router"/>
     <transition name="smith" to="repair_smith"/>
@@ -568,7 +573,7 @@
     <transition name="complete" to="complete"/>
   </decision>
 
-  <task-node id="deploy" label="Deploy" responsibility="dev_ops" form-key="forge.deploy"
+  <task-node id="deploy" service="forge.devops" label="Deploy" responsibility="dev_ops" form-key="forge.deploy"
     description="Deploy approved code through the configured production deployment mechanism.">
     <transition name="complete" to="deployment_result"/>
     <transition name="hold" to="hold"/>
@@ -584,7 +589,7 @@
     <transition name="deferred" to="complete"/>
   </decision>
 
-  <task-node id="production_smoke" label="Production Verification" responsibility="dev_ops" form-key="forge.production_smoke"
+  <task-node id="production_smoke" service="forge.devops" label="Production Verification" responsibility="dev_ops" form-key="forge.production_smoke"
     description="Verify production behavior, health, migrations, critical route(s), and story-specific acceptance evidence.">
     <transition name="complete" to="production_result"/>
     <transition name="hold" to="hold"/>

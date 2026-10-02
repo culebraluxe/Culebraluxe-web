@@ -411,6 +411,37 @@ pub fn parse_process_definition_xml(source: &str) -> Result<ParsedDefinition, Xm
     })
 }
 
+/// Which Forge service owns each executable task-node, exactly as the XML declares it (`service="forge.smith"`).
+///
+/// Kept beside the graph rather than inside the generic `NodeDefinition`: the binding is Forge's, and the
+/// workflow engine (which also runs `RE_supermodel`) has no use for it. A `service` attribute anywhere but on a
+/// `task-node`, or an empty one, is a definition error rather than a binding nobody can resolve.
+pub fn service_bindings_from_xml(source: &str) -> Result<BTreeMap<String, String>, XmlError> {
+    let root = parse_xml(source)?;
+    let mut out = BTreeMap::new();
+    for ch in &root.children {
+        let Node::Elem(el) = ch else { continue };
+        let Some(service) = el.attrs.get("service") else {
+            continue;
+        };
+        let id = req(el, "id")?;
+        if el.name != "task-node" {
+            return Err(XmlError(format!(
+                "<{}> '{id}' declares service=\"{service}\"; only a task-node is executed by a service",
+                el.name
+            )));
+        }
+        let service = service.trim();
+        if service.is_empty() {
+            return Err(XmlError(format!(
+                "task-node '{id}' declares an empty service"
+            )));
+        }
+        out.insert(id, service.to_string());
+    }
+    Ok(out)
+}
+
 pub fn definition_from_xml(source: &str) -> Result<ProcessDefinition, XmlError> {
     let p = parse_process_definition_xml(source)?;
     Ok(ProcessDefinition {
