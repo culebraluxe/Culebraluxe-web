@@ -84,6 +84,7 @@
     "test:deploy-gate": "pnpm db:parity && pnpm test:app && pnpm test:forge:engine",
     "test:section": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge test-section",
     "test:changed": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge test-section --changed",
+    "slice:check": "bash scripts/ops/gate/slice-check.sh",
     "test:sections": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge test-section --list",
     "broken:ts:sweep": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge ts-sweep",
     "broken:ts:commands": "cargo run --manifest-path rust/Cargo.toml -p cli -- forge dead-commands",
