@@ -16,11 +16,12 @@
 //! drive's own gate question is answered from the same parse (`is_human_gate`), so the engine no longer types that
 //! set out beside the definition that declares it.
 //!
-//! STAGED DEPRECATION. Service ownership already reads this binding: the READY→job bridge through
-//! `task.service_key()` (`engine/job.rs`) and `AbstractForgeService::supports_node` through `service_for_node`
-//! (`roles/service.rs`). What still reads `role_mapping::forge_role_node_plan` answers a DIFFERENT question — a
-//! node's LANE and lead phase (`engine/phase.rs`, `roles/lead.rs`), the V2 agent it resolves to
-//! (`engine/opencode_agents.rs`) and whether it is a node at all (`roles/lifecycle.rs`) — and
+//! STAGED DEPRECATION. Service ownership already reads this binding everywhere it is asked: the READY→job bridge
+//! through `task.service_key()` (`engine/job.rs`), `AbstractForgeService::supports_node` through
+//! `service_for_node` (`roles/service.rs`), the existence check before a turn is paid for
+//! (`roles/lifecycle.rs`) and the lane that may not restate a decision (`roles/lead.rs`). What still reads
+//! `role_mapping::forge_role_node_plan` answers a DIFFERENT question — a node's lead phase and the V2 agent it
+//! resolves to (`engine/phase.rs`, `engine/opencode_agents.rs`) — and
 //! `arch_boundary__011` additionally parses that function's source text for its node→lane map. The definition
 //! carries the service, not the lane, so the Rust match retires only when those readers can be answered from the
 //! definition too; until then `the_xml_and_the_rust_lane_mapping_agree` (below) is what keeps the two saying the
@@ -44,6 +45,17 @@ pub fn forge_service_bindings() -> &'static BTreeMap<String, String> {
 /// The service the XML binds to `node_id`, or `None` for a human task-node or a node the definition lacks.
 pub fn service_for_node(node_id: &str) -> Option<&'static str> {
     forge_service_bindings().get(node_id).map(String::as_str)
+}
+
+/// The refusal for a node no service owns — one sentence for every door that must fail closed on one.
+///
+/// It used to be `role_mapping::forge_role_node_plan`'s error, which made "no lane knows this node" and "no
+/// service owns this node" the same failure. Service ownership is the definition's now, so the question is
+/// [`service_for_node`] and this is the answer's other half: `roles/lifecycle.rs` refuses with it before a turn
+/// is paid for, `engine/opencode_agents.rs` before an agent is handed the node. The wording is pinned by
+/// `engine/opencode.rs`, which asserts it for the position `"qa"`, so it is kept verbatim.
+pub fn unbound_node_refusal(node_id: &str) -> String {
+    format!("No Forge agent-runtime mapping for engine node '{node_id}'")
 }
 
 /// The task-nodes the definition binds no service to — the human gates a person decides.

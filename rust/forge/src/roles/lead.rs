@@ -16,7 +16,8 @@ use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
 use crate::engine::phase::{
     lane_deliverable_kind, PhaseDeliverableKind, RoleEffectPorts, FAILURE_CLASSES,
 };
-use crate::engine::role_mapping::{forge_role_node_plan, LaneId};
+use crate::engine::role_mapping::LaneId;
+use crate::engine::service_binding::service_for_node;
 use crate::roles::hooks::ForgeRoleHooks;
 use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleTurn};
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
@@ -43,12 +44,11 @@ pub fn is_failure_classifier(node_id: &str) -> bool {
 /// Whether this Lead node's reply may not set a decision.
 ///
 /// Every Lead node but the classifier: the decision is taken once, in the PRE turn, and the implement and post
-/// turns run under it, so a reply that restates one there may not overwrite it. Asked of the lane table
-/// (`engine::role_mapping`) rather than of a second list of names, so a Lead node added there is covered
-/// without an edit here.
+/// turns run under it, so a reply that restates one there may not overwrite it. Asked of the workflow
+/// definition (`service="forge.lead"`) rather than of a second list of names, so a Lead node added to the
+/// definition is covered without an edit here.
 fn may_not_set_decision(node_id: &str) -> bool {
-    !is_failure_classifier(node_id)
-        && matches!(forge_role_node_plan(node_id), Ok(plan) if plan.lane == LaneId::Lead)
+    !is_failure_classifier(node_id) && service_for_node(node_id) == Some(LEAD_SERVICE_ID)
 }
 
 /// Lead's own reading, supplied to the shared lifecycle as this lane's hooks.
