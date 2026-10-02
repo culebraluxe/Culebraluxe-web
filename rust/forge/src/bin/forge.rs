@@ -14,6 +14,7 @@ use forge::engine::opencode::OpenCodeHarness;
 use forge::engine::packet::{ExecutionWorkspace, StoryPacket};
 use forge::engine::runner::ProductionRoleRunner;
 use forge::engine::runtime::ForgeRuntime;
+use forge::roles::{ForgeServiceRouter, SmithService};
 use forge::engine::vendor_session::database_url;
 use forge::engine::worktree::{
     provision_worker_workspace, resolve_approved_base_ref, resolve_base_commit, resolve_repo_root,
@@ -593,13 +594,18 @@ fn drive<S: TxStore>(
         .with_test_mode(test_mode)
         .with_contract_assay_commands(contract_assay_commands)
         .with_contract_acceptance_mapped(contract_acceptance_mapped);
+    // First strangler slice: Workflow still owns sequencing and ProductionRoleRunner still owns
+    // the proven execution semantics, but every Smith lane now crosses the Forge-internal service
+    // boundary. Other roles remain on the existing runner until their service extraction is proven.
+    let smith = SmithService::new(&runner);
+    let services = ForgeServiceRouter::new(&runner).with_service(&smith);
     match drive_forge_story(
         &mut rt,
         story,
         DriveForgeStoryOptions {
             work_type,
             evidence,
-            runner: Some(&runner),
+            runner: Some(&services),
             allow_synthetic_runner: false,
             max_steps: 40,
             worker_id: "forge",
