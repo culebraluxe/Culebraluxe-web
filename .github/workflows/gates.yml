@@ -395,7 +395,13 @@ jobs:
       # accounting_opps — were trimmed the same day when this step first ran and listed them at 811 and 809.
       # Nothing else stopped the next file from growing; this is the thing that stops it.
       #
-      # TWO EXEMPTIONS, BOTH EXPLICIT:
+      # The rule is about PRODUCTION code (the Captain's rule, 2026-10-02): a standalone test file is a proof, and its
+      # length is the length of the case it proves, so the test estate is not counted.
+      #
+      # THREE EXEMPTIONS, ALL EXPLICIT:
+      #  * the test estate — any path with a `tests/` segment (`rust/forge/tests/**`, `rust/core/db/tests/**`, …) and
+      #    the whole `rust/test-harness/` crate. Production `src/` stays governed; a `#[cfg(test)]` module inside a
+      #    `src/` file still counts, because it lives in the production file;
       #  * the four engine-owned module trees, deferred with the format step above;
       #  * a file whose header says GENERATED, because a generated data table's length is its content's, not its
       #    author's — `core/domain/src/forms_font_metrics.rs` is 4568 lines of AFM numbers generated from
@@ -406,6 +412,7 @@ jobs:
         run: |
           set -euo pipefail
           deferred='rust/cli/src/apple_mail(\.rs|/)|rust/cli/src/forge/lint(\.rs|/)|rust/core/domain/src/applemail(\.rs|/)|rust/core/domain/src/apple_messages(\.rs|/)'
+          test_estate='(^|/)tests/|^rust/test-harness/'
           listed="$(find rust -path rust/target -prune -o -name '*.rs' -print \
             | xargs wc -l \
             | awk '$1 > 800 && $2 != "total"' \
@@ -413,6 +420,10 @@ jobs:
           over=""
           while read -r lines file; do
             [ -n "$file" ] || continue
+            if [[ "$file" =~ $test_estate ]]; then
+              echo "(test estate, not counted) $lines $file"
+              continue
+            fi
             if head -n 12 "$file" | grep -q 'GENERATED'; then
               echo "(generated, not counted) $lines $file"
               continue
@@ -421,10 +432,10 @@ jobs:
           done <<< "$listed"
           if [ -n "$over" ]; then
             printf '%s' "$over"
-            echo "the files above are over 800 lines: split them (move-only) or say why in the pull request"
+            echo "the production files above are over 800 lines: split them (move-only) or say why in the pull request"
             exit 1
           fi
-          echo "no .rs file over 800 lines outside the four deferred module trees and generated tables"
+          echo "no production .rs file over 800 lines outside the four deferred module trees and generated tables"
 
       # THE DEAD-TYPESCRIPT LEDGER, RUST AND HERE (moved out of the `static` job, 2026-09-29).
       #
