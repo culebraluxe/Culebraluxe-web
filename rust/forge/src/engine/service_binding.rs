@@ -353,10 +353,7 @@ mod tests {
         };
 
         assert_eq!(to("fast_gate", "fast"), "fast_resume_eligibility");
-        assert_eq!(
-            to("fast_resume_eligibility", "verify"),
-            "fast_qa_verify"
-        );
+        assert_eq!(to("fast_resume_eligibility", "verify"), "fast_qa_verify");
         assert_eq!(to("fast_resume_eligibility", "hold"), "hold");
 
         let from_lead_post = reachable(&graph, "lead_post", &[]);
