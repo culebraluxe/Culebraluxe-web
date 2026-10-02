@@ -447,6 +447,32 @@ impl Store for MemoryTx<'_> {
         Ok(())
     }
 
+    fn claim_job(
+        &mut self,
+        job_id: &str,
+        worker_id: &str,
+        now: i64,
+        lease_until: i64,
+    ) -> Result<Option<Job>> {
+        let Some(mut job) = self.inner.jobs.get(job_id).cloned() else {
+            return Ok(None);
+        };
+        if job.status != JobStatus::Pending
+            || job.due_at > now
+            || job.attempts >= job.max_attempts
+        {
+            return Ok(None);
+        }
+
+        job.status = JobStatus::Locked;
+        job.locked_by = Some(worker_id.to_string());
+        job.locked_until = Some(lease_until);
+        job.attempts += 1;
+        job.updated_at = now;
+        self.inner.jobs.insert(job.id.clone(), job.clone());
+        Ok(Some(job))
+    }
+
     fn claim_due_jobs(
         &mut self,
         worker_id: &str,
