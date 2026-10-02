@@ -10,13 +10,14 @@ and this file travels with the same push.
 
 | # | Fact | How to check it |
 | --- | --- | --- |
-| S1 | The 19 commits (`513f4afd`..`5f5fc052`) and five cleanup commits — `1a683113` (the Live selection), `e7259f76` (rustfmt), `f58d8db8` (fixture rename), `0a9623fb` (workflow imports), `b2d1da54` (the orphan `result_runs`) — plus this file are on `main`, fast-forwarded from `b01f4692`: no merge commit, no branch left behind | `git log --oneline origin/main \| head -26` |
+| S1 | The 19 commits (`513f4afd`..`5f5fc052`) and five cleanup commits — `1a683113` (the Live selection), `e7259f76` (rustfmt), `f58d8db8` (fixture rename), `0a9623fb` (workflow imports), `b2d1da54` (the orphan `result_runs`) — plus this file and the two commits below (`a75859c9`, `8e2794ab`) are on `main`, fast-forwarded from `b01f4692`: no merge commit, no branch left behind | `git log --oneline origin/main \| head -29` |
 | S2 | `main` was red **before** this stack: `gates` failed at `b01f4692` (2026-10-02 11:27) on the pending rustfmt backlog and on three fixture keys gitleaks read as secrets. Neither is the cockpit's fault and both are fixed here | `gh run list --branch main --limit 3` |
 | S3 | The stack is 58 files and **every one is a modification** — no file is added: 10 in `rust/forge/src/roles`, 5 in `rust/test-harness/tests`, 5 in `rust/core/domain/src`, 4 in `rust/server/src`, 4 in `rust/forge/src/engine`, 4 in `rust/core/db/src`, 7 under `rust/ui/src/app/screens/tech`, 2 in `rust/core/workflow/src`, and singles | `git diff --name-only b01f4692..origin/main \| wc -l` |
 | S4 | The three fixture keys now say what they are instead of being excused: `definition-kinds-under-test-not-a-secret`, `definition-self-loop-under-test-not-a-secret`, `definition-orphan-under-test-not-a-secret` | `rust/test-harness/tests/wf_definition__005__missing_target.rs:64,86,221` |
 | S5 | Only `VALID_DEFINITION` (`:51`) is asserted; the three renamed keys are parsed and never compared, so the rename weakens no test | `rust/test-harness/tests/wf_definition__005__missing_target.rs:113,144` |
 | S6 | `.gitleaksignore` gained three fingerprints, naming the two commits that carried the old literals, each with its reason written beside it. The file's own doctrine — "rename the fixture, not a line here" — is repeated in that block | `.gitleaksignore` (the 2026-10-02 block) |
 | S7 | The Cockpit tabs are named by operating purpose, Work in Flight is wired to Forge live data, and the live metric values are borrowed rather than cloned | `rust/ui/src/app/screens/tech/view.rs`, `rust/ui/src/app/screens/tech/view/assembly.rs` |
+| S8 | PR #35 reads **MERGED** (2026-10-02T17:44:38Z, head `5f5fc052`) because its commits are on `main` — nothing was merged into it and no branch was pushed. The goal "the screens are in `main`" is met; "the checks are green" is not, for the two reasons in §5 | `gh pr view 35 --json state,mergedAt,headRefOid` |
 
 ## 2. HOLDS — do not act on these
 
@@ -73,22 +74,63 @@ One receipt caveat, stated because the shape of this file is the point: `a75859c
   roles/engine code meets a real database before any DB gate has ever run over it.
 - The four deferred trees are byte-identical to `b01f4692` — verified by diff — so the fmt commit did not touch them.
   The fmt gate re-checks this itself; do not "finish" the job by formatting them.
+- **`main` is red on two backlogs this stack revealed, and caused neither.** At `b01f4692` the failing steps were
+  `rust format` and `secrets — gitleaks`, both of which come *before* `dependencies — osv-scanner`
+  (`.github/workflows/gates.yml:175`) and `rust file boundedness (800-line rule)` (`:403`) — so on `main` neither of
+  the latter had run since before this work. With those two now fixed, both reached their steps and both failed:
+  - `osv-scanner`: `56 advisories; 48 triaged` — 8 untriaged, **all npm**, none Rust: `brace-expansion@5.0.6`
+    (`GHSA-6j4f-fj2g-mc7p`, `GHSA-q2hr-2g5m-vwhr`, `GHSA-qhr7-859c-m2p7`), `fast-uri@3.1.2` (`GHSA-hrr3-gc8f-f4qj`),
+    `hono@4.12.25` (`GHSA-hxh3-vqpv-xpqv`), `ip-address@10.2.0` (`GHSA-h3mg-xc3c-68pw`, `GHSA-j6r3-76f7-8jcv`),
+    `next@16.3.0` (`GHSA-vcvr-r3jv-pc5j`). The ledger's doctrine is that a triage row is a judgement, so no agent
+    should add rows to make the step pass.
+  - `rust file boundedness`: 12 `.rs` files over 800 lines, and the step has **no baseline** — it fails on any of them
+    outside the four deferred trees, so it cannot be satisfied by fixing what this stack touched. Seven are untouched
+    by anyone here (`rust/ui/src/flight_recorder.rs` 1996, `rust/core/db/src/forge_engine.rs` 2205,
+    `rust/ui/src/app/screens/flight_recorder.rs` 1366, `rust/core/db/src/pool.rs` 970,
+    `rust/core/workflow/src/neon/new_id.rs` 900,
+    `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` 902,
+    `rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` 856). Four more were already over
+    before this stack and stayed over, two of them shrinking (`rust/server/src/document_sign/mod.rs` 1184→1170,
+    `rust/server/src/command_runtime.rs` 1447→1430, `rust/server/src/signature/mod.rs` 932→935,
+    `rust/server/src/signer/mod.rs` 1145→1151). The policy this step does not implement is stated in
+    `docs/agent/UI-SCREEN-ARCHITECTURE.md:301`: such a file "is split the next time it is edited".
+  - **One of them is this stack's, and it is a collision between two gates**: `rust/core/db/src/signature/database.rs`
+    is 798 lines unformatted and **801** once rustfmt-clean (798 at his tip too — the fmt commit alone crossed it, by
+    re-wrapping an `if` and a `map_err`). Formatted it breaks the 800-line step; unformatted it breaks the fmt step.
+    Only a real move-only split satisfies both, and doing it while 7 untouched files keep the step red would buy
+    nothing but risk.
+  - The three DB jobs again reported `skipped` on `main` — the parked state of §5's first bullet, observed rather
+    than assumed.
 
 ## 6. OPEN — the next actions, in order
 
-1. Watch the push: `gh run list --branch main --limit 1`, then `gh run view <id>`. Expect `static gates` and `rust core`
-   to pass (both were run locally with CI's exact commands on this exact tree) and the three DB jobs to report
-   **skipped**. Finished when the run is green and the three skips are read in the log, not assumed.
-2. Arm the parked DB gates — captain only: `gh secret set DATABASE_URL_DEV --body "<the DEV Neon URL>"`,
+1. **Read the push result — it is already in.** `gates` at `8e2794ab`: `static gates` ✗ at `dependencies — osv-scanner`,
+   `rust core` ✗ at `rust file boundedness (800-line rule)`, the three DB jobs `skipped`. Everything this stack owned
+   is green in that list — `rust format`, `secrets — gitleaks`, the workspace check, the test suite, the wasm compile.
+   The two ✗ are §5 items, not this stack's. Finished; do not re-derive it.
+2. Decide the 800-line rule (§7 next). Until it is decided, `rust core` is red for every push by anyone, whatever they
+   change, and the friction grows with each lane's next edit.
+3. Decide the advisory triage (§7). `static gates` is red for everyone until the ledger or the versions change.
+4. Arm the parked DB gates — captain only: `gh secret set DATABASE_URL_DEV --body "<the DEV Neon URL>"`,
    `gh variable set RUST_DB_CI --body true`, `gh variable set FORGE_DB_CI --body true`. Finished when a push to `main`
    shows the three jobs *running*; the cockpit read path then gets its first real DEV read.
-3. Run the captain's script on the built app (`docs/agent/COCKPIT-SMOKE-TEST.md`), checking the corner sha first.
+5. Run the captain's script on the built app (`docs/agent/COCKPIT-SMOKE-TEST.md`), checking the corner sha first.
    Finished when STEP 2 (`clear bench`) behaves as written.
-4. Delete `origin/forge-service-finish-20261002` in the GitHub UI. Finished when the repository has no branch but
+6. Delete `origin/forge-service-finish-20261002` in the GitHub UI. Finished when the repository has no branch but
    `main`, which is what rule 1 asks for.
 
 ## 7. ASK THE OWNER
 
+- **The 800-line rule — split the 12 files, or give the step the baseline the policy describes?** Split → a move-only
+  programme across `rust/server`, `rust/core/db`, `rust/ui` and `rust/test-harness`, i.e. three lanes' code, and
+  `rust core` stays red until the last file is done. Baseline → the step compares against the files that were already
+  over at a named commit and lets the rule bite on the next edit, which is what `UI-SCREEN-ARCHITECTURE.md:301` already
+  says. Nothing else turns `rust core` green.
+- **The 8 npm advisories — triage them or bump the packages?** Triage → eight rows in
+  `docs/agent/DEPENDENCY-TRIAGE.md`, each with a reachability judgement, because the ledger is the single writer of
+  that fact and an agent adding rows to make the step pass is the anti-pattern its own header warns about. Bump →
+  `brace-expansion`, `fast-uri`, `hono`, `ip-address` and `next` in `pnpm-lock.yaml`, plus whatever the bump drags in.
+  Nothing else turns `static gates` green.
 - **Arm the DB gates?** Yes → the three skipped jobs start running on `main` and the read path is finally proven
   against DEV. No → they stay visibly skipped, and no agent may claim the cockpit's data path works.
 - **Delete `origin/forge-service-finish-20261002`?** Yes → done in the UI, rule 1 restored. No → it stays as the record
