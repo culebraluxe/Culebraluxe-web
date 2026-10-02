@@ -172,9 +172,10 @@ mod tests {
     fn smith_service_fails_closed_on_a_non_smith_node() {
         let runner = RecordingRunner::new("smith-service");
         let service = SmithService::new(&runner);
-        let err = service
-            .execute("architect", &task("architect"))
-            .expect_err("Smith must refuse Architect work");
+        let err = match service.execute("architect", &task("architect")) {
+            Ok(_) => panic!("Smith must refuse Architect work"),
+            Err(err) => err,
+        };
 
         assert!(err.to_string().contains("forge.smith"));
         assert!(
