@@ -227,7 +227,13 @@ impl<S: TxStore> JobService for WorkflowJobService<'_, S> {
 ///
 /// The worker owns only the generic lifecycle around the call. The registry
 /// resolves the service; the concrete service owns every intelligent decision.
-pub fn execute_claimed_job(
+/// Execute one claimed Forge job but leave its durable lease open on success.
+///
+/// The live Workflow driver uses this form so it can commit the Workflow task
+/// first and settle the durable job second. That ordering means a crash can
+/// leave an orphaned job to reconcile, but it cannot leave a READY Workflow
+/// task behind a Completed job and accidentally pay for the role twice.
+pub fn execute_claimed_job_unsettled(
     jobs: &dyn JobService,
     worker_id: &str,
     lease: &ForgeJobLease,
@@ -252,10 +258,7 @@ pub fn execute_claimed_job(
     jobs.heartbeat(&lease.job_id, worker_id)?;
 
     match service.execute(&lease.node_id, task) {
-        Ok(outcome) => {
-            jobs.complete(&lease.job_id, worker_id)?;
-            Ok(outcome)
-        }
+        Ok(outcome) => Ok(outcome),
         Err(error) => {
             // A role-service error keeps the established Forge semantics: it is
             // a verdict for this attempt, not an infrastructure retry signal.
@@ -265,6 +268,23 @@ pub fn execute_claimed_job(
             Err(error)
         }
     }
+}
+
+/// Compatibility helper for callers that own no Workflow completion step.
+///
+/// It preserves the established "execute then settle job" contract. Production
+/// Workflow driving uses `execute_claimed_job_unsettled` so Workflow state wins
+/// before the durable execution receipt is closed.
+pub fn execute_claimed_job(
+    jobs: &dyn JobService,
+    worker_id: &str,
+    lease: &ForgeJobLease,
+    task: &ActiveForgeRoleTask,
+    registry: &ForgeServiceRegistry<'_>,
+) -> Result<ForgeRoleOutcome> {
+    let outcome = execute_claimed_job_unsettled(jobs, worker_id, lease, task, registry)?;
+    jobs.complete(&lease.job_id, worker_id)?;
+    Ok(outcome)
 }
 
 fn assert_task_matches_lease(lease: &ForgeJobLease, task: &ActiveForgeRoleTask) -> Result<()> {
