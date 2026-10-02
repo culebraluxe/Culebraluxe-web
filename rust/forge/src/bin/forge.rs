@@ -615,7 +615,10 @@ fn drive<S: TxStore>(
         DriveForgeStoryOptions {
             work_type,
             evidence,
-            runner: Some(&services),
+            // Durable production resolves the concrete service through
+            // ForgeServiceRegistry. The compatibility runner is not a second
+            // production dispatch path.
+            runner: None,
             allow_synthetic_runner: false,
             max_steps: 40,
             worker_id: &durable_worker_id,
