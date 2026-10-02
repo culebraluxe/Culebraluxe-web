@@ -19,7 +19,7 @@ const PROTECTED_FILES: &[ProtectedFile] = &[
     ProtectedFile { path: "AGENTS.md", marker: "# CulebraLuxe Agent Operating Context", why: "the always-read handbook every lane is handed; a lane that rewrites it rewrites its own rules" },
     ProtectedFile { path: "docs/agent/ORIENTATION.md", marker: "# ORIENTATION — the map (start here)", why: "the entry point that says where everything else lives" },
     ProtectedFile { path: "docs/agent/MEMORY.md", marker: "# Decision log", why: "the decision log: history is appended, never rewritten (a decision edited away is a decision we will make again)" },
-    ProtectedFile { path: "docs/agent/CURRENT.md", marker: "# Current Machine — Forge SDLC", why: "the current-state claim the workshop reads first" },
+    ProtectedFile { path: "docs/agent/CURRENT.md", marker: "# CURRENT — Forge SDLC live state", why: "the current-state claim the workshop reads first" },
     ProtectedFile { path: "docs/agent/releases.md", marker: "# Releases — what was actually built, deployed and probed", why: "the release receipts: the only durable evidence of what PROD served and when" },
     ProtectedFile { path: "docs/agent/COLUMN-WRITER-AUDIT.md", marker: "# Column writer audit", why: "the classified column table that was nearly overwritten by the wrong generator" },
     ProtectedFile { path: "docs/agent/typesafe-failure-triage.md", marker: "# TypeSafe failure-triage pilot", why: "the recorded boundaries that keep the outside judgment source advisory only" },
