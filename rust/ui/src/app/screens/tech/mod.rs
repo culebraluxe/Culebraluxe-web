@@ -163,7 +163,11 @@ impl Screen for TechCockpit {
                     Cmd::none()
                 }
             }
-            Msg::Live(msg) => live_ops::update(&mut model.live, msg).map(Msg::Live),
+            Msg::Live(msg @ live_ops::Msg::WorkSelected(ref story_id)) => {
+                model.selected = Some(story_id.clone());
+                let local = live_ops::update(&mut model.live, msg).map(Msg::Live);
+                Cmd::batch([local, read(model)])
+            }
             Msg::Flight(msg) => {
                 let Some(flight) = model.flight.as_mut() else {
                     return Cmd::none();
@@ -441,7 +445,9 @@ mod tests {
             Msg::Live(live_ops::Msg::WorkSelected("FORGE-1".into())),
             &ctx,
         );
-        assert!(cmd.into_requests().is_empty());
+        let requests = cmd.into_requests();
+        assert_eq!(requests.len(), 1, "selecting live work rereads its run and node facts");
+        assert!(requests[0].path.contains("selected=FORGE-1"));
         assert_eq!(model.live.selected_story.as_deref(), Some("FORGE-1"));
     }
 
