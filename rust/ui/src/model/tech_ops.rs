@@ -35,6 +35,8 @@ pub struct PortalTechPage {
     pub staging_flight: Option<PortalTechFlight>,
     pub recent_flights: Vec<PortalTechFlight>,
     pub recent_history: Vec<PortalTechHistory>,
+    /// Live Forge execution comes from the parent ForgeService, composed into this page by the server.
+    pub live_ops: domain::ForgeLiveSnapshot,
     pub freshness: String,
 }
 
