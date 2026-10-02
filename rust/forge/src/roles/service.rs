@@ -512,9 +512,10 @@ mod tests {
     #[test]
     fn router_fails_closed_for_unmapped_future_nodes() {
         let router = ForgeServiceRouter::new();
-        let error = router
-            .run("future_unmapped_role", &task("future_unmapped_role"))
-            .expect_err("an unmapped workflow node must never bypass the service boundary");
+        let error = match router.run("future_unmapped_role", &task("future_unmapped_role")) {
+            Ok(_) => panic!("an unmapped workflow node must never bypass the service boundary"),
+            Err(error) => error,
+        };
         assert!(error
             .to_string()
             .contains("no registered Forge service owns workflow node"));
