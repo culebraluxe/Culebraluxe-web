@@ -23,7 +23,8 @@ fn main() {
         "statement_ceiling_ms={} connect_budget_ms={}",
         budget.statement_timeout_ms, budget.connect_timeout_ms
     );
-    match forge::engine::worker::run_worker_pass() {
+    let forge = forge::ForgeService::new();
+    match forge.run_scheduled_pass() {
         Ok(code) => std::process::exit(code),
         Err(error) => {
             eprintln!("{error}");
