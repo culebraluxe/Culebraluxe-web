@@ -202,13 +202,12 @@ pub fn kpis(stories: &[Value]) -> Value {
     })
 }
 
-pub const SORTER_COLUMNS: [(&str, &str); 6] = [
+pub const SORTER_COLUMNS: [(&str, &str); 5] = [
     ("backlog", "BACKLOG"),
     ("open", "OPEN"),
     ("bench", "WORK BENCH"),
     ("batch", "FLIGHT STAGING"),
     ("engine", "ENGINE RUN Q"),
-    ("next-version", "NEXT VERSION"),
 ];
 
 /// The Kanban cards: each story in exactly one column, first claim wins (engine, batch, bench, next, backlog, open).
@@ -300,11 +299,7 @@ pub fn sorter_cards(snapshot: &Value, stories: &[Value]) -> Vec<Value> {
         let id = text(&story, "id").to_owned();
         take("bench", &story, id.clone(), id, None);
     }
-    for (bin, column) in [
-        ("next-version", "next-version"),
-        ("backlog", "backlog"),
-        ("open", "open"),
-    ] {
+    for (bin, column) in [("backlog", "backlog"), ("open", "open")] {
         let mut in_bin: Vec<&Value> = stories
             .iter()
             .filter(|story| lifecycle(text(story, "status")) == bin)
@@ -364,7 +359,7 @@ fn story_payload(story: &Value) -> Value {
 }
 
 /// The Cockpit's whole payload, `{ tech: ... }`, from the tech service's snapshot.
-pub fn cockpit(snapshot: &Value, selected: Option<&str>, now: &str) -> Value {
+pub fn cockpit(snapshot: &Value, forge_live: &Value, selected: Option<&str>, now: &str) -> Value {
     let list = |key: &str| {
         snapshot
             .get(key)
@@ -475,6 +470,7 @@ pub fn cockpit(snapshot: &Value, selected: Option<&str>, now: &str) -> Value {
         "recentFlights": list("recentFlights"),
         "recentHistory": recent_history,
         "freshness": freshness,
+        "liveOps": forge_live,
     } })
 }
 
@@ -534,6 +530,12 @@ mod tests {
         );
         // TECH current scope: (50 + 100) / 2 = 75; OPPS: 20; mean of the two domains = 47.5
         assert_eq!(k["completionPercent"].as_f64(), Some(47.5));
+    }
+
+    #[test]
+    fn engine_queue_no_longer_uses_next_version_as_a_status_lane() {
+        assert!(!SORTER_COLUMNS.iter().any(|(id, _)| *id == "next-version"));
+        assert_eq!(SORTER_COLUMNS.len(), 5);
     }
 
     #[test]
