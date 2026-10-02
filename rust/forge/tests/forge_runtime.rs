@@ -1174,6 +1174,9 @@ fn opencode_argv_pins_model_and_auto() {
         args,
         vec![
             "run",
+            "--standalone",
+            "--format",
+            "json",
             "--model",
             "deepseek/deepseek-flash",
             "--auto",
