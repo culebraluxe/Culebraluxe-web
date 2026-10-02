@@ -87,6 +87,19 @@ pub trait Store {
         lease_until: i64,
         limit: usize,
     ) -> Result<Vec<Job>>;
+    /// Claim only due jobs of one executor type.
+    ///
+    /// Generic workers share the `jobs` table (timers, Forge roles, future async
+    /// executors). A worker must never lease work owned by a different executor.
+    fn claim_due_jobs_by_type(
+        &mut self,
+        worker_id: &str,
+        job_type: &str,
+        now: i64,
+        lease_until: i64,
+        limit: usize,
+    ) -> Result<Vec<Job>>;
+
     fn reclaim_stale_jobs(
         &mut self,
         now: i64,
