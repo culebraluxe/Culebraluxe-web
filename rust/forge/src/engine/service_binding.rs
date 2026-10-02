@@ -16,10 +16,15 @@
 //! drive's own gate question is answered from the same parse (`is_human_gate`), so the engine no longer types that
 //! set out beside the definition that declares it.
 //!
-//! STAGED DEPRECATION. `role_mapping::forge_role_node_plan` still maps node ids to lanes, and
-//! `AbstractForgeService::supports_node` still reads it. The test `the_xml_and_the_rust_lane_mapping_agree` holds
-//! the two in lockstep until the bridge and the services read this binding instead; only then can the Rust match
-//! be retired.
+//! STAGED DEPRECATION. Service ownership already reads this binding: the READY→job bridge through
+//! `task.service_key()` (`engine/job.rs`) and `AbstractForgeService::supports_node` through `service_for_node`
+//! (`roles/service.rs`). What still reads `role_mapping::forge_role_node_plan` answers a DIFFERENT question — a
+//! node's LANE and lead phase (`engine/phase.rs`, `roles/lead.rs`), the V2 agent it resolves to
+//! (`engine/opencode_agents.rs`) and whether it is a node at all (`roles/lifecycle.rs`) — and
+//! `arch_boundary__011` additionally parses that function's source text for its node→lane map. The definition
+//! carries the service, not the lane, so the Rust match retires only when those readers can be answered from the
+//! definition too; until then `the_xml_and_the_rust_lane_mapping_agree` (below) is what keeps the two saying the
+//! same thing for every node.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
@@ -261,8 +266,9 @@ mod tests {
         );
     }
 
-    /// The drift guard for the staged deprecation: until the bridge and `supports_node` read the XML binding,
-    /// the Rust lane mapping and the XML must say the same thing for every node, in both directions.
+    /// The drift guard for the staged deprecation: the Rust lane map is still what names a node's lane and phase
+    /// (`phase.rs`, `lead.rs`, `opencode_agents.rs`, `lifecycle.rs`), so the XML's service binding and the Rust
+    /// map must agree for every node, in both directions, until those readers take the definition instead.
     #[test]
     fn the_xml_and_the_rust_lane_mapping_agree() {
         let bindings = forge_service_bindings();

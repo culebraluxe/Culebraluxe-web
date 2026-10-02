@@ -32,12 +32,20 @@ are the accounting.
    binary (`rust/forge/src/engine/xml.rs:482`, `include_str!`) and parsed by the production parser
    (`wf_definition__013`). The `legacy/` copy is in the archive and is read by nothing — measured
    2026-10-02, no file under `rust/` names that path.
-2. Roles are the six lanes in `rust/forge/src/roles/` (`scout`, `architect`, `lead`, `smith`, `qa`,
-   `dev_ops`), each answering `rust/forge/src/roles/hooks.rs`'s `ForgeRoleHooks` — one lane's reading of
-   its own turn. The shared `rust/forge/src/roles/lifecycle.rs` asks the lane rather than switching on a
-   node id and stays the decider, with the gate's kinds, deliverable table and effect ports in
-   `rust/forge/src/engine/phase.rs`. (The pair `legacy/workflow_app/forge/agents/role-agents.ts` /
-   `legacy/workflow_app/forge/forge-phase-agent.ts` is retired with the rest of `legacy/workflow_app/forge/`.)
+2. Roles are **seven** services in `rust/forge/src/roles/`, each implementing `roles/service.rs`'s
+   `AbstractForgeService` (descriptor, runner, hooks) and each answering `roles/hooks.rs`'s `ForgeRoleHooks` —
+   one lane's reading of its own turn: `ScoutService` (`forge.scout`), `ArchitectService` (`forge.architect`),
+   `LeadService` (`forge.lead`), `SmithService` (`forge.smith`), `InspectorService` (`forge.inspector`),
+   `AssayService` (`forge.assay`, in `roles/qa.rs`), `DevOpsService` (`forge.devops`, in `roles/dev_ops.rs`).
+   Which service owns a node is read from the definition, not from Rust: `FORGE_SDLC-v6.xml` binds
+   `service="forge.smith"` on each task-node (`rust/forge/src/engine/service_binding.rs`), a human gate carries
+   none, and `ForgeLaneServices` composes the seven once into `roles/registry.rs`'s `ForgeServiceRegistry`. Work
+   reaches them as durable jobs: `rust/forge/src/engine/job.rs` turns a READY task into a `forge.role` job (lease,
+   heartbeat, attempts) and `rust/forge/src/bin/forge.rs` drives it with `WorkflowJobService` plus that registry.
+   The shared `rust/forge/src/roles/lifecycle.rs` asks the lane rather than switching on a node id and stays the
+   decider, with the gate's kinds, deliverable table and effect ports in `rust/forge/src/engine/phase.rs`. (The
+   pair `legacy/workflow_app/forge/agents/role-agents.ts` / `legacy/workflow_app/forge/forge-phase-agent.ts` is
+   retired with the rest of `legacy/workflow_app/forge/`.)
 3. A lane runs through the OpenCode harness, which is Rust too (`rust/forge/src/engine/opencode.rs`,
    `rust/forge/src/engine/opencode_agents.rs`, `rust/forge/src/engine/opencode_client.rs`,
    `rust/forge/src/engine/opencode_events.rs`), in the ONE workspace the engine provisions for a run
