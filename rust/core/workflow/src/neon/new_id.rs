@@ -531,6 +531,43 @@ impl Store for NeonTx<'_> {
         )
     }
 
+    fn claim_job(
+        &mut self,
+        job_id: &str,
+        worker_id: &str,
+        now: i64,
+        lease_until: i64,
+    ) -> Result<Option<Job>> {
+        let row = fetch_optional_q(
+            self,
+            sqlx::query(
+                "UPDATE jobs
+                    SET status = 'locked',
+                        locked_by = $2,
+                        locked_until = to_timestamp($4::double precision / 1000.0),
+                        attempts = attempts + 1
+                  WHERE id = $1::uuid
+                    AND status = 'pending'
+                    AND due_at <= to_timestamp($3::double precision / 1000.0)
+                    AND attempts < max_attempts
+              RETURNING id::text AS id, tenant_id::text AS tenant_id,
+                        process_instance_id::text AS process_instance_id,
+                        token_id::text AS token_id, type AS job_type,
+                        extract(epoch from due_at)*1000 AS due_at, status, locked_by,
+                        extract(epoch from locked_until)*1000 AS locked_until,
+                        attempts, max_attempts, payload::text AS payload, last_error,
+                        extract(epoch from created_at)*1000 AS created_at,
+                        extract(epoch from updated_at)*1000 AS updated_at,
+                        extract(epoch from completed_at)*1000 AS completed_at",
+            )
+            .bind(job_id)
+            .bind(worker_id)
+            .bind(now)
+            .bind(lease_until),
+        )?;
+        row.as_ref().map(map_job).transpose()
+    }
+
     fn claim_due_jobs(
         &mut self,
         worker_id: &str,
