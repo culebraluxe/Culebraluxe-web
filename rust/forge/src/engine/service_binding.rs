@@ -340,6 +340,17 @@ mod tests {
     #[test]
     fn a_lead_resumed_fast_story_rejoins_deterministic_qa_not_manual_review() {
         let graph = graph();
+        let to = |node: &str, transition: &str| -> String {
+            graph.nodes[node]
+                .transitions
+                .as_deref()
+                .unwrap_or(&[])
+                .iter()
+                .find(|t| t.name == transition)
+                .unwrap_or_else(|| panic!("{node} has no transition {transition}"))
+                .to
+                .clone()
+        };
 
         assert_eq!(to("fast_gate", "fast"), "fast_resume_eligibility");
         assert_eq!(
