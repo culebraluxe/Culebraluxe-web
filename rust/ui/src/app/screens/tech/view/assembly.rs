@@ -356,15 +356,6 @@ pub(super) fn running_runs(tech: &PortalTechPage) -> Vec<&PortalTechEngineRun> {
         .collect()
 }
 
-pub(super) fn result_runs(tech: &PortalTechPage) -> Vec<&PortalTechEngineRun> {
-    tech.engine_runs
-        .iter()
-        .filter(|run| {
-            run.stale || matches!(run.status.as_str(), "completed" | "failed" | "interrupted")
-        })
-        .collect()
-}
-
 pub(super) fn compact_id(value: &str) -> String {
     if value.len() <= 18 {
         value.to_string()
