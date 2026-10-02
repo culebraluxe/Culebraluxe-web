@@ -309,7 +309,7 @@ fn run_with_lease_heartbeat<T>(
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
 
     std::thread::scope(|scope| {
-        let heartbeat = scope.spawn(|| -> Option<WorkflowError> {
+        let heartbeat = scope.spawn(move || -> Option<WorkflowError> {
             loop {
                 match stop_rx.recv_timeout(Duration::from_secs(
                     FORGE_JOB_HEARTBEAT_INTERVAL_SECS,
