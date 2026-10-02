@@ -23,6 +23,8 @@ pub mod doctor;
 pub mod guard_paths;
 pub mod lint;
 pub mod manifest;
+pub mod opencode_config;
+pub mod opencode_skills;
 pub mod protected_files;
 pub mod read_tools;
 #[cfg(test)]
@@ -98,6 +100,14 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         // not something to report-and-continue.
         "guard-lint" => guard_paths::run(&args[1..]),
         "sync-agents" => sync_agents::run(&args[1..]),
+        // The generated repo-root OpenCode config: one renderer shared with the runtime, so the file a human
+        // reads with `opencode` and the document Forge injects through `OPENCODE_CONFIG_CONTENT` agree.
+        "opencode-config" => opencode_config::run(&args[1..]),
+        // The generated vendor skill tree: `.opencode/skills/<id>/SKILL.md` is rendered from the canonical
+        // library in `docs/agent/skills/`. It is the writer half of the pair whose checker is this same command
+        // in `--check`, and it is what makes a `skill` grant in the config loadable at all — the vendor reads
+        // skills from the filesystem, and a `docs/`-only skill was measured to answer `Unable to load skill`.
+        "opencode-skills" => opencode_skills::run(&args[1..]),
         // The dead-TypeScript ledger, two gates in one family: the loader sweep answers which FILES
         // cannot load, the menu sweep which COMMANDS cannot run. Both are pure file checks that touch
         // no database, like the harness gates above — they replaced `scripts/broken-ts-sweep.mjs` and
