@@ -1,7 +1,6 @@
 //! Production role runner control plane.
 //! Model/worktree execution is injected via `RoleHarness` — same door as the TS runner.
 
-use crate::engine::agents::forge_agent_collect;
 use crate::engine::architect::{
     assess_architect_handoff, parse_architect_handoff, ArchitectAssessment,
 };
@@ -9,21 +8,18 @@ use crate::engine::assay::{
     collect_assay_evidence, collect_rust_contract_assay_evidence, AssayEvidence, AssayVerdict,
     CommandResult,
 };
-use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::harness_usage::HarnessUsage;
-use crate::engine::hold::{
-    deliverable_enforcement_enabled, parse_deliverable_reprompt_budget, OpenHold,
-};
-use crate::engine::observer::record_forge_observer;
+use crate::engine::hold::OpenHold;
 use crate::engine::opencode_client::TurnTermination;
-use crate::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::scope::candidate_own_changed_files;
-use crate::engine::self_heal::{attempt_budget, build_self_heal_directive};
 use crate::engine::worktree::git_changed_files;
 use crate::engine::writer::ForgeStateWriter;
+use crate::roles::lifecycle::{
+    effect_ports, run_forge_role_turn, ForgeRoleContext, ForgeRoleHooks, ForgeRoleTurn,
+};
 use workflow::{Result, WorkflowError};
 
 pub struct HarnessOutput {
@@ -159,45 +155,56 @@ impl<'a> ProductionRoleRunner<'a> {
         self.contract_acceptance_mapped = acceptance_mapped;
         self
     }
+}
 
-    fn run_rust_contract_qa(
-        &self,
-        node_id: &str,
-        task: &ActiveForgeRoleTask,
-    ) -> Result<ForgeRoleOutcome> {
-        let story_id = task.story_id.as_str();
-        if story_id.trim().is_empty() {
-            return Err(WorkflowError::generic(format!(
-                "role task {} carries no story id; refusing RUST_CONTRACT QA",
-                task.task_id
-            )));
-        }
+/// The Assay lane's model-free road.
+///
+/// RUST_CONTRACT QA measures the application instead of asking a model to describe it, so no harness
+/// turn is spent here — and none may be, or the verdict would depend on a model's willingness to run
+/// the command. It is reached through `StructuralRoleHooks::turn_without_model`, which is why it
+/// returns the whole outcome: a lane that needs no turn is a lane the shared lifecycle hands the
+/// whole turn to.
+///
+/// Still here rather than in `AssayService` while `ProductionRoleRunner` is hollowed out lane by
+/// lane; it moves to the Assay service with the rest of that lane's reading.
+fn run_rust_contract_qa(
+    ctx: &ForgeRoleContext<'_>,
+    node_id: &str,
+    task: &ActiveForgeRoleTask,
+) -> Result<ForgeRoleOutcome> {
+    let story_id = task.story_id.as_str();
+    if story_id.trim().is_empty() {
+        return Err(WorkflowError::generic(format!(
+            "role task {} carries no story id; refusing RUST_CONTRACT QA",
+            task.task_id
+        )));
+    }
 
-        let mut current = self.current.clone();
-        let head = self.harness.run_command("git rev-parse HEAD");
-        let sha = head.output.trim();
-        if head.passed && sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            current.candidate_sha = Some(sha.to_ascii_lowercase());
-        } else {
-            current.candidate_sha = None;
-        }
-        if let Some(base) = self.harness.execution_base_commit() {
-            current
-                .extra
-                .insert("recordedBase", workflow::Value::from(base));
-        }
-        let AssayEvidence { evidence, verdict } = collect_rust_contract_assay_evidence(
-            current,
-            Some(&|cmd| self.harness.run_command(cmd)),
-            &self.contract_assay_commands,
-            self.contract_acceptance_mapped,
-        );
+    let mut current = ctx.current.clone();
+    let head = ctx.harness.run_command("git rev-parse HEAD");
+    let sha = head.output.trim();
+    if head.passed && sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        current.candidate_sha = Some(sha.to_ascii_lowercase());
+    } else {
+        current.candidate_sha = None;
+    }
+    if let Some(base) = ctx.harness.execution_base_commit() {
+        current
+            .extra
+            .insert("recordedBase", workflow::Value::from(base));
+    }
+    let AssayEvidence { evidence, verdict } = collect_rust_contract_assay_evidence(
+        current,
+        Some(&|cmd| ctx.harness.run_command(cmd)),
+        ctx.contract_assay_commands,
+        ctx.contract_acceptance_mapped,
+    );
 
-        if let Some(writer) = self.writer {
+        if let Some(writer) = ctx.writer {
             writer
                 .record_tool_artifact(&assay_tool_artifact(
                     story_id,
-                    self.story_run_id.as_deref(),
+                    ctx.story_run_id,
                     &evidence,
                     verdict,
                 ))
@@ -235,159 +242,109 @@ impl<'a> ProductionRoleRunner<'a> {
         })
     }
 
-    /// The envelope this lane runs under. Built in one place because the ports are read at two points in the turn
-    /// and a field wired at only one of them is a half-wired rail (2026-09-29).
-    fn effect_ports(&self) -> RoleEffectPorts {
-        RoleEffectPorts {
-            bench_intent: self.bench_intent.clone(),
-            ..RoleEffectPorts::default()
-        }
+/// Write Smith's work into `forge_tool_artifact` as code (`kind='candidate-code'`).
+///
+/// An accepted candidate is the commit range `base..sha`. Refused work is the whole working tree against
+/// `base` — committed, uncommitted and untracked — because a refusal is exactly when the commit alone is not
+/// the work. A git that will not produce the patch or its file list fails the lane like every other state
+/// write that comes back unreadable; nothing is half-recorded.
+///
+/// Smith's own reading, still living beside the runner while the runner is emptied: it is called from
+/// `smith_reading` below and moves to `SmithService` with the rest of that lane.
+fn capture_smith_work(
+    ctx: &ForgeRoleContext<'_>,
+    writer: &dyn ForgeStateWriter,
+    story_id: &str,
+    base: &str,
+    work: SmithWork<'_>,
+) -> Result<()> {
+    // Trimmed BEFORE it reaches the shell: `is_full_commit` accepts git's trailing newline, and a newline
+    // inside an `sh -c` string ends the command there.
+    let base = base.trim();
+    if !is_full_commit(base) {
+        return Err(WorkflowError::generic(format!(
+            "refusing to snapshot Smith's work against base {base:?}: a revision that is not a full commit \
+             cannot be diffed safely"
+        )));
     }
-
-    /// Apply the dispatch's bench intent to what a lane read. The cap bites on the Lead's decision and nowhere
-    /// else: that is the one deliverable the Cockpit sets a bench intent to constrain.
-    ///
-    /// A decision outside the cap is a **rejected deliverable**, not a note — it travels the existing rail, so the
-    /// lane self-heals once with the intent named in the directive and, if it repeats, the story holds where a
-    /// human sees it. The rejection is never overwritten if the lane already has one: one refusal per turn keeps a
-    /// single reason readable.
-    fn apply_bench_intent(&self, evidence: &mut ForgeGateEvidence) {
-        if evidence.lead_decision.is_none() {
-            return;
-        }
-        let errors = crate::engine::role_slice::bench_intent_errors(
-            self.bench_intent.as_deref(),
-            evidence.lead_decision.as_deref(),
-        );
-        if errors.is_empty() || evidence.deliverable_rejection.is_some() {
-            return;
-        }
-        evidence.deliverable_rejection = Some(errors.join("; "));
-    }
-
-    /// Put one model turn's spend on the record: always on stderr, and on the Story Run row when this lane has one.
-    ///
-    /// The hand-run lane (`forge --story …`, no `--work-item`) opens no run row, so its spend has nowhere durable to
-    /// go; the stderr line is then the only reading, and it is printed for every lane so the burn is never silent.
-    /// A write that fails fails the lane, like every other state write here.
-    fn record_usage(&self, node_id: &str, story_id: &str, usage: &HarnessUsage) -> Result<()> {
-        eprintln!(
-            "spend story={story_id} node={node_id} run={} tokens_in={} tokens_out={} cost_usd={:.6} session={}",
-            self.story_run_id.as_deref().unwrap_or("(none)"),
-            usage.tokens_input,
-            usage.tokens_output,
-            usage.cost_usd,
-            usage.session_id
-        );
-        if let (Some(writer), Some(run_id)) = (self.writer, self.story_run_id.as_deref()) {
-            writer.record_run_usage(run_id, usage).map_err(|error| {
-                WorkflowError::generic(format!("record_run_usage({story_id}, {run_id}): {error}"))
-            })?;
-        }
-        Ok(())
-    }
-
-    /// Write Smith's work into `forge_tool_artifact` as code (`kind='candidate-code'`).
-    ///
-    /// An accepted candidate is the commit range `base..sha`. Refused work is the whole working tree against
-    /// `base` — committed, uncommitted and untracked — because a refusal is exactly when the commit alone is not
-    /// the work. A git that will not produce the patch or its file list fails the lane like every other state
-    /// write that comes back unreadable; nothing is half-recorded.
-    fn capture_smith_work(
-        &self,
-        writer: &dyn ForgeStateWriter,
-        story_id: &str,
-        base: &str,
-        work: SmithWork<'_>,
-    ) -> Result<()> {
-        // Trimmed BEFORE it reaches the shell: `is_full_commit` accepts git's trailing newline, and a newline
-        // inside an `sh -c` string ends the command there.
-        let base = base.trim();
-        if !is_full_commit(base) {
-            return Err(WorkflowError::generic(format!(
-                "refusing to snapshot Smith's work against base {base:?}: a revision that is not a full commit \
-                 cannot be diffed safely"
-            )));
-        }
-        let (patch_command, names_command, sha) = match work {
-            SmithWork::Candidate(sha) => {
-                let sha = sha.trim();
-                if !is_full_commit(sha) {
-                    return Err(WorkflowError::generic(format!(
-                        "refusing to snapshot candidate {sha:?} against base {base}: a revision that is not a \
-                         full commit cannot be diffed safely"
-                    )));
-                }
-                (
-                    format!("git diff --no-color --no-ext-diff --binary {base}..{sha}"),
-                    format!("git diff --name-only --no-renames {base}..{sha}"),
-                    Some(sha.to_string()),
-                )
+    let (patch_command, names_command, sha) = match work {
+        SmithWork::Candidate(sha) => {
+            let sha = sha.trim();
+            if !is_full_commit(sha) {
+                return Err(WorkflowError::generic(format!(
+                    "refusing to snapshot candidate {sha:?} against base {base}: a revision that is not a \
+                     full commit cannot be diffed safely"
+                )));
             }
-            SmithWork::Refused(_) => {
-                let head = self.harness.run_command("git rev-parse HEAD");
-                let head = head.output.trim();
-                (
-                    worktree_snapshot_command(base, "--no-color --no-ext-diff --binary"),
-                    worktree_snapshot_command(base, "--name-only --no-renames"),
-                    is_full_commit(head).then(|| head.to_ascii_lowercase()),
-                )
-            }
-        };
+            (
+                format!("git diff --no-color --no-ext-diff --binary {base}..{sha}"),
+                format!("git diff --name-only --no-renames {base}..{sha}"),
+                Some(sha.to_string()),
+            )
+        }
+        SmithWork::Refused(_) => {
+            let head = ctx.harness.run_command("git rev-parse HEAD");
+            let head = head.output.trim();
+            (
+                worktree_snapshot_command(base, "--no-color --no-ext-diff --binary"),
+                worktree_snapshot_command(base, "--name-only --no-renames"),
+                is_full_commit(head).then(|| head.to_ascii_lowercase()),
+            )
+        }
+    };
 
-        let patch = self.harness.run_command(&patch_command);
-        if !patch.passed {
-            return Err(WorkflowError::generic(format!(
-                "Smith's work could not be read out of {base} for its fail-safe record: git diff exited {} ({})",
-                patch.exit_code, patch.excerpt
-            )));
-        }
-        if matches!(work, SmithWork::Refused(_)) && patch.output.trim().is_empty() {
-            // A refusal with nothing written — e.g. "no new commit" on a clean tree. There is no code to keep.
-            return Ok(());
-        }
-        // `--name-only` is asked separately rather than parsed out of the patch: the patch is a payload to be
-        // replayed verbatim, and the file list is a fact to be read at a glance.
-        let names = self.harness.run_command(&names_command);
-        if !names.passed {
-            return Err(WorkflowError::generic(format!(
-                "Smith's changed files could not be listed against {base}: git diff exited {} ({})",
-                names.exit_code, names.excerpt
-            )));
-        }
-        let changed: Vec<String> = names
-            .output
-            .lines()
-            .map(|line| line.trim().to_string())
-            .filter(|line| !line.is_empty())
-            .collect();
-
-        let artifact = match work {
-            SmithWork::Candidate(_) => smith_candidate_artifact(
-                story_id,
-                self.story_run_id.as_deref(),
-                sha.as_deref().unwrap_or_default(),
-                base,
-                &patch.output,
-                &changed,
-            ),
-            SmithWork::Refused(refusal) => smith_refused_work_artifact(
-                story_id,
-                self.story_run_id.as_deref(),
-                sha.as_deref(),
-                base,
-                &patch.output,
-                &changed,
-                refusal,
-            ),
-        };
-        writer.record_tool_artifact(&artifact).map_err(|error| {
-            WorkflowError::generic(format!(
-                "record_tool_artifact({story_id}, candidate-code): {error}"
-            ))
-        })?;
-        Ok(())
+    let patch = ctx.harness.run_command(&patch_command);
+    if !patch.passed {
+        return Err(WorkflowError::generic(format!(
+            "Smith's work could not be read out of {base} for its fail-safe record: git diff exited {} ({})",
+            patch.exit_code, patch.excerpt
+        )));
     }
+    if matches!(work, SmithWork::Refused(_)) && patch.output.trim().is_empty() {
+        // A refusal with nothing written — e.g. "no new commit" on a clean tree. There is no code to keep.
+        return Ok(());
+    }
+    // `--name-only` is asked separately rather than parsed out of the patch: the patch is a payload to be
+    // replayed verbatim, and the file list is a fact to be read at a glance.
+    let names = ctx.harness.run_command(&names_command);
+    if !names.passed {
+        return Err(WorkflowError::generic(format!(
+            "Smith's changed files could not be listed against {base}: git diff exited {} ({})",
+            names.exit_code, names.excerpt
+        )));
+    }
+    let changed: Vec<String> = names
+        .output
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect();
+
+    let artifact = match work {
+        SmithWork::Candidate(_) => smith_candidate_artifact(
+            story_id,
+            ctx.story_run_id,
+            sha.as_deref().unwrap_or_default(),
+            base,
+            &patch.output,
+            &changed,
+        ),
+        SmithWork::Refused(refusal) => smith_refused_work_artifact(
+            story_id,
+            ctx.story_run_id,
+            sha.as_deref(),
+            base,
+            &patch.output,
+            &changed,
+            refusal,
+        ),
+    };
+    writer.record_tool_artifact(&artifact).map_err(|error| {
+        WorkflowError::generic(format!(
+            "record_tool_artifact({story_id}, candidate-code): {error}"
+        ))
+    })?;
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -533,159 +490,39 @@ fn is_full_commit(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-impl ForgeRoleRunner for ProductionRoleRunner<'_> {
-    fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
-        if self.require_prod {
-            let env = env_pairs_from_process();
-            crate::engine::execution_target::assert_forge_lane_may_start(&env)
-                .map_err(|e| WorkflowError::generic(e.0))?;
-            if let Ok(declared) = std::env::var("EXECUTION_ENV") {
-                assert_forge_execution_target(Some(&declared), None)
-                    .map_err(|e| WorkflowError::generic(e.0))?;
-            }
-        }
+/// The role-specific readings the shared lifecycle cannot know.
+///
+/// TEMPORARY HOME, and the shape of the end state is the reason it exists: each of these three bodies
+/// is one role's intelligence, and each moves to the concrete `AbstractForgeService` that owns the
+/// lane (Smith's capture → `SmithService`, the handoff → `ArchitectService`, the measurement →
+/// `AssayService`). What stays behind is the compatibility adapter for a node the registry does not
+/// map: a node with no service still runs the proven turn instead of failing closed.
+///
+/// Nothing here is reachable for a lane whose service owns its reading — the lifecycle calls the
+/// hooks of whoever invoked it, and a service-owned lane passes its own.
+struct StructuralRoleHooks;
+
+impl ForgeRoleHooks for StructuralRoleHooks {
+    /// Assay is the lane that measures instead of talking. RUST_CONTRACT QA runs the declared commands
+    /// and reads the result, so it takes the whole turn and never asks a harness for one.
+    fn turn_without_model(
+        &self,
+        ctx: &ForgeRoleContext<'_>,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+    ) -> Option<Result<ForgeRoleOutcome>> {
         if matches!(node_id, "qa_verify" | "fast_qa_verify")
-            && self.test_mode.as_deref() == Some("RUST_CONTRACT")
+            && ctx.test_mode == Some("RUST_CONTRACT")
         {
-            return self.run_rust_contract_qa(node_id, task);
+            return Some(run_rust_contract_qa(ctx, node_id, task));
         }
+        None
+    }
 
-        let enforce = deliverable_enforcement_enabled(
-            std::env::var("FORGE_ENFORCE_DELIVERABLES").ok().as_deref(),
-        );
-        let budget = attempt_budget(
-            enforce,
-            parse_deliverable_reprompt_budget(
-                std::env::var("FORGE_DELIVERABLE_RETRIES").ok().as_deref(),
-            ),
-        );
-        let mut prior_reply: Option<String> = None;
-        // The corrective directive for the next attempt. Set below when this attempt missed something, and handed
-        // to `run_role` so the retry names the omission instead of repeating the prompt (2026-09-29).
-        let mut self_heal: Option<String> = None;
-        let mut evidence = self.current.clone();
-        let mut last_raw = String::new();
-        let mut last_out_sha = None;
-        let mut last_assay = vec![];
-        let mut last_mapped = false;
-        let mut last_refusal = None;
-        // The FIRST attempt's base: a retry's own pre-turn HEAD already contains the earlier attempts' commits,
-        // and a patch taken from it would silently drop them.
-        let mut first_execution_base: Option<String> = None;
-        let mut total_usage: Option<HarnessUsage> = None;
-        for attempt in 0..budget {
-            let out = self.harness.run_role(node_id, task, self_heal.as_deref())?;
-            // Recorded per attempt, the moment it is known: a later attempt that errors out must not take the
-            // spend of the earlier ones down with it.
-            if let Some(usage) = out.usage.as_ref() {
-                self.record_usage(node_id, &task.story_id, usage)?;
-                match total_usage.as_mut() {
-                    Some(total) => total.absorb(usage),
-                    None => total_usage = Some(usage.clone()),
-                }
-            }
-            last_raw = out.raw.clone();
-            last_out_sha = out.candidate_sha.clone();
-            last_assay = out.assay_commands.clone();
-            last_mapped = out.acceptance_mapped;
-            last_refusal = out.refusal.clone();
-            if first_execution_base.is_none() {
-                first_execution_base = out.execution_base.clone();
-            }
-            let ports = self.effect_ports();
-            evidence = forge_agent_collect(node_id, self.current.clone(), &out.raw, &ports)
-                .map_err(WorkflowError::generic)?;
-            if matches!(
-                node_id,
-                "smith"
-                    | "smith_split_work"
-                    | "repair_smith"
-                    | "fast_smith"
-                    | "fast_repair_smith"
-                    | "lead_solo_implement"
-            ) {
-                evidence.candidate_sha = out.candidate_sha.clone();
-            }
-            // The bench intent the dispatch carried, applied the moment the proposal is read, so a decision outside
-            // the Cap is a rejected deliverable on the same attempt rather than a surprise at settle time.
-            self.apply_bench_intent(&mut evidence);
-            if attempt + 1 < budget {
-                let agent = ForgePhaseAgent::new(node_id).map_err(WorkflowError::generic)?;
-                let missing = agent.missing_deliverables(
-                    &evidence,
-                    &out.raw,
-                    !out.raw.is_empty(),
-                    evidence.findings.is_some(),
-                );
-                if missing.is_empty() {
-                    break;
-                }
-                let directive = build_self_heal_directive(
-                    node_id,
-                    &missing.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-                    None,
-                    evidence
-                        .deliverable_rejection
-                        .as_deref()
-                        .map(|s| vec![s.to_string()])
-                        .unwrap_or_default()
-                        .as_slice(),
-                    prior_reply.as_deref(),
-                );
-                prior_reply = Some(out.raw);
-                self_heal = Some(directive);
-                continue;
-            }
-            break;
-        }
-        let out_raw = last_raw;
-        let out = crate::engine::runner::HarnessOutput {
-            raw: out_raw.clone(),
-            candidate_sha: last_out_sha,
-            assay_commands: last_assay,
-            acceptance_mapped: last_mapped,
-            refusal: last_refusal,
-            execution_base: first_execution_base,
-            usage: total_usage,
-        };
-        // The same envelope the attempts ran under, and the same cap: this is the evidence the writes below act on,
-        // so a decision outside the bench intent must be refused here even if the last attempt broke out early.
-        let ports = self.effect_ports();
-        self.apply_bench_intent(&mut evidence);
-
-        // ONE identity, taken from the task this lane was listed with. It is read here, before any write this turn
-        // makes, because the writes below are identity-bearing: `forge_hold_record.story_id` and
-        // `forge_tool_artifact.story_id` are foreign keys to `storyboard_story(id)`, so a process-instance UUID
-        // substituted here is a row the database refuses. `runtime::list_role_tasks` fills it from the story that
-        // owns the instance; a task that carries none is refused rather than given one.
-        let story_id = task.story_id.as_str();
-        if story_id.trim().is_empty() {
-            return Err(WorkflowError::generic(format!(
-                "role task {} carries no story id; refusing to write identity-bearing Forge records against \
-                 the process-instance id",
-                task.task_id
-            )));
-        }
-
-        if node_id == "architect" || node_id == "repair_architect" {
-            let handoff = parse_architect_handoff(&out.raw);
-            match assess_architect_handoff(
-                handoff.as_ref(),
-                Some(&|base, path| self.harness.exists_on_base_ref(base, path)),
-            ) {
-                ArchitectAssessment::Ok { .. } => {
-                    if let Some(h) = handoff {
-                        evidence.findings = Some(workflow::Value::from(h.findings.len() as i64));
-                        evidence.deliverable_rejection = None;
-                    }
-                }
-                ArchitectAssessment::Fail { reasons } => {
-                    evidence.deliverable_rejection = Some(reasons.join("; "));
-                }
-            }
-        }
-
-        if matches!(
+    /// The lanes that DELIVER code. A lane whose turn produced an accepted candidate owns that commit,
+    /// so the evidence has to say so before anything downstream reads it.
+    fn adopts_candidate_sha(&self, node_id: &str) -> bool {
+        matches!(
             node_id,
             "smith"
                 | "smith_split_work"
@@ -693,178 +530,218 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
                 | "fast_smith"
                 | "fast_repair_smith"
                 | "lead_solo_implement"
-        ) {
-            let capture_base = self
-                .harness
-                .execution_base_commit()
-                .map(str::to_string)
-                .or_else(|| out.execution_base.clone());
-            // PAID CODE > GIT SHA. A refused candidate (dirty tree, no commit, a RUST_CONTRACT production touch) is
-            // still work that was paid for, and before this it left no row at all — the refusal voided it. It is
-            // snapshotted whole (committed, uncommitted and untracked) so the hold that follows has code to show.
-            if out.candidate_sha.is_none() {
-                if let (Some(writer), Some(refusal), Some(base)) =
-                    (self.writer, out.refusal.as_deref(), capture_base.as_deref())
-                {
-                    self.capture_smith_work(writer, story_id, base, SmithWork::Refused(refusal))?;
-                }
-            }
-            if let Some(sha) = out.candidate_sha.clone() {
-                evidence.candidate_sha = Some(sha.clone());
-                if let Some(writer) = self.writer {
-                    // The stamp is a pointer into git and needs a row to point from. A run opened by a claim has
-                    // one; the hand-run lane (`forge --story …`, no `--work-item`) opens none, so the stamp is
-                    // skipped there. That is the whole difference: the stamp is skipped, the capture is not.
-                    if let Some(run_id) = self.story_run_id.as_deref() {
-                        writer.stamp_run_candidate(run_id, &sha).map_err(|error| {
-                            WorkflowError::generic(format!(
-                                "stamp_run_candidate({story_id}, {run_id}): {error}"
-                            ))
-                        })?;
-                    }
-                    // The fail-safe, and it is deliberately the next thing that happens: the stamp above is a
-                    // pointer into git, and git is the part that goes missing. It is keyed to the STORY and never
-                    // to the run. `storyboard_story_run` rows are opened by a claim, and the lane a captain runs
-                    // by hand opens none — so a capture gated on the run row stays silent on exactly the runs
-                    // where nothing else records the code. `forge_tool_artifact.story_run_id` is nullable for
-                    // this: NULL there means "no claim opened this", which is the truth and not a gap.
-                    // Capture is skipped only where there is nothing to capture from — no declared execution base
-                    // AND no base the harness measured against (the `RoleHarness` default is `None` for both).
-                    if let Some(base) = capture_base.as_deref() {
-                        self.capture_smith_work(
-                            writer,
-                            story_id,
-                            base,
-                            SmithWork::Candidate(&sha),
-                        )?;
-                    }
-                }
-                if let Some(base) = evidence.extra.get("recordedBase").and_then(|v| v.as_str()) {
-                    let repo = std::env::current_dir().unwrap_or_else(|_| ".".into());
-                    match candidate_own_changed_files(
-                        Some(&sha),
-                        Some(base),
-                        &[sha.clone()],
-                        |c| git_changed_files(&repo, base, c),
-                        |anc, desc| self.harness.exists_on_base_ref(anc, desc),
-                    ) {
-                        crate::engine::scope::CandidateOwnChanges::Fail { reason } => {
-                            if evidence.deliverable_rejection.is_none() {
-                                evidence.deliverable_rejection = Some(reason);
-                            }
-                        }
-                        crate::engine::scope::CandidateOwnChanges::Ok { .. } => {}
-                    }
-                }
-            }
-        }
+        )
+    }
 
-        if matches!(node_id, "qa_verify" | "fast_qa_verify") {
-            let collected = if self.test_mode.as_deref() == Some("RUST_CONTRACT") {
-                collect_rust_contract_assay_evidence(
-                    evidence,
-                    Some(&|cmd| self.harness.run_command(cmd)),
-                    &out.assay_commands,
-                    self.contract_acceptance_mapped,
-                )
-            } else {
-                collect_assay_evidence(
-                    evidence,
-                    &ports,
-                    Some(&|cmd| self.harness.run_command(cmd)),
-                    &out.assay_commands,
-                    out.acceptance_mapped,
-                )
-            };
-            let AssayEvidence {
-                evidence: measured,
-                verdict,
-            } = collected;
-            evidence = measured;
-            // The lane's own measurement becomes a row (migration 130). It is written the moment it exists, not at
-            // the end of the story, because the next question anyone asks about a QA lane is what it measured — and
-            // this is the only moment the measurement is in hand. A write that fails fails the lane, like every other
-            // state write here: a measurement nobody can read is not evidence.
-            if let Some(writer) = self.writer {
-                writer
-                    .record_tool_artifact(&assay_tool_artifact(
-                        story_id,
-                        self.story_run_id.as_deref(),
-                        &evidence,
-                        verdict,
-                    ))
-                    .map_err(|error| {
-                        WorkflowError::generic(format!("record_tool_artifact({story_id}): {error}"))
-                    })?;
-            }
-        }
-
-        let agent = ForgePhaseAgent::new(node_id).map_err(WorkflowError::generic)?;
-        let missing = agent.missing_deliverables(
-            &evidence,
-            &out.raw,
-            !out.raw.is_empty(),
-            evidence.findings.is_some(),
-        );
-        if !missing.is_empty() && evidence.deliverable_rejection.is_none() {
-            evidence.deliverable_rejection =
-                Some(format!("role did not deliver {}", missing.join(", ")));
-        }
-        if let Some(route) = agent.routing_decision_missing(&evidence) {
-            if evidence.deliverable_rejection.is_none() {
-                evidence.deliverable_rejection = Some(format!("routing decision missing: {route}"));
-            }
-        }
-
-        // ONE identity, taken from the task this lane was listed with (checked above, before any write).
-        let story_id = story_id;
-
-        // Trace recording is diagnostic (see `engine::observer`) and is deliberately contained, so its failure
-        // is not a lane failure. It is written only for a run that has a state writer: a writer-less run
-        // (tests, a machine with no PROD URL) must not write trace rows into whichever pool is installed.
-        if self.writer.is_some() {
-            let _ = record_forge_observer(
-                &task.process_instance_id,
-                story_id,
-                &task.task_id,
-                node_id,
-                "role.completed",
-                &format!("node={node_id}"),
-            );
-        }
-
-        if let Some(reason) = evidence.deliverable_rejection.clone() {
-            if let Some(writer) = self.writer {
-                // A hold that cannot be recorded is not a hold that was silently skipped: both writes
-                // propagate, so a gate that failed to record itself is visible as a failed lane.
-                writer
-                    .mark_story_human_hold(story_id, &reason)
-                    .map_err(|error| {
-                        WorkflowError::generic(format!(
-                            "mark_story_human_hold({story_id}): {error}"
-                        ))
-                    })?;
-                writer
-                    .open_hold(&OpenHold {
-                        process_instance_id: task.process_instance_id.clone(),
-                        task_id: Some(task.task_id.clone()),
-                        story_id: story_id.to_string(),
-                        reason,
-                        originating_node: Some(node_id.into()),
-                        failure_class: Some("DELIVERABLE_REJECTED".into()),
-                        resume_target: None,
-                    })
-                    .map_err(|error| {
-                        WorkflowError::generic(format!("forge_hold_record({story_id}): {error}"))
-                    })?;
-            }
-        }
-        Ok(ForgeRoleOutcome {
-            transition_name: Some("complete".into()),
-            evidence,
-        })
+    /// Read in the order the original turn read them: the handoff, then Smith's work, then the
+    /// measurement. The order is load-bearing — Smith's capture and the assay both act on the evidence
+    /// the architect may already have refused.
+    fn interpret_turn(
+        &self,
+        ctx: &ForgeRoleContext<'_>,
+        turn: &ForgeRoleTurn<'_>,
+        evidence: &mut ForgeGateEvidence,
+    ) -> Result<()> {
+        architect_reading(ctx, turn, evidence)?;
+        smith_reading(ctx, turn, evidence)?;
+        assay_reading(ctx, turn, evidence)
     }
 }
+/// Architect's own reading: the handoff is parsed and assessed against the base it claims. A handoff
+/// that does not hold is a rejected deliverable rather than a finding to debate; one that does hold
+/// reports the count of findings it carried.
+fn architect_reading(
+    ctx: &ForgeRoleContext<'_>,
+    turn: &ForgeRoleTurn<'_>,
+    evidence: &mut ForgeGateEvidence,
+) -> Result<()> {
+    if turn.node_id == "architect" || turn.node_id == "repair_architect" {
+        let handoff = parse_architect_handoff(&turn.out.raw);
+        match assess_architect_handoff(
+            handoff.as_ref(),
+            Some(&|base, path| ctx.harness.exists_on_base_ref(base, path)),
+        ) {
+            ArchitectAssessment::Ok { .. } => {
+                if let Some(h) = handoff {
+                    evidence.findings = Some(workflow::Value::from(h.findings.len() as i64));
+                    evidence.deliverable_rejection = None;
+                }
+            }
+            ArchitectAssessment::Fail { reasons } => {
+                evidence.deliverable_rejection = Some(reasons.join("; "));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Smith's own reading: the candidate the turn produced becomes the run's candidate AND its code is
+/// captured, and a turn that was REFUSED still gets its work written down.
+fn smith_reading(
+    ctx: &ForgeRoleContext<'_>,
+    turn: &ForgeRoleTurn<'_>,
+    evidence: &mut ForgeGateEvidence,
+) -> Result<()> {
+    if !matches!(
+        turn.node_id,
+        "smith"
+            | "smith_split_work"
+            | "repair_smith"
+            | "fast_smith"
+            | "fast_repair_smith"
+            | "lead_solo_implement"
+    ) {
+        return Ok(());
+    }
+    let capture_base = ctx
+        .harness
+        .execution_base_commit()
+        .map(str::to_string)
+        .or_else(|| turn.out.execution_base.clone());
+    // PAID CODE > GIT SHA. A refused candidate (dirty tree, no commit, a RUST_CONTRACT production touch) is
+    // still work that was paid for, and before this it left no row at all — the refusal voided it. It is
+    // snapshotted whole (committed, uncommitted and untracked) so the hold that follows has code to show.
+    if turn.out.candidate_sha.is_none() {
+        if let (Some(writer), Some(refusal), Some(base)) = (
+            ctx.writer,
+            turn.out.refusal.as_deref(),
+            capture_base.as_deref(),
+        ) {
+            capture_smith_work(ctx, writer, turn.story_id, base, SmithWork::Refused(refusal))?;
+        }
+    }
+    if let Some(sha) = turn.out.candidate_sha.clone() {
+        evidence.candidate_sha = Some(sha.clone());
+        if let Some(writer) = ctx.writer {
+            // The stamp is a pointer into git and needs a row to point from. A run opened by a claim has
+            // one; the hand-run lane (`forge --story …`, no `--work-item`) opens none, so the stamp is
+            // skipped there. That is the whole difference: the stamp is skipped, the capture is not.
+            if let Some(run_id) = ctx.story_run_id {
+                writer.stamp_run_candidate(run_id, &sha).map_err(|error| {
+                    WorkflowError::generic(format!(
+                        "stamp_run_candidate({}, {run_id}): {error}",
+                        turn.story_id
+                    ))
+                })?;
+            }
+            // The fail-safe, and it is deliberately the next thing that happens: the stamp above is a
+            // pointer into git, and git is the part that goes missing. It is keyed to the STORY and never
+            // to the run. `storyboard_story_run` rows are opened by a claim, and the lane a captain runs
+            // by hand opens none — so a capture gated on the run row stays silent on exactly the runs
+            // where nothing else records the code. `forge_tool_artifact.story_run_id` is nullable for
+            // this: NULL there means "no claim opened this", which is the truth and not a gap.
+            // Capture is skipped only where there is nothing to capture from — no declared execution base
+            // AND no base the harness measured against (the `RoleHarness` default is `None` for both).
+            if let Some(base) = capture_base.as_deref() {
+                capture_smith_work(
+                    ctx,
+                    writer,
+                    turn.story_id,
+                    base,
+                    SmithWork::Candidate(&sha),
+                )?;
+            }
+        }
+        if let Some(base) = evidence.extra.get("recordedBase").and_then(|v| v.as_str()) {
+            let repo = std::env::current_dir().unwrap_or_else(|_| ".".into());
+            match candidate_own_changed_files(
+                Some(&sha),
+                Some(base),
+                &[sha.clone()],
+                |c| git_changed_files(&repo, base, c),
+                |anc, desc| ctx.harness.exists_on_base_ref(anc, desc),
+            ) {
+                crate::engine::scope::CandidateOwnChanges::Fail { reason } => {
+                    if evidence.deliverable_rejection.is_none() {
+                        evidence.deliverable_rejection = Some(reason);
+                    }
+                }
+                crate::engine::scope::CandidateOwnChanges::Ok { .. } => {}
+            }
+        }
+    }
+    Ok(())
+}
+/// Assay's own reading: the QA lane MEASURES, and its measurement — not a model's description of it —
+/// becomes the evidence. Deterministic verification, which is why `qa_verify` is Assay and not Inspector.
+fn assay_reading(
+    ctx: &ForgeRoleContext<'_>,
+    turn: &ForgeRoleTurn<'_>,
+    evidence: &mut ForgeGateEvidence,
+) -> Result<()> {
+    if !matches!(turn.node_id, "qa_verify" | "fast_qa_verify") {
+        return Ok(());
+    }
+    let ports = effect_ports(ctx);
+    let collected = if ctx.test_mode == Some("RUST_CONTRACT") {
+        collect_rust_contract_assay_evidence(
+            std::mem::take(evidence),
+            Some(&|cmd| ctx.harness.run_command(cmd)),
+            &turn.out.assay_commands,
+            ctx.contract_acceptance_mapped,
+        )
+    } else {
+        collect_assay_evidence(
+            std::mem::take(evidence),
+            &ports,
+            Some(&|cmd| ctx.harness.run_command(cmd)),
+            &turn.out.assay_commands,
+            turn.out.acceptance_mapped,
+        )
+    };
+    let AssayEvidence {
+        evidence: measured,
+        verdict,
+    } = collected;
+    *evidence = measured;
+    // The lane's own measurement becomes a row (migration 130). It is written the moment it exists, not at
+    // the end of the story, because the next question anyone asks about a QA lane is what it measured — and
+    // this is the only moment the measurement is in hand. A write that fails fails the lane, like every other
+    // state write here: a measurement nobody can read is not evidence.
+    if let Some(writer) = ctx.writer {
+        writer
+            .record_tool_artifact(&assay_tool_artifact(
+                turn.story_id,
+                ctx.story_run_id,
+                evidence,
+                verdict,
+            ))
+            .map_err(|error| {
+                WorkflowError::generic(format!(
+                    "record_tool_artifact({}): {error}",
+                    turn.story_id
+                ))
+            })?;
+    }
+    Ok(())
+}
+
+/// The compatibility adapter, and the shape `ProductionRoleRunner` keeps until it is fully emptied.
+///
+/// A node the registry does not map still runs the proven turn: this type behaves exactly as it did,
+/// through the shared lifecycle, carrying the readings that have not moved to a service yet. What it no
+/// longer owns is the sequence — that is `roles::lifecycle`'s, and the services inherit it instead of
+/// each copying it.
+impl ForgeRoleRunner for ProductionRoleRunner<'_> {
+    fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
+        let ctx = ForgeRoleContext {
+            harness: self.harness,
+            current: &self.current,
+            writer: self.writer,
+            story_run_id: self.story_run_id.as_deref(),
+            bench_intent: self.bench_intent.as_deref(),
+            test_mode: self.test_mode.as_deref(),
+            contract_assay_commands: &self.contract_assay_commands,
+            contract_acceptance_mapped: self.contract_acceptance_mapped,
+            require_prod: self.require_prod,
+        };
+        run_forge_role_turn(&ctx, node_id, task, &StructuralRoleHooks)
+    }
+}
+
+
+
+
 
 #[cfg(test)]
 mod tests {
