@@ -1,357 +1,460 @@
-//! TECH — the Forge Cockpit (`/portal/tech`): story supply, the Workbench, Flight staging, the engine lanes and the last
-//! outcomes, with one selected story's introspection.
+//! TECH — Forge Live Operations Cockpit (`/portal/tech`).
 //!
-//! Yew owns the read, the selection, every command and the 30-second refresh the Cockpit has always promised. The story
-//! sorter is this screen too (`Msg::SorterDragStarted` / `Msg::SorterDropped`): a drop sends `moveStoryBucket` and the
-//! answer re-reads.
+//! This pass intentionally runs as a presentation-only MVI prototype while the OpenCode V2
+//! harness contract is being completed. The model below is deterministic fake operational
+//! state: no API, Neon, OpenCode, timer, or Forge-engine command is touched from this screen.
 //!
-//! One command at a time (`busy_action`). Every answer, success or refusal, is said in the notice and followed by a
-//! re-read, because the engine may have moved either way.
+//! The future live implementation should replace only the model source. The view contract is
+//! deliberately shaped around Forge-owned facts: workflow roles, execution events, budgets,
+//! candidate state, and engine results.
 
 mod view;
 
 use yew::prelude::*;
 
-use crate::app::api::{TechCommand, TechRead};
-use crate::app::cmd::{ApiError, Cmd, Remote};
+use crate::app::cmd::Cmd;
 use crate::app::screen::{Link, Screen, ScreenCtx};
-use crate::app::template;
-use crate::model::{CommandNotice, PortalPage, PortalTechPage, TechCockpitState};
 
-const REFRESH_MS: u32 = 30_000;
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Controls {
-    /// The Workbench is collapsed.
-    pub toggled: bool,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentState {
+    Complete,
+    Running,
+    Waiting,
+    Hold,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+impl AgentState {
+    pub fn glyph(self) -> &'static str {
+        match self {
+            Self::Complete => "✓",
+            Self::Running => "●",
+            Self::Waiting => "○",
+            Self::Hold => "!",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Complete => "Complete",
+            Self::Running => "Running",
+            Self::Waiting => "Waiting",
+            Self::Hold => "Hold",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentNode {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub state: AgentState,
+    pub detail: &'static str,
+    pub model: &'static str,
+    pub session: &'static str,
+    pub steps_used: u32,
+    pub step_cap: u32,
+    pub tokens: u64,
+    pub cost_usd: f64,
+    pub children: Vec<AgentNode>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventKind {
+    Read,
+    Search,
+    Edit,
+    Test,
+    Subagent,
+    Review,
+    Decision,
+}
+
+impl EventKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Read => "READ",
+            Self::Search => "SEARCH",
+            Self::Edit => "EDIT",
+            Self::Test => "TEST",
+            Self::Subagent => "SUBAGENT",
+            Self::Review => "REVIEW",
+            Self::Decision => "DECISION",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActivityEvent {
+    pub at: &'static str,
+    pub kind: EventKind,
+    pub title: &'static str,
+    pub detail: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResultState {
+    ReadyQa,
+    QaPassed,
+    Hold,
+    Failed,
+    ReadyPublish,
+}
+
+impl ResultState {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ReadyQa => "Ready for QA",
+            Self::QaPassed => "QA passed",
+            Self::Hold => "Hold",
+            Self::Failed => "Failed",
+            Self::ReadyPublish => "Ready to publish",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EngineResult {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub state: ResultState,
+    pub detail: &'static str,
+    pub candidate: Option<&'static str>,
+    pub tests: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Model {
-    pub read: Remote<PortalTechPage>,
-    pub loading: bool,
-    pub selected: Option<String>,
-    pub tech: TechCockpitState,
-    pub controls: Controls,
+    pub status: &'static str,
+    pub story_id: &'static str,
+    pub story_title: &'static str,
+    pub run_id: &'static str,
+    pub work_item: &'static str,
+    pub role: &'static str,
+    pub model_name: &'static str,
+    pub runtime: &'static str,
+    pub worktree: &'static str,
+    pub base_sha: &'static str,
+    pub candidate_sha: &'static str,
+    pub story_spend_usd: f64,
+    pub story_budget_usd: f64,
+    pub turns_used: u32,
+    pub turn_cap: u32,
+    pub agents: Vec<AgentNode>,
+    pub selected_agent: String,
+    pub activity: Vec<ActivityEvent>,
+    pub results: Vec<EngineResult>,
+    pub selected_result: String,
+    pub notice: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Msg {
-    Loaded(Result<PortalPage, ApiError>),
-    Tick,
-    TechStorySelected(String),
-    TechRefreshRequested,
-    TechScheduleChanged(String),
-    TechClearWorkbenchRequested,
-    TechGoodToGoRequested,
-    TechScopedRunRequested(String),
-    TechMoveWorkbenchRequested(String),
-    TechLaunchFlightRequested,
-    TechScheduleFlightRequested {
-        scheduled_for: String,
-    },
-    TechCancelFlightRequested(String),
-    /// The Workbench's open state, as it was when the toggle was pressed.
-    Toggled(bool),
-    CommandAnswered(Result<serde_json::Value, ApiError>),
-    /// A Kanban card was picked up.
-    SorterDragStarted(String),
-    /// The picked-up card was dropped on a column: move its story there.
-    SorterDropped(String),
+    AgentSelected(String),
+    ResultSelected(String),
+    DemoAction(&'static str),
+    ClearNotice,
 }
 
 pub struct TechCockpit;
-
-fn read(model: &mut Model) -> Cmd<Msg> {
-    model.loading = true;
-    Cmd::request(
-        TechRead {
-            selected: model.selected.clone(),
-        },
-        Msg::Loaded,
-    )
-}
-
-fn command(model: &mut Model, busy: impl Into<String>, body: serde_json::Value) -> Cmd<Msg> {
-    if model.tech.busy_action.is_some() {
-        return Cmd::none();
-    }
-    model.tech.busy_action = Some(busy.into());
-    model.tech.notice = None;
-    Cmd::request(TechCommand { body }, Msg::CommandAnswered)
-}
 
 impl Screen for TechCockpit {
     type Model = Model;
     type Msg = Msg;
 
     fn init(_ctx: &ScreenCtx) -> (Model, Cmd<Msg>) {
-        let mut model = Model {
-            read: Remote::Loading,
-            ..Model::default()
-        };
-        let read = read(&mut model);
-        (model, Cmd::batch([read, Cmd::after(REFRESH_MS, Msg::Tick)]))
+        (demo_model(), Cmd::none())
     }
 
     fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
         match msg {
-            Msg::Loaded(answer) => {
-                model.loading = false;
-                match answer.and_then(|page| {
-                    page.tech
-                        .ok_or_else(|| ApiError::decode("The answer had no Cockpit in it."))
-                }) {
-                    Ok(tech) => model.read = Remote::Loaded(tech),
-                    // A failed refresh keeps the line on screen and says why.
-                    Err(error) if model.read.loaded().is_some() => {
-                        model.tech.notice = Some(CommandNotice::failure(error.message))
-                    }
-                    Err(error) => model.read = Remote::Failed(error),
-                }
-                Cmd::none()
+            Msg::AgentSelected(id) => model.selected_agent = id,
+            Msg::ResultSelected(id) => model.selected_result = id,
+            Msg::DemoAction(action) => {
+                model.notice = Some(format!(
+                    "{action} is preview-only in the MVI prototype. Live control will be wired through the Forge service after the V2 runtime contract lands."
+                ));
             }
-            Msg::Tick => {
-                let refresh = if model.loading || model.read.loaded().is_none() {
-                    Cmd::none()
-                } else {
-                    read(model)
-                };
-                Cmd::batch([refresh, Cmd::after(REFRESH_MS, Msg::Tick)])
-            }
-            Msg::TechStorySelected(id) => {
-                model.selected = Some(id);
-                read(model)
-            }
-            Msg::TechRefreshRequested => read(model),
-            Msg::TechScheduleChanged(value) => {
-                model.tech.schedule_at = value;
-                model.tech.notice = None;
-                Cmd::none()
-            }
-            Msg::Toggled(open) => {
-                model.controls.toggled = open;
-                Cmd::none()
-            }
-            Msg::TechClearWorkbenchRequested => command(
-                model,
-                "clearWorkbench",
-                serde_json::json!({ "action": "clearWorkbench" }),
-            ),
-            Msg::TechGoodToGoRequested => match model.selected.clone() {
-                Some(story_id) => command(
-                    model,
-                    "goodToGo",
-                    serde_json::json!({ "action": "goodToGo", "storyId": story_id }),
-                ),
-                None => Cmd::none(),
-            },
-            Msg::TechScopedRunRequested(stop_after) => {
-                match (
-                    model.selected.clone(),
-                    matches!(stop_after.as_str(), "scout" | "architect" | "lead"),
-                ) {
-                    (Some(story_id), true) => command(
-                        model,
-                        format!("scoped:{stop_after}"),
-                        serde_json::json!({ "action": "scopedRun", "storyId": story_id, "stopAfter": stop_after }),
-                    ),
-                    _ => Cmd::none(),
-                }
-            }
-            Msg::TechMoveWorkbenchRequested(target) => {
-                match (
-                    model.selected.clone(),
-                    matches!(target.as_str(), "backlog" | "closed" | "next"),
-                ) {
-                    (Some(story_id), true) => command(
-                        model,
-                        format!("move:{target}"),
-                        serde_json::json!({ "action": "moveWorkbench", "storyId": story_id, "target": target }),
-                    ),
-                    _ => Cmd::none(),
-                }
-            }
-            Msg::TechLaunchFlightRequested => command(
-                model,
-                "launchFlight",
-                serde_json::json!({ "action": "launchFlight" }),
-            ),
-            Msg::TechScheduleFlightRequested { scheduled_for }
-                if !scheduled_for.trim().is_empty() =>
-            {
-                command(
-                    model,
-                    "scheduleFlight",
-                    serde_json::json!({ "action": "scheduleFlight", "scheduledFor": scheduled_for }),
-                )
-            }
-            Msg::TechCancelFlightRequested(batch_id) if !batch_id.trim().is_empty() => command(
-                model,
-                "cancelFlight",
-                serde_json::json!({ "action": "cancelFlight", "batchId": batch_id }),
-            ),
-            Msg::TechScheduleFlightRequested { .. } | Msg::TechCancelFlightRequested(_) => {
-                Cmd::none()
-            }
-            Msg::SorterDragStarted(card) => {
-                model.tech.dragging = Some(card);
-                Cmd::none()
-            }
-            Msg::SorterDropped(column) => {
-                let Some(card) = model.tech.dragging.take() else {
-                    return Cmd::none();
-                };
-                let current = model
-                    .read
-                    .loaded()
-                    .and_then(|page| page.sorter_cards.iter().find(|c| c.id == card))
-                    .map(|c| c.column.clone());
-                if current.as_deref() == Some(column.as_str()) {
-                    return Cmd::none();
-                }
-                let story = card.split('#').next().unwrap_or(&card).to_owned();
-                command(
-                    model,
-                    format!("Moving {story}"),
-                    serde_json::json!({ "action": "moveStoryBucket", "storyId": story, "target": column }),
-                )
-            }
-            Msg::CommandAnswered(answer) => {
-                model.tech.busy_action = None;
-                model.tech.notice = Some(match answer {
-                    Ok(value) => {
-                        let message = value
-                            .get("message")
-                            .and_then(|message| message.as_str())
-                            .unwrap_or("TECH command completed.");
-                        // `{ ok: false, message }` is a refusal whichever way it arrived.
-                        if value.get("ok").and_then(|ok| ok.as_bool()) == Some(false) {
-                            CommandNotice::failure(message)
-                        } else {
-                            CommandNotice::success(message)
-                        }
-                    }
-                    Err(error) => CommandNotice::failure(error.message),
-                });
-                read(model)
-            }
+            Msg::ClearNotice => model.notice = None,
         }
+        Cmd::none()
     }
 
     fn view(model: &Model, _ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
         let on_msg = link.callback(|msg: Msg| msg);
-        template::remote(&model.read, "the Forge line", |tech| {
-            view::cockpit(
-                &Vm {
-                    loading: model.loading,
-                    tech: &model.tech,
-                    controls: &model.controls,
-                },
-                tech,
-                &on_msg,
-            )
-        })
+        view::cockpit(model, &on_msg)
     }
 }
 
-/// What the view reads besides the Cockpit itself.
-pub struct Vm<'a> {
-    pub loading: bool,
-    pub tech: &'a TechCockpitState,
-    pub controls: &'a Controls,
+pub fn find_agent<'a>(agents: &'a [AgentNode], id: &str) -> Option<&'a AgentNode> {
+    for agent in agents {
+        if agent.id == id {
+            return Some(agent);
+        }
+        if let Some(found) = find_agent(&agent.children, id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn demo_model() -> Model {
+    Model {
+        status: "RUNNING",
+        story_id: "ENG-FORGE-V2-042",
+        story_title: "Forge V2 hardened execution profiles",
+        run_id: "run_01JQ9Y7V2",
+        work_item: "work_004218",
+        role: "SMITH",
+        model_name: "deepseek/deepseek-flash",
+        runtime: "08:42",
+        worktree: "/tmp/forge/ENG-FORGE-V2-042/smith",
+        base_sha: "76f1c923",
+        candidate_sha: "a83c12f4",
+        story_spend_usd: 0.084,
+        story_budget_usd: 0.250,
+        turns_used: 5,
+        turn_cap: 10,
+        agents: vec![
+            AgentNode {
+                id: "scout",
+                label: "Scout",
+                state: AgentState::Complete,
+                detail: "Mapped the existing harness boundary and V2 seams.",
+                model: "deepseek-flash",
+                session: "ses_scout_01",
+                steps_used: 2,
+                step_cap: 6,
+                tokens: 8_240,
+                cost_usd: 0.009,
+                children: vec![],
+            },
+            AgentNode {
+                id: "architect",
+                label: "Architect",
+                state: AgentState::Complete,
+                detail: "Defined the role-permission and session-continuity contract.",
+                model: "deepseek-flash",
+                session: "ses_arch_01",
+                steps_used: 3,
+                step_cap: 8,
+                tokens: 12_118,
+                cost_usd: 0.014,
+                children: vec![],
+            },
+            AgentNode {
+                id: "lead",
+                label: "Lead",
+                state: AgentState::Complete,
+                detail: "Decision: SMITH. One implementation lane, QA required.",
+                model: "deepseek-flash",
+                session: "ses_lead_01",
+                steps_used: 1,
+                step_cap: 4,
+                tokens: 4_670,
+                cost_usd: 0.006,
+                children: vec![],
+            },
+            AgentNode {
+                id: "smith",
+                label: "Smith",
+                state: AgentState::Running,
+                detail: "Implementing V2 execution policy and integration coverage.",
+                model: "deepseek-flash",
+                session: "ses_smith_04",
+                steps_used: 5,
+                step_cap: 10,
+                tokens: 31_482,
+                cost_usd: 0.041,
+                children: vec![
+                    AgentNode {
+                        id: "explore",
+                        label: "Explore",
+                        state: AgentState::Complete,
+                        detail: "Traced RoleHarness callers and permission-sensitive commands.",
+                        model: "deepseek-flash",
+                        session: "ses_child_explore",
+                        steps_used: 2,
+                        step_cap: 4,
+                        tokens: 5_180,
+                        cost_usd: 0.006,
+                        children: vec![],
+                    },
+                    AgentNode {
+                        id: "reviewer",
+                        label: "Reviewer",
+                        state: AgentState::Running,
+                        detail: "Reviewing the Smith diff for boundary violations.",
+                        model: "deepseek-flash",
+                        session: "ses_child_review",
+                        steps_used: 2,
+                        step_cap: 4,
+                        tokens: 4_311,
+                        cost_usd: 0.005,
+                        children: vec![],
+                    },
+                    AgentNode {
+                        id: "test-analyst",
+                        label: "Test Analyst",
+                        state: AgentState::Complete,
+                        detail: "Mapped regression coverage and negative permission tests.",
+                        model: "deepseek-flash",
+                        session: "ses_child_test",
+                        steps_used: 2,
+                        step_cap: 4,
+                        tokens: 3_764,
+                        cost_usd: 0.003,
+                        children: vec![],
+                    },
+                ],
+            },
+            AgentNode {
+                id: "qa",
+                label: "QA / Assay",
+                state: AgentState::Waiting,
+                detail: "Waiting for Smith candidate.",
+                model: "deepseek-flash",
+                session: "—",
+                steps_used: 0,
+                step_cap: 6,
+                tokens: 0,
+                cost_usd: 0.0,
+                children: vec![],
+            },
+            AgentNode {
+                id: "devops",
+                label: "DEV_OPS",
+                state: AgentState::Waiting,
+                detail: "Publication gate has not been reached.",
+                model: "Forge deterministic",
+                session: "—",
+                steps_used: 0,
+                step_cap: 0,
+                tokens: 0,
+                cost_usd: 0.0,
+                children: vec![],
+            },
+        ],
+        selected_agent: "smith".into(),
+        activity: vec![
+            ActivityEvent {
+                at: "16:22:04",
+                kind: EventKind::Read,
+                title: "rust/forge/src/engine/runner.rs",
+                detail: "Loaded RoleHarness and runtime budget boundaries.",
+            },
+            ActivityEvent {
+                at: "16:22:07",
+                kind: EventKind::Search,
+                title: "sanitize_model_env",
+                detail: "Found production credential and Git-push protections.",
+            },
+            ActivityEvent {
+                at: "16:22:12",
+                kind: EventKind::Edit,
+                title: "rust/forge/src/engine/opencode.rs",
+                detail: "Added V2 execution policy mapping.",
+            },
+            ActivityEvent {
+                at: "16:22:28",
+                kind: EventKind::Test,
+                title: "cargo test -p forge",
+                detail: "148 passed · 0 failed",
+            },
+            ActivityEvent {
+                at: "16:22:41",
+                kind: EventKind::Subagent,
+                title: "forge-reviewer",
+                detail: "Read-only child session started.",
+            },
+            ActivityEvent {
+                at: "16:23:10",
+                kind: EventKind::Review,
+                title: "Boundary review",
+                detail: "No publication authority leaked into Smith.",
+            },
+            ActivityEvent {
+                at: "16:23:18",
+                kind: EventKind::Decision,
+                title: "Candidate pending",
+                detail: "QA remains gated until Smith produces a clean commit.",
+            },
+        ],
+        results: vec![
+            EngineResult {
+                id: "ENG-FORGE-V2-041",
+                title: "OpenCode V2 structured session adapter",
+                state: ResultState::QaPassed,
+                detail: "Structured events and explicit session continuity verified.",
+                candidate: Some("44bc892e"),
+                tests: "142 / 142",
+            },
+            EngineResult {
+                id: "ENG-FORGE-V2-040",
+                title: "Remove V1 SQLite telemetry coupling",
+                state: ResultState::ReadyPublish,
+                detail: "Usage now comes from the supported V2 execution contract.",
+                candidate: Some("c921adc7"),
+                tests: "139 / 139",
+            },
+            EngineResult {
+                id: "ENG-VAULT-091",
+                title: "Guest document authorization regression",
+                state: ResultState::Hold,
+                detail: "ARCHITECTURE_GAP · requires Vault entitlement decision.",
+                candidate: None,
+                tests: "—",
+            },
+            EngineResult {
+                id: "ENG-OPS-034",
+                title: "Property media reconciliation",
+                state: ResultState::Failed,
+                detail: "MODEL_TURN_CAP · stopped at 10 / 10 turns.",
+                candidate: Some("91d61b0a"),
+                tests: "27 / 31",
+            },
+            EngineResult {
+                id: "ENG-SIGN-042",
+                title: "Signature envelope idempotency",
+                state: ResultState::ReadyQa,
+                detail: "Candidate committed; deterministic assay requested.",
+                candidate: Some("a83c12f4"),
+                tests: "37 / 37",
+            },
+        ],
+        selected_result: "ENG-SIGN-042".into(),
+        notice: None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
-    fn dropping_a_card_on_another_column_moves_its_story_there() {
+    fn cockpit_boots_from_fake_mvi_without_requests() {
         let ctx = ScreenCtx::default();
-        let mut model = Model {
-            read: Remote::Loaded(PortalTechPage {
-                sorter_cards: vec![crate::model::PortalTechSorterCard {
-                    id: "FORGE-9#handoff".into(),
-                    column: "engine".into(),
-                    ..Default::default()
-                }],
-                ..PortalTechPage::default()
-            }),
-            ..Model::default()
-        };
-        TechCockpit::update(
-            &mut model,
-            Msg::SorterDragStarted("FORGE-9#handoff".into()),
-            &ctx,
-        );
-        assert!(
-            TechCockpit::update(&mut model, Msg::SorterDropped("engine".into()), &ctx)
-                .into_requests()
-                .is_empty(),
-            "same column: nothing"
-        );
-        TechCockpit::update(
-            &mut model,
-            Msg::SorterDragStarted("FORGE-9#handoff".into()),
-            &ctx,
-        );
-        let request = TechCockpit::update(&mut model, Msg::SorterDropped("backlog".into()), &ctx)
-            .into_requests()
-            .remove(0);
-        let body = request.body.clone().unwrap();
-        assert_eq!(
-            (
-                body["action"].as_str(),
-                body["storyId"].as_str(),
-                body["target"].as_str()
-            ),
-            (Some("moveStoryBucket"), Some("FORGE-9"), Some("backlog"))
-        );
+        let (model, cmd) = TechCockpit::init(&ctx);
+        assert!(cmd.into_requests().is_empty());
+        assert_eq!(model.status, "RUNNING");
+        assert_eq!(model.selected_agent, "smith");
+        assert!(find_agent(&model.agents, "reviewer").is_some());
     }
 
     #[test]
-    fn selection_rereads_commands_run_alone_and_every_answer_rereads() {
+    fn selections_and_demo_controls_are_local_mvi_only() {
         let ctx = ScreenCtx::default();
-        let (mut model, cmd) = TechCockpit::init(&ctx);
-        let request = cmd.into_requests().remove(0);
-        assert_eq!(request.path, "/api/portal/rust-ui/tech");
-        TechCockpit::update(
-            &mut model,
-            request.respond(Ok(json!({ "tech": { "ready": true } }))),
-            &ctx,
-        );
-        assert!(model.read.loaded().is_some());
+        let (mut model, _) = TechCockpit::init(&ctx);
 
-        let reread = TechCockpit::update(&mut model, Msg::TechStorySelected("S-1".into()), &ctx)
-            .into_requests()
-            .remove(0);
-        assert_eq!(reread.path, "/api/portal/rust-ui/tech?selected=S-1");
-        TechCockpit::update(&mut model, reread.respond(Ok(json!({ "tech": {} }))), &ctx);
-
-        let go = TechCockpit::update(&mut model, Msg::TechGoodToGoRequested, &ctx)
-            .into_requests()
-            .remove(0);
-        assert_eq!(
-            go.body,
-            Some(json!({ "action": "goodToGo", "storyId": "S-1" }))
-        );
-        assert!(
-            TechCockpit::update(&mut model, Msg::TechLaunchFlightRequested, &ctx)
-                .into_requests()
-                .is_empty()
-        );
-        let after = TechCockpit::update(
+        assert!(TechCockpit::update(
             &mut model,
-            go.respond(Ok(json!({ "ok": false, "message": "Engine busy." }))),
-            &ctx,
-        );
-        assert_eq!(
-            model.tech.notice,
-            Some(CommandNotice::failure("Engine busy."))
-        );
-        assert_eq!(after.into_requests().len(), 1, "a refusal re-reads too");
-        assert!(model.tech.busy_action.is_none());
+            Msg::AgentSelected("reviewer".into()),
+            &ctx
+        )
+        .into_requests()
+        .is_empty());
+        assert_eq!(model.selected_agent, "reviewer");
+
+        TechCockpit::update(&mut model, Msg::DemoAction("HOLD"), &ctx);
+        assert!(model.notice.as_deref().is_some_and(|n| n.contains("preview-only")));
     }
 }
