@@ -79,9 +79,14 @@ jobs:
       # and a gate that always fails is not a gate, it is a red light people learn to scroll past:
       #
       #   * `pnpm typecheck` — `tsc --noEmit` reports 679 errors, every one of them in the reference-only
-      #     dead TypeScript (`agent-runtime/`, `scripts/*.ts` importing the deleted `legacy/`). Those files
-      #     are kept on purpose ("marked, not deleted" — docs/agent/BROKEN-TS-INVENTORY.md) and they cannot
-      #     typecheck, so this step cannot be green until they are deleted. The live TypeScript is the
+      #     dead TypeScript (`agent-runtime/`, `scripts/*.ts` importing the deleted `legacy/`) — the
+      #     2026-09-28 measurement. Those files cannot typecheck, so this step cannot be green while they are
+      #     on disk, and the first `git rm` of them landed 2026-10-02 (`legacy/agent-runtime`,
+      #     `legacy/services`, `legacy/lib` — 45 files, 6,643 lines). Re-measured that day on a developer
+      #     machine with no `node_modules`, the errors went 811 → 432 and the remaining owners are
+      #     `legacy/testv2` (384) and `legacy/workflow_app/forge` (48): the step returns when those two trees
+      #     go, and widening `tsconfig`'s `exclude` at them instead would only hide them
+      #     (`docs/agent/DEAD-TS-DOWNSIZE.md` §5.1). The live TypeScript is the
       #     remaining TypeScript is tracked by the ratchet; executable tests live in Rust.
       #   * `node scripts/app-runtime-boundary.mjs` — it walks `app/`, which was deleted with the TypeScript
       #     application, so it exits ENOENT. Its boundary (the UI must not import the retired server) is

@@ -38,7 +38,8 @@ retired production files they assert against — never a live path (`docs/agent/
    `rust/forge/src/engine/opencode_events.rs`), in the ONE workspace the engine provisions for a run
    (`rust/forge/src/engine/worktree.rs`: branch `agent/…`, `culebraluxe-forge-worktrees`). There is no
    per-lane tree, and a tracked file that introduces one fails a test — AGENTS.md, "NO TREES. EVER.".
-   The TypeScript `agent-runtime/` harness is gone.
+   The TypeScript `agent-runtime/` harness is gone — with its 40-file test suite, deleted 2026-10-02
+   (`legacy/agent-runtime`, `legacy/services`, `legacy/lib`, 45 files; the rail is `arch_boundary__012`).
 
 ## The one doctrine that matters
 

@@ -77,3 +77,36 @@ rest, cannot be loaded by accident, and is searchable intent. The honest downsiz
 files stay, the lying menu entries go** — one mechanical pass that deletes the dead 64 and re-points the
 ones that have a Rust equivalent at the Rust binary. If the files themselves should come off disk, that
 is one `git rm` and this table is the list; nothing here is load-bearing.
+
+### 5.1 The first `git rm`, 2026-10-02 — the agent plane's test suite
+
+`legacy/agent-runtime` (40 files), `legacy/services` (4) and `legacy/lib` (1) came off disk: **45 files,
+6,643 lines**, every one of them a `*.test.ts` for code that was already deleted. They went first because no
+argument for keeping them survived measurement.
+
+- **No gate was watching them.** `pnpm broken:ts:sweep` scans `scripts` and `agent-runtime`; there is no
+  top-level `agent-runtime/` — the harness lives under `legacy/` — so the sweep never opened them. Sweeping
+  `legacy` as a root for the first time measures **465 files scanned, 431 cannot load, 0 marked, exit 1**:
+  the gate's green was always scoped to `scripts/`, and the tree this page calls "marked, not deleted" is
+  neither — 431 of its files are broken and unbannered.
+- **They owned 379 of `tsc`'s errors.** `pnpm typecheck` measured on this machine (no `node_modules`, so the
+  number is this machine's): **811 → 432**. What is left is `legacy/testv2` (384 error sites) and
+  `legacy/workflow_app/forge` (48), so the step `gates.yml` removed on 2026-09-28 comes back when the last two
+  dead trees go — not before.
+- **§1 above is stale.** All four "PORT" files (`apple-calls-intake.ts`, `load-apple-contacts.ts`,
+  `project-apple-contacts.ts`, `promote-warehouse.ts`) are already absent from `git ls-files`, and the Apple
+  chain's promotion hop is Rust (`rust/cli/src/apple_contacts.rs`, `rust/cli/src/apple_mail/promote.rs`).
+  "Marked, not deleted" existed to preserve intent for work not yet ported; that work is done, or its files
+  are gone.
+
+The retirement is a **property** now, not an event: `arch_boundary__012__retired_ts_trees_stay_retired` fails
+if any of the three paths comes back, and if any live JavaScript or TypeScript imports anything under
+`legacy/` — the rule this page states and nothing enforced (`eslint.config.mjs` names the paths in a banned
+group, and CI runs no eslint step; `gates.yml:7-8` is the repository's own note that an unenforced rule is
+not a rule).
+
+**The budget that remains is 74,977 lines:** `legacy/workflow_app` (66,687, of which 66,386 is `tests/`) and
+`legacy/testv2` (8,342). The deletion is the same one `git rm`; what it needs first is the captain's answer to
+two questions this measurement opens — are the TypeScript tests still the reference the port is checked
+against, and should the 431 broken-unbannered files be bannered (what the sweep's contract expects) or
+deleted (what this page would prefer)?

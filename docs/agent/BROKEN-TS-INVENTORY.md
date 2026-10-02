@@ -4,6 +4,12 @@
 > The Apple chain that still owed work is ported (Contacts closed 2026-09-28; see §"Live callers"), so
 > what is left is 2 Forge gates plus files that are killed outright — not translated, not maintained.
 > This page is the file-by-file reference behind that page.
+>
+> **Deleted 2026-10-02:** `legacy/agent-runtime`, `legacy/services` and `legacy/lib` came off disk — 45
+> files, 6,643 lines, every one a `*.test.ts` (§5.1 of that page). The appendix rows below that name them
+> are the 2026-09-27 record, not a description of the tree. Measured while removing them: no root of
+> `pnpm broken:ts:sweep` covers `legacy/` at all, and `legacy/` holds **431 files that are broken and carry
+> no banner** — so "marked, not deleted" was true of the files this page lists and never of that tree.
 
 ## The rule (read this before touching any file in `scripts/`)
 
