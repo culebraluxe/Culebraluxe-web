@@ -84,20 +84,17 @@ pub trait AbstractForgeService: Send + Sync {
     }
 }
 
-/// Adapter from the established `ForgeRoleRunner` seam into Forge role services.
+/// Compatibility adapter from the established `ForgeRoleRunner` seam into Forge role services.
 ///
-/// Every canonical Forge lane is now registered through this router. The fallback remains
-/// intentionally available during the strangler period for an unrecognized/future lane;
-/// it does not own any currently mapped Forge role.
+/// Every canonical Forge lane is registered explicitly. An unmapped node is a configuration
+/// error, never permission to bypass the service boundary through a generic fallback.
 pub struct ForgeServiceRouter<'a> {
-    fallback: &'a dyn ForgeRoleRunner,
     services: Vec<&'a dyn AbstractForgeService>,
 }
 
 impl<'a> ForgeServiceRouter<'a> {
-    pub fn new(fallback: &'a dyn ForgeRoleRunner) -> Self {
+    pub fn new() -> Self {
         Self {
-            fallback,
             services: Vec::new(),
         }
     }
@@ -117,10 +114,12 @@ impl<'a> ForgeServiceRouter<'a> {
 
 impl ForgeRoleRunner for ForgeServiceRouter<'_> {
     fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
-        match self.service_for(node_id) {
-            Some(service) => service.execute(node_id, task),
-            None => self.fallback.run(node_id, task),
-        }
+        let service = self.service_for(node_id).ok_or_else(|| {
+            WorkflowError::generic(format!(
+                "no registered Forge service owns workflow node {node_id:?}"
+            ))
+        })?;
+        service.execute(node_id, task)
     }
 }
 
@@ -130,8 +129,6 @@ impl ForgeRoleRunner for ForgeServiceRouter<'_> {
 /// which service owns what. The list is not role policy: it names services, and each service answers for
 /// itself which nodes are its own from the canonical XML service binding applied by `supports_node`.
 pub struct ForgeLaneServices<'a> {
-    /// The runner the lane turns run through, and the fallback for a node no lane owns.
-    fallback: SharedLifecycle<'a>,
     scout: ScoutService<'a>,
     architect: ArchitectService<'a>,
     lead: LeadService<'a>,
@@ -144,7 +141,6 @@ pub struct ForgeLaneServices<'a> {
 impl<'a> ForgeLaneServices<'a> {
     pub fn new(runner: &'a dyn ForgeRoleRunner) -> Self {
         Self {
-            fallback: SharedLifecycle { runner },
             scout: ScoutService::new(runner),
             architect: ArchitectService::new(runner),
             lead: LeadService::new(runner),
@@ -179,7 +175,7 @@ impl<'a> ForgeLaneServices<'a> {
     /// The router over these lanes. Constructed per call rather than stored: it borrows the services, and a
     /// turn is short enough that the borrow never has to outlive it.
     pub fn router(&self) -> ForgeServiceRouter<'_> {
-        ForgeServiceRouter::new(&self.fallback)
+        ForgeServiceRouter::new()
             .with_service(&self.scout)
             .with_service(&self.architect)
             .with_service(&self.lead)
@@ -200,20 +196,6 @@ impl ForgeRoleRunner for ForgeLaneServices<'_> {
     }
 }
 
-/// The fallback for a node no lane owns: the shared lifecycle with no lane reading.
-///
-/// A node the registry does not map still runs the proven turn rather than failing, which is the behavior
-/// every caller already had. It deliberately does NOT route back into the lane set: a fallback that could
-/// reach the dispatcher would be the dispatcher calling itself.
-struct SharedLifecycle<'a> {
-    runner: &'a dyn ForgeRoleRunner,
-}
-
-impl ForgeRoleRunner for SharedLifecycle<'_> {
-    fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
-        run_lane_turn(self.runner, node_id, task, &NoRoleHooks)
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -478,7 +460,6 @@ mod tests {
 
     #[test]
     fn router_routes_every_current_forge_lane_through_its_service() {
-        let fallback = RecordingRunner::new("legacy");
         let scout_runner = RecordingRunner::new("scout-service");
         let architect_runner = RecordingRunner::new("architect-service");
         let lead_runner = RecordingRunner::new("lead-service");
@@ -495,7 +476,7 @@ mod tests {
         let assay = AssayService::new(&assay_runner);
         let devops = DevOpsService::new(&devops_runner);
 
-        let router = ForgeServiceRouter::new(&fallback)
+        let router = ForgeServiceRouter::new()
             .with_service(&scout)
             .with_service(&architect)
             .with_service(&lead)
@@ -526,21 +507,17 @@ mod tests {
         assert_eq!(inspector_runner.calls(), vec!["qa_review".to_string()]);
         assert_eq!(assay_runner.calls(), vec!["qa_verify".to_string()]);
         assert_eq!(devops_runner.calls(), vec!["deploy".to_string()]);
-        assert!(
-            fallback.calls().is_empty(),
-            "every currently mapped Forge lane must be service-owned"
-        );
     }
 
     #[test]
-    fn router_keeps_fallback_only_for_unmapped_future_nodes() {
-        let fallback = RecordingRunner::new("legacy");
-        let router = ForgeServiceRouter::new(&fallback);
-        let out = router
+    fn router_fails_closed_for_unmapped_future_nodes() {
+        let router = ForgeServiceRouter::new();
+        let error = router
             .run("future_unmapped_role", &task("future_unmapped_role"))
-            .expect("fallback route");
-        assert_eq!(out.evidence.work_type.as_deref(), Some("legacy"));
-        assert_eq!(fallback.calls(), vec!["future_unmapped_role".to_string()]);
+            .expect_err("an unmapped workflow node must never bypass the service boundary");
+        assert!(error
+            .to_string()
+            .contains("no registered Forge service owns workflow node"));
     }
 
     /// Inspector is NOT Assay, and the boundary is where that is enforced: the review lane claims no
@@ -574,7 +551,6 @@ mod tests {
     fn devops_alone_owns_the_publish_nodes() {
         let publish_nodes = ["deploy", "repair_devops", "production_smoke"];
 
-        let fallback = RecordingRunner::new("unclaimed");
         let runner = RecordingRunner::new("lane");
         let scout = ScoutService::new(&runner);
         let architect = ArchitectService::new(&runner);
@@ -582,7 +558,7 @@ mod tests {
         let smith = SmithService::new(&runner);
         let inspector = InspectorService::new(&runner);
         let assay = AssayService::new(&runner);
-        let without_devops = ForgeServiceRouter::new(&fallback)
+        let without_devops = ForgeServiceRouter::new()
             .with_service(&scout)
             .with_service(&architect)
             .with_service(&lead)
@@ -591,16 +567,14 @@ mod tests {
             .with_service(&assay);
 
         for node in publish_nodes {
-            let out = without_devops.run(node, &task(node)).expect("fallback route");
-            assert_eq!(
-                out.evidence.work_type.as_deref(),
-                Some("unclaimed"),
+            assert!(
+                without_devops.run(node, &task(node)).is_err(),
                 "no lane but DevOps may take {node}"
             );
         }
 
         let devops = DevOpsService::new(&runner);
-        let with_devops = ForgeServiceRouter::new(&fallback).with_service(&devops);
+        let with_devops = ForgeServiceRouter::new().with_service(&devops);
         for node in publish_nodes {
             let out = with_devops.run(node, &task(node)).expect("devops route");
             assert_eq!(out.evidence.work_type.as_deref(), Some("lane"), "{node}");
