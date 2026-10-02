@@ -16,8 +16,9 @@ use yew::prelude::*;
 use crate::app::api::{TechCommand, TechRead};
 use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
-use crate::app::screens::flight_recorder::{FlightRecorder, Model as FlightModel, Msg as FlightMsg};
-use crate::app::template;
+use crate::app::screens::flight_recorder::{
+    FlightRecorder, Model as FlightModel, Msg as FlightMsg,
+};
 use crate::model::{CommandNotice, PortalPage, PortalTechPage, TechCockpitState};
 
 const REFRESH_MS: u32 = 30_000;
@@ -104,9 +105,7 @@ fn sync_flight(model: &mut Model, instance_id: Option<String>, ctx: &ScreenCtx) 
         model.flight_instance_id = None;
         return Cmd::none();
     };
-    if model.flight.is_some()
-        && model.flight_instance_id.as_deref() == Some(instance_id.as_str())
-    {
+    if model.flight.is_some() && model.flight_instance_id.as_deref() == Some(instance_id.as_str()) {
         return Cmd::none();
     }
     let child_ctx = recorder_ctx(ctx, &instance_id);
@@ -163,9 +162,11 @@ impl Screen for TechCockpit {
                     Cmd::none()
                 }
             }
-            Msg::Live(msg @ live_ops::Msg::WorkSelected(ref story_id)) => {
+            Msg::Live(live_ops::Msg::WorkSelected(story_id)) => {
                 model.selected = Some(story_id.clone());
-                let local = live_ops::update(&mut model.live, msg).map(Msg::Live);
+                let local =
+                    live_ops::update(&mut model.live, live_ops::Msg::WorkSelected(story_id))
+                        .map(Msg::Live);
                 Cmd::batch([local, read(model)])
             }
             Msg::Flight(msg) => {
@@ -446,7 +447,11 @@ mod tests {
             &ctx,
         );
         let requests = cmd.into_requests();
-        assert_eq!(requests.len(), 1, "selecting live work rereads its run and node facts");
+        assert_eq!(
+            requests.len(),
+            1,
+            "selecting live work rereads its run and node facts"
+        );
         assert!(requests[0].path.contains("selected=FORGE-1"));
         assert_eq!(model.live.selected_story.as_deref(), Some("FORGE-1"));
     }
@@ -469,5 +474,4 @@ mod tests {
         assert!(requests[0].path.contains("wf-123"));
         assert_eq!(model.flight_instance_id.as_deref(), Some("wf-123"));
     }
-
 }

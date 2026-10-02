@@ -6,14 +6,11 @@
 
 use yew::prelude::*;
 
-use crate::model::{
-    PortalTechEngineRun, PortalTechFlight, PortalTechHistory, PortalTechPage, PortalTechRun,
-    PortalTechStory,
-};
+use crate::model::{PortalTechEngineRun, PortalTechFlight, PortalTechPage};
 
-use crate::app::screens::tech::{Msg, Vm};
 use super::engine::*;
 use super::workbench::*;
+use crate::app::screens::tech::{Msg, Vm};
 
 pub(super) fn assembly(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html {
     if !tech.ready {

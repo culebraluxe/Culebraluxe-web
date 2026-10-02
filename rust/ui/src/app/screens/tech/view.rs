@@ -9,14 +9,10 @@ use yew::prelude::*;
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::screens::flight_recorder::{FlightRecorder, Msg as FlightMsg};
 use crate::app::template;
-use crate::model::{
-    PortalTechEngineRun, PortalTechHistory, PortalTechPage, PortalTechRun, PortalTechStory,
-};
+use crate::model::{PortalTechPage, PortalTechRun, PortalTechStory};
 
 use super::{live_ops, Model, Msg, TechTab, Vm};
-use assembly::{
-    compact_id, result_runs, running_runs, selected_engine_live, selected_engine_owned, short_time,
-};
+use assembly::{compact_id, selected_engine_live, selected_engine_owned, short_time};
 
 mod assembly;
 mod engine;
