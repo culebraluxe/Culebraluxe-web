@@ -118,7 +118,15 @@ mod tests {
             operation: FORGE_SCHEDULED_PASS_OPERATION.into(),
             payload: Value::Null,
         };
-        let context = ServiceContext::system("forge-service-test");
+        let context = ServiceContext {
+            actor: service::ServiceActor {
+                id: Some("forge-service-test".into()),
+                kind: service::ServiceActorKind::System,
+            },
+            correlation_id: "forge-service-test".into(),
+            causation_id: None,
+            principal: None,
+        };
 
         let error = ForgeService::new()
             .dispatch(&envelope, &context)
