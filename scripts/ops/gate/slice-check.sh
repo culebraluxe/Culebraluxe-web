@@ -120,11 +120,11 @@ fi
 
 # --- FMT — rustfmt, scoped to this slice's files, with the deferrals CI honours and no others ---------------------
 # Two scopes, both deliberate. The four deferred trees are exempt because CI exempts them (the same regex, copied, not
-# re-guessed). And a file this slice did NOT touch may be unformatted without failing it — main's pre-existing rustfmt
-# dirt (the `signature/database.rs` 798/801 collision is the live one) belongs to the ratchet, and charging it here would
-# make every slice on a red main unlandable, which is the exact pathology this tier exists to end. It is reported, never
-# hidden: a receipt that says PASS while listing someone else's broken file is honest; one that says PASS and says
-# nothing is not.
+# re-guessed). And a file this slice did NOT touch may be unformatted without failing it. rustfmt is clean on `main`
+# today — this scope is insurance, not a workaround: the standing reds are `osv-scanner` and the 800-line boundedness
+# rule, and the day a formatting drift joins them it belongs to the ratchet, not to every slice. A slice that cannot
+# land because of dirt it did not create is the pathology this tier exists to end. Reported, never hidden: a receipt
+# that says PASS while listing someone else's unformatted file is honest; one that says PASS and says nothing is not.
 if [ -z "$failed" ]; then
   echo "slice-check: FMT — rustfmt on this slice's files (four deferred trees exempt: the gates.yml list, not a guess)"
   started=$SECONDS
