@@ -384,7 +384,6 @@ impl RoleHarness for OpenCodeHarness {
         let usage = baseline
             .after_turn(reported_session.as_deref())
             .or_else(|| turn.as_ref().ok().and_then(|events| events.usage.clone()));
-
         let spent = usage
             .as_ref()
             .map(|u| {

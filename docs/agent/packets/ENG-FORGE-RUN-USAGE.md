@@ -22,6 +22,38 @@ The harnesses know usage and expose it — we just never ask:
 - **DeepSeek (`dsh`)** bin is not on PATH in this checkout — its usage path is a
   separate open question (see Stop conditions).
 
+## Resolved: OpenCode V2 — and the private table is no longer read (2026-10-01)
+
+`ENG-FORGE-OPENCODE-V2` migrated the harness to the installed OpenCode v2.0.21 and closed
+both of this packet's open ends. The finding above is kept as the archaeology; this is what
+is true now.
+
+- **Stop condition 1 is FIXED.** The session id is no longer inferred from a marker. V2
+  reports the session it used on *every* event of `run --format json`, Forge captures that
+  id, and each later turn resumes `--session <that id>` explicitly rather than relying on
+  the directory-global `--continue`. A run now maps to its session by construction, not by
+  searching for the newest session in a directory.
+- **The `session` table is NO LONGER READ.** It was an implementation detail: a schema,
+  column names and a file path Forge does not own. Accounting moved onto the surfaces the
+  vendor documents — `session export <id> --standalone` for the totals (authoritative, and
+  preferred), and `session list --standalone --format json` for finding the lane's own
+  session. A source guard (`forge_never_reads_opencodes_private_session_store`) fails if any
+  `rust/forge/src` file reaches for `sqlite3`, `opencode.db` or `FORGE_OPENCODE_DB` again.
+- **`opencode stats` is still not used**, deliberately. Per-run accounting needs
+  per-*session* numbers; `stats` is an aggregate and cannot attribute spend to a run.
+- **Child sessions are DECLARED, not silently dropped.** V1 summed child sessions into
+  their root through a recursive query over the private table. No supported V2 interface
+  exposes that linkage (the list is top-level only; the export has no parent/child field),
+  so it cannot be enumerated — and `opencode debug agents` reports no agents on this build,
+  so a Forge turn spawns none. A test trips the moment V2 reports the linkage.
+- **Stop condition 3 still stands, and is now enforced in the parser.** `step_finish` sums
+  and the export are read strictly: an absent cost or token count is `None` — unmeasured —
+  never `0`. An unreadable export and a non-zero exit both read as unmeasured.
+- **One honest caveat:** the live 2.0.21 build does not reliably emit a `step_finish` for a
+  turn's TERMINAL step, so the event-stream sum is a LOWER BOUND. It is only the fallback
+  for when `session export` cannot be read (a failed turn often has no other reading), and
+  the preferred export figure is never replaced by it.
+
 ## Plan
 
 1. **Capture (opencode):** after a role run, resolve that run's session and read

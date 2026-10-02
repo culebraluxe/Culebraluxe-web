@@ -210,6 +210,162 @@ fn a_second_turn_resumes_the_exact_id_the_first_turn_reported() {
 }
 
 // ---------------------------------------------------------------------------------------------------------
+// §11 — the live contract smoke. IGNORED by default: it runs the installed OpenCode build and spends a little,
+// so it is run deliberately — `cargo test -p forge --test opencode_v2_contract -- --ignored`. Everything else in
+// this file is deterministic and free.
+//
+// It is the proof the unit tests cannot give: that the argument list, the event stream, the session interface
+// and the sanitized environment all actually work against the vendor build on this machine, end to end.
+// ---------------------------------------------------------------------------------------------------------
+
+#[test]
+#[ignore = "live: runs the installed OpenCode build and spends a little money; run with --ignored"]
+fn live_smoke_captures_resumes_and_meters_a_real_v2_turn() {
+    use forge::engine::harness_usage::{session_usage, usage_delta};
+    use forge::engine::opencode::{read_session_id, sanitized_model_env, OpenCodeHarness};
+    use forge::engine::packet::StoryPacket;
+    use forge::engine::runner::RoleHarness;
+    use forge::engine::runtime::ActiveForgeRoleTask;
+
+    let cli_bin = opencode::default_cli_bin();
+    let workspace = std::env::temp_dir().join(format!("forge-v2-live-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&workspace);
+    std::fs::create_dir_all(&workspace).expect("temp workspace");
+    let cwd = workspace.to_string_lossy().to_string();
+    let env = sanitized_model_env();
+
+    let harness = OpenCodeHarness {
+        cli_bin: cli_bin.clone(),
+        workspace: workspace.clone(),
+        model: opencode::OPENCODE_PINNED_MODEL.to_string(),
+        env: Some(env.clone()),
+        auto_approve: true,
+        start_run: None,
+        assay_commands: vec![],
+        acceptance_mapped: false,
+        packet: StoryPacket {
+            id: "STORY-V2-LIVE".into(),
+            title: "live v2 contract smoke".into(),
+            goal: Some("Reply with the single word: ok".into()),
+            ..Default::default()
+        },
+        execution_workspace: None,
+        story_id: None,
+    };
+    let task = ActiveForgeRoleTask {
+        task_id: "task-live".into(),
+        process_instance_id: "proc-live".into(),
+        story_id: "STORY-V2-LIVE".into(),
+        token_id: None,
+        node_id: Some("scout".into()),
+        status: workflow::TaskStatus::Ready,
+        assignee: None,
+        candidates: vec![],
+    };
+
+    // TURN 1 — fresh. No session is named, so the vendor mints one and reports it.
+    let first = match harness.run_role("scout", &task, None) {
+        Ok(out) => out,
+        Err(error) => panic!("live turn 1 must succeed: {error}"),
+    };
+    assert!(
+        !first.raw.contains(r#""type":"step_start""#),
+        "the role output must be the assistant's text, not the NDJSON transcript: {:?}",
+        first.raw.chars().take(200).collect::<String>()
+    );
+    assert!(
+        !first.raw.trim().is_empty(),
+        "the live turn produced no text"
+    );
+
+    let session = read_session_id(&cwd)
+        .expect("a FRESH live turn must capture the session id the vendor minted");
+    assert!(
+        session.starts_with("ses_"),
+        "the captured id is the vendor's own: {session}"
+    );
+    eprintln!("live smoke: captured session {session}");
+
+    // The export is the authoritative reading, and a real turn bills something.
+    let before = match session_usage(&cli_bin, &cwd, Some(&env), &session) {
+        Some(usage) => usage,
+        None => panic!("the vendor export must be readable for {session}"),
+    };
+    assert!(
+        before.tokens_input > 0,
+        "a real turn bills input tokens: {before:?}"
+    );
+    eprintln!(
+        "live smoke: turn 1 export tokens_in={} tokens_out={} cost={:.6}",
+        before.tokens_input, before.tokens_output, before.cost_usd
+    );
+
+    // TURN 2 — resumed. The harness reads the stored id and hands it over explicitly.
+    let second = match harness.run_role("scout", &task, None) {
+        Ok(out) => out,
+        Err(error) => panic!("live turn 2 must succeed: {error}"),
+    };
+    assert!(
+        !second.raw.trim().is_empty(),
+        "the resumed turn produced no text"
+    );
+
+    let session_after = read_session_id(&cwd).expect("the marker still holds a session");
+    assert_eq!(
+        session_after, session,
+        "an explicit resume stays in the SAME session; a new id here would mean the turn silently started over"
+    );
+    eprintln!("live smoke: turn 2 resumed {session_after}");
+
+    // The resumed turn's spend is the DIFFERENCE across the turn, and it must be measurable.
+    let after = match session_usage(&cli_bin, &cwd, Some(&env), &session) {
+        Some(usage) => usage,
+        None => panic!("the vendor export must still be readable after the resume"),
+    };
+    let delta = usage_delta(&after, Some(&before));
+    assert!(
+        delta.tokens_input > 0 || delta.tokens_output > 0,
+        "the resumed turn's own spend is measurable: after={after:?} delta={delta:?}"
+    );
+    assert!(
+        second.usage.is_some(),
+        "the harness recorded the resumed turn's spend on its output"
+    );
+    eprintln!(
+        "live smoke: turn 2 delta tokens_in={} tokens_out={}",
+        delta.tokens_input, delta.tokens_output
+    );
+
+    // Security (§8): the model environment denies the push and carries no production authority.
+    let _ = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&workspace)
+        .status();
+    let _ = std::process::Command::new("git")
+        .args(["remote", "add", "origin", "/tmp/forge-v2-not-a-remote"])
+        .current_dir(&workspace)
+        .status();
+    let pushurl = std::process::Command::new("git")
+        .args(["config", "--get", "remote.origin.pushurl"])
+        .current_dir(&workspace)
+        .env_clear()
+        .envs(&env)
+        .output()
+        .expect("git runs");
+    assert_eq!(
+        String::from_utf8_lossy(&pushurl.stdout).trim(),
+        "/dev/null",
+        "the model subprocess environment denies the origin push"
+    );
+    assert!(
+        !env.contains_key("DATABASE_URL_PROD"),
+        "the model subprocess environment carries no production database authority"
+    );
+
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+// ---------------------------------------------------------------------------------------------------------
 // Security boundary (§8): the model subprocess keeps its isolation on V2.
 // ---------------------------------------------------------------------------------------------------------
 
