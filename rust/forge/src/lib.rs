@@ -10,6 +10,7 @@ pub mod release;
 pub mod roles;
 pub mod routing;
 pub mod runtime;
+pub mod service;
 // The Forge doctor's own rules, in Rust: the pure halves the operator command composes. They live here
 // rather than in the CLI because they decide what is TRUE about the control plane (a claim's age, whether a
 // QA verdict agrees with the run that produced it, what an ROI row means) — the CLI decides only how it is
@@ -26,3 +27,5 @@ pub mod scope_manifest;
 // generator must not index debris, and the `health --fix` cleanup must not delete a file a person wrote.
 // Ported from `lib/git/sync-conflict.ts`, deleted in the same commit.
 pub mod sync_conflict;
+
+pub use service::ForgeService;
