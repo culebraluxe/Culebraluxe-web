@@ -110,3 +110,41 @@ not a rule).
 two questions this measurement opens — are the TypeScript tests still the reference the port is checked
 against, and should the 431 broken-unbannered files be bannered (what the sweep's contract expects) or
 deleted (what this page would prefer)?
+
+### 5.2 The rest of the tree, the same day — archived, not deleted
+
+The captain's answer to §5.1's two questions settled it: **the port is never going back to that TypeScript**, and
+if the files can still be *read*, all the better. So the remaining **432 files and 79,479 lines** left the tree in
+one move — not `git rm` with the copy nowhere, and not "keep them in-tree until the port is done":
+
+| | |
+| --- | --- |
+| where | `~/Documents/forge-legacy-ts-archive-2026-10-02/legacy` — the tree, still greppable |
+| plus | `legacy-2026-10-02.zip`, 968 KB, `unzip -t` clean |
+| provenance | `Culebraluxe-web` at `5b4e5aa4`, the last commit that had it (so it is also in git history forever) |
+| verified | `diff -r legacy <archive>/legacy` clean, 432 files on both sides, **before** the in-tree deletion |
+| restore | `git checkout 5b4e5aa4 -- legacy/`, or unzip the archive |
+
+What that leaves in the repository: **five JavaScript files** (`scripts/*.mjs`, `e2e/*.mjs`, `eslint.config.mjs`)
+and **no TypeScript at all**. Measured after the move, on the tree without it:
+
+- **`pnpm typecheck`: 432 → 1** error site, and the one is `TS18003` — a config complaint that `tsconfig.json`
+  has no inputs left, not a code error. So the step `gates.yml` removed on 2026-09-28 does not "come back when
+  the last two trees go" (as §5.1 predicted); it has **no subject**, which is a different fact and a better one.
+  `tsconfig.json`'s `exclude` still names `workflow_engine`, `testv2` and `legacy/workflow_app/tests` — three
+  names for nothing.
+- **`cargo check --workspace` with `legacy/` physically absent: exit 0** — the cutover gate's own trick
+  (`rust-client-cutover.yml:84-87`), run by hand rather than trusted.
+- **`forge ts-sweep` unchanged and green**: 3 files scanned, 0 cannot load. The 431 broken-unbannered files
+  §5.1 measured are gone, so §5.1's open question ("banner them or delete them?") is answered by the move. What
+  remains of that finding: the sweep still does not look at this repository's remaining JavaScript, which is five
+  files and would cost nothing to cover.
+- **`rust/cli/src/forge/test_section.rs` was deliberately not touched.** The gate's section classifier still
+  classifies `legacy/...` paths and still lists `legacy/workflow_app/tests` as a test root: `--since` diffs
+  contain those paths now that the deletion itself is in history (`historical_fence_paths_keep_their_sections`),
+  and the root is guarded by `if path.exists()`. Removing either would change what the gate reports, and a
+  deletion slice has no business changing what the gate reports.
+
+The rail is now the whole tree: `arch_boundary__012__retired_ts_trees_stay_retired` fails if `legacy/` comes
+back, and if any live JavaScript or TypeScript imports anything under it. Its teeth are unchanged — recreating a
+path under `legacy/` fails it with its own message.

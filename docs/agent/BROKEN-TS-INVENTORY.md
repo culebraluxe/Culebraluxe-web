@@ -10,6 +10,12 @@
 > are the 2026-09-27 record, not a description of the tree. Measured while removing them: no root of
 > `pnpm broken:ts:sweep` covers `legacy/` at all, and `legacy/` holds **431 files that are broken and carry
 > no banner** — so "marked, not deleted" was true of the files this page lists and never of that tree.
+>
+> **Archived 2026-10-02, the same day:** the rest of the tree went with them — 432 files, 79,479 lines, out of
+> the tree to `~/Documents/forge-legacy-ts-archive-2026-10-02/` (byte-identical copy plus a zip, taken at
+> `5b4e5aa4`). This page is therefore the **historical record** of what was broken and why — not a description of
+> anything on disk. `DEAD-TS-DOWNSIZE.md` §5.2 has the counts and the restore path.
+
 
 ## The rule (read this before touching any file in `scripts/`)
 

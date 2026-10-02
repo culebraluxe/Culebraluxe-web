@@ -2,11 +2,13 @@
 //!
 //! Contract, in two halves, because either alone can be satisfied while the retirement is broken:
 //!
-//!   1. `legacy/agent-runtime`, `legacy/services` and `legacy/lib` are not in the tree. They held 45 files and
-//!      6,643 lines, every one of them a `*.test.ts` for code that was already deleted — orphaned tests that
-//!      could not load (`docs/agent/BROKEN-TS-INVENTORY.md`), 372 of the `tsc` error sites
-//!      (`pnpm typecheck`), and that no gate even scanned. Removed 2026-10-02; the record is
-//!      `docs/agent/DEAD-TS-DOWNSIZE.md` §5, which authorized exactly this as "one `git rm`".
+//!   1. `legacy/` is not in the tree. It held 432 files and 79,479 lines — the port's TypeScript spec, its
+//!      465-file restored test estate, and 431 files that could not load and carried no
+//!      `⚠ BROKEN ON PURPOSE` banner (`docs/agent/BROKEN-TS-INVENTORY.md`). The first `git rm` took 45 of them
+//!      on 2026-10-02 (`legacy/agent-runtime`, `legacy/services`, `legacy/lib`); the rest left the tree the
+//!      same day, archived outside it — `~/Documents/forge-legacy-ts-archive-2026-10-02/`, a byte-identical
+//!      copy (`diff -r` clean) beside `legacy-2026-10-02.zip` (`unzip -t` clean), taken at `5b4e5aa4`. The
+//!      record is `docs/agent/DEAD-TS-DOWNSIZE.md` §5.
 //!   2. No live JavaScript or TypeScript imports anything from under `legacy/`. The engine was dropped because
 //!      agents re-integrated live production code with the retired TypeScript libraries, and "wiring live code
 //!      to it is not [allowed]" is the rule that came out of it (`BROKEN-TS-INVENTORY.md`). Nothing enforced
@@ -26,9 +28,9 @@ use std::path::{Path, PathBuf};
 
 use test_harness::source;
 
-/// The three trees removed on 2026-10-02. A path is retired as a *property*, not as an event: if one comes back,
-/// this fails and the reader is sent to the page that records what it was and why it went.
-const RETIRED: [&str; 3] = ["legacy/agent-runtime", "legacy/services", "legacy/lib"];
+/// The tree removed on 2026-10-02. A path is retired as a *property*, not as an event: if it comes back, this
+/// fails and the reader is sent to the page that records what it was and why it went.
+const RETIRED: [&str; 1] = ["legacy"];
 
 /// The extensions a file in this repository can import something from. `.mjs` and `.js` are included because the
 /// live JavaScript here is exactly the shell-and-agent scripts (`scripts/*.mjs`, `e2e/*.mjs`) plus
@@ -101,9 +103,9 @@ fn the_retired_trees_are_gone() {
         let path = source::repo_root().join(retired);
         assert!(
             !path.exists(),
-            "{retired} is back on disk; it was retired on 2026-10-02 (docs/agent/DEAD-TS-DOWNSIZE.md §5) — \
-             restore it with `git show <commit>^:{retired}` if the intent is wanted again, but do not resurrect \
-             it as live code"
+            "{retired} is back on disk; it was retired on 2026-10-02 and archived outside the tree \
+             (~/Documents/forge-legacy-ts-archive-2026-10-02/, docs/agent/DEAD-TS-DOWNSIZE.md §5.2) — read it \
+             there if the intent is wanted again, but do not resurrect it as live code"
         );
     }
 }

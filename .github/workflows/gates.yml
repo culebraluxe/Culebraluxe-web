@@ -78,16 +78,13 @@ jobs:
       # Three steps in this job checked a repository that no longer exists, so they could only ever fail —
       # and a gate that always fails is not a gate, it is a red light people learn to scroll past:
       #
-      #   * `pnpm typecheck` — `tsc --noEmit` reports 679 errors, every one of them in the reference-only
-      #     dead TypeScript (`agent-runtime/`, `scripts/*.ts` importing the deleted `legacy/`) — the
-      #     2026-09-28 measurement. Those files cannot typecheck, so this step cannot be green while they are
-      #     on disk, and the first `git rm` of them landed 2026-10-02 (`legacy/agent-runtime`,
-      #     `legacy/services`, `legacy/lib` — 45 files, 6,643 lines). Re-measured that day on a developer
-      #     machine with no `node_modules`, the errors went 811 → 432 and the remaining owners are
-      #     `legacy/testv2` (384) and `legacy/workflow_app/forge` (48): the step returns when those two trees
-      #     go, and widening `tsconfig`'s `exclude` at them instead would only hide them
-      #     (`docs/agent/DEAD-TS-DOWNSIZE.md` §5.1). The live TypeScript is the
-      #     remaining TypeScript is tracked by the ratchet; executable tests live in Rust.
+      #   * `pnpm typecheck` — `tsc --noEmit` reported 679 errors (2026-09-28), every one of them in the
+      #     reference-only dead TypeScript. It is not parked for lack of a fix: on 2026-10-02 the whole
+      #     `legacy/` tree left the repository (432 files, 79,479 lines, archived outside it —
+      #     `docs/agent/DEAD-TS-DOWNSIZE.md` §5.2), and the re-measurement that day went 811 → 432 → **1**,
+      #     where the one is `TS18003`: `tsconfig.json` has no inputs left. The repository now holds five
+      #     JavaScript files and no TypeScript, so this step has no subject rather than a red one — if
+      #     TypeScript ever returns, the step comes back with it.
       #   * `node scripts/app-runtime-boundary.mjs` — it walks `app/`, which was deleted with the TypeScript
       #     application, so it exits ENOENT. Its boundary (the UI must not import the retired server) is
       #     enforced by `eslint.config.mjs` over `rust/ui`-facing TypeScript now.

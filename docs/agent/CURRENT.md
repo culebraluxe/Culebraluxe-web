@@ -18,15 +18,20 @@ list of what is not built yet. Read it before changing the board or the engine l
 
 ## What runs
 
-**The machine is Rust.** `legacy/` holds the port's spec — the 465 restored TypeScript test files and the
-retired production files they assert against — never a live path (`docs/agent/MAP-engine.md`,
-`docs/agent/LEGACY-TEST-PARITY.md`).
+**The machine is Rust.** The port's TypeScript spec — the 465-file restored test estate and the retired
+production files they assert against — left the tree on 2026-10-02 and is archived outside it at
+`~/Documents/forge-legacy-ts-archive-2026-10-02/` (byte-identical copy plus `legacy-2026-10-02.zip`, taken at
+`5b4e5aa4`; counts, reason and how to get it back are in `docs/agent/DEAD-TS-DOWNSIZE.md` §5.2). Nothing live
+reads it: the last measurement before it went, `cargo check --workspace` with `legacy/` physically absent,
+exited 0. Read the archive through `docs/agent/MAP-engine.md` and `docs/agent/LEGACY-TEST-PARITY.md`, which
+are the accounting.
 
 1. Engine: `rust/forge`, driven by `pnpm forge:engine` (`cargo run -p forge --bin forge`), with
    `forge-worker`, `forge-task` and `re-workflow` beside it for the worker, single-task and RE paths
-   (`rust/forge/src/bin/`). The definition is `rust/forge/definitions/FORGE_SDLC-v6.xml`;
-   `legacy/workflow_app/definitions/FORGE_SDLC-v6.xml` is kept as the spec the harness pins it against
-   (`wf_definition__013`).
+   (`rust/forge/src/bin/`). The definition is `rust/forge/definitions/FORGE_SDLC-v6.xml`, embedded in the
+   binary (`rust/forge/src/engine/xml.rs:482`, `include_str!`) and parsed by the production parser
+   (`wf_definition__013`). The `legacy/` copy is in the archive and is read by nothing — measured
+   2026-10-02, no file under `rust/` names that path.
 2. Roles are the six lanes in `rust/forge/src/roles/` (`scout`, `architect`, `lead`, `smith`, `qa`,
    `dev_ops`), each answering `rust/forge/src/roles/hooks.rs`'s `ForgeRoleHooks` — one lane's reading of
    its own turn. The shared `rust/forge/src/roles/lifecycle.rs` asks the lane rather than switching on a
@@ -39,7 +44,10 @@ retired production files they assert against — never a live path (`docs/agent/
    (`rust/forge/src/engine/worktree.rs`: branch `agent/…`, `culebraluxe-forge-worktrees`). There is no
    per-lane tree, and a tracked file that introduces one fails a test — AGENTS.md, "NO TREES. EVER.".
    The TypeScript `agent-runtime/` harness is gone — with its 40-file test suite, deleted 2026-10-02
-   (`legacy/agent-runtime`, `legacy/services`, `legacy/lib`, 45 files; the rail is `arch_boundary__012`).
+   (`legacy/agent-runtime`, `legacy/services`, `legacy/lib`, 45 files; the rail is `arch_boundary__012`) —
+   and the rest of `legacy/` followed it out of the tree the same day (432 files, 79,479 lines, archived at
+   `~/Documents/forge-legacy-ts-archive-2026-10-02/`). What is left in the repository is five JavaScript
+   files and no TypeScript at all.
 
 ## The one doctrine that matters
 

@@ -7,8 +7,9 @@ release receipts. It decides what the workflow does next, and it writes that dec
 
 **The harness is how ONE role is run**: its prompt, its lane, its skills, its write policy, its candidate handoff. It
 executes one assignment and reports back. Today the harness is Rust too, inside `rust/forge/src/engine/` (session,
-packet, worker, runner) and `rust/forge/src/roles/`. The TypeScript harness under `agent-runtime/` is retired - read it
-for intent, never as a live path.
+packet, worker, runner) and `rust/forge/src/roles/`. The TypeScript harness is retired - it left the tree with the
+rest of `legacy/` on 2026-10-02 and lives at `~/Documents/forge-legacy-ts-archive-2026-10-02/`; read it there for
+intent, never as a live path.
 
 Status and history are never in a file: they are rows in Neon (`agent_work_item`, `forge_engine_task_execution`,
 `forge_tool_artifact`, `storyboard_story_run`, `forge_workflow_evidence`, `app_error`, `workflow_execution_trace_event`).

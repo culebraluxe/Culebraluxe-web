@@ -8,6 +8,11 @@ The `area` column is what the file is *about* (`docs/agent/LEGACY-TEST-DOMAINS.m
 column is how far along it is. Work the queue by area: unassessed files inside one area are one
 piece of context, not forty separate ones.
 
+> **2026-10-02 — the files moved.** The 465 are not in the tree any more: the whole `legacy/` tree was archived
+> outside it at `~/Documents/forge-legacy-ts-archive-2026-10-02/` (taken at `5b4e5aa4`). The status TSV below is
+> the live record; `scripts/legacy-test-domain-map.py` still reads a `legacy/` root, so its output is historical
+> until it is pointed at the archive.
+
 | status | meaning |
 | --- | --- |
 | `ported` | Rust test exists, runs green, asserts the legacy behaviour |
