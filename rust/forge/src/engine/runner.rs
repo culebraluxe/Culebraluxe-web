@@ -203,8 +203,8 @@ impl<'a> ProductionRoleRunner<'a> {
 
 /// The compatibility adapter: the established runner seam, now a composition of the lane services.
 ///
-/// A caller that holds `ProductionRoleRunner` — the CLI, the durable job lane, the runtime tests — keeps
-/// calling `run(node_id, task)` and keeps getting that lane's behavior, because this hands the turn to the
+/// A compatibility caller that still holds `ProductionRoleRunner` may call `run(node_id, task)` and keeps
+/// getting that lane's behavior, because this hands the turn to the
 /// service that owns the node and lets that service run the shared lifecycle with its own reading. No role
 /// policy lives here any more: no node name, no lane name and no reading appears in this file. Which node
 /// belongs to which lane is `role_mapping`'s answer, applied by `AbstractForgeService::supports_node`.
