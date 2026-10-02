@@ -14,7 +14,8 @@ use forge::engine::opencode::OpenCodeHarness;
 use forge::engine::packet::{ExecutionWorkspace, StoryPacket};
 use forge::engine::runner::ProductionRoleRunner;
 use forge::engine::runtime::ForgeRuntime;
-use forge::roles::{ForgeServiceRouter, SmithService};
+use forge::roles::smith::SmithService;
+use forge::roles::ForgeServiceRouter;
 use forge::engine::vendor_session::database_url;
 use forge::engine::worktree::{
     provision_worker_workspace, resolve_approved_base_ref, resolve_base_commit, resolve_repo_root,
