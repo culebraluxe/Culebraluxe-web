@@ -332,7 +332,7 @@ fn local_datetime_to_iso(raw: &str) -> Option<String> {
     value.as_string()
 }
 
-fn selected_engine_owned(tech: &PortalTechPage, story_id: &str) -> bool {
+pub(super) fn selected_engine_owned(tech: &PortalTechPage, story_id: &str) -> bool {
     tech.queued_cards
         .iter()
         .any(|item| item.story_id == story_id)
@@ -343,7 +343,7 @@ fn selected_engine_owned(tech: &PortalTechPage, story_id: &str) -> bool {
         })
 }
 
-fn selected_engine_live(tech: &PortalTechPage, story_id: &str) -> bool {
+pub(super) fn selected_engine_live(tech: &PortalTechPage, story_id: &str) -> bool {
     tech.engine_runs.iter().any(|run| {
         run.story_id == story_id
             && !run.stale
@@ -351,14 +351,14 @@ fn selected_engine_live(tech: &PortalTechPage, story_id: &str) -> bool {
     })
 }
 
-fn running_runs(tech: &PortalTechPage) -> Vec<&PortalTechEngineRun> {
+pub(super) fn running_runs(tech: &PortalTechPage) -> Vec<&PortalTechEngineRun> {
     tech.engine_runs
         .iter()
         .filter(|run| !run.stale && matches!(run.status.as_str(), "running" | "claimed" | "queued"))
         .collect()
 }
 
-fn result_runs(tech: &PortalTechPage) -> Vec<&PortalTechEngineRun> {
+pub(super) fn result_runs(tech: &PortalTechPage) -> Vec<&PortalTechEngineRun> {
     tech.engine_runs
         .iter()
         .filter(|run| {
@@ -367,7 +367,7 @@ fn result_runs(tech: &PortalTechPage) -> Vec<&PortalTechEngineRun> {
         .collect()
 }
 
-fn compact_id(value: &str) -> String {
+pub(super) fn compact_id(value: &str) -> String {
     if value.len() <= 18 {
         value.to_string()
     } else {
@@ -375,7 +375,7 @@ fn compact_id(value: &str) -> String {
     }
 }
 
-fn short_time(value: &str) -> String {
+pub(super) fn short_time(value: &str) -> String {
     value
         .replace('T', " ")
         .trim_end_matches('Z')
