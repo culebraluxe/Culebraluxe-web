@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use forge::engine::*;
+use forge::roles::hooks::ForgeRoleHooks;
 use workflow::{json, ApplicationCommandOutcome, ApplicationCommandRequest, ProcessStatus, Value};
 
 fn runtime() -> (ForgeRuntime, Arc<RecordingWriter>) {
@@ -538,14 +539,22 @@ fn evidence_marker_does_not_invent_lead_decision_on_lead_pre() {
     );
     assert_eq!(ev.lead_decision.as_deref(), Some("SMITH"));
     assert_eq!(ev.qa_passed, Some(true));
-    let lead = agents::forge_agent_collect(
-        "lead_pre",
-        ForgeGateEvidence::default(),
-        "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"SMITH\"}",
-        &phase::RoleEffectPorts::default(),
-    )
-    .unwrap();
+    // The reading that strips it is the Lead lane's own, not the engine's: the decision belongs to the PRE
+    // phase, and this turn is not one that may set it.
+    let lead = rust_forge_lead_hooks()
+        .collect_evidence(
+            "lead_pre",
+            ForgeGateEvidence::default(),
+            "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"SMITH\"}",
+            &phase::RoleEffectPorts::default(),
+        )
+        .unwrap();
     assert!(lead.lead_decision.is_none());
+}
+
+/// The Lead lane's own reading, borrowed where a test needs to ask what the lane makes of a reply.
+fn rust_forge_lead_hooks() -> forge::roles::lead::LeadHooks {
+    forge::roles::lead::LeadHooks
 }
 
 #[test]

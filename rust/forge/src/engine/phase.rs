@@ -1,18 +1,22 @@
-//! Port of `workflow_app/forge/agents/forge-phase-agent.ts`.
+//! The gate's own reading of a Forge turn: what a node owes, and the effect ports a turn's deliverable
+//! may arrive through. The surviving half of the port of
+//! `workflow_app/forge/agents/forge-phase-agent.ts` — the per-node half of that port is the lanes' now.
+//!
+//! WHAT IS DELIBERATELY NOT HERE, and where it went (2026-10-02, the seam closure): the *reading of a
+//! reply* — the deleted `engine::agents` — is the lane's, through
+//! [`crate::roles::hooks::ForgeRoleHooks::collect_evidence`]; and which node owes which kind, or
+//! needs which routing decision, is the lane's too, with [`lane_deliverable_kind`] as the answer the lane
+//! table gives by default. What stays is the gate's own vocabulary: the kinds, what counts as a delivered
+//! one, and the failure classes the gate can route.
 
 use crate::engine::facts::ForgeGateEvidence;
-use crate::engine::role_mapping::{forge_role_node_plan, ForgeRoleNodePlan, LaneId, LeadPhase};
+use crate::engine::role_mapping::{forge_role_node_plan, LaneId, LeadPhase};
 
-const SCOUT_NODES: &[&str] = &[
-    "research_scout",
-    "feature_scout",
-    "diagnose_scout",
-    "repair_scout",
-];
-const ARCHITECT_NODES: &[&str] = &["architect", "repair_architect", "research_architect"];
-const RESEARCH_DISPOSITIONS: &[&str] = &["IMPLEMENT", "ARCHIVE", "HOLD"];
-const LEAD_DECISIONS: &[&str] = &["SOLO", "SMITH", "SPLIT", "HOLD", "ASSAY"];
-const FAILURE_CLASSES: &[&str] = &[
+/// The failure classes the gate can route.
+///
+/// Public because the lane that owns the classifier node (`roles::lead`) states its rule in these terms:
+/// the gate owns the vocabulary of what it can route, the lane owns which node must produce one.
+pub const FAILURE_CLASSES: &[&str] = &[
     "CODE_DEFECT",
     "TEST_DEFECT",
     "ARCHITECTURE_GAP",
@@ -64,137 +68,93 @@ impl Default for RoleEffectPorts {
     }
 }
 
-pub struct ForgePhaseAgent {
-    pub node_id: String,
-    pub plan: ForgeRoleNodePlan,
-    pub is_scout: bool,
-    pub is_architect: bool,
+/// What the lane table says a node owes, for every node no lane narrows further.
+///
+/// The lane's own answer is `ForgeRoleHooks::deliverable_kind`; this is the default it inherits. Reading
+/// the table rather than a second list of node names is the point: `engine::role_mapping` is the one place
+/// a node is bound to a lane (the map `arch_boundary__011` pins), so a node added there is owed its lane's
+/// deliverable with no second edit — which is exactly what the two node-name lists deleted here used to
+/// re-derive by hand.
+///
+/// `None` for a node the table does not know (a caller that must refuse one asks the table directly) and
+/// for a node whose deliverable is not this gate's to name.
+pub fn lane_deliverable_kind(node_id: &str) -> PhaseDeliverableKind {
+    match forge_role_node_plan(node_id) {
+        Ok(plan) => match (plan.lane, plan.lead_phase) {
+            (LaneId::Scout, _) => PhaseDeliverableKind::ScoutPacket,
+            (LaneId::Architect, _) => PhaseDeliverableKind::ArchitectPlan,
+            (LaneId::Lead, Some(LeadPhase::Pre)) => PhaseDeliverableKind::LeadDecision,
+            (LaneId::Smith, _) => PhaseDeliverableKind::SmithCandidate,
+            (LaneId::Assay, _) => PhaseDeliverableKind::QaVerdict,
+            (LaneId::DevOps, _) => PhaseDeliverableKind::DevopsReceipt,
+            _ => PhaseDeliverableKind::None,
+        },
+        Err(_) => PhaseDeliverableKind::None,
+    }
 }
 
-impl ForgePhaseAgent {
-    pub fn new(node_id: &str) -> Result<Self, String> {
-        Ok(Self {
-            node_id: node_id.into(),
-            plan: forge_role_node_plan(node_id)?,
-            is_scout: SCOUT_NODES.contains(&node_id),
-            is_architect: ARCHITECT_NODES.contains(&node_id),
-        })
-    }
-
-    pub fn deliverable_kind(&self) -> PhaseDeliverableKind {
-        if self.node_id == "failure_classifier" {
-            return PhaseDeliverableKind::FailureClass;
-        }
-        if self.is_scout {
-            return PhaseDeliverableKind::ScoutPacket;
-        }
-        if self.is_architect {
-            return PhaseDeliverableKind::ArchitectPlan;
-        }
-        if self.plan.lane == LaneId::Lead
-            && self.plan.lead_phase == Some(LeadPhase::Pre)
-            && self.node_id != "failure_classifier"
-        {
-            return PhaseDeliverableKind::LeadDecision;
-        }
-        match self.plan.lane {
-            LaneId::Smith => PhaseDeliverableKind::SmithCandidate,
-            LaneId::Assay => PhaseDeliverableKind::QaVerdict,
-            LaneId::DevOps => PhaseDeliverableKind::DevopsReceipt,
-            _ => PhaseDeliverableKind::None,
-        }
-    }
-
-    pub fn missing_deliverables(
-        &self,
-        evidence: &ForgeGateEvidence,
-        raw: &str,
-        scout_context_refs_set: bool,
-        architect_brief_set: bool,
-    ) -> Vec<&'static str> {
-        let mut missing = Vec::new();
-        match self.deliverable_kind() {
-            PhaseDeliverableKind::ScoutPacket => {
-                if !scout_context_refs_set && raw.trim().is_empty() {
-                    missing.push("scout-packet");
-                }
+/// What a turn of this kind still owes the gate, named the way the gate names it.
+///
+/// Pure in the kind, holding the requirement table and no node names: that is what keeps "what does this
+/// node owe" a lane's answer (through `ForgeRoleHooks::deliverable_kind`, which decides the kind asked
+/// about here) and "is it delivered" the gate's.
+pub fn missing_deliverables(
+    kind: PhaseDeliverableKind,
+    evidence: &ForgeGateEvidence,
+    raw: &str,
+    scout_context_refs_set: bool,
+    architect_brief_set: bool,
+) -> Vec<&'static str> {
+    let mut missing = Vec::new();
+    match kind {
+        PhaseDeliverableKind::ScoutPacket => {
+            if !scout_context_refs_set && raw.trim().is_empty() {
+                missing.push("scout-packet");
             }
-            PhaseDeliverableKind::ArchitectPlan => {
-                let has_findings = evidence
-                    .findings
-                    .as_ref()
-                    .map(|v| !v.is_null())
-                    .unwrap_or(false);
-                if evidence.deliverable_rejection.is_some()
-                    || (!architect_brief_set
-                        && evidence.research_disposition.is_none()
-                        && !has_findings)
-                {
-                    missing.push("architect-plan");
-                }
-            }
-            PhaseDeliverableKind::LeadDecision => {
-                if evidence.lead_decision.is_none() {
-                    missing.push("lead-decision");
-                }
-            }
-            PhaseDeliverableKind::FailureClass => {
-                if !FAILURE_CLASSES.contains(&evidence.failure_class.as_deref().unwrap_or("")) {
-                    missing.push("failure-class");
-                }
-            }
-            PhaseDeliverableKind::SmithCandidate => {
-                if evidence.deliverable_rejection.is_some() || evidence.candidate_sha.is_none() {
-                    missing.push("smith-candidate");
-                }
-            }
-            PhaseDeliverableKind::QaVerdict => {
-                if evidence.qa_passed.is_none() {
-                    missing.push("qa-verdict");
-                }
-            }
-            PhaseDeliverableKind::DevopsReceipt => {
-                if evidence.deployment_receipt.is_none()
-                    && evidence.production_verification_receipt.is_none()
-                    && evidence.deployment_deferred_to_batch.is_none()
-                {
-                    missing.push("devops-receipt");
-                }
-            }
-            PhaseDeliverableKind::None => {}
         }
-        missing
-    }
-
-    pub fn routing_decision_missing(&self, evidence: &ForgeGateEvidence) -> Option<&'static str> {
-        if self.node_id == "failure_classifier" {
-            return if FAILURE_CLASSES.contains(&evidence.failure_class.as_deref().unwrap_or("")) {
-                None
-            } else {
-                Some("failure_class")
-            };
-        }
-        if self.node_id == "research_architect" {
-            return if RESEARCH_DISPOSITIONS
-                .contains(&evidence.research_disposition.as_deref().unwrap_or(""))
+        PhaseDeliverableKind::ArchitectPlan => {
+            let has_findings = evidence
+                .findings
+                .as_ref()
+                .map(|v| !v.is_null())
+                .unwrap_or(false);
+            if evidence.deliverable_rejection.is_some()
+                || (!architect_brief_set
+                    && evidence.research_disposition.is_none()
+                    && !has_findings)
             {
-                None
-            } else {
-                Some("research_disposition")
-            };
-        }
-        if self.plan.lane == LaneId::Lead
-            && self.plan.lead_phase == Some(LeadPhase::Pre)
-            && self.node_id != "failure_classifier"
-        {
-            let d = evidence.lead_decision.as_deref().unwrap_or("");
-            if !LEAD_DECISIONS.contains(&d) {
-                return Some("lead_decision");
-            }
-            if d == "SPLIT" && evidence.split_count.unwrap_or(0) <= 0 {
-                return Some("lead_decision.splitCount");
+                missing.push("architect-plan");
             }
         }
-        None
+        PhaseDeliverableKind::LeadDecision => {
+            if evidence.lead_decision.is_none() {
+                missing.push("lead-decision");
+            }
+        }
+        PhaseDeliverableKind::FailureClass => {
+            if !FAILURE_CLASSES.contains(&evidence.failure_class.as_deref().unwrap_or("")) {
+                missing.push("failure-class");
+            }
+        }
+        PhaseDeliverableKind::SmithCandidate => {
+            if evidence.deliverable_rejection.is_some() || evidence.candidate_sha.is_none() {
+                missing.push("smith-candidate");
+            }
+        }
+        PhaseDeliverableKind::QaVerdict => {
+            if evidence.qa_passed.is_none() {
+                missing.push("qa-verdict");
+            }
+        }
+        PhaseDeliverableKind::DevopsReceipt => {
+            if evidence.deployment_receipt.is_none()
+                && evidence.production_verification_receipt.is_none()
+                && evidence.deployment_deferred_to_batch.is_none()
+            {
+                missing.push("devops-receipt");
+            }
+        }
+        PhaseDeliverableKind::None => {}
     }
+    missing
 }

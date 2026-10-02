@@ -7,15 +7,37 @@
 
 use crate::engine::architect::ArchitectAssessment;
 use crate::engine::executor::ForgeRoleRunner;
-use crate::engine::facts::ForgeGateEvidence;
+use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
+use crate::engine::phase::RoleEffectPorts;
 use crate::engine::role_mapping::LaneId;
-use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleHooks, ForgeRoleTurn};
+use crate::roles::hooks::ForgeRoleHooks;
+use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleTurn};
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
 use workflow::Result;
 
 pub use crate::engine::architect::{assess_architect_handoff, parse_architect_handoff};
 
 pub const ARCHITECT_SERVICE_ID: &str = "forge.architect";
+
+/// The Architect nodes whose turn carries a handoff — the ones this lane assesses.
+///
+/// `research_architect` is deliberately not one: it answers with a disposition rather than a handoff, so it
+/// owes neither the handoff nor the rejection below.
+pub fn carries_architect_handoff(node_id: &str) -> bool {
+    matches!(node_id, "architect" | "repair_architect")
+}
+
+/// The Architect node that answers with a research disposition instead of a handoff.
+pub const RESEARCH_ARCHITECT_NODE: &str = "research_architect";
+
+/// The dispositions the gate can route. The research node is the one that must carry one, which is what makes
+/// this list and that node one rule, owned here.
+pub const RESEARCH_DISPOSITIONS: &[&str] = &["IMPLEMENT", "ARCHIVE", "HOLD"];
+
+/// The rejection a handoff node's reply earns when it carries neither a handoff nor findings, phrased once so
+/// the self-heal directive and the gate read the same sentence.
+pub const ARCHITECT_HANDOFF_MISSING: &str =
+    "ARCHITECT_HANDOFF_MISSING: emit FORGE_ARCHITECT_HANDOFF or FORGE_FINDINGS_JSON";
 
 /// Architect's own reading, supplied to the shared lifecycle as this lane's hooks.
 ///
@@ -24,6 +46,43 @@ pub const ARCHITECT_SERVICE_ID: &str = "forge.architect";
 pub struct ArchitectHooks;
 
 impl ForgeRoleHooks for ArchitectHooks {
+    /// A handoff node that replies with neither a handoff nor findings has delivered nothing, and that is read
+    /// here — on the reply — rather than left to the gate's missing-deliverable check, so the same attempt can be
+    /// re-asked with a directive naming the sentence it lacked.
+    fn collect_evidence(
+        &self,
+        node_id: &str,
+        evidence: ForgeGateEvidence,
+        raw: &str,
+        _ports: &RoleEffectPorts,
+    ) -> std::result::Result<ForgeGateEvidence, String> {
+        let mut next = marker_evidence(raw, &evidence);
+        if carries_architect_handoff(node_id)
+            && next.findings.is_none()
+            && next.research_disposition.is_none()
+        {
+            next.deliverable_rejection = Some(ARCHITECT_HANDOFF_MISSING.into());
+        }
+        Ok(next)
+    }
+
+    /// The research node owes a disposition the gate can route. The handoff nodes owe no routing decision: their
+    /// handoff is assessed below, and an assessment that fails is a rejected deliverable, not a missing decision.
+    fn routing_decision_missing(
+        &self,
+        node_id: &str,
+        evidence: &ForgeGateEvidence,
+    ) -> Option<&'static str> {
+        if node_id != RESEARCH_ARCHITECT_NODE {
+            return None;
+        }
+        if RESEARCH_DISPOSITIONS.contains(&evidence.research_disposition.as_deref().unwrap_or("")) {
+            None
+        } else {
+            Some("research_disposition")
+        }
+    }
+
     fn interpret_turn(
         &self,
         ctx: &ForgeRoleContext<'_>,
@@ -71,7 +130,7 @@ fn architect_reading(
     turn: &ForgeRoleTurn<'_>,
     evidence: &mut ForgeGateEvidence,
 ) -> Result<()> {
-    if turn.node_id == "architect" || turn.node_id == "repair_architect" {
+    if carries_architect_handoff(turn.node_id) {
         let handoff = parse_architect_handoff(&turn.out.raw);
         match assess_architect_handoff(
             handoff.as_ref(),

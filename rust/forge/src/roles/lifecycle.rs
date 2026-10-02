@@ -17,13 +17,13 @@
 //! `AbstractForgeService` can inherit it instead of seven services copying it.
 //!
 //! WHAT THIS MODULE DELIBERATELY DOES NOT KNOW: Smith, Architect, Lead, Scout, Inspector, Assay and
-//! DevOps. A lane's own reading of its turn arrives through [`ForgeRoleHooks`], and every default
-//! implementation is structural — a lane that overrides nothing gets the shared lifecycle and
-//! nothing role-specific. That is what makes "role intelligence lives in the role service" a
-//! checkable property rather than a slogan: there is no `match node_id` anywhere in this file, so a
-//! test can run a Smith-family node through the default hooks and prove no Smith behavior happened.
+//! DevOps. A lane's own reading arrives through [`ForgeRoleHooks`] (`roles/hooks.rs`: how its reply
+//! becomes evidence, what its node owes, the decision its node must carry, and the reading that may
+//! write its record), and every default there is structural — a lane that overrides nothing gets the
+//! shared lifecycle and nothing role-specific. That is what makes "role intelligence lives in the role
+//! service" a checkable property rather than a slogan: there is no `match node_id` anywhere in this
+//! file, so a test can run a Smith-family node through the default hooks and prove no Smith behavior.
 
-use crate::engine::agents::forge_agent_collect;
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
@@ -32,11 +32,13 @@ use crate::engine::hold::{
     deliverable_enforcement_enabled, parse_deliverable_reprompt_budget, OpenHold,
 };
 use crate::engine::observer::record_forge_observer;
-use crate::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
+use crate::engine::phase::RoleEffectPorts;
+use crate::engine::role_mapping::forge_role_node_plan;
 use crate::engine::runner::{ForgeTurnPorts, HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::self_heal::{attempt_budget, build_self_heal_directive};
 use crate::engine::writer::ForgeStateWriter;
+use crate::roles::hooks::ForgeRoleHooks;
 use workflow::{Result, WorkflowError};
 
 /// The execution envelope a Forge lane runs under.
@@ -92,57 +94,6 @@ pub struct ForgeRoleTurn<'a> {
     /// because a retry's own pre-turn HEAD already contains the earlier attempts' commits.
     pub out: &'a HarnessOutput,
 }
-
-/// A lane's own reading of its turn — the whole of what the shared lifecycle cannot know.
-///
-/// Every method has a default that claims nothing, so an implementation names exactly the behavior
-/// it owns and nothing else. There is intentionally no `descriptor()`/`lane()` here: role identity is
-/// [`super::service::AbstractForgeService`]'s, and a hook impl must not be able to re-invent it.
-pub trait ForgeRoleHooks: Send + Sync {
-    /// For a lane whose turn is not a model turn at all.
-    ///
-    /// `Some` short-circuits the whole lifecycle — the attempt loop *and* the deliverable gate: no
-    /// harness turn will be asked for, and the lane's own outcome is returned as it stands. That is the
-    /// contract a model-free lane already had (the RUST_CONTRACT assay writes its own hold), and it is
-    /// why the hook returns the outcome rather than mutating evidence. `None` (the default) means "this
-    /// lane's work comes from a model turn", which is every lane but one.
-    fn turn_without_model(
-        &self,
-        _ctx: &ForgeRoleContext<'_>,
-        _node_id: &str,
-        _task: &ActiveForgeRoleTask,
-    ) -> Option<Result<ForgeRoleOutcome>> {
-        None
-    }
-
-    /// Whether this node's accepted candidate SHA is the lane's own deliverable, adopted onto the
-    /// evidence as each turn is read. Default: no lane claims a candidate.
-    fn adopts_candidate_sha(&self, _node_id: &str) -> bool {
-        false
-    }
-
-    /// The lane's reading of the turn, with the envelope in hand: the evidence collected from the
-    /// reply, the writer its records go through, and the harness that produced the turn. Called once,
-    /// after the attempts and before the deliverable gate, so a refusal read here is a refusal the
-    /// gate acts on rather than a note.
-    fn interpret_turn(
-        &self,
-        _ctx: &ForgeRoleContext<'_>,
-        _turn: &ForgeRoleTurn<'_>,
-        _evidence: &mut ForgeGateEvidence,
-    ) -> Result<()> {
-        Ok(())
-    }
-}
-
-/// The reading of a lane that reads nothing: the shared lifecycle, and only that.
-///
-/// Two callers need it. A service that owns its boundary and no reading (a lane whose intelligence is
-/// downstream — a publisher, a reviewer) inherits this instead of inventing an empty hook impl, and it is
-/// what a node no lane claims runs under, so an unmapped node keeps the proven turn rather than failing.
-pub struct NoRoleHooks;
-
-impl ForgeRoleHooks for NoRoleHooks {}
 
 /// Run one lane's turn through the runner that hosts its ports.
 ///
@@ -227,6 +178,10 @@ pub fn run_forge_role_turn(
     // and a patch taken from it would silently drop them.
     let mut first_execution_base: Option<String> = None;
     let mut total_usage: Option<HarnessUsage> = None;
+    // A node the lane table does not know has no lane, so no lane can be asked what it owes — and a refusal
+    // belongs before a turn is paid for rather than after. This is the check the deleted
+    // `ForgePhaseAgent::new` made at the top of every collect.
+    forge_role_node_plan(node_id).map_err(WorkflowError::generic)?;
     for attempt in 0..budget {
         let out = ctx.harness.run_role(node_id, task, self_heal.as_deref())?;
         // Recorded per attempt, the moment it is known: a later attempt that errors out must not take the
@@ -247,7 +202,10 @@ pub fn run_forge_role_turn(
             first_execution_base = out.execution_base.clone();
         }
         let ports = effect_ports(ctx);
-        evidence = forge_agent_collect(node_id, ctx.current.clone(), &out.raw, &ports)
+        // The lane's OWN reading of the reply, in place of the engine's deleted collect switch: what the
+        // marker says is shared, what a lane adds or refuses is not.
+        evidence = hooks
+            .collect_evidence(node_id, ctx.current.clone(), &out.raw, &ports)
             .map_err(WorkflowError::generic)?;
         // A lane that DELIVERS a candidate says so here; the lifecycle does not know which lanes those are.
         if hooks.adopts_candidate_sha(node_id) {
@@ -257,8 +215,8 @@ pub fn run_forge_role_turn(
         // the Cap is a rejected deliverable on the same attempt rather than a surprise at settle time.
         apply_bench_intent(ctx, &mut evidence);
         if attempt + 1 < budget {
-            let agent = ForgePhaseAgent::new(node_id).map_err(WorkflowError::generic)?;
-            let missing = agent.missing_deliverables(
+            let missing = crate::engine::phase::missing_deliverables(
+                hooks.deliverable_kind(node_id),
                 &evidence,
                 &out.raw,
                 !out.raw.is_empty(),
@@ -326,8 +284,8 @@ pub fn run_forge_role_turn(
         },
         &mut evidence,
     )?;
-    let agent = ForgePhaseAgent::new(node_id).map_err(WorkflowError::generic)?;
-    let missing = agent.missing_deliverables(
+    let missing = crate::engine::phase::missing_deliverables(
+        hooks.deliverable_kind(node_id),
         &evidence,
         &out.raw,
         !out.raw.is_empty(),
@@ -337,7 +295,7 @@ pub fn run_forge_role_turn(
         evidence.deliverable_rejection =
             Some(format!("role did not deliver {}", missing.join(", ")));
     }
-    if let Some(route) = agent.routing_decision_missing(&evidence) {
+    if let Some(route) = hooks.routing_decision_missing(node_id, &evidence) {
         if evidence.deliverable_rejection.is_none() {
             evidence.deliverable_rejection = Some(format!("routing decision missing: {route}"));
         }
@@ -440,6 +398,7 @@ mod tests {
     use super::*;
     use crate::engine::assay::CommandResult;
     use crate::engine::writer::RecordingWriter;
+    use crate::roles::hooks::NoRoleHooks;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// A harness that answers every turn identically and counts the turns it was asked for.

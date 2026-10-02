@@ -1,16 +1,24 @@
 //! Lead lane.
 //!
-//! Lead owns three phases of the same turn: the pre-implementation decision, the implement (SOLO), and the
-//! post decision. Only the middle one is intelligence this service has to supply, and it is not Lead's own:
-//! when the Lead decides SOLO it performs Smith's act of delivering code — the candidate becomes the run's
-//! candidate and the patch is captured — so the reading is inherited from [`crate::roles::smith`] rather than
-//! re-implemented here. Everything else the Lead says is read out of its own evidence marker by the shared
-//! lifecycle, which this lane inherits like every other (see `roles::lifecycle`).
+//! Lead owns three phases of the same turn — the pre-implementation decision, the implement (SOLO), and the
+//! post decision — plus the failure classifier that names what went wrong. Only the implement phase is
+//! intelligence this service has to supply, and it is not Lead's own: when the Lead decides SOLO it performs
+//! Smith's act of delivering code — the candidate becomes the run's candidate and the patch is captured — so
+//! the reading is inherited from [`crate::roles::smith`] rather than re-implemented here.
+//!
+//! THE OTHER TWO READINGS ARE LEAD'S, and they live here rather than in the engine (`2026-10-02`, the seam
+//! closure): a decision is taken once, in the PRE phase, so a reply that restates one during any other Lead
+//! turn is stripped rather than believed; and the classifier's reply is read as a class, with a failed release
+//! stage promoted to the class the gate routes on.
 
 use crate::engine::executor::ForgeRoleRunner;
-use crate::engine::facts::ForgeGateEvidence;
-use crate::engine::role_mapping::LaneId;
-use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleHooks, ForgeRoleTurn};
+use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
+use crate::engine::phase::{
+    lane_deliverable_kind, PhaseDeliverableKind, RoleEffectPorts, FAILURE_CLASSES,
+};
+use crate::engine::role_mapping::{forge_role_node_plan, LaneId};
+use crate::roles::hooks::ForgeRoleHooks;
+use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleTurn};
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
 use workflow::Result;
 
@@ -18,16 +26,107 @@ pub use crate::engine::graph::{plan_smith_layers, split_eligibility};
 
 pub const LEAD_SERVICE_ID: &str = "forge.lead";
 
+/// The decisions the gate can route.
+///
+/// The vocabulary is the gate's (`engine::phase::FAILURE_CLASSES` is its sibling); WHICH node must carry one is
+/// Lead's, which is why the rule that reads this list stands below rather than in the engine.
+const LEAD_DECISIONS: &[&str] = &["SOLO", "SMITH", "SPLIT", "HOLD", "ASSAY"];
+
+/// The Lead node asked for the class of a failure rather than for a decision.
+pub const FAILURE_CLASSIFIER_NODE: &str = "failure_classifier";
+
+/// Whether this Lead node is the failure classifier.
+pub fn is_failure_classifier(node_id: &str) -> bool {
+    node_id == FAILURE_CLASSIFIER_NODE
+}
+
+/// Whether this Lead node's reply may not set a decision.
+///
+/// Every Lead node but the classifier: the decision is taken once, in the PRE turn, and the implement and post
+/// turns run under it, so a reply that restates one there may not overwrite it. Asked of the lane table
+/// (`engine::role_mapping`) rather than of a second list of names, so a Lead node added there is covered
+/// without an edit here.
+fn may_not_set_decision(node_id: &str) -> bool {
+    !is_failure_classifier(node_id)
+        && matches!(forge_role_node_plan(node_id), Ok(plan) if plan.lane == LaneId::Lead)
+}
+
 /// Lead's own reading, supplied to the shared lifecycle as this lane's hooks.
 ///
-/// The pre and post decisions need nothing here: the Lead writes its decision into the evidence marker and
-/// the lifecycle collects it for every lane alike. The implement phase is code delivery, and that belongs to
-/// the lane that owns code delivery.
+/// Three things are Lead's: which node owes a failure class rather than a decision, the rule that a decision is
+/// the PRE phase's to set, and the reading that promotes a failed release stage to the class the gate routes on.
+/// Code delivery is not: that is inherited from the Smith lane.
 pub struct LeadHooks;
 
 impl ForgeRoleHooks for LeadHooks {
     fn adopts_candidate_sha(&self, node_id: &str) -> bool {
         crate::roles::smith::delivers_code(node_id)
+    }
+
+    /// The classifier's reply is read differently from any other node's: a release stage in it is the stage that
+    /// failed, so the class the reply carried is kept as the classifier's own answer and the stage becomes the
+    /// class the gate routes on.
+    fn collect_evidence(
+        &self,
+        node_id: &str,
+        evidence: ForgeGateEvidence,
+        raw: &str,
+        _ports: &RoleEffectPorts,
+    ) -> std::result::Result<ForgeGateEvidence, String> {
+        let mut next = marker_evidence(raw, &evidence);
+        if is_failure_classifier(node_id) {
+            if next.failed_release_stage.is_some() {
+                if let Some(stage) = next
+                    .stage_failure_class
+                    .clone()
+                    .or_else(|| next.failure_class.clone())
+                {
+                    next.classifier_failure_class = next.failure_class.clone();
+                    next.failure_class = Some(stage);
+                }
+            }
+            return Ok(next);
+        }
+        if may_not_set_decision(node_id) {
+            next.lead_decision = None;
+            next.split_count = None;
+        }
+        Ok(next)
+    }
+
+    /// The classifier's deliverable is a class, not a decision. Everything else is the lane table's answer.
+    fn deliverable_kind(&self, node_id: &str) -> PhaseDeliverableKind {
+        if is_failure_classifier(node_id) {
+            return PhaseDeliverableKind::FailureClass;
+        }
+        lane_deliverable_kind(node_id)
+    }
+
+    /// The classifier owes a class the gate can route, the decision nodes owe a decision it can route, and a
+    /// SPLIT owes the count it split into. All three are statements about Lead's own nodes.
+    fn routing_decision_missing(
+        &self,
+        node_id: &str,
+        evidence: &ForgeGateEvidence,
+    ) -> Option<&'static str> {
+        if is_failure_classifier(node_id) {
+            return if FAILURE_CLASSES.contains(&evidence.failure_class.as_deref().unwrap_or("")) {
+                None
+            } else {
+                Some("failure_class")
+            };
+        }
+        if !may_not_set_decision(node_id) {
+            return None;
+        }
+        let decision = evidence.lead_decision.as_deref().unwrap_or("");
+        if !LEAD_DECISIONS.contains(&decision) {
+            return Some("lead_decision");
+        }
+        if decision == "SPLIT" && evidence.split_count.unwrap_or(0) <= 0 {
+            return Some("lead_decision.splitCount");
+        }
+        None
     }
 
     fn interpret_turn(

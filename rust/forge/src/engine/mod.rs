@@ -1,5 +1,4 @@
 pub mod agent_work;
-pub mod agents;
 pub mod alerts;
 pub mod architect;
 pub mod architect_directive;

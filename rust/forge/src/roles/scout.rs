@@ -1,4 +1,4 @@
-//! Scout lane — control plane lives in crate::engine::{phase,runner}.
+//! Scout lane — its nodes are bound to this lane by `engine::role_mapping`, its turn hosted by `engine::runner`.
 //!
 //! Scout's intelligence is its own diagnosis, and it is carried in the turn's own evidence marker
 //! (`researchDisposition`, `rootCauseKnown`, …), which the shared lifecycle collects for every lane alike.
@@ -8,8 +8,6 @@
 use crate::engine::executor::ForgeRoleRunner;
 use crate::engine::role_mapping::LaneId;
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
-
-pub use crate::engine::phase::ForgePhaseAgent as ScoutPhase;
 
 pub const SCOUT_SERVICE_ID: &str = "forge.scout";
 

@@ -2,6 +2,7 @@
 
 pub mod architect;
 pub mod dev_ops;
+pub mod hooks;
 pub mod inspector;
 pub mod lead;
 pub mod lifecycle;

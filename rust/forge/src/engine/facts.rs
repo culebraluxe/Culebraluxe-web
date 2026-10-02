@@ -69,6 +69,15 @@ fn or_opt<T: Clone>(a: &Option<T>, b: &Option<T>) -> Option<T> {
     a.clone().or_else(|| b.clone())
 }
 
+/// The reading every lane starts from: the reply's own `FORGE_EVIDENCE_JSON` marker, merged over the
+/// evidence the run already carries.
+///
+/// A lane's own reading narrows this (`roles::hooks::ForgeRoleHooks::collect_evidence`); none of them
+/// replaces it, so no lane can drop what the run already knew by reading a reply.
+pub fn marker_evidence(raw: &str, base: &ForgeGateEvidence) -> ForgeGateEvidence {
+    crate::engine::role_mapping::parse_forge_evidence_marker(raw).merge_over(base)
+}
+
 impl ForgeGateEvidence {
     pub fn merge_over(&self, base: &ForgeGateEvidence) -> ForgeGateEvidence {
         let mut extra = base.extra.clone();

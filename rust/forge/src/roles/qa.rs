@@ -11,7 +11,8 @@ use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::hold::OpenHold;
 use crate::engine::role_mapping::LaneId;
 use crate::engine::runtime::ActiveForgeRoleTask;
-use crate::roles::lifecycle::{effect_ports, ForgeRoleContext, ForgeRoleHooks, ForgeRoleTurn};
+use crate::roles::hooks::ForgeRoleHooks;
+use crate::roles::lifecycle::{effect_ports, ForgeRoleContext, ForgeRoleTurn};
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
 use workflow::{Result, WorkflowError};
 

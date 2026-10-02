@@ -11,7 +11,8 @@ use crate::engine::role_mapping::LaneId;
 use crate::engine::scope::candidate_own_changed_files;
 use crate::engine::worktree::git_changed_files;
 use crate::engine::writer::ForgeStateWriter;
-use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleHooks, ForgeRoleTurn};
+use crate::roles::hooks::ForgeRoleHooks;
+use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleTurn};
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
 use workflow::{Result, WorkflowError};
 

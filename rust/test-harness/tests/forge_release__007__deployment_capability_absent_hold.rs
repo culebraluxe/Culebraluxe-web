@@ -12,9 +12,11 @@
 //!      `deploy_required` to the `deploy` task-node, whose `hold` transition routes to the `hold` node
 //!      (`rust/forge/definitions/FORGE_SDLC-v6.xml:563-575`).
 //!   2. **the role-runner gate** — `ProductionRoleRunner::run` for the `deploy` node
-//!      (`rust/forge/src/engine/runner.rs:241`). The DevOps lane's deliverable is a machine receipt
-//!      (`ForgePhaseAgent::missing_deliverables`, `PhaseDeliverableKind::DevopsReceipt`,
-//!      `rust/forge/src/engine/phase.rs:156-163`). With no receipt, the lane records a
+//!      (`rust/forge/src/engine/runner.rs:241`). The DevOps lane's deliverable is a machine receipt, and the
+//!      lane that owns it is the one that reads it: `DevOpsHooks::collect_evidence` takes the capability from
+//!      the turn's effect ports and the gate's `missing_deliverables` (kinds from
+//!      `rust/forge/src/engine/phase.rs`) names `DevopsReceipt` as the kind still owed
+//!      (`rust/forge/src/roles/dev_ops.rs`). With no receipt, the lane records a
 //!      `DELIVERABLE_REJECTED` hold through the state-writer port (`runner.rs:473-498`), which is the
 //!      production Hold.
 //!   3. **the fact projection** — `forge_deploy_hold_reason` / `project_forge_gate_facts`
@@ -37,15 +39,16 @@
 //!   cargo test --manifest-path rust/Cargo.toml -p test-harness \
 //!     --test forge_release__007__deployment_capability_absent_hold
 
-use forge::engine::agents::forge_agent_collect;
 use forge::engine::assay::CommandResult;
 use forge::engine::definition::forge_sdlc_definition;
 use forge::engine::executor::ForgeRoleRunner;
 use forge::engine::facts::{forge_deploy_hold_reason, project_forge_gate_facts, ForgeGateEvidence};
-use forge::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
+use forge::engine::phase::{missing_deliverables, RoleEffectPorts};
 use forge::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};
 use forge::engine::runtime::ActiveForgeRoleTask;
 use forge::engine::{ForgeStateWriter, RecordingWriter};
+use forge::roles::dev_ops::DevOpsHooks;
+use forge::roles::hooks::ForgeRoleHooks;
 use workflow::{TaskStatus, Value};
 
 /// The taxonomy name and level, carried in every assertion message so a failure names its boundary.
@@ -301,11 +304,16 @@ fn forge_release_007__deployment_capability_absent_hold() {
         deployed_sha: Some(ARTIFACT_SHA.into()),
         ..RoleEffectPorts::default()
     };
-    let collected = forge_agent_collect("deploy", evidence_at_deploy(), "", &ports)
+    let collected = DevOpsHooks
+        .collect_evidence("deploy", evidence_at_deploy(), "", &ports)
         .expect("the adapter boundary collects a deployment capability");
-    let missing = ForgePhaseAgent::new("deploy")
-        .expect("deploy maps to the DevOps lane")
-        .missing_deliverables(&collected, "", false, false);
+    let missing = missing_deliverables(
+        DevOpsHooks.deliverable_kind("deploy"),
+        &collected,
+        "",
+        false,
+        false,
+    );
     assert!(
         missing.is_empty(),
         "{HARNESS}: a receipt paired with its artifact SHA satisfies the DevOps deliverable, missing: {missing:?}"
