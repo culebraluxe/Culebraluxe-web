@@ -8,7 +8,7 @@
 //! One command at a time (`busy_action`). Every answer, success or refusal, is said in the notice and followed by a
 //! re-read, because the engine may have moved either way.
 
-mod live_ops;
+pub mod live_ops;
 mod view;
 
 use yew::prelude::*;
