@@ -1,7 +1,7 @@
 //! Forge state writer. SQL/persistence lives in db::ForgeEngineDao.
 
-use crate::engine::vendor_session::with_shared;
 use crate::engine::facts::ForgeGateEvidence;
+use crate::engine::vendor_session::with_shared;
 use crate::engine::writer::{ForgeEvidenceReader, ForgeStateWriter};
 use db::ForgeEngineDao;
 
@@ -110,6 +110,25 @@ impl ForgeStateWriter for DbForgeStateWriter {
                 dao.stamp_run_candidate(run_id, candidate_sha)
                     .await
                     .map_err(|e| e.to_string())
+            })
+        })
+    }
+
+    fn record_run_usage(
+        &self,
+        run_id: &str,
+        usage: &crate::engine::harness_usage::HarnessUsage,
+    ) -> Result<(), String> {
+        self.run(|dao, rt| {
+            rt.block_on(async {
+                dao.add_run_usage(
+                    run_id,
+                    usage.tokens_input,
+                    usage.tokens_output,
+                    usage.cost_usd,
+                )
+                .await
+                .map_err(|e| e.to_string())
             })
         })
     }

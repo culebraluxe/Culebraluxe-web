@@ -106,7 +106,9 @@ pub fn rust_contract_production_edits(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "QA FAIL: RUST_CONTRACT exact candidate SHA is missing.".to_string())?;
 
-    let command = format!("git diff --name-only {base}..{candidate}");
+    // `--no-renames`: with rename detection a file moved out of a production root lists only its new path, and
+    // the move would read as a test-only change.
+    let command = format!("git diff --name-only --no-renames {base}..{candidate}");
     let listed = run(&command);
     if listed.unmeasurable || !listed.passed {
         return Err(format!(
@@ -258,7 +260,8 @@ pub fn collect_rust_contract_assay_evidence(
     evidence.deliverable_rejection = None;
     if !runtime_failures.is_empty() {
         evidence.last_failure = Some(format!(
-            "RUST_CONTRACT observation: authored test currently fails against existing application code;              test artifact accepted and product debugging is separate work. failed=[{}]",
+            "RUST_CONTRACT observation: authored test currently fails against existing application code; \
+             test artifact accepted and product debugging is separate work. failed=[{}]",
             runtime_failures.join(" | ")
         ));
     }
@@ -419,8 +422,9 @@ mod rust_contract_tests {
     fn production_edit_check_uses_the_whole_execution_range() {
         let gate = contract_gate();
         let observed = std::sync::Mutex::new(String::new());
-        let commands =
-            vec!["cargo check --manifest-path rust/Cargo.toml --workspace --all-targets".to_string()];
+        let commands = vec![
+            "cargo check --manifest-path rust/Cargo.toml --workspace --all-targets".to_string(),
+        ];
         let evidence = collect_rust_contract_assay_evidence(
             gate,
             Some(&|command| {
@@ -435,7 +439,7 @@ mod rust_contract_tests {
         assert_eq!(evidence.verdict, AssayVerdict::Pass);
         assert_eq!(
             observed.lock().expect("range observation lock").as_str(),
-            "git diff --name-only 89abcdef0123456789abcdef0123456789abcdef..0123456789abcdef0123456789abcdef01234567"
+            "git diff --name-only --no-renames 89abcdef0123456789abcdef0123456789abcdef..0123456789abcdef0123456789abcdef01234567"
         );
     }
 

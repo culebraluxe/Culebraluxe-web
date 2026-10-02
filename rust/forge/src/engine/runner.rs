@@ -12,6 +12,7 @@ use crate::engine::assay::{
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
+use crate::engine::harness_usage::HarnessUsage;
 use crate::engine::hold::{
     deliverable_enforcement_enabled, parse_deliverable_reprompt_budget, OpenHold,
 };
@@ -29,6 +30,15 @@ pub struct HarnessOutput {
     pub candidate_sha: Option<String>,
     pub assay_commands: Vec<String>,
     pub acceptance_mapped: bool,
+    /// Why the harness refused this turn's work as a candidate (`candidate_sha` is then `None`). The work is
+    /// still paid code: the runner snapshots it into `forge_tool_artifact` instead of letting the refusal void it.
+    pub refusal: Option<String>,
+    /// The base the harness measured Smith's work against — its declared execution base, or the HEAD it saw
+    /// before the turn when it declared none. Without it a run with no declared base had nothing to diff from
+    /// and its code was never captured at all.
+    pub execution_base: Option<String>,
+    /// What this turn spent, as the harness's own session store reports it. `None` is unmeasured, never zero.
+    pub usage: Option<HarnessUsage>,
 }
 
 pub trait RoleHarness: Send + Sync {
@@ -241,6 +251,151 @@ impl<'a> ProductionRoleRunner<'a> {
         }
         evidence.deliverable_rejection = Some(errors.join("; "));
     }
+
+    /// Put one model turn's spend on the record: always on stderr, and on the Story Run row when this lane has one.
+    ///
+    /// The hand-run lane (`forge --story …`, no `--work-item`) opens no run row, so its spend has nowhere durable to
+    /// go; the stderr line is then the only reading, and it is printed for every lane so the burn is never silent.
+    /// A write that fails fails the lane, like every other state write here.
+    fn record_usage(&self, node_id: &str, story_id: &str, usage: &HarnessUsage) -> Result<()> {
+        eprintln!(
+            "spend story={story_id} node={node_id} run={} tokens_in={} tokens_out={} cost_usd={:.6} session={}",
+            self.story_run_id.as_deref().unwrap_or("(none)"),
+            usage.tokens_input,
+            usage.tokens_output,
+            usage.cost_usd,
+            usage.session_id
+        );
+        if let (Some(writer), Some(run_id)) = (self.writer, self.story_run_id.as_deref()) {
+            writer.record_run_usage(run_id, usage).map_err(|error| {
+                WorkflowError::generic(format!("record_run_usage({story_id}, {run_id}): {error}"))
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Write Smith's work into `forge_tool_artifact` as code (`kind='candidate-code'`).
+    ///
+    /// An accepted candidate is the commit range `base..sha`. Refused work is the whole working tree against
+    /// `base` — committed, uncommitted and untracked — because a refusal is exactly when the commit alone is not
+    /// the work. A git that will not produce the patch or its file list fails the lane like every other state
+    /// write that comes back unreadable; nothing is half-recorded.
+    fn capture_smith_work(
+        &self,
+        writer: &dyn ForgeStateWriter,
+        story_id: &str,
+        base: &str,
+        work: SmithWork<'_>,
+    ) -> Result<()> {
+        // Trimmed BEFORE it reaches the shell: `is_full_commit` accepts git's trailing newline, and a newline
+        // inside an `sh -c` string ends the command there.
+        let base = base.trim();
+        if !is_full_commit(base) {
+            return Err(WorkflowError::generic(format!(
+                "refusing to snapshot Smith's work against base {base:?}: a revision that is not a full commit \
+                 cannot be diffed safely"
+            )));
+        }
+        let (patch_command, names_command, sha) = match work {
+            SmithWork::Candidate(sha) => {
+                let sha = sha.trim();
+                if !is_full_commit(sha) {
+                    return Err(WorkflowError::generic(format!(
+                        "refusing to snapshot candidate {sha:?} against base {base}: a revision that is not a \
+                         full commit cannot be diffed safely"
+                    )));
+                }
+                (
+                    format!("git diff --no-color --no-ext-diff --binary {base}..{sha}"),
+                    format!("git diff --name-only --no-renames {base}..{sha}"),
+                    Some(sha.to_string()),
+                )
+            }
+            SmithWork::Refused(_) => {
+                let head = self.harness.run_command("git rev-parse HEAD");
+                let head = head.output.trim();
+                (
+                    worktree_snapshot_command(base, "--no-color --no-ext-diff --binary"),
+                    worktree_snapshot_command(base, "--name-only --no-renames"),
+                    is_full_commit(head).then(|| head.to_ascii_lowercase()),
+                )
+            }
+        };
+
+        let patch = self.harness.run_command(&patch_command);
+        if !patch.passed {
+            return Err(WorkflowError::generic(format!(
+                "Smith's work could not be read out of {base} for its fail-safe record: git diff exited {} ({})",
+                patch.exit_code, patch.excerpt
+            )));
+        }
+        if matches!(work, SmithWork::Refused(_)) && patch.output.trim().is_empty() {
+            // A refusal with nothing written — e.g. "no new commit" on a clean tree. There is no code to keep.
+            return Ok(());
+        }
+        // `--name-only` is asked separately rather than parsed out of the patch: the patch is a payload to be
+        // replayed verbatim, and the file list is a fact to be read at a glance.
+        let names = self.harness.run_command(&names_command);
+        if !names.passed {
+            return Err(WorkflowError::generic(format!(
+                "Smith's changed files could not be listed against {base}: git diff exited {} ({})",
+                names.exit_code, names.excerpt
+            )));
+        }
+        let changed: Vec<String> = names
+            .output
+            .lines()
+            .map(|line| line.trim().to_string())
+            .filter(|line| !line.is_empty())
+            .collect();
+
+        let artifact = match work {
+            SmithWork::Candidate(_) => smith_candidate_artifact(
+                story_id,
+                self.story_run_id.as_deref(),
+                sha.as_deref().unwrap_or_default(),
+                base,
+                &patch.output,
+                &changed,
+            ),
+            SmithWork::Refused(refusal) => smith_refused_work_artifact(
+                story_id,
+                self.story_run_id.as_deref(),
+                sha.as_deref(),
+                base,
+                &patch.output,
+                &changed,
+                refusal,
+            ),
+        };
+        writer.record_tool_artifact(&artifact).map_err(|error| {
+            WorkflowError::generic(format!(
+                "record_tool_artifact({story_id}, candidate-code): {error}"
+            ))
+        })?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SmithWork<'a> {
+    /// The harness accepted this commit as the candidate.
+    Candidate(&'a str),
+    /// The harness refused the turn's work for this reason.
+    Refused(&'a str),
+}
+
+/// One shell command that diffs the WHOLE working tree — tracked edits, uncommitted work and new untracked files —
+/// against `base`, without touching the lane's real index or tree.
+///
+/// It stages everything into a throwaway index (`GIT_INDEX_FILE` in a temp dir the command creates and removes
+/// itself), so `git add -A` sees untracked files the way a plain `git diff` never does. No path is interpolated:
+/// file names are model-authored and never reach the shell string. `base` must already be a checked full commit.
+fn worktree_snapshot_command(base: &str, diff_args: &str) -> String {
+    format!(
+        "tmp=$(mktemp -d) && trap 'rm -rf \"$tmp\"' EXIT && GIT_INDEX_FILE=\"$tmp/index\" && export GIT_INDEX_FILE \
+         && git read-tree {base} && git add -A && git diff --cached {diff_args} {base}"
+    )
 }
 
 /// The artifact a QA lane's own measurement becomes (migration 130, `kind = 'qa-assay-evidence'`).
@@ -321,6 +476,42 @@ pub fn smith_candidate_artifact(
     }
 }
 
+/// Smith's work that the harness REFUSED as a candidate, written as code all the same.
+///
+/// Same row and kind as [`smith_candidate_artifact`], so `forge salvage` finds it as the newest capture, but the
+/// patch is the whole working tree against `base` (it replays with `git apply` on `base`), `sha` is the HEAD the
+/// refusal saw (`None` when HEAD was unreadable), and `detail.refusal` says why it is not a candidate. A refusal
+/// must not read as an accepted candidate to anyone who recovers it.
+pub fn smith_refused_work_artifact(
+    story_id: &str,
+    story_run_id: Option<&str>,
+    head_sha: Option<&str>,
+    base_sha: &str,
+    patch: &str,
+    changed_files: &[String],
+    refusal: &str,
+) -> db::NewToolArtifact {
+    let mut artifact = smith_candidate_artifact(
+        story_id,
+        story_run_id,
+        head_sha.unwrap_or_default(),
+        base_sha,
+        patch,
+        changed_files,
+    );
+    artifact.sha = head_sha.map(str::to_string);
+    artifact.summary = Some(format!(
+        "REFUSED, not a candidate — working tree kept: {} file(s), {} patch byte(s). {refusal}",
+        changed_files.len(),
+        patch.len()
+    ));
+    if let Some(detail) = artifact.detail.as_mut() {
+        detail["refusal"] = serde_json::Value::from(refusal);
+        detail["worktreeSnapshot"] = serde_json::Value::from(true);
+    }
+    artifact
+}
+
 /// The candidate snapshot is only as trustworthy as the two revisions it is taken against, so both are checked
 /// before they reach a shell. `sha` is `git rev-parse HEAD` output the harness may already have nulled; `base`
 /// is the worktree's recorded base commit. Neither is model-authored, and neither is taken on that reputation.
@@ -364,12 +555,30 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
         let mut last_out_sha = None;
         let mut last_assay = vec![];
         let mut last_mapped = false;
+        let mut last_refusal = None;
+        // The FIRST attempt's base: a retry's own pre-turn HEAD already contains the earlier attempts' commits,
+        // and a patch taken from it would silently drop them.
+        let mut first_execution_base: Option<String> = None;
+        let mut total_usage: Option<HarnessUsage> = None;
         for attempt in 0..budget {
             let out = self.harness.run_role(node_id, task, self_heal.as_deref())?;
+            // Recorded per attempt, the moment it is known: a later attempt that errors out must not take the
+            // spend of the earlier ones down with it.
+            if let Some(usage) = out.usage.as_ref() {
+                self.record_usage(node_id, &task.story_id, usage)?;
+                match total_usage.as_mut() {
+                    Some(total) => total.absorb(usage),
+                    None => total_usage = Some(usage.clone()),
+                }
+            }
             last_raw = out.raw.clone();
             last_out_sha = out.candidate_sha.clone();
             last_assay = out.assay_commands.clone();
             last_mapped = out.acceptance_mapped;
+            last_refusal = out.refusal.clone();
+            if first_execution_base.is_none() {
+                first_execution_base = out.execution_base.clone();
+            }
             let ports = self.effect_ports();
             evidence = forge_agent_collect(node_id, self.current.clone(), &out.raw, &ports)
                 .map_err(WorkflowError::generic)?;
@@ -422,6 +631,9 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
             candidate_sha: last_out_sha,
             assay_commands: last_assay,
             acceptance_mapped: last_mapped,
+            refusal: last_refusal,
+            execution_base: first_execution_base,
+            usage: total_usage,
         };
         // The same envelope the attempts ran under, and the same cap: this is the evidence the writes below act on,
         // so a decision outside the bench intent must be refused here even if the last attempt broke out early.
@@ -469,6 +681,21 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
                 | "fast_repair_smith"
                 | "lead_solo_implement"
         ) {
+            let capture_base = self
+                .harness
+                .execution_base_commit()
+                .map(str::to_string)
+                .or_else(|| out.execution_base.clone());
+            // PAID CODE > GIT SHA. A refused candidate (dirty tree, no commit, a RUST_CONTRACT production touch) is
+            // still work that was paid for, and before this it left no row at all — the refusal voided it. It is
+            // snapshotted whole (committed, uncommitted and untracked) so the hold that follows has code to show.
+            if out.candidate_sha.is_none() {
+                if let (Some(writer), Some(refusal), Some(base)) =
+                    (self.writer, out.refusal.as_deref(), capture_base.as_deref())
+                {
+                    self.capture_smith_work(writer, story_id, base, SmithWork::Refused(refusal))?;
+                }
+            }
             if let Some(sha) = out.candidate_sha.clone() {
                 evidence.candidate_sha = Some(sha.clone());
                 if let Some(writer) = self.writer {
@@ -488,52 +715,15 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
                     // by hand opens none — so a capture gated on the run row stays silent on exactly the runs
                     // where nothing else records the code. `forge_tool_artifact.story_run_id` is nullable for
                     // this: NULL there means "no claim opened this", which is the truth and not a gap.
-                    // Capture is skipped only where there is nothing to capture from — a harness that declares no
-                    // execution base (the `RoleHarness` default is `None`, and such a run is not scope-checked
-                    // either). A git that will not produce the patch is a different case: the commit exists and
-                    // this engine cannot read it back, which fails the lane exactly like every other state write
-                    // that comes back unreadable.
-                    if let Some(base) = self.harness.execution_base_commit() {
-                        if !is_full_commit(&sha) || !is_full_commit(base) {
-                            return Err(WorkflowError::generic(format!(
-                                "refusing to snapshot candidate {sha:?} against base {base:?}: a revision that is \
-                                 not a full commit cannot be diffed safely"
-                            )));
-                        }
-                        let diff = self.harness.run_command(&format!(
-                            "git diff --no-color --no-ext-diff --binary {base}..{sha}"
-                        ));
-                        if !diff.passed {
-                            return Err(WorkflowError::generic(format!(
-                                "candidate {sha} could not be read out of {base} for its fail-safe record: \
-                                 git diff exited {} ({})",
-                                diff.exit_code, diff.excerpt
-                            )));
-                        }
-                        // `--name-only` is asked separately rather than parsed out of the patch: the patch is a
-                        // payload to be replayed verbatim, and the file list is a fact to be read at a glance.
-                        let changed: Vec<String> = self
-                            .harness
-                            .run_command(&format!("git diff --name-only {base}..{sha}"))
-                            .output
-                            .lines()
-                            .map(|line| line.trim().to_string())
-                            .filter(|line| !line.is_empty())
-                            .collect();
-                        writer
-                            .record_tool_artifact(&smith_candidate_artifact(
-                                story_id,
-                                self.story_run_id.as_deref(),
-                                &sha,
-                                base,
-                                &diff.output,
-                                &changed,
-                            ))
-                            .map_err(|error| {
-                                WorkflowError::generic(format!(
-                                    "record_tool_artifact({story_id}, candidate-code): {error}"
-                                ))
-                            })?;
+                    // Capture is skipped only where there is nothing to capture from — no declared execution base
+                    // AND no base the harness measured against (the `RoleHarness` default is `None` for both).
+                    if let Some(base) = capture_base.as_deref() {
+                        self.capture_smith_work(
+                            writer,
+                            story_id,
+                            base,
+                            SmithWork::Candidate(&sha),
+                        )?;
                     }
                 }
                 if let Some(base) = evidence.extra.get("recordedBase").and_then(|v| v.as_str()) {
@@ -744,7 +934,10 @@ mod tests {
 
         let detail = artifact.detail.expect("the code is the payload");
         assert_eq!(detail["patch"], serde_json::Value::from(patch));
-        assert_eq!(detail["candidateSha"], serde_json::Value::from(sha.as_str()));
+        assert_eq!(
+            detail["candidateSha"],
+            serde_json::Value::from(sha.as_str())
+        );
         assert_eq!(detail["base"], serde_json::Value::from(base.as_str()));
     }
 
@@ -766,7 +959,238 @@ mod tests {
         assert!(!is_full_commit(&"a".repeat(41)));
         assert!(!is_full_commit(&format!("{}; rm -rf /", "a".repeat(40))));
         assert!(!is_full_commit(&format!("{} HEAD", "a".repeat(40))));
-        assert!(!is_full_commit(&"z".repeat(40)), "40 characters is not 40 hex digits");
+        assert!(
+            !is_full_commit(&"z".repeat(40)),
+            "40 characters is not 40 hex digits"
+        );
+    }
+
+    /// A harness over a REAL git repository, so the snapshot's shell is exercised and not mocked.
+    struct GitHarness {
+        repo: std::path::PathBuf,
+        candidate: Option<String>,
+        refusal: Option<String>,
+        base: String,
+    }
+
+    impl RoleHarness for GitHarness {
+        fn run_role(
+            &self,
+            _: &str,
+            _: &ActiveForgeRoleTask,
+            _: Option<&str>,
+        ) -> Result<HarnessOutput> {
+            Ok(HarnessOutput {
+                raw: String::new(),
+                candidate_sha: self.candidate.clone(),
+                assay_commands: vec![],
+                acceptance_mapped: false,
+                refusal: self.refusal.clone(),
+                // Reported by the harness, NOT declared through `execution_base_commit` — the run that used to
+                // capture nothing because no base was declared.
+                execution_base: Some(self.base.clone()),
+                usage: Some(HarnessUsage {
+                    session_id: "ses_turn".into(),
+                    tokens_input: 26_714,
+                    tokens_output: 701,
+                    cost_usd: 0.005352,
+                }),
+            })
+        }
+        fn exists_on_base_ref(&self, _: &str, _: &str) -> bool {
+            true
+        }
+        fn assay_cwd(&self) -> &std::path::Path {
+            &self.repo
+        }
+        fn run_command(&self, command: &str) -> CommandResult {
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(command)
+                .current_dir(&self.repo)
+                .output()
+                .expect("sh runs");
+            let code = out.status.code().unwrap_or(1);
+            CommandResult {
+                command: command.into(),
+                exit_code: code,
+                passed: code == 0,
+                excerpt: String::from_utf8_lossy(&out.stderr)
+                    .chars()
+                    .take(240)
+                    .collect(),
+                unmeasurable: false,
+                output: String::from_utf8_lossy(&out.stdout).to_string(),
+            }
+        }
+    }
+
+    fn git(repo: &std::path::Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(repo)
+            .output()
+            .expect("git runs");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// A repo with a base commit, one Smith commit on top, an uncommitted edit and an untracked file.
+    fn smith_left_a_mess(name: &str) -> (std::path::PathBuf, String, String) {
+        let repo =
+            std::env::temp_dir().join(format!("forge-capture-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).expect("temp repo");
+        git(&repo, &["init", "-q", "--initial-branch=main", "."]);
+        git(&repo, &["config", "user.email", "forge@test.invalid"]);
+        git(&repo, &["config", "user.name", "forge test"]);
+        git(&repo, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(repo.join("tracked.rs"), "base\n").expect("seed");
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-qm", "base"]);
+        let base = git(&repo, &["rev-parse", "HEAD"]);
+        std::fs::write(repo.join("committed.rs"), "fn committed() {}\n").expect("commit");
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-qm", "smith"]);
+        let head = git(&repo, &["rev-parse", "HEAD"]);
+        std::fs::write(repo.join("tracked.rs"), "base\nuncommitted edit\n").expect("dirty");
+        std::fs::write(repo.join("untracked.rs"), "fn untracked() {}\n").expect("untracked");
+        (repo, base, head)
+    }
+
+    fn smith_task() -> ActiveForgeRoleTask {
+        ActiveForgeRoleTask {
+            task_id: "t".into(),
+            process_instance_id: "p".into(),
+            story_id: "TST-CAPTURE-001".into(),
+            token_id: None,
+            node_id: Some("smith".into()),
+            status: workflow::TaskStatus::Ready,
+            assignee: None,
+            candidates: vec!["smith".into()],
+        }
+    }
+
+    /// The bug this test exists for: a REFUSED candidate ("uncommitted work remains after candidate …") left no
+    /// `candidate-code` row, so the code a refusal held — committed, uncommitted and untracked — had no copy off
+    /// the machine. It is captured now, marked refused, and the lane's real index is left exactly as it was.
+    #[test]
+    fn refused_smith_work_is_captured_whole_without_touching_the_index() {
+        let (repo, base, head) = smith_left_a_mess("refused");
+        let status_before = git(&repo, &["status", "--porcelain"]);
+        let harness = GitHarness {
+            repo: repo.clone(),
+            candidate: None,
+            refusal: Some(format!("uncommitted work remains after candidate {head}")),
+            base: base.clone(),
+        };
+        let writer = crate::engine::writer::RecordingWriter::default();
+        let runner =
+            ProductionRoleRunner::new(&harness, ForgeGateEvidence::default()).with_writer(&writer);
+        let _ = ForgeRoleRunner::run(&runner, "smith", &smith_task());
+
+        let artifacts = writer.artifacts.lock().unwrap();
+        let capture = artifacts
+            .iter()
+            .find(|a| a.kind == "candidate-code")
+            .expect("refused work is still captured");
+        let detail = capture.detail.as_ref().expect("the code is the payload");
+        let patch = detail["patch"].as_str().unwrap_or_default();
+        assert!(
+            patch.contains("fn committed() {}"),
+            "the commit is in the patch"
+        );
+        assert!(
+            patch.contains("uncommitted edit"),
+            "the uncommitted edit is in the patch"
+        );
+        assert!(
+            patch.contains("fn untracked() {}"),
+            "the untracked file is in the patch"
+        );
+        assert!(detail["refusal"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("uncommitted work remains"));
+        assert_eq!(detail["base"].as_str(), Some(base.as_str()));
+        assert_eq!(capture.sha.as_deref(), Some(head.as_str()));
+        assert!(capture
+            .summary
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("REFUSED"));
+        assert_eq!(
+            git(&repo, &["status", "--porcelain"]),
+            status_before,
+            "the snapshot must not stage anything in the lane's real index"
+        );
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    /// The bug this test exists for: a harness that declared no execution base (`FORGE_WORKTREE` & co. unset) got
+    /// no capture at all, silently, even for an ACCEPTED candidate. The base the harness measured against is used.
+    #[test]
+    fn an_accepted_candidate_is_captured_without_a_declared_base() {
+        let (repo, base, head) = smith_left_a_mess("accepted");
+        git(&repo, &["checkout", "-q", "--", "tracked.rs"]);
+        std::fs::remove_file(repo.join("untracked.rs")).expect("clean tree");
+        let harness = GitHarness {
+            repo: repo.clone(),
+            candidate: Some(head.clone()),
+            refusal: None,
+            base: base.clone(),
+        };
+        let writer = crate::engine::writer::RecordingWriter::default();
+        let runner =
+            ProductionRoleRunner::new(&harness, ForgeGateEvidence::default()).with_writer(&writer);
+        let _ = ForgeRoleRunner::run(&runner, "smith", &smith_task());
+
+        let artifacts = writer.artifacts.lock().unwrap();
+        let capture = artifacts
+            .iter()
+            .find(|a| a.kind == "candidate-code")
+            .expect("an accepted candidate is captured even with no declared base");
+        let detail = capture.detail.as_ref().expect("the code is the payload");
+        assert!(detail["patch"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("fn committed() {}"));
+        assert_eq!(detail["changedFiles"][0].as_str(), Some("committed.rs"));
+        assert!(
+            detail.get("refusal").is_none(),
+            "an accepted candidate is not marked refused"
+        );
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    /// The bug this test exists for: the Rust port dropped the spend meter, so `tokens_input`/`tokens_output` stayed
+    /// NULL and `cost_source='none'` on every run ("cost captured on 0/717"). A turn's measured spend reaches the
+    /// run row through the writer, keyed to the run that paid for it.
+    #[test]
+    fn a_turns_spend_is_added_to_its_run() {
+        let (repo, base, head) = smith_left_a_mess("spend");
+        let harness = GitHarness {
+            repo: repo.clone(),
+            candidate: Some(head),
+            refusal: None,
+            base,
+        };
+        let writer = crate::engine::writer::RecordingWriter::default();
+        let runner = ProductionRoleRunner::new(&harness, ForgeGateEvidence::default())
+            .with_writer(&writer)
+            .with_story_run(Some("11111111-2222-3333-4444-555555555555".into()));
+        let _ = ForgeRoleRunner::run(&runner, "smith", &smith_task());
+
+        let usage = writer.usage.lock().unwrap();
+        assert!(!usage.is_empty(), "the turn's spend reached the writer");
+        let (run_id, first) = &usage[0];
+        assert_eq!(run_id, "11111111-2222-3333-4444-555555555555");
+        assert_eq!((first.tokens_input, first.tokens_output), (26_714, 701));
+        assert!((first.cost_usd - 0.005352).abs() < 1e-9);
+        let _ = std::fs::remove_dir_all(&repo);
     }
 }
-

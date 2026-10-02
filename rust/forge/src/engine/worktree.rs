@@ -283,7 +283,13 @@ mod tests {
 pub fn git_changed_files(repo: &std::path::Path, base: &str, sha: &str) -> Vec<String> {
     let out = std::process::Command::new("git")
         .current_dir(repo)
-        .args(["diff", "--name-only", &format!("{base}...{sha}")])
+        // `--no-renames`: a file renamed out of scope must list its old path too, or the move passes the check.
+        .args([
+            "diff",
+            "--name-only",
+            "--no-renames",
+            &format!("{base}...{sha}"),
+        ])
         .output()
         .ok();
     out.map(|o| {

@@ -145,6 +145,7 @@ async fn gather_postcard(
                 wall_minutes: row.wall_minutes,
                 result_status: row.result_status,
                 cost_widgets: row.cost_widgets,
+                cost_usd: row.cost_usd,
             })
             .collect::<Vec<_>>(),
         ROI_DEFAULT_WINDOW_DAYS,

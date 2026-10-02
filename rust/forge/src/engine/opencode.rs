@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::engine::assay::{is_rust_contract_production_path, CommandResult};
+use crate::engine::harness_usage::UsageBaseline;
 use crate::engine::opencode_client::{start_opencode_run, OpenCodeRunResult, OpenCodeStartOptions};
 use crate::engine::packet::{build_task_text_with_context, ExecutionWorkspace, StoryPacket};
 use crate::engine::runner::{HarnessOutput, RoleHarness};
@@ -57,17 +58,21 @@ fn blocked_model_env_key(key: &str) -> bool {
         || upper.starts_with("NEON_")
         || matches!(
             upper.as_str(),
-            "PGHOST" | "PGPORT" | "PGDATABASE" | "PGUSER" | "PGPASSWORD" | "PGSERVICE"
-                | "PGSERVICEFILE" | "PGPASSFILE"
+            "PGHOST"
+                | "PGPORT"
+                | "PGDATABASE"
+                | "PGUSER"
+                | "PGPASSWORD"
+                | "PGSERVICE"
+                | "PGSERVICEFILE"
+                | "PGPASSFILE"
         )
 }
 
 /// Smith runs code with the machine's normal toolchain/provider configuration, but it does not inherit the
 /// control plane's production database authority. Git publication is also disabled inside the model subprocess:
 /// DEV_OPS/Forge publishes the accepted candidate, never Smith.
-pub fn sanitize_model_env(
-    mut env: HashMap<String, String>,
-) -> HashMap<String, String> {
+pub fn sanitize_model_env(mut env: HashMap<String, String>) -> HashMap<String, String> {
     env.retain(|key, _| !blocked_model_env_key(key));
     env.insert("GIT_CONFIG_COUNT".into(), "1".into());
     env.insert("GIT_CONFIG_KEY_0".into(), "remote.origin.pushurl".into());
@@ -336,14 +341,28 @@ impl RoleHarness for OpenCodeHarness {
             session: session.as_deref(),
             continue_session,
         };
+        // Read BEFORE the turn: a resumed session's totals are cumulative, so its spend is a difference.
+        let baseline = UsageBaseline::before_turn(&cwd, session.as_deref(), continue_session);
         let result = if let Some(start) = &self.start_run {
             start(opts)
         } else {
             start_opencode_run(opts)
         };
+        let usage = baseline.after_turn();
         if result.status != crate::engine::opencode_client::OpenCodeRunStatus::Success {
+            // A failed turn still cost money. The error carries the reading so the spend is at least on the
+            // record of the failure instead of vanishing with it.
+            let spent = usage
+                .as_ref()
+                .map(|u| {
+                    format!(
+                        " (spent tokens_in={} tokens_out={} cost_usd={:.6} session={})",
+                        u.tokens_input, u.tokens_output, u.cost_usd, u.session_id
+                    )
+                })
+                .unwrap_or_default();
             return Err(WorkflowError::generic(format!(
-                "opencode-harness failed for {node_id} exit={:?}: {}",
+                "opencode-harness failed for {node_id} exit={:?}{spent}: {}",
                 result.exit_code,
                 if result.stderr.is_empty() {
                     result.stdout
@@ -361,6 +380,8 @@ impl RoleHarness for OpenCodeHarness {
         }
         let sha = self.run_git(&["rev-parse", "HEAD"]);
         let mut candidate_sha = sha.clone();
+        let mut refusal = None;
+        let mut measured_base = None;
         if smith_writes_code(node_id) {
             let execution_base = self
                 .execution_workspace
@@ -406,7 +427,9 @@ impl RoleHarness for OpenCodeHarness {
                         Some(_) => {
                             let base = execution_base.unwrap_or(after);
                             let range = format!("{base}..{after}");
-                            match self.run_git(&["diff", "--name-only", &range]) {
+                            // `--no-renames`: with rename detection a file moved OUT of a production root lists
+                            // only its new path, and the move passes the RUST_CONTRACT check below.
+                            match self.run_git(&["diff", "--name-only", "--no-renames", &range]) {
                                 None => Some(format!(
                                     "Smith candidate refused for {node_id}: changed paths are unreadable for {range}"
                                 )),
@@ -429,11 +452,13 @@ impl RoleHarness for OpenCodeHarness {
                     }
                 }
             };
-            if let Some(reason) = rejection {
+            if let Some(reason) = rejection.as_deref() {
                 candidate_sha = None;
                 raw.push_str("\nSMITH_CANDIDATE_REJECTED: ");
-                raw.push_str(&reason);
+                raw.push_str(reason);
             }
+            refusal = rejection;
+            measured_base = execution_base.map(str::to_string);
         }
         let assay = if self.assay_commands.is_empty() {
             self.packet.assay_commands.clone()
@@ -445,6 +470,9 @@ impl RoleHarness for OpenCodeHarness {
             candidate_sha,
             assay_commands: assay,
             acceptance_mapped: self.acceptance_mapped,
+            refusal,
+            execution_base: measured_base,
+            usage,
         })
     }
 

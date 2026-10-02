@@ -48,6 +48,8 @@ pub struct RoiAttemptRow {
     pub wall_minutes: Option<f64>,
     pub result_status: Option<String>,
     pub cost_widgets: Option<f64>,
+    /// Vendor-reported dollars, only when the run's label says that is what `cost_usd` carries.
+    pub cost_usd: Option<f64>,
 }
 
 /// A story run, for the QA run/verdict agreement check.
@@ -127,7 +129,8 @@ impl ForgeDoctorDao {
             "select w.kind, w.model_policy, w.state,
                     (extract(epoch from (w.finished_at - w.started_at)) / 60)::float8 as wall_minutes,
                     r.result_status,
-                    r.cost_widgets::float8 as cost_widgets
+                    r.cost_widgets::float8 as cost_widgets,
+                    case when r.cost_source = 'vendor' then r.cost_usd::float8 end as cost_usd
              from agent_work_item w
              left join storyboard_story_run r on r.id = w.story_run_id
              where w.finished_at is not null

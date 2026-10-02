@@ -77,6 +77,9 @@ impl RoleHarness for ScriptedDeployHarness {
             candidate_sha: None,
             assay_commands: Vec::new(),
             acceptance_mapped: true,
+            refusal: None,
+            execution_base: None,
+            usage: None,
         })
     }
 

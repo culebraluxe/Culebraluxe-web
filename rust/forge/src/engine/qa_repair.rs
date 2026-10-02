@@ -81,16 +81,6 @@ pub enum RepairRouting {
     Hold { reason: String },
 }
 
-pub struct RouteQaInput<'a> {
-    pub verdict: QaVerdict,
-    pub disposition: Option<QaDisposition>,
-    pub state: RepairAttemptState,
-    pub budget: Option<RepairBudget>,
-    pub no_progress: bool,
-    pub verification_gap: bool,
-    pub _marker: std::marker::PhantomData<&'a ()>,
-}
-
 pub fn route_qa_result(
     verdict: QaVerdict,
     disposition: Option<QaDisposition>,

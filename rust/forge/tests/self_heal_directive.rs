@@ -31,6 +31,9 @@ impl runner::RoleHarness for DirectiveRecordingHarness {
             candidate_sha: None,
             assay_commands: vec![],
             acceptance_mapped: false,
+            refusal: None,
+            execution_base: None,
+            usage: None,
         })
     }
 

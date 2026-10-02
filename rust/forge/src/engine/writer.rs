@@ -21,6 +21,13 @@ pub trait ForgeStateWriter: Send + Sync {
     /// polarity guard lives behind this call, in the one writer of the table, so a caller cannot record a verdict
     /// that contradicts its run by going through a second door.
     fn record_tool_artifact(&self, input: &db::NewToolArtifact) -> Result<Option<String>, String>;
+    /// ADD one model turn's harness-measured spend to its Story Run (`tokens_input`, `tokens_output`, `cost_usd`,
+    /// `cost_source='vendor'`). Added, never overwritten: a run is several turns.
+    fn record_run_usage(
+        &self,
+        run_id: &str,
+        usage: &crate::engine::harness_usage::HarnessUsage,
+    ) -> Result<(), String>;
 }
 
 /// Release-critical command-nodes (publish / migrate / verify).
@@ -58,6 +65,13 @@ impl ForgeStateWriter for NullWriter {
     fn record_tool_artifact(&self, _i: &db::NewToolArtifact) -> Result<Option<String>, String> {
         Ok(None)
     }
+    fn record_run_usage(
+        &self,
+        _r: &str,
+        _u: &crate::engine::harness_usage::HarnessUsage,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub struct RecordingWriter {
@@ -70,6 +84,8 @@ pub struct RecordingWriter {
     pub opened_holds: std::sync::Mutex<Vec<(String, String, String)>>,
     /// Every tool artifact the engine asked to record, in the order it asked.
     pub artifacts: std::sync::Mutex<Vec<db::NewToolArtifact>>,
+    /// `(run_id, usage)` for every spend reading the engine asked to add to a run.
+    pub usage: std::sync::Mutex<Vec<(String, crate::engine::harness_usage::HarnessUsage)>>,
 }
 
 impl Default for RecordingWriter {
@@ -82,6 +98,7 @@ impl Default for RecordingWriter {
             details: std::sync::Mutex::new(vec![]),
             opened_holds: std::sync::Mutex::new(vec![]),
             artifacts: std::sync::Mutex::new(vec![]),
+            usage: std::sync::Mutex::new(vec![]),
         }
     }
 }
@@ -129,6 +146,17 @@ impl ForgeStateWriter for RecordingWriter {
         let mut artifacts = self.artifacts.lock().unwrap();
         artifacts.push(input.clone());
         Ok(Some(format!("artifact-{}", artifacts.len())))
+    }
+    fn record_run_usage(
+        &self,
+        run_id: &str,
+        usage: &crate::engine::harness_usage::HarnessUsage,
+    ) -> Result<(), String> {
+        self.usage
+            .lock()
+            .unwrap()
+            .push((run_id.into(), usage.clone()));
+        Ok(())
     }
 }
 

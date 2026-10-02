@@ -25,6 +25,7 @@ pub mod failure;
 pub mod first_violation;
 pub mod git_publish;
 pub mod graph;
+pub mod harness_usage;
 pub mod hold;
 pub mod hold_resolve;
 pub mod integration;

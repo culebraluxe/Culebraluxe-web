@@ -79,6 +79,7 @@ fn to_attempt(row: RoiAttemptRow) -> RoiAttempt {
         wall_minutes: row.wall_minutes,
         result_status: row.result_status,
         cost_widgets: row.cost_widgets,
+        cost_usd: row.cost_usd,
     }
 }
 
@@ -121,9 +122,11 @@ fn roi_json(summary: &forge::roi::RoiSummary, plane: &RoiPlane) -> Value {
             "completed": summary.completed,
             "failed": summary.failed,
             "costWidgets": summary.total_cost_widgets,
+            "vendorUsd": summary.vendor_usd,
         },
         "coverage": {
             "costKnown": summary.cost_known,
+            "vendorKnown": summary.vendor_known,
             "wallTimeKnown": summary.wall_time_known,
             "attempts": summary.attempts,
         },
@@ -145,6 +148,7 @@ mod tests {
                 wall_minutes: Some(4.0),
                 result_status: None,
                 cost_widgets: Some(12.0),
+                cost_usd: None,
             }],
             7,
         );
@@ -180,6 +184,7 @@ mod tests {
             wall_minutes: None,
             result_status: Some("FAIL".to_string()),
             cost_widgets: None,
+            cost_usd: None,
         });
         assert_eq!(mapped.state, "Error");
         assert_eq!(mapped.cost_widgets, None, "missing stays missing, never 0");

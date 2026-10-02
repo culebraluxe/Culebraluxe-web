@@ -552,6 +552,9 @@ impl runner::RoleHarness for ScriptedHarness {
             candidate_sha: self.sha.clone(),
             assay_commands: self.commands.clone(),
             acceptance_mapped: self.mapped,
+            refusal: None,
+            execution_base: None,
+            usage: None,
         })
     }
     fn exists_on_base_ref(&self, _b: &str, _p: &str) -> bool {
@@ -695,6 +698,13 @@ fn a_hold_that_cannot_be_recorded_fails_the_lane() {
         }
         fn record_tool_artifact(&self, _i: &db::NewToolArtifact) -> Result<Option<String>, String> {
             Ok(None)
+        }
+        fn record_run_usage(
+            &self,
+            _r: &str,
+            _u: &forge::engine::harness_usage::HarnessUsage,
+        ) -> Result<(), String> {
+            Ok(())
         }
     }
     let h = ScriptedHarness {
@@ -845,6 +855,13 @@ fn an_artifact_that_cannot_be_recorded_fails_the_lane() {
         fn record_tool_artifact(&self, _i: &db::NewToolArtifact) -> Result<Option<String>, String> {
             Err("artifact table is unreachable".into())
         }
+        fn record_run_usage(
+            &self,
+            _r: &str,
+            _u: &forge::engine::harness_usage::HarnessUsage,
+        ) -> Result<(), String> {
+            Ok(())
+        }
     }
     let h = ScriptedHarness {
         raw: "assay complete".into(),
@@ -937,7 +954,10 @@ fn the_publish_switch_is_off_only_when_said_in_words() {
         "an unset switch publishes: absence is not a refusal"
     );
     assert!(!publish_switch_off(Some("1")));
-    assert!(!publish_switch_off(Some("  1  ")), "padding is not a refusal");
+    assert!(
+        !publish_switch_off(Some("  1  ")),
+        "padding is not a refusal"
+    );
     assert!(
         !publish_switch_off(Some("")),
         "empty reads as unset, not as off"
@@ -1096,7 +1116,9 @@ fn the_publish_path_lands_a_candidate_on_a_real_remote() {
     assert_ne!(candidate, base, "the candidate has to be its own commit");
 
     match preview_publish(&work, &candidate) {
-        release::PublishOutcome::Published { published_main_hash } => {
+        release::PublishOutcome::Published {
+            published_main_hash,
+        } => {
             assert_eq!(published_main_hash, candidate);
         }
         other => panic!("the candidate did not land on main: {other:?}"),
@@ -1118,8 +1140,12 @@ fn the_publish_path_lands_a_candidate_on_a_real_remote() {
     // and main does not move. This is the branch that keeps two Smiths from fighting over the same base.
     run(&work, &["fetch", "origin", "main"]);
     match preview_publish(&work, &candidate) {
-        release::PublishOutcome::Published { published_main_hash }
-        | release::PublishOutcome::IntegratedAndPublished { published_main_hash } => {
+        release::PublishOutcome::Published {
+            published_main_hash,
+        }
+        | release::PublishOutcome::IntegratedAndPublished {
+            published_main_hash,
+        } => {
             assert_eq!(published_main_hash, candidate);
         }
         other => panic!("an already-landed candidate must read as landed, not retried: {other:?}"),

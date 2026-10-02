@@ -15,17 +15,20 @@ pub const ENGINE_FAILURE_CLASSES: &[&str] = &[
 ];
 
 pub fn parse_failure_class(notes: Option<&str>) -> Option<String> {
-    let notes = notes?;
-    let line = notes
+    // The LAST valid line wins: a model that echoes the option list (`FAILURE_CLASS: CODE_DEFECT | TEST_DEFECT …`)
+    // before answering used to read as no class at all. Markdown emphasis around the answer is ignored.
+    notes?
         .lines()
-        .map(str::trim)
-        .find(|s| s.starts_with("FAILURE_CLASS:"))?;
-    let value = line["FAILURE_CLASS:".len()..].trim().to_ascii_uppercase();
-    ENGINE_FAILURE_CLASSES
-        .iter()
-        .copied()
-        .find(|c| *c == value)
-        .map(|s| s.to_string())
+        .map(|line| line.trim().replace(['*', '`'], ""))
+        .filter_map(|line| {
+            let value = line
+                .strip_prefix("FAILURE_CLASS:")?
+                .trim()
+                .to_ascii_uppercase();
+            ENGINE_FAILURE_CLASSES.iter().copied().find(|c| *c == value)
+        })
+        .last()
+        .map(str::to_string)
 }
 
 pub fn build_classify_directive(
@@ -64,5 +67,15 @@ mod legacy_qa_classify_line_tests {
             Some("TEST_DEFECT")
         );
         assert_eq!(parse_failure_class(Some("FAILURE_CLASS: nope")), None);
+    }
+
+    #[test]
+    fn an_echoed_option_list_does_not_hide_the_answer() {
+        let notes =
+            "FAILURE_CLASS: CODE_DEFECT | TEST_DEFECT\nthinking...\nFAILURE_CLASS: **TEST_DEFECT**";
+        assert_eq!(
+            parse_failure_class(Some(notes)).as_deref(),
+            Some("TEST_DEFECT")
+        );
     }
 }

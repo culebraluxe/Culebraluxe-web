@@ -1360,6 +1360,38 @@ impl ForgeEngineDao {
         Ok(())
     }
 
+    /// Add one model turn's harness-measured spend to its Story Run (migration 107's ledger columns).
+    ///
+    /// ADDED, never overwritten: one run is several role turns (Lead, Smith, repairs), each measured on its own,
+    /// and the row is their sum. The quantity is the vendor's own reading taken from the harness's session store —
+    /// never a model's self-report and never widgets — so the label becomes `vendor`, unless an older writer
+    /// already filed the row as `widgets`, whose label this does not rewrite (migration 190's boundary).
+    pub async fn add_run_usage(
+        &self,
+        run_id: &str,
+        tokens_input: i64,
+        tokens_output: i64,
+        cost_usd: f64,
+    ) -> DbResult<()> {
+        sqlx::query(
+            "update storyboard_story_run
+                set tokens_input = coalesce(tokens_input, 0) + $2::int,
+                    tokens_output = coalesce(tokens_output, 0) + $3::int,
+                    cost_usd = coalesce(cost_usd, 0) + $4::float8::numeric,
+                    cost_source = case when cost_source = 'widgets' then cost_source else 'vendor' end,
+                    updated_at = now()
+              where id = $1::uuid",
+        )
+        .bind(run_id)
+        .bind(i32::try_from(tokens_input).unwrap_or(i32::MAX))
+        .bind(i32::try_from(tokens_output).unwrap_or(i32::MAX))
+        .bind(cost_usd)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.add_run_usage", &error))?;
+        Ok(())
+    }
+
     pub async fn mark_story_in_progress(&self, story_id: &str) -> DbResult<()> {
         sqlx::query(
             "update storyboard_story

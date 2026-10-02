@@ -29,8 +29,9 @@ pub fn parse_smith_candidate_line(notes: &str) -> Option<SmithCandidate> {
     let raw = lines[0][SMITH_CANDIDATE_PREFIX.len()..].trim();
     // Minimal JSON field scrape without serde.
     let assignment = extract(raw, "assignmentId")?;
-    let sha = extract(raw, "candidateSha")?;
-    let base = extract(raw, "mergeBase")?;
+    // Trimmed here, not only inside `is_sha`: a SHA that passed the check with padding was stored with it.
+    let sha = extract(raw, "candidateSha")?.trim().to_string();
+    let base = extract(raw, "mergeBase")?.trim().to_string();
     if !is_sha(&sha) || !is_sha(&base) {
         return None;
     }

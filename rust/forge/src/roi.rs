@@ -42,6 +42,9 @@ pub struct RoiAttempt {
     pub result_status: Option<String>,
     /// The run's cost in widgets. Not money.
     pub cost_widgets: Option<f64>,
+    /// The run's VENDOR-REPORTED spend in US dollars (`cost_source='vendor'`), as the harness measured it. Real
+    /// money, kept apart from widgets and never added to them.
+    pub cost_usd: Option<f64>,
 }
 
 /// One line of the rollup: a (kind, policy) bucket.
@@ -75,6 +78,9 @@ pub struct RoiSummary {
     /// Honest coverage, because a rollup over 3 of 20 attempts must not read as the whole story.
     pub cost_known: i64,
     pub wall_time_known: i64,
+    /// Sum of vendor-reported dollars, and on how many attempts. Separate from widgets by construction.
+    pub vendor_usd: f64,
+    pub vendor_known: i64,
     pub note: String,
 }
 
@@ -181,6 +187,8 @@ pub fn summarize_roi(attempts: &[RoiAttempt], window_days: i64) -> RoiSummary {
             .iter()
             .filter(|a| a.wall_minutes.is_some_and(f64::is_finite))
             .count() as i64,
+        vendor_usd: round_to(attempts.iter().filter_map(|a| a.cost_usd).sum(), 4),
+        vendor_known: attempts.iter().filter(|a| a.cost_usd.is_some()).count() as i64,
         rows,
         note: "Widgets are Forge consumption units, not currency. There is no widgets-to-dollars rate in \
                this system, and cost_usd stays reserved for vendor-reported actuals."
@@ -311,6 +319,11 @@ pub fn render_roi_report(summary: &RoiSummary, plane: &RoiPlane) -> String {
         "  coverage: cost captured on {}/{} · wall time on {}/{}",
         summary.cost_known, summary.attempts, summary.wall_time_known, summary.attempts
     ));
+    // Real money, on its own line: the vendor's reading as the harness measured it, never converted from widgets.
+    lines.push(format!(
+        "  vendor spend: ${:.2} reported on {}/{} (harness-measured, cost_source='vendor')",
+        summary.vendor_usd, summary.vendor_known, summary.attempts
+    ));
     lines.push(format!("  {}", summary.note));
     lines.join("\n")
 }
@@ -333,6 +346,7 @@ mod tests {
             wall_minutes,
             result_status: None,
             cost_widgets,
+            cost_usd: None,
         }
     }
 
@@ -512,5 +526,34 @@ mod tests {
         let text = render_roi_report(&summarize_roi(&attempts, 30), &plane());
         assert!(text.contains("  totals: 3 attempt(s) · 2 done · 1 failed · 12 widgets"));
         assert!(text.contains("  coverage: cost captured on 1/3 · wall time on 2/3"));
+    }
+
+    /// The burn was invisible because nothing fed the vendor columns. Now that the harness does, the report shows
+    /// real dollars on their own line — summed only over runs that carry them, and never mixed with widgets.
+    #[test]
+    fn vendor_dollars_are_reported_apart_from_widgets() {
+        let mut paid = attempt(Some("fix"), Some("cheap"), "Done", Some(3.0), Some(5.0));
+        paid.cost_usd = Some(0.021);
+        let mut also_paid = attempt(Some("fix"), Some("cheap"), "Error", Some(2.0), None);
+        also_paid.cost_usd = Some(0.009);
+        let unmeasured = attempt(Some("fix"), Some("cheap"), "Done", None, None);
+        let summary = summarize_roi(&[paid, also_paid, unmeasured], 7);
+        assert_eq!(summary.vendor_known, 2);
+        assert!((summary.vendor_usd - 0.03).abs() < 1e-9);
+        assert_eq!(
+            summary.total_cost_widgets, 5.0,
+            "dollars never leak into widgets"
+        );
+        let text = render_roi_report(
+            &summary,
+            &RoiPlane {
+                app_env: "production".into(),
+                target: "prod".into(),
+            },
+        );
+        assert!(
+            text.contains("vendor spend: $0.03 reported on 2/3"),
+            "{text}"
+        );
     }
 }
