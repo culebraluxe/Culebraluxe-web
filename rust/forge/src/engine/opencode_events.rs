@@ -70,79 +70,122 @@ impl OpenCodeTurnEvents {
 ///
 /// Unknown event types are tolerated and preserved. A line that is not valid JSON is an error (§3).
 pub fn parse_run_events(stdout: &str) -> Result<OpenCodeTurnEvents> {
-    let mut turn = OpenCodeTurnEvents::default();
-    for (index, raw) in stdout.lines().enumerate() {
-        let line = raw.trim();
-        if line.is_empty() {
-            continue;
+    let mut scanner = RunEventScanner::default();
+    for line in stdout.lines() {
+        scanner.feed(line)?;
+    }
+    Ok(scanner.finish())
+}
+
+/// The same contract, read INCREMENTALLY: feed lines as they arrive, ask what the turn has done so far.
+///
+/// This exists because enforcement has to happen while the turn is running. A transcript read at the end can only
+/// report what a turn already spent; a line-by-line reading is what lets `engine::opencode` stop a turn the moment
+/// its measured spend passes the cap (and it is the same fold, so the live view and the recorded view cannot drift
+/// apart — `parse_run_events` is this type run to completion).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RunEventScanner {
+    turn: OpenCodeTurnEvents,
+    lines: usize,
+}
+
+impl RunEventScanner {
+    /// Fold one line. Line numbering is the scanner's own, so the error a live read produces names the same line
+    /// the recorded read would.
+    pub fn feed(&mut self, line: &str) -> Result<()> {
+        let index = self.lines;
+        self.lines += 1;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return Ok(());
         }
-        let event: Value = serde_json::from_str(line).map_err(|error| {
+        let event: Value = serde_json::from_str(trimmed).map_err(|error| {
             WorkflowError::generic(format!(
                 "opencode v2 structured output is not valid JSON at line {}: {error} (excerpt: {})",
                 index + 1,
-                excerpt(line)
+                excerpt(trimmed)
             ))
         })?;
+        fold_event(&mut self.turn, event);
+        Ok(())
+    }
 
-        if turn.session_id.is_none() {
-            turn.session_id = session_id_of(&event).map(str::to_string);
+    /// What the turn has done so far. A live reading, not a verdict: an unmeasured spend stays `None`.
+    pub fn turn(&self) -> &OpenCodeTurnEvents {
+        &self.turn
+    }
+
+    pub fn lines(&self) -> usize {
+        self.lines
+    }
+
+    /// The finished turn, with the session id applied to the usage the same way the whole-stream read does.
+    pub fn finish(mut self) -> OpenCodeTurnEvents {
+        if let (Some(usage), Some(id)) = (self.turn.usage.as_mut(), self.turn.session_id.as_deref())
+        {
+            usage.session_id = id.to_string();
         }
-        match event_type(&event).as_deref() {
-            Some("text") => {
-                if let Some(text) = event
-                    .get("part")
-                    .and_then(|part| part.get("text"))
-                    .and_then(Value::as_str)
-                {
-                    turn.assistant_text.push_str(text);
-                }
-            }
-            Some("step_finish") => {
-                turn.steps += 1;
-                if let Some(part) = event.get("part") {
-                    let tokens = part.get("tokens");
-                    let cost = part.get("cost").and_then(Value::as_f64);
-                    let input = tokens
-                        .and_then(|tokens| tokens.get("input"))
-                        .and_then(Value::as_i64);
-                    let output = tokens
-                        .and_then(|tokens| tokens.get("output"))
-                        .and_then(Value::as_i64);
-                    // Present-but-zero is a measurement; absent is not. Only the latter stays unmeasured.
-                    if cost.is_some() || input.is_some() || output.is_some() {
-                        let totals = turn.usage.get_or_insert_with(|| HarnessUsage {
-                            session_id: String::new(),
-                            tokens_input: 0,
-                            tokens_output: 0,
-                            cost_usd: 0.0,
-                        });
-                        totals.tokens_input += input.unwrap_or(0);
-                        totals.tokens_output += output.unwrap_or(0);
-                        totals.cost_usd += cost.unwrap_or(0.0);
-                    }
-                }
-            }
-            Some("error") => {
-                if turn.error.is_none() {
-                    turn.error = error_message(&event);
-                }
-            }
-            Some(_) => {}
-            // No `type` at all. The one shape V2 has actually produced here is a bare provider error —
-            // `{"name":"UnknownError","message":"Unexpected server error"}` — which is a failure Forge must see
-            // rather than an event it should ignore.
-            None => {
-                if turn.error.is_none() {
-                    turn.error = error_message(&event);
-                }
+        self.turn
+    }
+}
+
+/// Fold one parsed event into the turn. The single place the vendor's event vocabulary is read, so a new event type
+/// is taught once.
+fn fold_event(turn: &mut OpenCodeTurnEvents, event: Value) {
+    if turn.session_id.is_none() {
+        turn.session_id = session_id_of(&event).map(str::to_string);
+    }
+    match event_type(&event).as_deref() {
+        Some("text") => {
+            if let Some(text) = event
+                .get("part")
+                .and_then(|part| part.get("text"))
+                .and_then(Value::as_str)
+            {
+                turn.assistant_text.push_str(text);
             }
         }
-        turn.events.push(event);
+        Some("step_finish") => {
+            turn.steps += 1;
+            if let Some(part) = event.get("part") {
+                let tokens = part.get("tokens");
+                let cost = part.get("cost").and_then(Value::as_f64);
+                let input = tokens
+                    .and_then(|tokens| tokens.get("input"))
+                    .and_then(Value::as_i64);
+                let output = tokens
+                    .and_then(|tokens| tokens.get("output"))
+                    .and_then(Value::as_i64);
+                // Present-but-zero is a measurement; absent is not. Only the latter stays unmeasured.
+                if cost.is_some() || input.is_some() || output.is_some() {
+                    let totals = turn.usage.get_or_insert_with(|| HarnessUsage {
+                        session_id: String::new(),
+                        tokens_input: 0,
+                        tokens_output: 0,
+                        cost_usd: 0.0,
+                    });
+                    totals.tokens_input += input.unwrap_or(0);
+                    totals.tokens_output += output.unwrap_or(0);
+                    totals.cost_usd += cost.unwrap_or(0.0);
+                }
+            }
+        }
+        Some("error") => {
+            if turn.error.is_none() {
+                turn.error = error_message(&event);
+            }
+        }
+        Some(_) => {}
+        // No `type` at all. The one shape V2 has actually produced here is a bare provider error —
+        // `{"name":"UnknownError","message":"Unexpected server error"}` — which is a failure Forge must see
+        // rather than an event it should ignore.
+        None => {
+            if turn.error.is_none() {
+                turn.error = error_message(&event);
+            }
+        }
     }
-    if let (Some(usage), Some(id)) = (turn.usage.as_mut(), turn.session_id.as_deref()) {
-        usage.session_id = id.to_string();
-    }
-    Ok(turn)
+    turn.events.push(event);
 }
 
 /// The event's kind, from the top level (`type`) or, failing that, the part's own type with V2's hyphen

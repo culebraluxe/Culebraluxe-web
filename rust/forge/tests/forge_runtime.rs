@@ -455,6 +455,7 @@ fn production_drive_refuses_synthetic_runner() {
             worker_id: "forge",
             split_concurrency: 1,
             stop_after: None,
+            turn_cap: executor::DriveForgeStoryOptions::turn_cap_from_env(),
         },
     )
     .unwrap_err();
@@ -476,11 +477,58 @@ fn drive_stops_after_architect() {
             worker_id: "forge",
             split_concurrency: 1,
             stop_after: Some(executor::ForgeStopTarget::Role("architect")),
+            turn_cap: executor::DriveForgeStoryOptions::turn_cap_from_env(),
         },
     )
     .unwrap();
     assert_eq!(out.stopped_after.as_deref(), Some("architect"));
     assert!(out.steps.iter().any(|s| s == "architect"));
+}
+
+/// The generation turn cap (§10): the generation STOPS before dispatching past it, and it says which cap it ran into.
+///
+/// The unit is what V1 measured — a dispatched ROLE turn, "architect, lead_pre, smith, post, qa" — not a vendor step
+/// inside one of them. The failure this prevents is not slowness: it is a generation that keeps looking productive one
+/// turn at a time and is read as "still working" instead of "looping".
+#[test]
+fn a_generation_stops_at_the_turn_cap_before_dispatching_past_it() {
+    let (mut rt, _) = runtime();
+    let out = executor::drive_forge_story(
+        &mut rt,
+        "story-1",
+        executor::DriveForgeStoryOptions {
+            work_type: "FEATURE",
+            evidence: feature_ev(),
+            runner: Some(&executor::DefaultForgeRoleRunner),
+            allow_synthetic_runner: true,
+            // Room for many waves: what stops this generation has to be the CAP rather than the wave ceiling.
+            max_steps: 20,
+            worker_id: "forge",
+            split_concurrency: 1,
+            stop_after: None,
+            turn_cap: 1,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        out.steps.len(),
+        1,
+        "one turn is one dispatch, and nothing may run past the cap: {:?}",
+        out.steps
+    );
+    let reason = out
+        .blocked_reason
+        .expect("a capped generation must name itself in its own record");
+    assert!(reason.contains("MODEL_TURN_CAP"), "{reason}");
+    assert!(
+        reason.contains("already dispatched 1 turns (cap 1)"),
+        "the reason must state the count and the cap: {reason}"
+    );
+    assert!(
+        reason.contains("FORGE_MAX_MODEL_TURNS_PER_GENERATION"),
+        "and must say how to authorise a longer run: {reason}"
+    );
 }
 
 #[test]
@@ -1169,6 +1217,7 @@ fn opencode_argv_pins_model_and_auto() {
         true,
         None,
         false,
+        None,
     );
     assert_eq!(
         args,
@@ -1193,6 +1242,7 @@ fn opencode_argv_session_pins_id() {
         true,
         Some("sess-1"),
         false,
+        None,
     );
     assert!(args.windows(2).any(|w| w == ["--session", "sess-1"]));
     assert!(!args.iter().any(|a| a == "--continue"));

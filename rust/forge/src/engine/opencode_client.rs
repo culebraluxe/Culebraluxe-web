@@ -14,8 +14,10 @@
 //! vendor's argument surface is owned in one file so a V2 rename is one edit, not a hunt.
 
 use std::collections::HashMap;
-use std::io::Read;
-use std::process::{Command, Stdio};
+use std::io::{BufRead, BufReader, Read};
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OpenCodeRunStatus {
@@ -40,19 +42,28 @@ pub struct OpenCodeStartOptions<'a> {
     pub auto_approve: bool,
     pub session: Option<&'a str>,
     pub continue_session: bool,
+    /// The Forge V2 execution agent for this turn (`--agent`). `None` leaves the vendor's own default in place,
+    /// which means **no Forge authority is enforced** — Forge always names an agent for a role turn, and `None`
+    /// exists only so the arg-list contract can be asserted without one.
+    pub agent: Option<&'a str>,
 }
 
-/// `run --standalone --format json --model <id> [--session <id>] [--continue] [--auto] <task>`.
+/// `run --standalone --format json --model <id> [--agent <name>] [--session <id>] [--continue] [--auto] <task>`.
 ///
 /// `--standalone` and `--format json` are not optional and not configurable: they are the V2 execution
 /// contract this harness is written against (ENG-FORGE-OPENCODE-V2 §0/§2). The task stays the final
 /// positional argument, which is what V2's `run [flags] [<message...>]` signature requires.
+///
+/// `--agent` is part of the contract too (verified against the installed build's `run --help`: "Agent to use").
+/// Without it the turn would run as the vendor's default agent, whose permissions Forge did not author, so the
+/// authority model in `engine::opencode_agents` would be configuration nobody applied.
 pub fn build_opencode_run_args(
     model: &str,
     task: &str,
     auto_approve: bool,
     session: Option<&str>,
     continue_session: bool,
+    agent: Option<&str>,
 ) -> Vec<String> {
     let mut args = vec![
         "run".into(),
@@ -62,6 +73,10 @@ pub fn build_opencode_run_args(
         "--model".into(),
         model.into(),
     ];
+    if let Some(name) = agent {
+        args.push("--agent".into());
+        args.push(name.into());
+    }
     if let Some(id) = session {
         args.push("--session".into());
         args.push(id.into());
@@ -100,27 +115,72 @@ pub fn build_session_list_args() -> Vec<String> {
     ]
 }
 
-pub fn start_opencode_run(opts: OpenCodeStartOptions<'_>) -> OpenCodeRunResult {
+/// Apply the lane's environment to a vendor child, then pin the PROJECT it works on — in that order, which is
+/// the whole point.
+///
+/// MEASURED on the installed 2.0.21 build (2026-10-01), and the reason this is a named function rather than two
+/// `Command` calls at each site: the vendor resolves its project from the `PWD` variable, NOT from the real
+/// process cwd. With a child's cwd set to an empty temporary directory and `PWD` left pointing at a checkout
+/// that has an `opencode.json`, `run --standalone --agent forge-smith` resolves the CHECKOUT's config and runs
+/// the agent; with `PWD` agreeing with the cwd, the same command in the same directory fails
+/// `Agent not found: "forge-smith"`. So an inherited or stale `PWD` silently retargets a child — its config, its
+/// session identity, its per-project state — while every log line still names the directory Forge meant. That is
+/// the same shape of failure as the config-delivery gap in `engine::opencode_agents`: the work succeeds and the
+/// wrong thing was enforced.
+///
+/// Forge's children are safe today only incidentally, because a sanitized environment arrives with
+/// `env_clear()`, which takes `PWD` with it. Setting it explicitly makes the guarantee deliberate and identical
+/// for both callers — the turn (`spawn_run`) and the spend reads (`engine::harness_usage::run_vendor`) — so it
+/// survives a caller that passes no environment at all.
+pub fn apply_vendor_env(cmd: &mut Command, env: Option<&HashMap<String, String>>, cwd: &str) {
+    if let Some(env) = env {
+        cmd.env_clear();
+        for (key, value) in env {
+            cmd.env(key, value);
+        }
+    }
+    cmd.current_dir(cwd);
+    cmd.env("PWD", cwd);
+}
+
+/// Spawn the vendor for one turn: its own process group, both pipes open, the sanitized environment applied.
+///
+/// PROCESS GROUP, and why it is not incidental: a signal is Forge's only hard stop, and it is only as good as
+/// its reach. MEASURED on the live 2.0.21 build (2026-10-01): `run --standalone` is not an HTTP client of
+/// anything — it spawns `opencode serve --stdio --port 0` as a CHILD, *in its own process group*, and speaks to
+/// it over stdio. So there is no URL to send the vendor's documented `POST /session/{id}/abort` to:
+/// `run --standalone --print-logs` prints no listening address, and `opencode api --standalone` starts a
+/// different, empty server. `process_group(0)` makes the child a group leader, so `kill -TERM -<pid>` reaches the
+/// stdio server as well as the client. Verified: after TERM the session's exported cost stopped moving
+/// (0.035756 at t+4s and again at t+12s) — the model call had stopped, not merely stopped reporting.
+fn spawn_run(opts: &OpenCodeStartOptions<'_>) -> std::io::Result<Child> {
     let args = build_opencode_run_args(
         opts.model,
         opts.task,
         opts.auto_approve,
         opts.session,
         opts.continue_session,
+        opts.agent,
     );
     let mut cmd = Command::new(opts.cli_bin);
     cmd.args(&args)
-        .current_dir(opts.cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if let Some(env) = opts.env {
-        cmd.env_clear();
-        for (k, v) in env {
-            cmd.env(k, v);
-        }
+    // The environment first, then the project: `apply_vendor_env` clears the inherited environment, which would
+    // take a pinned `PWD` with it if the order were reversed.
+    apply_vendor_env(&mut cmd, opts.env, opts.cwd);
+    #[cfg(unix)]
+    {
+        // One call, and the whole turn becomes addressable as a group: the client AND the private stdio server.
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
     }
-    match cmd.spawn() {
+    cmd.spawn()
+}
+
+pub fn start_opencode_run(opts: OpenCodeStartOptions<'_>) -> OpenCodeRunResult {
+    match spawn_run(&opts) {
         Err(err) => OpenCodeRunResult {
             status: OpenCodeRunStatus::Failed,
             exit_code: None,
@@ -175,5 +235,499 @@ pub fn start_opencode_run(opts: OpenCodeStartOptions<'_>) -> OpenCodeRunResult {
                 },
             }
         }
+    }
+}
+
+// -----------------------------------------------------------------------------------------------------------
+// The streamed turn: live enforcement, and the only hard stop Forge has
+// -----------------------------------------------------------------------------------------------------------
+
+/// How long to wait for the vendor's next line before recording a heartbeat tick. A silent turn is not
+/// necessarily a dead one — a long tool call emits nothing — so this is observation, never a verdict.
+pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+
+/// How long a signalled process group gets to exit before it is killed outright.
+pub const TERMINATE_GRACE: Duration = Duration::from_secs(2);
+
+/// A turn that is currently running, addressed as the process group it was spawned in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunningTurn {
+    pub pid: u32,
+}
+
+/// The harness's view of the turn in flight: what is running, and why someone asked it to stop.
+///
+/// The reason is stored WITH the turn because an interruption from another thread is otherwise indistinguishable
+/// from a crash: the process dies, stdout ends, the exit status is a signal, and the record would say only that
+/// something went wrong. It is also the honest place for it — the caller who interrupts is the only one who knows
+/// why, and this slot is how the turn's own reader can hear it.
+#[derive(Debug, Clone, Default)]
+pub struct LiveTurn {
+    pub running: Option<RunningTurn>,
+    pub interrupt_reason: Option<String>,
+}
+
+/// A slot the caller owns and the streaming starter publishes into.
+pub type LiveTurnSlot = std::sync::Arc<std::sync::Mutex<LiveTurn>>;
+
+pub fn live_turn_slot() -> LiveTurnSlot {
+    std::sync::Arc::new(std::sync::Mutex::new(LiveTurn::default()))
+}
+
+/// What a termination actually did, so a stop can be reported rather than assumed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnTermination {
+    pub pid: u32,
+    /// Group members and descendants Forge signalled, in the order it signalled them.
+    pub signalled: Vec<u32>,
+    /// True when TERM was not enough and KILL was sent.
+    pub killed: bool,
+    /// False when the pid was already gone. A stop that arrives after the turn ended is not a failure: reporting
+    /// it as one would make every fast turn look like a broken stop.
+    pub existed: bool,
+}
+
+/// Why the client stopped a turn mid-flight, in Forge's own vocabulary (`MODEL_TURN_CAP`, `BUDGET_EXHAUSTED`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StreamStop {
+    pub code: String,
+    pub detail: String,
+}
+
+/// What one streamed turn did.
+pub struct StreamedRunResult {
+    pub status: OpenCodeRunStatus,
+    pub exit_code: Option<i32>,
+    pub stderr: String,
+    /// The stop Forge applied, when it applied one. `None` means the turn ended on its own.
+    pub stop: Option<StreamStop>,
+    /// Lines the vendor produced.
+    pub lines: usize,
+    /// How long the last line took to arrive from launch: the liveness Forge actually observed.
+    pub last_line_ms: u128,
+    /// Heartbeat ticks: intervals in which the turn produced nothing at all.
+    pub silent_ticks: u64,
+    /// The termination receipt, when a stop was applied.
+    pub termination: Option<TurnTermination>,
+}
+
+impl RunningTurn {
+    /// Stop the turn: TERM the turn's process tree, wait, RE-ENUMERATE, and escalate to KILL for anything still
+    /// standing at the deadline.
+    ///
+    /// WHY THE ENUMERATION REPEATS. A single sweep is a race with a shell that forks: MEASURED (2026-10-01) on a
+    /// `#!/bin/sh` stand-in whose first statement is `printf` and whose second is `sleep 30` — the interrupt landed
+    /// between the two, the sweep saw only the leader (`signalled=[<leader>]`), the leader was TERM'd, and the
+    /// newly-forked `sleep` — which had inherited the turn's stdout pipe — kept it open for its full 30 seconds. The
+    /// turn was stopped and its reader still waited 30s, which is the spend this primitive exists to prevent. So the
+    /// tree is read again on every pass until it is empty, and only the deadline escalates to KILL.
+    ///
+    /// WHY THE GROUPS ARE ENUMERATED RATHER THAN SIGNALLED AS GROUPS. The obvious spelling is `kill -s TERM -<pgid>`,
+    /// and it does not work on this platform: MEASURED — `sh -c 'kill -s TERM -99999'` fails with
+    /// `kill: 99999: invalid signal specification`, because the shell's builtin parses the group reference as the
+    /// SIGNAL NUMBER, and it fails the same way when the negative pid is passed as a positional parameter. A stop
+    /// that silently signals nothing is worse than no stop at all.
+    pub fn terminate(&self) -> TurnTermination {
+        let initial = self.tree();
+        let existed = !initial.is_empty() || process_exists(self.pid);
+        let mut signalled: Vec<u32> = Vec::new();
+        let mut killed = false;
+        let deadline = Instant::now() + TERMINATE_GRACE;
+        loop {
+            let targets: Vec<u32> = self
+                .tree()
+                .into_iter()
+                .filter(|pid| process_exists(*pid))
+                .collect();
+            if targets.is_empty() {
+                break;
+            }
+            let phase = if Instant::now() < deadline {
+                "TERM"
+            } else {
+                "KILL"
+            };
+            if phase == "KILL" {
+                killed = true;
+            }
+            for pid in &targets {
+                if signal(*pid, phase) && phase == "TERM" && !signalled.contains(pid) {
+                    signalled.push(*pid);
+                }
+            }
+            if phase == "KILL" {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        TurnTermination {
+            pid: self.pid,
+            signalled,
+            killed,
+            existed,
+        }
+    }
+
+    /// The turn's process tree: every member of the group `spawn_run` created, plus the descendants that left it
+    /// (the vendor's private `serve --stdio` server runs in a group of its own — measured).
+    fn tree(&self) -> Vec<u32> {
+        let mut targets = group_members(self.pid);
+        for pid in descendants(self.pid) {
+            if !targets.contains(&pid) {
+                targets.push(pid);
+            }
+        }
+        targets
+    }
+}
+
+/// `kill -s <signal> <pid>` through the shell. The pid is always POSITIVE: a group reference cannot be spelled here
+/// (see `RunningTurn::terminate` for the measurement), and a pid is a number, so nothing here is model- or
+/// operator-authored text.
+fn signal_command(pid: u32, signal: &str) -> bool {
+    Command::new("sh")
+        .arg("-c")
+        .arg(format!("kill -s {signal} {pid} 2>/dev/null"))
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+fn signal(pid: u32, signal: &str) -> bool {
+    signal_command(pid, signal)
+}
+
+/// True while the pid exists: signal 0 sends nothing and reports whether the target is there.
+fn process_exists(pid: u32) -> bool {
+    signal_command(pid, "0")
+}
+
+/// Read `ps` once as `(pid, pgid, ppid)` rows.
+fn process_table() -> Vec<(u32, u32, u32)> {
+    let Ok(output) = Command::new("ps")
+        .args(["-axo", "pid=,pgid=,ppid="])
+        .output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let pid = fields.next()?.parse().ok()?;
+            let pgid = fields.next()?.parse().ok()?;
+            let ppid = fields.next()?.parse().ok()?;
+            Some((pid, pgid, ppid))
+        })
+        .collect()
+}
+
+/// Every live member of the process group `pgid`, the leader included. `spawn_run` makes the vendor client a group
+/// leader, so this is the turn's own process tree — the thing a stop has to reach.
+fn group_members(pgid: u32) -> Vec<u32> {
+    process_table()
+        .into_iter()
+        .filter(|(_, group, _)| *group == pgid)
+        .map(|(pid, _, _)| pid)
+        .collect()
+}
+
+/// The live descendants of `root`, which is what reaches a child that left the group (the vendor's private
+/// `serve --stdio` server runs in a group of its own — measured).
+fn descendants(root: u32) -> Vec<u32> {
+    let table = process_table();
+    let mut found = Vec::new();
+    let mut frontier = vec![root];
+    while let Some(parent) = frontier.pop() {
+        for (pid, _, ppid) in &table {
+            if *ppid == parent && !found.contains(pid) {
+                found.push(*pid);
+                frontier.push(*pid);
+            }
+        }
+    }
+    found
+}
+
+/// Run one turn, reading the vendor's NDJSON as it arrives, and stop it mid-flight when `on_line` says so.
+///
+/// WHY STREAMING IS NOT AN OPTIMISATION HERE. Reading the transcript once at the end can only ever report what a
+/// turn already spent: a generation that loops, or one whose single turn decides to run for an hour, is invisible
+/// until it is over — and "over" is exactly what a budget cap is supposed to prevent. Reading line by line is what
+/// makes `BUDGET_EXHAUSTED` a stop rather than an obituary.
+///
+/// The two pipes are still drained concurrently (stdout line by line on its own thread, stderr to a buffer):
+/// `--standalone` logs a private server's startup to stderr while `--format json` emits a line per event, so
+/// reading one to EOF before touching the other is the deadlock the buffered path already had to avoid.
+///
+/// `on_line` returning `Some(stop)` is not advisory: the group is terminated, the stop is recorded, and the
+/// caller is expected to treat the turn as stopped rather than completed.
+pub fn start_opencode_run_streaming(
+    opts: OpenCodeStartOptions<'_>,
+    on_line: &mut dyn FnMut(&str) -> Option<StreamStop>,
+    live: &LiveTurnSlot,
+) -> StreamedRunResult {
+    let mut child = match spawn_run(&opts) {
+        Ok(child) => child,
+        Err(err) => {
+            return StreamedRunResult {
+                status: OpenCodeRunStatus::Failed,
+                exit_code: None,
+                stderr: err.to_string(),
+                stop: None,
+                lines: 0,
+                last_line_ms: 0,
+                silent_ticks: 0,
+                termination: None,
+            }
+        }
+    };
+    let running = RunningTurn { pid: child.id() };
+    // Published BEFORE the first line is read, so a turn can be interrupted from the instant it exists rather
+    // than only once it has produced output. The slot is NOT cleared here: the owner clears it, because the
+    // interruption reason has to survive the turn ending for the reader to report it.
+    if let Ok(mut slot) = live.lock() {
+        slot.running = Some(running);
+    }
+    let started = Instant::now();
+
+    let (tx, rx) = mpsc::channel::<String>();
+    let stdout_reader = child.stdout.take().map(|out| {
+        std::thread::spawn(move || {
+            for line in BufReader::new(out).lines() {
+                match line {
+                    Ok(line) => {
+                        if tx.send(line).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        })
+    });
+    // stderr is read into a SHARED buffer rather than returned from a joined thread, for the same reason the loop
+    // below watches the child rather than the pipe: a lingering descendant inherits both, and waiting for EOF on a
+    // pipe some orphan still holds is waiting on the wrong thing. stderr is only ever diagnostic detail, so
+    // reading whatever arrived by the time the turn is over is the honest amount to read.
+    let stderr_buf = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let stderr_writer = std::sync::Arc::clone(&stderr_buf);
+    child.stderr.take().map(|mut err| {
+        std::thread::spawn(move || {
+            let mut chunk = [0u8; 4096];
+            loop {
+                match err.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => {
+                        if let Ok(mut buf) = stderr_writer.lock() {
+                            buf.push_str(&String::from_utf8_lossy(&chunk[..read]));
+                        }
+                    }
+                }
+            }
+        })
+    });
+
+    let mut stop: Option<StreamStop> = None;
+    let mut lines = 0usize;
+    let mut last_line_ms = 0u128;
+    let mut silent_ticks = 0u64;
+    let mut exit_code = None;
+    loop {
+        match rx.recv_timeout(HEARTBEAT_INTERVAL) {
+            Ok(line) => {
+                lines += 1;
+                last_line_ms = started.elapsed().as_millis();
+                if let Some(verdict) = on_line(&line) {
+                    stop = Some(verdict);
+                    break;
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                // Nothing arrived this interval. Silence alone is never a verdict — a long tool call is silent and
+                // healthy — but the PROCESS is a verdict: once it is gone the turn is over, whatever a descendant
+                // that inherited its pipes is still doing. MEASURED (2026-10-01): with the client killed at t=0, an
+                // orphaned `sleep 30` held the turn's stdout open and a reader that waited for EOF waited the whole
+                // 30 seconds — the spend a hard stop exists to prevent, spent anyway.
+                silent_ticks += 1;
+                if let Ok(Some(status)) = child.try_wait() {
+                    exit_code = status.code();
+                    break;
+                }
+            }
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    let termination = stop.as_ref().map(|_| running.terminate());
+    if exit_code.is_none() {
+        // Reaps the child when it has not been reaped yet. Bounded: after a stop the tree is TERM'd and then KILLed,
+        // so this cannot wait on a process that ignores signals.
+        exit_code = child.wait().ok().and_then(|status| status.code());
+    }
+    // The reader threads are deliberately NOT joined: they end when their pipes close, and a pipe an orphan holds is
+    // not part of this turn any more.
+    let stderr = stderr_buf.lock().map(|buf| buf.clone()).unwrap_or_default();
+    StreamedRunResult {
+        status: if stop.is_none() && exit_code == Some(0) {
+            OpenCodeRunStatus::Success
+        } else {
+            OpenCodeRunStatus::Failed
+        },
+        exit_code,
+        stderr,
+        stop,
+        lines,
+        last_line_ms,
+        silent_ticks,
+        termination,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::Path;
+
+    /// A stand-in for the vendor: a script that ignores `opencode`'s arguments and emits a scripted stream.
+    /// Running the REAL streaming path against it is the point — a mock that returns a result would not tell us
+    /// whether a stopped turn actually dies.
+    fn fake_cli(dir: &Path, body: &str) -> String {
+        let path = dir.join("fake-opencode.sh");
+        fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("script");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
+        }
+        path.to_string_lossy().to_string()
+    }
+
+    fn workspace(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("forge-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("temp workspace");
+        dir
+    }
+
+    #[test]
+    fn a_streamed_turn_that_hits_a_cap_really_dies() {
+        let dir = workspace("stream-kill");
+        // One line, then a long silence: the shape of a turn that has stopped being worth paying for.
+        let bin = fake_cli(
+            &dir,
+            r#"printf '{"type":"text","sessionID":"ses_kill"}\n'
+sleep 30"#,
+        );
+        let started = Instant::now();
+        let slot = live_turn_slot();
+        let mut lines_seen = 0usize;
+        let result = start_opencode_run_streaming(
+            OpenCodeStartOptions {
+                cli_bin: &bin,
+                cwd: &dir.to_string_lossy(),
+                model: "deepseek/deepseek-flash",
+                task: "a task the fake vendor ignores",
+                env: None,
+                auto_approve: true,
+                session: None,
+                continue_session: false,
+                agent: Some("forge-scout"),
+            },
+            &mut |_line| {
+                lines_seen += 1;
+                Some(StreamStop {
+                    code: "MODEL_TURN_CAP".to_string(),
+                    detail: "the guard asked for a stop on the first line".to_string(),
+                })
+            },
+            &slot,
+        );
+        let elapsed = started.elapsed();
+
+        assert_eq!(
+            lines_seen, 1,
+            "the guard runs on the line that triggered it"
+        );
+        assert_eq!(
+            result.stop.as_ref().map(|stop| stop.code.as_str()),
+            Some("MODEL_TURN_CAP"),
+            "the stop is reported by its code, not by a comment"
+        );
+        let termination = result.termination.clone().expect("a stop is a termination");
+        assert_eq!(
+            slot.lock().expect("slot").running.map(|turn| turn.pid),
+            Some(termination.pid),
+            "the slot publishes the running group, so a stop can also arrive from another thread"
+        );
+        assert!(
+            !process_exists(termination.pid),
+            "the vendor process must be gone after the stop: {termination:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(20),
+            "a stopped turn must not wait out the script's silence: {elapsed:?}"
+        );
+        assert_eq!(
+            result.status,
+            OpenCodeRunStatus::Failed,
+            "a stopped turn is NOT a successful turn, whatever its exit status"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_turn_that_finishes_on_its_own_reports_no_stop() {
+        let dir = workspace("stream-clean");
+        let bin = fake_cli(
+            &dir,
+            r#"printf '{"type":"step_start","sessionID":"ses_clean"}\n'
+printf '{"type":"text","sessionID":"ses_clean","part":{"type":"text","text":"DONE"}}\n'
+exit 0"#,
+        );
+        let result = start_opencode_run_streaming(
+            OpenCodeStartOptions {
+                cli_bin: &bin,
+                cwd: &dir.to_string_lossy(),
+                model: "deepseek/deepseek-flash",
+                task: "a task the fake vendor ignores",
+                env: None,
+                auto_approve: true,
+                session: None,
+                continue_session: false,
+                agent: Some("forge-scout"),
+            },
+            &mut |_line| None,
+            &live_turn_slot(),
+        );
+
+        assert!(result.stop.is_none(), "no guard fired, so there is no stop");
+        assert!(result.termination.is_none());
+        assert_eq!(result.status, OpenCodeRunStatus::Success);
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(result.lines, 2, "both lines reached the guard");
+        assert!(result.last_line_ms > 0, "the heartbeat saw a line");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A stop that arrives after the turn ended is a real, common case (the guard decides while the vendor is
+    /// already finishing). It must report itself honestly instead of claiming a kill that never happened.
+    #[test]
+    fn terminating_a_turn_that_has_already_ended_is_not_a_failure() {
+        let mut child = Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .expect("spawn a short-lived child");
+        let pid = child.id();
+        let _ = child.wait();
+
+        let receipt = RunningTurn { pid }.terminate();
+        assert!(
+            !receipt.existed,
+            "the pid was already gone and the receipt must say so: {receipt:?}"
+        );
+        assert!(!receipt.killed);
+        assert!(receipt.signalled.is_empty());
     }
 }

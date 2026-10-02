@@ -7,6 +7,7 @@ use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::path::shared_path;
 use crate::engine::role_slice::forge_lane_surface;
 use crate::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
+use crate::engine::turn_budget;
 use workflow::{ProcessOutcome, ProcessStatus, Result, TaskStatus, TxStore, WorkflowError};
 
 pub struct ForgeRoleOutcome {
@@ -266,6 +267,34 @@ pub struct DriveForgeStoryOptions<'a> {
     pub worker_id: &'a str,
     pub split_concurrency: usize,
     pub stop_after: Option<ForgeStopTarget>,
+    /// How many MODEL TURNS this generation may dispatch before it stops (§10).
+    ///
+    /// A "turn" here is a dispatched role — the unit V1 measured: "a healthy FEATURE generation costs five turns:
+    /// architect, lead_pre, smith, post, qa" (`legacy/workflow_app/tests/forge-model-turn-budget.test.ts`). It is NOT
+    /// a vendor step inside one of them: the vendor's own per-agent step ceiling is a different number in a different
+    /// layer, and counting steps here would stop healthy generations while letting a generation of many short turns
+    /// run forever.
+    ///
+    /// Checked BEFORE a turn is dispatched and failing closed, because the failure it prevents is not slowness: it is
+    /// a generation that keeps looking productive one turn at a time and is read as "still working" instead of
+    /// "looping". A field rather than an environment read at the point of use, so a test can cap a generation without
+    /// setting a process-global variable that parallel tests share.
+    pub turn_cap: u32,
+}
+
+impl<'a> DriveForgeStoryOptions<'a> {
+    /// The cap the environment asks for (`FORGE_MAX_MODEL_TURNS_PER_GENERATION`).
+    ///
+    /// The only place the variable is read, so the cap an operator sets and the cap a test sets cannot be different
+    /// code paths. A broken value falls back to the default and an absurd one is clamped — never widened, never
+    /// unlimited.
+    pub fn turn_cap_from_env() -> u32 {
+        turn_budget::resolve_generation_turn_cap(
+            std::env::var(turn_budget::GENERATION_TURN_CAP_ENV)
+                .ok()
+                .as_deref(),
+        )
+    }
 }
 
 impl<'a> DriveForgeStoryOptions<'a> {
@@ -282,6 +311,7 @@ impl<'a> DriveForgeStoryOptions<'a> {
             worker_id: "forge",
             split_concurrency: 1,
             stop_after: None,
+            turn_cap: Self::turn_cap_from_env(),
         }
     }
 }
@@ -301,6 +331,10 @@ pub fn drive_forge_story<S: TxStore>(
     let stop_target = resolve_forge_stop_target(opts.stop_after.as_ref());
     let mut stopped_after = None;
     let mut steps = Vec::new();
+    // §10: ONE integer per generation, and the unit is a dispatched ROLE TURN. `turns_dispatched` counts turns that
+    // were actually claimed and started, so a claim conflict — a turn that nothing ran — costs nothing.
+    let mut turns_dispatched: u32 = 0;
+    let mut turn_cap_stop: Option<String> = None;
 
     let wake = rt.wake_story(story_id, opts.work_type, opts.evidence.clone())?;
     let instance_id = wake.instance_id;
@@ -383,12 +417,25 @@ pub fn drive_forge_story<S: TxStore>(
                     .first()
                     .cloned()
                     .unwrap_or_else(|| opts.worker_id.to_string());
+                // THE HARD STOP, and it is checked BEFORE the claim so a refused turn cannot leave a claim behind for
+                // the stale sweeper to find. At the cap the generation ENDS with the code in its record rather than
+                // dispatching a turn the cap already refused and paying for it.
+                if let turn_budget::TurnBudgetVerdict::Refused { reason, .. } =
+                    turn_budget::assess_generation_turn_budget(
+                        turns_dispatched,
+                        Some(opts.turn_cap),
+                    )
+                {
+                    turn_cap_stop = Some(reason);
+                    break;
+                }
                 if let Err(err) = rt.claim_role_task(&task.task_id, &actor) {
                     if is_advance_conflict(&err) {
                         continue;
                     }
                     return Err(err);
                 }
+                turns_dispatched += 1;
                 let outcome = match runner.run(&node, &task) {
                     Ok(o) => o,
                     Err(err) => {
@@ -423,11 +470,11 @@ pub fn drive_forge_story<S: TxStore>(
                     stopped_after = Some(node);
                 }
             }
-            if stopped_after.is_some() {
+            if stopped_after.is_some() || turn_cap_stop.is_some() {
                 break;
             }
         }
-        if stopped_after.is_some() {
+        if stopped_after.is_some() || turn_cap_stop.is_some() {
             break;
         }
     }
@@ -450,7 +497,9 @@ pub fn drive_forge_story<S: TxStore>(
         status: format!("{:?}", instance.status),
         steps,
         exhausted: !tasks.is_empty(),
-        blocked_reason: None,
+        // The cap's reason when the generation ran into it, otherwise nothing. A stop that did not name itself here
+        // would be indistinguishable from a generation that simply had no more work.
+        blocked_reason: turn_cap_stop,
         needs_human: tasks.iter().any(|t| {
             t.node_id
                 .as_deref()

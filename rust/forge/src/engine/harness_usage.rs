@@ -31,14 +31,30 @@
 //!
 //! Every failure to read is `None` — unmeasured — never a fabricated zero.
 //!
-//! KNOWN GAP, DECLARED RATHER THAN PATCHED (§6): V1 included CHILD sessions in their root's spend. No supported
-//! V2 interface exposes that linkage — `session list` returns top-level sessions only and `session export`
-//! carries no parent/child field — so children cannot be enumerated. Forge does not silently drop their spend
-//! because it cannot detect it at all. On the installed build `opencode debug agents` reports `[]`, so a Forge
-//! turn spawns no subagent and there is no child session to account for. If V2 subagents are enabled later
-//! (deliberately out of scope here, §9) this becomes a real undercount and must be solved through the
-//! supported interface before that feature lands. `the_supported_interface_exposes_no_children_to_account_for`
-//! trips the moment a linkage appears.
+//! KNOWN GAP, DECLARED RATHER THAN PATCHED (§6): V1 included CHILD sessions in their root's spend. V2 does not, and
+//! this module cannot fix that from where it reads.
+//!
+//! THE LINKAGE IS NOT MISSING FROM V2 — IT IS UNREACHABLE FROM FORGE'S INVOCATION (corrected 2026-10-01; this note
+//! previously claimed no supported interface exposed it, which is wrong). Measured on the installed 2.0.21 build:
+//! `GET /session/{sessionID}/children` exists in the vendor's own OpenAPI surface ("Retrieve all child sessions
+//! that were forked from the specified parent session"), and a child is linked by the
+//! `x-opencode-parent-session-id` header. So the vendor CAN name the children. What Forge has is a different thing:
+//! a `--standalone` run speaks STDIO to a private `opencode serve --stdio --port 0` child, prints no addressable
+//! endpoint, and the CLI exposes no `session children` subcommand (only `list`, `delete`, `export`, `import`).
+//! Through the interface this module actually reads with — `session list`, `session export` — a child is simply
+//! never mentioned.
+//!
+//! AND THE UNDERCOUNT IS MATERIAL, not theoretical. Measured from the live store, one real parent/child pair:
+//! parent `cost 0.022812138, input 50231, output 8668`; its `explore` child `cost 0.027764424, input 113224,
+//! output 10227`. The CHILD COST MORE THAN THE PARENT, and none of it appears in the parent's export — so "what this
+//! turn spent" is strictly the root session's spend. The exposure is bounded and named rather than open-ended: only
+//! the agents whose child allowlist is non-empty can produce a child at all (`forge-smith`, `forge-architect` — see
+//! `engine::opencode_agents`), and background children stay disabled.
+//!
+//! What would close it: a supported READ of the linkage that Forge can reach — a `session children` subcommand, or
+//! the child totals folded into the parent's export. The moment either appears the accounting belongs HERE rather
+//! than in a note, and `a_parent_turn_is_charged_its_own_spend_and_not_its_childrens` is written to trip when it
+//! does.
 
 use std::collections::HashMap;
 use std::process::Command;
@@ -141,7 +157,9 @@ pub fn parse_session_export(json: &str, session_id: &str) -> Option<HarnessUsage
 /// Nothing else is returned on purpose: a missing binary, a non-zero exit and an unreadable payload all mean
 /// "could not read", which every caller already maps to unmeasured. The lane's sanitized environment is applied
 /// here the same way it is for a model turn, so a control-plane read never carries production database
-/// authority either.
+/// authority either — and the project is pinned the same way too (`opencode_client::apply_vendor_env`), because a
+/// stale `PWD` would otherwise make `session list` describe a different project's sessions and this module would
+/// measure a session the lane never ran.
 fn run_vendor(
     cli_bin: &str,
     args: &[String],
@@ -150,16 +168,10 @@ fn run_vendor(
 ) -> Option<String> {
     let mut cmd = Command::new(cli_bin);
     cmd.args(args)
-        .current_dir(cwd)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    if let Some(env) = env {
-        cmd.env_clear();
-        for (key, value) in env {
-            cmd.env(key, value);
-        }
-    }
+    crate::engine::opencode_client::apply_vendor_env(&mut cmd, env, cwd);
     let out = cmd.output().ok()?;
     if !out.status.success() {
         return None;
@@ -492,26 +504,102 @@ mod tests {
         );
     }
 
+    /// The gap, pinned to the vendor's own numbers and to the bound on who can cause it — rather than to a word search
+    /// over a fixture, which could never have told us what the vendor's API does.
+    ///
+    /// MEASURED on the live 2.0.21 store (2026-10-01), one real parent/child pair. The parent's export reports the
+    /// parent's totals alone; the child's own session reports larger ones. Nothing of the child is in the parent, so a
+    /// turn's recorded spend is strictly its root session's spend.
     #[test]
-    fn the_supported_interface_exposes_no_children_to_account_for() {
-        // §6. V1 summed CHILD sessions into their root through a recursive query over the private table. The
-        // supported V2 interface has no equivalent: the list is top-level only and the export carries no
-        // parent/child field. Children are therefore DECLARED unaccountable rather than silently dropped.
-        //
-        // This is the tripwire: the moment V2 reports the linkage, Forge must account for child spend through
-        // it instead of leaving this gap in place.
+    fn a_parent_turn_is_charged_its_own_spend_and_not_its_childrens() {
+        const MEASURED_PARENT: (f64, i64, i64) = (0.022812138, 50_231, 8_668);
+        const MEASURED_CHILD: (f64, i64, i64) = (0.027764424, 113_224, 10_227);
+
+        // What Forge reads for a parent: its own totals, exactly as the export states them.
+        let parent = parse_session_export(EXPORT, "ses_fixture_turn_0001").expect("measured");
         assert_eq!(
-            parse_session_export(EXPORT, "ses_fixture_turn_0001")
-                .expect("measured")
-                .tokens_input,
-            650
+            (parent.tokens_input, parent.tokens_output),
+            (650, 57),
+            "the export's own numbers, unaltered"
         );
-        for linkage in ["parent", "children", "subagent", "sub_session"] {
+
+        // The two reads Forge has, and neither carries a child: the export is `info` + `messages`, and the list is
+        // rows of top-level sessions. Asserted as SHAPE, so a vendor that starts folding children in trips this.
+        let export_shape: serde_json::Value = serde_json::from_str(EXPORT).expect("json");
+        assert_eq!(
+            export_shape.as_object().map(|map| {
+                let mut keys: Vec<&String> = map.keys().collect();
+                keys.sort();
+                keys
+            }),
+            Some(vec![&"info".to_string(), &"messages".to_string()]),
+            "a child's totals folded into the export would change this shape, which is the signal to start \
+             accounting for them"
+        );
+        for row in parse_session_list(LIST) {
             assert!(
-                !EXPORT.contains(linkage) && !LIST.contains(linkage),
-                "the vendor now exposes `{linkage}`; child-session spend must be accounted for through it, \
-                 not declared as a gap"
+                row.id.starts_with("ses_"),
+                "the list is rows of sessions: {row:?}"
             );
         }
+
+        // The arithmetic that makes it material: the child in that measured pair cost MORE than its parent, and
+        // the magnitude is the point — this is not a rounding difference.
+        assert!(
+            MEASURED_CHILD.0 > MEASURED_PARENT.0,
+            "measured: child {MEASURED_CHILD:?} vs parent {MEASURED_PARENT:?}"
+        );
+        assert!(
+            MEASURED_CHILD.1 > MEASURED_PARENT.1,
+            "measured: the child read more input tokens than its parent"
+        );
+
+        // And the exposure is BOUNDED twice over: only an agent whose DECLARED child allowlist is non-empty can
+        // produce a child at all, and only when the subagent gate is armed. If the declared set ever names another
+        // agent, the accounting consequence is stated here rather than discovered later.
+        let spawners: Vec<&str> = crate::engine::opencode_agents::V2_AGENT_PROFILES
+            .iter()
+            .filter(|profile| !profile.children.is_empty())
+            .map(|profile| profile.id)
+            .collect();
+        assert_eq!(
+            spawners,
+            vec![
+                crate::engine::opencode_agents::AGENT_ARCHITECT,
+                crate::engine::opencode_agents::AGENT_SMITH
+            ],
+            "child spend can only be undercounted for agents that may spawn a child"
+        );
+        // The shipped posture is DISARMED (`FORGE_SUBAGENTS` unset) and the gate empties every allowlist, so under
+        // the default posture no child can exist and the parent export IS the whole turn. The undercount asserted
+        // above is therefore an ARMED-turn hazard — which is exactly why every turn declares its posture in one
+        // line (`engine::opencode::OpenCodeHarness`) instead of leaving an armed turn indistinguishable in the log.
+        use crate::engine::opencode_agents as gate;
+        assert!(
+            !gate::SUBAGENTS_DEFAULT,
+            "the undercount is only a hazard because arming is possible"
+        );
+        for profile in gate::V2_AGENT_PROFILES.iter() {
+            assert!(
+                gate::v2_children_for_agent_gated(profile.id, gate::SUBAGENTS_DEFAULT).is_empty(),
+                "with the gate disarmed '{}' cannot spawn a child, so its recorded spend is exact",
+                profile.id
+            );
+        }
+        // Arming is the only thing that puts a spawner back in play, and it does so for the declared pair alone.
+        assert!(gate::v2_child_allowed_gated(
+            gate::AGENT_SMITH,
+            gate::AGENT_EXPLORE,
+            true
+        ));
+        assert!(!gate::v2_child_allowed_gated(
+            gate::AGENT_SMITH,
+            gate::AGENT_EXPLORE,
+            false
+        ));
+        assert!(
+            !crate::engine::opencode_agents::BACKGROUND_CHILDREN_ENABLED,
+            "background children would make this undercount unbounded in time as well as in number"
+        );
     }
 }

@@ -172,6 +172,8 @@ fn print_usage() {
     eprintln!("  cargo run -p cli -- apple-sync messages-intake <export-dir> [--evidence-only] [--refresh]");
     eprintln!("  cargo run -p cli -- forge harness-lint [--strict] [--format json]");
     eprintln!("  cargo run -p cli -- forge sync-agents [--check] [--format json]");
+    eprintln!("  cargo run -p cli -- forge opencode-config [--check] [--format json]");
+    eprintln!("  cargo run -p cli -- forge opencode-skills [--check] [--format json]");
     eprintln!("  cargo run -p cli -- forge board [--format json]");
     eprintln!("  cargo run -p cli -- forge story-show <story-id> [--format json]");
     eprintln!("  cargo run -p cli -- forge batch-status [--format json]");

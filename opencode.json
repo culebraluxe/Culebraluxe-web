@@ -1,0 +1,652 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "forge-architect": {
+      "description": "Forge architect: design, boundaries and planning. Designs; never quietly becomes Smith.",
+      "mode": "primary",
+      "permission": {
+        "*": "deny",
+        "bash": {
+          "*": "deny",
+          "aws *": "deny",
+          "cargo publish*": "deny",
+          "flyctl*": "deny",
+          "gcloud *": "deny",
+          "gh *": "deny",
+          "git diff*": "allow",
+          "git fetch*": "deny",
+          "git log*": "allow",
+          "git push*": "deny",
+          "git remote*": "deny",
+          "git send-email*": "deny",
+          "git show*": "allow",
+          "git status*": "allow",
+          "kubectl*": "deny",
+          "neonctl *": "deny",
+          "npm publish*": "deny",
+          "pnpm deploy*": "deny",
+          "psql*": "deny",
+          "rg *": "allow",
+          "rg --files*": "allow",
+          "terraform*": "deny",
+          "vercel*": "deny",
+          "wrangler*": "deny"
+        },
+        "edit": "deny",
+        "external_directory": "deny",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow",
+        "patch": "deny",
+        "question": "deny",
+        "read": "allow",
+        "skill": {
+          "*": "deny",
+          "abstract-service": "allow",
+          "planner": "allow",
+          "ripwire": "allow",
+          "rust-yew-mvi": "allow",
+          "security-entitlements": "allow",
+          "ui": "allow",
+          "workflow": "allow"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "todowrite": "allow",
+        "webfetch": "allow",
+        "websearch": "allow"
+      },
+      "steps": 60,
+      "tools": {
+        "task": false
+      }
+    },
+    "forge-assay": {
+      "description": "Forge assay: executes the authoritative tests and reports. Cannot repair the application.",
+      "mode": "primary",
+      "permission": {
+        "*": "deny",
+        "bash": {
+          "*": "deny",
+          "aws *": "deny",
+          "cargo check*": "allow",
+          "cargo nextest*": "allow",
+          "cargo publish*": "deny",
+          "cargo test*": "allow",
+          "flyctl*": "deny",
+          "gcloud *": "deny",
+          "gh *": "deny",
+          "git fetch*": "deny",
+          "git push*": "deny",
+          "git remote*": "deny",
+          "git send-email*": "deny",
+          "git status*": "allow",
+          "kubectl*": "deny",
+          "neonctl *": "deny",
+          "npm publish*": "deny",
+          "pnpm deploy*": "deny",
+          "pnpm forge:*": "allow",
+          "pnpm test*": "allow",
+          "psql*": "deny",
+          "terraform*": "deny",
+          "vercel*": "deny",
+          "wrangler*": "deny"
+        },
+        "edit": "deny",
+        "external_directory": "deny",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow",
+        "patch": "deny",
+        "question": "deny",
+        "read": "allow",
+        "skill": {
+          "*": "deny",
+          "rtk": "allow",
+          "rust-testing": "allow",
+          "semgrep": "allow"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "todowrite": "allow",
+        "webfetch": "deny",
+        "websearch": "deny"
+      },
+      "steps": 60,
+      "tools": {
+        "task": false
+      }
+    },
+    "forge-devops": {
+      "description": "Forge devops: analyses release state. Publication and deployment stay Forge-owned code.",
+      "mode": "primary",
+      "permission": {
+        "*": "deny",
+        "bash": {
+          "*": "deny",
+          "aws *": "deny",
+          "cargo publish*": "deny",
+          "flyctl*": "deny",
+          "gcloud *": "deny",
+          "gh *": "deny",
+          "git diff*": "allow",
+          "git fetch*": "deny",
+          "git log*": "allow",
+          "git push*": "deny",
+          "git remote*": "deny",
+          "git send-email*": "deny",
+          "git show*": "allow",
+          "git status*": "allow",
+          "kubectl*": "deny",
+          "neonctl *": "deny",
+          "npm publish*": "deny",
+          "pnpm deploy*": "deny",
+          "psql*": "deny",
+          "rg *": "allow",
+          "rg --files*": "allow",
+          "terraform*": "deny",
+          "vercel*": "deny",
+          "wrangler*": "deny"
+        },
+        "edit": "deny",
+        "external_directory": "deny",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow",
+        "patch": "deny",
+        "question": "deny",
+        "read": "allow",
+        "skill": {
+          "*": "deny",
+          "database-migration": "allow",
+          "neon": "allow",
+          "security-entitlements": "allow",
+          "vault-service": "allow"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "todowrite": "allow",
+        "webfetch": "deny",
+        "websearch": "deny"
+      },
+      "steps": 60,
+      "tools": {
+        "task": false
+      }
+    },
+    "forge-explore": {
+      "description": "Micro-subagent: codebase search, dependency tracing, call-site discovery. Read-only.",
+      "mode": "subagent",
+      "permission": {
+        "*": "deny",
+        "bash": {
+          "*": "deny",
+          "aws *": "deny",
+          "cargo publish*": "deny",
+          "flyctl*": "deny",
+          "gcloud *": "deny",
+          "gh *": "deny",
+          "git diff*": "allow",
+          "git fetch*": "deny",
+          "git log*": "allow",
+          "git push*": "deny",
+          "git remote*": "deny",
+          "git send-email*": "deny",
+          "git show*": "allow",
+          "git status*": "allow",
+          "kubectl*": "deny",
+          "neonctl *": "deny",
+          "npm publish*": "deny",
+          "pnpm deploy*": "deny",
+          "psql*": "deny",
+          "rg *": "allow",
+          "rg --files*": "allow",
+          "terraform*": "deny",
+          "vercel*": "deny",
+          "wrangler*": "deny"
+        },
+        "edit": "deny",
+        "external_directory": "deny",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow",
+        "patch": "deny",
+        "question": "deny",
+        "read": "allow",
+        "skill": {
+          "*": "deny",
+          "ripwire": "allow",
+          "semgrep": "allow",
+          "serena": "allow"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "todowrite": "deny",
+        "webfetch": "deny",
+        "websearch": "deny"
+      },
+      "steps": 8,
+      "tools": {
+        "task": false
+      }
+    },
+    "forge-inspector": {
+      "description": "Forge QA review: inspects the candidate and runs tests. QA DOES NOT WRITE CODE.",
+      "mode": "primary",
+      "permission": {
+        "*": "deny",
+        "bash": {
+          "*": "deny",
+          "aws *": "deny",
+          "cargo check*": "allow",
+          "cargo nextest*": "allow",
+          "cargo publish*": "deny",
+          "cargo test*": "allow",
+          "flyctl*": "deny",
+          "gcloud *": "deny",
+          "gh *": "deny",
+          "git fetch*": "deny",
+          "git push*": "deny",
+          "git remote*": "deny",
+          "git send-email*": "deny",
+          "git status*": "allow",
+          "kubectl*": "deny",
+          "neonctl *": "deny",
+          "npm publish*": "deny",
+          "pnpm deploy*": "deny",
+          "pnpm forge:*": "allow",
+          "pnpm test*": "allow",
+          "psql*": "deny",
+          "terraform*": "deny",
+          "vercel*": "deny",
+          "wrangler*": "deny"
+        },
+        "edit": "deny",
+        "external_directory": "deny",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow",
+        "patch": "deny",
+        "question": "deny",
+        "read": "allow",
+        "skill": {
+          "*": "deny",
+          "abstract-service": "allow",
+          "ripwire": "allow",
+          "rust-testing": "allow",
+          "semgrep": "allow",
+          "ui": "allow"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "todowrite": "allow",
+        "webfetch": "deny",
+        "websearch": "deny"
+      },
+      "steps": 60,
+      "tools": {
+        "task": false
+      }
+    },
+    "forge-lead": {
+      "description": "Forge lead: routing, judgment, assembly. Read-only, no publication, no child agents.",
+      "mode": "primary",
+      "permission": {
+        "*": "deny",
+        "bash": {
+          "*": "deny",
+          "aws *": "deny",
+          "cargo publish*": "deny",
+          "flyctl*": "deny",
+          "gcloud *": "deny",
+          "gh *": "deny",
+          "git diff*": "allow",
+          "git fetch*": "deny",
+          "git log*": "allow",
+          "git push*": "deny",
+          "git remote*": "deny",
+          "git send-email*": "deny",
+          "git show*": "allow",
+          "git status*": "allow",
+          "kubectl*": "deny",
+          "neonctl *": "deny",
+          "npm publish*": "deny",
+          "pnpm deploy*": "deny",
+          "psql*": "deny",
+          "rg *": "allow",
+          "rg --files*": "allow",
+          "terraform*": "deny",
+          "vercel*": "deny",
+          "wrangler*": "deny"
+        },
+        "edit": "deny",
+        "external_directory": "deny",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow",
+        "patch": "deny",
+        "question": "deny",
+        "read": "allow",
+        "skill": {
+          "*": "deny",
+          "planner": "allow",
+          "workflow": "allow"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "todowrite": "allow",
+        "webfetch": "deny",
+        "websearch": "deny"
+      },
+      "steps": 60,
+      "tools": {
+        "task": false
+      }
+    },
+    "forge-lead-implement": {
+      "description": "Forge solo-implement lead: the one lead phase that implements. Cannot publish.",
+      "mode": "primary",
+      "permission": {
+        "*": "deny",
+        "bash": {
+          "*": "allow",
+          "aws *": "deny",
+          "cargo publish*": "deny",
+          "flyctl*": "deny",
+          "gcloud *": "deny",
+          "gh *": "deny",
+          "git fetch*": "deny",
+          "git push*": "deny",
+          "git remote*": "deny",
+          "git send-email*": "deny",
+          "kubectl*": "deny",
+          "neonctl *": "deny",
+          "npm publish*": "deny",
+          "pnpm deploy*": "deny",
+          "psql*": "deny",
+          "terraform*": "deny",
+          "vercel*": "deny",
+          "wrangler*": "deny"
+        },
+        "edit": "allow",
+        "external_directory": "deny",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow",
+        "patch": "allow",
+        "question": "deny",
+        "read": "allow",
+        "skill": {
+          "*": "deny",
+          "abstract-service": "allow",
+          "forms": "allow",
+          "neon": "allow",
+          "planner": "allow",
+          "rust-testing": "allow",
+          "rust-yew-mvi": "allow",
+          "ui": "allow",
+          "workflow": "allow"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "todowrite": "allow",
+        "webfetch": "deny",
+        "websearch": "deny"
+      },
+      "steps": 60,
+      "tools": {
+        "task": false
+      }
+    },
+    "forge-reviewer": {
+      "description": "Micro-subagent: reviews a diff for defects, architecture violations and missing tests.",
+      "mode": "subagent",
+      "permission": {
+        "*": "deny",
+        "bash": {
+          "*": "deny",
+          "aws *": "deny",
+          "cargo publish*": "deny",
+          "flyctl*": "deny",
+          "gcloud *": "deny",
+          "gh *": "deny",
+          "git diff*": "allow",
+          "git fetch*": "deny",
+          "git log*": "allow",
+          "git push*": "deny",
+          "git remote*": "deny",
+          "git send-email*": "deny",
+          "git show*": "allow",
+          "git status*": "allow",
+          "kubectl*": "deny",
+          "neonctl *": "deny",
+          "npm publish*": "deny",
+          "pnpm deploy*": "deny",
+          "psql*": "deny",
+          "rg *": "allow",
+          "rg --files*": "allow",
+          "terraform*": "deny",
+          "vercel*": "deny",
+          "wrangler*": "deny"
+        },
+        "edit": "deny",
+        "external_directory": "deny",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow",
+        "patch": "deny",
+        "question": "deny",
+        "read": "allow",
+        "skill": {
+          "*": "deny",
+          "abstract-service": "allow",
+          "rust-testing": "allow",
+          "semgrep": "allow"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "todowrite": "deny",
+        "webfetch": "deny",
+        "websearch": "deny"
+      },
+      "steps": 8,
+      "tools": {
+        "task": false
+      }
+    },
+    "forge-scout": {
+      "description": "Forge research/diagnosis scout: read, search and inspect only.",
+      "mode": "primary",
+      "permission": {
+        "*": "deny",
+        "bash": {
+          "*": "deny",
+          "aws *": "deny",
+          "cargo publish*": "deny",
+          "flyctl*": "deny",
+          "gcloud *": "deny",
+          "gh *": "deny",
+          "git diff*": "allow",
+          "git fetch*": "deny",
+          "git log*": "allow",
+          "git push*": "deny",
+          "git remote*": "deny",
+          "git send-email*": "deny",
+          "git show*": "allow",
+          "git status*": "allow",
+          "kubectl*": "deny",
+          "neonctl *": "deny",
+          "npm publish*": "deny",
+          "pnpm deploy*": "deny",
+          "psql*": "deny",
+          "rg *": "allow",
+          "rg --files*": "allow",
+          "terraform*": "deny",
+          "vercel*": "deny",
+          "wrangler*": "deny"
+        },
+        "edit": "deny",
+        "external_directory": "deny",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow",
+        "patch": "deny",
+        "question": "deny",
+        "read": "allow",
+        "skill": {
+          "*": "deny",
+          "planner": "allow",
+          "ripwire": "allow",
+          "semgrep": "allow",
+          "serena": "allow"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "todowrite": "allow",
+        "webfetch": "allow",
+        "websearch": "allow"
+      },
+      "steps": 60,
+      "tools": {
+        "task": false
+      }
+    },
+    "forge-smith": {
+      "description": "Forge smith: implements inside the worktree and commits a candidate. Never publishes.",
+      "mode": "primary",
+      "permission": {
+        "*": "deny",
+        "bash": {
+          "*": "allow",
+          "aws *": "deny",
+          "cargo publish*": "deny",
+          "flyctl*": "deny",
+          "gcloud *": "deny",
+          "gh *": "deny",
+          "git fetch*": "deny",
+          "git push*": "deny",
+          "git remote*": "deny",
+          "git send-email*": "deny",
+          "kubectl*": "deny",
+          "neonctl *": "deny",
+          "npm publish*": "deny",
+          "pnpm deploy*": "deny",
+          "psql*": "deny",
+          "terraform*": "deny",
+          "vercel*": "deny",
+          "wrangler*": "deny"
+        },
+        "edit": "allow",
+        "external_directory": "deny",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow",
+        "patch": "allow",
+        "question": "deny",
+        "read": "allow",
+        "skill": {
+          "*": "deny",
+          "abstract-service": "allow",
+          "forms": "allow",
+          "neon": "allow",
+          "rtk": "allow",
+          "rust-testing": "allow",
+          "semgrep": "allow",
+          "ui": "allow",
+          "workflow": "allow"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "todowrite": "allow",
+        "webfetch": "deny",
+        "websearch": "deny"
+      },
+      "steps": 60,
+      "tools": {
+        "task": false
+      }
+    },
+    "forge-test-analyst": {
+      "description": "Micro-subagent: finds relevant tests and missing regression coverage. Cannot edit code.",
+      "mode": "subagent",
+      "permission": {
+        "*": "deny",
+        "bash": {
+          "*": "deny",
+          "aws *": "deny",
+          "cargo check*": "allow",
+          "cargo nextest*": "allow",
+          "cargo publish*": "deny",
+          "cargo test*": "allow",
+          "flyctl*": "deny",
+          "gcloud *": "deny",
+          "gh *": "deny",
+          "git fetch*": "deny",
+          "git push*": "deny",
+          "git remote*": "deny",
+          "git send-email*": "deny",
+          "git status*": "allow",
+          "kubectl*": "deny",
+          "neonctl *": "deny",
+          "npm publish*": "deny",
+          "pnpm deploy*": "deny",
+          "pnpm forge:*": "allow",
+          "pnpm test*": "allow",
+          "psql*": "deny",
+          "terraform*": "deny",
+          "vercel*": "deny",
+          "wrangler*": "deny"
+        },
+        "edit": "deny",
+        "external_directory": "deny",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow",
+        "patch": "deny",
+        "question": "deny",
+        "read": "allow",
+        "skill": {
+          "*": "deny",
+          "rust-testing": "allow",
+          "semgrep": "allow"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "todowrite": "deny",
+        "webfetch": "deny",
+        "websearch": "deny"
+      },
+      "steps": 8,
+      "tools": {
+        "task": false
+      }
+    }
+  },
+  "compaction": {
+    "auto": false
+  },
+  "snapshot": false,
+  "subagent_depth": 0
+}

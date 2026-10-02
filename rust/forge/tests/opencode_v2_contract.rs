@@ -9,6 +9,7 @@
 //! neutralised (ids and text replaced; every key, nesting and number kept).
 
 use forge::engine::opencode;
+use forge::engine::opencode_agents;
 use forge::engine::opencode_client;
 
 fn run_args(
@@ -18,7 +19,44 @@ fn run_args(
     session: Option<&str>,
     continue_session: bool,
 ) -> Vec<String> {
-    opencode_client::build_opencode_run_args(model, task, auto, session, continue_session)
+    opencode_client::build_opencode_run_args(model, task, auto, session, continue_session, None)
+}
+
+fn run_args_for_agent(model: &str, task: &str, agent: Option<&str>) -> Vec<String> {
+    opencode_client::build_opencode_run_args(model, task, true, None, false, agent)
+}
+
+/// The turn must NAME its Forge agent. Without `--agent` the vendor runs its own default agent, whose
+/// permissions Forge did not author, so every authority guarantee in `engine::opencode_agents` would be
+/// configuration nobody applied — and the failure mode is silent, since the turn still succeeds.
+#[test]
+fn v2_run_names_the_forge_agent_it_was_told_to_use() {
+    let args = run_args_for_agent(
+        opencode::OPENCODE_PINNED_MODEL,
+        "do the work",
+        Some(opencode_agents::AGENT_SMITH),
+    );
+    assert!(
+        has_pair(&args, "--agent", opencode_agents::AGENT_SMITH),
+        "the smith turn must name the smith agent: {args:?}"
+    );
+    // The task stays the final positional argument, so `--agent` cannot be mistaken for the message.
+    assert_eq!(args.last().map(String::as_str), Some("do the work"));
+    assert!(
+        args.iter().any(|a| a == "--auto"),
+        "auto-approval still applies (ask degrades to allow; only deny is security): {args:?}"
+    );
+    assert_eq!(
+        args.iter().position(|a| a == "--agent"),
+        args.iter().position(|a| a == "--model").map(|p| p + 2),
+        "the agent flag sits with the other flags and carries exactly one value: {args:?}"
+    );
+
+    let unnamed = run_args_for_agent(opencode::OPENCODE_PINNED_MODEL, "do the work", None);
+    assert!(
+        !unnamed.iter().any(|arg| arg == "--agent"),
+        "an unnamed agent must not be invented here: {unnamed:?}"
+    );
 }
 
 fn has_pair(args: &[String], flag: &str, value: &str) -> bool {
@@ -124,6 +162,70 @@ fn the_supported_session_interface_flags_are_spelled_for_v2() {
         opencode_client::build_session_list_args(),
         vec!["session", "list", "--standalone", "--format", "json"],
         "the lane's own session is found through the supported listing, not by scanning a vendor database"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// The PROJECT a vendor child resolves (measured 2026-10-01). `--standalone` decides *whether* the environment
+// config arrives; `PWD` decides *which project* it lands in, and the vendor reads the variable rather than its
+// real cwd — so a child that inherits its parent's `PWD` runs against a project nobody chose, with every log
+// line still naming the directory Forge meant.
+// ---------------------------------------------------------------------------------------------------------
+
+#[test]
+fn v2_a_vendor_child_is_pinned_to_its_own_directory_and_cannot_inherit_a_stale_pwd() {
+    let mut stale = std::collections::HashMap::new();
+    stale.insert("PATH".to_string(), "/usr/bin".to_string());
+    stale.insert(
+        "PWD".to_string(),
+        "/Users/someone/other-project".to_string(),
+    );
+
+    let mut cmd = std::process::Command::new("opencode");
+    opencode_client::apply_vendor_env(&mut cmd, Some(&stale), "/tmp/forge-turn-cwd");
+
+    let envs: Vec<(String, Option<String>)> = cmd
+        .get_envs()
+        .map(|(key, value)| {
+            (
+                key.to_string_lossy().to_string(),
+                value.map(|value| value.to_string_lossy().to_string()),
+            )
+        })
+        .collect();
+    assert!(
+        envs.contains(&("PWD".to_string(), Some("/tmp/forge-turn-cwd".to_string()))),
+        "PWD must name the directory the child runs in, because that is the variable the vendor resolves its \
+         project from: {envs:?}"
+    );
+    assert!(
+        !envs
+            .iter()
+            .any(|(key, value)| key == "PWD"
+                && value.as_deref() == Some("/Users/someone/other-project")),
+        "an environment that carries a stale PWD must not be able to retarget the child: {envs:?}"
+    );
+    assert_eq!(
+        cmd.get_current_dir()
+            .map(|dir| dir.to_string_lossy().to_string()),
+        Some("/tmp/forge-turn-cwd".to_string()),
+        "and the child runs in that same directory: {envs:?}"
+    );
+    assert!(
+        envs.contains(&("PATH".to_string(), Some("/usr/bin".to_string()))),
+        "pinning the project must not cost the child the sanitized environment it was handed: {envs:?}"
+    );
+
+    // With NO environment at all — a caller that forgets to pass one — the project is still pinned. This is the
+    // case that would otherwise inherit whatever `PWD` the Forge process happens to be under.
+    let mut bare = std::process::Command::new("opencode");
+    opencode_client::apply_vendor_env(&mut bare, None, "/tmp/forge-turn-cwd");
+    assert!(
+        bare.get_envs().any(|(key, value)| {
+            key == std::ffi::OsStr::new("PWD")
+                && value == Some(std::ffi::OsStr::new("/tmp/forge-turn-cwd"))
+        }),
+        "a child with no supplied environment must still be pinned to its own directory"
     );
 }
 
@@ -241,6 +343,8 @@ fn live_smoke_captures_resumes_and_meters_a_real_v2_turn() {
         env: Some(env.clone()),
         auto_approve: true,
         start_run: None,
+        live_turn: opencode_client::live_turn_slot(),
+        spend_cap_usd: None,
         assay_commands: vec![],
         acceptance_mapped: false,
         packet: StoryPacket {
@@ -257,14 +361,14 @@ fn live_smoke_captures_resumes_and_meters_a_real_v2_turn() {
         process_instance_id: "proc-live".into(),
         story_id: "STORY-V2-LIVE".into(),
         token_id: None,
-        node_id: Some("scout".into()),
+        node_id: Some("feature_scout".into()),
         status: workflow::TaskStatus::Ready,
         assignee: None,
         candidates: vec![],
     };
 
     // TURN 1 — fresh. No session is named, so the vendor mints one and reports it.
-    let first = match harness.run_role("scout", &task, None) {
+    let first = match harness.run_role("feature_scout", &task, None) {
         Ok(out) => out,
         Err(error) => panic!("live turn 1 must succeed: {error}"),
     };
@@ -301,7 +405,7 @@ fn live_smoke_captures_resumes_and_meters_a_real_v2_turn() {
     );
 
     // TURN 2 — resumed. The harness reads the stored id and hands it over explicitly.
-    let second = match harness.run_role("scout", &task, None) {
+    let second = match harness.run_role("feature_scout", &task, None) {
         Ok(out) => out,
         Err(error) => panic!("live turn 2 must succeed: {error}"),
     };

@@ -17,6 +17,7 @@ use crate::engine::hold::{
     deliverable_enforcement_enabled, parse_deliverable_reprompt_budget, OpenHold,
 };
 use crate::engine::observer::record_forge_observer;
+use crate::engine::opencode_client::TurnTermination;
 use crate::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::scope::candidate_own_changed_files;
@@ -54,6 +55,18 @@ pub trait RoleHarness: Send + Sync {
         task: &ActiveForgeRoleTask,
         self_heal: Option<&str>,
     ) -> Result<HarnessOutput>;
+    /// Stop the turn this harness is running RIGHT NOW, if it is running one, and say what was stopped.
+    ///
+    /// The default is `Ok(None)`, and that is a real answer rather than a stub: a harness with no subprocess, or
+    /// one whose turn already ended, has nothing to stop, and a harness that cannot stop its own work must not
+    /// report that it did. The OpenCode harness overrides it, because a turn there is a real process tree — and a
+    /// budget cap that cannot stop one is advice, not a control (see `engine::opencode_client::RunningTurn`).
+    ///
+    /// `reason` is carried into the turn's own record, so an interruption is reportable instead of
+    /// indistinguishable from a crash.
+    fn interrupt_execution(&self, _reason: &str) -> Result<Option<TurnTermination>> {
+        Ok(None)
+    }
     fn exists_on_base_ref(&self, base_ref: &str, path: &str) -> bool;
     /// Where this harness runs commands from — the assay workspace.
     ///
