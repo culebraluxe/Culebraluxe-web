@@ -1,5 +1,13 @@
 # Handoff — old-engine contract restoration — 2026-09-29
 
+> **SUPERSEDED FOR CURRENT PLANNING — HISTORICAL RESTORATION RECORD.**
+> This handoff explains why several Forge rails exist and remains useful for provenance, but it is **not** the current
+> work queue. Start with `docs/agent/CURRENT.md`, then `docs/agent/MAP-engine.md`, then
+> `docs/agent/QUEUE-2026-10-02.md`. Items once described here as missing may already be live; current examples include
+> artifact persistence, `model_policy` → model selection, and `launch_intent` → Lead bench intent. Do not reimplement
+> an item from this handoff unless the current queue repeats it after measuring current Rust.
+
+
 Program doc: `docs/agent/OLD-ENGINE-CONTRACT-RESTORATION.md` (contracts, seam-first method, order of work).
 Invariant in force: **the schema is the contract.** Forge data is disposable; the engine's tests are not precious;
 rails move only toward more enforcement; no schema change.
