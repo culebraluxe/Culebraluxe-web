@@ -14,9 +14,10 @@
 //! HUMAN TASKS HAVE NO SERVICE. `hold`, `repair_requirements` and the legacy `fast_confirmation` are decisions a
 //! person makes; they carry no `service`, and `service_key()` is `None` for them — the bridge must fail closed.
 //!
-//! ONE OWNERSHIP AUTHORITY. Workflow XML is the sole node-to-service ownership map. Rust role services expose
-//! stable service/lane identity, but they do not maintain a parallel node table. The READY→job bridge and
-//! `AbstractForgeService::supports_node` both read this binding and fail closed when it is absent.
+//! STAGED DEPRECATION. `role_mapping::forge_role_node_plan` still maps node ids to lanes, and
+//! `AbstractForgeService::supports_node` still reads it. The test `the_xml_and_the_rust_lane_mapping_agree` holds
+//! the two in lockstep until the bridge and the services read this binding instead; only then can the Rust match
+//! be retired.
 
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -53,6 +54,7 @@ mod tests {
     use super::*;
     use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
     use crate::engine::facts::ForgeGateEvidence;
+    use crate::engine::role_mapping::{forge_role_node_plan, LaneId};
     use crate::engine::xml::definition_from_xml;
     use crate::roles::architect::{ArchitectService, ARCHITECT_SERVICE_ID};
     use crate::roles::dev_ops::{DevOpsService, DEVOPS_SERVICE_ID};
@@ -82,6 +84,18 @@ mod tests {
         definition_from_xml(FORGE_SDLC_V6_XML)
             .expect("the definition parses")
             .definition
+    }
+
+    fn lane_service_id(lane: LaneId) -> &'static str {
+        match lane {
+            LaneId::Scout => SCOUT_SERVICE_ID,
+            LaneId::Architect => ARCHITECT_SERVICE_ID,
+            LaneId::Lead => LEAD_SERVICE_ID,
+            LaneId::Smith => SMITH_SERVICE_ID,
+            LaneId::Inspector => INSPECTOR_SERVICE_ID,
+            LaneId::Assay => ASSAY_SERVICE_ID,
+            LaneId::DevOps => DEVOPS_SERVICE_ID,
+        }
     }
 
     /// Nodes reachable from `from`, never stepping onto a node in `avoid`.
@@ -202,6 +216,26 @@ mod tests {
             .is_err(),
             "an empty service is a definition error"
         );
+    }
+
+    /// The drift guard for the staged deprecation: until the bridge and `supports_node` read the XML binding,
+    /// the Rust lane mapping and the XML must say the same thing for every node, in both directions.
+    #[test]
+    fn the_xml_and_the_rust_lane_mapping_agree() {
+        let bindings = forge_service_bindings();
+        for (node, service) in bindings {
+            let plan = forge_role_node_plan(node)
+                .unwrap_or_else(|e| panic!("XML binds {node} but Rust cannot map it: {e}"));
+            assert_eq!(lane_service_id(plan.lane), service, "{node}");
+        }
+        for (id, def) in &graph().nodes {
+            if def.node_type == "task" && forge_role_node_plan(id).is_ok() {
+                assert!(
+                    bindings.contains_key(id),
+                    "Rust maps {id} but the XML binds no service"
+                );
+            }
+        }
     }
 
     struct NoopRunner;
