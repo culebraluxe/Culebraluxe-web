@@ -641,7 +641,14 @@ impl Store for NeonTx<'_> {
             run_exec_n(
                 self,
                 sqlx::query(
-                    "UPDATE jobs SET status = 'pending', locked_by = NULL, locked_until = NULL
+                    "UPDATE jobs
+                     SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
+                         last_error = CASE
+                           WHEN attempts >= max_attempts THEN 'job lease expired after max attempts'
+                           ELSE last_error
+                         END,
+                         locked_by = NULL,
+                         locked_until = NULL
                      WHERE process_instance_id = $1::uuid AND status = 'locked'
                        AND locked_until < to_timestamp($2::double precision / 1000.0)",
                 )
@@ -652,7 +659,14 @@ impl Store for NeonTx<'_> {
             run_exec_n(
                 self,
                 sqlx::query(
-                    "UPDATE jobs SET status = 'pending', locked_by = NULL, locked_until = NULL
+                    "UPDATE jobs
+                     SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
+                         last_error = CASE
+                           WHEN attempts >= max_attempts THEN 'job lease expired after max attempts'
+                           ELSE last_error
+                         END,
+                         locked_by = NULL,
+                         locked_until = NULL
                      WHERE id IN (
                         SELECT id FROM jobs
                         WHERE status = 'locked'
