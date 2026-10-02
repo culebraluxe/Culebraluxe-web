@@ -18,18 +18,27 @@ list of what is not built yet. Read it before changing the board or the engine l
 
 ## What runs
 
-1. Engine: `legacy/workflow_app/definitions/FORGE_SDLC-v6.xml`, driven by
-   `legacy/workflow_app/forge/forge-executor.ts`.
-2. Roles are phase agents in `legacy/workflow_app/forge/agents/role-agents.ts`. They `collect()`
-   evidence; the parent gate (`forge-phase-agent.ts`) stays the decider.
+**The machine is Rust.** `legacy/` holds the port's spec — the 465 restored TypeScript test files and the
+retired production files they assert against — never a live path (`docs/agent/MAP-engine.md`,
+`docs/agent/LEGACY-TEST-PARITY.md`).
 
-   **Superseded in Rust (`2026-10-02`, the seam closure).** The live lane contract is
-   `rust/forge/src/roles/hooks.rs` (`ForgeRoleHooks` — one lane's reading of its own turn, asked by
-   `engine/lifecycle.rs`) with the gate's kinds, deliverable table and effect ports in
-   `rust/forge/src/engine/phase.rs`. The TypeScript pair is reference, never a live path
-   (`docs/agent/MAP-engine.md`).
-3. A role runs in its own worktree under `~/Documents/Culebraluxe-worktrees/<story>-<id>-e0`
-   via the OpenCode harness (`agent-runtime/opencode/`).
+1. Engine: `rust/forge`, driven by `pnpm forge:engine` (`cargo run -p forge --bin forge`), with
+   `forge-worker`, `forge-task` and `re-workflow` beside it for the worker, single-task and RE paths
+   (`rust/forge/src/bin/`). The definition is `rust/forge/definitions/FORGE_SDLC-v6.xml`;
+   `legacy/workflow_app/definitions/FORGE_SDLC-v6.xml` is kept as the spec the harness pins it against
+   (`wf_definition__013`).
+2. Roles are the six lanes in `rust/forge/src/roles/` (`scout`, `architect`, `lead`, `smith`, `qa`,
+   `dev_ops`), each answering `rust/forge/src/roles/hooks.rs`'s `ForgeRoleHooks` — one lane's reading of
+   its own turn. The shared `rust/forge/src/roles/lifecycle.rs` asks the lane rather than switching on a
+   node id and stays the decider, with the gate's kinds, deliverable table and effect ports in
+   `rust/forge/src/engine/phase.rs`. (The pair `legacy/workflow_app/forge/agents/role-agents.ts` /
+   `legacy/workflow_app/forge/forge-phase-agent.ts` is retired with the rest of `legacy/workflow_app/forge/`.)
+3. A lane runs through the OpenCode harness, which is Rust too (`rust/forge/src/engine/opencode.rs`,
+   `rust/forge/src/engine/opencode_agents.rs`, `rust/forge/src/engine/opencode_client.rs`,
+   `rust/forge/src/engine/opencode_events.rs`), in the ONE workspace the engine provisions for a run
+   (`rust/forge/src/engine/worktree.rs`: branch `agent/…`, `culebraluxe-forge-worktrees`). There is no
+   per-lane tree, and a tracked file that introduces one fails a test — AGENTS.md, "NO TREES. EVER.".
+   The TypeScript `agent-runtime/` harness is gone.
 
 ## The one doctrine that matters
 
@@ -40,9 +49,13 @@ model's chat reply.
    `forge_role_plan_chunk` / `forge_role_assignment` (171) for the plan.
 2. Reply markers (`LEAD_ROUTING:`, `FORGE_ARCHITECT_HANDOFF:`) remain as the FALLBACK for
    rows that were never written. Fields win; text is the fallback.
-3. `legacy/workflow_app/forge/lead-proposal-resolve.ts` is the ONE seat for the Lead decision:
-   collect and the runner both resolve through it, so a refusal can never be re-reviewed
-   and accepted by a second evaluator.
+3. The Lead decision has ONE seat in the live engine: it is taken once, in the PRE phase, and a reply
+   that restates one during any other Lead turn is stripped rather than believed
+   (`rust/forge/src/roles/lead.rs`), with the routing assay (`LeadProposal`, `RoutingReview`) and the
+   bench cap (`bench_intent_errors`) in `rust/forge/src/engine/role_slice.rs`. A refusal cannot be
+   re-reviewed by a second evaluator because there is no second resolver — the retired
+   `legacy/workflow_app/forge/lead-proposal-resolve.ts` was that seat in the TypeScript engine, and the
+   assertions behind it outlive it as tests in `rust/forge/src/engine/role_slice.rs`.
 
 ## Measured facts (do not re-derive these)
 
@@ -50,9 +63,11 @@ model's chat reply.
    2026-09-13. Harness startup is 0.30s and config load 0.55s, so startup is not the cost
    — inference is.
 2. The `rtk` shim used to fork-bomb every tool call (4,627 processes, load 34, about 80s
-   blocked per call, every parent asleep on its child). Fixed in `forge-tool-seams.ts`:
-   the shim strips its own directory from PATH before exec, with a regression test that
-   fails if that is reintroduced.
+   blocked per call, every parent asleep on its child). The fix lived in `forge-tool-seams.ts`,
+   retired with the TypeScript harness — `rtk` survives in the tree only as a skill NAME
+   (`rust/forge/src/engine/opencode_agents.rs`), and the live launch path
+   (`rust/forge/src/engine/opencode_client.rs`) spawns the harness with no PATH rewriting of its own.
+   History of the old harness: if a shim returns to the launch path, this is the failure to expect.
 3. Forge runs execute against PROD only. See `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md`.
 4. WARM SESSION (2026-09-13, `ENG-FORGE-WARM-SESSION-01`): one OpenCode session serves
    every model role of ONE execution generation. Verified live: architect + both Lead
@@ -107,13 +122,24 @@ gate refuses, read the ROWS for that `(task, node, attempt)` before believing th
 
 ## Open, in priority order
 
-1. SPLIT dogfood: never exercised end to end. SPLIT is enabled by default
-   (`FORGE_SPLIT_ENABLED !== 'false'`), the parallel-claim path is wired, and the serial
-   flows now complete — what is missing is a purpose-made multi-surface fixture story.
-   `scripts/forge-story-reset.ts` only resets; it does not create stories.
+1. SPLIT dogfood: never exercised end to end. The lane is wired (`rust/forge/src/engine/split_join.rs`,
+   `rust/forge/src/engine/commands.rs`'s `RUN_SMITH_SPLIT`, and the SPLIT count check in
+   `rust/forge/src/roles/lead.rs`) and the serial flows now complete — what is missing is a purpose-made
+   multi-surface fixture story. Admission is the Lead's decision plus the bench cap
+   (`rust/forge/src/engine/role_slice.rs`, `bench_intent_errors`): `FORGE_SPLIT_ENABLED` has **no reader
+   in `rust/`** (it survives in older notes only), so do not believe a note that says this lane is
+   switched on or off by it. `pnpm forge:story:reset` (`rust/cli/src/forge/reset.rs`) only resets; it
+   does not create stories.
 2. Smith authorization: the serial lane treats an unreadable diff as a measurement gap
    rather than a scope miss. Deliberate today; changing it is the captain's call.
-3. Completion atomicity: durable evidence is merged BEFORE the engine CAS
-   (`forge-engine-runtime.ts`), so a losing worker's evidence is already committed.
-4. `scripts/forge-handoff.mjs` splits list flags on commas.
+3. Completion atomicity: the live unit is `rust/forge/src/engine/completion.rs`'s
+   `apply_completion_unit` — claim, then merge (`rust/forge/src/engine/db_ledger.rs`'s `merge_evidence`
+   → `ForgeEngineDao::merge_workflow_evidence`), then finalize — so the receipt is taken BEFORE the
+   evidence is merged, not after. This item used to cite `forge-engine-runtime.ts`, retired with the
+   TypeScript engine, and the order it described (evidence merged before the engine's compare) is **not**
+   the live order: re-measure before acting on it.
+4. `scripts/forge-handoff.mjs` split list flags on commas; that script is retired with the TypeScript
+   tooling. The live comma-splitting surfaces are the marker parsers
+   (`rust/forge/src/engine/role_mapping.rs`, `rust/forge/src/engine/smith_candidate.rs`,
+   `rust/forge/src/engine/architect.rs`), so a multi-value flag has to be checked there.
 
