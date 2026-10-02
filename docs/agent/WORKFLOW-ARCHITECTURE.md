@@ -31,11 +31,13 @@ used; anything unlabelled is this repo's own observation.
 ## Part 0 — The whole thing in one paragraph
 
 Forge turns a normalized story into a committed, verified, published change by running a
-**workflow**, not a prompt chain. A workflow engine owns *when* (an XML definition of nodes and
-transitions), a team map owns *who* (role → player → model/harness), and Forge owns *how*
-(commands that dispatch one role, in one worktree, and collect evidence rows). The engine's
-workflow instance is the canonical record of what happened. Nothing else — not Slack, not a
-model's reply, not a dashboard cache — is allowed to be the source of truth about the run.
+**workflow**, not a prompt chain. The Workflow/XML layer owns *when* and *what is ready*; the XML's
+`service=` binding plus `ForgeServiceRegistry` selects *which Forge service owns that role task*;
+JobService makes the execution durable; the concrete `AbstractForgeService` owns the role's
+interpretation; and OpenCodeHarness owns the model/process runtime. One execution generation uses
+one provisioned workspace, not a worktree per role. The workflow instance and durable control-plane
+rows are the canonical record of what happened. Nothing else — not Slack, not a model's reply, not
+a dashboard cache — is allowed to be the source of truth about the run.
 
 If you remember one sentence: **the failure mode is the channel, not the parser.**
 
@@ -46,20 +48,22 @@ If you remember one sentence: **the failure mode is the channel, not the parser.
 ### The three layers, and the rule that keeps them separable
 
 ```
-PROCESS     FORGE_SDLC-v6.xml          "What needs to happen next?"
-   |        owns nodes, transitions, terminals, routing decisions
+PROCESS     FORGE_SDLC-v6.xml          "What is ready next?"
+   |        owns nodes, transitions, terminals, routing and service= binding
    v
-TEAM        team.ts                     "Who performs this responsibility?"
-   |        maps responsibility -> player -> model/harness/profile
+RELIABILITY ForgeJobBridge + JobService "Run this READY role task durably."
+   |        owns claim / lease / attempts / backoff / recovery / cancel
    v
-EXECUTION   Forge / OpenCode / model    "Run it."
-            owns the worktree, the tool call, the commit, the evidence row
+SERVICE     ForgeServiceRegistry         "Which AbstractForgeService owns it?"
+   |        concrete service + ForgeRoleHooks own role interpretation
+   v
+RUNTIME     OpenCodeHarness              "Run the model/process."
 ```
 
-**The XML knows positions, not providers.** Good: `responsibility="smith"`,
-`command-type="forge.run_smith"`. Bad: `agent="deepseek-v4"`, `harness="opencode"`. A provider
-name in a process definition welds today's model choice into the process, and the process is the
-part that should outlive the model. **[built]** — this is the existing V6 shape; keep it.
+**The XML names Forge service ownership, not providers.** Good: `service="forge.smith"`. Bad:
+`agent="deepseek-v4"` or a vendor model id in the process definition. Provider/model selection belongs
+to the runtime policy/harness boundary, so the process can outlive today's model. **[built]** — this is
+the live Rust/service shape; keep it.
 
 ### The seven live Forge services, one line each
 
