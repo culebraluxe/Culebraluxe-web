@@ -70,7 +70,7 @@ fn notice(model: &Model, on_msg: &Callback<Msg>) -> Html {
     };
     html! {
         <div class="mt-4 flex items-start justify-between gap-4 rounded-lg border border-sky-400/20 bg-sky-400/[0.07] px-4 py-3">
-            <p class="text-xs leading-5 text-sky-100/80">{ message }</p>
+            <p class="text-xs leading-5 text-sky-100/80">{ message.to_string() }</p>
             <button type="button" onclick={close} class="shrink-0 text-sm text-sky-200/60 hover:text-sky-100" aria-label="Dismiss">
                 {"×"}
             </button>
@@ -259,10 +259,11 @@ fn agent_detail(agent: &AgentNode) -> Html {
 }
 
 fn detail_cell(label: &'static str, value: &str) -> Html {
+    let value = value.to_string();
     html! {
         <div class="rounded-md border border-white/10 bg-white/[0.02] px-2.5 py-2">
             <p class="uppercase tracking-[0.1em] text-slate-600">{ label }</p>
-            <p class="mt-1 truncate font-mono text-slate-300" title={value.to_string()}>{ value }</p>
+            <p class="mt-1 truncate font-mono text-slate-300" title={value.clone()}>{ value }</p>
         </div>
     }
 }
