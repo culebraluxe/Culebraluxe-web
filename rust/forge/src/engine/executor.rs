@@ -4,11 +4,15 @@
 use std::collections::BTreeSet;
 
 use crate::engine::facts::ForgeGateEvidence;
+use crate::engine::job::{
+    execute_claimed_job_unsettled, ForgeJobBridge, ForgeJobLease, JobService,
+};
 use crate::engine::path::shared_path;
 use crate::engine::runner::ForgeTurnPorts;
 use crate::engine::role_slice::forge_lane_surface;
 use crate::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
 use crate::engine::turn_budget;
+use crate::roles::registry::ForgeServiceRegistry;
 use workflow::{ProcessOutcome, ProcessStatus, Result, TaskStatus, TxStore, WorkflowError};
 
 pub struct ForgeRoleOutcome {
@@ -156,7 +160,7 @@ pub enum LaneFailureSettlement {
 }
 
 pub fn settle_forge_lane_failure<S: TxStore>(
-    rt: &mut ForgeRuntime<S>,
+    rt: &ForgeRuntime<S>,
     task_id: &str,
     actor: &str,
     lane_err: &WorkflowError,
@@ -331,10 +335,34 @@ impl<'a> DriveForgeStoryOptions<'a> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct DurableForgeExecution<'a, 'services> {
+    pub jobs: &'a dyn JobService,
+    pub registry: &'a ForgeServiceRegistry<'services>,
+}
+
 pub fn drive_forge_story<S: TxStore>(
-    rt: &mut ForgeRuntime<S>,
+    rt: &ForgeRuntime<S>,
     story_id: &str,
     opts: DriveForgeStoryOptions<'_>,
+) -> Result<DriveForgeStoryResult> {
+    drive_forge_story_inner(rt, story_id, opts, None)
+}
+
+pub fn drive_forge_story_with_jobs<S: TxStore>(
+    rt: &ForgeRuntime<S>,
+    story_id: &str,
+    opts: DriveForgeStoryOptions<'_>,
+    durable: DurableForgeExecution<'_, '_>,
+) -> Result<DriveForgeStoryResult> {
+    drive_forge_story_inner(rt, story_id, opts, Some(durable))
+}
+
+fn drive_forge_story_inner<S: TxStore>(
+    rt: &ForgeRuntime<S>,
+    story_id: &str,
+    opts: DriveForgeStoryOptions<'_>,
+    durable: Option<DurableForgeExecution<'_, '_>>,
 ) -> Result<DriveForgeStoryResult> {
     if opts.runner.is_none() && !opts.allow_synthetic_runner {
         return Err(WorkflowError::generic(
@@ -354,6 +382,13 @@ pub fn drive_forge_story<S: TxStore>(
     let wake = rt.wake_story(story_id, opts.work_type, opts.evidence.clone())?;
     let instance_id = wake.instance_id;
     let reconciled = wake.reconciled;
+
+    // A durable role worker owns recovery of expired role-job leases before it
+    // scans READY Workflow work. Recovery is generic; typed claim below ensures
+    // this driver can execute only `forge.role` rows.
+    if let Some(durable) = durable {
+        durable.jobs.recover_stale(256)?;
+    }
 
     for _ in 0..opts.max_steps {
         let tasks = rt.list_role_tasks(story_id)?;
@@ -444,29 +479,74 @@ pub fn drive_forge_story<S: TxStore>(
                     turn_cap_stop = Some(reason);
                     break;
                 }
-                if let Err(err) = rt.claim_role_task(&task.task_id, &actor) {
-                    if is_advance_conflict(&err) {
-                        continue;
-                    }
-                    return Err(err);
-                }
-                turns_dispatched += 1;
-                let outcome = match runner.run(&node, &task) {
-                    Ok(o) => o,
-                    Err(err) => {
-                        let settle = settle_forge_lane_failure(rt, &task.task_id, &actor, &err)?;
-                        if settle == LaneFailureSettlement::AlreadyCompleted {
+                let mut durable_lease: Option<ForgeJobLease> = None;
+                let outcome = if let Some(durable) = durable {
+                    let request = ForgeJobBridge::new(durable.registry)
+                        .job_for_ready_task(&task)?;
+                    let job_id = durable.jobs.enqueue(&request)?;
+                    let lease = match durable.jobs.claim_one(&job_id, &actor) {
+                        Ok(lease) => lease,
+                        Err(err) if err.code() == "FORGE_JOB_NOT_CLAIMABLE" => {
+                            // Another worker owns this task's stable durable job,
+                            // or it has already settled. Either way this driver
+                            // must not execute the role a second time.
+                            continue;
+                        }
+                        Err(err) => return Err(err),
+                    };
+                    turns_dispatched += 1;
+                    let outcome = execute_claimed_job_unsettled(
+                        durable.jobs,
+                        &actor,
+                        &lease,
+                        &task,
+                        durable.registry,
+                    )?;
+                    durable_lease = Some(lease);
+                    outcome
+                } else {
+                    // Compatibility/test path. Production uses the durable branch
+                    // above; the established direct path remains for fixtures.
+                    if let Err(err) = rt.claim_role_task(&task.task_id, &actor) {
+                        if is_advance_conflict(&err) {
                             continue;
                         }
                         return Err(err);
                     }
+                    turns_dispatched += 1;
+                    match runner.run(&node, &task) {
+                        Ok(o) => o,
+                        Err(err) => {
+                            let settle =
+                                settle_forge_lane_failure(rt, &task.task_id, &actor, &err)?;
+                            if settle == LaneFailureSettlement::AlreadyCompleted {
+                                continue;
+                            }
+                            return Err(err);
+                        }
+                    }
                 };
+
                 if let Err(err) = rt.complete_role_task(
                     &task.task_id,
                     &actor,
                     outcome.transition_name.as_deref(),
                     outcome.evidence,
                 ) {
+                    if let (Some(durable), Some(lease)) = (durable, durable_lease.as_ref()) {
+                        if err.code() == "TASK_ALREADY_COMPLETED" {
+                            durable.jobs.complete(&lease.job_id, &actor)?;
+                            continue;
+                        }
+                        durable.jobs.fail(
+                            &lease.job_id,
+                            &actor,
+                            &format!("Workflow task completion failed after role execution: {err}"),
+                            true,
+                        )?;
+                        return Err(err);
+                    }
+
                     if is_advance_conflict(&err) {
                         continue;
                     }
@@ -475,6 +555,14 @@ pub fn drive_forge_story<S: TxStore>(
                         continue;
                     }
                     return Err(err);
+                }
+
+                // Workflow state wins before the execution receipt closes. A
+                // crash here can leave a stale job to recover, but the task is
+                // no longer READY, so the paid role turn cannot be dispatched
+                // again by the production driver.
+                if let (Some(durable), Some(lease)) = (durable, durable_lease.as_ref()) {
+                    durable.jobs.complete(&lease.job_id, &actor)?;
                 }
                 steps.push(node.clone());
                 if stop_target
@@ -526,7 +614,7 @@ pub fn drive_forge_story<S: TxStore>(
     })
 }
 
-fn instance_status<S: TxStore>(rt: &mut ForgeRuntime<S>, instance_id: &str) -> Result<String> {
+fn instance_status<S: TxStore>(rt: &ForgeRuntime<S>, instance_id: &str) -> Result<String> {
     Ok(format!(
         "{:?}",
         rt.engine().get_process_instance(instance_id)?.status
