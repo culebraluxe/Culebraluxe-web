@@ -9,6 +9,7 @@ use std::process::Command;
 use crate::engine::assay::{is_rust_contract_production_path, CommandResult};
 use crate::engine::harness_usage::UsageBaseline;
 use crate::engine::opencode_client::{start_opencode_run, OpenCodeRunResult, OpenCodeStartOptions};
+use crate::engine::opencode_events;
 use crate::engine::packet::{build_task_text_with_context, ExecutionWorkspace, StoryPacket};
 use crate::engine::runner::{HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
@@ -25,8 +26,19 @@ use workflow::{Result, WorkflowError};
 /// a Forge defect). `deepseek-flash` is the renamed same tier, and answers a smoke prompt.
 pub const OPENCODE_PINNED_MODEL: &str = "deepseek/deepseek-flash";
 pub const OPENCODE_HARNESS_ADAPTER_ID: &str = "opencode-harness";
-pub const SESSION_MARKER_FILENAME: &str = ".forge-session.continue";
+/// The V2 lane's session marker.
+///
+/// DELIBERATELY NOT the V1 name (`.forge-session.continue`). A V1 marker sitting in a workspace must never
+/// become the authority for a V2 resume — the two generations cannot be confused if they never share a file
+/// (§4). The marker holds the exact id V2 minted for this lane's last turn.
+pub const SESSION_MARKER_FILENAME: &str = ".forge-opencode-v2-session";
 pub const SESSION_CONTINUITY_ENV: &str = "FORGE_SESSION_CONTINUITY";
+
+/// The vendor-session lane key this harness reads and writes.
+///
+/// V1 wrote under `opencode`; V2 writes under `opencode-v2`. An old V1 session id therefore cannot be picked
+/// up as if it were a V2 session, and nothing is deleted: the V1 rows simply stop being read (§4).
+pub const VENDOR_SESSION_LANE: &str = "opencode-v2";
 
 pub fn default_cli_bin() -> String {
     std::env::var("OPENCODE_BIN")
@@ -316,7 +328,7 @@ impl RoleHarness for OpenCodeHarness {
         }
         let task_text = self.task_text(node_id, task, self_heal);
         let before_sha = self.run_git(&["rev-parse", "HEAD"]);
-        let lane = "opencode";
+        let lane = VENDOR_SESSION_LANE;
         let session = if session_continuity_enabled() {
             if let Some(story) = self.story_id.as_deref() {
                 vendor_session::read_vendor_session_id(story, lane)
@@ -349,35 +361,70 @@ impl RoleHarness for OpenCodeHarness {
             start_opencode_run(opts)
         };
         let usage = baseline.after_turn();
+        // Read the V2 structured contract BEFORE judging the turn. A successful exit whose stream Forge cannot
+        // read is NOT a successful turn (§3); failing closed here is the difference between "the harness is
+        // broken" and "the role said nothing", which Forge would otherwise charge to the model.
+        let turn = opencode_events::parse_run_events(&result.stdout);
+        let spent = usage
+            .as_ref()
+            .map(|u| {
+                format!(
+                    " (spent tokens_in={} tokens_out={} cost_usd={:.6} session={})",
+                    u.tokens_input, u.tokens_output, u.cost_usd, u.session_id
+                )
+            })
+            .unwrap_or_default();
         if result.status != crate::engine::opencode_client::OpenCodeRunStatus::Success {
             // A failed turn still cost money. The error carries the reading so the spend is at least on the
             // record of the failure instead of vanishing with it.
-            let spent = usage
-                .as_ref()
-                .map(|u| {
-                    format!(
-                        " (spent tokens_in={} tokens_out={} cost_usd={:.6} session={})",
-                        u.tokens_input, u.tokens_output, u.cost_usd, u.session_id
-                    )
-                })
-                .unwrap_or_default();
+            //
+            // The vendor's own error event is preferred when it reported one: V2's stdout is a machine
+            // transcript, so pasting it into an exception is noise, and its stderr is often EMPTY on a provider
+            // refusal (an unknown model id arrives on stdout as {"name":"UnknownError","message":…}).
+            let detail = match &turn {
+                Ok(events) => events.error.clone().unwrap_or_else(|| {
+                    if result.stderr.trim().is_empty() {
+                        format!("no stderr; {} v2 events read", events.events.len())
+                    } else {
+                        result.stderr.trim().to_string()
+                    }
+                }),
+                Err(error) => format!("unreadable v2 stream: {error}"),
+            };
             return Err(WorkflowError::generic(format!(
-                "opencode-harness failed for {node_id} exit={:?}{spent}: {}",
-                result.exit_code,
-                if result.stderr.is_empty() {
-                    result.stdout
-                } else {
-                    result.stderr
-                }
+                "opencode-harness failed for {node_id} exit={:?}{spent}: {detail}",
+                result.exit_code
             )));
         }
-        let mut raw = result.stdout;
-        if let Some(story) = self.story_id.as_deref() {
-            let _ = vendor_session::write_vendor_session_id(story, "opencode", session.as_deref());
+        let turn = turn.map_err(|error| {
+            WorkflowError::generic(format!(
+                "opencode-harness produced a v2 stream Forge cannot read for {node_id}{spent}: {error}"
+            ))
+        })?;
+        // An exit 0 that reported a vendor error and produced no output is a failure, not an empty success.
+        if turn.assistant_text.trim().is_empty() {
+            if let Some(error) = turn.error.as_deref() {
+                return Err(WorkflowError::generic(format!(
+                    "opencode-harness reported an error with no output for {node_id}{spent}: {error}"
+                )));
+            }
         }
-        if let Some(id) = session.as_deref() {
+        // THE V2 SESSION FIX (§4): the id the vendor actually used comes from the turn itself, so a FRESH run
+        // persists a real session and the next turn resumes it explicitly. V1 had no such reading and wrote
+        // back the id it had *asked* for — `None` on a fresh turn — so a lane's first session was never kept.
+        let actual_session = turn.session_id.clone();
+        if let Some(story) = self.story_id.as_deref() {
+            let _ = vendor_session::write_vendor_session_id(
+                story,
+                VENDOR_SESSION_LANE,
+                actual_session.as_deref().or(session.as_deref()),
+            );
+        }
+        if let Some(id) = actual_session.as_deref() {
             write_session_id(&cwd, Some(id));
         }
+        // The role output is the assistant's text (§3), never the NDJSON transcript it arrived in.
+        let mut raw = turn.assistant_text;
         let sha = self.run_git(&["rev-parse", "HEAD"]);
         let mut candidate_sha = sha.clone();
         let mut refusal = None;
@@ -583,6 +630,128 @@ mod tests {
             clean.get("GIT_CONFIG_VALUE_0").map(String::as_str),
             Some("/dev/null")
         );
+    }
+
+    /// The real V2 stream shape (opencode v2.0.21), neutralised: one step, carrying usage and a text answer.
+    const V2_STREAM: &str = concat!(
+        r#"{"type":"step_start","timestamp":1,"sessionID":"ses_fixture_turn_0001","part":{"type":"step-start"}}"#,
+        "\n",
+        r#"{"type":"step_finish","timestamp":2,"sessionID":"ses_fixture_turn_0001","part":{"type":"step-finish","reason":"stop","cost":0.000363204,"tokens":{"input":650,"output":57,"reasoning":0,"cache":{"read":26368,"write":0}}}}"#,
+        "\n",
+        r#"{"type":"text","timestamp":3,"sessionID":"ses_fixture_turn_0001","part":{"type":"text","text":"DONE"}}"#,
+    );
+
+    fn role_task() -> ActiveForgeRoleTask {
+        ActiveForgeRoleTask {
+            task_id: "task-v2".into(),
+            process_instance_id: "proc-v2".into(),
+            story_id: "STORY-V2".into(),
+            token_id: None,
+            node_id: Some("scout".into()),
+            status: workflow::TaskStatus::Ready,
+            assignee: None,
+            candidates: vec![],
+        }
+    }
+
+    /// A harness whose model turn is a scripted V2 stream. `scout` writes no code, so no git repository is
+    /// needed; the temp workspace only has to exist.
+    fn harness_with_stream(workspace: &Path, stream: &str) -> OpenCodeHarness {
+        let stdout = stream.to_string();
+        OpenCodeHarness {
+            // A binary that cannot exist: this test is about session capture, so the usage baseline must fail
+            // fast and read as UNMEASURED rather than shelling out to a real vendor installation.
+            cli_bin: "/nonexistent/opencode".into(),
+            workspace: workspace.to_path_buf(),
+            model: OPENCODE_PINNED_MODEL.into(),
+            env: None,
+            auto_approve: true,
+            start_run: Some(Box::new(move |_opts| OpenCodeRunResult {
+                status: crate::engine::opencode_client::OpenCodeRunStatus::Success,
+                exit_code: Some(0),
+                stdout: stdout.clone(),
+                stderr: String::new(),
+            })),
+            assay_commands: vec![],
+            acceptance_mapped: false,
+            packet: StoryPacket {
+                id: "STORY-V2".into(),
+                title: "an OpenCode v2 turn".into(),
+                ..Default::default()
+            },
+            execution_workspace: None,
+            // No story id: the durable vendor-session lane needs the control plane's database and this test must
+            // not depend on one. What a FRESH turn does not need is proved through the workspace marker here;
+            // the Neon lane is covered by the live contract smoke.
+            story_id: None,
+        }
+    }
+
+    #[test]
+    fn a_fresh_v2_turn_persists_the_session_id_the_vendor_reported() {
+        let workspace = std::env::temp_dir().join(format!("forge-v2-turn-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&workspace);
+        fs::create_dir_all(&workspace).expect("temp workspace");
+        let harness = harness_with_stream(&workspace, V2_STREAM);
+
+        let out = match harness.run_role("scout", &role_task(), None) {
+            Ok(out) => out,
+            Err(error) => panic!("a readable v2 turn succeeds: {error}"),
+        };
+
+        assert_eq!(
+            out.raw, "DONE",
+            "the role output is the assistant text, never the NDJSON transcript"
+        );
+        assert!(
+            out.usage.is_none(),
+            "this temp workspace has no vendor session store, so the turn is UNMEASURED — \
+             missing measurement is never a fabricated zero. Where the measurement comes from is \
+             asserted in harness_usage's own tests."
+        );
+
+        let cwd = workspace.to_string_lossy().to_string();
+        let stored = read_session_id(&cwd);
+        assert_eq!(
+            stored.as_deref(),
+            Some("ses_fixture_turn_0001"),
+            "a FRESH turn must keep the id the VENDOR minted, or the next turn cannot resume it. \
+             V1 wrote back the id it had asked for — None here — so the first session was never kept."
+        );
+
+        // And that stored id is exactly what the next turn asks for.
+        let next = crate::engine::opencode_client::build_opencode_run_args(
+            &harness.model,
+            "turn 2",
+            true,
+            stored.as_deref(),
+            false,
+        );
+        assert!(
+            next.windows(2)
+                .any(|w| w == ["--session", "ses_fixture_turn_0001"]),
+            "the second turn resumes the captured id explicitly: {next:?}"
+        );
+        assert!(!next.iter().any(|arg| arg == "--continue"));
+        let _ = fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn a_successful_exit_with_an_unreadable_v2_stream_is_a_failed_turn() {
+        let workspace = std::env::temp_dir().join(format!("forge-v2-bad-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&workspace);
+        fs::create_dir_all(&workspace).expect("temp workspace");
+        let harness = harness_with_stream(&workspace, "this is not json at all\n");
+
+        let err = match harness.run_role("scout", &role_task(), None) {
+            Ok(_) => panic!("exit 0 with a broken structured contract must not read as a success"),
+            Err(error) => error.to_string(),
+        };
+        assert!(
+            err.contains("cannot read"),
+            "the failure names the broken contract: {err}"
+        );
+        let _ = fs::remove_dir_all(&workspace);
     }
 
     #[test]
