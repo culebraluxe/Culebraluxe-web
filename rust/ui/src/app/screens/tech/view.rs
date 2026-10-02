@@ -1,7 +1,7 @@
 //! TECH Cockpit — one shell, three operating views.
 //!
-//! Assembly Line owns story preparation and dispatch controls.
-//! Live Ops is the real-time Forge instrument panel (fake MVI until V2 runtime wiring lands).
+//! Engine Queue owns story preparation, dispatch and engine work status.
+//! Work in Flight reads the parent ForgeService's live execution model.
 //! Flight Recorder mounts the existing forensic console for the selected story's latest run.
 
 use yew::prelude::*;
@@ -100,7 +100,9 @@ fn assembly_tab(model: &Model, link: &Link<Msg>) -> Html {
 
 fn live_tab(model: &Model, link: &Link<Msg>) -> Html {
     let on_live = link.callback(|msg: live_ops::Msg| Msg::Live(msg));
-    live_ops::view(&model.live, &on_live)
+    template::remote(&model.read, "Forge work in flight", |tech| {
+        live_ops::view(&model.live, &tech.live_ops, &on_live)
+    })
 }
 
 fn flight_tab(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
@@ -113,14 +115,14 @@ fn flight_tab(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                     </div>
                     <h2 class="mt-4 font-serif text-xl font-semibold text-white">{"Select a recorded story first"}</h2>
                     <p class="mt-2 text-sm leading-6 text-slate-400">
-                        {"The Flight Recorder tab opens the latest process instance for the story selected in Assembly Line. Choose a story with execution history, then return here."}
+                        {"The Flight Recorder tab opens the latest process instance for the story selected in Engine Queue. Choose a story with execution history, then return here."}
                     </p>
                     <button
                         type="button"
                         onclick={link.callback(|_: MouseEvent| Msg::TabSelected(TechTab::AssemblyLine))}
                         class="mt-5 rounded-md border border-[#c6a15b]/35 bg-[#c6a15b]/10 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#e0c489] hover:bg-[#c6a15b]/15"
                     >
-                        {"Open Assembly Line"}
+                        {"Open Engine Queue"}
                     </button>
                 </div>
             </section>
