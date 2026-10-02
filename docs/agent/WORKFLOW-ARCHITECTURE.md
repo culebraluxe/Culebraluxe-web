@@ -12,8 +12,9 @@
 **Status:** durable explainer. Owner: whoever holds the engine. Written 2026-09-13 from a session
 that fixed nine defects in one day; every law below was paid for.
 
-**Read this if** you are about to touch `workflow_app/`, `legacy/workflow_app/forge/`, the FORGE_SDLC XML,
-the publish path, or any screen that claims to show what the engine did.
+**Read this for doctrine if** you are about to touch `rust/forge`, `rust/forge/definitions/FORGE_SDLC-v6.xml`,
+the publish path, or any screen that claims to show what the engine did. For file ownership and open work, use
+`CURRENT.md`, `MAP-engine.md`, and `QUEUE-2026-10-02.md` instead.
 
 **Provenance.** Three kinds of statement appear here and they are marked:
 
@@ -60,22 +61,23 @@ EXECUTION   Forge / OpenCode / model    "Run it."
 name in a process definition welds today's model choice into the process, and the process is the
 part that should outlive the model. **[built]** — this is the existing V6 shape; keep it.
 
-### The six roles, one line each
+### The seven live Forge services, one line each
 
-1. **SCOUT** — find the truth on the ground. Read the repo, the packet, the live database facts.
-   Produces findings, not code.
-2. **ARCHITECT** — decide the shape: interfaces, boundaries, decomposition, and whether the story
-   may be split at all.
-3. **LEAD** — decide the route: SOLO / SMITH / ASSAY / HOLD, plus the work order.
-4. **SMITH** — write the change in its own worktree. One bounded packet. Never invent siblings.
-5. **QA / ASSAY / INSPECTOR** — run the story's frozen proofs and return a verdict, PASS or FAIL.
-   QA carries no git identity and freezes no commit; adversarial by design, its job is to refuse.
-6. **DEV_OPS** — release: migrations, publish, deploy, verify. Owns the PROD schema gate.
+1. **SCOUT** — find the truth on the ground. Read the repo, packet and relevant facts; produce findings, not code.
+2. **ARCHITECT** — decide the shape: interfaces, boundaries, decomposition and whether work may be split.
+3. **LEAD** — decide the route and work order; the PRE decision is the one decision seat.
+4. **SMITH** — deliver bounded code and candidate evidence.
+5. **INSPECTOR** — semantic/adversarial review; distinct from deterministic Assay.
+6. **ASSAY** — deterministic verification of the frozen proofs; no Git publication authority.
+7. **DEV_OPS** — release/publish/deploy/verify authority.
+
+The live service keys are `forge.scout`, `forge.architect`, `forge.lead`, `forge.smith`,
+`forge.inspector`, `forge.assay`, and `forge.devops`; executable XML task-nodes bind one explicitly.
 
 ### Normal delivery
 
 ```
-SCOUT -> ARCHITECT -> LEAD -> SMITH -> QA -> DEV_OPS -> COMPLETE
+SCOUT -> ARCHITECT -> LEAD -> SMITH -> INSPECTOR/ASSAY -> DEV_OPS -> COMPLETE
 ```
 
 That is the happy path and it should be boring. Most of the work of making Forge real was making
@@ -83,9 +85,14 @@ this path boring.
 
 ---
 
-## Part II — Advanced: the machine as built
+## Part II — Advanced: historical implementation notes
 
-### Where it lives
+> **Historical snapshot warning.** Much of Part II was written before the Rust/service reassembly and intentionally
+> remains as provenance for the laws it produced. Any `legacy/...`, `workflow_app/...`, `team.ts` or TypeScript
+> implementation path below is historical. Do not use this section to locate current code or create backlog; use
+> `MAP-engine.md` and the current queue.
+
+### Where it lived at the time these notes were written
 
 - Definition: `legacy/workflow_app/definitions/FORGE_SDLC-v6.xml`, loaded through
   `legacy/workflow_app/forge/forge-executor.ts`. **[built]**
