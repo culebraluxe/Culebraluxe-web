@@ -707,7 +707,10 @@ exit 0"#,
         assert_eq!(result.status, OpenCodeRunStatus::Success);
         assert_eq!(result.exit_code, Some(0));
         assert_eq!(result.lines, 2, "both lines reached the guard");
-        assert!(result.last_line_ms > 0, "the heartbeat saw a line");
+        assert_eq!(
+            result.silent_ticks, 0,
+            "a short self-finishing turn must not manufacture a silent heartbeat interval"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
