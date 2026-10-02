@@ -25,6 +25,7 @@
 //! got for free from `Date.toISOString()`.
 
 use crate::{Database, DbFailure, DbResult};
+use domain::{ForgeLiveNodeActivity, ForgeLiveRun, ForgeLiveSnapshot, ForgeLiveWorkItem};
 use serde_json::Value;
 use sqlx::FromRow;
 
@@ -136,6 +137,95 @@ pub struct ForgeQueueWorkRow {
     pub error_text: Option<String>,
     pub queued_at: Option<String>,
     pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct ForgeLiveWorkRow {
+    work_item_id: String,
+    story_id: String,
+    title: String,
+    state: String,
+    kind: Option<String>,
+    model_policy: Option<String>,
+    claimed_by: Option<String>,
+    error_text: Option<String>,
+    queued_at: Option<String>,
+    started_at: Option<String>,
+    updated_at: Option<String>,
+    finished_at: Option<String>,
+    story_run_id: Option<String>,
+}
+
+impl ForgeLiveWorkRow {
+    fn into_domain(self, status_bucket: Option<String>) -> ForgeLiveWorkItem {
+        ForgeLiveWorkItem {
+            work_item_id: self.work_item_id,
+            story_id: self.story_id,
+            title: self.title,
+            state: self.state,
+            status_bucket,
+            kind: self.kind,
+            model_policy: self.model_policy,
+            claimed_by: self.claimed_by,
+            error_text: self.error_text,
+            queued_at: self.queued_at,
+            started_at: self.started_at,
+            updated_at: self.updated_at,
+            finished_at: self.finished_at,
+            story_run_id: self.story_run_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct ForgeLiveRunRow {
+    id: String,
+    story_id: String,
+    run_type: Option<String>,
+    run_phase: Option<String>,
+    agent_runtime: Option<String>,
+    model_used: Option<String>,
+    result_status: Option<String>,
+    started_at: Option<String>,
+    ended_at: Option<String>,
+    commit_hash: Option<String>,
+    tests_summary: Option<String>,
+    completion: Option<f64>,
+    tokens_input: Option<i64>,
+    tokens_output: Option<i64>,
+    cost_usd: Option<f64>,
+    cost_source: Option<String>,
+    notes: Option<String>,
+    evidence_detail: Option<String>,
+    vendor_session_id: Option<String>,
+}
+
+impl From<ForgeLiveRunRow> for ForgeLiveRun {
+    fn from(row: ForgeLiveRunRow) -> Self {
+        Self {
+            id: row.id, story_id: row.story_id, run_type: row.run_type, run_phase: row.run_phase,
+            agent_runtime: row.agent_runtime, model_used: row.model_used, result_status: row.result_status,
+            started_at: row.started_at, ended_at: row.ended_at, commit_hash: row.commit_hash,
+            tests_summary: row.tests_summary, completion: row.completion, tokens_input: row.tokens_input,
+            tokens_output: row.tokens_output, cost_usd: row.cost_usd, cost_source: row.cost_source,
+            notes: row.notes, evidence_detail: row.evidence_detail, vendor_session_id: row.vendor_session_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct ForgeLiveNodeRow {
+    process_instance_id: String,
+    node_id: String,
+    status: String,
+    created_at: Option<String>,
+    updated_at: Option<String>,
+}
+
+impl From<ForgeLiveNodeRow> for ForgeLiveNodeActivity {
+    fn from(row: ForgeLiveNodeRow) -> Self {
+        Self { process_instance_id: row.process_instance_id, node_id: row.node_id, status: row.status, created_at: row.created_at, updated_at: row.updated_at }
+    }
 }
 
 /// A story the operator has selected as active work — the bench.
@@ -349,6 +439,102 @@ impl ForgeReadDao {
             .map_err(|error| DbFailure::from_sqlx("forge_read.active_agent_work", &error))
     }
 
+    /// Parent ForgeService read model for the TECH Cockpit Work in Flight tab.
+    /// Observation only: no claim, retry, settlement or Workflow transition is performed here.
+    pub async fn live_snapshot(
+        &self,
+        selected_story_id: Option<&str>,
+        limit: i64,
+    ) -> DbResult<ForgeLiveSnapshot> {
+        let active_work = self.live_work_items(limit).await?;
+        let work_status = self.engine_work_status(limit).await?;
+        let selected_story_id = selected_story_id
+            .filter(|id| active_work.iter().any(|item| item.story_id == *id) || work_status.iter().any(|item| item.story_id == *id))
+            .map(str::to_owned)
+            .or_else(|| active_work.first().map(|item| item.story_id.clone()))
+            .or_else(|| work_status.first().map(|item| item.story_id.clone()));
+
+        let (current_run, node_activity) = if let Some(story_id) = selected_story_id.as_deref() {
+            (self.latest_live_run(story_id).await?, self.live_node_activity(story_id, 32).await?)
+        } else {
+            (None, Vec::new())
+        };
+
+        Ok(ForgeLiveSnapshot { active_work, work_status, selected_story_id, current_run, node_activity })
+    }
+
+    async fn live_work_items(&self, limit: i64) -> DbResult<Vec<ForgeLiveWorkItem>> {
+        let sql = format!(
+            "select w.id::text as work_item_id, w.story_id, coalesce(s.title,w.story_id) as title,
+                    w.state,w.kind,w.model_policy,w.claimed_by,w.error_text,
+                    to_char(w.queued_at at time zone 'UTC','{ISO_UTC}') as queued_at,
+                    to_char(w.started_at at time zone 'UTC','{ISO_UTC}') as started_at,
+                    to_char(w.updated_at at time zone 'UTC','{ISO_UTC}') as updated_at,
+                    to_char(w.finished_at at time zone 'UTC','{ISO_UTC}') as finished_at,
+                    w.story_run_id::text as story_run_id
+             from agent_work_item w left join storyboard_story s on s.id=w.story_id
+             where w.story_id is not null and w.state in ('Claimed','Running','Paused')
+             order by w.updated_at desc limit $1"
+        );
+        let rows = sqlx::query_as::<_, ForgeLiveWorkRow>(sqlx::AssertSqlSafe(sql))
+            .bind(limit.clamp(1,50)).fetch_all(self.db.pool()).await
+            .map_err(|error| DbFailure::from_sqlx("forge_read.live_work_items", &error))?;
+        Ok(rows.into_iter().map(|row| row.into_domain(None)).collect())
+    }
+
+    /// Engine Work Status is exactly Done / Error / Retry.
+    /// Retry is not a stored state: it is Ready with an already-opened Story Run, the engine-fault clear path.
+    async fn engine_work_status(&self, limit: i64) -> DbResult<Vec<ForgeLiveWorkItem>> {
+        let sql = format!(
+            "select w.id::text as work_item_id, w.story_id, coalesce(s.title,w.story_id) as title,
+                    w.state,w.kind,w.model_policy,w.claimed_by,w.error_text,
+                    to_char(w.queued_at at time zone 'UTC','{ISO_UTC}') as queued_at,
+                    to_char(w.started_at at time zone 'UTC','{ISO_UTC}') as started_at,
+                    to_char(w.updated_at at time zone 'UTC','{ISO_UTC}') as updated_at,
+                    to_char(w.finished_at at time zone 'UTC','{ISO_UTC}') as finished_at,
+                    w.story_run_id::text as story_run_id
+             from agent_work_item w left join storyboard_story s on s.id=w.story_id
+             where w.story_id is not null and (w.state in ('Done','Error') or (w.state='Ready' and w.story_run_id is not null))
+             order by coalesce(w.finished_at,w.updated_at) desc limit $1"
+        );
+        let rows = sqlx::query_as::<_, ForgeLiveWorkRow>(sqlx::AssertSqlSafe(sql))
+            .bind(limit.clamp(1,50)).fetch_all(self.db.pool()).await
+            .map_err(|error| DbFailure::from_sqlx("forge_read.engine_work_status", &error))?;
+        Ok(rows.into_iter().filter_map(|row| {
+            let bucket = engine_work_status_bucket(&row.state, row.story_run_id.as_deref())?;
+            Some(row.into_domain(Some(bucket.to_string())))
+        }).collect())
+    }
+
+    async fn latest_live_run(&self, story_id: &str) -> DbResult<Option<ForgeLiveRun>> {
+        let sql = format!(
+            "select r.id::text as id,r.story_id,r.run_type,r.run_phase,r.agent_runtime,r.model_used,r.result_status,
+                    to_char(r.started_at at time zone 'UTC','{ISO_UTC}') as started_at,
+                    to_char(r.ended_at at time zone 'UTC','{ISO_UTC}') as ended_at,
+                    r.commit_hash,r.tests_summary,r.completion::float8 as completion,
+                    r.tokens_input::bigint as tokens_input,r.tokens_output::bigint as tokens_output,
+                    r.cost_usd::float8 as cost_usd,r.cost_source,r.notes,r.evidence_detail,v.session_id as vendor_session_id
+             from storyboard_story_run r
+             left join forge_vendor_session v on v.story_id=r.story_id and v.worker_id='opencode-v2'
+             where r.story_id=$1 order by r.started_at desc nulls last,r.created_at desc,r.id desc limit 1"
+        );
+        sqlx::query_as::<_, ForgeLiveRunRow>(sqlx::AssertSqlSafe(sql)).bind(story_id)
+            .fetch_optional(self.db.pool()).await.map(|row| row.map(Into::into))
+            .map_err(|error| DbFailure::from_sqlx("forge_read.latest_live_run", &error))
+    }
+
+    async fn live_node_activity(&self, story_id: &str, limit: i64) -> DbResult<Vec<ForgeLiveNodeActivity>> {
+        let sql = format!(
+            "select process_instance_id::text as process_instance_id,node_id,status,
+                    to_char(created_at at time zone 'UTC','{ISO_UTC}') as created_at,
+                    to_char(updated_at at time zone 'UTC','{ISO_UTC}') as updated_at
+             from forge_engine_task_execution where story_id=$1 and node_id is not null
+             order by created_at desc limit $2"
+        );
+        sqlx::query_as::<_, ForgeLiveNodeRow>(sqlx::AssertSqlSafe(sql)).bind(story_id).bind(limit.clamp(1,100))
+            .fetch_all(self.db.pool()).await.map(|rows| rows.into_iter().map(Into::into).collect())
+            .map_err(|error| DbFailure::from_sqlx("forge_read.live_node_activity", &error))
+    }
     /// The bench: the stories the operator selected as active work, in his order. Presence of a row in
     /// `storyboard_active_work` IS the active state — there is no flag to disagree with.
     pub async fn bench(&self) -> DbResult<Vec<ForgeBenchRow>> {
@@ -410,6 +596,15 @@ impl ForgeReadDao {
     }
 }
 
+/// Map the durable work row to the Cockpit's three Engine Work Status buckets.
+pub fn engine_work_status_bucket(state: &str, story_run_id: Option<&str>) -> Option<&'static str> {
+    match state {
+        "Done" => Some("Done"),
+        "Error" => Some("Error"),
+        "Ready" if story_run_id.is_some_and(|id| !id.trim().is_empty()) => Some("Retry"),
+        _ => None,
+    }
+}
 /// The batch shape the Cockpit's job stream reads: the batch row plus its own item counts. One copy, so the
 /// staging read and the recent-batches read can never disagree about what a batch looks like.
 fn batch_select() -> String {
@@ -516,6 +711,14 @@ mod tests {
         );
     }
 
+    #[test]
+    fn engine_work_status_distinguishes_retry_from_a_fresh_queue_item() {
+        assert_eq!(engine_work_status_bucket("Done", None), Some("Done"));
+        assert_eq!(engine_work_status_bucket("Error", None), Some("Error"));
+        assert_eq!(engine_work_status_bucket("Ready", Some("run-1")), Some("Retry"));
+        assert_eq!(engine_work_status_bucket("Ready", None), None);
+        assert_eq!(engine_work_status_bucket("Claimed", Some("run-1")), None);
+    }
     #[test]
     fn every_timestamp_in_the_batch_read_is_rendered_in_utc_iso_independent_of_the_session_timezone(
     ) {
