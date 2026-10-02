@@ -11,7 +11,7 @@
 //! Three facts are pinned, each in **both directions** — a new one fails (that is the new hole) and a pin that no longer
 //! matches fails too (so the surface may only change deliberately):
 //!
-//!   - **The gate vocabulary.** The 58 entries in `rust/ui/src/app/registry.rs` require 11 distinct entitlements and 4
+//!   - **The gate vocabulary.** The 60 entries in `rust/ui/src/app/registry.rs` require 12 distinct entitlements and 4
 //!     distinct authorities. Every required entitlement is a catalogued action; the authority half is legacy vocabulary
 //!     (see the debt below).
 //!   - **The readers.** Exactly four places in `rust/ui/src` read the actor's entitlement list to decide a boolean:
@@ -48,10 +48,11 @@ use test_harness::source;
 
 /// The entitlement every screen gate asks for, pinned. Adding a screen that asks for a new action is a deliberate edit
 /// here; removing one that the registry still requires fails too.
-const SCREEN_ENTITLEMENTS: [&str; 11] = [
+const SCREEN_ENTITLEMENTS: [&str; 12] = [
     "accounting.read",
     "cockpit.read",
     "deal.read",
+    "documentSign.read",
     "form.read",
     "person.read",
     "portal.read",
@@ -82,11 +83,11 @@ const ENTITLEMENT_READERS: [&str; 4] = [
 const PUBLIC_READ_ACTIONS: [&str; 2] = ["guide.public.read", "property.public.read"];
 
 /// The registry's entries. A new screen is one line here; the count moves with it, deliberately.
-const ENTRY_COUNT: usize = 58;
+const ENTRY_COUNT: usize = 60;
 
 /// The entries that require no entitlement at all (a public page, a record route behind its parent's gate). Pinned so a
 /// screen that silently loses its gate is visible.
-const UNGATED_ENTRIES: usize = 30;
+const UNGATED_ENTRIES: usize = 31;
 
 /// A floor on the catalog: a scanner that finds nothing must fail instead of reporting a clean tree. The catalog holds
 /// 42 actions today and is allowed to grow.
