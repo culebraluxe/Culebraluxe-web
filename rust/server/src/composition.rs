@@ -39,6 +39,7 @@ use crate::{
     workflow_portal::WorkflowPortalService,
 };
 use async_trait::async_trait;
+use forge::ForgeService;
 use db::{
     AccountingDao, CalendarDao, CatchUpDao, ClientDao, ClientRoomDao, CockpitDao, CommsDao,
     ContractDao, Database, DealPortalDao, DocumentSignDao, EmailDao, FirmDao, FlightRecorderDao,
@@ -244,6 +245,7 @@ pub struct ServiceCatalog {
     tech: Arc<TechCockpitService<TechCockpitDao>>,
     whatsapp: Arc<WhatsAppService<WhatsAppDao>>,
     accounting: Arc<AccountingService<AccountingDao>>,
+    forge: Arc<ForgeService>,
 }
 
 impl ServiceCatalog {
@@ -427,6 +429,7 @@ impl ServiceCatalog {
                 AccountingDao::new(db),
                 infrastructure,
             )),
+            forge: Arc::new(ForgeService::new()),
         }
     }
 
@@ -473,6 +476,7 @@ impl ServiceCatalog {
             self.tech.clone(),
             self.whatsapp.clone(),
             self.accounting.clone(),
+            self.forge.clone(),
         ];
         services
     }
@@ -503,5 +507,11 @@ catalog_accessors! {
 impl ServiceCatalog {
     pub fn project(&self) -> Arc<Mutex<ProjectService<ProjectDao>>> {
         self.project.service()
+    }
+}
+
+impl ServiceCatalog {
+    pub fn forge(&self) -> Arc<ForgeService> {
+        self.forge.clone()
     }
 }
