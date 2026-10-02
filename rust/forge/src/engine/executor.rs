@@ -11,6 +11,7 @@ use crate::engine::path::shared_path;
 use crate::engine::role_slice::forge_lane_surface;
 use crate::engine::runner::ForgeTurnPorts;
 use crate::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
+use crate::engine::service_binding::is_human_gate;
 use crate::engine::turn_budget;
 use crate::roles::registry::ForgeServiceRegistry;
 use workflow::{
@@ -39,8 +40,6 @@ pub trait ForgeRoleRunner: Send + Sync {
         None
     }
 }
-
-pub static FORGE_HUMAN_GATE_NODES: &[&str] = &["hold", "repair_requirements", "fast_confirmation"];
 
 #[derive(Debug, Clone)]
 pub enum ForgeStopTarget {
@@ -356,12 +355,10 @@ fn drive_forge_story_inner<S: TxStore>(
         if tasks.is_empty() {
             break;
         }
-        if let Some(human) = tasks.iter().find(|t| {
-            t.node_id
-                .as_deref()
-                .map(|n| FORGE_HUMAN_GATE_NODES.contains(&n))
-                .unwrap_or(false)
-        }) {
+        if let Some(human) = tasks
+            .iter()
+            .find(|t| t.node_id.as_deref().map(is_human_gate).unwrap_or(false))
+        {
             // A canonical Story Board write is not optional: if the hold cannot be recorded, the drive fails
             // visibly rather than reporting a human gate that no row describes (2026-09-29).
             rt.writer()
@@ -642,12 +639,9 @@ fn drive_forge_story_inner<S: TxStore>(
         // The cap's reason when the generation ran into it, otherwise nothing. A stop that did not name itself here
         // would be indistinguishable from a generation that simply had no more work.
         blocked_reason: turn_cap_stop,
-        needs_human: tasks.iter().any(|t| {
-            t.node_id
-                .as_deref()
-                .map(|n| FORGE_HUMAN_GATE_NODES.contains(&n))
-                .unwrap_or(false)
-        }),
+        needs_human: tasks
+            .iter()
+            .any(|t| t.node_id.as_deref().map(is_human_gate).unwrap_or(false)),
         stopped_after,
         reconciled,
     })

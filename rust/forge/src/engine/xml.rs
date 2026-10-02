@@ -1,7 +1,7 @@
 //! Bounded XML 1.0 → ProcessGraph. Same grammar as `workflow_app/xml`.
 //! The XML file is the definition. This module only parses it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use workflow::{
     DecisionArm, DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessGraph, ProcessOutcome,
@@ -438,6 +438,29 @@ pub fn service_bindings_from_xml(source: &str) -> Result<BTreeMap<String, String
             )));
         }
         out.insert(id, service.to_string());
+    }
+    Ok(out)
+}
+
+/// The task-nodes the XML binds NO service to: the human gates a person decides.
+///
+/// The definition states this itself, in its header: human tasks carry no service and are never made into agent
+/// jobs. `service_bindings_from_xml` is the same fact read the other way round (which node a service DOES own), and
+/// the two are one parse of one file, so a node cannot be one and not the other.
+///
+/// Returned as a set of ids rather than a list in the engine, because the gate question is exactly the question this
+/// file answers: `rust/forge/src/engine/service_binding.rs` reads it, and the engine's drive no longer keeps a copy.
+/// A node the definition does not know is NOT a gate — the caller's answer for an unknown id must be "no", because
+/// the failure that costs is a spurious human HOLD, not a turn that ran.
+pub fn human_task_nodes_from_xml(source: &str) -> Result<BTreeSet<String>, XmlError> {
+    let root = parse_xml(source)?;
+    let mut out = BTreeSet::new();
+    for ch in &root.children {
+        let Node::Elem(el) = ch else { continue };
+        if el.name != "task-node" || el.attrs.contains_key("service") {
+            continue;
+        }
+        out.insert(req(el, "id")?);
     }
     Ok(out)
 }

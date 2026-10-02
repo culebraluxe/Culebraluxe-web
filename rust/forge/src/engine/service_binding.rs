@@ -12,18 +12,20 @@
 //! `forge.lead_pre`). One explicit attribute is clearer than deriving the service from either.
 //!
 //! HUMAN TASKS HAVE NO SERVICE. `hold`, `repair_requirements` and the legacy `fast_confirmation` are decisions a
-//! person makes; they carry no `service`, and `service_key()` is `None` for them — the bridge must fail closed.
+//! person makes; they carry no `service`, and `service_key()` is `None` for them — the bridge must fail closed. The
+//! drive's own gate question is answered from the same parse (`is_human_gate`), so the engine no longer types that
+//! set out beside the definition that declares it.
 //!
 //! STAGED DEPRECATION. `role_mapping::forge_role_node_plan` still maps node ids to lanes, and
 //! `AbstractForgeService::supports_node` still reads it. The test `the_xml_and_the_rust_lane_mapping_agree` holds
 //! the two in lockstep until the bridge and the services read this binding instead; only then can the Rust match
 //! be retired.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
 use crate::engine::runtime::ActiveForgeRoleTask;
-use crate::engine::xml::{service_bindings_from_xml, FORGE_SDLC_V6_XML};
+use crate::engine::xml::{human_task_nodes_from_xml, service_bindings_from_xml, FORGE_SDLC_V6_XML};
 
 /// `node_id → service key` for every executable task-node in `FORGE_SDLC-v6.xml`.
 pub fn forge_service_bindings() -> &'static BTreeMap<String, String> {
@@ -37,6 +39,29 @@ pub fn forge_service_bindings() -> &'static BTreeMap<String, String> {
 /// The service the XML binds to `node_id`, or `None` for a human task-node or a node the definition lacks.
 pub fn service_for_node(node_id: &str) -> Option<&'static str> {
     forge_service_bindings().get(node_id).map(String::as_str)
+}
+
+/// The task-nodes the definition binds no service to — the human gates a person decides.
+///
+/// The list used to live in the engine (`executor.rs`'s `FORGE_HUMAN_GATE_NODES`, three names typed out beside a
+/// definition that already declared them), which made the definition's header comment and the engine two places to
+/// keep in step. It is read from the XML now, through the same parse as [`forge_service_bindings`], so the gate
+/// question and the service question cannot disagree.
+pub fn forge_human_gate_nodes() -> &'static BTreeSet<String> {
+    static GATES: OnceLock<BTreeSet<String>> = OnceLock::new();
+    GATES.get_or_init(|| {
+        human_task_nodes_from_xml(FORGE_SDLC_V6_XML)
+            .expect("FORGE_SDLC-v6.xml is the definition and its human gates must parse")
+    })
+}
+
+/// Is this node a human gate — a task a person decides rather than a turn an agent runs?
+///
+/// A node the definition does not know answers `false`. The direction matters: a spurious `true` is a story put into
+/// a human HOLD nobody asked for (the failure class that cost hours on 2026-09-29), while a `false` on a node that
+/// is in fact a gate means the drive reports no gate rather than inventing one.
+pub fn is_human_gate(node_id: &str) -> bool {
+    forge_human_gate_nodes().contains(node_id)
 }
 
 impl ActiveForgeRoleTask {
@@ -374,6 +399,89 @@ mod tests {
             service_for_node("fast_confirmation"),
             None,
             "legacy compatibility node remains human-owned for existing instances"
+        );
+    }
+
+    /// The gate question is answered by the definition, and the set it answers with is the one the engine used to
+    /// type out beside it: `hold`, `repair_requirements`, `fast_confirmation`.
+    ///
+    /// Ported from the legacy assertion that outlived its production file
+    /// (`legacy/workflow_app/tests/forge-v11.test.ts:23-29`): `has('hold')` and `has('repair_requirements')` are true,
+    /// `has('smith')`, `has('architect')` and `has('qa_review')` are false. What the legacy test could not say is where
+    /// the set came from; the definition says it, and this reads it there.
+    ///
+    /// Non-vacuity matters here in both directions — a parse that found nothing would make `is_human_gate` false for
+    /// every node (a story in a human gate would be dispatched at), and a parse that found every task-node would make
+    /// it true for every node (a story held for no reason). Both are asserted below, not assumed.
+    #[test]
+    fn the_human_gates_are_the_definitions_own_no_service_task_nodes() {
+        let gates = forge_human_gate_nodes();
+        assert_eq!(
+            gates.len(),
+            3,
+            "the definition's human gates are three; found {gates:?}"
+        );
+        for gate in ["hold", "repair_requirements", "fast_confirmation"] {
+            assert!(is_human_gate(gate), "{gate} is a task-node with no service");
+            assert_eq!(
+                service_for_node(gate),
+                None,
+                "{gate} is a gate and a service-owned node at once"
+            );
+        }
+        for run_by_an_agent in [
+            "smith",
+            "qa_verify",
+            "lead_pre",
+            "feature_scout",
+            "architect",
+            "qa_review",
+        ] {
+            assert!(
+                !is_human_gate(run_by_an_agent),
+                "{run_by_an_agent} is bound to a service, so it is a turn and not a gate"
+            );
+        }
+        // The direction that costs: an unknown node is NOT a gate, because a spurious `true` puts a story into a human
+        // HOLD nobody asked for. The drive's earlier list answered the same way, and it is the answer this keeps.
+        for unknown in [
+            "no_such_node",
+            "",
+            "HOLD",
+            "start",
+            "classify_work",
+            "fast_qa_route",
+        ] {
+            assert!(
+                !is_human_gate(unknown),
+                "{unknown:?} is not a task-node the definition leaves without a service, so it is not a gate"
+            );
+        }
+    }
+
+    /// The rail: the engine holds no copy of the gate list, and this is the file that would hold it.
+    ///
+    /// `include_str!` is the drive's own source, not a path that could be stale, so this cannot pass by reading the
+    /// wrong file. The failure it prevents is the one `arch_boundary__005` prevents for SQL: a fact the definition
+    /// owns, re-spelled in the engine, drifting from the XML that is supposed to be its only home.
+    #[test]
+    fn the_engine_holds_no_human_gate_list_of_its_own() {
+        let executor = include_str!("executor.rs");
+        assert!(
+            !executor.contains("FORGE_HUMAN_GATE_NODES"),
+            "the drive names the gate list again; the definition owns it (`service_binding::forge_human_gate_nodes`)"
+        );
+        for gate in ["hold", "repair_requirements", "fast_confirmation"] {
+            assert!(
+                !executor.contains(&format!("\"{gate}\"")),
+                "the drive spells the gate {gate:?} as a literal; read it from the definition instead"
+            );
+        }
+        // The positive control: the same scan finds a node name the drive legitimately names, so a scan that had gone
+        // blind (a wrong path, an empty file) could not report this contract as satisfied.
+        assert!(
+            executor.contains("\"lead\""),
+            "a stop target names a role; if this scan cannot see that, it cannot see anything"
         );
     }
 }
