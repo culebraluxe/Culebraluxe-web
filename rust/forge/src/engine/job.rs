@@ -132,7 +132,11 @@ impl<'a, S: TxStore> WorkflowJobService<'a, S> {
 
 impl<S: TxStore> JobService for WorkflowJobService<'_, S> {
     fn enqueue(&self, request: &ForgeJobRequest) -> Result<String> {
-        self.engine.create_job(
+        // One Workflow role task owns one durable Forge job. Reusing the
+        // task UUID as the job UUID gives the bridge a stable identity without
+        // adding a Forge-specific dedupe table or schema column.
+        self.engine.create_job_with_id(
+            &request.task.task_id,
             Some(&request.task.process_instance_id),
             request.task.token_id.as_deref(),
             None,
