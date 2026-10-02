@@ -30,7 +30,7 @@ process instances). `rust/forge` is the Forge SDLC on top of it.
 | `rust/forge/src/engine/definition.rs` | How the definition is parsed; `forge_sdlc_graph()` is a test fixture, not production. |
 | `rust/forge/src/engine/executor.rs` | Who advances the workflow and bridges READY tasks to durable role jobs. Durable production runs with JobService + the service registry and intentionally passes no compatibility runner; only the direct/test compatibility path requires an explicit runner. There is no synthetic fallback. |
 | `rust/forge/src/engine/runtime.rs` | How an instance is started, completed and stepped through the workflow crate. |
-| `rust/forge/src/engine/phase.rs`, `topology.rs` | Gate vocabulary/deliverable kinds and topology. `role_mapping.rs` is residual taxonomy being retired; it is not the canonical service-ownership map. |
+| `rust/forge/src/engine/phase.rs`, `topology.rs` | Gate vocabulary/deliverable kinds and topology. Node→service/lane ownership comes from XML via `service_binding.rs`; the old `forge_role_node_plan` node table is retired. `role_mapping.rs` now retains lane identity/helper concerns, not a node ownership map. |
 | `rust/forge/src/engine/facts.rs` | The gate facts projected for a run - **booleans default FALSE, absent enums are omitted**: it fails closed. A stale read here has cost real hours. |
 | `rust/forge/src/engine/evidence_gate.rs` | Which evidence a phase must have before its result is accepted. |
 | `rust/forge/src/engine/first_violation.rs`, `failure.rs` | How a failure is classified (defect vs environment vs capacity). |
