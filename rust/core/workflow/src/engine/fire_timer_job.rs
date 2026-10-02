@@ -241,7 +241,7 @@ impl<S: TxStore> WorkflowEngine<S> {
         })
     }
 
-    pub fn cancel_timer(&self, job_id: &str, actor: &str) -> Result<()> {
+    pub fn cancel_job(&self, job_id: &str, actor: &str) -> Result<()> {
         self.store.with_tx(|tx| {
             let peek = tx.get_job(job_id)?;
             if let Some(pid) = &peek.process_instance_id {
@@ -272,6 +272,10 @@ impl<S: TxStore> WorkflowEngine<S> {
             }
             Ok(())
         })
+    }
+
+    pub fn cancel_timer(&self, job_id: &str, actor: &str) -> Result<()> {
+        self.cancel_job(job_id, actor)
     }
 
     pub fn reschedule_timer(&self, job_id: &str, due_at: i64, actor: &str) -> Result<()> {
@@ -362,6 +366,34 @@ impl<S: TxStore> WorkflowEngine<S> {
     pub fn tasks_for_user(&self, user_id: &str, tenant_id: Option<&str>) -> Result<Vec<Task>> {
         self.store
             .with_tx(|tx| tx.active_tasks_for_user(user_id, tenant_id))
+    }
+
+    /// Renew the lease for a running generic job.
+    ///
+    /// Heartbeats are ownership checks, not advisory timestamps: only the worker
+    /// holding the current lock may extend it, and settled jobs cannot be revived.
+    pub fn heartbeat_job(&self, job_id: &str, worker_id: &str) -> Result<i64> {
+        self.store.with_tx(|tx| {
+            let mut job = tx.lock_job(job_id)?;
+            if job.status != JobStatus::Locked {
+                return Err(WorkflowError::conflict(
+                    "JOB_NOT_LOCKED",
+                    format!("Job {job_id} is not locked (status={:?})", job.status),
+                ));
+            }
+            if job.locked_by.as_deref() != Some(worker_id) {
+                return Err(WorkflowError::conflict(
+                    "JOB_LOCK_OWNER",
+                    format!("Job {job_id} is locked by another worker"),
+                ));
+            }
+
+            let lease_until = self.now() + JOB_LEASE_MS;
+            job.locked_until = Some(lease_until);
+            job.updated_at = self.now();
+            tx.update_job(&job)?;
+            Ok(lease_until)
+        })
     }
 
     pub fn complete_job(&self, job_id: &str, worker_id: &str) -> Result<()> {
