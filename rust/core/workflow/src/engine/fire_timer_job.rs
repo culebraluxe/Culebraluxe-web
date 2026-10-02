@@ -142,7 +142,10 @@ impl<S: TxStore> WorkflowEngine<S> {
         let reclaimed = self
             .store
             .with_tx(|tx| tx.reclaim_stale_jobs(self.now(), batch, None))?;
-        let jobs = self.claim_jobs(worker_id, batch)?;
+        // This runner is the timer executor. The jobs table is shared with
+        // Forge role work and future async executors, so it must never claim
+        // another executor's rows.
+        let jobs = self.claim_jobs_by_type(worker_id, "timer", batch)?;
         let mut report = DueJobReport {
             reclaimed,
             claimed: jobs.clone(),
@@ -470,6 +473,84 @@ impl<S: TxStore> WorkflowEngine<S> {
                 // more than once and cannot consume the payload it captures: `payload` would work for the first
                 // attempt and silently insert an empty job on the second. The `FnMut` bound on `with_tx` is what
                 // forced this to be stated instead of discovered in production.
+                payload: payload.clone(),
+                last_error: None,
+                created_at: now,
+                updated_at: now,
+                completed_at: None,
+            };
+            Ok(tx.insert_job(job)?.id)
+        })
+    }
+
+    /// Create a durable job with a caller-owned stable identity.
+    ///
+    /// Repeating the same request returns the existing job instead of inserting
+    /// a duplicate. When a process instance is supplied, its row lock serializes
+    /// competing creates for that process, which makes this suitable for
+    /// idempotent bridges such as Workflow task -> async job.
+    pub fn create_job_with_id(
+        &self,
+        job_id: &str,
+        process_instance_id: Option<&str>,
+        token_id: Option<&str>,
+        tenant_id: Option<&str>,
+        job_type: &str,
+        due_at: i64,
+        payload: Value,
+        max_attempts: Option<i32>,
+    ) -> Result<String> {
+        self.store.with_tx(|tx| {
+            let process_active = if let Some(pid) = process_instance_id {
+                let inst = tx.lock_instance(pid)?;
+                inst.status == ProcessStatus::Active
+            } else {
+                true
+            };
+
+            match tx.get_job(job_id) {
+                Ok(existing) => {
+                    let same_request = existing.process_instance_id.as_deref()
+                        == process_instance_id
+                        && existing.token_id.as_deref() == token_id
+                        && existing.tenant_id.as_deref() == tenant_id
+                        && existing.job_type == job_type
+                        && existing.payload == payload;
+                    if same_request {
+                        return Ok(existing.id);
+                    }
+                    return Err(WorkflowError::conflict(
+                        "JOB_ID_COLLISION",
+                        format!("Job {job_id} already exists for a different request"),
+                    ));
+                }
+                Err(WorkflowError::NotFound(_)) => {}
+                Err(error) => return Err(error),
+            }
+
+            if !process_active {
+                return Err(WorkflowError::conflict(
+                    "PROCESS_NOT_ACTIVE",
+                    format!(
+                        "Process {} is not active; cannot create job",
+                        process_instance_id.unwrap_or_default()
+                    ),
+                ));
+            }
+
+            let now = self.now();
+            let job = Job {
+                id: job_id.to_string(),
+                tenant_id: tenant_id.map(str::to_string),
+                process_instance_id: process_instance_id.map(str::to_string),
+                token_id: token_id.map(str::to_string),
+                job_type: job_type.to_string(),
+                due_at,
+                status: JobStatus::Pending,
+                locked_by: None,
+                locked_until: None,
+                attempts: 0,
+                max_attempts: max_attempts.unwrap_or(5),
                 payload: payload.clone(),
                 last_error: None,
                 created_at: now,
