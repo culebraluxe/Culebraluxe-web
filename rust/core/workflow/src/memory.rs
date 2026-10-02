@@ -564,7 +564,12 @@ impl Store for MemoryTx<'_> {
         stale.truncate(batch);
         let n = stale.len();
         for mut job in stale {
-            job.status = JobStatus::Pending;
+            if job.attempts >= job.max_attempts {
+                job.status = JobStatus::Failed;
+                job.last_error = Some("job lease expired after max attempts".to_string());
+            } else {
+                job.status = JobStatus::Pending;
+            }
             job.locked_by = None;
             job.locked_until = None;
             job.updated_at = now;
