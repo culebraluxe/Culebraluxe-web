@@ -1,15 +1,20 @@
-# Current Machine — Forge SDLC (rewritten 2026-09-13)
+# CURRENT — Forge SDLC live state (authoritative short form)
+
+> **FRESH-AGENT ENTRY POINT — read this file first.**
+> This page is the canonical short-form description of the live Forge machine as of 2026-10-02.
+> Current Rust and live control-plane rows outrank prose when they disagree. The actionable backlog is
+> `docs/agent/QUEUE-2026-10-02.md`. Older restoration/handoff documents are historical evidence unless the
+> current queue repeats an item.
 
 This file used to describe the CRM-07 WhatsApp intake tranche and had been stale since
 V10; anyone reading it to orient aimed at the wrong story. It now describes the live
 machine. Story packets live in `docs/agent/packets/`, durable decisions in
 `docs/agent/MEMORY.md`.
 
-**Start here instead if you are new to the engine:** `docs/agent/WORKFLOW-ARCHITECTURE.md` — the
-layered explainer (simple → advanced → PhD) with the twelve laws, the failure taxonomy, the V7
-roadmap, the swarm doctrine, and the diagnostic ladder. Every claim in it is labelled
-**[built] / [measured] / [proposed]**, so it can never be mistaken for the target state. This file
-is the short form; that file is the depth.
+**Fresh-agent read order:** this file → `docs/agent/MAP-engine.md` → `docs/agent/QUEUE-2026-10-02.md`.
+Use `docs/agent/WORKFLOW-ARCHITECTURE.md` for durable doctrine and historical reasoning, not as the live
+file/path inventory; parts of that document predate the Rust/service reassembly and are explicitly labelled
+historical at its top.
 
 **The Cockpit's purpose, in the captain's words:** `docs/agent/COCKPIT-PURPOSE.md` — the whole
 SDLC framing, the three modes of work (waking-hours collaboration / hand over now / loaded but not
@@ -139,24 +144,25 @@ gate refuses, read the ROWS for that `(task, node, attempt)` before believing th
 
 ## Open, in priority order
 
-1. SPLIT dogfood: never exercised end to end. The lane is wired (`rust/forge/src/engine/split_join.rs`,
-   `rust/forge/src/engine/commands.rs`'s `RUN_SMITH_SPLIT`, and the SPLIT count check in
-   `rust/forge/src/roles/lead.rs`) and the serial flows now complete — what is missing is a purpose-made
-   multi-surface fixture story. Admission is the Lead's decision plus the bench cap
-   (`rust/forge/src/engine/role_slice.rs`, `bench_intent_errors`): `FORGE_SPLIT_ENABLED` has **no reader
-   in `rust/`** (it survives in older notes only), so do not believe a note that says this lane is
-   switched on or off by it. `pnpm forge:story:reset` (`rust/cli/src/forge/reset.rs`) only resets; it
-   does not create stories.
-2. Smith authorization: the serial lane treats an unreadable diff as a measurement gap
-   rather than a scope miss. Deliberate today; changing it is the captain's call.
-3. Completion atomicity: the live unit is `rust/forge/src/engine/completion.rs`'s
-   `apply_completion_unit` — claim, then merge (`rust/forge/src/engine/db_ledger.rs`'s `merge_evidence`
-   → `ForgeEngineDao::merge_workflow_evidence`), then finalize — so the receipt is taken BEFORE the
-   evidence is merged, not after. This item used to cite `forge-engine-runtime.ts`, retired with the
-   TypeScript engine, and the order it described (evidence merged before the engine's compare) is **not**
-   the live order: re-measure before acting on it.
-4. `scripts/forge-handoff.mjs` split list flags on commas; that script is retired with the TypeScript
-   tooling. The live comma-splitting surfaces are the marker parsers
-   (`rust/forge/src/engine/role_mapping.rs`, `rust/forge/src/engine/smith_candidate.rs`,
-   `rust/forge/src/engine/architect.rs`), so a multi-value flag has to be checked there.
+The current executable queue is `docs/agent/QUEUE-2026-10-02.md`. The short version is:
+
+1. **JobService reliability closure** — distinguish typed transient infrastructure failure from permanent
+   role/business/configuration verdicts; review the same distinction around Workflow completion; prove or add a
+   real max-runtime deadline distinct from lease expiry.
+2. **Retire the remaining hard-coded node taxonomy** — `role_mapping::forge_role_node_plan` still carries lane /
+   Lead-phase/runtime metadata even though XML already owns task-node → service. Delete redundant ownership without
+   creating a replacement mega-map; keep only genuinely non-XML metadata at its narrow owner.
+3. **Run one real non-SPLIT story end to end** after those two slices land. Observe the complete Story Board →
+   story queue → Workflow → role job → service → OpenCode → evidence → completion chain before opening another
+   architecture program.
+4. **Parked until the serial run is proven:** SPLIT/role parallelism, end-to-end cancellation proof, outer story
+   recovery genericization, broad archived-TypeScript parity work, OpenCode redesign and Workflow redesign.
+
+### Already landed — do not reopen
+
+The following were previously listed as gaps in older notes but are live now: artifact persistence through
+`ForgeStateWriter::record_tool_artifact`; `model_policy` selecting the harness model;
+`launch_intent` reaching the Lead bench cap; seven concrete `AbstractForgeService` implementations and the
+registry; the shared `ForgeRoleHooks` lifecycle seam; XML-derived human gates; XML-derived Scout/Architect stop
+groups; and removal of the old `engine/agents.rs` switch and synthetic production-runner fallback.
 
