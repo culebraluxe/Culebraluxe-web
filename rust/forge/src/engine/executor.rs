@@ -11,7 +11,7 @@ use crate::engine::path::shared_path;
 use crate::engine::role_slice::forge_lane_surface;
 use crate::engine::runner::ForgeTurnPorts;
 use crate::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
-use crate::engine::service_binding::is_human_gate;
+use crate::engine::service_binding::{is_human_gate, nodes_for_service};
 use crate::engine::turn_budget;
 use crate::roles::registry::ForgeServiceRegistry;
 use workflow::{
@@ -63,28 +63,28 @@ pub fn parse_forge_stop_after(raw: &str) -> Option<ForgeStopTarget> {
     }
 }
 
+/// The node a `stop_after: lead` cap stops at.
+///
+/// The only node name the drive still holds, and it is one because the cap is not a lane's group: `forge.lead`
+/// binds four nodes (the pre and post decisions, the SOLO implement, and the failure classifier), while "stop after
+/// the lead" means after the PRE decision — the node the next phase is chosen at. The scout and architect caps are
+/// the definition's own groups (see [`resolve_forge_stop_target`]), so this is the asymmetry left over, not a table.
+const LEAD_PRE_NODE: &str = "lead_pre";
+
 pub fn resolve_forge_stop_target(stop: Option<&ForgeStopTarget>) -> Option<BTreeSet<String>> {
+    /// One service's nodes, as the set of nodes whose task ends the run.
+    fn cap(service_key: &str) -> BTreeSet<String> {
+        nodes_for_service(service_key)
+            .into_iter()
+            .map(String::from)
+            .collect()
+    }
     match stop {
         None => None,
         Some(ForgeStopTarget::Node(n)) => Some(BTreeSet::from([n.clone()])),
-        Some(ForgeStopTarget::Role("scout")) => Some(
-            [
-                "feature_scout",
-                "research_scout",
-                "diagnose_scout",
-                "repair_scout",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        ),
-        Some(ForgeStopTarget::Role("architect")) => Some(
-            ["architect", "research_architect", "repair_architect"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        ),
-        Some(ForgeStopTarget::Role("lead")) => Some(BTreeSet::from(["lead_pre".into()])),
+        Some(ForgeStopTarget::Role("scout")) => Some(cap("forge.scout")),
+        Some(ForgeStopTarget::Role("architect")) => Some(cap("forge.architect")),
+        Some(ForgeStopTarget::Role("lead")) => Some(BTreeSet::from([LEAD_PRE_NODE.to_string()])),
         Some(ForgeStopTarget::Role(_)) => None,
     }
 }

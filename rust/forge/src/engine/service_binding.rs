@@ -64,6 +64,24 @@ pub fn is_human_gate(node_id: &str) -> bool {
     forge_human_gate_nodes().contains(node_id)
 }
 
+/// The task-nodes the definition binds to one service key — a lane's own nodes, as the XML declares them.
+///
+/// The inverse of [`service_for_node`], and the reason a run's cap can be derived rather than typed out: a dispatch
+/// that asks to stop after the scout names the nodes the definition gives that service, so a node added to the
+/// definition is inside the cap without a Rust edit.
+///
+/// It answers with *services*, not with `responsibility`, and the two are not the same set: `qa_review` and
+/// `qa_verify` share `responsibility="qa"` but belong to Inspector and Assay, so the position has three nodes where
+/// the services have one and two. A lane is a service (the seven the registry registers); a position is what the
+/// XML prints for a human reading it.
+pub fn nodes_for_service(key: &str) -> BTreeSet<&'static str> {
+    forge_service_bindings()
+        .iter()
+        .filter(|(_, service)| service.as_str() == key)
+        .map(|(node, _)| node.as_str())
+        .collect()
+}
+
 impl ActiveForgeRoleTask {
     /// The canonical service that owns this task, as the workflow definition declares it.
     ///
@@ -402,6 +420,40 @@ mod tests {
         );
     }
 
+    /// A lane's nodes are the ones the definition binds to its service, and the group is a service group rather than
+    /// a position group — the assertion that makes `nodes_for_service` the right owner for the drive's cap.
+    #[test]
+    fn a_lanes_nodes_are_the_ones_its_service_binds() {
+        let set = |key: &str| nodes_for_service(key).into_iter().collect::<Vec<_>>();
+        assert_eq!(
+            set("forge.scout"),
+            [
+                "diagnose_scout",
+                "feature_scout",
+                "repair_scout",
+                "research_scout"
+            ],
+            "the scout cap is the definition's own group, which is what the drive used to type out"
+        );
+        assert_eq!(
+            set("forge.architect"),
+            ["architect", "repair_architect", "research_architect"]
+        );
+        assert_eq!(set("forge.inspector"), ["qa_review"]);
+        assert_eq!(set("forge.assay"), ["fast_qa_verify", "qa_verify"]);
+        assert!(
+            set("forge.no_such_service").is_empty(),
+            "a key the definition binds nothing to is not a lane with every node in it"
+        );
+        // The asymmetry: one position, three nodes, two services. If this answered with `responsibility`, the
+        // inspector's group would be the whole of qa — including the deterministic lane's work.
+        assert_ne!(
+            nodes_for_service("forge.inspector"),
+            BTreeSet::from(["fast_qa_verify", "qa_review", "qa_verify"]),
+            "the qa position is not one lane's group"
+        );
+    }
+
     /// The gate question is answered by the definition, and the set it answers with is the one the engine used to
     /// type out beside it: `hold`, `repair_requirements`, `fast_confirmation`.
     ///
@@ -459,29 +511,61 @@ mod tests {
         }
     }
 
-    /// The rail: the engine holds no copy of the gate list, and this is the file that would hold it.
+    /// The rail: the drive holds no copy of the definition's node groups, and this is the file that would hold it.
     ///
     /// `include_str!` is the drive's own source, not a path that could be stale, so this cannot pass by reading the
-    /// wrong file. The failure it prevents is the one `arch_boundary__005` prevents for SQL: a fact the definition
-    /// owns, re-spelled in the engine, drifting from the XML that is supposed to be its only home.
+    /// wrong file. Only the production half is scanned — the tests below it may name nodes, because comparing an
+    /// answer against the definition is what they are for. The failure prevented is the one `arch_boundary__005`
+    /// prevents for SQL: a fact the definition owns, re-spelled in the engine, drifting from the XML that is supposed
+    /// to be its only home.
     #[test]
-    fn the_engine_holds_no_human_gate_list_of_its_own() {
-        let executor = include_str!("executor.rs");
+    fn the_drive_spells_no_node_group_of_its_own() {
+        let source = include_str!("executor.rs");
+        let drive = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("the file opens with its production half");
         assert!(
-            !executor.contains("FORGE_HUMAN_GATE_NODES"),
+            drive.contains("fn resolve_forge_stop_target"),
+            "the scan has the drive's own source; a scan that saw nothing would pass this contract by accident"
+        );
+
+        assert!(
+            !drive.contains("FORGE_HUMAN_GATE_NODES"),
             "the drive names the gate list again; the definition owns it (`service_binding::forge_human_gate_nodes`)"
         );
         for gate in ["hold", "repair_requirements", "fast_confirmation"] {
             assert!(
-                !executor.contains(&format!("\"{gate}\"")),
+                !drive.contains(&format!("\"{gate}\"")),
                 "the drive spells the gate {gate:?} as a literal; read it from the definition instead"
             );
         }
-        // The positive control: the same scan finds a node name the drive legitimately names, so a scan that had gone
-        // blind (a wrong path, an empty file) could not report this contract as satisfied.
+        // The caps are the definition's service groups now. One node name is left on purpose and it is asserted to be
+        // the only one: `forge.lead` binds four nodes while "stop after the lead" means the PRE decision, so that cap
+        // names its node (`LEAD_PRE_NODE`) rather than widening to the group.
+        for typed_out in [
+            "feature_scout",
+            "research_scout",
+            "diagnose_scout",
+            "repair_scout",
+            "research_architect",
+            "repair_architect",
+        ] {
+            assert!(
+                !drive.contains(&format!("\"{typed_out}\"")),
+                "the drive spells the node {typed_out:?}; the scout and architect caps are the definition's groups"
+            );
+        }
         assert!(
-            executor.contains("\"lead\""),
-            "a stop target names a role; if this scan cannot see that, it cannot see anything"
+            drive.contains("const LEAD_PRE_NODE: &str = \"lead_pre\";")
+                && drive.matches("LEAD_PRE_NODE").count() >= 2,
+            "the one node name left is the lead cap, and it is read through the const rather than inlined"
         );
+        for cap in ["forge.scout", "forge.architect"] {
+            assert!(
+                drive.contains(&format!("\"{cap}\"")),
+                "the {cap} cap is derived from the definition's own binding"
+            );
+        }
     }
 }
