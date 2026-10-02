@@ -154,10 +154,7 @@ mod tests {
         label: &str,
     ) {
         for node in owned {
-            assert!(
-                service.supports_node(node),
-                "{node} must belong to {label}"
-            );
+            assert!(service.supports_node(node), "{node} must belong to {label}");
         }
         for node in rejected {
             assert!(
@@ -196,7 +193,14 @@ mod tests {
                 "diagnose_scout",
                 "repair_scout",
             ],
-            &["architect", "lead_pre", "smith", "qa_review", "qa_verify", "deploy"],
+            &[
+                "architect",
+                "lead_pre",
+                "smith",
+                "qa_review",
+                "qa_verify",
+                "deploy",
+            ],
             "ScoutService",
         );
     }
@@ -208,7 +212,14 @@ mod tests {
         assert_exact_lane(
             &service,
             &["research_architect", "architect", "repair_architect"],
-            &["research_scout", "lead_pre", "smith", "qa_review", "qa_verify", "deploy"],
+            &[
+                "research_scout",
+                "lead_pre",
+                "smith",
+                "qa_review",
+                "qa_verify",
+                "deploy",
+            ],
             "ArchitectService",
         );
     }
@@ -255,7 +266,13 @@ mod tests {
         assert_exact_lane(
             &service,
             &["qa_review"],
-            &["architect", "smith", "qa_verify", "fast_qa_verify", "deploy"],
+            &[
+                "architect",
+                "smith",
+                "qa_verify",
+                "fast_qa_verify",
+                "deploy",
+            ],
             "InspectorService",
         );
     }
