@@ -21,14 +21,7 @@ use forge::engine::worktree::{
 use forge::engine::writer::{
     ForgeEvidenceReader, ForgeReleaseExecutor, ForgeStateWriter, NullWriter,
 };
-use forge::roles::architect::ArchitectService;
-use forge::roles::dev_ops::DevOpsService;
-use forge::roles::inspector::InspectorService;
-use forge::roles::lead::LeadService;
-use forge::roles::qa::AssayService;
-use forge::roles::scout::ScoutService;
-use forge::roles::smith::SmithService;
-use forge::roles::ForgeServiceRouter;
+use forge::roles::ForgeLaneServices;
 use std::env;
 use std::sync::Arc;
 use workflow::{MemoryStore, NeonStore, TxStore};
@@ -603,24 +596,11 @@ fn drive<S: TxStore>(
         .with_test_mode(test_mode)
         .with_contract_assay_commands(contract_assay_commands)
         .with_contract_acceptance_mapped(contract_acceptance_mapped);
-    // Strangler slice complete for every currently mapped Forge lane. Workflow still owns
-    // sequencing and ProductionRoleRunner still owns the proven execution semantics while
-    // AbstractForgeService owns role identity, lane authority, and the service boundary.
-    let scout = ScoutService::new(&runner);
-    let architect = ArchitectService::new(&runner);
-    let lead = LeadService::new(&runner);
-    let smith = SmithService::new(&runner);
-    let inspector = InspectorService::new(&runner);
-    let assay = AssayService::new(&runner);
-    let devops = DevOpsService::new(&runner);
-    let services = ForgeServiceRouter::new(&runner)
-        .with_service(&scout)
-        .with_service(&architect)
-        .with_service(&lead)
-        .with_service(&smith)
-        .with_service(&inspector)
-        .with_service(&assay)
-        .with_service(&devops);
+    // Every canonical Forge lane is composed here, in one place: each service owns its lane's identity,
+    // its authority and its own reading of a turn (roles/smith.rs, roles/architect.rs, roles/qa.rs, …),
+    // and inherits the shared execution lifecycle. Workflow still owns sequencing, JobService still owns
+    // execution reliability, and no role policy lives in this binary.
+    let services = ForgeLaneServices::new(&runner);
     match drive_forge_story(
         &mut rt,
         story,

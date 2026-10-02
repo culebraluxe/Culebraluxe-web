@@ -1,10 +1,13 @@
 //! Scout lane — control plane lives in crate::engine::{phase,runner}.
+//!
+//! Scout's intelligence is its own diagnosis, and it is carried in the turn's own evidence marker
+//! (`researchDisposition`, `rootCauseKnown`, …), which the shared lifecycle collects for every lane alike.
+//! So this service owns the lane boundary and supplies no reading: there is nothing a Scout turn needs read
+//! out of it that the marker does not already say.
 
-use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
+use crate::engine::executor::ForgeRoleRunner;
 use crate::engine::role_mapping::LaneId;
-use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
-use workflow::Result;
 
 pub use crate::engine::phase::ForgePhaseAgent as ScoutPhase;
 
@@ -12,8 +15,8 @@ pub const SCOUT_SERVICE_ID: &str = "forge.scout";
 
 /// Forge-internal service for every Scout workflow node.
 ///
-/// The service owns Scout lane identity and authorization while the proven runner
-/// continues to own OpenCode/session/budget/evidence execution semantics.
+/// The service owns Scout lane identity and authorization — it is what makes "this node is Scout's" a
+/// checkable claim — and inherits the shared execution lifecycle unchanged.
 pub struct ScoutService<'a> {
     runner: &'a dyn ForgeRoleRunner,
 }
@@ -33,8 +36,8 @@ impl AbstractForgeService for ScoutService<'_> {
         }
     }
 
-    fn execute(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
-        self.assert_supports_node(node_id)?;
-        self.runner.run(node_id, task)
+    fn runner(&self) -> &dyn ForgeRoleRunner {
+        self.runner
     }
 }
+

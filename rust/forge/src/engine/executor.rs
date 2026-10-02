@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::path::shared_path;
+use crate::engine::runner::ForgeTurnPorts;
 use crate::engine::role_slice::forge_lane_surface;
 use crate::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
 use crate::engine::turn_budget;
@@ -17,6 +18,20 @@ pub struct ForgeRoleOutcome {
 
 pub trait ForgeRoleRunner: Send + Sync {
     fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome>;
+
+    /// The envelope this runner runs a turn under, when it has one.
+    ///
+    /// The production runner answers `Some(self)`, which is what lets a lane service run the shared
+    /// lifecycle itself: it reads the harness, the evidence it started from, the writer its records go
+    /// through, and the dispatch knobs (test mode, bench intent, contract assay commands) from the very
+    /// ports the runner holds. A runner that answers `None` is a double with no envelope at all — a test
+    /// scrubber or the synthetic default — and for those the service boundary keeps delegating the whole
+    /// turn to the runner, which is the established behavior and not role policy.
+    ///
+    /// The default is `None` deliberately: a runner has to *say* it has ports rather than be assumed to.
+    fn turn_ports(&self) -> Option<&dyn ForgeTurnPorts> {
+        None
+    }
 }
 
 pub fn default_evidence_for(node_id: &str) -> ForgeGateEvidence {

@@ -10,6 +10,14 @@
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::role_mapping::{forge_role_node_plan, LaneId};
 use crate::engine::runtime::ActiveForgeRoleTask;
+use crate::roles::architect::ArchitectService;
+use crate::roles::dev_ops::DevOpsService;
+use crate::roles::inspector::InspectorService;
+use crate::roles::lead::LeadService;
+use crate::roles::lifecycle::{run_lane_turn, ForgeRoleHooks, NoRoleHooks};
+use crate::roles::qa::AssayService;
+use crate::roles::scout::ScoutService;
+use crate::roles::smith::SmithService;
 use workflow::{Result, WorkflowError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,7 +35,33 @@ pub struct ForgeServiceDescriptor {
 pub trait AbstractForgeService: Send + Sync {
     fn descriptor(&self) -> ForgeServiceDescriptor;
 
-    fn execute(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome>;
+    /// The runner this service's lane turns run through.
+    ///
+    /// The service does NOT own the ports a turn runs under — the harness, the evidence it starts from, the
+    /// writer its records go through, the dispatch knobs. Its host does. Naming the runner is what lets a
+    /// lane inherit the shared lifecycle and still read the turn through the very envelope it was run with.
+    fn runner(&self) -> &dyn ForgeRoleRunner;
+
+    /// The lane's own reading of its turn — the only part of the turn this boundary cannot supply.
+    ///
+    /// The default claims nothing, which is the right answer for a lane whose intelligence is downstream of
+    /// its turn rather than about it (a publisher, a reviewer, a diagnoser writing its own marker).
+    fn hooks(&self) -> &dyn ForgeRoleHooks {
+        &NoRoleHooks
+    }
+
+    /// The shared execution lifecycle, INHERITED rather than copied.
+    ///
+    /// This is the whole point of the boundary. Every Forge lane runs the same sequence — the execution-target
+    /// guard, the bounded attempt loop with its self-heal directive, the spend meter, the bench-intent cap,
+    /// the deliverable gate that ends in a hold — and a lane supplies only its own reading. A service that
+    /// re-implemented this method would be a service free to drift from the other six, which is exactly what
+    /// this default exists to prevent: the sequence is `roles::lifecycle`'s, and the lane's answer to
+    /// `hooks()` is the only thing a service adds to it.
+    fn execute(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
+        self.assert_supports_node(node_id)?;
+        run_lane_turn(self.runner(), node_id, task, self.hooks())
+    }
 
     fn supports_node(&self, node_id: &str) -> bool {
         forge_role_node_plan(node_id)
@@ -87,17 +121,80 @@ impl ForgeRoleRunner for ForgeServiceRouter<'_> {
     }
 }
 
+/// Every canonical Forge lane, composed over the runner whose ports its turns run under.
+///
+/// ONE place lists the lanes, so the CLI's composition and the compatibility runner cannot disagree about
+/// which service owns what. The list is not role policy: it names services, and each service answers for
+/// itself which nodes are its own (`role_mapping`'s plan, applied by `supports_node`).
+pub struct ForgeLaneServices<'a> {
+    /// The runner the lane turns run through, and the fallback for a node no lane owns.
+    fallback: SharedLifecycle<'a>,
+    scout: ScoutService<'a>,
+    architect: ArchitectService<'a>,
+    lead: LeadService<'a>,
+    smith: SmithService<'a>,
+    inspector: InspectorService<'a>,
+    assay: AssayService<'a>,
+    devops: DevOpsService<'a>,
+}
+
+impl<'a> ForgeLaneServices<'a> {
+    pub fn new(runner: &'a dyn ForgeRoleRunner) -> Self {
+        Self {
+            fallback: SharedLifecycle { runner },
+            scout: ScoutService::new(runner),
+            architect: ArchitectService::new(runner),
+            lead: LeadService::new(runner),
+            smith: SmithService::new(runner),
+            inspector: InspectorService::new(runner),
+            assay: AssayService::new(runner),
+            devops: DevOpsService::new(runner),
+        }
+    }
+
+    /// The router over these lanes. Constructed per call rather than stored: it borrows the services, and a
+    /// turn is short enough that the borrow never has to outlive it.
+    pub fn router(&self) -> ForgeServiceRouter<'_> {
+        ForgeServiceRouter::new(&self.fallback)
+            .with_service(&self.scout)
+            .with_service(&self.architect)
+            .with_service(&self.lead)
+            .with_service(&self.smith)
+            .with_service(&self.inspector)
+            .with_service(&self.assay)
+            .with_service(&self.devops)
+    }
+}
+
+/// The routing itself, so a holder of these lanes is itself a `ForgeRoleRunner`.
+///
+/// This is what lets `ProductionRoleRunner` stay a compatibility adapter: nothing in it dispatches by node,
+/// because the dispatch is here and the ownership is the services'.
+impl ForgeRoleRunner for ForgeLaneServices<'_> {
+    fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
+        self.router().run(node_id, task)
+    }
+}
+
+/// The fallback for a node no lane owns: the shared lifecycle with no lane reading.
+///
+/// A node the registry does not map still runs the proven turn rather than failing, which is the behavior
+/// every caller already had. It deliberately does NOT route back into the lane set: a fallback that could
+/// reach the dispatcher would be the dispatcher calling itself.
+struct SharedLifecycle<'a> {
+    runner: &'a dyn ForgeRoleRunner,
+}
+
+impl ForgeRoleRunner for SharedLifecycle<'_> {
+    fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
+        run_lane_turn(self.runner, node_id, task, &NoRoleHooks)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::engine::facts::ForgeGateEvidence;
-    use crate::roles::architect::ArchitectService;
-    use crate::roles::dev_ops::DevOpsService;
-    use crate::roles::inspector::InspectorService;
-    use crate::roles::lead::LeadService;
-    use crate::roles::qa::AssayService;
-    use crate::roles::scout::ScoutService;
-    use crate::roles::smith::SmithService;
     use std::sync::Mutex;
 
     struct RecordingRunner {
@@ -420,5 +517,123 @@ mod tests {
             .expect("fallback route");
         assert_eq!(out.evidence.work_type.as_deref(), Some("legacy"));
         assert_eq!(fallback.calls(), vec!["future_unmapped_role".to_string()]);
+    }
+
+    /// Inspector is NOT Assay, and the boundary is where that is enforced: the review lane claims no
+    /// measurement and no candidate, and the measurement lane claims no review. A lane that acquired the
+    /// other's nodes would silently replace a review with a measurement.
+    #[test]
+    fn inspector_is_not_assay_and_neither_takes_the_others_nodes() {
+        let runner = RecordingRunner::new("lane");
+        let inspector = InspectorService::new(&runner);
+        let assay = AssayService::new(&runner);
+
+        assert!(inspector.supports_node("qa_review"));
+        assert!(!inspector.supports_node("qa_verify"));
+        assert!(assay.supports_node("qa_verify"));
+        assert!(!assay.supports_node("qa_review"));
+
+        assert!(
+            !inspector.hooks().adopts_candidate_sha("qa_review"),
+            "a review is not a deliverable to adopt"
+        );
+        assert!(
+            !assay.hooks().adopts_candidate_sha("qa_verify"),
+            "a measurement is not a candidate either"
+        );
+    }
+
+    /// Publication belongs to one lane. Without DevOps registered, the publish nodes have no owner at all —
+    /// they fall through rather than being adjudicated or measured by a lane that does not publish — and with
+    /// it, they are DevOps's.
+    #[test]
+    fn devops_alone_owns_the_publish_nodes() {
+        let publish_nodes = ["deploy", "repair_devops", "production_smoke"];
+
+        let fallback = RecordingRunner::new("unclaimed");
+        let runner = RecordingRunner::new("lane");
+        let scout = ScoutService::new(&runner);
+        let architect = ArchitectService::new(&runner);
+        let lead = LeadService::new(&runner);
+        let smith = SmithService::new(&runner);
+        let inspector = InspectorService::new(&runner);
+        let assay = AssayService::new(&runner);
+        let without_devops = ForgeServiceRouter::new(&fallback)
+            .with_service(&scout)
+            .with_service(&architect)
+            .with_service(&lead)
+            .with_service(&smith)
+            .with_service(&inspector)
+            .with_service(&assay);
+
+        for node in publish_nodes {
+            let out = without_devops.run(node, &task(node)).expect("fallback route");
+            assert_eq!(
+                out.evidence.work_type.as_deref(),
+                Some("unclaimed"),
+                "no lane but DevOps may take {node}"
+            );
+        }
+
+        let devops = DevOpsService::new(&runner);
+        let with_devops = ForgeServiceRouter::new(&fallback).with_service(&devops);
+        for node in publish_nodes {
+            let out = with_devops.run(node, &task(node)).expect("devops route");
+            assert_eq!(out.evidence.work_type.as_deref(), Some("lane"), "{node}");
+        }
+    }
+
+    /// Code delivery is ONE behavior with ONE owner. Smith's family and the Lead's solo implement deliver the
+    /// same act, so the Lead INHERITS Smith's reading instead of re-implementing the capture — and neither
+    /// lane claims a node that is not a delivery.
+    #[test]
+    fn code_delivery_is_shared_and_claims_only_delivery_nodes() {
+        let runner = RecordingRunner::new("lane");
+        let smith = SmithService::new(&runner);
+        let lead = LeadService::new(&runner);
+
+        assert!(smith.hooks().adopts_candidate_sha("smith"));
+        assert!(smith.hooks().adopts_candidate_sha("smith_split_work"));
+        assert!(
+            lead.hooks().adopts_candidate_sha("lead_solo_implement"),
+            "when the Lead decides SOLO it delivers code, and that reading is Smith's"
+        );
+        assert!(!lead.hooks().adopts_candidate_sha("lead_pre"));
+        assert!(!lead.hooks().adopts_candidate_sha("lead_post"));
+        assert!(
+            !smith.hooks().adopts_candidate_sha("qa_verify"),
+            "a measurement is not a delivery"
+        );
+    }
+
+    /// THE PROPERTY THE WHOLE EXTRACTION RESTS ON, checked where it can be checked: no concrete service
+    /// implements `execute`. Every lane inherits the shared lifecycle, so a lane cannot silently acquire its
+    /// own copy of the turn sequence — the only thing a service file is allowed to add is its own reading.
+    #[test]
+    fn no_concrete_service_copies_the_lifecycle() {
+        let lanes = [
+            ("scout", include_str!("scout.rs")),
+            ("architect", include_str!("architect.rs")),
+            ("lead", include_str!("lead.rs")),
+            ("smith", include_str!("smith.rs")),
+            ("inspector", include_str!("inspector.rs")),
+            ("assay", include_str!("qa.rs")),
+            ("devops", include_str!("dev_ops.rs")),
+        ];
+
+        for (lane, source) in lanes {
+            let code = source
+                .split("#[cfg(test)]")
+                .next()
+                .expect("each service has code before its tests");
+            assert!(
+                !code.contains("fn execute("),
+                "{lane} copied the lifecycle instead of inheriting it"
+            );
+            assert!(
+                code.contains("fn runner(&self)"),
+                "{lane} must name the runner its turns run through"
+            );
+        }
     }
 }

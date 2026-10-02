@@ -12,4 +12,6 @@ pub mod service;
 pub mod smith;
 
 pub use registry::ForgeServiceRegistry;
-pub use service::{AbstractForgeService, ForgeServiceDescriptor, ForgeServiceRouter};
+pub use service::{
+    AbstractForgeService, ForgeLaneServices, ForgeServiceDescriptor, ForgeServiceRouter,
+};

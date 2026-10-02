@@ -25,7 +25,7 @@
 
 use crate::engine::agents::forge_agent_collect;
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
-use crate::engine::executor::ForgeRoleOutcome;
+use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::harness_usage::HarnessUsage;
 use crate::engine::hold::{
@@ -33,7 +33,7 @@ use crate::engine::hold::{
 };
 use crate::engine::observer::record_forge_observer;
 use crate::engine::phase::{ForgePhaseAgent, RoleEffectPorts};
-use crate::engine::runner::{HarnessOutput, RoleHarness};
+use crate::engine::runner::{ForgeTurnPorts, HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::self_heal::{attempt_budget, build_self_heal_directive};
 use crate::engine::writer::ForgeStateWriter;
@@ -56,6 +56,27 @@ pub struct ForgeRoleContext<'a> {
     pub contract_assay_commands: &'a [String],
     pub contract_acceptance_mapped: bool,
     pub require_prod: bool,
+}
+
+impl<'a> ForgeRoleContext<'a> {
+    /// The envelope, read off the ports whoever hosts the turn exposes.
+    ///
+    /// This is the join between the two halves of the extraction: the runner owns the ports, the lane
+    /// service owns the turn, and the lifecycle — which knows neither — reads them here. A field added to
+    /// the envelope must be added to both, which is why they sit this close together.
+    pub fn from_ports(ports: &'a dyn ForgeTurnPorts) -> Self {
+        Self {
+            harness: ports.harness(),
+            current: ports.current(),
+            writer: ports.writer(),
+            story_run_id: ports.story_run_id(),
+            bench_intent: ports.bench_intent(),
+            test_mode: ports.test_mode(),
+            contract_assay_commands: ports.contract_assay_commands(),
+            contract_acceptance_mapped: ports.contract_acceptance_mapped(),
+            require_prod: ports.require_prod(),
+        }
+    }
 }
 
 /// One turn's result, as the lane's own reading sees it.
@@ -111,6 +132,37 @@ pub trait ForgeRoleHooks: Send + Sync {
         _evidence: &mut ForgeGateEvidence,
     ) -> Result<()> {
         Ok(())
+    }
+}
+
+/// The reading of a lane that reads nothing: the shared lifecycle, and only that.
+///
+/// Two callers need it. A service that owns its boundary and no reading (a lane whose intelligence is
+/// downstream — a publisher, a reviewer) inherits this instead of inventing an empty hook impl, and it is
+/// what a node no lane claims runs under, so an unmapped node keeps the proven turn rather than failing.
+pub struct NoRoleHooks;
+
+impl ForgeRoleHooks for NoRoleHooks {}
+
+/// Run one lane's turn through the runner that hosts its ports.
+///
+/// THE SERVICE BOUNDARY's single entry point: a concrete service says which runner its turns run through
+/// and which reading is its own, and gets the shared sequence by inheriting it — never by copying it.
+///
+/// A runner that exposes no ports (a double, the synthetic default) has no envelope to read a turn under,
+/// so the whole turn is delegated to it. That keeps every established seam — the CLI's composition, the
+/// service tests' scrubbers, the durable job lane — behaving exactly as it did before the split.
+pub fn run_lane_turn(
+    runner: &dyn ForgeRoleRunner,
+    node_id: &str,
+    task: &ActiveForgeRoleTask,
+    hooks: &dyn ForgeRoleHooks,
+) -> Result<ForgeRoleOutcome> {
+    match runner.turn_ports() {
+        Some(ports) => {
+            run_forge_role_turn(&ForgeRoleContext::from_ports(ports), node_id, task, hooks)
+        }
+        None => runner.run(node_id, task),
     }
 }
 
@@ -675,6 +727,84 @@ mod tests {
                 "the shared lifecycle must not name a lane ({lane}); that belongs to its service"
             );
         }
+    }
+
+    /// A harness that reports what it spent, so the spend meter can be read without a repository.
+    struct SpendingHarness;
+
+    impl RoleHarness for SpendingHarness {
+        fn run_role(
+            &self,
+            _: &str,
+            _: &ActiveForgeRoleTask,
+            _: Option<&str>,
+        ) -> Result<HarnessOutput> {
+            Ok(HarnessOutput {
+                raw: "added the candidate\n".into(),
+                candidate_sha: Some("a".repeat(40)),
+                assay_commands: vec![],
+                acceptance_mapped: false,
+                refusal: None,
+                execution_base: None,
+                usage: Some(HarnessUsage {
+                    session_id: "ses_turn".into(),
+                    tokens_input: 26_714,
+                    tokens_output: 701,
+                    cost_usd: 0.005352,
+                }),
+            })
+        }
+        fn exists_on_base_ref(&self, _: &str, _: &str) -> bool {
+            true
+        }
+        fn assay_cwd(&self) -> &std::path::Path {
+            std::path::Path::new(".")
+        }
+        fn run_command(&self, command: &str) -> CommandResult {
+            CommandResult {
+                command: command.into(),
+                exit_code: 1,
+                passed: false,
+                excerpt: "not run by this harness".into(),
+                unmeasurable: true,
+                output: String::new(),
+            }
+        }
+    }
+
+    /// The bug this test exists for: the Rust port dropped the spend meter, so `tokens_input`/`tokens_output`
+    /// stayed NULL and `cost_source='none'` on every run ("cost captured on 0/717"). A turn's measured spend
+    /// reaches the run row through the writer, keyed to the run that paid for it.
+    ///
+    /// Moved here from `engine::runner` when the turn's sequence did: the meter is the lifecycle's, every lane
+    /// has it, and it is not a lane reading. The harness is deliberately not git-backed — the capture this
+    /// reading never triggers is Smith's, and a lane that overrides no hook must not run it.
+    #[test]
+    fn a_turns_spend_is_added_to_its_run() {
+        let harness = SpendingHarness;
+        let writer = RecordingWriter::default();
+        let current = ForgeGateEvidence::default();
+        let task = role_task("smith", "TST-CAPTURE-001");
+        let context = ForgeRoleContext {
+            harness: &harness,
+            current: &current,
+            writer: Some(&writer),
+            story_run_id: Some("11111111-2222-3333-4444-555555555555"),
+            bench_intent: None,
+            test_mode: None,
+            contract_assay_commands: &[],
+            contract_acceptance_mapped: false,
+            require_prod: false,
+        };
+
+        let _ = run_forge_role_turn(&context, "smith", &task, &NoRoleHooks);
+
+        let usage = writer.usage.lock().unwrap();
+        assert!(!usage.is_empty(), "the turn's spend reached the writer");
+        let (run_id, first) = &usage[0];
+        assert_eq!(run_id, "11111111-2222-3333-4444-555555555555");
+        assert_eq!((first.tokens_input, first.tokens_output), (26_714, 701));
+        assert!((first.cost_usd - 0.005352).abs() < 1e-9);
     }
 }
 
