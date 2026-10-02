@@ -734,6 +734,61 @@ mod tests {
     }
 
     #[test]
+    fn long_running_role_work_renews_the_lease_before_the_turn_returns() {
+        let clock = Arc::new(AtomicI64::new(1_000));
+        let engine = engine(clock.clone());
+        let jobs = WorkflowJobService::new(&engine);
+        let runner = RecordingRunner::new();
+        let (mut registry, _scout, _architect, _lead, smith, _inspector, _assay, _devops) =
+            registry(&runner);
+        registry.register(&smith).expect("register Smith");
+        let request = ForgeJobBridge::new(&registry)
+            .job_for_ready_task(&task("smith", TaskStatus::Ready))
+            .expect("Smith request");
+
+        jobs.enqueue(&request).expect("enqueue");
+        let lease = jobs.claim("worker-a", 1).expect("claim").remove(0);
+        let before = lease.locked_until.expect("initial lease");
+
+        let during = run_with_lease_heartbeat_interval(
+            &jobs,
+            "worker-a",
+            &lease.job_id,
+            std::time::Duration::from_millis(5),
+            || {
+                clock.store(61_000, Ordering::SeqCst);
+
+                for _ in 0..50 {
+                    let locked_until = engine
+                        .get_job(&lease.job_id)
+                        .expect("running job")
+                        .locked_until
+                        .expect("running lease");
+                    if locked_until > before {
+                        return Ok(locked_until);
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+
+                Err(WorkflowError::generic(
+                    "background heartbeat did not renew the lease while role work was still running",
+                ))
+            },
+        )
+        .expect("long-running work keeps its lease");
+
+        assert!(
+            during > before,
+            "the lease must renew before the role closure returns, not only at the final fence"
+        );
+        assert_eq!(
+            engine.get_job(&lease.job_id).expect("job").status,
+            JobStatus::Locked,
+            "heartbeat renews ownership; it does not settle the job"
+        );
+    }
+
+    #[test]
     fn completed_and_cancelled_jobs_are_not_claimed_again() {
         let clock = Arc::new(AtomicI64::new(1_000));
         let engine = engine(clock);
