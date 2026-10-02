@@ -172,13 +172,14 @@ pub(super) fn selected_story(
                             { format!("{} — {}", story.id, story.title) }
                         </h3>
                     </div>
-                    if let Some(instance) = tech.recorder_instance_id.as_deref().filter(|value| !value.is_empty()) {
-                        <a
-                            href={format!("/portal/tech/flight-recorder/{instance}")}
+                    if tech.recorder_instance_id.as_deref().is_some_and(|value| !value.is_empty()) {
+                        <button
+                            type="button"
+                            onclick={on_msg.reform(|_: MouseEvent| Msg::TabSelected(TechTab::FlightRecorder))}
                             class="rounded-md border border-[#c6a15b]/40 px-2.5 py-1.5 text-[9px] font-medium uppercase tracking-[0.11em] text-[#e0c489] hover:bg-[#c6a15b]/10"
                         >
                             {"Flight Recorder →"}
-                        </a>
+                        </button>
                     }
                 </div>
                 <div class="mt-2 flex flex-wrap gap-2 text-[9px] uppercase tracking-[0.1em] text-slate-400">
