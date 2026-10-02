@@ -20,15 +20,21 @@ pub(super) async fn tech(
         .as_deref()
         .map(str::trim)
         .filter(|id| !id.is_empty());
-    let snapshot = state
-        .services()
+    let services = state.services();
+    let snapshot = services
         .tech()
         .snapshot(selected, &resolved.service)
         .await
         .map_err(failed(&resolved))?;
+    let forge_live = services
+        .forge()
+        .live_snapshot(selected, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
     let now = chrono::Utc::now().to_rfc3339();
     Ok(Json(super::super::tech_page::cockpit(
         &to_json(snapshot),
+        &to_json(forge_live),
         selected,
         &now,
     )))
