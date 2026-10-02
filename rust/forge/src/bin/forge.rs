@@ -591,6 +591,10 @@ fn drive<S: TxStore>(
         scout_required: Some(false),
         ..Default::default()
     };
+    let durable_worker_id = story_run_id
+        .as_deref()
+        .map(|run_id| format!("forge:{run_id}"))
+        .unwrap_or_else(|| format!("forge:{story}"));
     let runner = ProductionRoleRunner::new(harness, evidence.clone())
         .with_writer(writer.as_ref())
         .with_story_run(story_run_id)
@@ -614,7 +618,7 @@ fn drive<S: TxStore>(
             runner: Some(&services),
             allow_synthetic_runner: false,
             max_steps: 40,
-            worker_id: "forge",
+            worker_id: &durable_worker_id,
             split_concurrency: 1,
             stop_after,
             // The operator's ceiling, from the environment. Read here rather than in the loop so the cap a run is
