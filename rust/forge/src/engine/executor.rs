@@ -484,7 +484,7 @@ fn drive_forge_story_inner<S: TxStore>(
                     let request = ForgeJobBridge::new(durable.registry)
                         .job_for_ready_task(&task)?;
                     let job_id = durable.jobs.enqueue(&request)?;
-                    let lease = match durable.jobs.claim_one(&job_id, &actor) {
+                    let lease = match durable.jobs.claim_one(&job_id, opts.worker_id) {
                         Ok(lease) => lease,
                         Err(err) if err.code() == "FORGE_JOB_NOT_CLAIMABLE" => {
                             // Another worker owns this task's stable durable job,
@@ -497,7 +497,7 @@ fn drive_forge_story_inner<S: TxStore>(
                     turns_dispatched += 1;
                     let outcome = execute_claimed_job_unsettled(
                         durable.jobs,
-                        &actor,
+                        opts.worker_id,
                         &lease,
                         &task,
                         durable.registry,
@@ -535,12 +535,12 @@ fn drive_forge_story_inner<S: TxStore>(
                 ) {
                     if let (Some(durable), Some(lease)) = (durable, durable_lease.as_ref()) {
                         if err.code() == "TASK_ALREADY_COMPLETED" {
-                            durable.jobs.complete(&lease.job_id, &actor)?;
+                            durable.jobs.complete(&lease.job_id, opts.worker_id)?;
                             continue;
                         }
                         durable.jobs.fail(
                             &lease.job_id,
-                            &actor,
+                            opts.worker_id,
                             &format!("Workflow task completion failed after role execution: {err}"),
                             true,
                         )?;
@@ -562,7 +562,7 @@ fn drive_forge_story_inner<S: TxStore>(
                 // no longer READY, so the paid role turn cannot be dispatched
                 // again by the production driver.
                 if let (Some(durable), Some(lease)) = (durable, durable_lease.as_ref()) {
-                    durable.jobs.complete(&lease.job_id, &actor)?;
+                    durable.jobs.complete(&lease.job_id, opts.worker_id)?;
                 }
                 steps.push(node.clone());
                 if stop_target
