@@ -58,7 +58,7 @@ async fn external_harness_boot_dispatch_drain_and_shutdown_are_real() {
     let descriptors = harness.descriptors();
     assert_eq!(
         descriptors.len(),
-        32,
+        33,
         "every route-facing service is registered"
     );
     assert!(descriptors
@@ -76,6 +76,7 @@ async fn external_harness_boot_dispatch_drain_and_shutdown_are_real() {
         "deal",
         "firm",
         "flight-recorder",
+        "forge",
         "forms",
         "guest-sign-in",
         "guide",
