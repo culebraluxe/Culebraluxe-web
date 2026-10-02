@@ -8,12 +8,15 @@
 use crate::engine::executor::ForgeRoleOutcome;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::registry::ForgeServiceRegistry;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::Duration;
 use workflow::{
     Job, JobStatus, Result, TaskStatus, TxStore, Value, WorkflowEngine, WorkflowError,
 };
 
 pub const FORGE_ROLE_JOB_TYPE: &str = "forge.role";
 pub const DEFAULT_FORGE_JOB_ATTEMPTS: i32 = 5;
+const FORGE_JOB_HEARTBEAT_INTERVAL_SECS: u64 = 60;
 
 #[derive(Debug, Clone)]
 pub struct ForgeJobRequest {
@@ -34,6 +37,16 @@ pub struct ForgeJobLease {
     pub attempts: i32,
     pub max_attempts: i32,
     pub locked_until: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForgeJobState {
+    pub status: JobStatus,
+    pub attempts: i32,
+    pub max_attempts: i32,
+    pub locked_by: Option<String>,
+    pub due_at: i64,
+    pub last_error: Option<String>,
 }
 
 /// The only Forge-specific translation between workflow state and job execution.
@@ -99,6 +112,7 @@ pub trait JobService: Send + Sync {
     fn claim(&self, worker_id: &str, limit: usize) -> Result<Vec<ForgeJobLease>>;
     fn claim_one(&self, job_id: &str, worker_id: &str) -> Result<ForgeJobLease>;
     fn heartbeat(&self, job_id: &str, worker_id: &str) -> Result<i64>;
+    fn inspect(&self, job_id: &str) -> Result<ForgeJobState>;
     fn complete(&self, job_id: &str, worker_id: &str) -> Result<()>;
     fn fail(&self, job_id: &str, worker_id: &str, error: &str, permanent: bool) -> Result<()>;
     fn cancel(&self, job_id: &str, actor: &str) -> Result<()>;
@@ -202,6 +216,18 @@ impl<S: TxStore> JobService for WorkflowJobService<'_, S> {
         self.engine.heartbeat_job(job_id, worker_id)
     }
 
+    fn inspect(&self, job_id: &str) -> Result<ForgeJobState> {
+        let job = self.engine.get_job(job_id)?;
+        Ok(ForgeJobState {
+            status: job.status,
+            attempts: job.attempts,
+            max_attempts: job.max_attempts,
+            locked_by: job.locked_by,
+            due_at: job.due_at,
+            last_error: job.last_error,
+        })
+    }
+
     fn complete(&self, job_id: &str, worker_id: &str) -> Result<()> {
         self.engine.complete_job(job_id, worker_id)
     }
@@ -253,21 +279,79 @@ pub fn execute_claimed_job_unsettled(
         }
     };
 
-    // Renew immediately before entering potentially long-running agent work.
-    // The worker host may continue heartbeating during execution.
+    // Renew immediately, then keep the lease alive for the entire role turn.
+    // Model-backed Smith/Architect/etc. turns can run well beyond one generic
+    // job lease; without this loop another scheduler pass may reclaim live work.
     jobs.heartbeat(&lease.job_id, worker_id)?;
 
-    match service.execute(&lease.node_id, task) {
+    let service_result = run_with_lease_heartbeat(jobs, worker_id, &lease.job_id, || {
+        service.execute(&lease.node_id, task)
+    });
+
+    match service_result {
         Ok(outcome) => Ok(outcome),
         Err(error) => {
             // A role-service error keeps the established Forge semantics: it is
             // a verdict for this attempt, not an infrastructure retry signal.
-            // Transient worker/infrastructure failures may call JobService::fail
-            // with permanent=false at the worker boundary.
-            jobs.fail(&lease.job_id, worker_id, &error.to_string(), true)?;
+            // If ownership was lost, fail_job will itself refuse the stale owner.
+            let _ = jobs.fail(&lease.job_id, worker_id, &error.to_string(), true);
             Err(error)
         }
     }
+}
+
+fn run_with_lease_heartbeat<T>(
+    jobs: &dyn JobService,
+    worker_id: &str,
+    job_id: &str,
+    work: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+
+    std::thread::scope(|scope| {
+        let heartbeat = scope.spawn(|| -> Option<WorkflowError> {
+            loop {
+                match stop_rx.recv_timeout(Duration::from_secs(
+                    FORGE_JOB_HEARTBEAT_INTERVAL_SECS,
+                )) {
+                    Ok(()) | Err(RecvTimeoutError::Disconnected) => return None,
+                    Err(RecvTimeoutError::Timeout) => match jobs.heartbeat(job_id, worker_id) {
+                        Ok(_) => {}
+                        Err(error) if error.is_connection_failure() => {
+                            // The database was unavailable, not the lease. Keep
+                            // trying; recovery cannot make progress while the
+                            // same database is unreachable either.
+                            eprintln!(
+                                "forge-job-heartbeat transient failure job={job_id}: {error}"
+                            );
+                        }
+                        Err(error) => return Some(error),
+                    },
+                }
+            }
+        });
+
+        let result = work();
+        drop(stop_tx);
+
+        let heartbeat_error = heartbeat.join().map_err(|_| {
+            WorkflowError::generic(format!(
+                "Forge job heartbeat thread panicked for job {job_id}"
+            ))
+        })?;
+
+        if let Some(error) = heartbeat_error {
+            return Err(WorkflowError::generic(format!(
+                "Forge job {job_id} lost its lease while the role was running: {error}"
+            )));
+        }
+
+        // Fence Workflow completion with one final ownership renewal after the
+        // role returns. If recovery somehow won the race, the caller must not
+        // advance the Workflow task under a lease it no longer owns.
+        jobs.heartbeat(job_id, worker_id)?;
+        result
+    })
 }
 
 /// Compatibility helper for callers that own no Workflow completion step.
