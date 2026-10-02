@@ -295,6 +295,10 @@ impl ServiceCatalog {
             email.clone(),
             infrastructure.clone(),
         ));
+        let forge = Arc::new(ForgeService::for_application(
+            db.clone(),
+            infrastructure.clone(),
+        ));
         Self {
             clients: Arc::new(ClientService::new(
                 ClientDao::new(db.clone()),
@@ -429,7 +433,7 @@ impl ServiceCatalog {
                 AccountingDao::new(db),
                 infrastructure,
             )),
-            forge: Arc::new(ForgeService::new()),
+            forge,
         }
     }
 
