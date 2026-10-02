@@ -60,7 +60,8 @@ const VALID_DEFINITION: &str = r#"<process-definition key="TST-WF-DEFINITION-005
 
 /// The same contract on one node of every kind that can carry a `<transition>`: `start-state`, `state`, `task-node`,
 /// `fork`, `join`, `end-state`. Parses as written; each of the five edges is edited to a missing target below.
-const KINDS_DEFINITION: &str = r#"<process-definition key="TST-WF-DEFINITION-005-KINDS" version="1" name="Kinds">
+// The key says what it is: gitleaks reads a taxonomy-shaped key as a generic API key.
+const KINDS_DEFINITION: &str = r#"<process-definition key="definition-kinds-under-test-not-a-secret" version="1" name="Kinds">
   <start-state id="start">
     <transition name="begin" to="check"/>
   </start-state>
@@ -81,7 +82,8 @@ const KINDS_DEFINITION: &str = r#"<process-definition key="TST-WF-DEFINITION-005
 
 /// A definition whose only edge is a self-reference: `start -> loop -> loop`. It parses, proving the refusal is about
 /// a target that does not exist, not about transitions, loops or repeated node ids.
-const SELF_LOOP_DEFINITION: &str = r#"<process-definition key="TST-WF-DEFINITION-005-LOOP" version="1" name="Self loop">
+// The key says what it is: gitleaks reads a taxonomy-shaped key as a generic API key.
+const SELF_LOOP_DEFINITION: &str = r#"<process-definition key="definition-self-loop-under-test-not-a-secret" version="1" name="Self loop">
   <start-state id="start">
     <transition name="begin" to="loop"/>
   </start-state>
@@ -215,7 +217,8 @@ fn wf_definition_005__missing_target() {
     //     map (`rust/forge/src/engine/xml.rs:387-396`), so an edge on an orphan node — one no path from the start ever
     //     reaches — is still refused. A parser that validated only reachable nodes would ship a definition with a
     //     dangling edge hidden behind an unreachable node, and this clause fails.
-    let orphan = r#"<process-definition key="TST-WF-DEFINITION-005-ORPHAN" version="1" name="Orphan">
+    // The key says what it is: gitleaks reads a taxonomy-shaped key as a generic API key.
+    let orphan = r#"<process-definition key="definition-orphan-under-test-not-a-secret" version="1" name="Orphan">
   <start-state id="start">
     <transition name="begin" to="done"/>
   </start-state>

@@ -33,3 +33,21 @@
 # not to add a line here.
 # ---------------------------------------------------------------------------
 77c2bb714248f763500cbf35073e6ae327335d13:rust/server/src/api/context.rs:generic-api-key:345
+# ---------------------------------------------------------------------------
+# 2026-10-02 — the same fixture habit, caught the same way: renamed in the tree, recorded here.
+#
+# `rust/test-harness/tests/wf_definition__005__missing_target.rs` declares three variant workflow
+# definitions whose `key` was the taxonomy shape plus a suffix — `TST-WF-DEFINITION-005-KINDS`,
+# `-LOOP`, `-ORPHAN`. gitleaks reads a long dashed, numbered run as a generic API key, and on shape
+# alone it is right to: those look exactly like a key. None was ever a credential, and none is
+# asserted — only `VALID_DEFINITION`'s key is compared (`assert_eq!(parsed.key, KEY)`), and it still
+# carries the taxonomy name.
+#
+# The three keys now say what they are (`definition-kinds-under-test-not-a-secret` and its siblings),
+# so the CURRENT tree has no finding. History cannot be rewritten, so these three fingerprints record
+# the two commits that carried the old literals, with a reason. Not a precedent either: rename the
+# fixture, and add the line only because the past is immutable.
+# ---------------------------------------------------------------------------
+ad28471ad682899c281f9a299ccde6dcff64a173:rust/test-harness/tests/wf_definition__005__missing_target.rs:generic-api-key:63
+ad28471ad682899c281f9a299ccde6dcff64a173:rust/test-harness/tests/wf_definition__005__missing_target.rs:generic-api-key:84
+b49bb83f5c0ce4928ab7bdcd294ac11b093c9199:rust/test-harness/tests/wf_definition__005__missing_target.rs:generic-api-key:218
