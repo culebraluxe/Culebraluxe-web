@@ -95,6 +95,30 @@ Override the log location with `AGENT_WORKER_LOG_DIR`.
 - `node` and `pnpm` on PATH. launchd provides a minimal PATH, so the wrapper
   establishes one: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`.
 
+### `FORGE_ALLOW_PUBLISH` — the publish kill switch
+
+`forge` publishes a Smith's candidate by pushing it to `origin/main`
+(`rust/forge/src/engine/git_publish.rs`). That path is the **only** door out:
+House Rule 1 refuses a push of any branch but `main` (`.githooks/pre-push`), so a
+candidate cannot leave this machine as an `agent/*` branch.
+
+    unset          → publishes        (the default — absence is not a refusal)
+    1              → publishes
+    0 false off no → refuses          (case-insensitive; surrounding space ignored)
+
+A refusal is filed as `failure_class='PUBLISH_DISABLED'` on
+`forge_workflow_evidence` — its own name, never `PUBLISH_CONFLICT` — and the
+engine prints `publish=off (FORGE_ALLOW_PUBLISH=…)` at startup, before it spends a
+token.
+
+**Before 2026-10-01 the switch was read as `== Some("1")`**, so an absent variable
+meant "do not publish", and the refusal was filed as `PUBLISH_CONFLICT` — which
+reads like "remote main advanced", so nobody went looking. Every run launched
+outside this scheduler (an attended `pnpm forge:engine`, a direct `--bin forge`
+run) therefore refused its own candidate and left the code on a branch that
+cannot be pushed. TST-ACCOUNTING-CORE-008 passed QA at `2026-10-01T16:46Z`, was
+refused, and held a 453-line candidate that never reached `origin/main`.
+
 ## How the wrapper works
 
 `scripts/agent-worker-once.sh`:

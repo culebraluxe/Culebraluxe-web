@@ -924,6 +924,215 @@ fn publish_without_qa_pass_records_conflict() {
     assert!(r.message.unwrap().contains("QA has not passed"));
 }
 
+/// `FORGE_ALLOW_PUBLISH` is a KILL switch: unset publishes. Read as an opt-in key (`== Some("1")`) it refused
+/// the candidate of every run launched outside the scheduler's `.env.scheduler`, and filed the refusal under a
+/// git conflict's name — the exact shape that left TST-ACCOUNTING-CORE-008's 453-line candidate off
+/// `origin/main` on 2026-10-01. Held as a pure predicate because the process environment is global and these
+/// tests run in parallel, where `set_var` would reach across them.
+#[test]
+fn the_publish_switch_is_off_only_when_said_in_words() {
+    use git_publish::publish_switch_off;
+    assert!(
+        !publish_switch_off(None),
+        "an unset switch publishes: absence is not a refusal"
+    );
+    assert!(!publish_switch_off(Some("1")));
+    assert!(!publish_switch_off(Some("  1  ")), "padding is not a refusal");
+    assert!(
+        !publish_switch_off(Some("")),
+        "empty reads as unset, not as off"
+    );
+    assert!(publish_switch_off(Some("0")));
+    assert!(publish_switch_off(Some("false")));
+    assert!(publish_switch_off(Some(" OFF ")));
+    assert!(publish_switch_off(Some("no")));
+}
+
+/// A refused publish filed as `PUBLISH_CONFLICT` reads like "remote main advanced" — so the operator goes
+/// looking for a merge conflict that never existed while the candidate sits on a branch House Rule 1 will not
+/// let anyone push. It is filed under its own name now, so the cause is greppable instead of inferred.
+#[test]
+fn a_publish_refused_by_the_switch_is_not_filed_as_a_git_conflict() {
+    use release::{
+        DbForgeReleaseExecutor, EvidenceStore, ForgeCommandEnvelope, ForgeOperationResult,
+        ForgeReleaseOperations, PublishOutcome,
+    };
+    use std::sync::Mutex;
+
+    struct SwitchOff;
+    impl ForgeReleaseOperations for SwitchOff {
+        fn apply_migrations(&self, _: &str, _: &[String], _: &str) -> ForgeOperationResult {
+            ForgeOperationResult {
+                success: false,
+                detail: "not this test's subject".into(),
+            }
+        }
+        fn verify_migrations(&self, _: &str, _: &[String]) -> ForgeOperationResult {
+            self.apply_migrations("", &[], "")
+        }
+        fn refresh_derived(&self, _: &[String], _: &str) -> ForgeOperationResult {
+            self.apply_migrations("", &[], "")
+        }
+        fn verify_derived(&self, _: &[String], _: &str) -> ForgeOperationResult {
+            self.apply_migrations("", &[], "")
+        }
+        fn publish(&self, _: Option<&str>, _: &[String]) -> PublishOutcome {
+            PublishOutcome::PublishDisabled {
+                reason: "publication disabled by FORGE_ALLOW_PUBLISH".into(),
+            }
+        }
+    }
+    /// Records the `failure_class` the publisher filed, which is the whole claim under test.
+    struct Spy(Arc<Mutex<Option<String>>>);
+    impl EvidenceStore for Spy {
+        fn read(&self, _: &str) -> ForgeGateEvidence {
+            ForgeGateEvidence {
+                candidate_sha: Some("a".repeat(40)),
+                qa_passed: Some(true),
+                ..Default::default()
+            }
+        }
+        fn merge(&self, _: &str, _: &str, patch: ForgeGateEvidence) {
+            *self.0.lock().expect("spy lock") = patch.failure_class.clone();
+        }
+        fn latest_refresh_command_id(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn frozen_proofs(&self, _: &str) -> Vec<String> {
+            Vec::new()
+        }
+    }
+
+    let seen = Arc::new(Mutex::new(None));
+    let exec = DbForgeReleaseExecutor {
+        operations: SwitchOff,
+        evidence: Spy(seen.clone()),
+        pending: None,
+    };
+    let result = exec.execute(&ForgeCommandEnvelope {
+        command_type: "forge.publish_candidate".into(),
+        command_id: "c1".into(),
+        process_instance_id: "p".into(),
+        story_id: "s".into(),
+    });
+    assert_eq!(result.outcome, ApplicationCommandOutcome::Success);
+    let filed = seen.lock().expect("spy lock").clone();
+    assert_eq!(
+        filed.as_deref(),
+        Some("PUBLISH_DISABLED"),
+        "the switch's refusal must be filed under its own name"
+    );
+    assert_ne!(
+        filed.as_deref(),
+        Some("PUBLISH_CONFLICT"),
+        "a configured refusal is not a git conflict, and filing it as one is what hid the cause"
+    );
+}
+
+/// The publish path against real git and a real remote.
+///
+/// House Rule 1 refuses every ref but `main`, so `preview_publish` is the only door a candidate can leave
+/// through — which makes "does a candidate land?" a question that has to be answered against an actual
+/// `origin`, not a mock: fetch, ancestry, merge-tree, commit-tree, push. A candidate is left on its branch
+/// exactly as a Smith leaves it, published, and then read back **off the remote**, because the claim under
+/// test is about `origin/main` and not about a return value.
+///
+/// This is the failure TST-ACCOUNTING-CORE-008 suffered on 2026-10-01: QA passed, the candidate existed, and
+/// the run refused to publish it. With the switch unset, that run lands its work.
+#[test]
+fn the_publish_path_lands_a_candidate_on_a_real_remote() {
+    use git_publish::{preview_publish, publish_switch_off};
+    use std::fs;
+    use std::path::Path;
+    use std::process::Command;
+
+    fn run(dir: &Path, args: &[&str]) -> String {
+        let out = Command::new(worktree::git_binary())
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git runs");
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    let switch = std::env::var("FORGE_ALLOW_PUBLISH").ok();
+    assert!(
+        !publish_switch_off(switch.as_deref()),
+        "this test proves a candidate lands, so it needs the switch unset or on; it is {switch:?}"
+    );
+
+    let root = std::env::temp_dir().join(format!("forge-publish-e2e-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let remote = root.join("origin.git");
+    let work = root.join("work");
+    fs::create_dir_all(&remote).expect("temp root");
+    fs::create_dir_all(&work).expect("temp work");
+
+    // A bare remote whose `main` is one commit, and the working checkout that stands in for the engine's.
+    run(&remote, &["init", "--bare", "--initial-branch=main", "."]);
+    run(&work, &["init", "--initial-branch=main", "."]);
+    run(&work, &["config", "user.email", "forge@test.invalid"]);
+    run(&work, &["config", "user.name", "forge test"]);
+    run(&work, &["config", "commit.gpgsign", "false"]);
+    fs::write(work.join("README.md"), "base\n").expect("seed");
+    run(&work, &["add", "."]);
+    run(&work, &["commit", "-m", "base"]);
+    let remote_url = remote.to_string_lossy().to_string();
+    run(&work, &["remote", "add", "origin", &remote_url]);
+    run(&work, &["push", "origin", "main"]);
+    let base = run(&work, &["rev-parse", "HEAD"]);
+
+    // The candidate: a commit on the lane's own branch, the way the Smith leaves it.
+    run(&work, &["checkout", "-b", "agent/tst-story/run-1"]);
+    fs::write(work.join("candidate.rs"), "// the smith's work\n").expect("candidate");
+    run(&work, &["add", "."]);
+    run(&work, &["commit", "-m", "smith: candidate"]);
+    let candidate = run(&work, &["rev-parse", "HEAD"]);
+    assert_ne!(candidate, base, "the candidate has to be its own commit");
+
+    match preview_publish(&work, &candidate) {
+        release::PublishOutcome::Published { published_main_hash } => {
+            assert_eq!(published_main_hash, candidate);
+        }
+        other => panic!("the candidate did not land on main: {other:?}"),
+    }
+
+    // Read it back off the remote: the deliverable is what `origin/main` now contains.
+    assert_eq!(
+        run(&remote, &["rev-parse", "main"]),
+        candidate,
+        "origin/main must BE the candidate"
+    );
+    assert_eq!(
+        run(&remote, &["show", "main:candidate.rs"]),
+        "// the smith's work",
+        "the smith's file must be readable on the remote's main"
+    );
+
+    // Publishing it again must be a no-op: the candidate is already on main, so the answer says it is there
+    // and main does not move. This is the branch that keeps two Smiths from fighting over the same base.
+    run(&work, &["fetch", "origin", "main"]);
+    match preview_publish(&work, &candidate) {
+        release::PublishOutcome::Published { published_main_hash }
+        | release::PublishOutcome::IntegratedAndPublished { published_main_hash } => {
+            assert_eq!(published_main_hash, candidate);
+        }
+        other => panic!("an already-landed candidate must read as landed, not retried: {other:?}"),
+    }
+    assert_eq!(
+        run(&remote, &["rev-parse", "main"]),
+        candidate,
+        "an already-integrated candidate must not move main"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
 #[test]
 fn opencode_argv_pins_model_and_auto() {
     let args = opencode_client::build_opencode_run_args(

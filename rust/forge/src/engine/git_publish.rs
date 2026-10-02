@@ -1,5 +1,14 @@
 //! Fast-forward publish check matching `previewAcceptedCandidatePublish`.
-//! Push only when `FORGE_ALLOW_PUBLISH=1`.
+//!
+//! `FORGE_ALLOW_PUBLISH` is a KILL SWITCH, not an opt-in key: unset (or `1`) publishes, and only an explicit
+//! `0`/`false`/`off`/`no` refuses. Read as `== Some("1")` it refused the candidate of every run launched
+//! outside the scheduler's env file — TST-ACCOUNTING-CORE-008 passed QA at 2026-10-01T16:46Z, was refused
+//! here, and stayed Held with a 453-line candidate that never reached `origin/main`. The refusal was also
+//! filed as a git conflict (`PUBLISH_CONFLICT`), so it read like "remote main advanced" and nobody looked.
+//!
+//! THIS PATH IS THE ONLY DOOR. House Rule 1 refuses a push of any branch but `main` (`.githooks/pre-push`),
+//! so a candidate cannot leave the machine as an `agent/*` branch: either this function publishes it, or the
+//! code strands. A refusal here is therefore always loud and always its own outcome — never a quiet conflict.
 
 use std::path::Path;
 use std::process::Command;
@@ -135,9 +144,9 @@ pub fn preview_publish(repo: &Path, candidate: &str) -> PublishOutcome {
             (commit, true)
         };
 
-        if std::env::var("FORGE_ALLOW_PUBLISH").ok().as_deref() != Some("1") {
-            return PublishOutcome::PublishConflict {
-                reason: "Forge publication is disabled (FORGE_ALLOW_PUBLISH != 1)".into(),
+        if publish_switch_off(std::env::var("FORGE_ALLOW_PUBLISH").ok().as_deref()) {
+            return PublishOutcome::PublishDisabled {
+                reason: "publication disabled by FORGE_ALLOW_PUBLISH".into(),
             };
         }
         match git(
@@ -167,6 +176,29 @@ pub fn preview_publish(repo: &Path, candidate: &str) -> PublishOutcome {
         reason: format!(
             "origin/main moved or refused the candidate after 4 publish attempts: {last_push_error}"
         ),
+    }
+}
+
+/// Whether the publish kill switch is held open, as a pure predicate over the raw value.
+///
+/// The switch used to be read as `== Some("1")`, which made an ABSENT variable mean "do not publish" — so
+/// every run launched without the scheduler's `.env.scheduler` (an attended `pnpm forge:engine`, a direct
+/// `--bin forge` run, any checkout that is not the scheduler's) silently refused its own candidate. Only
+/// words turn the switch off now, and the words are named here so the rule has one home.
+///
+/// Pure, and deliberately so: `std::env::set_var` is process-global and unsafe to drive from a test that runs
+/// beside others, and this is the decision those tests need to pin.
+pub fn publish_switch_off(value: Option<&str>) -> bool {
+    // Case-insensitive on purpose: `FORGE_ALLOW_PUBLISH=OFF` is a person saying off, and a comparison that
+    // missed it would publish anyway — the same class of silent surprise this function exists to end.
+    match value.map(str::trim) {
+        Some(word) => {
+            word.eq_ignore_ascii_case("0")
+                || word.eq_ignore_ascii_case("false")
+                || word.eq_ignore_ascii_case("off")
+                || word.eq_ignore_ascii_case("no")
+        }
+        None => false,
     }
 }
 

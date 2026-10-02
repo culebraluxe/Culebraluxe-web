@@ -54,6 +54,12 @@ pub enum PublishOutcome {
     PublishConflict {
         reason: String,
     },
+    /// The publish kill switch is held open (`FORGE_ALLOW_PUBLISH` says off). Its own outcome, and never folded
+    /// into `PublishConflict`: a configuration refusal wearing a git conflict's name is a refusal nobody
+    /// investigates, which is exactly how TST-ACCOUNTING-CORE-008's candidate stranded on 2026-10-01.
+    PublishDisabled {
+        reason: String,
+    },
 }
 
 pub trait EvidenceStore: Send + Sync {
@@ -210,6 +216,15 @@ impl<O: ForgeReleaseOperations, E: EvidenceStore> DbForgeReleaseExecutor<O, E> {
             PublishOutcome::CandidateSecret { reason } => {
                 patch.publish_succeeded = Some(false);
                 patch.failure_class = Some("HOLD".into());
+                patch.failed_release_stage = Some("PUBLISH".into());
+                patch.last_failure = Some(reason.clone());
+                reason
+            }
+            // The switch, not git. Filed under its own name so an operator greps the cause instead of reading
+            // "remote main advanced" and going looking for a merge conflict that does not exist.
+            PublishOutcome::PublishDisabled { reason } => {
+                patch.publish_succeeded = Some(false);
+                patch.failure_class = Some("PUBLISH_DISABLED".into());
                 patch.failed_release_stage = Some("PUBLISH".into());
                 patch.last_failure = Some(reason.clone());
                 reason

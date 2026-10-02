@@ -9,7 +9,7 @@ use forge::engine::executor::{
     drive_forge_story, parse_forge_stop_after, DriveForgeStoryOptions, ForgeStopTarget,
 };
 use forge::engine::facts::ForgeGateEvidence;
-use forge::engine::git_publish::{GitReleaseOps, HostReleaseExecutor};
+use forge::engine::git_publish::{publish_switch_off, GitReleaseOps, HostReleaseExecutor};
 use forge::engine::opencode::OpenCodeHarness;
 use forge::engine::packet::{ExecutionWorkspace, StoryPacket};
 use forge::engine::runner::ProductionRoleRunner;
@@ -422,6 +422,19 @@ fn main() {
         harness.cli_bin,
         harness.workspace.display(),
         database_url().is_some()
+    );
+    // Said before a token is spent, not discovered afterwards in an evidence row. Whether this run may publish
+    // is the entire difference between a candidate that lands on `origin/main` and one that strands on a branch
+    // nobody may push — House Rule 1 (`.githooks/pre-push`) refuses every ref but `main`, so there is no
+    // fallback route off this machine for a candidate the composer refuses.
+    eprintln!(
+        "publish={} (FORGE_ALLOW_PUBLISH={})",
+        if publish_switch_off(env::var("FORGE_ALLOW_PUBLISH").ok().as_deref()) {
+            "off"
+        } else {
+            "on"
+        },
+        env::var("FORGE_ALLOW_PUBLISH").unwrap_or_else(|_| "(unset)".into())
     );
     // Declared, not inferred: the budgets a run is actually using, said out loud. The run that died at the
     // statement ceiling and the tick that died on the connect budget both left no trace of which they had.
