@@ -9,10 +9,10 @@
 //!   * a ROLE error is a verdict, not an infrastructure retry: `execute_claimed_job` fails the job permanently;
 //!   * only an operator `requeue` of a `Failed` job resets the budget.
 //!
-//! **GAP-2 (budget exhausted by crashes is never terminalized) — ignored test.** When the attempts run out through
-//! lease expiry rather than through `fail`, `recover_stale` puts the job back to `Pending` with
-//! `attempts == max_attempts`, and every claim path skips it (`attempts < max_attempts`). The job is then pending
-//! forever: not executable, but never `Failed`, so nothing reports it and no operator `requeue` (Failed-only) applies.
+//! **GAP-2 (budget exhausted by crashes is never terminalized) — CLOSED by 3fa80cc0 / 8743c453.** Before the fix,
+//! when the attempts ran out through lease expiry rather than through `fail`, `recover_stale` put the job back to
+//! `Pending` with `attempts == max_attempts` and every claim path skipped it: pending forever, never `Failed`, never
+//! reported, and out of reach of an operator `requeue` (Failed-only). Now it ends `Failed` and is requeueable.
 //!
 //! Level: L1, harness EngineHarness.
 
@@ -131,9 +131,8 @@ fn a_permanent_failure_and_a_role_error_both_terminalize_at_once() {
     assert!(runners.all_calls().is_empty());
 }
 
-/// GAP-2. Ignored so the suite stays green; it FAILS today.
+/// GAP-2 — CLOSED by 3fa80cc0 (memory) and 8743c453 (Neon): exhausted stale jobs fail.
 #[test]
-#[ignore = "GAP-2: a job whose attempts are exhausted by lease expiry stays Pending forever instead of Failed"]
 fn a_budget_exhausted_by_crashes_ends_failed_not_pending_forever() {
     let harness = harness();
     let engine = harness.engine();
@@ -164,4 +163,35 @@ fn a_budget_exhausted_by_crashes_ends_failed_not_pending_forever() {
         JobStatus::Failed,
         "an exhausted job must be terminal (and visible), not Pending and unclaimable forever"
     );
+}
+
+/// The operator half of GAP-2: a job whose budget was exhausted by crashes ends `Failed`, and an operator `requeue`
+/// brings it back with a fresh budget.
+#[test]
+fn a_job_exhausted_by_crashes_can_be_requeued_by_an_operator() {
+    let harness = harness();
+    let engine = harness.engine();
+    let runners = Services::new();
+    let owned = Owned::new(&runners);
+    let registry = owned.registry();
+    let service = budget_of_three(engine);
+    let request = forge::engine::job::ForgeJobBridge::new(&registry)
+        .job_for_ready_task(&ready("t-1", "fast_smith"))
+        .expect("request");
+    let id = service.enqueue(&request).expect("enqueue");
+
+    for _ in 0..3 {
+        assert_eq!(service.claim(WORKER_A, 1).expect("claim").len(), 1);
+        harness.clock().advance_millis(JOB_LEASE_MS + 1);
+        service.recover_stale(10).expect("recover");
+    }
+    assert_status(engine, &id, JobStatus::Failed);
+
+    service
+        .requeue(&id, "operator")
+        .expect("an exhausted job is requeueable");
+    let row = job(engine, &id);
+    assert_eq!((row.status, row.attempts), (JobStatus::Pending, 0));
+    let lease = service.claim(WORKER_B, 1).expect("claim").remove(0);
+    assert_eq!((lease.job_id.as_str(), lease.attempts), (id.as_str(), 1));
 }

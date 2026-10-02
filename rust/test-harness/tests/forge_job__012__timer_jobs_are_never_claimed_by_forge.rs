@@ -7,12 +7,10 @@
 //!   * stale recovery is type-blind (it returns both kinds to `Pending`), but afterwards each side still claims only
 //!     its own type.
 //!
-//! **GAP-3 (the timer worker is NOT type-isolated) — ignored test.** `WorkflowEngine::run_due_jobs` — the timer
-//! worker, called by `forge::engine::re_runtime::run_due_jobs` — claims with the UNTYPED `claim_jobs`. Given a pending
-//! `forge.role` job it claims it, finds no executor ("no executor registered for job type 'forge.role'"), and fails it
-//! as transient: the Forge job loses an attempt and sits behind a backoff on every timer tick until its budget is gone
-//! (and then GAP-2 strands it). Wherever the timer worker and Forge share the jobs table, the timer side steals Forge
-//! work.
+//! **GAP-3 (the timer worker is NOT type-isolated) — CLOSED by 2a0277bb.** Before the fix, `WorkflowEngine::run_due_jobs`
+//! (the timer worker, called by `forge::engine::re_runtime::run_due_jobs`) claimed with the UNTYPED `claim_jobs`: it took
+//! a pending `forge.role` job, found no executor, and failed it as transient, spending a Forge attempt on every timer
+//! tick. The test below now holds that the timer tick leaves a Forge job pending, unattempted and unblamed.
 //!
 //! Level: L1, harness EngineHarness.
 
@@ -107,9 +105,8 @@ fn after_type_blind_recovery_each_side_still_claims_only_its_own_type() {
     assert_eq!(timers[0].id, timer);
 }
 
-/// GAP-3. Ignored so the suite stays green; it FAILS today.
+/// GAP-3 — CLOSED by 2a0277bb: the timer runner claims only type = "timer".
 #[test]
-#[ignore = "GAP-3: WorkflowEngine::run_due_jobs claims untyped and fails forge.role jobs as 'no executor'"]
 fn the_timer_worker_never_touches_a_forge_role_job() {
     let harness = harness();
     let engine = harness.engine();

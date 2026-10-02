@@ -10,9 +10,9 @@
 //! not one transaction. The guard against a second paid turn is the role itself (or the workflow task having moved
 //! on, which `execute_claimed_job` checks). This is reported as a risk, not a defect of the claim mechanics.
 //!
-//! Crash window D (job completed → process dies before the workflow task completes) — **GAP, ignored test.** The
-//! workflow task is still READY; the driver re-scans it, the bridge makes a new request and `enqueue` writes a new
-//! claimable job, so the role runs again. Same root as GAP-1 (no task-keyed idempotency); see `forge_job__001`.
+//! Crash window D (job completed → process dies before the workflow task completes) — **was GAP-1, CLOSED by 6fb6c659.** The
+//! workflow task is still READY and the driver re-scans it; before the fix `enqueue` wrote a new claimable job and the
+//! role ran again. Enqueue is now idempotent by workflow task, so the re-scan finds the settled job; see `forge_job__001`.
 //!
 //! Level: L1, harness EngineHarness.
 
@@ -96,9 +96,8 @@ fn a_crash_between_execute_and_complete_re_executes_the_role() {
     assert_status(engine, &id, JobStatus::Completed);
 }
 
-/// Crash window D. Ignored so the suite stays green; it FAILS today (same root as GAP-1).
+/// Crash window D — CLOSED with GAP-1 by 6fb6c659 (idempotent by task).
 #[test]
-#[ignore = "GAP-1 (crash window D): a READY task whose job already completed is enqueued and executed again"]
 fn a_task_whose_job_completed_is_not_enqueued_again() {
     let harness = harness();
     let engine = harness.engine();

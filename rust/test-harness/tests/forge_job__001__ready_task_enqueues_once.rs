@@ -4,12 +4,11 @@
 //! that is created, reserved, in progress, completed, failed, exited or obsolete is refused by `ForgeJobBridge::job_for_ready_task` BEFORE
 //! anything durable is written, and so is a task whose node carries no service binding (a human task).
 //!
-//! Contract 1b (enqueue is idempotent per workflow task) — **GAP, reported, not patched.** `WorkflowJobService::enqueue`
-//! always inserts a new row; nothing keys the durable job to the workflow task it was made from. A driver that
-//! re-scans READY tasks after a restart (crash window A/D) therefore writes a second job for the same task, and both
-//! are claimable: the role runs twice and a paid model turn is spent twice. The failing contract is pinned below as
-//! an `#[ignore]`d test so the suite stays green; run it with `-- --ignored` to see it fail, and un-ignore it when
-//! enqueue becomes idempotent on `taskId`.
+//! Contract 1b (enqueue is idempotent per workflow task) — **was GAP-1.** Before the fix, `WorkflowJobService::enqueue`
+//! always inserted a new row; nothing keyed the durable job to the workflow task it was made from, so a driver that
+//! re-scanned READY tasks after a restart (crash window A/D) wrote a second job for the same task, and both
+//! were claimable: the role ran twice and a paid model turn was spent twice. CLOSED 2026-10-02 by 6fb6c659 (enqueue
+//! idempotent by workflow task) on 2a0277bb (stable job ids); the contract below now runs in the suite.
 //!
 //! Level: L1 Unit-of-infrastructure, harness EngineHarness (in-memory store, fixed clock).
 
@@ -88,9 +87,8 @@ fn a_job_enqueued_by_a_process_that_died_is_claimed_by_the_next_worker() {
     assert_eq!(leases[0].job_id, id);
 }
 
-/// GAP-1 (duplicate enqueue / replay). Ignored so the suite stays green; it FAILS today.
+/// GAP-1 (duplicate enqueue / replay) — CLOSED by 6fb6c659 (role-job enqueue idempotent by task) on 2a0277bb (stable job ids).
 #[test]
-#[ignore = "GAP-1: enqueue is not idempotent on taskId; a re-scanned READY task gets a second job"]
 fn enqueueing_the_same_ready_task_twice_leaves_one_job() {
     let harness = harness();
     let engine = harness.engine();
@@ -111,5 +109,40 @@ fn enqueueing_the_same_ready_task_twice_leaves_one_job() {
         open_jobs_for_task(engine, "t-1").len(),
         1,
         "two claimable jobs for one task is a double execution"
+    );
+}
+
+/// The paid-execution half of GAP-1: however many times one READY task is enqueued, and however many workers then
+/// claim, the role runs once.
+#[test]
+fn one_workflow_task_is_never_two_paid_executions() {
+    use forge::engine::job::execute_claimed_job;
+
+    let harness = harness();
+    let engine = harness.engine();
+    let runners = Services::new();
+    let owned = Owned::new(&runners);
+    let registry = owned.registry();
+    let t = ready("t-1", "fast_smith");
+    let service = jobs(engine);
+
+    for _ in 0..3 {
+        enqueue_ready(engine, &registry, &t);
+    }
+    for worker in [WORKER_A, WORKER_B, "worker-c"] {
+        for lease in service.claim(worker, 10).expect("claim") {
+            execute_claimed_job(&service, worker, &lease, &t, &registry).expect("executes");
+        }
+    }
+    // A restart after completion re-scans the same task once more.
+    enqueue_ready(engine, &registry, &t);
+    for lease in service.claim("worker-d", 10).expect("claim") {
+        execute_claimed_job(&service, "worker-d", &lease, &t, &registry).expect("executes");
+    }
+
+    assert_eq!(
+        runners.all_calls(),
+        vec!["smith:fast_smith".to_string()],
+        "one workflow task, one paid execution"
     );
 }
