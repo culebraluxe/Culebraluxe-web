@@ -16,8 +16,8 @@
 //! drive's own gate question is answered from the same parse (`is_human_gate`), so the engine no longer types that
 //! set out beside the definition that declares it.
 //!
-//! ONE NODE TABLE. Every reader that used to ask the Rust node match (`role_mapping::forge_role_node_plan`, kept
-//! only for `arch_boundary__011` until it is retired) asks this binding instead: the READY→job bridge through `task.service_key()` (`engine/job.rs`),
+//! ONE NODE TABLE. Every reader that used to ask the Rust node match (`role_mapping::forge_role_node_plan`, deleted
+//! 2026-10-02) asks this binding instead: the READY→job bridge through `task.service_key()` (`engine/job.rs`),
 //! `AbstractForgeService::supports_node` through [`service_for_node`] (`roles/service.rs`), and the readers that
 //! want a node's LANE — its deliverable (`engine/phase.rs`), its V2 agent (`engine/opencode_agents.rs`), whether it
 //! is a role node at all (`roles/lifecycle.rs`) — through [`lane_for_node`], since a service is a lane. The one
