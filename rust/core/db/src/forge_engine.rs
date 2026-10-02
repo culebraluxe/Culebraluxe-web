@@ -1947,28 +1947,24 @@ impl ForgeEngineDao {
         task_id: &str,
         story_id: &str,
     ) -> DbResult<()> {
-        sqlx::query(
-            "insert into workflow_execution_trace_event (
-                event_type, system, occurred_at, outcome, summary,
-                source_system, source_event_id,
-                workflow_instance_id, workflow_node_id, task_id, correlation_id
-             ) values (
-                $1,'forge_observer',now(),'ok',$2,
-                'forge_observer',$3,$4,$5,$6,$7
-             )
-             on conflict (source_system, source_event_id)
-             where source_event_id is not null do nothing",
-        )
-        .bind(event_type)
-        .bind(summary)
-        .bind(source_event_id)
-        .bind(process_instance_id)
-        .bind(node_id)
-        .bind(task_id)
-        .bind(story_id)
-        .execute(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("forge_engine.record_observer", &error))?;
+        // One spelling of the trace `INSERT`, held by the flight recorder: the workflow kernel writes the same table
+        // through the same statement. Forge's observer is the `forge_observer` system, has no timer job to name, and
+        // correlates a turn by its story. The parameter order is the recorder's contract (see
+        // `FlightRecorderDao::TRACE_EVENT_INSERT_SQL`).
+        sqlx::query(crate::FlightRecorderDao::TRACE_EVENT_INSERT_SQL)
+            .bind(event_type)
+            .bind("forge_observer")
+            .bind(summary)
+            .bind("forge_observer")
+            .bind(source_event_id)
+            .bind(process_instance_id)
+            .bind(node_id)
+            .bind(task_id)
+            .bind(None::<&str>)
+            .bind(story_id)
+            .execute(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_engine.record_observer", &error))?;
         Ok(())
     }
 

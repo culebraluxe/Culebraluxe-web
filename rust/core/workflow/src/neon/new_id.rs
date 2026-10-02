@@ -734,7 +734,12 @@ impl Store for NeonTx<'_> {
             .bind(&event.actor)
             .bind(data),
         )?;
-        // Observer-only. Never fail the engine step.
+        // Observer-only. Never fail the engine step. The statement is the flight recorder's, shared with Forge's
+        // observer, so the replay backstop (`on conflict (source_system, source_event_id)` against migration 090's
+        // partial unique index) has one spelling rather than three. This writer is the `workflow` system in
+        // `workflow_engine`, records the event type as the row's summary, names its timer job and correlates by
+        // nothing — Forge's observer does the reverse two. The parameter order is
+        // `db::FlightRecorderDao::TRACE_EVENT_INSERT_SQL`'s contract.
         let source_event_id = format!(
             "engine:{}:{}:{}:{}",
             event.process_instance_id,
@@ -744,25 +749,17 @@ impl Store for NeonTx<'_> {
         );
         let _ = run_exec(
             self,
-            sqlx::query(
-                "INSERT INTO workflow_execution_trace_event (
-                    workflow_instance_id, workflow_node_id, event_type, system,
-                    occurred_at, outcome, summary, source_system, source_event_id,
-                    task_id, timer_job_id
-                 ) VALUES (
-                    $1::uuid, $2, $3, 'workflow', now(), 'ok', $4,
-                    'workflow_engine', $5, $6::uuid, $7::uuid
-                 )
-                 ON CONFLICT (source_system, source_event_id)
-                 WHERE source_event_id IS NOT NULL DO NOTHING",
-            )
-            .bind(&event.process_instance_id)
-            .bind(&event.node_id)
-            .bind(&event.event_type)
-            .bind(&event.event_type)
-            .bind(&source_event_id)
-            .bind(&event.task_id)
-            .bind(&event.job_id),
+            sqlx::query(db::FlightRecorderDao::TRACE_EVENT_INSERT_SQL)
+                .bind(&event.event_type)
+                .bind("workflow")
+                .bind(&event.event_type)
+                .bind("workflow_engine")
+                .bind(&source_event_id)
+                .bind(&event.process_instance_id)
+                .bind(event.node_id.as_deref())
+                .bind(event.task_id.as_deref())
+                .bind(event.job_id.as_deref())
+                .bind(None::<&str>),
         );
         Ok(())
     }

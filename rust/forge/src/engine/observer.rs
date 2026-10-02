@@ -4,10 +4,11 @@
 //! TypeScript recorder. The process-instance id is the join key Flight Recorder reads; story id is correlation
 //! context, never a substitute for the workflow instance.
 //!
-//! The statement itself is not here: `ForgeEngineDao::record_observer` owns it, with the `ON CONFLICT` dedupe
-//! that makes a retried observer write idempotent. Forge holds no SQL of its own, which is what
-//! `arch_boundary__005` pins — so this module owns the *identity* of an event, not the write. Recorder failure
-//! remains contained: Forge execution never depends on this diagnostic write succeeding.
+//! The statement itself is not here: it is the flight recorder's
+//! (`FlightRecorderDao::TRACE_EVENT_INSERT_SQL`, the one spelling shared with the workflow kernel), reached through
+//! `ForgeEngineDao::record_observer`, whose `ON CONFLICT` dedupe makes a retried observer write idempotent. Forge holds
+//! no SQL of its own, which is what `arch_boundary__005` pins — so this module owns the *identity* of an event, not the
+//! write. Recorder failure remains contained: Forge execution never depends on this diagnostic write succeeding.
 
 use crate::engine::vendor_session::with_shared;
 use db::ForgeEngineDao;

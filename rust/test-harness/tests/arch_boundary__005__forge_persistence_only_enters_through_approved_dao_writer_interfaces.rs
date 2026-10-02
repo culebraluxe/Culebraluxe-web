@@ -10,10 +10,16 @@
 //! clean for the wrong reason, so the same scan that refuses SQL also has to find the seam in use.
 //!
 //! **No exception, and that is recent (`2026-10-02`, the seam closure).** `engine/observer.rs` used to write its own
-//! `INSERT INTO workflow_execution_trace_event` and was pinned here as a known exception. The statement is the DAO's
-//! (`ForgeEngineDao::record_observer`, which also owns the `ON CONFLICT` dedupe), the copy in Forge was dead, and it
-//! is gone — so this test now asserts an *empty* finding list. A second file acquiring SQL fails here, and so would
-//! the first one coming back.
+//! `INSERT INTO workflow_execution_trace_event` and was pinned here as a known exception. The statement is the flight
+//! recorder's (`FlightRecorderDao::TRACE_EVENT_INSERT_SQL`, reached through `ForgeEngineDao::record_observer`), the
+//! copy in Forge was dead, and it is gone — so this test now asserts an *empty* finding list. A second file acquiring
+//! SQL fails here, and so would the first one coming back.
+//!
+//! One statement, one owner — and the check therefore leaves Forge's crate. That table has two writers: the workflow
+//! kernel (as `workflow`/`workflow_engine`) and Forge's observer (as `forge_observer`). Each used to spell the
+//! `INSERT` itself, casts and `on conflict` predicate included, so the replay backstop migration 090 installs as a
+//! partial unique index had two Rust copies to keep in step with it. The kernel binds the recorder's statement now,
+//! and the scan below refuses a second holder anywhere outside a test.
 //!
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
@@ -57,6 +63,9 @@ fn direct_db_access(line: &str) -> Option<&'static str> {
     }
     None
 }
+
+/// The canonical trace `INSERT`, lowercased: the check is about the statement, not about its casing.
+const TRACE_INSERT: &str = "insert into workflow_execution_trace_event";
 
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ARCH-BOUNDARY-005); the file and the assay use it.
@@ -130,17 +139,57 @@ fn arch_boundary_005__forge_persistence_only_enters_through_approved_dao_writer_
     );
 
     // The statement did not vanish with the copy, so the authority is asserted here: "no SQL in Forge" must never be
-    // able to mean "the trace row has no writer". The DAO owns the statement; Forge reaches it through the DAO.
+    // able to mean "the trace row has no writer". The flight recorder holds the one spelling — two systems write this
+    // table, and the dedupe both depend on is `on conflict (source_system, source_event_id)` against migration 090's
+    // partial unique index, so a second spelling of that predicate is a second thing to keep in step with it.
+    let owner_path = source::rust_root().join("core/db/src/flight_recorder/sibling_limit.rs");
+    let owner = source::read(&owner_path);
+    assert!(
+        owner.contains("pub const TRACE_EVENT_INSERT_SQL")
+            && owner.contains("on conflict (source_system, source_event_id)"),
+        "the flight recorder holds the one spelling of the trace `INSERT`, replay backstop included"
+    );
     let dao = source::read(&source::rust_root().join("core/db/src/forge_engine.rs"));
     assert!(
-        dao.contains("insert into workflow_execution_trace_event")
-            && dao.contains("pub async fn record_observer"),
-        "the canonical trace statement lives in `ForgeEngineDao::record_observer` now that Forge's copy is gone"
+        dao.contains("TRACE_EVENT_INSERT_SQL") && dao.contains("pub async fn record_observer"),
+        "`ForgeEngineDao::record_observer` binds the recorder's statement rather than holding a copy of it"
     );
     let caller = source::read(&forge_src.join("engine/observer.rs"));
     assert!(
         caller.contains("dao.record_observer("),
         "Forge must still write the trace row — through the DAO, never with SQL of its own"
+    );
+    let kernel = source::read(&source::rust_root().join("core/workflow/src/neon/new_id.rs"));
+    assert!(
+        kernel.contains("TRACE_EVENT_INSERT_SQL"),
+        "the workflow kernel is the second writer at this table, so its `insert_event` binds the same statement — the \
+         third spelling of it is what this line keeps dead"
+    );
+
+    // And the scan above is what makes that true rather than intended: the statement's text survives in exactly one
+    // non-test file of the workspace, the owner named above.
+    let workspace = source::sources_under(&source::rust_root());
+    assert!(
+        workspace.len() >= 300,
+        "the workspace scan is half the subject; only {} Rust files were found under {}",
+        workspace.len(),
+        source::relative(&source::rust_root())
+    );
+    let holders: Vec<String> = workspace
+        .iter()
+        // A test may quote a statement — this file does, above. Production code may not hold a second copy of one.
+        .filter(|path| !source::relative(path).contains("/tests/"))
+        .filter(|path| {
+            source::read(path)
+                .lines()
+                .any(|line| source::code_of(line).to_lowercase().contains(TRACE_INSERT))
+        })
+        .map(|path| source::relative(path))
+        .collect();
+    assert_eq!(
+        holders,
+        vec![source::relative(&owner_path)],
+        "one file holds this statement and its two writers bind that one; a second holder is a copy to keep in step"
     );
 
     // The negative control: the detector fires on a query, and stays quiet on Forge's own vocabulary and on prose —

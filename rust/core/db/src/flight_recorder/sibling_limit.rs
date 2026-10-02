@@ -1,4 +1,4 @@
-//! Moved from `flight_recorder.rs` (move only): SIBLING_LIMIT, TRACE_LIMIT, InstanceRow, TraceRow, FlightRecorderDao, new, InstanceBundle, event_dto, mapped_node, is_node_enter, is_node_complete, is_node_failure, run_attempt, has_completion, current_node.
+//! Moved from `flight_recorder.rs` (move only): SIBLING_LIMIT, TRACE_LIMIT, InstanceRow, TraceRow, FlightRecorderDao, new, TRACE_EVENT_INSERT_SQL, InstanceBundle, event_dto, mapped_node, is_node_enter, is_node_complete, is_node_failure, run_attempt, has_completion, current_node.
 
 #[allow(unused_imports)]
 use super::*;
@@ -48,6 +48,33 @@ pub struct FlightRecorderDao {
 }
 
 impl FlightRecorderDao {
+    /// The one spelling of this table's `INSERT`, and the reason the recorder holds it rather than either writer.
+    ///
+    /// `workflow_execution_trace_event` has two writers on purpose — the workflow kernel records its own boundaries and
+    /// Forge's observer records its role turns — so the statement is a shared rule, not a private one. Its `on conflict`
+    /// clause must name migration 090's partial unique index (`(source_system, source_event_id) where source_event_id is
+    /// not null`, the replay backstop); a copy of that predicate in a second crate is a second thing to keep in step
+    /// with the index, which is how a rule drifts. Each writer supplies its own `system`/`source_system` pair
+    /// (`workflow`/`workflow_engine`, `forge_observer`/`forge_observer`) and its own correlation column.
+    ///
+    /// Parameter order, which is the contract both callers bind against:
+    /// `$1` event_type, `$2` system, `$3` summary, `$4` source_system, `$5` source_event_id, `$6`
+    /// workflow_instance_id, `$7` workflow_node_id, `$8` task_id, `$9` timer_job_id, `$10` correlation_id.
+    ///
+    /// No parameter is cast. `task_id`, `timer_job_id` and the ids around them are `text` columns, and migration 091
+    /// made the business-context ids text for the same reason: a recorder that insists on a uuid shape drops evidence
+    /// on an identifier that is not one, and this write is observer-only, so it must never be the thing that fails.
+    pub const TRACE_EVENT_INSERT_SQL: &str = "\
+        insert into workflow_execution_trace_event (
+            event_type, system, occurred_at, outcome, summary,
+            source_system, source_event_id,
+            workflow_instance_id, workflow_node_id, task_id, timer_job_id, correlation_id
+         ) values (
+            $1, $2, now(), 'ok', $3,
+            $4, $5,
+            $6, $7, $8, $9, $10
+         ) on conflict (source_system, source_event_id) where source_event_id is not null do nothing";
+
     pub fn new(db: Database) -> Self {
         Self { db }
     }
