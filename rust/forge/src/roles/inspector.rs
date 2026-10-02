@@ -1,4 +1,4 @@
-//! Scout lane — control plane lives in crate::engine::{phase,runner}.
+//! Inspector review lane.
 
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::role_mapping::LaneId;
@@ -6,30 +6,29 @@ use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
 use workflow::Result;
 
-pub use crate::engine::phase::ForgePhaseAgent as ScoutPhase;
+pub const INSPECTOR_SERVICE_ID: &str = "forge.inspector";
 
-pub const SCOUT_SERVICE_ID: &str = "forge.scout";
-
-/// Forge-internal service for every Scout workflow node.
+/// Forge-internal service for the Inspector review lane.
 ///
-/// The service owns Scout lane identity and authorization while the proven runner
-/// continues to own OpenCode/session/budget/evidence execution semantics.
-pub struct ScoutService<'a> {
+/// Inspector is deliberately distinct from Assay: Inspector owns review/adjudication
+/// work, while Assay owns deterministic verification. Both continue to delegate their
+/// established execution semantics to the proven runner during the strangler migration.
+pub struct InspectorService<'a> {
     runner: &'a dyn ForgeRoleRunner,
 }
 
-impl<'a> ScoutService<'a> {
+impl<'a> InspectorService<'a> {
     pub fn new(runner: &'a dyn ForgeRoleRunner) -> Self {
         Self { runner }
     }
 }
 
-impl AbstractForgeService for ScoutService<'_> {
+impl AbstractForgeService for InspectorService<'_> {
     fn descriptor(&self) -> ForgeServiceDescriptor {
         ForgeServiceDescriptor {
-            service_id: SCOUT_SERVICE_ID,
-            lane: LaneId::Scout,
-            description: "Forge research and diagnosis service for Scout lanes",
+            service_id: INSPECTOR_SERVICE_ID,
+            lane: LaneId::Inspector,
+            description: "Forge review service for Inspector lanes",
         }
     }
 

@@ -21,6 +21,14 @@ use forge::engine::worktree::{
 use forge::engine::writer::{
     ForgeEvidenceReader, ForgeReleaseExecutor, ForgeStateWriter, NullWriter,
 };
+use forge::roles::architect::ArchitectService;
+use forge::roles::dev_ops::DevOpsService;
+use forge::roles::inspector::InspectorService;
+use forge::roles::lead::LeadService;
+use forge::roles::qa::AssayService;
+use forge::roles::scout::ScoutService;
+use forge::roles::smith::SmithService;
+use forge::roles::ForgeServiceRouter;
 use std::env;
 use std::sync::Arc;
 use workflow::{MemoryStore, NeonStore, TxStore};
@@ -595,13 +603,31 @@ fn drive<S: TxStore>(
         .with_test_mode(test_mode)
         .with_contract_assay_commands(contract_assay_commands)
         .with_contract_acceptance_mapped(contract_acceptance_mapped);
+    // Strangler slice complete for every currently mapped Forge lane. Workflow still owns
+    // sequencing and ProductionRoleRunner still owns the proven execution semantics while
+    // AbstractForgeService owns role identity, lane authority, and the service boundary.
+    let scout = ScoutService::new(&runner);
+    let architect = ArchitectService::new(&runner);
+    let lead = LeadService::new(&runner);
+    let smith = SmithService::new(&runner);
+    let inspector = InspectorService::new(&runner);
+    let assay = AssayService::new(&runner);
+    let devops = DevOpsService::new(&runner);
+    let services = ForgeServiceRouter::new(&runner)
+        .with_service(&scout)
+        .with_service(&architect)
+        .with_service(&lead)
+        .with_service(&smith)
+        .with_service(&inspector)
+        .with_service(&assay)
+        .with_service(&devops);
     match drive_forge_story(
         &mut rt,
         story,
         DriveForgeStoryOptions {
             work_type,
             evidence,
-            runner: Some(&runner),
+            runner: Some(&services),
             allow_synthetic_runner: false,
             max_steps: 40,
             worker_id: "forge",

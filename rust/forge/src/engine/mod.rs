@@ -29,6 +29,7 @@ pub mod harness_usage;
 pub mod hold;
 pub mod hold_resolve;
 pub mod integration;
+pub mod job;
 pub mod learn;
 pub mod migration_guard;
 pub mod neon_sql;
