@@ -221,7 +221,8 @@ fn activity_panel(live: &ForgeLiveSnapshot) -> Html {
     }
 }
 
-fn metric(label: &'static str, value: String, hint: &str) -> Html {
+fn metric(label: &'static str, value: impl Into<String>, hint: &str) -> Html {
+    let value = value.into();
     html! {
         <div class="bg-[#0a1422] px-3 py-3">
             <p class="text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">{ label }</p>
