@@ -308,14 +308,22 @@
   </task-node>
 
   <decision id="fast_gate" label="FAST Lane / QA Gate"
-    description="FAST_LANE (workType FAST) skips automated QA + DEV_OPS and parks at an operator confirmation for a MANUAL QA loop (low-token path); all normal types continue to automated QA." refresh-facts="true">
+    description="A FAST story that re-enters through Lead integration rejoins deterministic FAST QA; normal work continues to the standard QA policy." refresh-facts="true">
     <on condition="workType == 'FAST'" transition="fast"/>
     <transition name="qa" to="qa_policy"/>
-    <transition name="fast" to="fast_confirmation"/>
+    <transition name="fast" to="fast_resume_eligibility"/>
+  </decision>
+
+  <decision id="fast_resume_eligibility" label="FAST Resume Eligibility"
+    description="A resumed FAST story may rejoin deterministic verification only while it still satisfies the bounded FAST contract; release or architecture obligations fail closed to HOLD." refresh-facts="true">
+    <on condition="fastEligible == true" transition="verify"/>
+    <on condition="fastEligible == false" transition="hold"/>
+    <transition name="verify" to="fast_qa_verify"/>
+    <transition name="hold" to="hold"/>
   </decision>
 
   <task-node id="fast_confirmation" label="FAST Lane — Operator Review" responsibility="lead" form-key="forge.fast_review"
-    description="Low-token FAST_LANE: Smith produced the code + unit tests. The operator reviews and runs the QA loop manually; the engine never auto-verifies, auto-promotes, or auto-completes FAST work.">
+    description="Legacy compatibility node retained only for already-running workflow instances parked here. New v6 routing has no incoming edge to this manual-review path.">
     <transition name="approved" to="complete"/>
     <transition name="cancel" to="cancelled"/>
   </task-node>
