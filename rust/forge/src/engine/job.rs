@@ -320,9 +320,7 @@ mod tests {
         atomic::{AtomicI64, Ordering},
         Arc, Mutex,
     };
-    use workflow::{
-        EngineOptions, MemoryStore, ProcessInstance, ProcessStatus, TaskStatus, TxStore,
-    };
+    use workflow::{EngineOptions, MemoryStore, ProcessInstance, ProcessStatus};
 
     struct RecordingRunner {
         calls: Mutex<Vec<String>>,
