@@ -16,6 +16,7 @@ use crate::roles::inspector::InspectorService;
 use crate::roles::lead::LeadService;
 use crate::roles::lifecycle::{run_lane_turn, ForgeRoleHooks, NoRoleHooks};
 use crate::roles::qa::AssayService;
+use crate::roles::registry::ForgeServiceRegistry;
 use crate::roles::scout::ScoutService;
 use crate::roles::smith::SmithService;
 use workflow::{Result, WorkflowError};
@@ -150,6 +151,27 @@ impl<'a> ForgeLaneServices<'a> {
             assay: AssayService::new(runner),
             devops: DevOpsService::new(runner),
         }
+    }
+
+    /// Registry view of the same seven concrete services.
+    ///
+    /// JobService resolves the XML-owned service key through this map. Keeping
+    /// this beside `router()` means the canonical lane composition is still
+    /// declared exactly once.
+    pub fn registry(&self) -> Result<ForgeServiceRegistry<'_>> {
+        let mut registry = ForgeServiceRegistry::new();
+        for service in [
+            &self.scout as &dyn AbstractForgeService,
+            &self.architect,
+            &self.lead,
+            &self.smith,
+            &self.inspector,
+            &self.assay,
+            &self.devops,
+        ] {
+            registry.register(service)?;
+        }
+        Ok(registry)
     }
 
     /// The router over these lanes. Constructed per call rather than stored: it borrows the services, and a
