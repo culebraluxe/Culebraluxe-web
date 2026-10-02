@@ -255,7 +255,9 @@ impl Store for RefusingMoveStore<'_> {
         get_job(id: &str) -> Result<Job>;
         lock_job(id: &str) -> Result<Job>;
         update_job(job: &Job) -> Result<()>;
+        claim_job(job_id: &str, worker_id: &str, now: i64, lease_until: i64) -> Result<Option<Job>>;
         claim_due_jobs(worker_id: &str, now: i64, lease_until: i64, limit: usize) -> Result<Vec<Job>>;
+        claim_due_jobs_by_type(worker_id: &str, job_type: &str, now: i64, lease_until: i64, limit: usize) -> Result<Vec<Job>>;
         reclaim_stale_jobs(now: i64, batch: usize, instance_id: Option<&str>) -> Result<usize>;
         open_jobs_for_instance(instance_id: &str) -> Result<Vec<Job>>;
         open_jobs_for_token(token_id: &str) -> Result<Vec<Job>>;
