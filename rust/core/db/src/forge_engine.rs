@@ -2,8 +2,6 @@ use crate::{Database, DbFailure, DbResult, DbTarget};
 use serde_json::Value;
 use sqlx::{FromRow, PgConnection};
 
-pub const AGENT_CLAIM_LOCK: i64 = 9_000_212;
-
 #[derive(Debug, Clone, FromRow)]
 pub struct ForgeAgentWorkRow {
     pub id: String,
@@ -672,140 +670,41 @@ impl ForgeEngineDao {
         Self { db }
     }
 
+    /// Claim this item for `worker_id`, or `None` when it is not `Ready` or its story already has an open item.
+    /// The transaction is the database's: `forge_claim_specific_agent_work` (migration 262).
     pub async fn claim_specific_agent_work(
         &self,
         work_item_id: &str,
         worker_id: &str,
     ) -> DbResult<Option<ForgeAgentWorkRow>> {
-        let mut tx = self
-            .db
-            .begin("forge_engine.claim_specific_agent_work")
-            .await?;
-        sqlx::query("select pg_advisory_xact_lock($1)")
-            .bind(AGENT_CLAIM_LOCK)
-            .execute(tx.connection())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("forge_engine.claim_specific.lock", &error))?;
-
-        let group = sqlx::query_scalar::<_, Option<String>>(
-            "select parallel_group_id::text from agent_work_item where id=$1::uuid",
-        )
-        .bind(work_item_id)
-        .fetch_optional(tx.connection())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("forge_engine.claim_specific.group", &error))?
-        .flatten();
-
-        let active = if group.is_none() {
-            sqlx::query_scalar::<_, String>(
-                "select id::text from agent_work_item
-                 where state in ('Claimed','Running','Paused')
-                   and story_id=(select story_id from agent_work_item where id=$1::uuid)
-                 limit 1",
-            )
-            .bind(work_item_id)
-            .fetch_optional(tx.connection())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("forge_engine.claim_specific.active", &error))?
-        } else {
-            sqlx::query_scalar::<_, String>(
-                "select id::text from agent_work_item
-                 where state in ('Claimed','Running','Paused')
-                   and parallel_group_id is null
-                   and story_id=(select story_id from agent_work_item where id=$1::uuid)
-                 limit 1",
-            )
-            .bind(work_item_id)
-            .fetch_optional(tx.connection())
-            .await
-            .map_err(|error| {
-                DbFailure::from_sqlx("forge_engine.claim_specific.active_group", &error)
-            })?
-        };
-
-        if active.is_some() {
-            tx.commit().await?;
-            return Ok(None);
-        }
-
-        let row = sqlx::query_as::<_, ForgeAgentWorkRow>(
-            "update agent_work_item
-             set state='Claimed', claimed_at=now(), claimed_by=$2,
-                 attempts=attempts+1, updated_at=now()
-             where id=$1::uuid and state='Ready'
-             returning id::text as id, story_id, state, claimed_by, role, kind, work_type,
-                       execution_policy, model_policy, stop_after, launch_intent",
+        sqlx::query_as::<_, ForgeAgentWorkRow>(
+            "select id::text as id, story_id, state, claimed_by, role, kind, work_type, execution_policy,
+                    model_policy, stop_after, launch_intent
+             from forge_claim_specific_agent_work($1::uuid, $2)",
         )
         .bind(work_item_id)
         .bind(worker_id)
-        .fetch_optional(tx.connection())
+        .fetch_optional(self.db.pool())
         .await
-        .map_err(|error| DbFailure::from_sqlx("forge_engine.claim_specific.update", &error))?;
-        tx.commit().await?;
-        Ok(row)
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.claim_specific", &error))
     }
 
+    /// Claim the next eligible item — one serial chain per STORY, not one per system (restored 2026-09-29) — or
+    /// `None`. The ordering, eligibility and lock are the database's: `forge_claim_next_agent_work` (migration
+    /// 262). Two writers on one story are refused by the unique indexes, raised here as the database's error.
     pub async fn claim_next_agent_work(
         &self,
         worker_id: &str,
     ) -> DbResult<Option<ForgeAgentWorkRow>> {
-        let mut tx = self.db.begin("forge_engine.claim_next_agent_work").await?;
-        sqlx::query("select pg_advisory_xact_lock($1)")
-            .bind(AGENT_CLAIM_LOCK)
-            .execute(tx.connection())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("forge_engine.claim_next.lock", &error))?;
-
-        // ONE SERIAL CHAIN PER STORY, NOT ONE PER SYSTEM (restored 2026-09-29).
-        //
-        // Here stood a refusal that read `where state in ('Claimed','Running') limit 1` with **no story scope**: if
-        // any story was running anywhere, this returned `None`, so every other ready story queued behind it and the
-        // machine looked serial because the code was stricter than its own schema. Three ready test stories sat
-        // behind one harness run because of it. That is the very regression `a3fc7099` removed from the TypeScript
-        // claim on 2026-09-16 — "THE GOVERNOR IS OFF: one serial chain PER STORY, not one per system … three ready
-        // stories queued behind each other and only one ran" — and the port brought it back.
-        //
-        // The authority for "never two writers on ONE story" is the database's own indexes, which PROD already
-        // carries and which this query must match rather than outbid: `agent_work_item_one_serial_active_per_story`
-        // (unique on `story_id` where the item is open and `parallel_group_id is null`) and
-        // `agent_work_item_one_parallel_slot` (unique per split slot). The advisory lock above serializes claim
-        // *selection* — it is held for the milliseconds this transaction needs to choose a row and stamp it, and
-        // the commit below releases it, so a different story is free to claim at that instant.
-        //
-        // Eligibility is unchanged: the item must still be `Ready` **and** its story must still be on the board as
-        // `Ready` (restored 2026-09-29 — selecting on the queue alone dispatches a story the board says is already
-        // being worked, the rerun of a live story), and migration 029's "only 'Unattended OK' work may be claimed by
-        // the unattended poller" is read from the column rather than assumed.
-        //
-        // `for update of w skip locked` is deliberate even though the advisory lock serializes these transactions
-        // today: it keeps the statement correct for a caller that claims outside that lock, and it states the queue
-        // semantics where they are enforced. The claim stays a compare-and-set — the update re-checks `state='Ready'`
-        // and returns the row it moved, or nothing. Same shape as the outbox claim (`rust/core/db/src/outbox.rs:170`).
-        let row = sqlx::query_as::<_, ForgeAgentWorkRow>(
-            "with candidate as (
-               select w.id from agent_work_item w
-               join storyboard_story s on s.id = w.story_id
-               where w.state='Ready' and s.status='Ready'
-                 and w.execution_policy='Unattended OK'
-               order by w.priority desc, w.queued_at asc, w.id
-               for update of w skip locked
-               limit 1
-             )
-             update agent_work_item w
-             set state='Claimed', claimed_at=now(), claimed_by=$1,
-                 attempts=attempts+1, updated_at=now()
-             from candidate c
-             where w.id = c.id
-               and w.state = 'Ready'
-             returning w.id::text as id, w.story_id, w.state, w.claimed_by, w.role, w.kind, w.work_type,
-                       w.execution_policy, w.model_policy, w.stop_after, w.launch_intent",
+        sqlx::query_as::<_, ForgeAgentWorkRow>(
+            "select id::text as id, story_id, state, claimed_by, role, kind, work_type, execution_policy,
+                    model_policy, stop_after, launch_intent
+             from forge_claim_next_agent_work($1)",
         )
         .bind(worker_id)
-        .fetch_optional(tx.connection())
+        .fetch_optional(self.db.pool())
         .await
-        .map_err(|error| DbFailure::from_sqlx("forge_engine.claim_next.update", &error))?;
-        tx.commit().await?;
-        Ok(row)
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.claim_next", &error))
     }
 
     /// `Claimed → Running`, and nothing else. `Ok(None)` means the row was not in `Claimed`, so this process does not

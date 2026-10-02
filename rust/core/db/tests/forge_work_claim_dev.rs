@@ -748,3 +748,285 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
         cleanup_story(pool, story).await;
     }
 }
+
+/// One behaviour, one implementation: the claim transaction is the database's (migration 262), and the DAO is an
+/// adapter. No database needed — this reads the two sources the claim lives in.
+#[test]
+fn the_claim_transaction_lives_in_the_database_not_in_rust() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let dao = std::fs::read_to_string(root.join("rust/core/db/src/forge_engine.rs")).unwrap();
+    let routine =
+        std::fs::read_to_string(root.join("db/migrations/262_forge_agent_work_claim.sql")).unwrap();
+    for function in [
+        "forge_claim_specific_agent_work",
+        "forge_claim_next_agent_work",
+    ] {
+        assert!(
+            routine.contains(&format!("create or replace function {function}(")),
+            "migration 262 defines {function}"
+        );
+        assert!(
+            dao.contains(&format!("from {function}(")),
+            "the DAO calls {function}"
+        );
+    }
+    for choreography in [
+        "pg_advisory_xact_lock",
+        "skip locked",
+        "attempts=attempts+1",
+        "attempts = attempts + 1",
+        "begin(\"forge_engine.claim_",
+        "AGENT_CLAIM_LOCK",
+    ] {
+        assert!(
+            !dao.contains(choreography),
+            "forge_engine.rs still carries claim choreography `{choreography}` beside the stored routine"
+        );
+    }
+}
+
+/// The stored routines, against DEV: the claim contract the Rust transactions had, held by the database.
+#[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV"]
+async fn the_claim_routines_hold_the_claim_contract() {
+    let database = Database::connect_target(DbTarget::Dev)
+        .await
+        .expect("DATABASE_URL_DEV");
+    let pool = database.pool();
+    let engine = ForgeEngineDao::new(database.clone());
+    let tag = uuid::Uuid::new_v4().simple().to_string();
+
+    let installed: i64 = sqlx::query_scalar(
+        "select count(*) from pg_proc
+          where proname in ('forge_claim_specific_agent_work', 'forge_claim_next_agent_work')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(installed, 2, "migration 262 is applied to DEV");
+
+    // A run that panicked part-way leaves its proof stories behind; these prefixes are this test's alone.
+    sqlx::query(
+        "delete from storyboard_story where id like 'ENG-PROOF-CLAIM-%' or id like 'ENG-PROOF-NEXT-%'",
+    )
+    .execute(pool)
+    .await
+    .expect("clear earlier runs' proof stories");
+
+    // Stories the board says are being worked: `claim_next` never selects their items, so the specific-claim
+    // rails below cannot be disturbed by a live DEV worker.
+    let mut stories = Vec::new();
+    async fn held(pool: &sqlx::PgPool, story: &str, priority: i32) -> String {
+        sqlx::query(
+            "insert into storyboard_story (id, workstream, title, priority, status, notes)
+             values ($1, 'PROOF', 'Claim routine proof', 'High', 'In Progress', '')",
+        )
+        .bind(story)
+        .execute(pool)
+        .await
+        .expect("insert proof story");
+        sqlx::query_scalar(
+            "insert into agent_work_item (story_id, state, priority, role, stop_after, launch_intent)
+             values ($1, 'Ready', $2, 'smith', 'lead', 'SOLO') returning id::text",
+        )
+        .bind(story)
+        .bind(priority)
+        .fetch_one(pool)
+        .await
+        .expect("insert proof item")
+    }
+    async fn claim_shape(
+        pool: &sqlx::PgPool,
+        item: &str,
+    ) -> (String, Option<String>, i32, bool, bool) {
+        sqlx::query_as(
+            "select state, claimed_by, attempts, claimed_at is not null, started_at is not null
+               from agent_work_item where id = $1::uuid",
+        )
+        .bind(item)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    let story_a = format!("ENG-PROOF-CLAIM-A-{tag}");
+    let story_b = format!("ENG-PROOF-CLAIM-B-{tag}");
+    let item_a = held(pool, &story_a, 0).await;
+    let item_b = held(pool, &story_b, 0).await;
+    stories.extend([story_a.clone(), story_b.clone()]);
+
+    // 1 + 3 + 5. One worker claims exactly the item it named, and the claim writes the pre-262 contract: state,
+    //    owner, one attempt, a claim time, no start — and the row it returns is the row the database holds, with
+    //    the execution envelope carried through.
+    let before: chrono::DateTime<chrono::Utc> = sqlx::query_scalar("select now()")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let claimed = engine
+        .claim_specific_agent_work(&item_b, "routine-worker-1")
+        .await
+        .unwrap()
+        .expect("a Ready item on a story with nothing open is claimed");
+    assert_eq!(
+        claimed.id, item_b,
+        "the specific claim claims the item it was asked for"
+    );
+    assert_eq!(claimed.story_id, story_b);
+    assert_eq!(claimed.state, "Claimed");
+    assert_eq!(claimed.claimed_by.as_deref(), Some("routine-worker-1"));
+    assert_eq!(claimed.role.as_deref(), Some("smith"));
+    assert_eq!(claimed.stop_after.as_deref(), Some("lead"));
+    assert_eq!(claimed.launch_intent.as_deref(), Some("SOLO"));
+    assert_eq!(claimed.execution_policy, "Unattended OK");
+    assert_eq!(
+        claim_shape(pool, &item_b).await,
+        (
+            "Claimed".into(),
+            Some("routine-worker-1".into()),
+            1,
+            true,
+            false
+        )
+    );
+    let claimed_at: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("select claimed_at from agent_work_item where id = $1::uuid")
+            .bind(&item_b)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert!(claimed_at >= before, "claimed_at is the claim's own time");
+    assert_eq!(
+        claim_shape(pool, &item_a).await,
+        ("Ready".into(), None, 0, false, false),
+        "a sibling item is untouched"
+    );
+
+    // 2. A second worker cannot claim it, and the refusal writes nothing.
+    assert!(engine
+        .claim_specific_agent_work(&item_b, "routine-worker-2")
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        claim_shape(pool, &item_b).await,
+        (
+            "Claimed".into(),
+            Some("routine-worker-1".into()),
+            1,
+            true,
+            false
+        ),
+        "a refused claim must not take the owner or count an attempt"
+    );
+
+    // 6. No lost and no double claim under concurrency: eight workers race for one item, exactly one wins.
+    let mut racers = Vec::new();
+    for worker in 0..8 {
+        let engine = engine.clone();
+        let item = item_a.clone();
+        racers.push(tokio::spawn(async move {
+            engine
+                .claim_specific_agent_work(&item, &format!("racer-{worker}"))
+                .await
+                .unwrap()
+        }));
+    }
+    let mut winners = Vec::new();
+    for racer in racers {
+        if let Some(row) = racer.await.unwrap() {
+            winners.push(row.claimed_by.unwrap());
+        }
+    }
+    assert_eq!(winners.len(), 1, "exactly one racer claims: {winners:?}");
+    let (state, owner, attempts, _, _) = claim_shape(pool, &item_a).await;
+    assert_eq!(
+        (state.as_str(), owner.as_deref(), attempts),
+        ("Claimed", Some(winners[0].as_str()), 1)
+    );
+
+    // 7. A claim inside a transaction that fails leaves no half-claimed item.
+    let story_c = format!("ENG-PROOF-CLAIM-C-{tag}");
+    let item_c = held(pool, &story_c, 0).await;
+    stories.push(story_c.clone());
+    {
+        let mut tx = pool.begin().await.unwrap();
+        let inside: Option<String> = sqlx::query_scalar(
+            "select id::text from forge_claim_specific_agent_work($1::uuid, 'doomed-worker')",
+        )
+        .bind(&item_c)
+        .fetch_optional(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(inside.as_deref(), Some(item_c.as_str()));
+        assert!(sqlx::query("select 1 / 0").execute(&mut *tx).await.is_err());
+        tx.rollback().await.unwrap();
+    }
+    assert_eq!(
+        claim_shape(pool, &item_c).await,
+        ("Ready".into(), None, 0, false, false),
+        "the failed transaction took the claim with it"
+    );
+
+    // 4. Next-claim ordering: priority first, then queue time. Three board-Ready stories far above any real DEV
+    //    priority, claimed one at a time.
+    let mut ordered = Vec::new();
+    for (suffix, priority, offset) in [
+        ("LOW", 1_000_000, 0),
+        ("HIGH-LATE", 1_000_001, 5),
+        ("HIGH-EARLY", 1_000_001, 10),
+    ] {
+        let story = format!("ENG-PROOF-NEXT-{suffix}-{tag}");
+        sqlx::query(
+            "insert into storyboard_story (id, workstream, title, priority, status, notes)
+             values ($1, 'PROOF', 'Claim order proof', 'High', 'Ready', '')",
+        )
+        .bind(&story)
+        .execute(pool)
+        .await
+        .expect("insert ordered story");
+        let item: String = sqlx::query_scalar(
+            "update agent_work_item set priority = $2, queued_at = now() - make_interval(secs => $3)
+              where story_id = $1 and state = 'Ready' returning id::text",
+        )
+        .bind(&story)
+        .bind(priority)
+        .bind(offset as f64)
+        .fetch_one(pool)
+        .await
+        .expect("the Ready trigger created the item");
+        stories.push(story);
+        ordered.push(item);
+    }
+    let mut taken = Vec::new();
+    for _ in 0..3 {
+        let row = engine
+            .claim_next_agent_work("routine-next")
+            .await
+            .unwrap()
+            .expect("an eligible item is claimed");
+        taken.push(row.id);
+    }
+    let expected = vec![ordered[2].clone(), ordered[1].clone(), ordered[0].clone()];
+    let borrowed: Vec<&String> = taken.iter().filter(|id| !ordered.contains(id)).collect();
+    for id in &borrowed {
+        sqlx::query(
+            "update agent_work_item set state = 'Ready', claimed_by = null, claimed_at = null,
+                    attempts = attempts - 1 where id = $1::uuid",
+        )
+        .bind(id)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    for story in &stories {
+        cleanup_story(pool, story).await;
+    }
+    assert!(
+        borrowed.is_empty(),
+        "the order proof claimed a real DEV item (restored): {borrowed:?}"
+    );
+    assert_eq!(
+        taken, expected,
+        "next claim: highest priority first, then earliest queued"
+    );
+}
