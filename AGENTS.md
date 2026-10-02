@@ -14,25 +14,57 @@ know" must be a file on `origin/main`, never a chat log the next agent cannot re
 Several agents (Claude, GPT, DeepSeek, Cline) work in this repository at the same time. These rules keep it livable,
 and they override anything later in this file that says otherwise (including "worker branch" wording).
 
-1. **Main only.** All work lands on `main`. No feature, worker or sandbox branches. Work that is not on `origin/main`
-   does not exist: nobody can pull it, review it or deploy it.
-2. **Push after every commit.** Every commit is followed at once by `git pull --rebase && git push`. Never leave
-   commits only on your machine or in a sandbox — they strand the work and collide with everyone else's.
-3. **Small commits, often.** One working change per commit, committed as soon as it builds and its tests pass. No
-   multi-hour sessions of unpushed work.
+1. **Trunk, and short-lived branches.** Work lands on `main`. A branch is allowed when a worker cannot finish in one
+   sitting — a remote model with a hard timeout, a slice too big for a single hand-off — and it is **short-lived**:
+   pushed, named, and landed on `main` in the session that opened it. `pnpm recover:strand` exists to find the ones
+   that outlive their session, and being found by it is a defect, not a discovery. The rule's spirit is unchanged —
+   *work nobody can pull does not exist* — but refusing branches did not stop branching: on 2026-10-02 it produced a
+   five-day branch nobody could admit to, held by a worker who had broken rule 1 while obeying rule 6. Visibility is
+   the goal; a hook is a poor place to enforce taste.
+2. **Push after every commit.** Every commit is followed at once by `git pull --rebase && git push` — on `main`, and on
+   your branch. Never leave commits only on your machine or in a sandbox: they strand the work and collide with
+   everyone else's.
+3. **Small commits, often.** One working change per commit, committed as soon as it builds and passes the tier it owes
+   (see "The gate is tiered" below — a slice does not wait for the whole suite). No multi-hour sessions of unpushed
+   work.
 4. **Your own checkout.** When another agent works in the same folder, work in a separate `git worktree` checked out
    from `origin/main`, and still push to `main`. Never commit changes you did not make.
 5. **`Cargo.lock` travels with `Cargo.toml`.** A commit that changes any `Cargo.toml` includes the updated
    `rust/Cargo.lock`. The deploy builds with `--locked` and fails without it.
 6. **Never hold work back.** Running out of time, budget or context is not a reason to keep work on your side: push
-   what builds first, then say what is unfinished.
+   what builds first, then say what is unfinished — and when you cannot run the gate yourself, drop a proposal instead
+   (`docs/agent/PROPOSALS.md`). A proposal is a hand-off, not a stash.
 7. **Leave the kitchen clean.** No uncommitted changes, stray files or running test servers left behind.
-8. **Done means pushed.** It builds, its tests pass, and `git log origin/main` shows your commit — report the commit
-   ids.
+8. **Done means landed with a receipt.** It builds, it passes the tier it owes, and either `git log origin/main` shows
+   your commit or the hand-off carries a receipt naming what passed and what did not. Report the commit ids and the tier
+   you ran — "done" without a named verification is a claim, not a result.
 
-The pre-push hook in `.githooks/` enforces rules 1 and 5 on this machine: it refuses to push any branch but `main`,
-and refuses a push whose `rust/Cargo.lock` is out of date. A new clone turns it on with
-`git config core.hooksPath .githooks`.
+The pre-push hook in `.githooks/` enforces rule 5 and the artifact's build on this machine: it refuses a push whose
+`rust/Cargo.lock` is out of date, and refuses one that leaves `rust/ui` (wasm) or the workspace not compiling. **It
+does not refuse branches** — it prints what a branch owes instead, because a refused branch does not stop branching, it
+only stops anyone hearing about it. A new clone turns the hook on with `git config core.hooksPath .githooks`.
+
+## The gate is tiered — a slice never runs a thousand tests
+
+The full suite is `cargo nextest run --workspace --profile ci`: **1062 tests**, and it is not the price of a slice. A
+worker that must run it before every hand-off will burn its window in the harness or be caught by it at the worst
+moment. Three tiers, and each one has an owner:
+
+| tier | what it is | when it runs | who pays |
+| --- | --- | --- | --- |
+| **T0 — it compiles** | `cargo check -p <crate>` for what you touched; `--workspace --all-targets` at push time, the wasm target for `rust/ui` | every edit — the pre-push hook enforces the workspace half | seconds |
+| **T1 — the sections you touched** | `pnpm slice:check` → `forge test-section --changed` runs `cargo test -p` for the crates behind the changed files, plus `rustfmt` | before a hand-off: a proposal, a branch, a handoff doc | minutes |
+| **T2 — the whole harness** | `cargo nextest run --workspace --profile ci` | on every push to `main` (CI), on the nightly/Jenkins run, and locally when a release is cut | the runner's clock, not the author's window |
+
+**The rule that keeps T1 honest:** you may not make it pass by narrowing it. If your change touches a section, that
+section's crates run — *including the tests you broke*. Narrowing the scope to what you touched is the point; narrowing
+it to what is green is fraud. And never edit a baseline, an allow-list or a triage ledger to turn a gate green: those
+rows are dated and owned, not silenced.
+
+**T2 still runs** — on `main` and on a schedule, not as a gate on your slice. That is what makes the trade safe: a red
+T2 is a named, dated, owned row rather than a mystery nobody can reproduce, and the fix is the ratchet (baseline +
+owner + expiry), not some worker's window. `pnpm slice:check --full` runs T2 here when the moment deserves it (a
+release, a suspicious landing), and `Ask first` still governs a deliberate FULL regression.
 
 ## Rust First — the application is Rust
 
@@ -86,9 +118,12 @@ Runbooks: `docs/rust-resilience-status.md` (what is wired, what is measured, wha
 `docs/rust-contributing.md`. Live verification against DEV is `scripts/rust-live-check/` — unit tests do not touch a real
 database, and this port has produced three bugs only a real one could catch.
 
-**Building and testing Rust:** `cargo check --workspace --all-targets`, then
-`cargo test -p db -p server -p forge -p workflow`. `rust/experiments/` is excluded from the workspace; it holds
-comparison benches, never production code.
+**Building and testing Rust:** `cargo check --workspace --all-targets` (that is T0), then the sections you touched —
+`pnpm slice:check` (T1). The old line here, "then `cargo test -p db -p server -p forge -p workflow`", was a T2-shaped
+habit written as if it were mandatory: it is four crates' worth of every test, and it is the reason a hand-off used to
+cost more than the slice. The full suite belongs to CI, the nightly run and a release — never to a slice (see "The gate
+is tiered" under House Rules). `rust/experiments/` is excluded from the workspace; it holds comparison benches, never
+production code.
 
 ## Always / Ask / Never
 
@@ -100,7 +135,8 @@ Always
 - Clear the Forge control plane of stale engine state before ANY test or engine run: `pnpm forge:clean`. It cancels stale work items, interrupts stale engine claims (via the engine's own recovery path) and aborts stale instances, touching only claims older than 15 minutes so a live peer survives. A run read against another run's leftover claims is not evidence. Preferred order: `pnpm forge:clean` (control plane) then `pnpm forge:story:reset <story> reset --force` (the story itself, which now also closes that story's engine claims).
   **⚠ `forge:clean` sets `APP_ENV=production` and therefore resolves to the PRODUCTION database, and it runs `--force`.** That is the Forge control plane's design, not an accident — but it means this is a production-mutating command, not local hygiene. It now requires the Captain's explicit go like any other production action, and it must never be run as a reflex. Check the target (`pnpm db:migrations` prints per-target state) before believing any command is on DEV.
 - Work in the isolated worktree when Forge provisioned one.
-- Run only the packet's Assay commands (SCOPED). Do not invent `pnpm test` as FULL.
+- Run only the packet's Assay commands (SCOPED). Do not invent `pnpm test` as FULL: a slice owes T0 + T1
+  (`pnpm slice:check`) and never T2, and the full suite is *asked for*, not assumed ("The gate is tiered", House Rules).
 - Report exact files changed and the tests that ran.
 - **Never say FINISHED without the raw output of the verification commands behind it.** Paste the command, its
   exit status and the lines that carry the verdict — a proof doc at the head you are reporting, and the block in
