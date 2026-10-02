@@ -133,8 +133,10 @@ if [ -z "$failed" ]; then
   else
     deferred='^Diff in .*/(cli/src/(apple_mail|forge/lint)|core/domain/src/(applemail|apple_messages))(\.rs|/)'
     fmt_raw="$( (cd rust && cargo fmt --all -- --check 2>&1) || true )"
+    # `cargo fmt --check` prints each offending file's whole diff, body and all: only the `Diff in <path> at line N:`
+    # headers name files, so the body is context, not error output. Treating the body as "something I do not understand"
+    # is exactly how the first run of this script reported UNKNOWN (2026-10-02).
     unformatted="$(printf '%s\n' "$fmt_raw" | grep '^Diff in' | grep -Ev "$deferred" || true)"
-    unexpected="$(printf '%s\n' "$fmt_raw" | grep -Ev '^Diff in|^[[:space:]]*$' || true)"
     mine=""
     theirs=""
     while IFS= read -r diff_line; do
@@ -153,10 +155,10 @@ if [ -z "$failed" ]; then
       failed="FMT — rustfmt is not clean in a file this slice changed"
       printf '%s\n' "$mine" >&2
       echo "  fix: (cd rust && cargo fmt --all) — never by widening the deferral list" >&2
-    elif [ -n "$unexpected" ]; then
+    elif printf '%s\n' "$fmt_raw" | grep -q '^error'; then
       fmt="UNKNOWN ($((SECONDS - started))s)"
-      failed="FMT — rustfmt said something this script does not understand"
-      printf '%s\n' "$unexpected" >&2
+      failed="FMT — rustfmt itself failed (that is not a formatting diff)"
+      printf '%s\n' "$fmt_raw" | grep '^error' | head -5 >&2
     elif [ -n "$theirs" ]; then
       fmt="PASS ($((SECONDS - started))s) — pre-existing, NOT this slice: $(printf '%s' "$theirs" | tr '\n' ' ')"
     else
