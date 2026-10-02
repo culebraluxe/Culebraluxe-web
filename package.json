@@ -6,6 +6,7 @@
     "dev": "bash scripts/dev.sh",
     "dev:raw": "next dev",
     "recover:strand": "bash scripts/ops/recover/strand-report.sh",
+    "recover:unblock": "bash scripts/ops/recover/unblock.sh",
     "mail:test": "bash scripts/mail-test.sh",
     "mail:preview": "bash scripts/mail-test.sh --preview",
     "debug:portal-nav": "node e2e/portal-nav-smoke.mjs",
