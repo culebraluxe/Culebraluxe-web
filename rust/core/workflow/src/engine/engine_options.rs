@@ -527,4 +527,19 @@ impl<S: TxStore> WorkflowEngine<S> {
             tx.claim_due_jobs(worker_id, now, lease, limit)
         })
     }
+
+    /// Claim due jobs owned by one executor type without stealing work from
+    /// other workers sharing the generic jobs table.
+    pub fn claim_jobs_by_type(
+        &self,
+        worker_id: &str,
+        job_type: &str,
+        limit: usize,
+    ) -> Result<Vec<Job>> {
+        self.store.with_tx(|tx| {
+            let now = self.now();
+            let lease = now + JOB_LEASE_MS;
+            tx.claim_due_jobs_by_type(worker_id, job_type, now, lease, limit)
+        })
+    }
 }
