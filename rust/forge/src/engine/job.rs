@@ -306,14 +306,28 @@ fn run_with_lease_heartbeat<T>(
     job_id: &str,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
+    run_with_lease_heartbeat_interval(
+        jobs,
+        worker_id,
+        job_id,
+        Duration::from_secs(FORGE_JOB_HEARTBEAT_INTERVAL_SECS),
+        work,
+    )
+}
+
+fn run_with_lease_heartbeat_interval<T>(
+    jobs: &dyn JobService,
+    worker_id: &str,
+    job_id: &str,
+    interval: Duration,
+    work: impl FnOnce() -> Result<T>,
+) -> Result<T> {
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
 
     std::thread::scope(|scope| {
         let heartbeat = scope.spawn(move || -> Option<WorkflowError> {
             loop {
-                match stop_rx.recv_timeout(Duration::from_secs(
-                    FORGE_JOB_HEARTBEAT_INTERVAL_SECS,
-                )) {
+                match stop_rx.recv_timeout(interval) {
                     Ok(()) | Err(RecvTimeoutError::Disconnected) => return None,
                     Err(RecvTimeoutError::Timeout) => match jobs.heartbeat(job_id, worker_id) {
                         Ok(_) => {}
