@@ -22,7 +22,9 @@ and they override anything later in this file that says otherwise (including "wo
    five-day branch nobody could admit to, held by a worker who had broken rule 1 while obeying rule 6. Visibility is
    the goal; a hook is a poor place to enforce taste.
 2. **Push after every commit.** Every commit is followed at once by `git pull --rebase && git push` — on `main`, and on
-   your branch. Never leave commits only on your machine or in a sandbox: they strand the work and collide with
+   your branch. In a relay worktree (a detached `HEAD`, which is how several of them are checked out) that reads
+   `git fetch origin main && git rebase origin/main && git push origin HEAD:main`, because `git pull` needs a branch and
+   `HEAD` is not one. Never leave commits only on your machine or in a sandbox: they strand the work and collide with
    everyone else's.
 3. **Small commits, often.** One working change per commit, committed as soon as it builds and passes the tier it owes
    (see "The gate is tiered" below — a slice does not wait for the whole suite). No multi-hour sessions of unpushed
