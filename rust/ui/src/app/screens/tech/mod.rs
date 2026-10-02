@@ -33,8 +33,8 @@ pub enum TechTab {
 impl TechTab {
     pub fn label(self) -> &'static str {
         match self {
-            Self::AssemblyLine => "Assembly Line",
-            Self::LiveOps => "Live Ops",
+            Self::AssemblyLine => "Engine Queue",
+            Self::LiveOps => "Work in Flight",
             Self::FlightRecorder => "Flight Recorder",
         }
     }
@@ -438,11 +438,11 @@ mod tests {
         assert!(cmd.into_requests().is_empty());
         let cmd = TechCockpit::update(
             &mut model,
-            Msg::Live(live_ops::Msg::AgentSelected("reviewer".into())),
+            Msg::Live(live_ops::Msg::WorkSelected("FORGE-1".into())),
             &ctx,
         );
         assert!(cmd.into_requests().is_empty());
-        assert_eq!(model.live.selected_agent, "reviewer");
+        assert_eq!(model.live.selected_story.as_deref(), Some("FORGE-1"));
     }
 
     #[test]
