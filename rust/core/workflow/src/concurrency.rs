@@ -69,7 +69,6 @@ where
 mod tests {
     use super::*;
     use crate::memory::MemoryStore;
-    use crate::store::{Store, TxStore};
     use crate::types::*;
     use crate::value::Value;
     use crate::{EngineOptions, WorkflowEngine};
