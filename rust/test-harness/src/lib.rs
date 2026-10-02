@@ -37,6 +37,7 @@ pub mod accounting;
 pub mod actors;
 pub mod barrier;
 pub mod clock;
+pub mod crm;
 pub mod database;
 pub mod engine;
 pub mod fault;
@@ -55,6 +56,7 @@ pub mod source;
 
 pub use accounting::AccountingHarness;
 pub use clock::TestClock;
+pub use crm::CrmHarness;
 pub use database::{
     guard_target, resolve_test_target, HarnessDbError, TestDatabase, TestTransaction,
 };
