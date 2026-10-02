@@ -13,7 +13,9 @@ use crate::engine::role_slice::forge_lane_surface;
 use crate::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
 use crate::engine::turn_budget;
 use crate::roles::registry::ForgeServiceRegistry;
-use workflow::{ProcessOutcome, ProcessStatus, Result, TaskStatus, TxStore, WorkflowError};
+use workflow::{
+    JobStatus, ProcessOutcome, ProcessStatus, Result, TaskStatus, TxStore, WorkflowError,
+};
 
 pub struct ForgeRoleOutcome {
     pub transition_name: Option<String>,
@@ -487,21 +489,91 @@ fn drive_forge_story_inner<S: TxStore>(
                     let lease = match durable.jobs.claim_one(&job_id, opts.worker_id) {
                         Ok(lease) => lease,
                         Err(err) if err.code() == "FORGE_JOB_NOT_CLAIMABLE" => {
-                            // Another worker owns this task's stable durable job,
-                            // or it has already settled. Either way this driver
-                            // must not execute the role a second time.
-                            continue;
+                            let state = durable.jobs.inspect(&job_id)?;
+                            let detail = state
+                                .last_error
+                                .as_deref()
+                                .unwrap_or("no durable job error recorded");
+                            match state.status {
+                                JobStatus::Failed | JobStatus::Cancelled | JobStatus::Completed => {
+                                    let reason = format!(
+                                        "Forge durable job {job_id} for task {} is {:?}: {detail}",
+                                        task.task_id, state.status
+                                    );
+                                    rt.writer()
+                                        .mark_story_human_hold(story_id, &reason)
+                                        .map_err(|error| {
+                                            WorkflowError::generic(format!(
+                                                "mark_story_human_hold({story_id}): {error}"
+                                            ))
+                                        })?;
+                                    return Ok(DriveForgeStoryResult {
+                                        instance_id: instance_id.clone(),
+                                        status: instance_status(rt, &instance_id)?,
+                                        steps,
+                                        exhausted: false,
+                                        blocked_reason: Some(reason),
+                                        needs_human: true,
+                                        stopped_after,
+                                        reconciled,
+                                    });
+                                }
+                                JobStatus::Locked | JobStatus::Pending => {
+                                    return Ok(DriveForgeStoryResult {
+                                        instance_id: instance_id.clone(),
+                                        status: instance_status(rt, &instance_id)?,
+                                        steps,
+                                        exhausted: true,
+                                        blocked_reason: Some(format!(
+                                            "Forge durable job {job_id} for task {} is {:?}; attempts={}/{} locked_by={:?}",
+                                            task.task_id,
+                                            state.status,
+                                            state.attempts,
+                                            state.max_attempts,
+                                            state.locked_by
+                                        )),
+                                        needs_human: false,
+                                        stopped_after,
+                                        reconciled,
+                                    });
+                                }
+                            }
                         }
                         Err(err) => return Err(err),
                     };
                     turns_dispatched += 1;
-                    let outcome = execute_claimed_job_unsettled(
+                    let outcome = match execute_claimed_job_unsettled(
                         durable.jobs,
                         opts.worker_id,
                         &lease,
                         &task,
                         durable.registry,
-                    )?;
+                    ) {
+                        Ok(outcome) => outcome,
+                        Err(err) => {
+                            let reason = format!(
+                                "Forge role {node} failed for task {}: {err}",
+                                task.task_id
+                            );
+                            rt.writer()
+                                .mark_story_human_hold(story_id, &reason)
+                                .map_err(|error| {
+                                    WorkflowError::generic(format!(
+                                        "mark_story_human_hold({story_id}): {error}"
+                                    ))
+                                })?;
+                            return Ok(DriveForgeStoryResult {
+                                instance_id: instance_id.clone(),
+                                status: instance_status(rt, &instance_id)?,
+                                steps,
+                                exhausted: false,
+                                blocked_reason: Some(reason),
+                                needs_human: true,
+                                stopped_after,
+                                reconciled,
+                            });
+                        }
+                    };
                     durable_lease = Some(lease);
                     outcome
                 } else {
