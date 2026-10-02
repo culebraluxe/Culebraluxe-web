@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use service::{
+use service as service_kernel;
+use service_kernel::{
     AbstractService, OperationKind, ServiceCapability, ServiceContext, ServiceDescriptor,
     ServiceDispatchError, ServiceEnvelope, ServiceExecutionPolicy,
 };
@@ -41,7 +42,7 @@ fn scheduled_pass_capability() -> ServiceCapability {
         description: "Run one bounded unattended Forge control-plane pass.".into(),
         authorization: "forge.execute".into(),
         idempotent: false,
-        execution: ServiceExecutionPolicy::ordered("forge-worker"),
+        execution: ServiceExecutionPolicy::queued(),
     }
 }
 
@@ -119,9 +120,9 @@ mod tests {
             payload: Value::Null,
         };
         let context = ServiceContext {
-            actor: service::ServiceActor {
+            actor: service_kernel::ServiceActor {
                 id: Some("forge-service-test".into()),
-                kind: service::ServiceActorKind::System,
+                kind: service_kernel::ServiceActorKind::System,
             },
             correlation_id: "forge-service-test".into(),
             causation_id: None,
