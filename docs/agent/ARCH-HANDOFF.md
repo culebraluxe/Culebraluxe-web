@@ -249,8 +249,11 @@ database. What follows is the Rust application as it is on `main`.
 | `rust/forge` | the Forge delivery engine (§6) — tooling, not product |
 | `rust/cli` | operator commands: `db-tool`, the `forge` gates, Apple intake, media backfills |
 
-`legacy/` and the bannered files under `scripts/` and `agent-runtime/` are the retired TypeScript:
-read them for intent, never import, never repair (`docs/agent/BROKEN-TS-INVENTORY.md`).
+The retired TypeScript **left the tree on 2026-10-02** and is archived outside it at
+`~/Documents/forge-legacy-ts-archive-2026-10-02/` — 432 files, byte-identical copy plus a zip, taken at
+`5b4e5aa4` (`docs/agent/DEAD-TS-DOWNSIZE.md` §5.2, `docs/agent/BROKEN-TS-INVENTORY.md`). Read it there for intent;
+it is specification to translate, **never** a module to import, repair or restore — `arch_boundary__012` fails if
+anything under `legacy/` comes back. The repository itself holds no TypeScript at all.
 
 ### 5.2 Services — one kernel, one composition root
 
@@ -808,6 +811,16 @@ top-nav item is removed; the public-site Portal link is the far-right final navi
 > replaces (four MVI-wired TypeScript screens, `contract` unreleased, zero PROD projects) is history.
 
 **As of 2026-09-28** (each line names the check that proves it):
+> **Superseded 2026-10-02 — the TypeScript and menu lines below are history, not status.** Measured that day: the
+> repository holds **no TypeScript at all** (the retired estate was archived out of the tree — §5.1 above,
+> `docs/agent/DEAD-TS-DOWNSIZE.md` §5.2); `forge ts-sweep` scans **3 files, 0 cannot load**;
+> `pnpm typecheck` is down to a single `TS18003` — nothing left to compile; and the menu has **0 dead commands**
+> (104 scripts, and the 12 that name a file all resolve). The 2026-09-28 numbers below stand as that day's record.
+> So do the dead-command rows that follow, whose failure mode is fixed by construction: a command whose target is
+> gone is now caught by the same check this line reports. The one token in the menu that does not resolve is
+> `start` → `rust/target/release/http` — an unbuilt release artifact, not a missing source file.
+
+
 
 - **UI.** `rust/ui/src/app/registry.rs` has 58 entries: 56 on the `Screen` trait (Marketing became the
   native Publishing Center on 2026-09-28, and the old global loop was then deleted), 2 external

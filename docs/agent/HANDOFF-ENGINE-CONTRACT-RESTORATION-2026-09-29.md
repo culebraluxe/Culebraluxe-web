@@ -3,6 +3,15 @@
 Program doc: `docs/agent/OLD-ENGINE-CONTRACT-RESTORATION.md` (contracts, seam-first method, order of work).
 Invariant in force: **the schema is the contract.** Forge data is disposable; the engine's tests are not precious;
 rails move only toward more enforcement; no schema change.
+> **2026-10-02 — every `legacy/...` path in this handoff is ARCHIVED, not in the tree.** The TypeScript test estate
+> that the specifications below live in left the repository on 2026-10-02 (`docs/agent/DEAD-TS-DOWNSIZE.md` §5.2):
+> it is at `~/Documents/forge-legacy-ts-archive-2026-10-02/legacy/...`, beside `legacy-2026-10-02.zip`, taken at
+> `5b4e5aa4`. Read **`$ARCHIVE`** as that directory. These files are still the specification — only their location
+> changed — and they are to be **translated, never restored**: `arch_boundary__012__retired_ts_trees_stay_retired`
+> fails the moment anything under `legacy/` exists in the tree again. A path below is a spec to read, not a module
+> to import.
+
+
 
 ## 1. STATUS — what is true right now
 
@@ -30,10 +39,10 @@ rails move only toward more enforcement; no schema change.
 
 | Your task | Read | The files you touch |
 | --- | --- | --- |
-| The artifact/verdict funnel (next rail) | §6.1a, legacy `legacy/workflow_app/tests/artifact-verdict.test.ts` | `rust/core/db/src/forge_engine.rs` (new verbs), `rust/forge/src/engine/artifact.rs` (new), `rust/forge/src/qa_consistency.rs` (the polarity vocabulary already exists there) |
-| Wire the dispatch model policy | §6.3, legacy `legacy/workflow_app/tests/forge-kind-routing.test.ts` | `rust/forge/src/engine/worker.rs`, `bin/forge.rs`, `engine/opencode.rs` |
-| Wire the lead launch cap | §6.4, legacy `legacy/workflow_app/tests/forge-lead-routing-bench.test.ts` | `rust/forge/src/engine/phase.rs` (`RoleEffectPorts`), `rust/forge/src/roles/hooks.rs` (the lane contract — `engine/agents.rs` is deleted, `2026-10-02`) |
-| Find remaining parity gaps | §6.5, the 465 restored legacy tests | `legacy/workflow_app/tests/**` vs `rust/forge/tests/**` |
+| The artifact/verdict funnel (next rail) | §6.1a, legacy `$ARCHIVE/legacy/workflow_app/tests/artifact-verdict.test.ts` | `rust/core/db/src/forge_engine.rs` (new verbs), `rust/forge/src/engine/artifact.rs` (new), `rust/forge/src/qa_consistency.rs` (the polarity vocabulary already exists there) |
+| Wire the dispatch model policy | §6.3, legacy `$ARCHIVE/legacy/workflow_app/tests/forge-kind-routing.test.ts` | `rust/forge/src/engine/worker.rs`, `bin/forge.rs`, `engine/opencode.rs` |
+| Wire the lead launch cap | §6.4, legacy `$ARCHIVE/legacy/workflow_app/tests/forge-lead-routing-bench.test.ts` | `rust/forge/src/engine/phase.rs` (`RoleEffectPorts`), `rust/forge/src/roles/hooks.rs` (the lane contract — `engine/agents.rs` is deleted, `2026-10-02`) |
+| Find remaining parity gaps | §6.5, the 465 restored legacy tests | `$ARCHIVE/legacy/workflow_app/tests/**` vs `rust/forge/tests/**` |
 
 ## 4. DONE — what landed, with the receipts
 
@@ -88,7 +97,7 @@ $ cargo check --workspace --all-targets 2>&1 | rg -e '^error' -e 'Finished|error
    `docs/agent/OLD-ENGINE-CONTRACT-RESTORATION.md`. Sub-item fixed in the same change: `claim_workflow_receipt` no
    longer answers `None` for two different facts, and a stale `pending` is reclaimable.
 1a. **The artifact/verdict funnel (the next rail, seam 4).** Specification:
-   `legacy/workflow_app/tests/artifact-verdict.test.ts` (six assertions; the implementation it tested was deleted with
+   `$ARCHIVE/legacy/workflow_app/tests/artifact-verdict.test.ts` (six assertions; the implementation it tested was deleted with
    `legacy/db/`). The rail: `forge_tool_artifact` (migration 130) has **no Rust reader or writer at all** —
    `rg -n 'forge_tool_artifact' rust/` returns nothing — so a role's verdict, summary and detail have nowhere durable
    to land. The legacy funnel's contract, from the test: read `storyboard_story_run.result_status` for the run; for
@@ -107,15 +116,15 @@ $ cargo check --workspace --all-targets 2>&1 | rg -e '^error' -e 'Finished|error
 2. **Then the remaining seams** in Phase-0 order (completion receipt out; hold and verdict out; canonical Story Board
    state writes), each seam-first: find the legacy test, write the Rust refusal test, fix, record the row.
 3. **`model_policy` → the model** (P1, blocked on H3). The legacy table is
-   `legacy/workflow_app/tests/forge-kind-routing.test.ts`: exactly two policies, `cheap` and `judgment`, both naming
+   `$ARCHIVE/legacy/workflow_app/tests/forge-kind-routing.test.ts`: exactly two policies, `cheap` and `judgment`, both naming
    `deepseek/deepseek-v4-flash`, unknown/null reading as `cheap`. The Rust pin is `deepseek/deepseek-flash`
    (`rust/forge/src/engine/opencode.rs:25`), so wiring the table **changes which model runs and what bills**.
 4. **`launch_intent` → the Lead's cap** (P1, blocked on H4). Migration 167 says it rides the role-effect ports as
    `benchIntent` where the Lead's cap check enforces it; `RoleEffectPorts` (`rust/forge/src/engine/phase.rs:42`) has no
    such field, so the column is read for nothing but the log line. Specification:
-   `legacy/workflow_app/tests/forge-lead-routing-bench.test.ts` (`benchIntent = 'HOLD' | 'SOLO'`).
+   `$ARCHIVE/legacy/workflow_app/tests/forge-lead-routing-bench.test.ts` (`benchIntent = 'HOLD' | 'SOLO'`).
 5. **Phase 1 parity audit** (the inventory count is a floor). Walk the 465 restored legacy tests under
-   `legacy/workflow_app/tests/` and decide per contract: ported (name the Rust test) / missing (open a seam) /
+   `$ARCHIVE/legacy/workflow_app/tests/` and decide per contract: ported (name the Rust test) / missing (open a seam) /
    obsolete (say why). Start with the three files this handoff already used as specification:
    `interrupted-sequences.test.ts`, `forge-kind-routing.test.ts`, `forge-lead-routing-bench.test.ts`.
 
