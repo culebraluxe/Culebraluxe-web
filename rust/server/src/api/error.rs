@@ -163,6 +163,63 @@ impl From<CoreServiceError> for ApiError {
     }
 }
 
+impl From<ServiceDispatchError> for ApiError {
+    fn from(error: ServiceDispatchError) -> Self {
+        match error {
+            ServiceDispatchError::ServiceNotFound(domain) => {
+                Self::not_found("SERVICE_NOT_FOUND", format!("Service not found: {domain}"))
+            }
+            ServiceDispatchError::UnknownOperation { domain, operation } => Self::not_found(
+                "UNKNOWN_OPERATION",
+                format!("Unknown service operation: {domain}.{operation}"),
+            ),
+            ServiceDispatchError::InvalidPayload { message, .. } => Self::new(
+                StatusCode::BAD_REQUEST,
+                "INVALID_SERVICE_PAYLOAD",
+                message,
+                false,
+            ),
+            ServiceDispatchError::Operation {
+                code,
+                message,
+                retryable,
+                class,
+            } => {
+                let status = match class {
+                    service::ServiceFailureClass::Caller
+                    | service::ServiceFailureClass::Business => StatusCode::BAD_REQUEST,
+                    service::ServiceFailureClass::Lifecycle => StatusCode::SERVICE_UNAVAILABLE,
+                    service::ServiceFailureClass::Infrastructure
+                    | service::ServiceFailureClass::Panic => StatusCode::INTERNAL_SERVER_ERROR,
+                };
+                Self::new(status, code, message, retryable)
+            }
+            ServiceDispatchError::ServiceDraining(domain) => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "SERVICE_DRAINING",
+                format!("Service is draining: {domain}"),
+                true,
+            ),
+            ServiceDispatchError::ServiceStopped(domain) => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "SERVICE_STOPPED",
+                format!("Service is stopped: {domain}"),
+                true,
+            ),
+            ServiceDispatchError::OperationPanicked {
+                domain,
+                operation,
+                message,
+            } => Self::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "SERVICE_OPERATION_PANICKED",
+                format!("{domain}.{operation}: {message}"),
+                true,
+            ),
+        }
+    }
+}
+
 impl From<CommandDispatchError> for ApiError {
     fn from(error: CommandDispatchError) -> Self {
         match error {
