@@ -1,5 +1,13 @@
 # Old-engine contract restoration — every behavior and contract, no shortcuts
 
+> **SUPERSEDED FOR CURRENT PLANNING — PROGRAM HISTORY / CONTRACT PROVENANCE.**
+> This file records the old-engine restoration program and the rails that motivated it. It is not today's backlog.
+> For the current machine and current open work, read `docs/agent/CURRENT.md`, `docs/agent/MAP-engine.md`, and
+> `docs/agent/QUEUE-2026-10-02.md` in that order. The archived TypeScript estate is reference material only; never
+> restore it into the repository. A historical row marked missing here must be re-measured against current Rust before
+> anyone proposes code for it.
+
+
 **Authority:** the Captain, 2026-09-29: *"I want every behavior and contract of the old engine back! no shortcuts!"*
 and *"the database contracts enforced an explicit structured hand off; the agents' output was not well formed and
 it wandered — these are not scars, these are guard rails."*
