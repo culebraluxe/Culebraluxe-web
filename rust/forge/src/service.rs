@@ -40,7 +40,7 @@ fn scheduled_pass_capability() -> ServiceCapability {
         name: FORGE_SCHEDULED_PASS_OPERATION.into(),
         kind: OperationKind::Command,
         description: "Run one bounded unattended Forge control-plane pass.".into(),
-        authorization: "forge.execute".into(),
+        authorization: "tech.access".into(),
         idempotent: false,
         execution: ServiceExecutionPolicy::queued(),
     }
