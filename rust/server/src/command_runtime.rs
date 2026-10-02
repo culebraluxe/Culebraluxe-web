@@ -11,8 +11,8 @@ use db::{
 };
 use domain::{
     AcceptSignerConsentRequest, CompleteSignatureFieldRequest, CompleteSignerRequest,
-    DeclineSignerRequest, ExecuteContractRequest, IssueDocumentSignRequest,
-    OpenSignerRequest, PrepareDocumentSignRequest, PutSignatureFieldRequest, QueueEmailRequest,
+    DeclineSignerRequest, ExecuteContractRequest, IssueDocumentSignRequest, OpenSignerRequest,
+    PrepareDocumentSignRequest, PutSignatureFieldRequest, QueueEmailRequest,
     RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest,
 };
 use serde::de::DeserializeOwned;
@@ -431,7 +431,6 @@ fn outbox_event(event: &CommandDomainEvent) -> OutboxEventInput {
     }
 }
 
-
 #[derive(Debug, Clone, Copy)]
 enum DocumentSignCommandKind {
     Prepare,
@@ -496,11 +495,10 @@ impl DurableCommandHandler for DocumentSignCommand {
     ) -> Result<CommandResult, CommandDispatchError> {
         match self.kind {
             DocumentSignCommandKind::Prepare => {
-                let request: PrepareDocumentSignRequest =
-                    match decode_command_input(envelope) {
-                        Ok(value) => value,
-                        Err(result) => return Ok(result),
-                    };
+                let request: PrepareDocumentSignRequest = match decode_command_input(envelope) {
+                    Ok(value) => value,
+                    Err(result) => return Ok(result),
+                };
                 if let Some(result) = validate_command_target(
                     envelope,
                     "transaction_document",
@@ -536,11 +534,11 @@ impl DurableCommandHandler for DocumentSignCommand {
                 Ok(result)
             }
             DocumentSignCommandKind::SetRecipients => {
-                let request: SetDocumentSignRecipientsRequest =
-                    match decode_command_input(envelope) {
-                        Ok(value) => value,
-                        Err(result) => return Ok(result),
-                    };
+                let request: SetDocumentSignRecipientsRequest = match decode_command_input(envelope)
+                {
+                    Ok(value) => value,
+                    Err(result) => return Ok(result),
+                };
                 if let Some(result) = validate_command_target(
                     envelope,
                     "signature_request",
@@ -754,11 +752,7 @@ impl DurableCommandHandler for DocumentSignCommand {
                     .void_transactional(tx, &signature_request_id, context)
                     .await
                 {
-                    return core_command_error(
-                        envelope,
-                        Some(signature_request_id.clone()),
-                        error,
-                    );
+                    return core_command_error(envelope, Some(signature_request_id.clone()), error);
                 }
                 let mut result = CommandResult::success(
                     envelope.command_id.clone(),
@@ -845,11 +839,7 @@ impl DurableCommandHandler for SignerCommand {
                 ) {
                     return Ok(result);
                 }
-                let action = match self
-                    .signer
-                    .open_transactional(tx, &request, context)
-                    .await
-                {
+                let action = match self.signer.open_transactional(tx, &request, context).await {
                     Ok(value) => value,
                     Err(error) => {
                         return core_command_error(
@@ -966,14 +956,9 @@ impl DurableCommandHandler for SignerCommand {
                     )
                     .await
                 {
-                    return core_command_error(
-                        envelope,
-                        Some(request.recipient_id.clone()),
-                        error,
-                    );
+                    return core_command_error(envelope, Some(request.recipient_id.clone()), error);
                 }
-                let mut result =
-                    signer_result(envelope, &action, "SIGNER_COMPLETED", None)?;
+                let mut result = signer_result(envelope, &action, "SIGNER_COMPLETED", None)?;
                 if action.envelope_ready_to_finalize {
                     result.emitted_events.push(command_event(
                         envelope,
@@ -1016,21 +1001,12 @@ impl DurableCommandHandler for SignerCommand {
                 };
                 if let Err(error) = self
                     .document_sign
-                    .signer_declined_transactional(
-                        tx,
-                        &action.signature_request_id,
-                        context,
-                    )
+                    .signer_declined_transactional(tx, &action.signature_request_id, context)
                     .await
                 {
-                    return core_command_error(
-                        envelope,
-                        Some(request.recipient_id.clone()),
-                        error,
-                    );
+                    return core_command_error(envelope, Some(request.recipient_id.clone()), error);
                 }
-                let mut result =
-                    signer_result(envelope, &action, "SIGNER_DECLINED", None)?;
+                let mut result = signer_result(envelope, &action, "SIGNER_DECLINED", None)?;
                 result.emitted_events.push(command_event(
                     envelope,
                     "DOCUMENT_SIGN_DECLINED",
@@ -1080,9 +1056,15 @@ impl DurableCommandHandler for EmailQueueCommand {
             Ok(value) => value,
             Err(result) => return Ok(result),
         };
-        let queued = match self.service.queue_transactional(tx, &request, context).await {
+        let queued = match self
+            .service
+            .queue_transactional(tx, &request, context)
+            .await
+        {
             Ok(value) => value,
-            Err(error) => return core_command_error(envelope, envelope.aggregate_id.clone(), error),
+            Err(error) => {
+                return core_command_error(envelope, envelope.aggregate_id.clone(), error)
+            }
         };
         let mut result = CommandResult::success(
             envelope.command_id.clone(),
@@ -1117,7 +1099,8 @@ fn decode_command_input<T: DeserializeOwned>(
 }
 
 fn serialize_value<T: serde::Serialize>(value: &T) -> Result<Value, CommandDispatchError> {
-    serde_json::to_value(value).map_err(|error| CommandDispatchError::Serialization(error.to_string()))
+    serde_json::to_value(value)
+        .map_err(|error| CommandDispatchError::Serialization(error.to_string()))
 }
 
 fn validate_command_target(

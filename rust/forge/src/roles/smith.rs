@@ -28,7 +28,11 @@ pub const SMITH_SERVICE_ID: &str = "forge.smith";
 pub fn delivers_code(node_id: &str) -> bool {
     matches!(
         node_id,
-        "smith" | "smith_split_work" | "repair_smith" | "fast_smith" | "fast_repair_smith"
+        "smith"
+            | "smith_split_work"
+            | "repair_smith"
+            | "fast_smith"
+            | "fast_repair_smith"
             | "lead_solo_implement"
     )
 }
@@ -329,7 +333,13 @@ pub fn read_delivered_work(
             turn.out.refusal.as_deref(),
             capture_base.as_deref(),
         ) {
-            capture_smith_work(ctx, writer, turn.story_id, base, SmithWork::Refused(refusal))?;
+            capture_smith_work(
+                ctx,
+                writer,
+                turn.story_id,
+                base,
+                SmithWork::Refused(refusal),
+            )?;
         }
     }
     if let Some(sha) = turn.out.candidate_sha.clone() {
@@ -355,13 +365,7 @@ pub fn read_delivered_work(
             // Capture is skipped only where there is nothing to capture from — no declared execution base
             // AND no base the harness measured against (the `RoleHarness` default is `None` for both).
             if let Some(base) = capture_base.as_deref() {
-                capture_smith_work(
-                    ctx,
-                    writer,
-                    turn.story_id,
-                    base,
-                    SmithWork::Candidate(&sha),
-                )?;
+                capture_smith_work(ctx, writer, turn.story_id, base, SmithWork::Candidate(&sha))?;
             }
         }
         if let Some(base) = evidence.extra.get("recordedBase").and_then(|v| v.as_str()) {
@@ -703,4 +707,3 @@ mod tests {
         let _ = std::fs::remove_dir_all(&repo);
     }
 }
-

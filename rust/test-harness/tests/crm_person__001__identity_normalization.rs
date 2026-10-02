@@ -197,7 +197,9 @@ async fn crm_person_001__identity_normalization() {
             .find_by_identity(&identity(PersonIdentityKind::Phone, spelling))
             .await
             .expect("the phone lookup runs")
-            .unwrap_or_else(|| panic!("{HARNESS}: {spelling} must resolve to the person who owns it"));
+            .unwrap_or_else(|| {
+                panic!("{HARNESS}: {spelling} must resolve to the person who owns it")
+            });
         assert_eq!(
             found.id, alice,
             "{HARNESS}: {spelling} is the same identity as {national}"
@@ -258,7 +260,10 @@ async fn crm_person_001__identity_normalization() {
         "{HARNESS}: an attached external id is trimmed but keeps its case"
     );
     let found = dao
-        .find_by_identity(&identity(PersonIdentityKind::External, &external_normalized))
+        .find_by_identity(&identity(
+            PersonIdentityKind::External,
+            &external_normalized,
+        ))
         .await
         .expect("the external lookup runs")
         .expect("the external id resolves");
@@ -296,7 +301,15 @@ async fn crm_person_001__identity_normalization() {
     let phone_refusal = dao
         .attach_identity(&AttachPersonIdentityRequest {
             person_id: bob.clone(),
-            identity: identity(PersonIdentityKind::Phone, &format!("1-{}-{}-{}", &national[0..3], &national[3..6], &national[6..10])),
+            identity: identity(
+                PersonIdentityKind::Phone,
+                &format!(
+                    "1-{}-{}-{}",
+                    &national[0..3],
+                    &national[3..6],
+                    &national[6..10]
+                ),
+            ),
         })
         .await
         .expect_err("a second owner of the same normalised phone must be refused");
@@ -306,7 +319,9 @@ async fn crm_person_001__identity_normalization() {
         phone_refusal.kind
     );
     assert!(
-        phone_refusal.to_string().contains("already belongs to another Person"),
+        phone_refusal
+            .to_string()
+            .contains("already belongs to another Person"),
         "{HARNESS}: the phone refusal names the conflict, got {phone_refusal}"
     );
     assert!(

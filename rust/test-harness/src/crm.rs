@@ -91,10 +91,7 @@ impl CrmHarness {
         .fetch_one(self.pool())
         .await
         .map_err(|error| {
-            HarnessDbError::from(DbFailure::from_sqlx(
-                "test-harness.crm.seed_person",
-                &error,
-            ))
+            HarnessDbError::from(DbFailure::from_sqlx("test-harness.crm.seed_person", &error))
         })?;
         Ok(id)
     }
@@ -150,11 +147,7 @@ impl CrmHarness {
     }
 
     /// How many committed identities of one person and type exist.
-    pub async fn identity_count(
-        &self,
-        person_id: &str,
-        kind: &str,
-    ) -> Result<i64, HarnessDbError> {
+    pub async fn identity_count(&self, person_id: &str, kind: &str) -> Result<i64, HarnessDbError> {
         let count = sqlx::query_scalar(
             "select count(*) from person_identity
               where person_id = $1::uuid and identity_type = $2",
@@ -191,17 +184,16 @@ impl CrmHarness {
     /// How many persons this run seeded under `marker` still remain.
     pub async fn leftover_count(&self, marker: &str) -> Result<i64, HarnessDbError> {
         let pattern = format!("{marker}%");
-        let count =
-            sqlx::query_scalar("select count(*) from person where display_name like $1")
-                .bind(&pattern)
-                .fetch_one(self.pool())
-                .await
-                .map_err(|error| {
-                    HarnessDbError::from(DbFailure::from_sqlx(
-                        "test-harness.crm.leftover_count",
-                        &error,
-                    ))
-                })?;
+        let count = sqlx::query_scalar("select count(*) from person where display_name like $1")
+            .bind(&pattern)
+            .fetch_one(self.pool())
+            .await
+            .map_err(|error| {
+                HarnessDbError::from(DbFailure::from_sqlx(
+                    "test-harness.crm.leftover_count",
+                    &error,
+                ))
+            })?;
         Ok(count)
     }
 }

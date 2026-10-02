@@ -203,12 +203,25 @@ struct ForgeLiveRunRow {
 impl From<ForgeLiveRunRow> for ForgeLiveRun {
     fn from(row: ForgeLiveRunRow) -> Self {
         Self {
-            id: row.id, story_id: row.story_id, run_type: row.run_type, run_phase: row.run_phase,
-            agent_runtime: row.agent_runtime, model_used: row.model_used, result_status: row.result_status,
-            started_at: row.started_at, ended_at: row.ended_at, commit_hash: row.commit_hash,
-            tests_summary: row.tests_summary, completion: row.completion, tokens_input: row.tokens_input,
-            tokens_output: row.tokens_output, cost_usd: row.cost_usd, cost_source: row.cost_source,
-            notes: row.notes, evidence_detail: row.evidence_detail, vendor_session_id: row.vendor_session_id,
+            id: row.id,
+            story_id: row.story_id,
+            run_type: row.run_type,
+            run_phase: row.run_phase,
+            agent_runtime: row.agent_runtime,
+            model_used: row.model_used,
+            result_status: row.result_status,
+            started_at: row.started_at,
+            ended_at: row.ended_at,
+            commit_hash: row.commit_hash,
+            tests_summary: row.tests_summary,
+            completion: row.completion,
+            tokens_input: row.tokens_input,
+            tokens_output: row.tokens_output,
+            cost_usd: row.cost_usd,
+            cost_source: row.cost_source,
+            notes: row.notes,
+            evidence_detail: row.evidence_detail,
+            vendor_session_id: row.vendor_session_id,
         }
     }
 }
@@ -224,7 +237,13 @@ struct ForgeLiveNodeRow {
 
 impl From<ForgeLiveNodeRow> for ForgeLiveNodeActivity {
     fn from(row: ForgeLiveNodeRow) -> Self {
-        Self { process_instance_id: row.process_instance_id, node_id: row.node_id, status: row.status, created_at: row.created_at, updated_at: row.updated_at }
+        Self {
+            process_instance_id: row.process_instance_id,
+            node_id: row.node_id,
+            status: row.status,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
     }
 }
 
@@ -449,18 +468,30 @@ impl ForgeReadDao {
         let active_work = self.live_work_items(limit).await?;
         let work_status = self.engine_work_status(limit).await?;
         let selected_story_id = selected_story_id
-            .filter(|id| active_work.iter().any(|item| item.story_id == *id) || work_status.iter().any(|item| item.story_id == *id))
+            .filter(|id| {
+                active_work.iter().any(|item| item.story_id == *id)
+                    || work_status.iter().any(|item| item.story_id == *id)
+            })
             .map(str::to_owned)
             .or_else(|| active_work.first().map(|item| item.story_id.clone()))
             .or_else(|| work_status.first().map(|item| item.story_id.clone()));
 
         let (current_run, node_activity) = if let Some(story_id) = selected_story_id.as_deref() {
-            (self.latest_live_run(story_id).await?, self.live_node_activity(story_id, 32).await?)
+            (
+                self.latest_live_run(story_id).await?,
+                self.live_node_activity(story_id, 32).await?,
+            )
         } else {
             (None, Vec::new())
         };
 
-        Ok(ForgeLiveSnapshot { active_work, work_status, selected_story_id, current_run, node_activity })
+        Ok(ForgeLiveSnapshot {
+            active_work,
+            work_status,
+            selected_story_id,
+            current_run,
+            node_activity,
+        })
     }
 
     async fn live_work_items(&self, limit: i64) -> DbResult<Vec<ForgeLiveWorkItem>> {
@@ -477,7 +508,9 @@ impl ForgeReadDao {
              order by w.updated_at desc limit $1"
         );
         let rows = sqlx::query_as::<_, ForgeLiveWorkRow>(sqlx::AssertSqlSafe(sql))
-            .bind(limit.clamp(1,50)).fetch_all(self.db.pool()).await
+            .bind(limit.clamp(1, 50))
+            .fetch_all(self.db.pool())
+            .await
             .map_err(|error| DbFailure::from_sqlx("forge_read.live_work_items", &error))?;
         Ok(rows.into_iter().map(|row| row.into_domain(None)).collect())
     }
@@ -498,12 +531,17 @@ impl ForgeReadDao {
              order by coalesce(w.finished_at,w.updated_at) desc limit $1"
         );
         let rows = sqlx::query_as::<_, ForgeLiveWorkRow>(sqlx::AssertSqlSafe(sql))
-            .bind(limit.clamp(1,50)).fetch_all(self.db.pool()).await
+            .bind(limit.clamp(1, 50))
+            .fetch_all(self.db.pool())
+            .await
             .map_err(|error| DbFailure::from_sqlx("forge_read.engine_work_status", &error))?;
-        Ok(rows.into_iter().filter_map(|row| {
-            let bucket = engine_work_status_bucket(&row.state, row.story_run_id.as_deref())?;
-            Some(row.into_domain(Some(bucket.to_string())))
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                let bucket = engine_work_status_bucket(&row.state, row.story_run_id.as_deref())?;
+                Some(row.into_domain(Some(bucket.to_string())))
+            })
+            .collect())
     }
 
     async fn latest_live_run(&self, story_id: &str) -> DbResult<Option<ForgeLiveRun>> {
@@ -518,12 +556,19 @@ impl ForgeReadDao {
              left join forge_vendor_session v on v.story_id=r.story_id and v.worker_id='opencode-v2'
              where r.story_id=$1 order by r.started_at desc nulls last,r.created_at desc,r.id desc limit 1"
         );
-        sqlx::query_as::<_, ForgeLiveRunRow>(sqlx::AssertSqlSafe(sql)).bind(story_id)
-            .fetch_optional(self.db.pool()).await.map(|row| row.map(Into::into))
+        sqlx::query_as::<_, ForgeLiveRunRow>(sqlx::AssertSqlSafe(sql))
+            .bind(story_id)
+            .fetch_optional(self.db.pool())
+            .await
+            .map(|row| row.map(Into::into))
             .map_err(|error| DbFailure::from_sqlx("forge_read.latest_live_run", &error))
     }
 
-    async fn live_node_activity(&self, story_id: &str, limit: i64) -> DbResult<Vec<ForgeLiveNodeActivity>> {
+    async fn live_node_activity(
+        &self,
+        story_id: &str,
+        limit: i64,
+    ) -> DbResult<Vec<ForgeLiveNodeActivity>> {
         let sql = format!(
             "select process_instance_id::text as process_instance_id,node_id,status,
                     to_char(created_at at time zone 'UTC','{ISO_UTC}') as created_at,
@@ -531,8 +576,12 @@ impl ForgeReadDao {
              from forge_engine_task_execution where story_id=$1 and node_id is not null
              order by created_at desc limit $2"
         );
-        sqlx::query_as::<_, ForgeLiveNodeRow>(sqlx::AssertSqlSafe(sql)).bind(story_id).bind(limit.clamp(1,100))
-            .fetch_all(self.db.pool()).await.map(|rows| rows.into_iter().map(Into::into).collect())
+        sqlx::query_as::<_, ForgeLiveNodeRow>(sqlx::AssertSqlSafe(sql))
+            .bind(story_id)
+            .bind(limit.clamp(1, 100))
+            .fetch_all(self.db.pool())
+            .await
+            .map(|rows| rows.into_iter().map(Into::into).collect())
             .map_err(|error| DbFailure::from_sqlx("forge_read.live_node_activity", &error))
     }
     /// The bench: the stories the operator selected as active work, in his order. Presence of a row in
@@ -715,7 +764,10 @@ mod tests {
     fn engine_work_status_distinguishes_retry_from_a_fresh_queue_item() {
         assert_eq!(engine_work_status_bucket("Done", None), Some("Done"));
         assert_eq!(engine_work_status_bucket("Error", None), Some("Error"));
-        assert_eq!(engine_work_status_bucket("Ready", Some("run-1")), Some("Retry"));
+        assert_eq!(
+            engine_work_status_bucket("Ready", Some("run-1")),
+            Some("Retry")
+        );
         assert_eq!(engine_work_status_bucket("Ready", None), None);
         assert_eq!(engine_work_status_bucket("Claimed", Some("run-1")), None);
     }

@@ -41,8 +41,8 @@ pub mod publishing;
 pub mod relationship_evidence;
 pub mod security;
 pub mod showing;
-pub mod signer;
 pub mod signature;
+pub mod signer;
 pub mod support;
 pub mod task;
 pub mod tech;
@@ -166,12 +166,12 @@ pub use media::{
 
 pub use signature::{
     normalize_signature_email, validate_signature_recipients, ApplySignatureStatusRequest,
-    IssuedParticipantSlot, PrepareSignatureRequest, PreparedSignatureRecipient, SendSignatureRequest, SignatureArtifactDownload,
-    SignatureCommandOutcome, SignatureCommandResult, SignatureProviderActionResult,
-    SignatureProviderEvent, SignatureProviderSendRequest, SignatureProviderSendResult,
-    SignatureProviderStatusResult, SignatureRecipient, SignatureRecipientRole, SignatureRequest,
-    SignatureRequestResult, SignatureRequestStatus, SignatureStatusResult,
-    SignatureWebhookVerification,
+    IssuedParticipantSlot, PrepareSignatureRequest, PreparedSignatureRecipient,
+    SendSignatureRequest, SignatureArtifactDownload, SignatureCommandOutcome,
+    SignatureCommandResult, SignatureProviderActionResult, SignatureProviderEvent,
+    SignatureProviderSendRequest, SignatureProviderSendResult, SignatureProviderStatusResult,
+    SignatureRecipient, SignatureRecipientRole, SignatureRequest, SignatureRequestResult,
+    SignatureRequestStatus, SignatureStatusResult, SignatureWebhookVerification,
 };
 
 pub use task::TaskCompletion;

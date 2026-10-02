@@ -24,8 +24,8 @@ use db::{
     InteractionDraft, LandingDao, RelationshipEvidenceDao,
 };
 use domain::applemail::{
-    ICLOUD_MAIL_SOURCE, MailAddress, MailNormalization, apple_mail_replay_id, build_mail_evidence,
-    mail_observation_interaction, normalize_landed_mail,
+    apple_mail_replay_id, build_mail_evidence, mail_observation_interaction, normalize_landed_mail,
+    MailAddress, MailNormalization, ICLOUD_MAIL_SOURCE,
 };
 use serde::Deserialize;
 use serde_json::json;

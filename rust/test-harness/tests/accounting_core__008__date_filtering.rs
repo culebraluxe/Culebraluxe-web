@@ -405,14 +405,15 @@ async fn accounting_core_008__date_filtering() {
         .with_rollback(move |conn| {
             Box::pin(async move {
                 probe_insert_receivable(conn, &probe_reference).await?;
-                let count: i64 =
-                    sqlx::query_scalar("select count(*) from account_receivable where reference = $1")
-                        .bind(&probe_reference)
-                        .fetch_one(&mut *conn)
-                        .await
-                        .map_err(|error| {
-                            DbFailure::from_sqlx("test-harness.accounting.probe_read", &error)
-                        })?;
+                let count: i64 = sqlx::query_scalar(
+                    "select count(*) from account_receivable where reference = $1",
+                )
+                .bind(&probe_reference)
+                .fetch_one(&mut *conn)
+                .await
+                .map_err(|error| {
+                    DbFailure::from_sqlx("test-harness.accounting.probe_read", &error)
+                })?;
                 Ok(count)
             })
         })

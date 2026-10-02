@@ -596,7 +596,11 @@ mod tests {
         let outcome =
             run_forge_role_turn(&context, "qa_verify", &task, &Measures).expect("turn runs");
 
-        assert_eq!(harness.turns(), 0, "a model-free lane must not spend a model turn");
+        assert_eq!(
+            harness.turns(),
+            0,
+            "a model-free lane must not spend a model turn"
+        );
         assert_eq!(
             outcome.evidence.deliverable_rejection.as_deref(),
             Some("measured qa_verify without a model"),
@@ -626,15 +630,18 @@ mod tests {
             ) -> Result<()> {
                 self.calls.fetch_add(1, Ordering::SeqCst);
                 assert_eq!(turn.story_id, "ENG-STORY-1");
-                assert!(turn.out.raw.contains("architecture notes"), "{}", turn.out.raw);
+                assert!(
+                    turn.out.raw.contains("architecture notes"),
+                    "{}",
+                    turn.out.raw
+                );
                 evidence.deliverable_rejection = Some("Architect said no".into());
                 Ok(())
             }
         }
 
-        let outcome =
-            run_forge_role_turn(&context, "architect", &task, &Refuses { calls: &calls })
-                .expect("turn runs");
+        let outcome = run_forge_role_turn(&context, "architect", &task, &Refuses { calls: &calls })
+            .expect("turn runs");
 
         let turns = harness.turns();
         assert!(
@@ -807,5 +814,3 @@ mod tests {
         assert!((first.cost_usd - 0.005352).abs() < 1e-9);
     }
 }
-
-

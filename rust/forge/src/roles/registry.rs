@@ -96,11 +96,7 @@ mod tests {
     struct NoopRunner;
 
     impl ForgeRoleRunner for NoopRunner {
-        fn run(
-            &self,
-            _node_id: &str,
-            _task: &ActiveForgeRoleTask,
-        ) -> Result<ForgeRoleOutcome> {
+        fn run(&self, _node_id: &str, _task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
             Ok(ForgeRoleOutcome {
                 transition_name: Some("complete".into()),
                 evidence: ForgeGateEvidence::default(),

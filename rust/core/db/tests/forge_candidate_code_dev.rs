@@ -60,7 +60,11 @@ async fn the_captured_candidate_comes_back_unchanged_and_newest_first() {
     //    broke" have to stay distinguishable, because `forge salvage` turns the first into a sentence and the
     //    second into a database error.
     assert!(
-        engine.candidate_code_for_story(&story).await.unwrap().is_none(),
+        engine
+            .candidate_code_for_story(&story)
+            .await
+            .unwrap()
+            .is_none(),
         "a story with no capture reads as no capture"
     );
 
@@ -82,19 +86,28 @@ async fn the_captured_candidate_comes_back_unchanged_and_newest_first() {
         .await
         .unwrap()
         .expect("the capture is readable");
-    assert_eq!(read["patch"], json!(patch), "the code comes back byte for byte");
+    assert_eq!(
+        read["patch"],
+        json!(patch),
+        "the code comes back byte for byte"
+    );
     assert_eq!(read["candidateSha"], json!(first_sha));
     assert_eq!(read["base"], json!("b".repeat(40)));
-    assert_eq!(read["changedFiles"][0], json!("rust/test-harness/tests/t.rs"));
+    assert_eq!(
+        read["changedFiles"][0],
+        json!("rust/test-harness/tests/t.rs")
+    );
 
     // 3. A second run's capture is the one a recovery replays. The first row is backdated rather than relied on
     //    to be older: two inserts microseconds apart would otherwise make this an assertion about clock
     //    resolution instead of about `order by created_at desc`.
-    sqlx::query("update forge_tool_artifact set created_at = now() - interval '1 hour' where story_id = $1")
-        .bind(&story)
-        .execute(pool)
-        .await
-        .expect("backdate the first capture");
+    sqlx::query(
+        "update forge_tool_artifact set created_at = now() - interval '1 hour' where story_id = $1",
+    )
+    .bind(&story)
+    .execute(pool)
+    .await
+    .expect("backdate the first capture");
     let second_sha = "c".repeat(40);
     engine
         .record_tool_artifact(&capture(&story, "the second run's patch", &second_sha))

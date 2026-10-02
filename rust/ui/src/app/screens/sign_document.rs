@@ -296,7 +296,10 @@ mod tests {
             ..ScreenCtx::default()
         };
         let (mut model, cmd) = SignDocument::init(&ctx);
-        assert!(cmd.into_requests().is_empty(), "the prototype must not call an endpoint");
+        assert!(
+            cmd.into_requests().is_empty(),
+            "the prototype must not call an endpoint"
+        );
         assert_eq!(model.initials, "MR");
 
         SignDocument::update(&mut model, Msg::Complete, &ctx);

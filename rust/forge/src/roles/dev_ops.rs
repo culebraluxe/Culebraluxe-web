@@ -39,4 +39,3 @@ impl AbstractForgeService for DevOpsService<'_> {
         self.runner
     }
 }
-

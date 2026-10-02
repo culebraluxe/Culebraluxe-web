@@ -39,15 +39,15 @@ use crate::{
     workflow_portal::WorkflowPortalService,
 };
 use async_trait::async_trait;
-use forge::ForgeService;
 use db::{
     AccountingDao, CalendarDao, CatchUpDao, ClientDao, ClientRoomDao, CockpitDao, CommsDao,
     ContractDao, Database, DealPortalDao, DocumentSignDao, EmailDao, FirmDao, FlightRecorderDao,
-    FormDao, GuestDao, GuideDao, IntakeDao, IssueDao, MarketingDao, MediaDao, PersonDao, ProjectDao, PropertyDao,
-    PublicListingDao, PublishingDao, RelationshipEvidenceDao, SecurityDao, ShowingDao,
-    SignatureDao, SignerDao, SupportDiagnosticsDao, TaskDao, TechCockpitDao, VaultDao, WbsDao,
-    WebsiteLeadDao, WhatsAppDao, WorkflowPortalDao,
+    FormDao, GuestDao, GuideDao, IntakeDao, IssueDao, MarketingDao, MediaDao, PersonDao,
+    ProjectDao, PropertyDao, PublicListingDao, PublishingDao, RelationshipEvidenceDao, SecurityDao,
+    ShowingDao, SignatureDao, SignerDao, SupportDiagnosticsDao, TaskDao, TechCockpitDao, VaultDao,
+    WbsDao, WebsiteLeadDao, WhatsAppDao, WorkflowPortalDao,
 };
+use forge::ForgeService;
 use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use service::{
     AbstractService, ServiceDescriptor, ServiceDispatchError, ServiceInfrastructure,
@@ -281,8 +281,8 @@ impl ServiceCatalog {
             email_transport_from_env(),
             infrastructure.clone(),
         ));
-        let signer_codec = SignerAccessTokenCodec::from_env()
-            .unwrap_or_else(SignerAccessTokenCodec::unavailable);
+        let signer_codec =
+            SignerAccessTokenCodec::from_env().unwrap_or_else(SignerAccessTokenCodec::unavailable);
         let signer = Arc::new(SignerService::new(
             SignerDao::new(db.clone()),
             signer_codec,

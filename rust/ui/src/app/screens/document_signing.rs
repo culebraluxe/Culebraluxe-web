@@ -271,7 +271,12 @@ fn metrics(model: &Model) -> Html {
     let attention = model
         .envelopes
         .iter()
-        .filter(|row| matches!(row.status, EnvelopeStatus::Declined | EnvelopeStatus::Voided))
+        .filter(|row| {
+            matches!(
+                row.status,
+                EnvelopeStatus::Declined | EnvelopeStatus::Voided
+            )
+        })
         .count();
 
     html! {
@@ -391,7 +396,10 @@ mod tests {
     #[test]
     fn the_prototype_is_disconnected_and_selects_locally() {
         let (mut model, cmd) = DocumentSigning::init(&ScreenCtx::default());
-        assert!(cmd.into_requests().is_empty(), "the prototype must not call an endpoint");
+        assert!(
+            cmd.into_requests().is_empty(),
+            "the prototype must not call an endpoint"
+        );
         assert_eq!(model.selected_id, "env-listing-001");
 
         DocumentSigning::update(

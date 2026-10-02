@@ -106,12 +106,17 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         // service operations needed to prepare/issue a native envelope. This is service-to-service
         // authority, not a grant to an anonymous caller or to every System actor.
         let document_sign_service = system
-            && request.actor.id.as_deref() == Some(crate::document_sign::DOCUMENT_SIGN_SERVICE_ACTOR)
+            && request.actor.id.as_deref()
+                == Some(crate::document_sign::DOCUMENT_SIGN_SERVICE_ACTOR)
             && request.kind == OperationKind::Command
             && matches!(
                 (request.domain, request.operation, request.action),
                 ("signature", "signature.prepare", "signature.write")
-                    | ("signature", "signature.replaceRecipients", "signature.write")
+                    | (
+                        "signature",
+                        "signature.replaceRecipients",
+                        "signature.write"
+                    )
                     | ("signature", "signature.transition", "signature.write")
                     | ("signer", "signer.issueAccess", "signer.access.issue")
                     | ("email", "email.queue", "email.queue")

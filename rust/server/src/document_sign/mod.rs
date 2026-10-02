@@ -10,8 +10,7 @@ use domain::{
     DocumentSignRecipient, DocumentSignSnapshot, EmailMessageKind, IssueDocumentSignRequest,
     PrepareDocumentSignRequest, PrepareSignatureRequest, PreparedSignatureRecipient,
     PutSignatureFieldRequest, QueueEmailRequest, RemoveSignatureFieldRequest,
-    SetDocumentSignRecipientsRequest, SignatureField,
-    SignatureRequestStatus,
+    SetDocumentSignRecipientsRequest, SignatureField, SignatureRequestStatus,
 };
 use serde_json::{json, Value};
 use service::{
@@ -27,10 +26,7 @@ const DEFAULT_EXPIRY_DAYS: i64 = 7;
 #[async_trait]
 pub trait DocumentSignRepository: Send + Sync {
     async fn config(&self, signature_request_id: &str) -> DbResult<Option<DocumentSignConfig>>;
-    async fn recipients(
-        &self,
-        signature_request_id: &str,
-    ) -> DbResult<Vec<DocumentSignRecipient>>;
+    async fn recipients(&self, signature_request_id: &str) -> DbResult<Vec<DocumentSignRecipient>>;
     async fn recipients_tx(
         &self,
         tx: &mut DbTransaction,
@@ -84,10 +80,7 @@ impl DocumentSignRepository for DocumentSignDao {
     async fn config(&self, signature_request_id: &str) -> DbResult<Option<DocumentSignConfig>> {
         DocumentSignDao::config(self, signature_request_id).await
     }
-    async fn recipients(
-        &self,
-        signature_request_id: &str,
-    ) -> DbResult<Vec<DocumentSignRecipient>> {
+    async fn recipients(&self, signature_request_id: &str) -> DbResult<Vec<DocumentSignRecipient>> {
         DocumentSignDao::recipients(self, signature_request_id).await
     }
     async fn recipients_tx(
@@ -607,7 +600,12 @@ where
             for recipient in &recipients {
                 let grant = self
                     .signer
-                    .issue_access_transactional(tx, &recipient.id, Some(expires_at.clone()), &internal)
+                    .issue_access_transactional(
+                        tx,
+                        &recipient.id,
+                        Some(expires_at.clone()),
+                        &internal,
+                    )
                     .await?;
                 let queued = self
                     .email
@@ -624,9 +622,7 @@ where
                             }),
                             dedupe_key: format!(
                                 "signature-invite:{}:{}:v{}",
-                                request.signature_request_id,
-                                recipient.id,
-                                grant.token_version
+                                request.signature_request_id, recipient.id, grant.token_version
                             ),
                             correlation_id: Some(context.correlation_id.clone()),
                             causation_id: context.causation_id.clone(),
@@ -874,18 +870,13 @@ fn validate_prepare(request: &PrepareDocumentSignRequest) -> Result<(), CoreServ
     Ok(())
 }
 
-fn parse_future_expiry(
-    value: Option<&str>,
-) -> Result<Option<DateTime<Utc>>, CoreServiceError> {
+fn parse_future_expiry(value: Option<&str>) -> Result<Option<DateTime<Utc>>, CoreServiceError> {
     let Some(value) = value else {
         return Ok(None);
     };
     let parsed = DateTime::parse_from_rfc3339(value)
         .map_err(|_| {
-            CoreServiceError::business(
-                "DOCUMENT_SIGN_EXPIRY_INVALID",
-                "expiresAt must be RFC3339.",
-            )
+            CoreServiceError::business("DOCUMENT_SIGN_EXPIRY_INVALID", "expiresAt must be RFC3339.")
         })?
         .with_timezone(&Utc);
     if parsed <= Utc::now() {
@@ -1126,16 +1117,11 @@ fn service_error(error: CoreServiceError) -> ServiceDispatchError {
 }
 
 fn serialization_error(error: serde_json::Error) -> ServiceDispatchError {
-    ServiceDispatchError::infrastructure(
-        "SERVICE_SERIALIZATION_FAILED",
-        error.to_string(),
-        false,
-    )
+    ServiceDispatchError::infrastructure("SERVICE_SERIALIZATION_FAILED", error.to_string(), false)
 }
 
 pub type ProductionDocumentSignService =
     DocumentSignService<DocumentSignDao, SignatureDao, SignerDao, EmailDao>;
-
 
 #[cfg(test)]
 mod tests {

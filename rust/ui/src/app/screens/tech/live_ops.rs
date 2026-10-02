@@ -74,7 +74,11 @@ pub(super) fn view(model: &Model, live: &ForgeLiveSnapshot, on_msg: &Callback<Ms
     }
 }
 
-fn work_list(live: &ForgeLiveSnapshot, chosen: Option<&ForgeLiveWorkItem>, on_msg: &Callback<Msg>) -> Html {
+fn work_list(
+    live: &ForgeLiveSnapshot,
+    chosen: Option<&ForgeLiveWorkItem>,
+    on_msg: &Callback<Msg>,
+) -> Html {
     html! {
         <section class="overflow-hidden rounded-xl border border-white/10 bg-white/[0.025]">
             <div class="border-b border-white/10 px-4 py-3">
@@ -266,6 +270,9 @@ mod tests {
             selected_story_id: Some("S-1".into()),
             ..Default::default()
         };
-        assert_eq!(selected(&Model::default(), &live).map(|item| item.story_id.as_str()), Some("S-1"));
+        assert_eq!(
+            selected(&Model::default(), &live).map(|item| item.story_id.as_str()),
+            Some("S-1")
+        );
     }
 }

@@ -1,8 +1,8 @@
 use crate::{Database, DbFailure, DbResult, DbTransaction};
 use chrono::{DateTime, Utc};
 use domain::{
-    DocumentSignRecipient, SignerRecipientState, SignerState, SignatureField, SignatureFieldType,
-    SignatureRecipientRole,
+    DocumentSignRecipient, SignatureField, SignatureFieldType, SignatureRecipientRole,
+    SignerRecipientState, SignerState,
 };
 use serde_json::Value;
 use sqlx::FromRow;
@@ -290,11 +290,7 @@ impl SignerDao {
         Ok(())
     }
 
-    pub async fn mark_open_tx(
-        &self,
-        tx: &mut DbTransaction,
-        recipient_id: &str,
-    ) -> DbResult<bool> {
+    pub async fn mark_open_tx(&self, tx: &mut DbTransaction, recipient_id: &str) -> DbResult<bool> {
         let result = sqlx::query(
             r#"
             update signature_recipient_state

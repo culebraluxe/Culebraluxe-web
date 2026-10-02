@@ -17,15 +17,15 @@ use std::collections::BTreeMap;
 
 use crate::relationship_evidence::RelationshipDecision;
 
-mod types;
-mod normalize;
 mod evidence;
+mod normalize;
+mod types;
 #[allow(unused_imports)]
-pub use types::*;
+pub use evidence::*;
 #[allow(unused_imports)]
 pub use normalize::*;
 #[allow(unused_imports)]
-pub use evidence::*;
+pub use types::*;
 
 pub const APPLE_MESSAGES_SOURCE: &str = "apple_messages";
 

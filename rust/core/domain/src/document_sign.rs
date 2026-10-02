@@ -206,9 +206,7 @@ pub struct DocumentSignIssueResult {
     pub expires_at: String,
 }
 
-pub fn validate_document_sign_recipients(
-    recipients: &[DocumentSignRecipientInput],
-) -> Vec<String> {
+pub fn validate_document_sign_recipients(recipients: &[DocumentSignRecipientInput]) -> Vec<String> {
     use std::collections::BTreeSet;
 
     if recipients.is_empty() {

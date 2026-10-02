@@ -108,8 +108,7 @@ pub fn preview_publish(repo: &Path, candidate: &str) -> PublishOutcome {
                     }
                 }
             };
-            if merged_tree.len() != 40
-                || !merged_tree.bytes().all(|byte| byte.is_ascii_hexdigit())
+            if merged_tree.len() != 40 || !merged_tree.bytes().all(|byte| byte.is_ascii_hexdigit())
             {
                 return PublishOutcome::IntegrationConflict {
                     reason: format!(
@@ -215,14 +214,9 @@ impl EvidenceStore for DbReleaseEvidenceStore {
         let result = with_shared(|db, rt| {
             let dao = ForgeEngineDao::new(db.clone());
             rt.block_on(async {
-                dao.merge_workflow_evidence(
-                    process_instance_id,
-                    story_id,
-                    &mapped,
-                    resolved,
-                )
-                .await
-                .map_err(|error| error.to_string())
+                dao.merge_workflow_evidence(process_instance_id, story_id, &mapped, resolved)
+                    .await
+                    .map_err(|error| error.to_string())
             })
         });
         match result {

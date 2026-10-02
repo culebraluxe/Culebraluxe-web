@@ -39,4 +39,3 @@ impl AbstractForgeService for InspectorService<'_> {
         self.runner
     }
 }
-

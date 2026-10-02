@@ -457,9 +457,7 @@ impl Store for MemoryTx<'_> {
         let Some(mut job) = self.inner.jobs.get(job_id).cloned() else {
             return Ok(None);
         };
-        if job.status != JobStatus::Pending
-            || job.due_at > now
-            || job.attempts >= job.max_attempts
+        if job.status != JobStatus::Pending || job.due_at > now || job.attempts >= job.max_attempts
         {
             return Ok(None);
         }

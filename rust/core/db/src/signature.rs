@@ -1,8 +1,9 @@
 use crate::{Database, DbFailure, DbResult, DbTransaction};
 use chrono::{DateTime, Utc};
 use domain::{
-    normalize_signature_email, validate_signature_recipients, ApplySignatureStatusRequest, PrepareSignatureRequest,
-    PreparedSignatureRecipient, SendSignatureRequest, SignatureArtifactDownload, SignatureCommandOutcome, SignatureCommandResult, SignatureRecipient,
+    normalize_signature_email, validate_signature_recipients, ApplySignatureStatusRequest,
+    PrepareSignatureRequest, PreparedSignatureRecipient, SendSignatureRequest,
+    SignatureArtifactDownload, SignatureCommandOutcome, SignatureCommandResult, SignatureRecipient,
     SignatureRequest, SignatureRequestResult, SignatureRequestStatus, SignatureStatusResult,
 };
 use serde_json::{json, Value};

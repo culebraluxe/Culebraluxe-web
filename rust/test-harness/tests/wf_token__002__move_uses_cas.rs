@@ -381,9 +381,7 @@ fn wf_token_002__move_uses_cas() {
         "{HARNESS}: a move for an absent token must be refused"
     );
     assert!(
-        store
-            .with_tx(|tx| tx.get_token(CAS_ABSENT))
-            .is_err(),
+        store.with_tx(|tx| tx.get_token(CAS_ABSENT)).is_err(),
         "{HARNESS}: a refused move on an absent token must not create a row"
     );
 
@@ -425,8 +423,16 @@ fn wf_token_002__move_uses_cas() {
     assert_eq!(
         first_moves,
         vec![
-            (START_NODE.to_string(), WORK_NODE.to_string(), BEGIN.to_string()),
-            (WORK_NODE.to_string(), HOLD_NODE.to_string(), NEXT.to_string()),
+            (
+                START_NODE.to_string(),
+                WORK_NODE.to_string(),
+                BEGIN.to_string()
+            ),
+            (
+                WORK_NODE.to_string(),
+                HOLD_NODE.to_string(),
+                NEXT.to_string()
+            ),
         ],
         "{HARNESS}: every committed move is durably recorded with its from/to and transition"
     );
@@ -476,7 +482,11 @@ fn wf_token_002__move_uses_cas() {
     );
     assert_eq!(
         all_moves[2],
-        (HOLD_NODE.to_string(), DONE_NODE.to_string(), FINISH.to_string()),
+        (
+            HOLD_NODE.to_string(),
+            DONE_NODE.to_string(),
+            FINISH.to_string()
+        ),
         "{HARNESS}: the completing move is the task transition, recorded like every other move"
     );
     assert_eq!(

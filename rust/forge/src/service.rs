@@ -134,11 +134,9 @@ fn dispatch_runtime_error(error: ServiceRuntimeError) -> ServiceDispatchError {
         ServiceRuntimeError::Forbidden { reason, .. } => {
             ServiceDispatchError::business("FORBIDDEN", reason, false)
         }
-        ServiceRuntimeError::Authorization(message) => ServiceDispatchError::infrastructure(
-            "AUTHORIZATION_UNAVAILABLE",
-            message,
-            true,
-        ),
+        ServiceRuntimeError::Authorization(message) => {
+            ServiceDispatchError::infrastructure("AUTHORIZATION_UNAVAILABLE", message, true)
+        }
         ServiceRuntimeError::Audit(message) => {
             ServiceDispatchError::infrastructure("AUDIT_UNAVAILABLE", message, true)
         }
@@ -227,8 +225,14 @@ mod tests {
 
         assert_eq!(descriptor.domain, FORGE_SERVICE_DOMAIN);
         assert_eq!(descriptor.capabilities.len(), 2);
-        assert_eq!(descriptor.capabilities[0].name, FORGE_SCHEDULED_PASS_OPERATION);
-        assert_eq!(descriptor.capabilities[1].name, FORGE_LIVE_SNAPSHOT_OPERATION);
+        assert_eq!(
+            descriptor.capabilities[0].name,
+            FORGE_SCHEDULED_PASS_OPERATION
+        );
+        assert_eq!(
+            descriptor.capabilities[1].name,
+            FORGE_LIVE_SNAPSHOT_OPERATION
+        );
         assert_eq!(descriptor.capabilities[1].authorization, "tech.access");
         assert!(descriptor
             .invariants

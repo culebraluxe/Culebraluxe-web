@@ -128,47 +128,45 @@ fn run_rust_contract_qa(
         ctx.contract_acceptance_mapped,
     );
 
-        if let Some(writer) = ctx.writer {
+    if let Some(writer) = ctx.writer {
+        writer
+            .record_tool_artifact(&assay_tool_artifact(
+                story_id,
+                ctx.story_run_id,
+                &evidence,
+                verdict,
+            ))
+            .map_err(|error| {
+                WorkflowError::generic(format!("record_tool_artifact({story_id}): {error}"))
+            })?;
+
+        if let Some(reason) = evidence.deliverable_rejection.clone() {
             writer
-                .record_tool_artifact(&assay_tool_artifact(
-                    story_id,
-                    ctx.story_run_id,
-                    &evidence,
-                    verdict,
-                ))
+                .mark_story_human_hold(story_id, &reason)
                 .map_err(|error| {
-                    WorkflowError::generic(format!("record_tool_artifact({story_id}): {error}"))
+                    WorkflowError::generic(format!("mark_story_human_hold({story_id}): {error}"))
                 })?;
-
-            if let Some(reason) = evidence.deliverable_rejection.clone() {
-                writer
-                    .mark_story_human_hold(story_id, &reason)
-                    .map_err(|error| {
-                        WorkflowError::generic(format!(
-                            "mark_story_human_hold({story_id}): {error}"
-                        ))
-                    })?;
-                writer
-                    .open_hold(&OpenHold {
-                        process_instance_id: task.process_instance_id.clone(),
-                        task_id: Some(task.task_id.clone()),
-                        story_id: story_id.to_string(),
-                        reason,
-                        originating_node: Some(node_id.into()),
-                        failure_class: Some("DELIVERABLE_REJECTED".into()),
-                        resume_target: None,
-                    })
-                    .map_err(|error| {
-                        WorkflowError::generic(format!("forge_hold_record({story_id}): {error}"))
-                    })?;
-            }
+            writer
+                .open_hold(&OpenHold {
+                    process_instance_id: task.process_instance_id.clone(),
+                    task_id: Some(task.task_id.clone()),
+                    story_id: story_id.to_string(),
+                    reason,
+                    originating_node: Some(node_id.into()),
+                    failure_class: Some("DELIVERABLE_REJECTED".into()),
+                    resume_target: None,
+                })
+                .map_err(|error| {
+                    WorkflowError::generic(format!("forge_hold_record({story_id}): {error}"))
+                })?;
         }
-
-        Ok(ForgeRoleOutcome {
-            transition_name: Some("complete".into()),
-            evidence,
-        })
     }
+
+    Ok(ForgeRoleOutcome {
+        transition_name: Some("complete".into()),
+        evidence,
+    })
+}
 
 /// The artifact a QA lane's own measurement becomes (migration 130, `kind = 'qa-assay-evidence'`).
 ///
@@ -248,15 +246,11 @@ pub fn read_assay_measurement(
                 verdict,
             ))
             .map_err(|error| {
-                WorkflowError::generic(format!(
-                    "record_tool_artifact({}): {error}",
-                    turn.story_id
-                ))
+                WorkflowError::generic(format!("record_tool_artifact({}): {error}", turn.story_id))
             })?;
     }
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -409,4 +403,3 @@ mod tests {
         );
     }
 }
-

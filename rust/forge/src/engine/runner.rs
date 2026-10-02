@@ -221,7 +221,6 @@ impl ForgeRoleRunner for ProductionRoleRunner<'_> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

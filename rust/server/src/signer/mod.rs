@@ -5,9 +5,8 @@ use chrono::{DateTime, Duration, Utc};
 use db::{DbResult, DbTransaction, SignerAccessRecord, SignerDao};
 use domain::{
     AcceptSignerConsentRequest, CompleteSignatureFieldRequest, CompleteSignerRequest,
-    DeclineSignerRequest, DocumentSignRecipient, OpenSignerRequest, SignerAccessGrant,
-    SignerActionResult,
-    SignerRecipientState, SignerSession, SignerState, SignatureField,
+    DeclineSignerRequest, DocumentSignRecipient, OpenSignerRequest, SignatureField,
+    SignerAccessGrant, SignerActionResult, SignerRecipientState, SignerSession, SignerState,
 };
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -119,8 +118,9 @@ impl SignerAccessTokenCodec {
             )
         })?;
         let encoded = URL_SAFE_NO_PAD.encode(payload);
-        let mut mac = Hmac::<Sha256>::new_from_slice(self.key()?)
-            .map_err(|_| CoreServiceError::business("SIGNER_ACCESS_INVALID", "Signer key is invalid."))?;
+        let mut mac = Hmac::<Sha256>::new_from_slice(self.key()?).map_err(|_| {
+            CoreServiceError::business("SIGNER_ACCESS_INVALID", "Signer key is invalid.")
+        })?;
         mac.update(encoded.as_bytes());
         let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
         Ok(format!("{encoded}.{signature}"))
@@ -133,8 +133,9 @@ impl SignerAccessTokenCodec {
         let signature = URL_SAFE_NO_PAD.decode(signature).map_err(|_| {
             CoreServiceError::business("SIGNER_ACCESS_INVALID", "Signer link is invalid.")
         })?;
-        let mut mac = Hmac::<Sha256>::new_from_slice(self.key()?)
-            .map_err(|_| CoreServiceError::business("SIGNER_ACCESS_INVALID", "Signer key is invalid."))?;
+        let mut mac = Hmac::<Sha256>::new_from_slice(self.key()?).map_err(|_| {
+            CoreServiceError::business("SIGNER_ACCESS_INVALID", "Signer key is invalid.")
+        })?;
         mac.update(encoded.as_bytes());
         mac.verify_slice(&signature).map_err(|_| {
             CoreServiceError::business("SIGNER_ACCESS_INVALID", "Signer link is invalid.")
@@ -166,21 +167,10 @@ pub trait SignerRepository: Send + Sync {
         recipient_id: &str,
         expires_at: DateTime<Utc>,
     ) -> DbResult<SignerAccessRecord>;
-    async fn initialize_state_tx(
-        &self,
-        tx: &mut DbTransaction,
-        recipient_id: &str,
-    ) -> DbResult<()>;
-    async fn mark_notified_tx(
-        &self,
-        tx: &mut DbTransaction,
-        recipient_id: &str,
-    ) -> DbResult<()>;
-    async fn mark_open_tx(
-        &self,
-        tx: &mut DbTransaction,
-        recipient_id: &str,
-    ) -> DbResult<bool>;
+    async fn initialize_state_tx(&self, tx: &mut DbTransaction, recipient_id: &str)
+        -> DbResult<()>;
+    async fn mark_notified_tx(&self, tx: &mut DbTransaction, recipient_id: &str) -> DbResult<()>;
+    async fn mark_open_tx(&self, tx: &mut DbTransaction, recipient_id: &str) -> DbResult<bool>;
     async fn accept_consent_tx(
         &self,
         tx: &mut DbTransaction,
@@ -264,7 +254,11 @@ impl SignerRepository for SignerDao {
     ) -> DbResult<SignerAccessRecord> {
         SignerDao::issue_access_tx(self, tx, recipient_id, expires_at).await
     }
-    async fn initialize_state_tx(&self, tx: &mut DbTransaction, recipient_id: &str) -> DbResult<()> {
+    async fn initialize_state_tx(
+        &self,
+        tx: &mut DbTransaction,
+        recipient_id: &str,
+    ) -> DbResult<()> {
         SignerDao::initialize_state_tx(self, tx, recipient_id).await
     }
     async fn mark_notified_tx(&self, tx: &mut DbTransaction, recipient_id: &str) -> DbResult<()> {
@@ -406,7 +400,10 @@ impl<R: SignerRepository> SignerService<R> {
                 .recipient(&access.recipient_id)
                 .await?
                 .ok_or_else(|| {
-                    CoreServiceError::business("SIGNER_ACCESS_INVALID", "Signer recipient not found.")
+                    CoreServiceError::business(
+                        "SIGNER_ACCESS_INVALID",
+                        "Signer recipient not found.",
+                    )
                 })?;
             let state = self
                 .repository
@@ -451,12 +448,15 @@ impl<R: SignerRepository> SignerService<R> {
         )
         .await?;
         let result = async {
-            let expires_at = expires_at.unwrap_or_else(|| Utc::now() + Duration::days(DEFAULT_ACCESS_DAYS));
+            let expires_at =
+                expires_at.unwrap_or_else(|| Utc::now() + Duration::days(DEFAULT_ACCESS_DAYS));
             let access = self
                 .repository
                 .issue_access_tx(tx, recipient_id, expires_at)
                 .await?;
-            self.repository.initialize_state_tx(tx, recipient_id).await?;
+            self.repository
+                .initialize_state_tx(tx, recipient_id)
+                .await?;
             self.repository
                 .append_evidence_tx(
                     tx,
@@ -940,10 +940,9 @@ impl<R: SignerRepository> SignerService<R> {
         &self,
         recipient_id: &str,
     ) -> Result<SignerRecipientState, CoreServiceError> {
-        self.repository
-            .state(recipient_id)
-            .await?
-            .ok_or_else(|| CoreServiceError::business("SIGNER_ACCESS_INVALID", "Signer state not found."))
+        self.repository.state(recipient_id).await?.ok_or_else(|| {
+            CoreServiceError::business("SIGNER_ACCESS_INVALID", "Signer state not found.")
+        })
     }
 }
 
@@ -1077,13 +1076,18 @@ impl<R: SignerRepository + 'static> AbstractService for SignerService<R> {
                 serde_json::to_value(self.session(token, context).await.map_err(service_error)?)
                     .map_err(serialization_error)
             }
-            "signer.open" | "signer.acceptConsent" | "signer.completeField" | "signer.complete" | "signer.decline" => {
-                Err(ServiceDispatchError::business(
-                    "DURABLE_COMMAND_REQUIRED",
-                    format!("{} must enter through the durable command dispatcher.", envelope.operation),
-                    false,
-                ))
-            }
+            "signer.open"
+            | "signer.acceptConsent"
+            | "signer.completeField"
+            | "signer.complete"
+            | "signer.decline" => Err(ServiceDispatchError::business(
+                "DURABLE_COMMAND_REQUIRED",
+                format!(
+                    "{} must enter through the durable command dispatcher.",
+                    envelope.operation
+                ),
+                false,
+            )),
             operation => Err(ServiceDispatchError::UnknownOperation {
                 domain: "signer".into(),
                 operation: operation.into(),
@@ -1094,7 +1098,9 @@ impl<R: SignerRepository + 'static> AbstractService for SignerService<R> {
 
 fn service_error(error: CoreServiceError) -> ServiceDispatchError {
     match error {
-        CoreServiceError::Business { code, message } => ServiceDispatchError::business(code, message, false),
+        CoreServiceError::Business { code, message } => {
+            ServiceDispatchError::business(code, message, false)
+        }
         CoreServiceError::Database(error) => {
             ServiceDispatchError::infrastructure("DATABASE", error.to_string(), error.retryable)
         }

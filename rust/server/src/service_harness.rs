@@ -72,11 +72,7 @@ impl ServiceHarness {
             catalog.email(),
         )
         .map_err(|error| {
-            ServiceDispatchError::infrastructure(
-                "COMMAND_RUNTIME_INIT",
-                error.to_string(),
-                false,
-            )
+            ServiceDispatchError::infrastructure("COMMAND_RUNTIME_INIT", error.to_string(), false)
         })?;
         let outbox = DomainEventOutboxDao::new(db.clone());
         let subscribers: Vec<Arc<dyn crate::MqSubscriber>> = if production_mq_subscribers {

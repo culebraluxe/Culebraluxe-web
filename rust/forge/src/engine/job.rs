@@ -10,9 +10,7 @@ use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::registry::ForgeServiceRegistry;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
-use workflow::{
-    Job, JobStatus, Result, TaskStatus, TxStore, Value, WorkflowEngine, WorkflowError,
-};
+use workflow::{Job, JobStatus, Result, TaskStatus, TxStore, Value, WorkflowEngine, WorkflowError};
 
 pub const FORGE_ROLE_JOB_TYPE: &str = "forge.role";
 pub const DEFAULT_FORGE_JOB_ATTEMPTS: i32 = 5;
@@ -192,15 +190,12 @@ impl<S: TxStore> JobService for WorkflowJobService<'_, S> {
             )));
         }
 
-        let job = self
-            .engine
-            .claim_job(job_id, worker_id)?
-            .ok_or_else(|| {
-                WorkflowError::conflict(
-                    "FORGE_JOB_NOT_CLAIMABLE",
-                    format!("Forge role job {job_id} is not claimable"),
-                )
-            })?;
+        let job = self.engine.claim_job(job_id, worker_id)?.ok_or_else(|| {
+            WorkflowError::conflict(
+                "FORGE_JOB_NOT_CLAIMABLE",
+                format!("Forge role job {job_id} is not claimable"),
+            )
+        })?;
 
         match lease_from_job(&job) {
             Ok(lease) => Ok(lease),
@@ -534,7 +529,9 @@ mod tests {
         task_with_id(&format!("task-{node_id}"), node_id, status)
     }
 
-    fn registry<'a>(runner: &'a RecordingRunner) -> (
+    fn registry<'a>(
+        runner: &'a RecordingRunner,
+    ) -> (
         ForgeServiceRegistry<'a>,
         ScoutService<'a>,
         ArchitectService<'a>,
@@ -601,16 +598,8 @@ mod tests {
     #[test]
     fn bridge_maps_every_current_lane_to_its_stable_service_key() {
         let runner = RecordingRunner::new();
-        let (
-            mut registry,
-            scout,
-            architect,
-            lead,
-            smith,
-            inspector,
-            assay,
-            devops,
-        ) = registry(&runner);
+        let (mut registry, scout, architect, lead, smith, inspector, assay, devops) =
+            registry(&runner);
 
         for service in [
             &scout as &dyn crate::roles::AbstractForgeService,
@@ -701,7 +690,10 @@ mod tests {
         let claimed = jobs.claim("forge-worker", 10).expect("claim Forge jobs");
         assert_eq!(claimed.len(), 1);
         assert_eq!(claimed[0].job_id, role_job_id);
-        assert_eq!(engine.get_job(&timer_job_id).expect("timer").status, JobStatus::Pending);
+        assert_eq!(
+            engine.get_job(&timer_job_id).expect("timer").status,
+            JobStatus::Pending
+        );
     }
 
     #[test]
@@ -813,9 +805,15 @@ mod tests {
         let cancel_id = jobs.enqueue(&cancel_request).expect("enqueue cancel");
         jobs.cancel(&cancel_id, "operator").expect("cancel job");
 
-        assert!(jobs.claim("worker", 10).expect("claim remaining").is_empty());
+        assert!(jobs
+            .claim("worker", 10)
+            .expect("claim remaining")
+            .is_empty());
         assert_eq!(
-            engine.get_job(&complete_lease.job_id).expect("completed").status,
+            engine
+                .get_job(&complete_lease.job_id)
+                .expect("completed")
+                .status,
             JobStatus::Completed
         );
         assert_eq!(

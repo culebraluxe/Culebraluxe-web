@@ -433,7 +433,10 @@ mod tests {
                 "Receipt Scanner"
             ]
         );
-        assert_eq!(labels(Surface::Ops), ["Records", "Listing Media", "Document Signing"]);
+        assert_eq!(
+            labels(Surface::Ops),
+            ["Records", "Listing Media", "Document Signing"]
+        );
         assert_eq!(
             labels(Surface::Support),
             [

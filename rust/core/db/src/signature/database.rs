@@ -138,9 +138,8 @@ impl SignatureDao {
                     format!("Invalid issued-participant snapshot: {error}"),
                 )
             })?;
-            validate_bound_recipients(&slots, &recipients).map_err(|error| {
-                DbFailure::schema_mismatch("signature.prepare.snapshot", error)
-            })?;
+            validate_bound_recipients(&slots, &recipients)
+                .map_err(|error| DbFailure::schema_mismatch("signature.prepare.snapshot", error))?;
         }
 
         let inserted = sqlx::query_as::<_, SignatureRow>(
@@ -231,7 +230,11 @@ impl SignatureDao {
             .map(PreparedSignatureRecipient::as_signature_recipient)
             .collect::<Vec<_>>();
         let errors = validate_signature_recipients(&canonical);
-        if !errors.is_empty() || recipients.iter().any(|recipient| recipient.signing_step < 1) {
+        if !errors.is_empty()
+            || recipients
+                .iter()
+                .any(|recipient| recipient.signing_step < 1)
+        {
             return Err(DbFailure::schema_mismatch(
                 "signature.replace_recipients",
                 if errors.is_empty() {

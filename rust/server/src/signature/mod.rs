@@ -4,9 +4,9 @@ use db::{Database, DbFailure, DbResult, DbTransaction, SignatureDao};
 use domain::{
     validate_signature_recipients, ApplySignatureStatusRequest, PrepareSignatureRequest,
     PreparedSignatureRecipient, SendSignatureRequest, SignatureArtifactDownload,
-    SignatureCommandOutcome, SignatureCommandResult,
-    SignatureProviderSendRequest, SignatureRequest, SignatureRequestResult, SignatureRequestStatus,
-    SignatureStatusResult, SignatureWebhookVerification,
+    SignatureCommandOutcome, SignatureCommandResult, SignatureProviderSendRequest,
+    SignatureRequest, SignatureRequestResult, SignatureRequestStatus, SignatureStatusResult,
+    SignatureWebhookVerification,
 };
 use serde_json::json;
 use service::{
@@ -391,7 +391,10 @@ impl<R: SignatureRepository> SignatureService<R> {
                 },
             ))
         } else {
-            self.repository.prepare_tx(tx, request).await.map_err(Into::into)
+            self.repository
+                .prepare_tx(tx, request)
+                .await
+                .map_err(Into::into)
         };
 
         audit_result(&self.runtime, "signature", OP, context, decision, &result).await?;

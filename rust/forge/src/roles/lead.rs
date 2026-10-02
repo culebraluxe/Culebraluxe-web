@@ -68,4 +68,3 @@ impl AbstractForgeService for LeadService<'_> {
         &LeadHooks
     }
 }
-

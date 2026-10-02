@@ -135,7 +135,10 @@ impl<R: EmailRepository> EmailService<R> {
                 "Email recipient, templateKey, dedupeKey and object templatePayload are required.",
             ))
         } else {
-            self.repository.queue_tx(tx, request).await.map_err(Into::into)
+            self.repository
+                .queue_tx(tx, request)
+                .await
+                .map_err(Into::into)
         };
         audit_result(&self.runtime, "email", OP, context, decision, &result).await?;
         result
@@ -273,12 +276,8 @@ impl<R: EmailRepository + 'static> AbstractService for EmailService<R> {
                         operation: envelope.operation.clone(),
                         message: "messageId is required.".into(),
                     })?;
-                serde_json::to_value(
-                    self.get(id, context)
-                        .await
-                        .map_err(service_error)?,
-                )
-                .map_err(serialization_error)
+                serde_json::to_value(self.get(id, context).await.map_err(service_error)?)
+                    .map_err(serialization_error)
             }
             "email.queue" | "email.deliver" => Err(ServiceDispatchError::business(
                 "DURABLE_COMMAND_REQUIRED",
@@ -308,8 +307,12 @@ fn render_email(message: &EmailMessage) -> Result<OutgoingMail, CoreServiceError
     };
 
     let subject = string("subject").unwrap_or_else(|| match message.message_kind {
-        EmailMessageKind::SignatureInvitation => "Document ready for your signature — CulebraLuxe".into(),
-        EmailMessageKind::SignatureReminder => "Reminder: document waiting for your signature — CulebraLuxe".into(),
+        EmailMessageKind::SignatureInvitation => {
+            "Document ready for your signature — CulebraLuxe".into()
+        }
+        EmailMessageKind::SignatureReminder => {
+            "Reminder: document waiting for your signature — CulebraLuxe".into()
+        }
         EmailMessageKind::SignatureCompleted => "Document signing completed — CulebraLuxe".into(),
         EmailMessageKind::SignatureDeclined => "Document signing declined — CulebraLuxe".into(),
     });
@@ -417,22 +420,15 @@ fn service_error(error: CoreServiceError) -> ServiceDispatchError {
         CoreServiceError::Database(error) => {
             ServiceDispatchError::infrastructure("DATABASE", error.to_string(), error.retryable)
         }
-        CoreServiceError::Runtime(error) => ServiceDispatchError::infrastructure(
-            "SERVICE_RUNTIME",
-            error.to_string(),
-            true,
-        ),
+        CoreServiceError::Runtime(error) => {
+            ServiceDispatchError::infrastructure("SERVICE_RUNTIME", error.to_string(), true)
+        }
     }
 }
 
 fn serialization_error(error: serde_json::Error) -> ServiceDispatchError {
-    ServiceDispatchError::infrastructure(
-        "SERVICE_SERIALIZATION_FAILED",
-        error.to_string(),
-        false,
-    )
+    ServiceDispatchError::infrastructure("SERVICE_SERIALIZATION_FAILED", error.to_string(), false)
 }
-
 
 #[cfg(test)]
 mod tests {

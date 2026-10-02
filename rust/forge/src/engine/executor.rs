@@ -8,8 +8,8 @@ use crate::engine::job::{
     execute_claimed_job_unsettled, ForgeJobBridge, ForgeJobLease, JobService,
 };
 use crate::engine::path::shared_path;
-use crate::engine::runner::ForgeTurnPorts;
 use crate::engine::role_slice::forge_lane_surface;
+use crate::engine::runner::ForgeTurnPorts;
 use crate::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
 use crate::engine::turn_budget;
 use crate::roles::registry::ForgeServiceRegistry;
@@ -483,8 +483,8 @@ fn drive_forge_story_inner<S: TxStore>(
                 }
                 let mut durable_lease: Option<ForgeJobLease> = None;
                 let outcome = if let Some(durable) = durable {
-                    let request = ForgeJobBridge::new(durable.registry)
-                        .job_for_ready_task(&task)?;
+                    let request =
+                        ForgeJobBridge::new(durable.registry).job_for_ready_task(&task)?;
                     let job_id = durable.jobs.enqueue(&request)?;
                     let lease = match durable.jobs.claim_one(&job_id, opts.worker_id) {
                         Ok(lease) => lease,

@@ -21,28 +21,28 @@
 // PRIVACY: envelope metadata only. No body, snippet, attachment or raw MIME reaches these
 // rules, and none of it is stored.
 // ---------------------------------------------------------------------------
-use crate::apple_messages::{AppleHandleEvidence, IdentityEvidence, is_email_shaped};
+use crate::apple_messages::{is_email_shaped, AppleHandleEvidence, IdentityEvidence};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use unicode_normalization::UnicodeNormalization;
 
-mod types;
-mod normalize;
-mod landing;
 mod evidence;
 mod interaction;
-#[allow(unused_imports)]
-pub use types::*;
-#[allow(unused_imports)]
-pub use normalize::*;
-#[allow(unused_imports)]
-pub use landing::*;
+mod landing;
+mod normalize;
+mod types;
 #[allow(unused_imports)]
 pub use evidence::*;
 #[allow(unused_imports)]
 pub use interaction::*;
+#[allow(unused_imports)]
+pub use landing::*;
+#[allow(unused_imports)]
+pub use normalize::*;
+#[allow(unused_imports)]
+pub use types::*;
 
 /// The evidence source for Apple-hosted mail. Google mail is a different source.
 pub const ICLOUD_MAIL_SOURCE: &str = "icloud_mail";
@@ -168,8 +168,11 @@ mod tests {
         sent.sender = Some("lisa@culebraluxe.com".into());
         sent.to_recipients = vec![address("Dana@Example.com")];
 
-        let mut internal_only =
-            inbound_row("in-2", "Lisa <lisa@culebraluxe.com>", "2026-09-01T11:00:00Z");
+        let mut internal_only = inbound_row(
+            "in-2",
+            "Lisa <lisa@culebraluxe.com>",
+            "2026-09-01T11:00:00Z",
+        );
         internal_only.mailbox_kind = Some("sent".into());
         internal_only.to_recipients = vec![address("lisa@culebraluxe.com")];
 
@@ -210,7 +213,11 @@ mod tests {
         assert_eq!(out.skipped.get("unaddressed"), None);
 
         // An unaddressed inbox row is skipped, never attributed to something else on the row.
-        let unaddressed = vec![inbound_row("in-5", "not an address", "2026-09-01T09:00:00Z")];
+        let unaddressed = vec![inbound_row(
+            "in-5",
+            "not an address",
+            "2026-09-01T09:00:00Z",
+        )];
         let out = normalize_landed_mail(&unaddressed, &internal());
         assert!(out.observations.is_empty());
         assert_eq!(out.skipped.get("unaddressed"), Some(&1));
@@ -294,7 +301,10 @@ mod tests {
             .expect("dana evidence");
         assert_eq!(dana.source, ICLOUD_MAIL_SOURCE);
         assert_eq!(dana.source_account, "lisa@culebraluxe.com");
-        assert_eq!(dana.source_label.as_deref(), Some("Apple-hosted work email"));
+        assert_eq!(
+            dana.source_label.as_deref(),
+            Some("Apple-hosted work email")
+        );
         assert_eq!(dana.inbound_count, 2);
         assert_eq!(dana.outbound_count, 1);
         assert_eq!(dana.is_two_way, Some(true));

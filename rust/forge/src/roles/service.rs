@@ -10,8 +10,8 @@
 
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::role_mapping::LaneId;
-use crate::engine::service_binding::service_for_node;
 use crate::engine::runtime::ActiveForgeRoleTask;
+use crate::engine::service_binding::service_for_node;
 use crate::roles::architect::ArchitectService;
 use crate::roles::dev_ops::DevOpsService;
 use crate::roles::inspector::InspectorService;
@@ -195,7 +195,6 @@ impl ForgeRoleRunner for ForgeLaneServices<'_> {
         self.router().run(node_id, task)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -40,4 +40,3 @@ impl AbstractForgeService for ScoutService<'_> {
         self.runner
     }
 }
-

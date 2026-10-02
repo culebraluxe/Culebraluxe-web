@@ -233,8 +233,8 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         "<transition name=\"begin\" to=\"classify_work\"></transition>",
         1,
     );
-    let explicit_close_def = definition_from_xml(&explicit_close)
-        .expect("an explicitly-closed element still parses");
+    let explicit_close_def =
+        definition_from_xml(&explicit_close).expect("an explicitly-closed element still parses");
     assert!(
         graphs_equal(&def.definition, &explicit_close_def.definition),
         "{HARNESS}: `<x/>` and `<x></x>` are the same element — the explicit form must parse to an equal graph"
@@ -294,11 +294,8 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     //     parser decodes `&amp; &lt; &gt; &quot; &apos;` (`rust/forge/src/engine/xml.rs:219-234`); a parser that kept
     //     the raw reference instead of decoding it would read a different decision condition and fail here, even
     //     though the definition means the same thing.
-    let entity_encoded = FORGE_SDLC_V6_XML.replacen(
-        "workType == 'HOTFIX'",
-        "workType == &apos;HOTFIX&apos;",
-        1,
-    );
+    let entity_encoded =
+        FORGE_SDLC_V6_XML.replacen("workType == 'HOTFIX'", "workType == &apos;HOTFIX&apos;", 1);
     let entity_encoded_def = definition_from_xml(&entity_encoded)
         .expect("an attribute value written with entity references still parses");
     assert!(
@@ -344,8 +341,8 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     //     as `</start-state>`. A parser that compared the raw close name including the space would refuse the
     //     definition outright.
     let spaced_close = FORGE_SDLC_V6_XML.replacen("</start-state>", "</start-state >", 1);
-    let spaced_close_def =
-        definition_from_xml(&spaced_close).expect("a close tag with trailing whitespace still parses");
+    let spaced_close_def = definition_from_xml(&spaced_close)
+        .expect("a close tag with trailing whitespace still parses");
     assert!(
         graphs_equal(&def.definition, &spaced_close_def.definition),
         "{HARNESS}: whitespace inside a close tag is not structure — it must parse to an equal graph"
@@ -381,11 +378,8 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         "{HARNESS}: a changed transition target is a structural difference, not a cosmetic one"
     );
 
-    let reconditioned = FORGE_SDLC_V6_XML.replacen(
-        "workType == 'HOTFIX'",
-        "workType == 'PATCH'",
-        1,
-    );
+    let reconditioned =
+        FORGE_SDLC_V6_XML.replacen("workType == 'HOTFIX'", "workType == 'PATCH'", 1);
     let reconditioned_def =
         definition_from_xml(&reconditioned).expect("a still-legal decision condition parses");
     assert!(
@@ -459,7 +453,8 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         "{HARNESS}: an edge's required flag is structure — setting it is a structural difference"
     );
 
-    let refreshed_off = FORGE_SDLC_V6_XML.replacen("refresh-facts=\"true\"", "refresh-facts=\"false\"", 1);
+    let refreshed_off =
+        FORGE_SDLC_V6_XML.replacen("refresh-facts=\"true\"", "refresh-facts=\"false\"", 1);
     let refreshed_off_def = definition_from_xml(&refreshed_off)
         .expect("a decision with refresh-facts off still parses");
     assert!(
@@ -475,17 +470,18 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         "{HARNESS}: a task's priority is structure — changing it is a structural difference"
     );
 
-    let reoutcomed = FORGE_SDLC_V6_XML.replacen("outcome=\"completed\"", "outcome=\"cancelled\"", 1);
-    let reoutcomed_def =
-        definition_from_xml(&reoutcomed).expect("an end-state with a different outcome still parses");
+    let reoutcomed =
+        FORGE_SDLC_V6_XML.replacen("outcome=\"completed\"", "outcome=\"cancelled\"", 1);
+    let reoutcomed_def = definition_from_xml(&reoutcomed)
+        .expect("an end-state with a different outcome still parses");
     assert!(
         !graphs_equal(&def.definition, &reoutcomed_def.definition),
         "{HARNESS}: an end-state's outcome is structure — changing it is a structural difference"
     );
 
     let wider_fork = FORGE_SDLC_V6_XML.replacen("maximum=\"8\"", "maximum=\"4\"", 1);
-    let wider_fork_def =
-        definition_from_xml(&wider_fork).expect("a dynamic fork with a different bound still parses");
+    let wider_fork_def = definition_from_xml(&wider_fork)
+        .expect("a dynamic fork with a different bound still parses");
     assert!(
         !graphs_equal(&def.definition, &wider_fork_def.definition),
         "{HARNESS}: a dynamic fork's maximum is structure — changing it is a structural difference"
@@ -496,7 +492,8 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     //     (`rust/core/workflow/src/json_codec.rs:246-251,273-275`) represents all three, so a change to any one is
     //     structure, not decoration. Each anchor is the first occurrence the definition declares, so the rest of the
     //     definition stays identical and the parse can never silently no-op.
-    let relabelled = FORGE_SDLC_V6_XML.replacen("label=\"Start Forge Story\"", "label=\"Begin\"", 1);
+    let relabelled =
+        FORGE_SDLC_V6_XML.replacen("label=\"Start Forge Story\"", "label=\"Begin\"", 1);
     let relabelled_def =
         definition_from_xml(&relabelled).expect("a node with a different label still parses");
     assert!(
@@ -509,14 +506,15 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
         "description=\"Start.\"",
         1,
     );
-    let redescribed_def =
-        definition_from_xml(&redescribed).expect("a node with a different description still parses");
+    let redescribed_def = definition_from_xml(&redescribed)
+        .expect("a node with a different description still parses");
     assert!(
         !graphs_equal(&def.definition, &redescribed_def.definition),
         "{HARNESS}: a node's description is structure — changing it is a structural difference"
     );
 
-    let reform_keyed = FORGE_SDLC_V6_XML.replacen("form-key=\"forge.smith\"", "form-key=\"forge.scout\"", 1);
+    let reform_keyed =
+        FORGE_SDLC_V6_XML.replacen("form-key=\"forge.smith\"", "form-key=\"forge.scout\"", 1);
     let reform_keyed_def =
         definition_from_xml(&reform_keyed).expect("a task with a different form-key still parses");
     assert!(
@@ -529,33 +527,45 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     //     the fan-out. The production parser reads each (`rust/forge/src/engine/xml.rs:328-337`) and the codec writes
     //     each (`rust/core/workflow/src/json_codec.rs:309-326`), so each is structure. The `maximum` clause above
     //     already pins the upper bound; these pin the rest.
-    let recounted = FORGE_SDLC_V6_XML.replacen("count-variable=\"splitCount\"", "count-variable=\"splitCountX\"", 1);
-    let recounted_def =
-        definition_from_xml(&recounted).expect("a dynamic fork with a different count variable still parses");
+    let recounted = FORGE_SDLC_V6_XML.replacen(
+        "count-variable=\"splitCount\"",
+        "count-variable=\"splitCountX\"",
+        1,
+    );
+    let recounted_def = definition_from_xml(&recounted)
+        .expect("a dynamic fork with a different count variable still parses");
     assert!(
         !graphs_equal(&def.definition, &recounted_def.definition),
         "{HARNESS}: a dynamic fork's count-variable is structure — changing it is a structural difference"
     );
 
-    let replanned = FORGE_SDLC_V6_XML.replacen("plan-variable=\"splitPlan\"", "plan-variable=\"splitPlanX\"", 1);
-    let replanned_def =
-        definition_from_xml(&replanned).expect("a dynamic fork with a different plan variable still parses");
+    let replanned = FORGE_SDLC_V6_XML.replacen(
+        "plan-variable=\"splitPlan\"",
+        "plan-variable=\"splitPlanX\"",
+        1,
+    );
+    let replanned_def = definition_from_xml(&replanned)
+        .expect("a dynamic fork with a different plan variable still parses");
     assert!(
         !graphs_equal(&def.definition, &replanned_def.definition),
         "{HARNESS}: a dynamic fork's plan-variable is structure — changing it is a structural difference"
     );
 
-    let rebranched = FORGE_SDLC_V6_XML.replacen("branch-node=\"smith_split_work\"", "branch-node=\"split_join\"", 1);
-    let rebranched_def =
-        definition_from_xml(&rebranched).expect("a dynamic fork pointing at another node still parses");
+    let rebranched = FORGE_SDLC_V6_XML.replacen(
+        "branch-node=\"smith_split_work\"",
+        "branch-node=\"split_join\"",
+        1,
+    );
+    let rebranched_def = definition_from_xml(&rebranched)
+        .expect("a dynamic fork pointing at another node still parses");
     assert!(
         !graphs_equal(&def.definition, &rebranched_def.definition),
         "{HARNESS}: a dynamic fork's branch-node is structure — changing it is a structural difference"
     );
 
     let narrowed_fork = FORGE_SDLC_V6_XML.replacen("minimum=\"2\"", "minimum=\"1\"", 1);
-    let narrowed_fork_def =
-        definition_from_xml(&narrowed_fork).expect("a dynamic fork with a different lower bound still parses");
+    let narrowed_fork_def = definition_from_xml(&narrowed_fork)
+        .expect("a dynamic fork with a different lower bound still parses");
     assert!(
         !graphs_equal(&def.definition, &narrowed_fork_def.definition),
         "{HARNESS}: a dynamic fork's minimum is structure — changing it is a structural difference"
@@ -566,7 +576,8 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     //     and the codec persists it as `candidateGroups` (`rust/core/workflow/src/json_codec.rs:276-281`). Changing it
     //     is therefore structure. The anchor is the first `responsibility="smith"` the definition declares, so the
     //     rest of the definition stays identical and the parse cannot silently no-op.
-    let reassigned = FORGE_SDLC_V6_XML.replacen("responsibility=\"smith\"", "responsibility=\"qa\"", 1);
+    let reassigned =
+        FORGE_SDLC_V6_XML.replacen("responsibility=\"smith\"", "responsibility=\"qa\"", 1);
     let reassigned_def =
         definition_from_xml(&reassigned).expect("a task with a different position still parses");
     assert!(
