@@ -6,10 +6,12 @@ use forge::engine::agent_work;
 use forge::engine::db_writer::{DbForgeEvidenceReader, DbForgeStateWriter};
 use forge::engine::definition::forge_sdlc_definition;
 use forge::engine::executor::{
-    drive_forge_story, parse_forge_stop_after, DriveForgeStoryOptions, ForgeStopTarget,
+    drive_forge_story_with_jobs, parse_forge_stop_after, DriveForgeStoryOptions,
+    DurableForgeExecution, ForgeStopTarget,
 };
 use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::git_publish::{publish_switch_off, GitReleaseOps, HostReleaseExecutor};
+use forge::engine::job::WorkflowJobService;
 use forge::engine::opencode::OpenCodeHarness;
 use forge::engine::packet::{ExecutionWorkspace, StoryPacket};
 use forge::engine::runner::ProductionRoleRunner;
@@ -601,8 +603,10 @@ fn drive<S: TxStore>(
     // and inherits the shared execution lifecycle. Workflow still owns sequencing, JobService still owns
     // execution reliability, and no role policy lives in this binary.
     let services = ForgeLaneServices::new(&runner);
-    match drive_forge_story(
-        &mut rt,
+    let registry = services.registry().map_err(|error| error.to_string())?;
+    let jobs = WorkflowJobService::new(rt.engine());
+    match drive_forge_story_with_jobs(
+        &rt,
         story,
         DriveForgeStoryOptions {
             work_type,
@@ -616,6 +620,10 @@ fn drive<S: TxStore>(
             // The operator's ceiling, from the environment. Read here rather than in the loop so the cap a run is
             // held to is fixed for the whole generation.
             turn_cap: DriveForgeStoryOptions::turn_cap_from_env(),
+        },
+        DurableForgeExecution {
+            jobs: &jobs,
+            registry: &registry,
         },
     ) {
         Ok(out) => Ok(format!(
