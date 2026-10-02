@@ -23,6 +23,11 @@
 2. **DEEP1** — the data pipeline (ODS → warehouse → screen) and the traps that cost real hours.
 3. **SOP1** — factory / queue-health doctrine, for judging whether Forge is healthy.
 
+**Forge-engine exception:** if the assignment touches `rust/forge`, do **not** derive current implementation
+status from this broad handoff. First read `docs/agent/CURRENT.md`, then `docs/agent/MAP-engine.md`, then
+`docs/agent/QUEUE-2026-10-02.md`. Return here for durable cross-application invariants only. This prevents a
+historical Forge restoration note from being mistaken for live backlog.
+
 Nine rows on the board carry priority `Reference`; the other six are the `ENG-FORGE-HIST-V1..V5`
 Forge history records and `PORTAL-06` (information-architecture contract). They are all
 deliberately `rollup = false`: reference records, never executable backlog, and they must never
