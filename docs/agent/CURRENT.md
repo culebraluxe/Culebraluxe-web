@@ -146,16 +146,11 @@ gate refuses, read the ROWS for that `(task, node, attempt)` before believing th
 
 The current executable queue is `docs/agent/QUEUE-2026-10-02.md`. The short version is:
 
-1. **JobService reliability closure** — distinguish typed transient infrastructure failure from permanent
-   role/business/configuration verdicts; review the same distinction around Workflow completion; prove or add a
-   real max-runtime deadline distinct from lease expiry.
-2. **Retire the remaining hard-coded node taxonomy** — `role_mapping::forge_role_node_plan` still carries lane /
-   Lead-phase/runtime metadata even though XML already owns task-node → service. Delete redundant ownership without
-   creating a replacement mega-map; keep only genuinely non-XML metadata at its narrow owner.
-3. **Run one real non-SPLIT story end to end** after those two slices land. Observe the complete Story Board →
-   story queue → Workflow → role job → service → OpenCode → evidence → completion chain before opening another
-   architecture program.
-4. **Parked until the serial run is proven:** SPLIT/role parallelism, end-to-end cancellation proof, outer story
+1. **JobService reliability closure** — Agent A / DeepSeek owns the remaining retry/classification/completion-window
+   work in `engine/job.rs` + `engine/executor.rs`, with Forge-job rails.
+2. **Run one real non-SPLIT story end to end** after Agent A lands. Observe the complete Story Board → story queue →
+   Workflow → role job → service → OpenCode → evidence → completion chain before opening another architecture program.
+3. **Parked until the serial run is proven:** SPLIT/role parallelism, end-to-end cancellation proof, outer story
    recovery genericization, broad archived-TypeScript parity work, OpenCode redesign and Workflow redesign.
 
 ### Already landed — do not reopen
@@ -164,5 +159,7 @@ The following were previously listed as gaps in older notes but are live now: ar
 `ForgeStateWriter::record_tool_artifact`; `model_policy` selecting the harness model;
 `launch_intent` reaching the Lead bench cap; seven concrete `AbstractForgeService` implementations and the
 registry; the shared `ForgeRoleHooks` lifecycle seam; XML-derived human gates; XML-derived Scout/Architect stop
-groups; and removal of the old `engine/agents.rs` switch and synthetic production-runner fallback.
+groups; removal of the old `engine/agents.rs` switch and synthetic production-runner fallback; and **retirement of
+`forge_role_node_plan` / the hard-coded node→lane table** at `74c0bcfc` + `2ceec055`. XML service bindings now
+own node→lane identity, while Lead-only metadata lives in `roles/lead.rs`.
 
