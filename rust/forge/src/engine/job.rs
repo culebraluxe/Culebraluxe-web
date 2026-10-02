@@ -268,7 +268,7 @@ mod tests {
         registry.register(&smith).expect("register Smith");
 
         let error = ForgeJobBridge::new(&registry)
-            .job_for_ready_task(&task("smith", TaskStatus::Claimed))
+            .job_for_ready_task(&task("smith", TaskStatus::Reserved))
             .expect_err("only READY workflow work may become a job");
 
         assert!(error.to_string().contains("not Ready"));
