@@ -22,6 +22,12 @@ list of what is not built yet. Read it before changing the board or the engine l
    `legacy/workflow_app/forge/forge-executor.ts`.
 2. Roles are phase agents in `legacy/workflow_app/forge/agents/role-agents.ts`. They `collect()`
    evidence; the parent gate (`forge-phase-agent.ts`) stays the decider.
+
+   **Superseded in Rust (`2026-10-02`, the seam closure).** The live lane contract is
+   `rust/forge/src/roles/hooks.rs` (`ForgeRoleHooks` — one lane's reading of its own turn, asked by
+   `engine/lifecycle.rs`) with the gate's kinds, deliverable table and effect ports in
+   `rust/forge/src/engine/phase.rs`. The TypeScript pair is reference, never a live path
+   (`docs/agent/MAP-engine.md`).
 3. A role runs in its own worktree under `~/Documents/Culebraluxe-worktrees/<story>-<id>-e0`
    via the OpenCode harness (`agent-runtime/opencode/`).
 

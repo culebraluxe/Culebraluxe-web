@@ -1,5 +1,5 @@
 //! Port of `workflow_app/forge/forge-executor.ts`.
-//! Production drive refuses the synthetic runner.
+//! Production drive refuses a run with no role runner; there is no synthetic fallback to fall into.
 
 use std::collections::BTreeSet;
 
@@ -37,52 +37,6 @@ pub trait ForgeRoleRunner: Send + Sync {
     /// The default is `None` deliberately: a runner has to *say* it has ports rather than be assumed to.
     fn turn_ports(&self) -> Option<&dyn ForgeTurnPorts> {
         None
-    }
-}
-
-pub fn default_evidence_for(node_id: &str) -> ForgeGateEvidence {
-    match node_id {
-        "lead_pre" => ForgeGateEvidence {
-            lead_decision: Some("SOLO".into()),
-            ..Default::default()
-        },
-        "feature_scout" | "research_scout" | "diagnose_scout" | "repair_scout" => {
-            ForgeGateEvidence {
-                scout_required: Some(false),
-                extra: Default::default(),
-                ..Default::default()
-            }
-        }
-        "qa_review" => ForgeGateEvidence {
-            qa_review_required: Some(false),
-            qa_review_passed: Some(true),
-            ..Default::default()
-        },
-        "qa_verify" | "fast_qa_verify" => ForgeGateEvidence {
-            qa_passed: Some(true),
-            publish_succeeded: Some(true),
-            migration_required: Some(false),
-            derived_refresh_required: Some(false),
-            deployment_required: Some(false),
-            ..Default::default()
-        },
-        "production_smoke" => ForgeGateEvidence {
-            production_verified: Some(true),
-            ..Default::default()
-        },
-        _ => ForgeGateEvidence::default(),
-    }
-}
-
-/// Test-only synthetic runner. Production drive must pass a real runner.
-pub struct DefaultForgeRoleRunner;
-
-impl ForgeRoleRunner for DefaultForgeRoleRunner {
-    fn run(&self, node_id: &str, _task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
-        Ok(ForgeRoleOutcome {
-            transition_name: Some("complete".into()),
-            evidence: default_evidence_for(node_id),
-        })
     }
 }
 
@@ -282,8 +236,13 @@ pub struct DriveForgeStoryResult {
 pub struct DriveForgeStoryOptions<'a> {
     pub work_type: &'a str,
     pub evidence: ForgeGateEvidence,
+    /// The role runner this drive dispatches its turns through.
+    ///
+    /// There is no synthetic fallback (`2026-10-02`, the seam closure). The crate's test-only
+    /// `DefaultForgeRoleRunner` was unreachable — every direct drive named a runner, and the durable path ignores
+    /// this field entirely — so it and its per-node seed table are gone rather than kept as a second dispatch path.
+    /// `None` is refused below instead of simulated.
     pub runner: Option<&'a dyn ForgeRoleRunner>,
-    pub allow_synthetic_runner: bool,
     pub max_steps: usize,
     pub worker_id: &'a str,
     pub split_concurrency: usize,
@@ -327,7 +286,6 @@ impl<'a> DriveForgeStoryOptions<'a> {
                 ..Default::default()
             },
             runner: Some(runner),
-            allow_synthetic_runner: false,
             max_steps: 40,
             worker_id: "forge",
             split_concurrency: 1,
@@ -366,13 +324,14 @@ fn drive_forge_story_inner<S: TxStore>(
     opts: DriveForgeStoryOptions<'_>,
     durable: Option<DurableForgeExecution<'_, '_>>,
 ) -> Result<DriveForgeStoryResult> {
-    if durable.is_none() && opts.runner.is_none() && !opts.allow_synthetic_runner {
+    // A direct drive must name its runner: there is no synthetic fallback to fall into, so the refusal is the only
+    // answer a caller with no runner gets (`2026-10-02`, the seam closure). The durable branch resolves concrete
+    // services through JobService + ForgeServiceRegistry and does not use this field.
+    if durable.is_none() && opts.runner.is_none() {
         return Err(WorkflowError::generic(
-            "Direct Forge execution requires an explicit real role runner; the synthetic runner is test-only. Durable production execution resolves concrete services through JobService + ForgeServiceRegistry.",
+            "Direct Forge execution requires an explicit real role runner; there is no synthetic runner. Durable production execution resolves concrete services through JobService + ForgeServiceRegistry.",
         ));
     }
-    let synthetic = DefaultForgeRoleRunner;
-    let runner: &dyn ForgeRoleRunner = opts.runner.unwrap_or(&synthetic);
     let stop_target = resolve_forge_stop_target(opts.stop_after.as_ref());
     let mut stopped_after = None;
     let mut steps = Vec::new();
@@ -579,6 +538,14 @@ fn drive_forge_story_inner<S: TxStore>(
                 } else {
                     // Compatibility/test path. Production uses the durable branch
                     // above; the established direct path remains for fixtures.
+                    //
+                    // The runner is resolved here rather than before the loop: the guard above proves one exists for
+                    // every direct drive, and the durable branch never needs one.
+                    let Some(runner) = opts.runner else {
+                        return Err(WorkflowError::generic(
+                            "Direct Forge execution reached a role turn with no explicit real role runner",
+                        ));
+                    };
                     if let Err(err) = rt.claim_role_task(&task.task_id, &actor) {
                         if is_advance_conflict(&err) {
                             continue;

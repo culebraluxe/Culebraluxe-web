@@ -619,7 +619,6 @@ fn drive<S: TxStore>(
             // ForgeServiceRegistry. The compatibility runner is not a second
             // production dispatch path.
             runner: None,
-            allow_synthetic_runner: false,
             max_steps: 40,
             worker_id: &durable_worker_id,
             split_concurrency: 1,

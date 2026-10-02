@@ -32,7 +32,7 @@ rails move only toward more enforcement; no schema change.
 | --- | --- | --- |
 | The artifact/verdict funnel (next rail) | §6.1a, legacy `legacy/workflow_app/tests/artifact-verdict.test.ts` | `rust/core/db/src/forge_engine.rs` (new verbs), `rust/forge/src/engine/artifact.rs` (new), `rust/forge/src/qa_consistency.rs` (the polarity vocabulary already exists there) |
 | Wire the dispatch model policy | §6.3, legacy `legacy/workflow_app/tests/forge-kind-routing.test.ts` | `rust/forge/src/engine/worker.rs`, `bin/forge.rs`, `engine/opencode.rs` |
-| Wire the lead launch cap | §6.4, legacy `legacy/workflow_app/tests/forge-lead-routing-bench.test.ts` | `rust/forge/src/engine/phase.rs` (`RoleEffectPorts`), `engine/agents.rs` |
+| Wire the lead launch cap | §6.4, legacy `legacy/workflow_app/tests/forge-lead-routing-bench.test.ts` | `rust/forge/src/engine/phase.rs` (`RoleEffectPorts`), `rust/forge/src/roles/hooks.rs` (the lane contract — `engine/agents.rs` is deleted, `2026-10-02`) |
 | Find remaining parity gaps | §6.5, the 465 restored legacy tests | `legacy/workflow_app/tests/**` vs `rust/forge/tests/**` |
 
 ## 4. DONE — what landed, with the receipts

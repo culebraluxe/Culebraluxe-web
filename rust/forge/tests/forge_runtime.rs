@@ -23,6 +23,27 @@ fn feature_ev() -> ForgeGateEvidence {
         ..Default::default()
     }
 }
+/// The runner the direct-drive tests use: every turn completes with evidence of its own.
+///
+/// It replaces the crate's retired `DefaultForgeRoleRunner` (`2026-10-02`, the seam closure): that runner was
+/// unreachable — every direct drive named one, and the durable path never reads the field — and it carried a
+/// per-node seed table, which was the last role knowledge in the engine. A runner that pretends a turn happened is a
+/// fixture, so it lives with the fixtures that need it.
+struct CompletingRunner;
+
+impl executor::ForgeRoleRunner for CompletingRunner {
+    fn run(
+        &self,
+        _node_id: &str,
+        _task: &runtime::ActiveForgeRoleTask,
+    ) -> workflow::Result<executor::ForgeRoleOutcome> {
+        Ok(executor::ForgeRoleOutcome {
+            transition_name: Some("complete".into()),
+            evidence: ForgeGateEvidence::default(),
+        })
+    }
+}
+
 /// A registration is keyed by `(tenant_id, key, version)`, not by the definition's own id — the Neon schema
 /// gives `process_definitions.id` a uuid default while the engine's definition carries a human id
 /// (`FORGE_SDLC-v6`). Registering the same triple twice must therefore adopt the registered identity instead
@@ -442,7 +463,7 @@ fn resume_claims_without_completing() {
 }
 
 #[test]
-fn production_drive_refuses_synthetic_runner() {
+fn production_drive_refuses_a_drive_with_no_role_runner() {
     let (mut rt, _) = runtime();
     let err = executor::drive_forge_story(
         &mut rt,
@@ -451,7 +472,6 @@ fn production_drive_refuses_synthetic_runner() {
             work_type: "FEATURE",
             evidence: feature_ev(),
             runner: None,
-            allow_synthetic_runner: false,
             max_steps: 4,
             worker_id: "forge",
             split_concurrency: 1,
@@ -472,8 +492,7 @@ fn drive_stops_after_architect() {
         executor::DriveForgeStoryOptions {
             work_type: "FEATURE",
             evidence: feature_ev(),
-            runner: Some(&executor::DefaultForgeRoleRunner),
-            allow_synthetic_runner: true,
+            runner: Some(&CompletingRunner),
             max_steps: 8,
             worker_id: "forge",
             split_concurrency: 1,
@@ -500,8 +519,7 @@ fn a_generation_stops_at_the_turn_cap_before_dispatching_past_it() {
         executor::DriveForgeStoryOptions {
             work_type: "FEATURE",
             evidence: feature_ev(),
-            runner: Some(&executor::DefaultForgeRoleRunner),
-            allow_synthetic_runner: true,
+            runner: Some(&CompletingRunner),
             // Room for many waves: what stops this generation has to be the CAP rather than the wave ceiling.
             max_steps: 20,
             worker_id: "forge",

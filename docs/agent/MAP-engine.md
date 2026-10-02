@@ -23,7 +23,7 @@ process instances). `rust/forge` is the Forge SDLC on top of it.
 | --- | --- |
 | `rust/forge/definitions/FORGE_SDLC-v6.xml` | What phases, nodes and gates does a run actually have? |
 | `rust/forge/src/engine/definition.rs` | How the definition is parsed; `forge_sdlc_graph()` is a test fixture, not production. |
-| `rust/forge/src/engine/executor.rs` | Who advances the workflow, and on what. The production drive refuses the synthetic runner. |
+| `rust/forge/src/engine/executor.rs` | Who advances the workflow, and on what. The production drive refuses a run with no role runner — there is no synthetic fallback. |
 | `rust/forge/src/engine/runtime.rs` | How an instance is started, completed and stepped through the workflow crate. |
 | `rust/forge/src/engine/phase.rs`, `topology.rs`, `role_mapping.rs` | How a phase maps to roles and to the commands it may run. |
 | `rust/forge/src/engine/facts.rs` | The gate facts projected for a run - **booleans default FALSE, absent enums are omitted**: it fails closed. A stale read here has cost real hours. |
@@ -39,7 +39,7 @@ process instances). `rust/forge` is the Forge SDLC on top of it.
 | `rust/forge/src/engine/observer.rs`, `learn.rs` | The Flight Recorder trace and what a finished run teaches. |
 | `rust/forge/src/engine/packet.rs` | The canonical task text handed to a role. |
 | `rust/forge/src/engine/db_ledger.rs`, `db_writer.rs` | How the engine talks to Neon - the engine's own narrow door, not the service kernel. |
-| `rust/forge/src/roles/` | What each role (`scout`, `architect`, `lead`, `smith`, `qa`, `dev_ops`) is asked to produce. |
+| `rust/forge/src/roles/` | What each role (`scout`, `architect`, `lead`, `smith`, `qa`, `dev_ops`) is asked to produce. `roles/hooks.rs` is the one lane contract (`ForgeRoleHooks`): how a lane reads its own turn — which node seeds what, which node adopts a candidate SHA, which node publishes — so the shared lifecycle asks a lane instead of switching on a node id. |
 | `rust/forge/src/bin/forge.rs`, `forge_worker.rs`, `forge_task.rs`, `re_workflow.rs` | The binaries: drive, worker, single task, RE workflow. |
 
 ## The harness gates (`rust/cli/src/forge` and `pnpm`)

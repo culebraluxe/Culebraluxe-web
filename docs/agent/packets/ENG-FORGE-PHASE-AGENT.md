@@ -1,5 +1,12 @@
 # ENG-FORGE-PHASE-AGENT — Role/Phase Agent abstraction
 
+**Superseded in Rust (`2026-10-02`, the seam closure).** The contract below was ported and now lives in
+`rust/forge/src/roles/hooks.rs` (`ForgeRoleHooks`: how ONE lane reads its own turn — deliverable kind, adopted
+candidate SHA, publish right, write-on-exit) plus `rust/forge/src/engine/phase.rs` (the gate's `FAILURE_CLASSES`,
+the deliverable table, the effect ports) and the shared lifecycle in `rust/forge/src/engine/lifecycle.rs`. The
+legacy TypeScript pair under *Files* is reference, never a live path. This packet is kept for **intent**: the "why"
+and the contract table below are the reason the Rust seam has the shape it has.
+
 **Status:** IMPLEMENTED + live-validated (2026-09-08/09). The role/phase lifecycle,
 deliverable gate, routing-decision validation, and bounded self-heal now live in
 the abstract `ForgePhaseAgent` instead of scattered conditionals in one big

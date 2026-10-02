@@ -4,24 +4,13 @@
 //! TypeScript recorder. The process-instance id is the join key Flight Recorder reads; story id is correlation
 //! context, never a substitute for the workflow instance.
 //!
-//! Parameterized, on the workspace's one pool. Recorder failure remains contained: Forge execution never depends on
-//! this diagnostic write succeeding.
+//! The statement itself is not here: `ForgeEngineDao::record_observer` owns it, with the `ON CONFLICT` dedupe
+//! that makes a retried observer write idempotent. Forge holds no SQL of its own, which is what
+//! `arch_boundary__005` pins — so this module owns the *identity* of an event, not the write. Recorder failure
+//! remains contained: Forge execution never depends on this diagnostic write succeeding.
 
 use crate::engine::vendor_session::with_shared;
 use db::ForgeEngineDao;
-
-const INSERT_OBSERVER_SQL: &str = "
-    INSERT INTO workflow_execution_trace_event (
-        event_type, system, occurred_at, outcome, summary,
-        source_system, source_event_id,
-        workflow_instance_id, workflow_node_id, task_id, correlation_id
-    ) VALUES (
-        $1, 'forge_observer', now(), 'ok', $2,
-        'forge_observer', $3,
-        $4, $5, $6, $7
-    )
-    ON CONFLICT (source_system, source_event_id)
-    WHERE source_event_id IS NOT NULL DO NOTHING";
 
 fn observer_source_event_id(process_instance_id: &str, task_id: &str, event_type: &str) -> String {
     format!("forge:{process_instance_id}:{task_id}:{event_type}")
@@ -58,15 +47,21 @@ pub fn record_forge_observer(
 mod tests {
     use super::*;
 
+    /// The dedupe the DAO relies on rests on this key being a pure function of the turn, so a retried observer write
+    /// of the same event collapses onto the row already there while two events of one turn stay distinct.
+    ///
+    /// This module used to assert on its own `INSERT` text; the DAO owns that statement now, so the assertion that
+    /// stays is the one this module still owns.
     #[test]
-    fn observer_targets_the_canonical_trace_and_real_instance_identity() {
-        assert!(INSERT_OBSERVER_SQL.contains("INSERT INTO workflow_execution_trace_event"));
-        assert!(INSERT_OBSERVER_SQL.contains("workflow_instance_id"));
-        assert!(INSERT_OBSERVER_SQL.contains("workflow_node_id"));
-        assert!(INSERT_OBSERVER_SQL.contains("task_id"));
-        assert!(!INSERT_OBSERVER_SQL.contains("INSERT INTO workflow_trace ("));
-
-        let id = observer_source_event_id("instance-1", "task-9", "role.completed");
-        assert_eq!(id, "forge:instance-1:task-9:role.completed");
+    fn observer_source_event_id_is_stable_per_instance_task_and_event() {
+        assert_eq!(
+            observer_source_event_id("instance-1", "task-9", "role.completed"),
+            "forge:instance-1:task-9:role.completed"
+        );
+        assert_ne!(
+            observer_source_event_id("instance-1", "task-9", "role.started"),
+            observer_source_event_id("instance-1", "task-9", "role.completed"),
+            "two events of one turn must not collapse onto each other"
+        );
     }
 }
