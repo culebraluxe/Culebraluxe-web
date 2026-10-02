@@ -115,7 +115,7 @@ pub(super) struct EngineResult {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct Model {
+pub struct Model {
     pub(super) status: &'static str,
     pub(super) story_id: &'static str,
     pub(super) story_title: &'static str,
@@ -146,7 +146,7 @@ impl Default for Model {
 }
 
 #[derive(Debug, PartialEq)]
-pub(super) enum Msg {
+pub enum Msg {
     AgentSelected(String),
     ResultSelected(String),
     DemoAction(&'static str),
@@ -173,7 +173,7 @@ pub(super) fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
     Cmd::none()
 }
 
-pub fn find_agent<'a>(agents: &'a [AgentNode], id: &str) -> Option<&'a AgentNode> {
+fn find_agent<'a>(agents: &'a [AgentNode], id: &str) -> Option<&'a AgentNode> {
     for agent in agents {
         if agent.id == id {
             return Some(agent);
