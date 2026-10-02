@@ -526,6 +526,14 @@ impl<S: TxStore> WorkflowEngine<S> {
         })
     }
 
+    pub fn claim_job(&self, job_id: &str, worker_id: &str) -> Result<Option<Job>> {
+        self.store.with_tx(|tx| {
+            let now = self.now();
+            let lease = now + JOB_LEASE_MS;
+            tx.claim_job(job_id, worker_id, now, lease)
+        })
+    }
+
     pub fn claim_jobs(&self, worker_id: &str, limit: usize) -> Result<Vec<Job>> {
         self.store.with_tx(|tx| {
             let now = self.now();
