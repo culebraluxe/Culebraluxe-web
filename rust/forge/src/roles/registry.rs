@@ -120,6 +120,9 @@ mod tests {
             .register(&second)
             .expect_err("a Forge lane may have only one service owner");
 
-        assert!(error.to_string().contains("Smith"));
+        assert!(
+            error.to_string().contains("forge.smith"),
+            "duplicate registration must identify the conflicting service key"
+        );
     }
 }
