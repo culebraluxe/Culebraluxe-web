@@ -80,6 +80,14 @@ pub trait Store {
     fn get_job(&mut self, id: &str) -> Result<Job>;
     fn lock_job(&mut self, id: &str) -> Result<Job>;
     fn update_job(&mut self, job: &Job) -> Result<()>;
+    fn claim_job(
+        &mut self,
+        job_id: &str,
+        worker_id: &str,
+        now: i64,
+        lease_until: i64,
+    ) -> Result<Option<Job>>;
+
     fn claim_due_jobs(
         &mut self,
         worker_id: &str,
