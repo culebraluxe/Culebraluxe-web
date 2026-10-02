@@ -27,7 +27,7 @@ structural-equality predicate is `graphs_equal` (`rust/forge/src/engine/version_
 
 ## Context refs
 
-- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-810` — the canonical test.
+- `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-773` — the canonical test.
 - `rust/forge/src/engine/xml.rs:352-426` — `parse_process_definition_xml` / `definition_from_xml`, the production parser.
 - `rust/forge/src/engine/xml.rs:196-199` — the nested-comment skip inside an element's children.
 - `rust/forge/src/engine/version_policy.rs:39-41` — `graphs_equal`, the production equality predicate.
@@ -735,8 +735,7 @@ MUTATION_A_EXIT=101
 
 Mutation check B (this node's own, the required-branch-command-type clause): relaxing the production requirement to an
 optional read (`rust/forge/src/engine/xml.rs:331`, `Some(req(el, "branch-command-type")?)` →
-`el.attrs.get("branch-command-type").cloned()`) makes the fork parse and the test fail exactly at the new clause
-(`.../wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:794`), `test result: FAILED` (exit 101):
+`el.attrs.get("branch-command-type").cloned()`) made the fork parse and the test fail at that candidate's then-current branch-command refusal clause (then line 794); `test result: FAILED` (exit 101):
 
 ```
 thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at .../wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:794:5:
