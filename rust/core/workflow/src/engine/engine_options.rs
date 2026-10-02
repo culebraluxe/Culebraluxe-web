@@ -69,6 +69,12 @@ impl<S: TxStore> WorkflowEngine<S> {
         (self.now)()
     }
 
+    /// The engine's clock, exposed for durable executors that must stamp work
+    /// on the same timeline used for leases and retry scheduling.
+    pub fn current_time_ms(&self) -> i64 {
+        self.now()
+    }
+
     /// Make sure the definition this engine is about to run is registered, and adopt the identity the store
     /// holds for it. Safe to call on every start: `ensure_definition` inserts a `(tenant_id, key, version)`
     /// that is absent and returns the registered row when it is present, which is what keeps a human key like
