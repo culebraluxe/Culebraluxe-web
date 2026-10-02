@@ -27,11 +27,7 @@ pub struct ForgeServiceDescriptor {
 pub trait AbstractForgeService: Send + Sync {
     fn descriptor(&self) -> ForgeServiceDescriptor;
 
-    fn execute(
-        &self,
-        node_id: &str,
-        task: &ActiveForgeRoleTask,
-    ) -> Result<ForgeRoleOutcome>;
+    fn execute(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome>;
 
     fn supports_node(&self, node_id: &str) -> bool {
         forge_role_node_plan(node_id)
@@ -54,8 +50,8 @@ pub trait AbstractForgeService: Send + Sync {
 /// Migration adapter from the existing `ForgeRoleRunner` seam into role services.
 ///
 /// A lane with a registered service goes through that service. All unregistered lanes
-/// use the existing runner unchanged. This lets Smith prove the boundary without
-/// forcing Scout/Architect/Lead/Assay/DEV_OPS through an unfinished abstraction.
+/// use the existing runner unchanged. This lets individual roles prove the boundary
+/// without forcing every Forge lane through an unfinished abstraction.
 pub struct ForgeServiceRouter<'a> {
     fallback: &'a dyn ForgeRoleRunner,
     services: Vec<&'a dyn AbstractForgeService>,
@@ -95,6 +91,8 @@ impl ForgeRoleRunner for ForgeServiceRouter<'_> {
 mod tests {
     use super::*;
     use crate::engine::facts::ForgeGateEvidence;
+    use crate::roles::architect::ArchitectService;
+    use crate::roles::lead::LeadService;
     use crate::roles::smith::SmithService;
     use std::sync::Mutex;
 
@@ -146,6 +144,51 @@ mod tests {
     }
 
     #[test]
+    fn architect_service_owns_exactly_the_architect_lane() {
+        let runner = RecordingRunner::new("architect-service");
+        let service = ArchitectService::new(&runner);
+
+        for node in ["research_architect", "architect", "repair_architect"] {
+            assert!(
+                service.supports_node(node),
+                "{node} must belong to ArchitectService"
+            );
+        }
+
+        for node in ["research_scout", "lead_pre", "smith", "qa_verify", "deploy"] {
+            assert!(
+                !service.supports_node(node),
+                "{node} must not leak into ArchitectService"
+            );
+        }
+    }
+
+    #[test]
+    fn lead_service_owns_exactly_the_lead_lane() {
+        let runner = RecordingRunner::new("lead-service");
+        let service = LeadService::new(&runner);
+
+        for node in [
+            "lead_pre",
+            "lead_solo_implement",
+            "lead_post",
+            "failure_classifier",
+        ] {
+            assert!(
+                service.supports_node(node),
+                "{node} must belong to LeadService"
+            );
+        }
+
+        for node in ["architect", "smith", "qa_verify", "deploy"] {
+            assert!(
+                !service.supports_node(node),
+                "{node} must not leak into LeadService"
+            );
+        }
+    }
+
+    #[test]
     fn smith_service_owns_exactly_the_smith_lane() {
         let runner = RecordingRunner::new("smith-service");
         let service = SmithService::new(&runner);
@@ -157,15 +200,56 @@ mod tests {
             "fast_smith",
             "fast_repair_smith",
         ] {
-            assert!(service.supports_node(node), "{node} must belong to SmithService");
+            assert!(
+                service.supports_node(node),
+                "{node} must belong to SmithService"
+            );
         }
 
-        for node in ["architect", "lead_pre", "lead_solo_implement", "qa_verify", "deploy"] {
+        for node in [
+            "architect",
+            "lead_pre",
+            "lead_solo_implement",
+            "qa_verify",
+            "deploy",
+        ] {
             assert!(
                 !service.supports_node(node),
                 "{node} must not leak into SmithService"
             );
         }
+    }
+
+    #[test]
+    fn architect_service_fails_closed_on_a_non_architect_node() {
+        let runner = RecordingRunner::new("architect-service");
+        let service = ArchitectService::new(&runner);
+        let err = match service.execute("smith", &task("smith")) {
+            Ok(_) => panic!("Architect must refuse Smith work"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("forge.architect"));
+        assert!(
+            runner.calls().is_empty(),
+            "wrong-lane work must never reach the underlying role runner"
+        );
+    }
+
+    #[test]
+    fn lead_service_fails_closed_on_a_non_lead_node() {
+        let runner = RecordingRunner::new("lead-service");
+        let service = LeadService::new(&runner);
+        let err = match service.execute("architect", &task("architect")) {
+            Ok(_) => panic!("Lead must refuse Architect work"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("forge.lead"));
+        assert!(
+            runner.calls().is_empty(),
+            "wrong-lane work must never reach the underlying role runner"
+        );
     }
 
     #[test]
@@ -185,21 +269,47 @@ mod tests {
     }
 
     #[test]
-    fn router_strangles_only_smith_and_leaves_other_roles_on_the_existing_runner() {
+    fn router_strangles_architect_lead_and_smith_and_leaves_other_roles_on_the_existing_runner() {
         let fallback = RecordingRunner::new("legacy");
+        let architect_runner = RecordingRunner::new("architect-service");
+        let lead_runner = RecordingRunner::new("lead-service");
         let smith_runner = RecordingRunner::new("smith-service");
-        let smith = SmithService::new(&smith_runner);
-        let router = ForgeServiceRouter::new(&fallback).with_service(&smith);
 
-        let smith_out = router.run("smith", &task("smith")).expect("smith route");
-        assert_eq!(smith_out.evidence.work_type.as_deref(), Some("smith-service"));
+        let architect = ArchitectService::new(&architect_runner);
+        let lead = LeadService::new(&lead_runner);
+        let smith = SmithService::new(&smith_runner);
+        let router = ForgeServiceRouter::new(&fallback)
+            .with_service(&architect)
+            .with_service(&lead)
+            .with_service(&smith);
 
         let architect_out = router
             .run("architect", &task("architect"))
-            .expect("architect fallback");
-        assert_eq!(architect_out.evidence.work_type.as_deref(), Some("legacy"));
+            .expect("architect route");
+        assert_eq!(
+            architect_out.evidence.work_type.as_deref(),
+            Some("architect-service")
+        );
 
+        let lead_out = router
+            .run("lead_pre", &task("lead_pre"))
+            .expect("lead route");
+        assert_eq!(lead_out.evidence.work_type.as_deref(), Some("lead-service"));
+
+        let smith_out = router.run("smith", &task("smith")).expect("smith route");
+        assert_eq!(
+            smith_out.evidence.work_type.as_deref(),
+            Some("smith-service")
+        );
+
+        let assay_out = router
+            .run("qa_verify", &task("qa_verify"))
+            .expect("assay fallback");
+        assert_eq!(assay_out.evidence.work_type.as_deref(), Some("legacy"));
+
+        assert_eq!(architect_runner.calls(), vec!["architect".to_string()]);
+        assert_eq!(lead_runner.calls(), vec!["lead_pre".to_string()]);
         assert_eq!(smith_runner.calls(), vec!["smith".to_string()]);
-        assert_eq!(fallback.calls(), vec!["architect".to_string()]);
+        assert_eq!(fallback.calls(), vec!["qa_verify".to_string()]);
     }
 }
