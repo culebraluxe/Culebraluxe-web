@@ -5,6 +5,7 @@
 //! JobService persists/leases that request, and a worker resolves the concrete
 //! role service. Role semantics never live in this module.
 
+use crate::engine::engine_fault::is_engine_fault_error;
 use crate::engine::executor::ForgeRoleOutcome;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::registry::ForgeServiceRegistry;
@@ -286,10 +287,20 @@ pub fn execute_claimed_job_unsettled(
     match service_result {
         Ok(outcome) => Ok(outcome),
         Err(error) => {
-            // A role-service error keeps the established Forge semantics: it is
-            // a verdict for this attempt, not an infrastructure retry signal.
-            // If ownership was lost, fail_job will itself refuse the stale owner.
-            let _ = jobs.fail(&lease.job_id, worker_id, &error.to_string(), true);
+            // A role-service error is this attempt's verdict UNLESS the failure was the engine's own plumbing — a
+            // session taken away mid-turn, a dead transport, a statement cut off. That kind of failure decided
+            // nothing about the story (captain, 2026-09-29: an engine fault is not the story's verdict), so the
+            // durable job is settled RETRYABLE: Pending behind the backoff, inside the same `max_attempts` budget,
+            // with stale-lease recovery and operator requeue unchanged.
+            //
+            // Everything else stays permanent — a role's refusal, an envelope that no longer matches its task, a
+            // service key nobody registered — because repeating a verdict only spends the same money again.
+            //
+            // The classification reads the ERROR, never the service or the node: this layer stays role-agnostic,
+            // and `forge_job__014` pins that one error classifies the same whichever service produced it. If
+            // ownership was lost, `fail` itself refuses the stale owner.
+            let permanent = !is_engine_fault_error(&error);
+            let _ = jobs.fail(&lease.job_id, worker_id, &error.to_string(), permanent);
             Err(error)
         }
     }

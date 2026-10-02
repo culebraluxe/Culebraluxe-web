@@ -6,7 +6,9 @@
 //!   * a transient failure (`permanent = false`) returns the job to `Pending` behind a backoff, so it is not claimable
 //!     again at once; a permanent failure terminalizes it at once;
 //!   * on the `max_attempts`-th failure the job is `Failed` and never claimed again — no unlimited retry;
-//!   * a ROLE error is a verdict, not an infrastructure retry: `execute_claimed_job` fails the job permanently;
+//!   * a ROLE error is this attempt's verdict unless the failure was the engine's own plumbing: a verdict (and a
+//!     task/job mismatch, a malformed envelope) is failed permanently, while an unavailable database is retried
+//!     within the same budget — `forge_job__014` owns that half of the rule;
 //!   * only an operator `requeue` of a `Failed` job resets the budget.
 //!
 //! **GAP-2 (budget exhausted by crashes is never terminalized) — CLOSED by 3fa80cc0 / 8743c453.** Before the fix,
@@ -112,8 +114,9 @@ fn a_permanent_failure_and_a_role_error_both_terminalize_at_once() {
     assert_eq!((row.status, row.attempts), (JobStatus::Failed, 1));
 
     // A worker-side refusal (the workflow task moved on while the job was queued) is a verdict too: the job is failed
-    // permanently, not retried. A role service's own `Err` takes the same permanent path — see the Assay-refuses-a-
-    // Smith-node case in `forge_job__011`.
+    // permanently, not retried. A role service's own `Err` takes the same permanent path when it IS a verdict — see
+    // the Assay-refuses-a-Smith-node case in `forge_job__011` — and the infrastructure half of that decision (a
+    // database that went away mid-turn is retried, not recorded against the story) is `forge_job__014`.
     let t = ready("t-role", "fast_smith");
     let id = enqueue_ready(engine, &registry, &t);
     let lease = service.claim_one(&id, WORKER_A).expect("claim");

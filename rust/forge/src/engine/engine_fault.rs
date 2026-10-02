@@ -1,5 +1,18 @@
 //! Was the failure the engine's own plumbing, or the work?
 
+use workflow::WorkflowError;
+
+/// The same question, asked of a typed error first.
+///
+/// `WorkflowError::Unavailable` is the database seam saying the CONNECTION failed rather than the statement
+/// (`is_connection_failure`), so that answer needs no reading at all. The message half is [`is_engine_fault`]'s
+/// vocabulary, which exists because a turn can fail deep inside a writer or a socket whose error reaches a caller
+/// already flattened to a string — the flattened form is what `bin/forge.rs` classifies a run's exit with, and it
+/// is the same question. Kept here, once, so the job layer and the exit path cannot answer it differently.
+pub fn is_engine_fault_error(error: &WorkflowError) -> bool {
+    error.is_connection_failure() || is_engine_fault(&error.to_string())
+}
+
 /// The one question the run's exit path has to answer (captain, 2026-09-29): a failure that says nothing about the
 /// story is the engine's, and it is cleared back into the queue rather than recorded against the story.
 ///
