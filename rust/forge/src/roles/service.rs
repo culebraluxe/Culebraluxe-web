@@ -157,10 +157,7 @@ mod tests {
             assert!(service.supports_node(node), "{node} must belong to {label}");
         }
         for node in rejected {
-            assert!(
-                !service.supports_node(node),
-                "{node} must not leak into {label}"
-            );
+            assert!(!service.supports_node(node), "{node} must not leak into {label}");
         }
     }
 
