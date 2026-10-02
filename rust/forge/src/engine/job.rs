@@ -87,6 +87,7 @@ impl<'registry, 'services> ForgeJobBridge<'registry, 'services> {
 pub trait JobService: Send + Sync {
     fn enqueue(&self, request: &ForgeJobRequest) -> Result<String>;
     fn claim(&self, worker_id: &str, limit: usize) -> Result<Vec<ForgeJobLease>>;
+    fn claim_one(&self, job_id: &str, worker_id: &str) -> Result<ForgeJobLease>;
     fn heartbeat(&self, job_id: &str, worker_id: &str) -> Result<i64>;
     fn complete(&self, job_id: &str, worker_id: &str) -> Result<()>;
     fn fail(&self, job_id: &str, worker_id: &str, error: &str, permanent: bool) -> Result<()>;
@@ -154,6 +155,35 @@ impl<S: TxStore> JobService for WorkflowJobService<'_, S> {
         Ok(leases)
     }
 
+    fn claim_one(&self, job_id: &str, worker_id: &str) -> Result<ForgeJobLease> {
+        let existing = self.engine.get_job(job_id)?;
+        if existing.job_type != FORGE_ROLE_JOB_TYPE {
+            return Err(WorkflowError::generic(format!(
+                "job {job_id} has type {:?}, expected {:?}",
+                existing.job_type, FORGE_ROLE_JOB_TYPE
+            )));
+        }
+
+        let job = self
+            .engine
+            .claim_job(job_id, worker_id)?
+            .ok_or_else(|| {
+                WorkflowError::conflict(
+                    "FORGE_JOB_NOT_CLAIMABLE",
+                    format!("Forge role job {job_id} is not claimable"),
+                )
+            })?;
+
+        match lease_from_job(&job) {
+            Ok(lease) => Ok(lease),
+            Err(error) => {
+                self.engine
+                    .fail_job(job_id, worker_id, &error.to_string(), true)?;
+                Err(error)
+            }
+        }
+    }
+
     fn heartbeat(&self, job_id: &str, worker_id: &str) -> Result<i64> {
         self.engine.heartbeat_job(job_id, worker_id)
     }
@@ -213,7 +243,11 @@ pub fn execute_claimed_job(
             Ok(outcome)
         }
         Err(error) => {
-            jobs.fail(&lease.job_id, worker_id, &error.to_string(), false)?;
+            // A role-service error keeps the established Forge semantics: it is
+            // a verdict for this attempt, not an infrastructure retry signal.
+            // Transient worker/infrastructure failures may call JobService::fail
+            // with permanent=false at the worker boundary.
+            jobs.fail(&lease.job_id, worker_id, &error.to_string(), true)?;
             Err(error)
         }
     }
