@@ -165,3 +165,47 @@ fn only_the_publish_path_may_push_merge_or_rebase() {
         "a worker-reachable path pushes, merges or rebases: {violations:#?}"
     );
 }
+
+/// ENG-FORGE-OPENCODE-V2 §5 — Forge may not read OpenCode's private store.
+///
+/// The spend meter used to query OpenCode V1's SQLite database directly (`select … from session`, through the
+/// system `sqlite3` in `-readonly` mode), which made a vendor implementation detail a Forge runtime dependency:
+/// a schema, column names and a file path that Forge does not own. V2 moved that accounting onto the vendor's
+/// documented interfaces (`session export`, `session list`), and this fails the moment a private-store read
+/// comes back — a `sqlite3` call, the store's file name, or its environment override.
+///
+/// The blind spot, named: the scan covers `rust/forge/src` only, not `tests/`. A scan cannot contain the tokens
+/// it looks for, and this file has to name them. The defect it guards lived in `src/engine/harness_usage.rs`,
+/// which is in scope, and the token set is deliberately about the ACCESS (a subprocess and a path) rather than
+/// the concept, so prose explaining the history — stripped with the comments — does not trip it.
+#[test]
+fn forge_never_reads_opencodes_private_session_store() {
+    let mut files: Vec<PathBuf> = Vec::new();
+    collect_rs(&repo_root().join("rust/forge/src"), &mut files);
+    files.sort();
+    assert!(
+        !files.is_empty(),
+        "the private-store scan read no file — an empty scan is a failure, not a pass"
+    );
+
+    let tokens = [
+        "sqlite3",
+        "opencode.db",
+        "FORGE_OPENCODE_DB",
+        "from session",
+    ];
+    let mut findings: Vec<(String, &str)> = Vec::new();
+    for file in &files {
+        let code = strip_comments(&fs::read_to_string(file).expect("source is readable"));
+        for token in tokens {
+            if code.contains(token) {
+                findings.push((file.display().to_string(), token));
+            }
+        }
+    }
+    assert!(
+        findings.is_empty(),
+        "a Forge path reaches into OpenCode's private store again. Use the vendor's documented session \
+         interface (`session export`, `session list`) instead: {findings:#?}"
+    );
+}

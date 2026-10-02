@@ -354,17 +354,37 @@ impl RoleHarness for OpenCodeHarness {
             continue_session,
         };
         // Read BEFORE the turn: a resumed session's totals are cumulative, so its spend is a difference.
-        let baseline = UsageBaseline::before_turn(&cwd, session.as_deref(), continue_session);
+        let baseline = UsageBaseline::before_turn(
+            &cwd,
+            session.as_deref(),
+            continue_session,
+            &self.cli_bin,
+            self.env.as_ref(),
+        );
         let result = if let Some(start) = &self.start_run {
             start(opts)
         } else {
             start_opencode_run(opts)
         };
-        let usage = baseline.after_turn();
         // Read the V2 structured contract BEFORE judging the turn. A successful exit whose stream Forge cannot
         // read is NOT a successful turn (§3); failing closed here is the difference between "the harness is
         // broken" and "the role said nothing", which Forge would otherwise charge to the model.
         let turn = opencode_events::parse_run_events(&result.stdout);
+        let reported_session = turn
+            .as_ref()
+            .ok()
+            .and_then(|events| events.session_id.clone());
+        // What the turn spent.
+        //
+        // PREFERRED: the vendor's `session export`, whose totals are authoritative. FALLBACK: the sum of this
+        // run's own `step_finish` events, used only when the export cannot be read — the live 2.0.21 build does
+        // not reliably emit a `step_finish` for a turn's TERMINAL step, so that sum is a LOWER BOUND, never the
+        // figure Forge prefers. It is taken rather than dropped because a FAILED turn often has no other
+        // reading, and §7 requires that spend not to vanish with the turn.
+        let usage = baseline
+            .after_turn(reported_session.as_deref())
+            .or_else(|| turn.as_ref().ok().and_then(|events| events.usage.clone()));
+
         let spent = usage
             .as_ref()
             .map(|u| {
@@ -412,7 +432,7 @@ impl RoleHarness for OpenCodeHarness {
         // THE V2 SESSION FIX (§4): the id the vendor actually used comes from the turn itself, so a FRESH run
         // persists a real session and the next turn resumes it explicitly. V1 had no such reading and wrote
         // back the id it had *asked* for — `None` on a fresh turn — so a lane's first session was never kept.
-        let actual_session = turn.session_id.clone();
+        let actual_session = reported_session;
         if let Some(story) = self.story_id.as_deref() {
             let _ = vendor_session::write_vendor_session_id(
                 story,
@@ -703,11 +723,13 @@ mod tests {
             out.raw, "DONE",
             "the role output is the assistant text, never the NDJSON transcript"
         );
-        assert!(
-            out.usage.is_none(),
-            "this temp workspace has no vendor session store, so the turn is UNMEASURED — \
-             missing measurement is never a fabricated zero. Where the measurement comes from is \
-             asserted in harness_usage's own tests."
+        // Usage: the vendor export cannot be read here (the harness's binary does not exist), so the fallback
+        // applies — the sum of the turn's own `step_finish` events. It is a LOWER BOUND, not the preferred
+        // figure: the vendor's `session export` is preferred whenever it can be read.
+        assert_eq!(
+            out.usage.as_ref().map(|usage| usage.tokens_input),
+            Some(650),
+            "with no readable export the stream's own step_finish sum is the recorded reading"
         );
 
         let cwd = workspace.to_string_lossy().to_string();
