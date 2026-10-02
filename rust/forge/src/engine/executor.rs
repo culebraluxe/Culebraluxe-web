@@ -366,9 +366,9 @@ fn drive_forge_story_inner<S: TxStore>(
     opts: DriveForgeStoryOptions<'_>,
     durable: Option<DurableForgeExecution<'_, '_>>,
 ) -> Result<DriveForgeStoryResult> {
-    if opts.runner.is_none() && !opts.allow_synthetic_runner {
+    if durable.is_none() && opts.runner.is_none() && !opts.allow_synthetic_runner {
         return Err(WorkflowError::generic(
-            "Forge production execution requires an explicit real role runner; the synthetic runner is test-only.",
+            "Direct Forge execution requires an explicit real role runner; the synthetic runner is test-only. Durable production execution resolves concrete services through JobService + ForgeServiceRegistry.",
         ));
     }
     let synthetic = DefaultForgeRoleRunner;
