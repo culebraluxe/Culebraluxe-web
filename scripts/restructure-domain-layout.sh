@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
-# rust/ -> the tier layout.
+# The layout: rust/ -> the three tiers, one suite at the root, the container files under devops/.
 #
 # WHY THIS IS A SCRIPT AND NOT A ONE-OFF. Three lane worktrees carry the same tree on an older commit, and each one has
 # to end up here too. Everything below is a `git mv` (history follows the file), a manifest line, or a path constant, and
 # every step checks before it acts, so running it twice is a no-op rather than an error.
+#
+# TWO PARTS. Part 1 moves the crate directories into the tiers. Part 2 is what the tree that landed also needed: the
+# contract suite is one crate at the repository root (`tests/`, with `tests/tests/` holding the cases the three crates
+# used to keep beside themselves and `tests/src/` holding the harness they run on), the container files moved to
+# `devops/`, and every reference to a path under `rust/` — in CI, in the scripts, in the hooks, in the container files,
+# in the maps — was re-spelled. `scripts/validate-move-script.sh` re-reads every `fix` line here and applies it to the
+# original file from the base commit, so a rule that has gone stale is loud instead of silent.
 #
 # The layout it produces:
 #
@@ -16,9 +23,13 @@
 #   middle/apis/      the outbound clients (was integrations)
 #   db/               the SQL, the loads, and the adapter crate (was rust/core/db, merged into the existing db/)
 #   cli/ forge/       entry points
+#   tests/            the contract suite: tests/tests/ the cases, tests/src/ the harness
+#   devops/           the container files (was deploy/, plus the two that lived in rust/)
+#   .config/          the nextest profile, at the workspace root because that is where nextest looks
 #
-# Nothing is deleted except one dead scaffold (web/src/main.rs, a three-line stub that prints a placeholder), because the
-# real server binary is src/bin/http.rs and two binaries cannot both be called `web`.
+# Nothing is deleted except three dead things: a three-line scaffold (web/src/main.rs, whose binary is src/bin/web.rs and
+# two binaries cannot both be called `web`), the `.dockerignore` that guarded a context rooted at `rust/`, and one empty
+# placeholder file (`data/skills/svar-react`, with no reader anywhere in the tree).
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -277,9 +288,7 @@ fix forge/tests/handbook_engine_guards.rs 's{\.parent\(\)\n(\s*)\.and_then\(Path
 fix forge/tests/handbook_engine_guards.rs 's{forge sits under rust/ under the repository root}{forge sits at the repository root}g'
 fix forge/tests/opencode_v2_agents.rs 's{\.parent\(\)\n(\s*)\.and_then\(Path::parent\)}{.parent()}g'
 fix web/src/vault/forms_render.rs 's{\.\./\.\./public/brand/CLLOGO\.png}{../public/brand/CLLOGO.png}g'
-fix web/src/vault/artifact.rs 's{\.\./\.\./middle/model/forms/templates}{../middle/model/forms/templates}g'
 fix cli/src/forge/test_section.rs 's{"rust/Cargo\.lock"}{"Cargo.lock"}g'
-fix cli/src/forge/test_section.rs 's{path\.starts_with\("rust/core/"\)\n(\s*)\|\| path\.starts_with\("web/"\)}{path.starts_with("middle/model/")\n${1}|| path.starts_with("db/")\n${1}|| path.starts_with("web/")}g'
 fix cli/src/forge/repo_guards.rs 's{const RESIDUE_ROOTS: \[&str; 4\] = \["rust", "scripts", "\.githooks", "package\.json"\];}{const RESIDUE_ROOTS: [&str; 9] = [\n    "web",\n    "middle",\n    "db",\n    "cli",\n    "forge",\n    "rust",\n    "scripts",\n    ".githooks",\n    "package.json",\n];}'
 fix cli/src/forge/repo_guards.rs 's{let files = tracked_files\(root, &\["rust"\]\);}{let files = tracked_files(root, &["web", "middle", "db", "cli", "forge", "rust"]);}'
 fix cli/src/forge/citations.rs 's{const SOURCE_ROOTS: \[&str; 12\] = \[[\s\S]*?\];}{const SOURCE_ROOTS: [&str; 8] = [\n    "web",\n    "middle",\n    "db",\n    "cli",\n    "forge",\n    "rust",\n    "scripts",\n    "lib",\n];}'
@@ -296,6 +305,117 @@ fix rust/test-harness/tests/arch_boundary__002__no_mvi_screen_performs_direct_db
 fix rust/test-harness/tests/arch_boundary__003__ui_cannot_import_db_crate.rs 's{"server",}{"web",}g; s{"service",}{"services",}g; s{"integrations",}{"apis",}g; s{key == "domain"}{key == "model"}; s{it lists domain}{it lists model}'
 fix rust/test-harness/tests/arch_boundary__004__domain_cannot_depend_on_server_ui_integrations.rs 's{"server",}{"web",}g; s{"service",}{"services",}g; s{"integrations",}{"apis",}g; s{Some\("server"\.to_string\(\)\)}{Some("web".to_string())}'
 fix cli/src/forge/test_section.rs 's{"domain"}{"model"}g; s{"server"}{"web"}g; s{"service"}{"services"}g; s{"integrations"}{"apis"}g'
+
+# ================================================================ PART 2: the suite at the root, the container files, the sweep
+#
+# WHY PART 2 EXISTS. Part 1 produced the tiers. The tree that landed is not only the tiers: the contract suite became
+# one crate at the repository root, the container files moved to devops/, and every reference to a path under `rust/`
+# — in two CI workflows that compiled from it, in the scripts, in the hooks, in the container files and in the maps —
+# was re-spelled. A lane that ran Part 1 alone would have a tree that compiles and a CI that runs cargo in a directory
+# that no longer exists.
+#
+# The `refs` sweeps below are global by design: they cover the dated records too. A lane's diff is allowed to be tidier
+# than the original commit's — the tree it produces is the same tree, which is what this script is for.
+
+# ---------------------------------------------------------------- 2a. the suite: rust/test-harness/ -> tests/
+moved rust/test-harness tests
+for owner in web db forge; do
+  if [ -d "$owner/tests" ]; then
+    for file in "$owner"/tests/*.rs; do
+      [ -e "$file" ] || continue
+      git mv "$file" "tests/tests/$(basename "$file")"
+      say "move    $file -> tests/tests/$(basename "$file")"
+    done
+    rmdir "$owner/tests" 2>/dev/null || true
+  fi
+done
+swapped Cargo.toml '    "rust/test-harness",' '    "tests",'
+swapped tests/Cargo.toml 'db = { path = "../../db" }' 'db = { path = "../db" }'
+swapped tests/Cargo.toml 'model = { path = "../../middle/model" }' 'model = { path = "../middle/model" }'
+swapped tests/Cargo.toml 'services = { path = "../../middle/services" }' 'services = { path = "../middle/services" }'
+swapped tests/Cargo.toml 'ui = { path = "../../web/ui" }' 'ui = { path = "../web/ui" }'
+swapped tests/Cargo.toml 'workflow = { path = "../../middle/workflow" }' 'workflow = { path = "../middle/workflow" }'
+swapped tests/Cargo.toml 'forge = { path = "../../forge" }' 'forge = { path = "../forge" }'
+
+# The suite sits ONE level below the repository root now (it was two, inside rust/test-harness), so each helper that
+# walked up to the root loses a parent. The texts these rules match are the ones Part 1 wrote.
+fix tests/src/source.rs 's{pub fn repo_root\(\) -> PathBuf \{\n    Path::new\(env!\("CARGO_MANIFEST_DIR"\)\)\n        \.parent\(\)\n        \.and_then\(Path::parent\)\n        \.expect\("the harness lives in rust/test-harness, two levels below the repository root"\)\n        \.to_path_buf\(\)\n\}}{pub fn repo_root() -> PathBuf {\n    Path::new(env!("CARGO_MANIFEST_DIR"))\n        .parent()\n        .expect("the suite lives in tests/, one level below the repository root")\n        .to_path_buf()\n}}'
+fix tests/tests/harness_self_test.rs 's{\.parent\(\)\n        \.and_then\(\|path\| path\.parent\(\)\)\n        \.expect\("the harness lives in rust/test-harness, below the repository root"\)}{.parent()\n        .expect("the suite lives in tests/, one level below the repository root")}'
+fix tests/tests/arch_boundary__002__no_mvi_screen_performs_direct_db_access.rs 's{\.parent\(\)\n        \.and_then\(std::path::Path::parent\)\n        \.expect\("the harness lives in rust/test-harness, below the repository root"\)}{.parent()\n        .expect("the suite lives in tests/, one level below the repository root")}'
+fix tests/tests/durable_completion_ledger.rs 's{include_str!\("\.\./src/bin/forge\.rs"\)}{include_str!("../../forge/src/bin/forge.rs")}'
+fix tests/tests/arch_boundary__010__entitlement_owns_action_screen_authorization.rs 's{relative\.starts_with\("rust/test-harness/"\)}{relative.starts_with("tests/")}'
+fix tests/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs 's{const SELF: &str = "rust/test-harness/tests/}{const SELF: &str = "tests/tests/}'
+fix tests/Cargo.toml 's{^(forge = \{ path = "\.\./forge" \})$}{$1\nweb = { path = "../web" }\ntokio-util.workspace = true}m'
+
+
+# ---------------------------------------------------------------- 2b. the container files, and the end of rust/
+moved deploy devops
+moved rust/Dockerfile devops/Dockerfile
+moved rust/Dockerfile.vercel devops/Dockerfile.vercel
+moved rust/.config .config
+moved rust/README.md docs/rust/README.md
+moved rust/FORGE_CUTOVER.md docs/rust/FORGE_CUTOVER.md
+moved rust/WORKFLOW_FORGE_DONE.md docs/rust/WORKFLOW_FORGE_DONE.md
+if [ -f rust/.dockerignore ]; then
+  git rm -q rust/.dockerignore
+  say "remove  rust/.dockerignore (the context it ignored is the repository root now)"
+fi
+if [ -f data/skills/svar-react ]; then
+  git rm -q data/skills/svar-react
+  say "remove  data/skills/svar-react (an empty placeholder with no reader)"
+fi
+rmdir rust data/skills data 2>/dev/null || true
+
+# ---------------------------------------------------------------- 2c. the sweep
+refs 's{^[ \t]+working-directory: rust\r?\n}{}mg' 'CI: no step compiles from rust/'
+refs 's{rust/test-harness/tests/}{tests/tests/}g' 'rust/test-harness/tests -> tests/tests'
+refs 's{rust/test-harness}{tests}g' 'rust/test-harness -> tests'
+refs 's{\brust/Dockerfile\.vercel}{devops/Dockerfile.vercel}g' 'rust/Dockerfile.vercel -> devops/Dockerfile.vercel'
+refs 's{\brust/Dockerfile}{devops/Dockerfile}g' 'rust/Dockerfile -> devops/Dockerfile'
+refs 's{\brust/core/auth\b}{web/auth}g' 'rust/core/auth -> web/auth'
+refs 's{\brust/core/domain\b}{middle/model}g' 'rust/core/domain -> middle/model'
+refs 's{\brust/core/service\b}{middle/services}g' 'rust/core/service -> middle/services'
+refs 's{\brust/core/workflow\b}{middle/workflow}g' 'rust/core/workflow -> middle/workflow'
+refs 's{\brust/core/db\b}{db}g' 'rust/core/db -> db'
+refs 's{\brust/integrations\b}{middle/apis}g' 'rust/integrations -> middle/apis'
+refs 's{\brust/server\b}{web}g' 'rust/server -> web'
+refs 's{\brust/ui\b}{web/ui}g' 'rust/ui -> web/ui'
+refs 's{\brust/experiments\b}{experiments}g' 'rust/experiments -> experiments'
+refs 's{\brust/cli\b}{cli}g' 'rust/cli -> cli'
+refs 's{\brust/forge\b}{forge}g' 'rust/forge -> forge'
+refs 's{\brust/Cargo\.lock\b}{Cargo.lock}g' 'rust/Cargo.lock -> Cargo.lock'
+refs 's{\brust/target\b}{target}g' 'rust/target -> target'
+refs 's{\bdeploy/Dockerfile\.build\b}{devops/Dockerfile.build}g' 'deploy/Dockerfile.build -> devops/Dockerfile.build'
+refs 's{\bdeploy/Dockerfile\.runtime\b}{devops/Dockerfile.runtime}g' 'deploy/Dockerfile.runtime -> devops/Dockerfile.runtime'
+refs 's{\bdeploy/rust-api\b}{devops/rust-api}g' 'deploy/rust-api -> devops/rust-api'
+
+
+# The files a bare sweep cannot fix: the CI steps that READ a path rather than name one, the container COPYs, the
+# pre-push hook, and the guards whose subject is a crate rather than a string.
+fix .github/workflows/gates.yml 's{workspaces: rust}{workspaces: .}; s{path: rust/target/nextest/ci/junit\.xml}{path: target/nextest/ci/junit.xml}; s{and rust/target\. The toolchain}{and target. The toolchain}; s{Fix with: cd rust && cargo fmt --all}{Fix with: cargo fmt --all}; s{core/domain/src/\(applemail\|apple_messages\)}{middle/model/src/(applemail|apple_messages)}g; s{core/domain/src/applemail, core/domain/src/apple_messages}{middle/model/src/applemail, middle/model/src/apple_messages}; s{core/domain/src/forms_font_metrics\.rs}{middle/model/src/forms_font_metrics.rs}; s{-p web --test service_harness_dev}{-p test-harness --test service_harness_dev}; s{-p web --test command_runtime_dev}{-p test-harness --test command_runtime_dev}; s{-p web --test service_atomicity_dev}{-p test-harness --test service_atomicity_dev}; s{-p web --test mq_runtime_dev}{-p test-harness --test mq_runtime_dev}'
+fix .dockerignore 's{^!rust$}{!Cargo.toml\n!Cargo.lock\n!web\n!middle\n!db\n!cli\n!forge\n!tests}m; s{^rust/target$}{target}m'
+fix Dockerfile 's{^COPY rust \./rust$}{COPY Cargo.toml Cargo.lock ./\nCOPY web middle db cli forge tests ./}m; s{/build/rust/target/release/http}{/build/target/release/web}'
+fix devops/Dockerfile.build 's{^COPY rust \./rust$}{COPY Cargo.toml Cargo.lock ./\nCOPY web middle db cli forge tests ./}m; s{target=/build/rust/target}{target=/build/target}; s{cp rust/target/}{cp target/}; s{release/http}{release/web}'
+fix devops/Dockerfile 's{^COPY rust \./rust\nWORKDIR /build/rust$}{COPY Cargo.toml Cargo.lock ./\nCOPY web middle db cli forge tests ./}m; s{/build/rust/target/release/http}{/build/target/release/web}'
+fix devops/Dockerfile.vercel 's{/build/target/release/http}{/build/target/release/web}'
+fix .githooks/pre-push 's{\$root/rust/Cargo\.toml}{\$root/Cargo.toml}g; s{rust/Cargo\.lock}{Cargo.lock}g; s{rust/ui}{web/ui}g; s{^      if has_prefix "rust/" "\$files"; then rust_changed=1; fi$}{      for prefix in "web/" "middle/" "db/" "cli/" "forge/" "tests/" "Cargo.toml" "Cargo.lock"; do\n        if has_prefix "\$prefix" "\$files"; then rust_changed=1; fi\n      done}m'
+fix package.json 's{"start": "rust/target/release/http"}{"start": "target/release/web"}'
+fix scripts/rust-ui-build.sh 's{\$root/rust/target}{\$root/target}'
+fix scripts/rust-dev-boot-smoke.sh 's{rust/target/debug/http}{target/debug/web}'
+fix scripts/build-all.sh 's{\(cd rust && (cargo [^)]*)\)}{$1}g; s{rust/target/release/http}{target/release/web}; s{"  server  "}{"  web     "}'
+fix scripts/ops/gate/slice-check.sh 's{\(cd rust && (cargo [^)]*)\)}{$1}g'
+fix scripts/rust-container-preflight.sh 's{\$ROOT_DIR/rust:/work:ro}{\$ROOT_DIR:/work:ro}; s{rust/Cargo\.lock}{Cargo.lock}g'
+fix scripts/vercel-provision-rust-project.sh 's{cd "\$ROOT_DIR/rust"}{cd "\$ROOT_DIR"}'
+
+# The guards whose subject is the tree itself: the crate lists in citations and sections, the basename resolver's
+# source roots, and the two fences that read a file by a path spelled from the repository root.
+fix cli/src/forge/citations.rs 's{^    "rust",$}{    "tests",}m'
+fix cli/src/forge/test_section.rs 's{path\.starts_with\("rust/test-harness/"\)}{path.starts_with("tests/")}; s{"rust/test-harness/src/}{"tests/src/}g; s{"rust/test-harness/tests/}{"tests/tests/}g; s{^        "rust",$}{        "tests",}m'
+fix cli/src/forge/repo_guards.rs 's{"rust/test-harness/src/git\.rs"}{"tests/src/git.rs"}; s{^    "rust",$}{    "tests",}m; s{&\["web", "middle", "db", "cli", "forge", "rust"\]}{&["web", "middle", "db", "cli", "forge", "tests"]}g; s{tracked_files\(root, &\["rust"\]\)}{tracked_files(root, &["web", "middle", "db", "cli", "forge", "tests"])}; s{path\.starts_with\("rust/test-harness/"\)}{path.starts_with("tests/")}'
+fix cli/src/forge/lint.rs 's{"rust/a/thing\.rs"}{"web/a/thing.rs"}g; s{"rust/b/thing\.rs"}{"web/b/thing.rs"}; s{path_exists\("rust/a/\*\.rs"\)}{path_exists("web/a/*.rs")}; s{path_exists\("rust/a/\*\.ts"\)}{path_exists("web/a/*.ts")}'
+fix middle/model/src/forms_template.rs 's{the API with `rust/` as its working directory}{the API from the repository root}'
+fix web/src/site.rs 's{else `public/` from the repository root or from `rust/`\.}{else `public/` - looked for in the working directory and then one level above it.}'
+fix AGENTS.md 's{are Rust under `rust/`}{are Rust in the tiers (`web/`, `middle/`, `db/`) with the entry points (`cli/`, `forge/`) beside them}'
 
 # ---------------------------------------------------------------- the lockfile
 # `Cargo.lock` moved to the workspace root and still names the packages that were renamed. One metadata call rewrites it

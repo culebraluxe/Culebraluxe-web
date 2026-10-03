@@ -8,13 +8,33 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 script="scripts/restructure-domain-layout.sh"
+# The commit the script is written against: the tree a lane worktree has when it runs it. HEAD is the wrong default
+# now that the layout has landed — HEAD has no `rust/` left to read — so the base is named, and a lane that sits on a
+# different commit passes its own: MOVE_BASE=<that commit> bash scripts/validate-move-script.sh
+base="${MOVE_BASE:-pre-restructure-85bd9108}"
 scratch=$(mktemp -d)
 pass=0
 fail=0
 
-# The path a file had before the move, so its original can be read out of HEAD.
-old_path() {
+# The paths a file had BEFORE the move, so its original can be read out of the base commit. A file can have more than
+# one: `tests/tests/*.rs` came from `rust/test-harness/tests/` (most of the suite) or from a crate's own `tests/`
+# directory (`web/tests/`, `db/tests/`, `forge/tests/`).
+old_paths() {
   case "$1" in
+    tests/src/*) echo "rust/test-harness/src/${1#tests/src/}" ;;
+    tests/tests/*)
+      echo "rust/test-harness/tests/${1#tests/tests/}"
+      echo "rust/server/tests/${1#tests/tests/}"
+      echo "rust/forge/tests/${1#tests/tests/}"
+      echo "rust/core/db/tests/${1#tests/tests/}"
+      ;;
+    tests/*) echo "rust/test-harness/${1#tests/}" ;;
+    devops/Dockerfile.build) echo "deploy/Dockerfile.build" ;;
+    devops/Dockerfile.runtime) echo "deploy/Dockerfile.runtime" ;;
+    devops/rust-api/*) echo "deploy/rust-api/${1#devops/rust-api/}" ;;
+    devops/Dockerfile.vercel) echo "rust/Dockerfile.vercel" ;;
+    devops/Dockerfile) echo "rust/Dockerfile" ;;
+    docs/rust/*) echo "rust/${1#docs/rust/}" ;;
     web/ui/*) echo "rust/ui/${1#web/ui/}" ;;
     web/auth/*) echo "rust/core/auth/${1#web/auth/}" ;;
     web/*) echo "rust/server/${1#web/}" ;;
@@ -34,14 +54,24 @@ while IFS= read -r line; do
   expression=$(printf '%s' "$line" | sed -E "s/^fix [^ ]+ '(.*)'$/\1/")
   [ -n "$file" ] && [ "$file" != "$line" ] || continue
 
-  original=$(old_path "$file")
+  # The state of this file as the rules have transformed it so far — or, for a file no rule has touched yet, the
+  # original from the base commit. A rule that follows another rule on the same file has to see the first one's
+  # output, because that is what the script does when it runs.
+  state="$scratch/state.$(old_paths "$file" | head -1 | tr '/' '_')"
   work="$scratch/file"
-  if ! git show "HEAD:$original" > "$work" 2>/dev/null; then
-    # A second `fix` on the same file re-reads the file the first one just fixed, which is what the script does too.
-    if [ ! -f "$scratch/last" ]; then
-      printf 'MISSING-ORIG  %s (tried %s)\n' "$file" "$original"; fail=$((fail + 1)); continue
+  if [ -f "$state" ]; then
+    cp "$state" "$work"
+  else
+    found=0
+    for candidate in $(old_paths "$file"); do
+      if git show "$base:$candidate" > "$work" 2>/dev/null; then
+        found=1
+        break
+      fi
+    done
+    if [ "$found" != "1" ]; then
+      printf 'MISSING-ORIG  %s (tried %s)\n' "$file" "$(old_paths "$file" | tr '\n' ' ')"; fail=$((fail + 1)); continue
     fi
-    cp "$scratch/last" "$work"
   fi
 
   before=$(shasum "$work" | cut -d' ' -f1)
@@ -55,7 +85,7 @@ while IFS= read -r line; do
   else
     printf 'applies       %s\n' "$file"; pass=$((pass + 1))
   fi
-  cp "$work" "$scratch/last"
+  cp "$work" "$state"
 done < <(grep -E "^fix " "$script")
 
 printf '\n%s fix line(s) still apply, %s do not\n' "$pass" "$fail"
