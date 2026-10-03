@@ -72,7 +72,7 @@ a `q` no agent can press, which is what a "blocked" agent looks like from the ou
   `~/Documents/Culebraluxe-web/.git/worktrees/…`, which no longer exists.
 - `build/rust` is still empty, so the next `cargo` invocation pays the full cold compile. Warming it is optional.
 
-## The layout move (2026-10-01): what a lane does
+## The layout move (2026-10-01/02): what a lane does
 
 The three lane worktrees sit on `97785410`, which is before the tree moved to the three tiers. Do not merge `main`
 into a lane to catch up: the merge is a conflict in every file that moved, and the tree that comes out of it is
@@ -96,7 +96,7 @@ cargo check --workspace --all-targets
 cargo test --workspace
 ```
 
-Measured on 2026-10-01 in a rehearsal worktree at `97785410`: **51 rules apply, 0 stale**, the script exits 0, the tree
+Measured on 2026-10-03 in a rehearsal worktree at `97785410`: **51 rules apply, 0 stale**, the script exits 0, the tree
 it produces holds 90 case files in `tests/tests/` with `rust/` and `deploy/` gone, and
 `cargo check --workspace --all-targets` finishes with **0 errors**.
 

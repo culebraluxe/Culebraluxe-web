@@ -142,6 +142,29 @@ Root cause for all five: an incomplete or mis-keyed write is SILENT. The reader 
 null and the gate reports a missing deliverable, which reads as a model failure. When a
 gate refuses, read the ROWS for that `(task, node, attempt)` before believing the message.
 
+## The tree is three tiers, and it is landed (2026-10-03, `main`)
+
+`rust/` is gone from `main`. The crates are `web/`, `middle/` and `db/`, the entry points `cli/`, `forge/` and
+`agents/`, the suite `tests/`, the container files `devops/`, the build output outside the source tree. The move was
+mechanical — `git mv` throughout, no logic change — and it went in as a fast-forward, not a merge: the branch and
+`main` had the move in common, so nobody had to resolve anything.
+
+**Two tools keep it that way.** `scripts/restructure-domain-layout.sh` is the move, re-runnable and idempotent, and
+`scripts/validate-move-script.sh` proves the script still matches the tree — it reports "51 fix line(s) still apply,
+0 do not", and anything else means a file the script names has moved again. `tests/tests/arch_boundary__013` fails if
+a `rust/` directory ever comes back, so the guard is not just a script somebody has to remember to run.
+
+**Four tests fail, and they failed before the move.** `forge_seam__001..004` expect the FEATURE role order
+`[architect, lead_pre, smith, lead_post, qa_review, qa_verify]`; the run records
+`[architect, architect, lead_pre, lead_pre, lead_solo_implement, lead_post, qa_review, qa_verify, qa_verify]`. The
+suite read 115 pass / 4 fail on pristine `HEAD` before the move and reads 1102 / 4 now — the four are role drift
+between the live workflow and the seam tests, which the layout cannot touch, and whoever owns the workflow lane
+decides whether the tests or the routing is stale. Do not "fix" them by editing the seam expectations to match.
+
+The three lane worktrees (`lane/claude`, `lane/deep`, `lane/gpt`, all at `97785410`) had the move replayed onto
+their base on 2026-10-03 with all 51 rules applying and `cargo check --workspace --all-targets` clean; each lane
+carries it as one local commit and nothing was pushed. `docs/agent/LAYOUT.md` has the recipe.
+
 ## Open, in priority order
 
 The current executable queue is `docs/agent/QUEUE-2026-10-02.md`. The short version is:
