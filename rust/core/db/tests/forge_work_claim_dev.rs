@@ -772,6 +772,19 @@ fn the_claim_transaction_lives_in_the_database_not_in_rust() {
             "migration 263 defines {function}"
         );
     }
+    let dispatch =
+        std::fs::read_to_string(root.join("db/migrations/265_forge_dispatch_reconcile.sql"))
+            .unwrap();
+    for function in ["forge_dispatch_story", "forge_reconcile_dispatch_queue"] {
+        assert!(
+            dispatch.contains(&format!("create or replace function {function}(")),
+            "migration 265 defines {function}"
+        );
+        assert!(
+            dao.contains(&format!("from {function}(")),
+            "the DAO calls {function}"
+        );
+    }
     let begin =
         std::fs::read_to_string(root.join("db/migrations/264_forge_agent_work_begin.sql")).unwrap();
     assert!(
@@ -818,6 +831,11 @@ fn the_claim_transaction_lives_in_the_database_not_in_rust() {
         "begin(\"forge_engine.finish_agent_work_run",
         "begin(\"forge_engine.reject_agent_work_configuration",
         "Done refused",
+        // Dispatch and the sweep (migration 265).
+        "fn dispatch_story_in",
+        "set status='Planned'",
+        "begin(\"forge_engine.reconcile_dispatch_queue",
+        "begin(\"forge_engine.ensure_story_dispatched",
         // The run open (migration 264).
         "insert into storyboard_story_run",
         "begin(\"forge_engine.begin_agent_work_run",
@@ -1267,4 +1285,64 @@ async fn the_settlement_policy_is_the_databases() {
             .await
             .is_err()
     );
+}
+
+/// Dispatch refuses rather than shrugs (migration 265): a story whose change into `Ready` creates no item means the
+/// trigger this deployment relies on is missing. Proven inside a transaction that is always rolled back — the
+/// trigger is disabled only there — so DEV never runs without it.
+#[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV"]
+async fn dispatch_without_its_trigger_is_a_schema_mismatch_and_moves_nothing() {
+    let database = Database::connect_target(DbTarget::Dev)
+        .await
+        .expect("DATABASE_URL_DEV");
+    let pool = database.pool();
+    let story = format!("ENG-PROOF-NOTRIGGER-{}", uuid::Uuid::new_v4().simple());
+    sqlx::query(
+        "insert into storyboard_story (id, workstream, title, priority, status, notes)
+         values ($1, 'PROOF', 'Dispatch trigger proof', 'High', 'Planned', '')",
+    )
+    .bind(&story)
+    .execute(pool)
+    .await
+    .expect("insert proof story");
+
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("alter table storyboard_story disable trigger storyboard_story_ready_dispatch")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let refused = sqlx::query("select * from forge_dispatch_story($1)")
+        .bind(&story)
+        .execute(&mut *tx)
+        .await
+        .expect_err("no item after the change is refused");
+    tx.rollback().await.unwrap();
+
+    let code = match &refused {
+        sqlx::Error::Database(error) => error.code().map(|code| code.to_string()),
+        _ => None,
+    };
+    let status: String = sqlx::query_scalar("select status from storyboard_story where id = $1")
+        .bind(&story)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let enabled: String = sqlx::query_scalar(
+        "select tgenabled::text from pg_trigger where tgname = 'storyboard_story_ready_dispatch'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    cleanup_story(pool, &story).await;
+    assert_eq!(code.as_deref(), Some("42704"), "{refused}");
+    assert!(
+        refused.to_string().contains("created no work item"),
+        "{refused}"
+    );
+    assert_eq!(
+        status, "Planned",
+        "the refused change into Ready did not stick"
+    );
+    assert_ne!(enabled, "D", "the trigger is enabled again on DEV");
 }
