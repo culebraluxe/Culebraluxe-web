@@ -42,6 +42,7 @@ pub mod path;
 pub mod phase;
 pub mod port;
 pub mod process;
+pub mod production_probe;
 pub mod qa_adjudicate;
 pub mod qa_assert;
 pub mod qa_classify;

@@ -8,12 +8,11 @@
 use crate::engine::assay::{collect_rust_contract_assay_evidence, AssayEvidence, AssayVerdict};
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
-use crate::engine::hold::OpenHold;
 use crate::engine::phase::{lane_deliverable_kind, PhaseDeliverableKind, RoleEffectPorts};
 use crate::engine::role_mapping::LaneId;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::hooks::ForgeRoleHooks;
-use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleTurn};
+use crate::roles::lifecycle::{hold_rejected_deliverable, ForgeRoleContext, ForgeRoleTurn};
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
 use workflow::{Result, WorkflowError};
 
@@ -169,27 +168,9 @@ fn run_rust_contract_qa(
             .map_err(|error| {
                 WorkflowError::generic(format!("record_tool_artifact({story_id}): {error}"))
             })?;
-
-        if let Some(reason) = evidence.deliverable_rejection.clone() {
-            writer
-                .mark_story_human_hold(story_id, &reason)
-                .map_err(|error| {
-                    WorkflowError::generic(format!("mark_story_human_hold({story_id}): {error}"))
-                })?;
-            writer
-                .open_hold(&OpenHold {
-                    process_instance_id: task.process_instance_id.clone(),
-                    task_id: Some(task.task_id.clone()),
-                    story_id: story_id.to_string(),
-                    reason,
-                    originating_node: Some(node_id.into()),
-                    failure_class: Some("DELIVERABLE_REJECTED".into()),
-                    resume_target: None,
-                })
-                .map_err(|error| {
-                    WorkflowError::generic(format!("forge_hold_record({story_id}): {error}"))
-                })?;
-        }
+    }
+    if let Some(reason) = evidence.deliverable_rejection.as_deref() {
+        hold_rejected_deliverable(ctx, task, node_id, reason)?;
     }
 
     Ok(ForgeRoleOutcome {

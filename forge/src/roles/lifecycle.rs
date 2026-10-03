@@ -318,29 +318,8 @@ pub fn run_forge_role_turn(
         );
     }
 
-    if let Some(reason) = evidence.deliverable_rejection.clone() {
-        if let Some(writer) = ctx.writer {
-            // A hold that cannot be recorded is not a hold that was silently skipped: both writes
-            // propagate, so a gate that failed to record itself is visible as a failed lane.
-            writer
-                .mark_story_human_hold(story_id, &reason)
-                .map_err(|error| {
-                    WorkflowError::generic(format!("mark_story_human_hold({story_id}): {error}"))
-                })?;
-            writer
-                .open_hold(&OpenHold {
-                    process_instance_id: task.process_instance_id.clone(),
-                    task_id: Some(task.task_id.clone()),
-                    story_id: story_id.to_string(),
-                    reason,
-                    originating_node: Some(node_id.into()),
-                    failure_class: Some("DELIVERABLE_REJECTED".into()),
-                    resume_target: None,
-                })
-                .map_err(|error| {
-                    WorkflowError::generic(format!("forge_hold_record({story_id}): {error}"))
-                })?;
-        }
+    if let Some(reason) = evidence.deliverable_rejection.as_deref() {
+        hold_rejected_deliverable(ctx, task, node_id, reason)?;
     }
     // A node that owes a ROUTING decision and gave none cannot route forward: the gateway after it would match no
     // condition and fall through to its first branch (Lead's `execution_shape` fell to SOLO on every story). Every
@@ -355,6 +334,44 @@ pub fn run_forge_role_turn(
         transition_name: Some(transition.into()),
         evidence,
     })
+}
+
+/// Record a rejected deliverable as the story's hold: the board's `Hold` and a `DELIVERABLE_REJECTED` hold record,
+/// against the story the task was listed for. One home for the write every lane makes when it refuses a turn —
+/// the lifecycle's own gate, Assay's model-free road, DevOps' production check.
+///
+/// A hold that cannot be recorded is not a hold that was silently skipped: both writes propagate, so a gate that
+/// failed to record itself is visible as a failed lane. A writer-less run (tests, a machine with no PROD URL)
+/// records nothing.
+pub fn hold_rejected_deliverable(
+    ctx: &ForgeRoleContext<'_>,
+    task: &ActiveForgeRoleTask,
+    node_id: &str,
+    reason: &str,
+) -> Result<()> {
+    let Some(writer) = ctx.writer else {
+        return Ok(());
+    };
+    let story_id = task.story_id.as_str();
+    writer
+        .mark_story_human_hold(story_id, reason)
+        .map_err(|error| {
+            WorkflowError::generic(format!("mark_story_human_hold({story_id}): {error}"))
+        })?;
+    writer
+        .open_hold(&OpenHold {
+            process_instance_id: task.process_instance_id.clone(),
+            task_id: Some(task.task_id.clone()),
+            story_id: story_id.to_string(),
+            reason: reason.to_string(),
+            originating_node: Some(node_id.into()),
+            failure_class: Some("DELIVERABLE_REJECTED".into()),
+            resume_target: None,
+        })
+        .map_err(|error| {
+            WorkflowError::generic(format!("forge_hold_record({story_id}): {error}"))
+        })?;
+    Ok(())
 }
 
 /// Put one model turn's spend on the record: always on stderr, and on the Story Run row when this lane has one.

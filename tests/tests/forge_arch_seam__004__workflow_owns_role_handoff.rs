@@ -197,7 +197,9 @@ fn no_role_module_calls_another_role_or_advances_workflow() {
             if let Some(start) = code.find("transition_name: Some(\"") {
                 let rest = &code[start + "transition_name: Some(\"".len()..];
                 let name = rest.split('"').next().unwrap_or_default();
-                if name != "complete" {
+                // `hold` is every agent node's own exit to the hold node (FORGE_SDLC-v6: each one declares it), not a
+                // successor chosen in Rust — the comment above always allowed it; the check now does too.
+                if name != "complete" && name != "hold" {
                     hits.push(format!("{}:{line}: transition `{name}`", path.display()));
                 }
             }

@@ -473,6 +473,16 @@ impl crate::engine::runner::CandidateProbe for OpenCodeHarness {
     }
 }
 
+impl crate::engine::runner::ProductionProbe for OpenCodeHarness {
+    fn production_url(&self) -> String {
+        crate::engine::production_probe::production_base_url()
+    }
+
+    fn deployed_sha(&self) -> std::result::Result<String, String> {
+        crate::engine::production_probe::fetch_deployed_sha(&self.production_url())
+    }
+}
+
 impl RoleHarness for OpenCodeHarness {
     fn run_role(
         &self,
@@ -768,6 +778,10 @@ impl RoleHarness for OpenCodeHarness {
     }
 
     fn candidate_probe(&self) -> Option<&dyn crate::engine::runner::CandidateProbe> {
+        Some(self)
+    }
+
+    fn production_probe(&self) -> Option<&dyn crate::engine::runner::ProductionProbe> {
         Some(self)
     }
 

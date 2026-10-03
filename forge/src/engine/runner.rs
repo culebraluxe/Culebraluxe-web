@@ -36,6 +36,15 @@ pub trait CandidateProbe {
     fn declared_test_mode(&self) -> Option<&str>;
 }
 
+/// What production is running, as Forge-owned code reads it (`engine::production_probe`). The DevOps lane's
+/// receipt is this answer; the deploy agent is read-only and can present none.
+pub trait ProductionProbe {
+    /// The base URL probed, named in the receipt and in any refusal.
+    fn production_url(&self) -> String;
+    /// The commit production reports it is running.
+    fn deployed_sha(&self) -> std::result::Result<String, String>;
+}
+
 pub trait RoleHarness: Send + Sync {
     /// `self_heal` is this attempt's corrective directive: `None` on the first attempt, and — when the runner
     /// retries a role that missed a required deliverable — the directive naming exactly what was missed.
@@ -76,6 +85,11 @@ pub trait RoleHarness: Send + Sync {
     /// The repository facts a delivered candidate is judged against. `None` for a harness that runs no real
     /// repository (every double), whose candidate is taken as given.
     fn candidate_probe(&self) -> Option<&dyn CandidateProbe> {
+        None
+    }
+    /// Production's answer for the DevOps release nodes. `None` for a harness with no production behind it (every
+    /// double), whose release turns run as model turns.
+    fn production_probe(&self) -> Option<&dyn ProductionProbe> {
         None
     }
 }

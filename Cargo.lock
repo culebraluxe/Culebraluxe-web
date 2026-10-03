@@ -685,6 +685,7 @@ dependencies = [
  "async-trait",
  "db",
  "model",
+ "reqwest",
  "serde_json",
  "services",
  "sqlx",
