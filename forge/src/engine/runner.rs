@@ -7,7 +7,7 @@ use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::harness_usage::HarnessUsage;
 use crate::engine::opencode_client::TurnTermination;
 use crate::engine::runtime::ActiveForgeRoleTask;
-use crate::engine::writer::ForgeStateWriter;
+use crate::engine::writer::{ForgeEvidenceReader, ForgeStateWriter};
 use workflow::Result;
 
 pub struct HarnessOutput {
@@ -113,6 +113,9 @@ pub struct ProductionRoleRunner<'a> {
     pub contract_assay_commands: Vec<String>,
     pub contract_acceptance_mapped: bool,
     pub require_prod: bool,
+    /// The durable evidence each turn starts from. Without it every turn of a process saw `current` — the evidence
+    /// the process was WOKEN with — and never what earlier turns produced (candidate, decision, published commit).
+    pub evidence_reader: Option<std::sync::Arc<dyn ForgeEvidenceReader>>,
 }
 
 /// The envelope a turn runs under, as whoever hosts it exposes it.
@@ -131,6 +134,11 @@ pub trait ForgeTurnPorts {
     fn contract_assay_commands(&self) -> &[String];
     fn contract_acceptance_mapped(&self) -> bool;
     fn require_prod(&self) -> bool;
+    /// The evidence a turn on `story_id` starts from: the story's latest durable evidence over the wake evidence.
+    /// The default is the wake evidence alone, for hosts with no durable store behind them.
+    fn current_for(&self, _story_id: &str) -> ForgeGateEvidence {
+        self.current().clone()
+    }
 }
 
 impl ForgeTurnPorts for ProductionRoleRunner<'_> {
@@ -169,6 +177,13 @@ impl ForgeTurnPorts for ProductionRoleRunner<'_> {
     fn require_prod(&self) -> bool {
         self.require_prod
     }
+
+    fn current_for(&self, story_id: &str) -> ForgeGateEvidence {
+        match &self.evidence_reader {
+            Some(reader) => reader.read(story_id).merge_over(&self.current),
+            None => self.current.clone(),
+        }
+    }
 }
 
 impl<'a> ProductionRoleRunner<'a> {
@@ -183,6 +198,7 @@ impl<'a> ProductionRoleRunner<'a> {
             contract_assay_commands: Vec::new(),
             contract_acceptance_mapped: false,
             require_prod: false,
+            evidence_reader: None,
         }
     }
 
@@ -221,6 +237,14 @@ impl<'a> ProductionRoleRunner<'a> {
 
     pub fn with_contract_assay_commands(mut self, assay_commands: Vec<String>) -> Self {
         self.contract_assay_commands = assay_commands;
+        self
+    }
+
+    pub fn with_evidence_reader(
+        mut self,
+        reader: Option<std::sync::Arc<dyn ForgeEvidenceReader>>,
+    ) -> Self {
+        self.evidence_reader = reader;
         self
     }
 

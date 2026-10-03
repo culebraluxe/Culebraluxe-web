@@ -629,7 +629,7 @@ fn drive<S: TxStore>(
         store,
         writer.clone(),
         Some(release),
-        evidence_reader,
+        evidence_reader.clone(),
         // The receipt row, not a process-local set: this binary IS a child process per dispatch, so a
         // memory ledger would let every new process re-apply each completion in the instance history
         // (2026-09-29). The ledger is a required argument for exactly this reason.
@@ -657,7 +657,8 @@ fn drive<S: TxStore>(
         .with_bench_intent(bench_intent)
         .with_test_mode(test_mode)
         .with_contract_assay_commands(contract_assay_commands)
-        .with_contract_acceptance_mapped(contract_acceptance_mapped);
+        .with_contract_acceptance_mapped(contract_acceptance_mapped)
+        .with_evidence_reader(evidence_reader.clone());
     // Every canonical Forge lane is composed here, in one place: each service owns its lane's identity,
     // its authority and its own reading of a turn (roles/smith.rs, roles/architect.rs, roles/qa.rs, …),
     // and inherits the shared execution lifecycle. Workflow still owns sequencing, JobService still owns

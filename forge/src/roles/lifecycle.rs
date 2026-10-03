@@ -111,7 +111,17 @@ pub fn run_lane_turn(
 ) -> Result<ForgeRoleOutcome> {
     match runner.turn_ports() {
         Some(ports) => {
-            run_forge_role_turn(&ForgeRoleContext::from_ports(ports), node_id, task, hooks)
+            // Each turn starts from the story's evidence as it stands NOW, not as the process was woken with.
+            let mut current = ports.current_for(&task.story_id);
+            // A rejection is the verdict on the turn that produced it. Carried into the next turn's starting
+            // evidence it reads as this turn's own refusal: a repair Smith after a QA FAIL was re-prompted and paid
+            // twice before it had answered once.
+            current.deliverable_rejection = None;
+            let ctx = ForgeRoleContext {
+                current: &current,
+                ..ForgeRoleContext::from_ports(ports)
+            };
+            run_forge_role_turn(&ctx, node_id, task, hooks)
         }
         None => runner.run(node_id, task),
     }
