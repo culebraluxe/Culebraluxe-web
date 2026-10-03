@@ -12,7 +12,7 @@ use crate::engine::hold::OpenHold;
 use crate::engine::role_mapping::LaneId;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::hooks::ForgeRoleHooks;
-use crate::roles::lifecycle::{effect_ports, ForgeRoleContext, ForgeRoleTurn};
+use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleTurn};
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
 use workflow::{Result, WorkflowError};
 
@@ -212,7 +212,6 @@ pub fn read_assay_measurement(
     if !is_measurement_node(turn.node_id) {
         return Ok(());
     }
-    let ports = effect_ports(ctx);
     let collected = if ctx.test_mode == Some("RUST_CONTRACT") {
         collect_rust_contract_assay_evidence(
             std::mem::take(evidence),
@@ -223,7 +222,6 @@ pub fn read_assay_measurement(
     } else {
         collect_assay_evidence(
             std::mem::take(evidence),
-            &ports,
             Some(&|cmd| ctx.harness.run_command(cmd)),
             &turn.out.assay_commands,
             turn.out.acceptance_mapped,

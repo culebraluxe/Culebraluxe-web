@@ -1,7 +1,6 @@
 //! Port of agents/qa/run.ts adjudicate + assay-collect.ts (no SHA conjunct).
 
 use crate::engine::facts::ForgeGateEvidence;
-use crate::engine::phase::RoleEffectPorts;
 
 #[derive(Debug, Clone)]
 pub struct CommandResult {
@@ -277,7 +276,6 @@ pub struct AssayEvidence {
 
 pub fn collect_assay_evidence(
     mut evidence: ForgeGateEvidence,
-    ports: &RoleEffectPorts,
     run_command: Option<&dyn Fn(&str) -> CommandResult>,
     assay_commands: &[String],
     acceptance_mapped: bool,

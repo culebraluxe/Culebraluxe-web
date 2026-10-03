@@ -245,11 +245,10 @@ impl<S: TxStore> JobService for WorkflowJobService<'_, S> {
     }
 }
 
-/// Execute one already-claimed durable Forge job.
+/// Execute one claimed Forge job but leave its durable lease open on success.
 ///
 /// The worker owns only the generic lifecycle around the call. The registry
 /// resolves the service; the concrete service owns every intelligent decision.
-/// Execute one claimed Forge job but leave its durable lease open on success.
 ///
 /// The live Workflow driver uses this form so it can commit the Workflow task
 /// first and settle the durable job second. That ordering means a crash can
@@ -300,7 +299,15 @@ pub fn execute_claimed_job_unsettled(
             // and `forge_job__014` pins that one error classifies the same whichever service produced it. If
             // ownership was lost, `fail` itself refuses the stale owner.
             let permanent = !is_engine_fault_error(&error);
-            let _ = jobs.fail(&lease.job_id, worker_id, &error.to_string(), permanent);
+            // The role's error is the answer either way. A settle that fails here (a lost lease, the database
+            // gone) leaves the row Locked for stale-lease recovery, and says so instead of vanishing.
+            if let Err(settle) = jobs.fail(&lease.job_id, worker_id, &error.to_string(), permanent)
+            {
+                eprintln!(
+                    "forge-job: job {} could not be settled after its role failed ({settle}); stale-lease recovery will reclaim it",
+                    lease.job_id
+                );
+            }
             Err(error)
         }
     }

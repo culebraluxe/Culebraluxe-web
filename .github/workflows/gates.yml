@@ -321,6 +321,15 @@ jobs:
       - name: rust compile
         run: cargo check --workspace --all-targets
 
+      # CLIPPY'S DENY LINTS ARE BUGS, NOT STYLE (added 2026-10-03). Nothing ran clippy, so a deny-by-default lint —
+      # `cli`'s `len() < 0` once its baseline reached zero — stopped `cargo clippy` dead and nobody saw it, and 265
+      # warnings accumulated behind it. Warnings are reported, not refused (the estate is not at zero); an ERROR fails
+      # the job, because a deny lint is code that cannot mean what it says.
+      - name: rust clippy (deny lints fail; warnings are reported)
+        run: |
+          rustup component add clippy
+          cargo clippy --workspace --all-targets
+
       # THE TREE WAS NOT FORMATTED, AND THAT IS WHY THIS JOB PROVED NOTHING (fixed 2026-09-28).
       #
       # `cargo fmt --check` had been failing on every push for as long as the job existed — the tree held 915

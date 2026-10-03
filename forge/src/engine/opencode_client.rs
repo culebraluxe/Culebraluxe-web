@@ -659,7 +659,8 @@ pub fn start_opencode_run_streaming(
     let max_turn = opts.max_turn;
 
     let (tx, rx) = mpsc::channel::<String>();
-    let stdout_reader = child.stdout.take().map(|out| {
+    // Deliberately never joined (see below): the handle is held only so the reader is visibly owned here.
+    let _stdout_reader = child.stdout.take().map(|out| {
         std::thread::spawn(move || {
             for line in BufReader::new(out).lines() {
                 match line {
