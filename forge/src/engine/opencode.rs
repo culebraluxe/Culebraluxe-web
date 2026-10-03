@@ -131,6 +131,29 @@ pub fn default_cli_bin() -> String {
         .unwrap_or_else(|| VENDOR_CLI_PATH_NAME.into())
 }
 
+/// The operator's wall-clock ceiling for one model turn, in minutes.
+pub const TURN_CEILING_ENV: &str = "FORGE_TURN_TIMEOUT_MINUTES";
+/// The ceiling when the operator set none: long enough for any Smith turn measured so far, short enough that a hung
+/// vendor cannot hold a claim and a worker slot overnight.
+pub const DEFAULT_TURN_CEILING_MINUTES: u64 = 120;
+
+/// The ceiling a turn runs under. Unset or unreadable is the default; `0`/`off`/`none` is an operator saying
+/// "unbounded", deliberately, by name.
+pub fn turn_ceiling(raw: Option<&str>) -> Option<std::time::Duration> {
+    let minutes = match raw.map(str::trim) {
+        None | Some("") => DEFAULT_TURN_CEILING_MINUTES,
+        Some(word)
+            if word == "0"
+                || word.eq_ignore_ascii_case("off")
+                || word.eq_ignore_ascii_case("none") =>
+        {
+            return None
+        }
+        Some(word) => word.parse::<u64>().unwrap_or(DEFAULT_TURN_CEILING_MINUTES),
+    };
+    Some(std::time::Duration::from_secs(minutes * 60))
+}
+
 fn blocked_model_env_key(key: &str) -> bool {
     let upper = key.to_ascii_uppercase();
     upper == "APP_ENV"
@@ -508,6 +531,7 @@ impl RoleHarness for OpenCodeHarness {
             session: session.as_deref(),
             continue_session,
             agent: Some(agent),
+            max_turn: turn_ceiling(std::env::var(TURN_CEILING_ENV).ok().as_deref()),
         };
         // Read BEFORE the turn: a resumed session's totals are cumulative, so its spend is a difference.
         let baseline = UsageBaseline::before_turn(
@@ -1235,5 +1259,24 @@ sleep 30"#,
             "an idle harness has nothing to stop and must say so"
         );
         let _ = fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn the_turn_ceiling_defaults_and_can_be_switched_off_only_by_name() {
+        let minutes = |m: u64| Some(std::time::Duration::from_secs(m * 60));
+        assert_eq!(turn_ceiling(None), minutes(DEFAULT_TURN_CEILING_MINUTES));
+        assert_eq!(
+            turn_ceiling(Some("  ")),
+            minutes(DEFAULT_TURN_CEILING_MINUTES)
+        );
+        assert_eq!(turn_ceiling(Some("45")), minutes(45));
+        assert_eq!(
+            turn_ceiling(Some("forty")),
+            minutes(DEFAULT_TURN_CEILING_MINUTES),
+            "an unreadable value is the default, never unbounded"
+        );
+        for off in ["0", "off", "OFF", "none"] {
+            assert_eq!(turn_ceiling(Some(off)), None, "{off}");
+        }
     }
 }

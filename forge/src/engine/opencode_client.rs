@@ -53,6 +53,10 @@ pub struct OpenCodeStartOptions<'a> {
     /// which means **no Forge authority is enforced** — Forge always names an agent for a role turn, and `None`
     /// exists only so the arg-list contract can be asserted without one.
     pub agent: Option<&'a str>,
+    /// The turn's wall-clock ceiling. Silence is never a verdict (a long tool call is silent and healthy), but a
+    /// turn with no ceiling at all is one hung vendor away from holding its claim and its worker slot forever — the
+    /// spend cap can only stop a turn that is still emitting usage. `None` is unbounded.
+    pub max_turn: Option<Duration>,
 }
 
 /// `run --standalone --format json --model <id> [--agent <name>] [--session <id>] [--continue] [--auto] <task>`.
@@ -391,6 +395,26 @@ pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 /// How long a signalled process group gets to exit before it is killed outright.
 pub const TERMINATE_GRACE: Duration = Duration::from_secs(2);
 
+/// The stop code for a turn that ran past `OpenCodeStartOptions::max_turn`. Its detail deliberately does not say
+/// "timed out": that phrase is engine-fault vocabulary (`engine_fault`), and a turn that ran its whole ceiling is a
+/// failure for a human to read, not plumbing to retry and pay for again.
+pub const TURN_TIMEOUT_CODE: &str = "TURN_TIMEOUT";
+
+fn turn_ceiling_stop(limit: Duration) -> StreamStop {
+    StreamStop {
+        code: TURN_TIMEOUT_CODE.to_string(),
+        detail: format!(
+            "the turn ran past its wall-clock ceiling of {} minute(s) and was stopped",
+            limit.as_secs().div_ceil(60)
+        ),
+    }
+}
+
+/// True once `started` is older than the ceiling.
+fn past_ceiling(started: Instant, limit: Option<Duration>) -> bool {
+    limit.is_some_and(|limit| started.elapsed() >= limit)
+}
+
 /// A turn that is currently running, addressed as the process group it was spawned in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RunningTurn {
@@ -632,6 +656,7 @@ pub fn start_opencode_run_streaming(
         slot.running = Some(running);
     }
     let started = Instant::now();
+    let max_turn = opts.max_turn;
 
     let (tx, rx) = mpsc::channel::<String>();
     let stdout_reader = child.stdout.take().map(|out| {
@@ -684,6 +709,11 @@ pub fn start_opencode_run_streaming(
                     stop = Some(verdict);
                     break;
                 }
+                // A turn that never falls silent still has a ceiling.
+                if past_ceiling(started, max_turn) {
+                    stop = max_turn.map(turn_ceiling_stop);
+                    break;
+                }
             }
             Err(RecvTimeoutError::Timeout) => {
                 // Nothing arrived this interval. Silence alone is never a verdict — a long tool call is silent and
@@ -696,8 +726,30 @@ pub fn start_opencode_run_streaming(
                     exit_code = status.code();
                     break;
                 }
+                if past_ceiling(started, max_turn) {
+                    stop = max_turn.map(turn_ceiling_stop);
+                    break;
+                }
             }
-            Err(RecvTimeoutError::Disconnected) => break,
+            // stdout closed. Usually the process is exiting; a process that closed its output and kept running
+            // would make the reap below wait forever, so it is watched against the same ceiling.
+            Err(RecvTimeoutError::Disconnected) => {
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            exit_code = status.code();
+                            break;
+                        }
+                        Ok(None) if past_ceiling(started, max_turn) => {
+                            stop = max_turn.map(turn_ceiling_stop);
+                            break;
+                        }
+                        Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+                        Err(_) => break,
+                    }
+                }
+                break;
+            }
         }
     }
 
@@ -776,6 +828,7 @@ sleep 30"#,
                 session: None,
                 continue_session: false,
                 agent: Some("forge-scout"),
+                max_turn: None,
             },
             &mut |_line| {
                 lines_seen += 1;
@@ -839,6 +892,7 @@ exit 0"#,
                 session: None,
                 continue_session: false,
                 agent: Some("forge-scout"),
+                max_turn: None,
             },
             &mut |_line| None,
             &live_turn_slot(),
@@ -874,5 +928,82 @@ exit 0"#,
         );
         assert!(!receipt.killed);
         assert!(receipt.signalled.is_empty());
+    }
+
+    fn ceiling_run(dir: &Path, body: &str, limit: Duration) -> (StreamedRunResult, Duration) {
+        let bin = fake_cli(dir, body);
+        let started = Instant::now();
+        let slot = live_turn_slot();
+        let result = start_opencode_run_streaming(
+            OpenCodeStartOptions {
+                cli_bin: &bin,
+                cwd: &dir.to_string_lossy(),
+                model: "deepseek/deepseek-flash",
+                task: "a task the fake vendor ignores",
+                env: None,
+                auto_approve: true,
+                session: None,
+                continue_session: false,
+                agent: Some("forge-smith"),
+                max_turn: Some(limit),
+            },
+            &mut |_line| None,
+            &slot,
+        );
+        (result, started.elapsed())
+    }
+
+    /// A hung vendor — one line, then silence — is stopped at the ceiling instead of holding the claim forever.
+    #[test]
+    fn a_silent_turn_is_stopped_at_its_wall_clock_ceiling() {
+        let dir = workspace("turn-ceiling-silent");
+        let (result, elapsed) = ceiling_run(
+            &dir,
+            r#"printf '{"type":"text","sessionID":"ses_hung"}\n'
+sleep 60"#,
+            Duration::from_secs(1),
+        );
+        let stop = result.stop.clone().expect("the ceiling is a stop");
+        assert_eq!(stop.code, TURN_TIMEOUT_CODE);
+        assert!(
+            !crate::engine::engine_fault::is_engine_fault(&stop.detail),
+            "a turn that ran its whole ceiling is not plumbing to retry: {}",
+            stop.detail
+        );
+        let termination = result.termination.clone().expect("the turn was terminated");
+        assert!(!process_exists(termination.pid), "{termination:?}");
+        assert!(
+            elapsed < Duration::from_secs(20),
+            "stopped near the ceiling: {elapsed:?}"
+        );
+        assert_eq!(result.status, OpenCodeRunStatus::Failed);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A vendor that closes its output but keeps running cannot make the reap wait forever.
+    #[test]
+    fn a_turn_that_closes_stdout_and_keeps_running_is_stopped_at_the_ceiling() {
+        let dir = workspace("turn-ceiling-closed");
+        let (result, elapsed) = ceiling_run(&dir, "exec 1>&-\nsleep 60", Duration::from_secs(1));
+        assert_eq!(
+            result.stop.as_ref().map(|stop| stop.code.as_str()),
+            Some(TURN_TIMEOUT_CODE)
+        );
+        assert!(elapsed < Duration::from_secs(20), "{elapsed:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A turn that finishes inside its ceiling is untouched by it.
+    #[test]
+    fn a_turn_inside_its_ceiling_finishes_normally() {
+        let dir = workspace("turn-ceiling-ok");
+        let (result, _) = ceiling_run(
+            &dir,
+            r#"printf '{"type":"text","sessionID":"ses_ok"}\n'"#,
+            Duration::from_secs(30),
+        );
+        assert!(result.stop.is_none(), "{:?}", result.stop);
+        assert_eq!(result.status, OpenCodeRunStatus::Success);
+        let _ = fs::remove_dir_all(&dir);
     }
 }
