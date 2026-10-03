@@ -297,7 +297,8 @@ pub fn run_forge_role_turn(
         evidence.deliverable_rejection =
             Some(format!("role did not deliver {}", missing.join(", ")));
     }
-    if let Some(route) = hooks.routing_decision_missing(node_id, &evidence) {
+    let route_missing = hooks.routing_decision_missing(node_id, &evidence);
+    if let Some(route) = route_missing {
         if evidence.deliverable_rejection.is_none() {
             evidence.deliverable_rejection = Some(format!("routing decision missing: {route}"));
         }
@@ -341,8 +342,17 @@ pub fn run_forge_role_turn(
                 })?;
         }
     }
+    // A node that owes a ROUTING decision and gave none cannot route forward: the gateway after it would match no
+    // condition and fall through to its first branch (Lead's `execution_shape` fell to SOLO on every story). Every
+    // agent node in the definition has a `hold` transition, and this is what it is for. Other rejections keep
+    // `complete`, because the workflow routes them itself (an Assay FAIL goes to repair, not to a human).
+    let transition = if route_missing.is_some() {
+        "hold"
+    } else {
+        "complete"
+    };
     Ok(ForgeRoleOutcome {
-        transition_name: Some("complete".into()),
+        transition_name: Some(transition.into()),
         evidence,
     })
 }
@@ -773,5 +783,74 @@ mod tests {
         assert_eq!(run_id, "11111111-2222-3333-4444-555555555555");
         assert_eq!((first.tokens_input, first.tokens_output), (26_714, 701));
         assert!((first.cost_usd - 0.005352).abs() < 1e-9);
+    }
+
+    /// The real lane hooks through the shared turn, counting PAID turns: each of these used to cost two, because the
+    /// deliverable the lane reads after the loop was demanded inside it.
+    fn one_turn(node: &str, raw: &str, hooks: &dyn ForgeRoleHooks) -> (ForgeRoleOutcome, usize) {
+        let harness = CountingHarness::new(raw, None);
+        let current = ForgeGateEvidence::default();
+        let task = role_task(node, "ENG-STORY-1");
+        let context = context(&harness, &current, None);
+        let outcome = run_forge_role_turn(&context, node, &task, hooks).expect("turn runs");
+        (outcome, harness.turns())
+    }
+
+    #[test]
+    fn a_valid_architect_handoff_is_delivered_on_its_first_turn() {
+        let raw = concat!(
+            "plan\n",
+            "FORGE_ARCHITECT_HANDOFF: {\"version\":1,\"baseRef\":\"base\",",
+            "\"findings\":[{\"id\":\"F1\",\"required\":true,\"summary\":\"do it\",",
+            "\"scope\":[\"forge/src/lib.rs\"],\"proofs\":[],\"risks\":[]}]}\n"
+        );
+        let (outcome, turns) = one_turn("architect", raw, &crate::roles::architect::ArchitectHooks);
+        assert_eq!(turns, 1, "a valid handoff is not re-asked for");
+        assert_eq!(outcome.evidence.deliverable_rejection, None);
+        assert_eq!(outcome.transition_name.as_deref(), Some("complete"));
+    }
+
+    #[test]
+    fn a_measurement_turn_is_paid_once_and_its_verdict_is_measured_not_claimed() {
+        let (outcome, turns) = one_turn(
+            "qa_verify",
+            "all good\nFORGE_EVIDENCE_JSON: {\"qaPassed\":true}\n",
+            &crate::roles::qa::AssayHooks,
+        );
+        assert_eq!(
+            turns, 1,
+            "the verdict is measured after the turn; the turn owes nothing"
+        );
+        assert_eq!(
+            outcome.evidence.qa_passed,
+            Some(false),
+            "nothing was measured, so a model's claim of PASS is not the verdict"
+        );
+        assert_eq!(
+            outcome.transition_name.as_deref(),
+            Some("complete"),
+            "a QA failure is the workflow's to route, not a hold"
+        );
+    }
+
+    #[test]
+    fn the_lead_decides_on_its_pre_turn_and_a_missing_decision_holds_instead_of_falling_through() {
+        let lead = crate::roles::lead::LeadHooks;
+        let (decided, turns) = one_turn(
+            "lead_pre",
+            "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"SMITH\"}\n",
+            &lead,
+        );
+        assert_eq!(turns, 1);
+        assert_eq!(decided.evidence.lead_decision.as_deref(), Some("SMITH"));
+        assert_eq!(decided.transition_name.as_deref(), Some("complete"));
+
+        let (undecided, _) = one_turn("lead_pre", "I think Smith should do it.\n", &lead);
+        assert_eq!(undecided.evidence.lead_decision, None);
+        assert_eq!(
+            undecided.transition_name.as_deref(),
+            Some("hold"),
+            "with no decision the gateway would fall to its first branch (SOLO)"
+        );
     }
 }

@@ -57,10 +57,19 @@ impl ForgeRoleHooks for ArchitectHooks {
         _ports: &RoleEffectPorts,
     ) -> std::result::Result<ForgeGateEvidence, String> {
         let mut next = marker_evidence(raw, &evidence);
-        if carries_architect_handoff(node_id)
-            && next.findings.is_none()
-            && next.research_disposition.is_none()
-        {
+        if !carries_architect_handoff(node_id) {
+            return Ok(next);
+        }
+        // The handoff is the deliverable, so a reply that carries a readable one HAS delivered — on the attempt
+        // that produced it. The evidence marker never carries findings for a handoff, so reading only the marker
+        // (as this did) called every valid handoff missing, re-prompted the Architect and paid for a second turn
+        // on every story. Whether the handoff HOLDS against its base is still assessed once, in `interpret_turn`.
+        if next.findings.is_none() {
+            if let Some(handoff) = crate::engine::architect::parse_architect_handoff(raw) {
+                next.findings = Some(workflow::Value::from(handoff.findings.len() as i64));
+            }
+        }
+        if next.findings.is_none() && next.research_disposition.is_none() {
             next.deliverable_rejection = Some(ARCHITECT_HANDOFF_MISSING.into());
         }
         Ok(next)

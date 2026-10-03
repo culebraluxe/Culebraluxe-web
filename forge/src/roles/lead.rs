@@ -56,12 +56,14 @@ pub fn is_failure_classifier(node_id: &str) -> bool {
 
 /// Whether this Lead node's reply may not set a decision.
 ///
-/// Every Lead node but the classifier: the decision is taken once, in the PRE turn, and the implement and post
+/// Every Lead node but the classifier and the PRE turn: the decision is taken once, in the PRE turn, and the implement and post
 /// turns run under it, so a reply that restates one there may not overwrite it. Asked of the workflow
 /// definition's service binding rather than of a second list of names, so a Lead node added there is covered
 /// without an edit here.
 fn may_not_set_decision(node_id: &str) -> bool {
-    !is_failure_classifier(node_id) && service_for_node(node_id) == Some(LEAD_SERVICE_ID)
+    !is_failure_classifier(node_id)
+        && node_id != LEAD_DECISION_NODE
+        && service_for_node(node_id) == Some(LEAD_SERVICE_ID)
 }
 
 /// Lead's own reading, supplied to the shared lifecycle as this lane's hooks.
@@ -136,7 +138,7 @@ impl ForgeRoleHooks for LeadHooks {
                 Some("failure_class")
             };
         }
-        if !may_not_set_decision(node_id) {
+        if node_id != LEAD_DECISION_NODE {
             return None;
         }
         let decision = evidence.lead_decision.as_deref().unwrap_or("");
@@ -218,23 +220,61 @@ mod tests {
 
     /// The standing decision survives every Lead turn that may not set one — and a reply cannot overwrite it.
     #[test]
-    fn a_lead_turn_keeps_the_standing_decision_and_ignores_a_restated_one() {
+    fn a_lead_turn_after_pre_keeps_the_standing_decision_and_ignores_a_restated_one() {
         let reply = "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"SOLO\",\"splitCount\":4}\n";
-        for node in ["lead_pre", "lead_solo_implement", "lead_post"] {
+        for node in ["lead_solo_implement", "lead_post"] {
             let next = collect(node, standing("SPLIT", Some(3)), reply);
             assert_eq!(next.lead_decision.as_deref(), Some("SPLIT"), "{node}");
             assert_eq!(next.split_count, Some(3), "{node}");
         }
     }
 
-    /// Chat JSON alone still cannot create a decision where none stood.
+    /// THE PRE TURN DECIDES. Its reply is the decision the execution-shape gateway routes on; refusing it (as the
+    /// port did, after dropping the LEAD_ROUTING line the refusal was paired with) left the gateway with no decision
+    /// and every FEATURE story fell through to SOLO — 11 of 11 in production, 2026-09-29..30, and no Smith turn.
     #[test]
-    fn a_reply_cannot_create_a_decision() {
+    fn the_pre_turn_sets_the_decision_from_its_reply() {
         let next = collect(
             "lead_pre",
             ForgeGateEvidence::default(),
             "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"SMITH\"}\n",
         );
-        assert_eq!(next.lead_decision, None);
+        assert_eq!(next.lead_decision.as_deref(), Some("SMITH"));
+        assert_eq!(LeadHooks.routing_decision_missing("lead_pre", &next), None);
+    }
+
+    /// A PRE reply with no valid decision owes one; the turns after PRE owe none.
+    #[test]
+    fn only_the_pre_turn_owes_a_routing_decision() {
+        let none = ForgeGateEvidence::default();
+        assert_eq!(
+            LeadHooks.routing_decision_missing("lead_pre", &none),
+            Some("lead_decision")
+        );
+        let unknown = collect(
+            "lead_pre",
+            none.clone(),
+            "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"MAYBE\"}\n",
+        );
+        assert_eq!(
+            unknown.lead_decision, None,
+            "an unknown decision is not read"
+        );
+        let split_no_count = collect(
+            "lead_pre",
+            none.clone(),
+            "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"SPLIT\"}\n",
+        );
+        assert_eq!(
+            LeadHooks.routing_decision_missing("lead_pre", &split_no_count),
+            Some("lead_decision.splitCount")
+        );
+        for node in ["lead_solo_implement", "lead_post"] {
+            assert_eq!(
+                LeadHooks.routing_decision_missing(node, &none),
+                None,
+                "{node}"
+            );
+        }
     }
 }

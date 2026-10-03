@@ -7,8 +7,9 @@
 
 use crate::engine::assay::{collect_rust_contract_assay_evidence, AssayEvidence, AssayVerdict};
 use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
-use crate::engine::facts::ForgeGateEvidence;
+use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
 use crate::engine::hold::OpenHold;
+use crate::engine::phase::{lane_deliverable_kind, PhaseDeliverableKind, RoleEffectPorts};
 use crate::engine::role_mapping::LaneId;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::hooks::ForgeRoleHooks;
@@ -31,6 +32,34 @@ pub fn is_measurement_node(node_id: &str) -> bool {
 pub struct AssayHooks;
 
 impl ForgeRoleHooks for AssayHooks {
+    /// A measurement node's verdict is MEASURED after the turn (`read_assay_measurement`); a model may not state
+    /// it. The reply's `qaPassed` is therefore not read — the verdict standing before the turn is kept until the
+    /// commands replace it.
+    fn collect_evidence(
+        &self,
+        node_id: &str,
+        evidence: ForgeGateEvidence,
+        raw: &str,
+        _ports: &RoleEffectPorts,
+    ) -> std::result::Result<ForgeGateEvidence, String> {
+        let mut next = marker_evidence(raw, &evidence);
+        if is_measurement_node(node_id) {
+            next.qa_passed = evidence.qa_passed;
+        }
+        Ok(next)
+    }
+
+    /// The model turn of a measurement node owes nothing: the verdict is produced by the commands, after the turn,
+    /// every time. Asking the turn for it (the lane default, `QaVerdict`) called every turn's verdict missing,
+    /// self-healed it, and paid for a second model turn on every verification.
+    fn deliverable_kind(&self, node_id: &str) -> PhaseDeliverableKind {
+        if is_measurement_node(node_id) {
+            PhaseDeliverableKind::None
+        } else {
+            lane_deliverable_kind(node_id)
+        }
+    }
+
     /// The lane that measures instead of talking: RUST_CONTRACT QA runs the declared commands and reads
     /// the result, so it takes the whole turn and never asks a harness for one.
     fn turn_without_model(

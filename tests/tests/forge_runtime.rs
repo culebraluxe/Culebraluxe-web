@@ -551,23 +551,30 @@ fn a_generation_stops_at_the_turn_cap_before_dispatching_past_it() {
 }
 
 #[test]
-fn evidence_marker_does_not_invent_lead_decision_on_lead_pre() {
+fn evidence_marker_sets_the_lead_decision_only_on_lead_pre() {
     let ev = role_mapping::parse_forge_evidence_marker(
         "prose\nFORGE_EVIDENCE_JSON: {\"leadDecision\":\"SMITH\",\"qaPassed\":true}\n",
     );
     assert_eq!(ev.lead_decision.as_deref(), Some("SMITH"));
     assert_eq!(ev.qa_passed, Some(true));
-    // The reading that strips it is the Lead lane's own, not the engine's: the decision belongs to the PRE
-    // phase, and this turn is not one that may set it.
-    let lead = rust_forge_lead_hooks()
-        .collect_evidence(
-            "lead_pre",
-            ForgeGateEvidence::default(),
-            "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"SMITH\"}",
-            &phase::RoleEffectPorts::default(),
-        )
-        .unwrap();
-    assert!(lead.lead_decision.is_none());
+    // The reading is the Lead lane's own, not the engine's: the decision belongs to the PRE phase, so the PRE turn
+    // sets it and no later Lead turn may. (This test used to assert that lead_pre could NOT set it — pinning the
+    // rule that left the execution-shape gateway with no decision and sent every FEATURE story to SOLO in
+    // production, 2026-09-29..30.)
+    let decide = |node: &str| {
+        rust_forge_lead_hooks()
+            .collect_evidence(
+                node,
+                ForgeGateEvidence::default(),
+                "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"SMITH\"}",
+                &phase::RoleEffectPorts::default(),
+            )
+            .unwrap()
+            .lead_decision
+    };
+    assert_eq!(decide("lead_pre").as_deref(), Some("SMITH"));
+    assert_eq!(decide("lead_post"), None);
+    assert_eq!(decide("lead_solo_implement"), None);
 }
 
 /// The Lead lane's own reading, borrowed where a test needs to ask what the lane makes of a reply.

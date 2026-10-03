@@ -155,12 +155,15 @@ mechanical — `git mv` throughout, no logic change — and it went in as a fast
 0 do not", and anything else means a file the script names has moved again. `tests/tests/arch_boundary__013` fails if
 a `rust/` directory ever comes back, so the guard is not just a script somebody has to remember to run.
 
-**Four tests fail, and they failed before the move.** `forge_seam__001..004` expect the FEATURE role order
-`[architect, lead_pre, smith, lead_post, qa_review, qa_verify]`; the run records
-`[architect, architect, lead_pre, lead_pre, lead_solo_implement, lead_post, qa_review, qa_verify, qa_verify]`. The
-suite read 115 pass / 4 fail on pristine `HEAD` before the move and reads 1102 / 4 now — the four are role drift
-between the live workflow and the seam tests, which the layout cannot touch, and whoever owns the workflow lane
-decides whether the tests or the routing is stale. Do not "fix" them by editing the seam expectations to match.
+**Two seam tests fail (was four until 2026-10-03).** The recorded order
+`[architect, architect, lead_pre, lead_pre, lead_solo_implement, …]` was ROUTING, not test drift: the Architect and
+Assay turns were re-prompted and paid twice because their deliverable was demanded inside the attempt loop, and the
+Lead's PRE decision was refused, so `execution_shape` fell through to SOLO on every story — production shows 11
+`lead_pre` → 11 `lead_solo_implement` → 0 `smith` (2026-09-29..30). Fixed in the roles (see
+`HANDOFF-forge-review-2026-10-03-claude.md`); seams 002 and 004 now pass and 001 gets its exact role order. What
+remains is test-side: `forge_seam__001` counts jobs with `jobs_for_instance`, which lists OPEN jobs only (0 once the
+story completes), and `forge_seam__003` looks for `lead_decision` where the rejection says `lead-decision`. Whoever
+owns the workflow lane decides how those two read; do not change engine behaviour to satisfy them.
 
 The three lane worktrees (`lane/claude`, `lane/deep`, `lane/gpt`, all at `97785410`) had the move replayed onto
 their base on 2026-10-03 with all 51 rules applying and `cargo check --workspace --all-targets` clean; each lane
