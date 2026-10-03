@@ -321,6 +321,65 @@ fn a_second_turn_resumes_the_exact_id_the_first_turn_reported() {
     assert!(!second.iter().any(|a| a == "--continue"));
 }
 
+/// THE RESUME RULE ACROSS A WORKTREE CHANGE (2026-10-03, `ENG-FORGE-C1-BUILD-INFO-01`).
+///
+/// Session continuity exists to pay a story's startup cost once — until the worktree underneath it changes. A
+/// vendor session belongs to the directory that created it, and `worktree::derive_worktree_path` puts the RUN id
+/// in the path, so a FLIP mints a new worktree and leaves the stored session behind in one the engine deleted.
+/// Forge re-sent that id anyway — the row is keyed by story and nothing asked about directories — and the vendor
+/// refused it before the first token: `UnexpectedStatus: 500`, `tokens_in=0`, `cost_usd=0.000000`, three
+/// attempts, $0.00, a Hold. The discriminator is now the directory, the same boundary the vendor enforces, so a
+/// retry inside a run still resumes its session and a flip starts clean. No mode field, and no schema change.
+#[test]
+fn a_stored_session_from_a_deleted_worktree_is_not_resumed() {
+    let stale = "ses_f00630540ffeBPyVxLkQ9GKOWW".to_string();
+    let refused = opencode::resume_session(None, Some(stale), false);
+    assert_eq!(
+        refused, None,
+        "a stored id that does not live in this directory is not resumed"
+    );
+    let args = run_args(
+        opencode::OPENCODE_PINNED_MODEL,
+        "architect turn",
+        true,
+        refused.as_deref(),
+        false,
+    );
+    assert!(
+        !args.iter().any(|a| a == "--session"),
+        "a turn must never name a session from another directory — the vendor answers that with a 5xx: {args:?}"
+    );
+}
+
+#[test]
+fn a_lane_session_that_lives_here_is_still_resumed() {
+    let id = "ses_f00630540ffeBPyVxLkQ9GKOWW".to_string();
+    assert_eq!(
+        opencode::resume_session(None, Some(id.clone()), true),
+        Some(id),
+        "the same id, in its own directory, is the startup cost paid once — the whole point of continuity"
+    );
+}
+
+#[test]
+fn the_workspace_marker_outranks_the_stored_lane_row() {
+    let marker = "ses_v2_in_this_worktree".to_string();
+    assert_eq!(
+        opencode::resume_session(
+            Some(marker.clone()),
+            Some("ses_lives_elsewhere".into()),
+            false
+        ),
+        Some(marker),
+        "the marker is written into the turn's own directory: same-directory proof, and it wins"
+    );
+    assert_eq!(
+        opencode::resume_session(None, None, true),
+        None,
+        "nothing stored and nothing proven: a fresh turn"
+    );
+}
+
 // ---------------------------------------------------------------------------------------------------------
 // The vendor-truth rails (measured 2026-10-03). Forge's half of the contract is the argument list; the vendor's
 // half is what its own `--help` accepts, and the two are only equal if something asks. Two CLIs named `opencode`

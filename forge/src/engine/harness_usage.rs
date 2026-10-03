@@ -237,6 +237,37 @@ pub fn latest_session_in(
     pick_latest(&vendor_sessions(cli_bin, cwd, env))
 }
 
+/// Does this exact session belong to THIS directory — i.e. is it safe to RESUME here?
+///
+/// THIS IS THE AUTHORITY FOR A RESUME ACROSS A WORKTREE CHANGE (2026-10-03, `ENG-FORGE-C1-BUILD-INFO-01`).
+///
+/// A vendor session belongs to the project directory it was created in. Forge's stored `forge_vendor_session`
+/// row is keyed `(story_id, lane)` and knows nothing about directories, while a worktree path carries the RUN id
+/// (`worktree::derive_worktree_path`), so a flip — a fresh run, a fresh worktree — left the row naming a session
+/// in a directory the engine had already removed. Every turn after the flip re-sent that id and the vendor
+/// refused it before the first token: `UnexpectedStatus: 500`, `tokens_in=0`, `cost_usd=0.000000`. This function
+/// is the check that refuses a stale row instead of spending a run on it.
+///
+/// The directory filter is `vendor_sessions`', and it is not a formality: on macOS the vendor reports the
+/// RESOLVED spelling (`/private/var/…` for `/var/…`), which `directory_spellings` reconciles.
+///
+/// FAIL-CLOSED TOWARD FRESH: a vendor that cannot be asked yields an empty list and therefore `false`. The turn
+/// then opens a new session, which re-reads the packet — a cost. The alternative direction would resurrect a
+/// session in a directory that no longer exists, which is a 500 and a lost run.
+pub fn session_lives_in(
+    cli_bin: &str,
+    cwd: &str,
+    env: Option<&HashMap<String, String>>,
+    session_id: &str,
+) -> bool {
+    session_in_rows(&vendor_sessions(cli_bin, cwd, env), session_id)
+}
+
+/// The membership half of `session_lives_in`, split out so the rule is testable with no vendor on the machine.
+fn session_in_rows(rows: &[VendorSession], session_id: &str) -> bool {
+    rows.iter().any(|row| row.id == session_id)
+}
+
 /// The first session this directory created at or after `since_ms`.
 pub fn first_session_since(
     cli_bin: &str,
@@ -471,6 +502,72 @@ mod tests {
             None,
             "nothing after the launch instant: unmeasured"
         );
+    }
+
+    /// A SESSION FROM ANOTHER DIRECTORY IS NEVER RESUME EVIDENCE — the rule that ends the 2026-10-03 C1 loop.
+    ///
+    /// The live shapes: `ses_f00630540ffeBPyVxLkQ9GKOWW` was minted in the 02:34 run's worktree
+    /// (`…/culebraluxe-forge-worktrees/eng-forge-c1-build-info-01-<run-id>/`), Forge stored it against the STORY,
+    /// and the engine then removed that worktree. Every turn of every later run re-sent the dead id from a
+    /// different directory and the vendor answered `UnexpectedStatus: 500` with `tokens_in=0` before the turn
+    /// could begin. Membership is therefore decided against THIS directory's sessions, and a foreign row is a no.
+    #[test]
+    fn a_session_from_another_directory_is_never_resume_evidence() {
+        let cwd = std::env::temp_dir().to_string_lossy().to_string();
+        let resolved = std::fs::canonicalize(&cwd)
+            .expect("temp dir resolves")
+            .to_string_lossy()
+            .to_string();
+        const DEAD: &str = "ses_f00630540ffeBPyVxLkQ9GKOWW";
+        // The spelling the vendor records: the resolved `/private/var/…` form of a worktree root that is gone.
+        const DEAD_DIR: &str =
+            "/private/var/folders/deleted/culebraluxe-forge-worktrees/eng-forge-c1-0000";
+
+        // The vendor's list is not directory-scoped on its own (the fixture above carries a `/somewhere/else`
+        // row), so the filter is what makes the membership claim safe — and here it drops a whole other project.
+        let listed: Vec<VendorSession> = parse_session_list(LIST)
+            .into_iter()
+            .filter(|row| matches_directory(&row.directory, &cwd))
+            .collect();
+        assert!(
+            listed.is_empty(),
+            "another project's sessions are not this directory's: {listed:?}"
+        );
+        assert!(!session_in_rows(&listed, "ses_fixture_turn_0001"));
+
+        // The dead worktree: the session exists, and it is not resumable from here.
+        let refused: Vec<VendorSession> = vec![VendorSession {
+            id: DEAD.into(),
+            created_ms: 1_790_000_000_000,
+            updated_ms: 1_790_000_000_000,
+            directory: DEAD_DIR.into(),
+        }]
+        .into_iter()
+        .filter(|row| matches_directory(&row.directory, &cwd))
+        .collect();
+        assert!(
+            !session_in_rows(&refused, DEAD),
+            "a session in a deleted worktree must not be resumable from this one"
+        );
+
+        // The same id IS resumable from the directory that owns it: the check refuses a DIRECTORY, not an id.
+        let owned: Vec<VendorSession> = vec![VendorSession {
+            id: DEAD.into(),
+            created_ms: 1,
+            updated_ms: 1,
+            directory: resolved.clone(),
+        }]
+        .into_iter()
+        .filter(|row| matches_directory(&row.directory, &cwd))
+        .collect();
+        assert!(
+            session_in_rows(&owned, DEAD),
+            "in its own directory it is exactly what a resume is for"
+        );
+
+        // Nothing readable — vendor absent, unreadable payload — is `false`, and that direction is deliberate:
+        // a fresh session costs a packet re-read, a resurrected one costs the run (see `session_lives_in`).
+        assert!(!session_in_rows(&[], DEAD));
     }
 
     #[test]

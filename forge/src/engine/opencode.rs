@@ -285,6 +285,30 @@ pub fn write_session_id(workspace: &str, session_id: Option<&str>) {
     }
 }
 
+/// Which session a turn resumes — PURE, so the rule is testable with no vendor, no worktree and no database.
+///
+/// Precedence, and the reason for it:
+///
+/// 1. **The workspace marker.** `read_session_id(&cwd)` reads a file written INTO the turn's own directory
+///    (`write_session_id`, after the turn reports its session), so its presence is same-directory proof by
+///    construction — a fresh worktree cannot hold a marker for a session it never ran.
+/// 2. **The stored lane row**, and only when the vendor itself lists that id among THIS directory's sessions
+///    (`harness_usage::session_lives_in`). The row is worth keeping — it outlives a worktree that came and went
+///    within a run, which is how a lane keeps the startup cost paid once — but it is keyed `(story_id, lane)`
+///    and cannot see directories, so on its own it is a claim, not evidence.
+/// 3. **Nothing** — a fresh turn, which re-reads the packet.
+///
+/// The bug this replaces, for whoever reads it next: preferring (2) unconditionally sent a session id from a
+/// deleted worktree on every turn of every run after a flip, and the vendor answers that with a 500 before the
+/// first token (2026-10-03, `ENG-FORGE-C1-BUILD-INFO-01`: three attempts, $0.00 spent, a Hold).
+pub fn resume_session(
+    workspace_marker: Option<String>,
+    lane_session: Option<String>,
+    lane_session_lives_here: bool,
+) -> Option<String> {
+    workspace_marker.or_else(|| lane_session.filter(|_| lane_session_lives_here))
+}
+
 /// The stop code an interruption from outside the turn carries: a supervisory stop, distinct from the two budget
 /// stops because its cause is not a budget. The reason travels with it (see `LiveTurn.interrupt_reason`).
 pub const TURN_INTERRUPTED_CODE: &str = "TURN_INTERRUPTED";
@@ -517,18 +541,52 @@ impl RoleHarness for OpenCodeHarness {
         // so environment delivery is the path that actually applies.
         let model_env = v2_agent_env(self.env.as_ref())?;
         let lane = VENDOR_SESSION_LANE;
-        let session = if session_continuity_enabled() {
-            if let Some(story) = self.story_id.as_deref() {
-                vendor_session::read_vendor_session_id(story, lane)
-                    .ok()
-                    .flatten()
-                    .or_else(|| read_session_id(&cwd))
-            } else {
-                read_session_id(&cwd)
-            }
+        // WHICH SESSION THIS TURN RESUMES, AND WHY THE WORKTREE DECIDES (2026-10-03, ENG-FORGE-C1-BUILD-INFO-01).
+        //
+        // Session continuity exists to pay a story's startup cost once. It was switched on when the engine was
+        // mostly stable; it has been a liability since, because the stored session was chosen WITHOUT asking
+        // whether it belongs to the directory this turn is about to run in. A vendor session is scoped to the
+        // project directory that created it, and `worktree::derive_worktree_path` puts the RUN id in the worktree
+        // path — so a FLIP (a fresh run, a fresh worktree) left `forge_vendor_session` naming a session in a
+        // directory the engine had deleted, and every turn of every run after the flip re-sent that id. The
+        // vendor refuses it before the first token: `UnexpectedStatus: 500`, tokens_in=0, cost_usd=0.000000 —
+        // three attempts, $0.00, a Hold. Reproduced on demand: the same command without `--session` answers `ok`.
+        //
+        // THE DISCRIMINATOR IS THE DIRECTORY, NOT A JOB KIND. Retry or flip, the turn knows which worktree it is
+        // in, and that is the same boundary the vendor enforces — so no mode field, no schema change, and nothing
+        // a story would have to be told about itself:
+        //
+        //   * a RETRY inside a run keeps its worktree, so it keeps its directory, so it keeps its session and the
+        //     startup cost stays paid once (`--session` = the exact id, as before);
+        //   * a FLIP mints a new worktree, so the stored id is refused and the turn opens a fresh session in the
+        //     directory it is actually in (`resume_session` above).
+        //
+        // Both facts are read here, and the probe is skipped when the marker already answered — which is the
+        // common case inside a live run.
+        let workspace_session = if session_continuity_enabled() {
+            read_session_id(&cwd)
         } else {
             None
         };
+        let lane_session = if session_continuity_enabled() {
+            self.story_id.as_deref().and_then(|story| {
+                vendor_session::read_vendor_session_id(story, lane)
+                    .ok()
+                    .flatten()
+            })
+        } else {
+            None
+        };
+        let lane_session_lives_here = workspace_session.is_none()
+            && lane_session.as_deref().is_some_and(|id| {
+                crate::engine::harness_usage::session_lives_in(
+                    &self.cli_bin,
+                    &cwd,
+                    Some(&model_env),
+                    id,
+                )
+            });
+        let session = resume_session(workspace_session, lane_session, lane_session_lives_here);
         let continue_session =
             session_continuity_enabled() && session.is_none() && session_marker_path(&cwd).exists();
         let opts = OpenCodeStartOptions {
