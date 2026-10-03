@@ -174,3 +174,7 @@ Effect: `git for-each-ref | wc -l` → 4230 (was 4232), `find … -name .DS_Stor
 no output, no empty ref directory left behind. Deletion receipts, for reversal: `refs/wip/ocwt` was `242fe8ee`
 (blob `f15466f9`, 76 bytes, content above); `refs/remotes/codex/b4c2230` was `b4c223027cc6a1e7b086a25fa4c480e5ffeda4bf`
 (landed as `b5389b76`).
+
+**Re-run the sweep before quoting a `0` above.** Finder recreates `.DS_Store` every time it browses a folder — four came
+back *inside the hour* (all under `src/lane-deep/node_modules/.pnpm/**`, so build output, not the site) and were cleared
+again the same way (§8 step 1). A non-zero count is therefore expected on a later day and is litter, not drift.
