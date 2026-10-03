@@ -387,7 +387,7 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         "`Ok` is not completion: `Done` must be refused when the board never confirmed the work"
     );
     assert_eq!(
-        refused.story_status,
+        refused.story_status.as_deref(),
         Some("Hold"),
         "the board moves with the item, in the same transaction"
     );
@@ -590,7 +590,7 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
         "an engine fault clears the item back into the queue"
     );
     assert_eq!(
-        cleared.story_status,
+        cleared.story_status.as_deref(),
         Some("Ready"),
         "and the story goes back with it, or nothing dispatches the pair again"
     );
@@ -648,7 +648,7 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
         .unwrap()
         .expect("the exhausted settle must land");
     assert_eq!(exhausted.item_state, "Error");
-    assert_eq!(exhausted.story_status, Some("Hold"));
+    assert_eq!(exhausted.story_status.as_deref(), Some("Hold"));
 
     // 5. The other two shapes: an item whose story no longer expects a run is cleared, and a `Ready` story whose item
     //    went away gets one — the case the dispatch trigger cannot see, because it fires on a *change* to `Ready`.
@@ -757,6 +757,30 @@ fn the_claim_transaction_lives_in_the_database_not_in_rust() {
     let dao = std::fs::read_to_string(root.join("rust/core/db/src/forge_engine.rs")).unwrap();
     let routine =
         std::fs::read_to_string(root.join("db/migrations/262_forge_agent_work_claim.sql")).unwrap();
+    let settlement =
+        std::fs::read_to_string(root.join("db/migrations/263_forge_agent_work_settlement.sql"))
+            .unwrap();
+    for function in [
+        "forge_settlement_pair",
+        "forge_run_result_status_for",
+        "forge_close_story_run",
+        "forge_finish_agent_work_run",
+        "forge_reject_agent_work_configuration",
+    ] {
+        assert!(
+            settlement.contains(&format!("create or replace function {function}(")),
+            "migration 263 defines {function}"
+        );
+    }
+    for function in [
+        "forge_finish_agent_work_run",
+        "forge_reject_agent_work_configuration",
+    ] {
+        assert!(
+            dao.contains(&format!("{function}(")),
+            "the DAO calls {function}"
+        );
+    }
     for function in [
         "forge_claim_specific_agent_work",
         "forge_claim_next_agent_work",
@@ -777,6 +801,13 @@ fn the_claim_transaction_lives_in_the_database_not_in_rust() {
         "attempts = attempts + 1",
         "begin(\"forge_engine.claim_",
         "AGENT_CLAIM_LOCK",
+        // The settlement (migration 263): the policy, the run close and the terminal transactions.
+        "fn settlement_pair",
+        "fn run_result_status_for",
+        "fn close_story_run_in",
+        "begin(\"forge_engine.finish_agent_work_run",
+        "begin(\"forge_engine.reject_agent_work_configuration",
+        "Done refused",
     ] {
         assert!(
             !dao.contains(choreography),
@@ -1028,5 +1059,138 @@ async fn the_claim_routines_hold_the_claim_contract() {
     assert_eq!(
         taken, expected,
         "next claim: highest priority first, then earliest queued"
+    );
+}
+
+/// The settlement policy, against DEV: the case table the deleted Rust `settlement_pair` unit tests held, asserted
+/// against `forge_settlement_pair` and `forge_run_result_status_for` (migration 263) word for word.
+#[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV"]
+async fn the_settlement_policy_is_the_databases() {
+    let database = Database::connect_target(DbTarget::Dev)
+        .await
+        .expect("DATABASE_URL_DEV");
+    let pool = database.pool();
+    async fn pair(
+        pool: &sqlx::PgPool,
+        outcome: &str,
+        board: &str,
+    ) -> (String, Option<String>, Option<String>) {
+        sqlx::query_as("select item_state, story_status, reason from forge_settlement_pair($1, $2)")
+            .bind(outcome)
+            .bind(board)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+    async fn ruling(pool: &sqlx::PgPool, item_state: &str) -> Option<String> {
+        sqlx::query_scalar("select forge_run_result_status_for($1)")
+            .bind(item_state)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    // A cleared run keeps no ruling: an engine fault never becomes a story verdict.
+    assert_eq!(ruling(pool, "Done").await.as_deref(), Some("Complete"));
+    assert_eq!(ruling(pool, "Error").await.as_deref(), Some("Failed"));
+    assert_eq!(
+        ruling(pool, "Cancelled").await.as_deref(),
+        Some("Cancelled")
+    );
+    assert_eq!(ruling(pool, "Ready").await, None);
+    assert_eq!(ruling(pool, "Claimed").await, None);
+    assert_eq!(ruling(pool, "").await, None);
+
+    // The run ruling follows the pair that settles it, for every outcome the engine settles with.
+    for (outcome, board, expected) in [
+        (AgentWorkOutcome::Done, "Complete", Some("Complete")),
+        (AgentWorkOutcome::Error, "In Progress", Some("Failed")),
+        (
+            AgentWorkOutcome::Cancelled,
+            "In Progress",
+            Some("Cancelled"),
+        ),
+        (AgentWorkOutcome::Abandoned, "In Progress", None),
+    ] {
+        let (item, _, _) = pair(pool, outcome.as_str(), board).await;
+        assert_eq!(
+            ruling(pool, &item).await.as_deref(),
+            expected,
+            "{outcome:?} over {board}"
+        );
+    }
+
+    // The two honest `Done`s: the board confirms it, or a human gate stopped the run.
+    for board in ["Complete", "Hold"] {
+        assert_eq!(
+            pair(pool, "Done", board).await,
+            ("Done".into(), None, None),
+            "{board}"
+        );
+    }
+
+    // `Ok` from the engine is not completion: `Done` over an unfinished board is refused and the story held.
+    let (item, story, reason) = pair(pool, "Done", "In Progress").await;
+    assert_eq!((item.as_str(), story.as_deref()), ("Error", Some("Hold")));
+    assert_eq!(
+        reason.as_deref(),
+        Some("run ended without the board confirming completion (story status 'In Progress'); Done refused")
+    );
+
+    // `Done` over a board that no longer expects a run is still refused, but the board is not moved.
+    for board in ["Planned", "Batched"] {
+        let (item, story, reason) = pair(pool, "Done", board).await;
+        assert_eq!((item.as_str(), story), ("Error", None), "{board}");
+        assert!(reason.unwrap().contains("Done refused"), "{board}");
+    }
+    let (item, story, reason) = pair(pool, "Done", "Ready").await;
+    assert_eq!((item.as_str(), story.as_deref()), ("Error", Some("Hold")));
+    assert!(
+        reason.is_some(),
+        "a refused Done over a Ready board says why"
+    );
+
+    // An engine fault clears the pair back into the queue while the board expects a run...
+    for board in ["Ready", "In Progress"] {
+        assert_eq!(
+            pair(pool, "Abandoned", board).await,
+            ("Ready".into(), Some("Ready".into()), None),
+            "{board}"
+        );
+    }
+    // ...and over a settled board only clears the item: no fault demotes `Complete` or reopens a board.
+    for board in ["Complete", "Hold", "Planned", "Batched"] {
+        assert_eq!(
+            pair(pool, "Abandoned", board).await,
+            ("Cancelled".into(), None, None),
+            "{board}"
+        );
+    }
+
+    // `Error` / `Cancelled` hold a board that expects a run and leave any other board alone.
+    for outcome in ["Error", "Cancelled"] {
+        for board in ["Ready", "In Progress"] {
+            assert_eq!(
+                pair(pool, outcome, board).await,
+                (outcome.into(), Some("Hold".into()), None),
+                "{outcome} over {board}"
+            );
+        }
+        for board in ["Complete", "Hold", "Planned", "Batched"] {
+            assert_eq!(
+                pair(pool, outcome, board).await,
+                (outcome.into(), None, None),
+                "{outcome} over {board}"
+            );
+        }
+    }
+
+    // An outcome the engine does not have is an error, never a default.
+    assert!(
+        sqlx::query("select * from forge_settlement_pair('Maybe', 'Ready')")
+            .execute(pool)
+            .await
+            .is_err()
     );
 }

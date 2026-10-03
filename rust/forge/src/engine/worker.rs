@@ -424,7 +424,7 @@ fn run_claimed_dispatch(
                 "forge-worker: settled {} as {} (story {})",
                 dispatch.work_item_id,
                 settled.item_state,
-                settled.story_status.unwrap_or("unchanged")
+                settled.story_status.as_deref().unwrap_or("unchanged")
             ),
             Ok(None) => eprintln!(
                 "forge-worker: {} already had a verdict; left as-is",
@@ -513,7 +513,7 @@ fn run_claimed_dispatch(
                     "forge-worker: settled {} as {} (story {})",
                     dispatch.work_item_id,
                     settled.item_state,
-                    settled.story_status.unwrap_or("unchanged")
+                    settled.story_status.as_deref().unwrap_or("unchanged")
                 ),
                 Ok(None) => eprintln!(
                     "forge-worker: {} already had a verdict; left as-is",

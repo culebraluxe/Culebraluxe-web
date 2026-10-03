@@ -74,7 +74,7 @@ fn settle_work_item(
     match agent_work::finish_agent_work_run(item, outcome, reason) {
         Ok(Some(settled)) => {
             eprintln!("work_item={item} state={}", settled.item_state);
-            if let Some(status) = settled.story_status {
+            if let Some(status) = &settled.story_status {
                 eprintln!("work_item={item} story set to {status} with its item");
             }
             if let Some(ref refusal) = settled.reason {

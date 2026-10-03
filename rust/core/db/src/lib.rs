@@ -115,7 +115,7 @@ pub use forge_doctor::{
     RoiAttemptRow,
 };
 pub use forge_engine::{
-    artifact_verdict_for_run, run_result_status_for, settlement_pair, verdict_polarity,
+    artifact_verdict_for_run, verdict_polarity,
     AgentWorkOutcome, AgentWorkSettlement, BeginAgentWorkRun, DealWorkflowFactRow,
     DispatchReconcile, EnsureDispatch, ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao,
     ForgeEvidencePatch, ForgeHoldRow, NewToolArtifact, ProcessDefinitionRow, StoryPacketRow,
