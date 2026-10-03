@@ -2,8 +2,10 @@
 
 Session of 2026-10-03, agent in `src/lane-deep`. Housekeeping only: **no product file was changed**, no product
 compile or test ran, and no other lane's *work* was written (the other worktrees were read with
-`--no-optional-locks`). One exception, named here and in §8: an untracked `.DS_Store` inside `lane-claude` was deleted
-as Finder litter on the widened instruction — no tracked file, and nothing under version control, was touched there.
+`--no-optional-locks`). One exception, named here and in §8: two **untracked** files inside `lane-claude` — a `.DS_Store`
+was deleted as Finder litter on the widened instruction, and an untracked `.env.local` was *added* so that lane's owner
+can actually run it (byte-identical to the main checkout's; `git check-ignore` → `.gitignore:16 .env*`, so it can never be
+committed). No tracked file in any other lane, and nothing under version control, was touched there.
 Read with `AGENTS.md` rules 1, 2, 6 and 9 open. Every row quotes the command behind it,
 because a fact with no command is §5.
 
@@ -29,7 +31,7 @@ branches are missing.
 | S9 | Stranded work: 14 branches on origin carry commits main cannot see, 8 branches are local-only, 0 unpushed commits sit behind a pushed ref | `pnpm recover:strand` |
 | S10 | 12 stashes hold work that exists in exactly one place | `git stash list --date=short` → 2026-08-22 … 2026-09-26 |
 | S11 | A remote-tracking namespace outlived the remote it came from — and is now gone | `git remote` → `origin` only, so `refs/remotes/codex/b4c2230` could never be fetched again; it resolved until §8 deleted it, after `git cherry origin/main b4c22302` → `- b4c22302` proved the patch is in `main` as `b5389b76` |
-| S12 | `refs/archive/lane-deep-replay` → `692d99c7`, which is also `lane/claude`'s tip | `git rev-parse refs/archive/lane-deep-replay` |
+| S12 | `refs/archive/lane-deep-replay` → `692d99c7` (`chore(layout): replay the three-tier move onto this lane's base`) is now the **only** holder of that commit | `git for-each-ref --contains 692d99c7` → that ref alone; `lane/claude` has since moved to `740b5253`, which does **not** contain it (`git merge-base --is-ancestor 692d99c7 lane/claude` → false). `git cherry origin/main 692d99c7` → `+`, so its patch (the three-tier layout replay: `.githooks/pre-push`, `.github/workflows/gates.yml`, `.dockerignore`, `.env.example`, `nextest.toml`) is in `main` nowhere |
 | S13 | The main checkout is not clean: two untracked load scripts | `git -C /Users/Shared/dev/src/Culebraluxe-web status --short` → `db/loads/arm_recovery_batch_2026_10_01.sql`, `db/loads/settle_landed_candidates_2026_10_01.sql` |
 
 One measurement trap, recorded because it produced a false `0` in this pass: **this shell is zsh**, so an unquoted
@@ -69,7 +71,7 @@ that caught it. Both wrong forms read as good news: "nothing is only kept alive 
 | --- | --- | --- |
 | the first commit for this file — `git log --reverse --format=%h -- docs/agent/HANDOFF-housekeeping-estate-2026-10-03.md \| head -1` | this file, and nothing else. Landed as **`f4b55f63`** on `main` and `lane/deep` (a commit cannot contain its own sha; the later commit can, and does) | `pnpm broken:ts:sweep` → exit 0, `the tree and the inventory agree`. `git diff --check` → clean. Docs-only: the range carries no `web/`, `middle/`, `db/`, `cli/`, `forge/`, `tests/` or `Cargo.*` path, so the pre-push hook compiled nothing (`fca8bf56..f4b55f63`) |
 | the second commit for this file (§7) — `git log -1 --format=%h -- docs/agent/HANDOFF-housekeeping-estate-2026-10-03.md` | S6 corrected (the pins are *not* "snapshots, not authored commits" — 4344 commits are referenced nowhere else), H1/H3 tightened with the captain's instruction, §5/§6/§7 rewritten from questions to decisions | `git diff --check` → clean; docs-only again, so no compile is owed. Same relay push form: `git fetch origin main && git rebase origin/main && git push origin HEAD:refs/heads/main HEAD:refs/heads/lane/deep` |
-| the third commit for this file (§8, the trap note, and the rows §8 falsified) — `git log -1 --format=%h -- docs/agent/HANDOFF-housekeeping-estate-2026-10-03.md` | §8's junk pass with its receipts; S2/S3/S4/S11 and H4 brought current or marked resolved; the `--exclude`-order trap | `git diff --check` → clean; `find … -name .DS_Store` → 0; `git fsck --no-dangling` → exit 0 with no output; `git for-each-ref \| wc -l` → 4230 (was 4232). Docs-only, so no compile is owed; same relay push form |
+| the fourth commit for this file (S12/§6.2/§8 re-measured; the lane's settings file added) — `git log -1 --format=%h -- docs/agent/HANDOFF-housekeeping-estate-2026-10-03.md` | S12 corrected: `lane/claude` moved to `740b5253` and `refs/archive/lane-deep-replay` is now `692d99c7`'s *only* holder; §6.2's lane tips brought current; §8's archive reason upgraded from precaution to measurement, and the `.env.local` copy recorded | `git diff --check` → clean; `git branch -a --list 'lane/*'` → 3 lanes; `md5 -q` on the copied file matches the source; docs-only, so no compile is owed; same relay push form |
 
 ## 5. NOT VERIFIED — the honest gaps
 
@@ -89,7 +91,7 @@ that caught it. Both wrong forms read as good news: "nothing is only kept alive 
 1. The pins stay (H1): 4344 commits exist in no other ref and 462 distinct authored subjects sit among them. If they are
    ever to go, land what is wanted first, then
    `git for-each-ref refs/recovery refs/cline --format='delete %(refname)' | git update-ref --stdin`, then `git gc --prune=now` — that last step has no undo, and `git count-objects -vH` shows what it did.
-2. `lane/claude` (`692d99c7`) and `lane/gpt` (`6ed57f61`): **off limits to this lane** (captain, 2026-10-03). Their owners push them or nobody does — this pass did not. Both trees already exist (`/Users/Shared/dev/src/lane-claude`, `/Users/Shared/dev/src/lane-gpt`), so no `git worktree add` is owed and one would only fail with *already registered*; from inside the lane the whole job is `git push -u origin lane/<name>`.
+2. `lane/claude` (now `740b5253` — one docs commit `main` lacks, 4 behind) and `lane/gpt` (`6ed57f61` — one commit, 18 behind): **off limits to this lane** (captain, 2026-10-03). Their owners push them or nobody does — this pass did not. Both trees already exist (`/Users/Shared/dev/src/lane-claude`, `/Users/Shared/dev/src/lane-gpt`), so no `git worktree add` is owed and one would only fail with *already registered*; from inside the lane the whole job is `git push -u origin lane/<name>`. Note `lane/claude` has moved off `692d99c7`, so that tip is no longer reproducible from the lane (S12) — and its `.env.local` was missing until §8 copied one in.
 3. One orphan snapshot is left: `refs/wip/pristine`; the other (`refs/wip/ocwt`) was a probe fixture and went in §8. Land
    its diff, or `git update-ref -d refs/wip/pristine` — **and not before**, because it holds 499 objects nothing else
    has. Finished when `git for-each-ref refs/wip/` lists only live worktrees.
@@ -151,15 +153,19 @@ Kept, with the measurement that says so:
   content nobody else has, so it waits for its owner (§6.3) instead of being tidied away;
 - **`refs/codex/turn-diffs/checkpoints/…`**: the ref points at a *tree*, not a commit, and holds **241 blobs** absent from
   `origin/main` — the Codex CLI's own checkpoint store, kept for the same reason as `refs/cline/*`;
-- **`refs/archive/lane-deep-replay`** → `692d99c7`: kept on purpose, because §6.2 tells Claude's owner to `rebase
-  lane/claude`, after which this ref is the only thing still holding `693d…`'s replay commit (S12);
+- **`refs/archive/lane-deep-replay`** → `692d99c7`: kept on purpose, and **re-measured the same day to prove it** —
+  `git for-each-ref --contains 692d99c7` → this ref *alone*, because `lane/claude` has moved to `740b5253` and no longer
+  contains it (S12). It is now the only pointer to 1 commit that `origin/main` and `lane/claude` both lack, so deleting it
+  would hand that commit to the next `gc`;
 - **the 181 unreachable commits and 231 unreachable blobs** stay in the pack. `gc --prune=now` is the only thing that
   would remove the stale 6.8 MB wasm blob (S5), and it cannot be aimed — it would take the authored commits in that set
   with it. 6.8 MB is cheaper than a blind decision. (These two refs are why S4 moved from 229/177 to 231/181.)
 - **`/Users/Shared/dev/build/archive-2026-10-03-from-documents/` is not junk and must not be deleted.**
   `Culebraluxe-web-claude/.env.local` (8 761 bytes, 2026-09-26) is the **only** copy of the Claude lane's environment —
   `[ -f /Users/Shared/dev/src/lane-claude/.env.local ]` → false. Whoever stands that lane up should copy it in
-  (untracked), not regenerate it.
+  (untracked), not regenerate it. **Done the same day**: the file was copied to
+  `/Users/Shared/dev/src/lane-claude/.env.local` (mode 600, byte-identical to the main checkout's, `git check-ignore` →
+  `.gitignore:16`), and the archive keeps the older 2026-09-26 variant. `lane/gpt` still has none — its owner's call.
 - **the four `com.culebraluxe.*.plist` copies in `build/logs`** stay: nothing references them (`grep -rn 'build/logs'
   scripts/` → the wip log dir only) and all four differ (`md5 -q`) from the installed `~/Library/LaunchAgents/…` — an
   older config backup, not litter, and launchd's file, not this lane's.
