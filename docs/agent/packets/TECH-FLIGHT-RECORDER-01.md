@@ -125,6 +125,6 @@ Landed by `dcf2be3f` (the port: `web/ui/src/flight_recorder.rs`, the screen, the
 **Deviation from build plan step 4 — the old list is deliberately NOT put back in the Tech menu.** There is no
 registry mount for `tech-flight-recorder`, its retirement is a deliberate owner decision recorded in `model.rs`, and
 the registry test `the_rail_is_the_designed_menu_in_its_order` fixes the Tech rail to *Cockpit / Story Board / UI Lab*.
-The console is reached from the Cockpit (`web/ui/src/app/screens/tech/view/engine.rs:105` and `workbench.rs:177`) and
-by direct URL (`trace-record`, `web/ui/src/app/registry.rs:199`). Listing the old list would be a dead link and would
+The console is reached from the Cockpit (the Flight Recorder tab, `web/ui/src/app/screens/tech/view.rs:31`, opened from `view/workbench.rs:178`) and
+by direct URL (`trace-record`, `web/ui/src/app/registry.rs:202`). Listing the old list would be a dead link and would
 reopen a decision the registry closed.

@@ -232,6 +232,15 @@ Never
   story's worktree; the worktree is removed when the child run ends; and only an unpublished/held candidate may
   retain its Git branch so paid code is not lost. This exception exists to preserve multi-story Smith concurrency,
   not to recreate the deleted tree-era workflow.**
+  **Captain exception (2026-10-03): the agent lanes are the one standing set of trees.** `main` lives in
+  `/Users/Shared/dev/src/Culebraluxe-web`; each agent has exactly one lane beside it — `lane-claude`,
+  `lane-gpt`, `lane-deep`, a git worktree on branch `lane/<name>` — and works only in its own. A lane syncs
+  from `main` by rebasing onto it, never by merging `main` in; it lands on `main` by fast-forward from the
+  main checkout (`git merge --ff-only lane/<name>`), and nobody commits in the main checkout directly. A
+  lane never reads, edits or builds in another lane's tree — work crosses between lanes only through `main`.
+  No lane adds a second tree of its own: a new lane is the Captain's call and goes in `docs/agent/LAYOUT.md`
+  first. Lanes hold code, not workflow — Neon is still the only workflow and control-plane authority, and a
+  lane's verdicts are about the code on its branch, never about the tree. Setup and rules: `docs/agent/LAYOUT.md`.
   guard: cli/src/forge/repo_guards.rs
 - Let git decide anything about work that exists. **PAID CODE > GIT SHA** — the work is the asset, the sha is
   a label. A git fact may never gate, void or replay work that has been paid for: QA answers "did the tests
@@ -529,7 +538,7 @@ New server code that can fail MUST route its failures through the durable captur
 
 Canonical seams — reuse these; do not invent parallel capture:
 - **DB**: `db::capture` (`db/src/capture.rs`) announces every `DbFailure` from its constructor, and the
-  server's sink writes the `app_error` row (installed at boot in `web/src/bin/http.rs`, implemented in
+  server's sink writes the `app_error` row (installed at boot in `web/src/http_runtime.rs`, implemented in
   `web/src/api/error_capture.rs`). Two further paths are captured: **panics** (`rust:panic`, level `fatal`,
   via a process panic hook — so "impossible" leaves a row instead of a line on a terminal) and **any 5xx response**
   (`rust:api`, captured in `ApiError::into_response` — `web/src/api/error.rs` — unless it already carries a

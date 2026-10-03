@@ -28,7 +28,10 @@ cd ../lane-<name> && pnpm install
 ```
 
 One lane, one branch, one agent: commit on the lane branch, land it on `main` from the main checkout, and mind house
-rule 1 (`lane/*` is short-lived). Lanes are worktrees, so they share history and one object store — that is the point.
+rule 1 (`lane/*` is short-lived). Check out from `main` by rebasing (`git rebase main` in the lane), never by merging
+`main` in; check in with `git merge --ff-only lane/<name>` in the main checkout, so a lane that has not rebased is
+refused instead of merged. No lane reads another lane's tree — work crosses lanes only through `main` (`AGENTS.md`,
+the 2026-10-03 lane exception to NO TREES). Lanes are worktrees, so they share history and one object store — that is the point.
 `CARGO_TARGET_DIR` is shared too, which is why four checkouts do not cost four 34 GB targets; the cost is that two
 simultaneous `cargo` runs serialize on the target lock instead of running in parallel. Lane checkout size on disk is
 ~84 MB of source plus pnpm's hardlinked `node_modules`.

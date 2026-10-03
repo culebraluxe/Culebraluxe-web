@@ -34,7 +34,7 @@ place (`docs/agent/BROKEN-TS-INVENTORY.md`).
 | Domain | `middle/model/src/` | Types and rules. No I/O, no SQL, no HTTP. |
 | Database | `db/src/` | DAOs and the one pool per process (`pool.rs`, `shared.rs`); failures as `DbFailure` (`capture.rs`). Migrations in `db/migrations`. |
 | Integrations | `middle/apis/src/` | Mux, Google, Apple, BoldSign, Neon, mail, WhatsApp. |
-| Engine | `forge/src/` | Forge: the definition (`definitions/FORGE_SDLC-v6.xml`), phases, gates, roles, executor. |
+| Engine | `forge/src/` | Forge: the definition (`forge/definitions/FORGE_SDLC-v6.xml`), phases, gates, roles, executor. |
 | CLI | `cli/src/` | `forge` gates (`cli/src/forge/`: harness lint, vendor-block sync), `db-tool`, Apple intake. |
 | Retired TypeScript | `legacy/`, dead files in `scripts/` and `agent-runtime/` | Read-only reference, out of scope, never imported. |
 | Build and ops | `scripts/`, `devops/` | `dev.sh`, `site-build.sh`, `deploy-prod.sh`, and the container files (`Dockerfile.build`, `Dockerfile.runtime`, the runtime `Dockerfile`). |
