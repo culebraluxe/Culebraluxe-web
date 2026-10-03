@@ -39,6 +39,14 @@ impl BuildInfo {
             },
         }
     }
+
+    /// The human-readable report: one `field: value` line per field, in a stable order.
+    pub fn text(&self) -> String {
+        format!(
+            "cli_version: {}\nos: {}\narch: {}\nprofile: {}\n",
+            self.cli_version, self.os, self.arch, self.profile
+        )
+    }
 }
 
 pub fn run(args: &[String]) -> Result<u8, Failure> {
@@ -72,10 +80,7 @@ pub fn run(args: &[String]) -> Result<u8, Failure> {
         })?;
         println!("{rendered}");
     } else {
-        println!("cli_version: {}", info.cli_version);
-        println!("os: {}", info.os);
-        println!("arch: {}", info.arch);
-        println!("profile: {}", info.profile);
+        print!("{}", info.text());
     }
     Ok(0)
 }
@@ -99,6 +104,15 @@ mod tests {
                 "release"
             }
         );
+    }
+
+    /// The text answer names all four fields, whatever their values.
+    #[test]
+    fn the_text_report_names_all_four_fields() {
+        let text = BuildInfo::current().text();
+        for field in ["cli_version", "os", "arch", "profile"] {
+            assert!(text.contains(field), "missing {field} in:\n{text}");
+        }
     }
 
     /// The JSON answer carries the same four fields under their documented names.
