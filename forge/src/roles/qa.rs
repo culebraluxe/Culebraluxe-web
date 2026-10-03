@@ -140,8 +140,9 @@ fn run_rust_contract_qa(
     let mut current = ctx.current.clone();
     let head = ctx.harness.run_command("git rev-parse HEAD");
     let sha = head.output.trim();
-    let measured = (head.passed && sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .then(|| sha.to_ascii_lowercase());
+    let measured =
+        (head.passed && sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .then(|| sha.to_ascii_lowercase());
     // THE REVIEWED CANDIDATE IS THE ONE MEASURED (ARCH-SEAM-005). When the evidence already names the candidate Smith
     // delivered and Inspector reviewed, a workspace whose HEAD is another commit is refused rather than measured: the
     // SHA this turn reports is the SHA release publishes, so substituting HEAD would publish a commit nobody reviewed.
@@ -265,11 +266,26 @@ pub fn read_assay_measurement(
             ctx.contract_acceptance_mapped,
         )
     } else {
+        // THE MAP OFF THE CONTRACT PATH COMES FROM THE ROW, NOT FROM A MODEL (2026-10-03).
+        //
+        // `turn.out.acceptance_mapped` is a field of the transport's own report, and NOTHING in the product ever
+        // sets it true: `OpenCodeHarness` constructs it `false` (`engine/opencode.rs`) and no producer exists —
+        // the QA prompt never asks a turn for a map, and no packet names one. While it was the only input here, a
+        // story whose commands ALL passed could only ever be ruled UNPROVEN (`ACCEPTANCE_MAP_MISSING`), which is
+        // what happened to ENG-FORGE-C1-BUILD-INFO-01 on 2026-10-03 — four commands green, `failed=[]`, no PASS,
+        // nothing published — and to every non-contract story since 2026-09-19, the last time one passed.
+        //
+        // The row already carries the rule the contract path measures (`bin/forge.rs`: every assay command
+        // appears in the acceptance-criteria text), so this branch reads it too. It is kept as an OR rather than
+        // a replacement: a claim that was true before must not become false, and this only lets the ROW prove
+        // what a model was being trusted to assert — the direction this lane's doctrine ("its measurement, not a
+        // model's description of it, becomes the evidence") already points.
+        let acceptance_mapped = turn.out.acceptance_mapped || ctx.contract_acceptance_mapped;
         collect_assay_evidence(
             std::mem::take(evidence),
             Some(&|cmd| ctx.harness.run_command(cmd)),
             &turn.out.assay_commands,
-            turn.out.acceptance_mapped,
+            acceptance_mapped,
         )
     };
     let AssayEvidence {
@@ -310,6 +326,7 @@ mod tests {
     struct MeasurementHarness {
         turns: AtomicUsize,
         command_passes: bool,
+        commands: Vec<String>,
     }
 
     impl MeasurementHarness {
@@ -317,7 +334,16 @@ mod tests {
             Self {
                 turns: AtomicUsize::new(0),
                 command_passes,
+                commands: Vec::new(),
             }
+        }
+
+        /// The commands a real transport reports for its turn — the packet's own, when the turn named none
+        /// (`engine/opencode.rs`). The off-contract branch reads them from the turn, so a double that wants to
+        /// reach the acceptance-map rule has to report them the way the transport does.
+        fn with_commands(mut self, commands: &[&str]) -> Self {
+            self.commands = commands.iter().map(|cmd| (*cmd).to_string()).collect();
+            self
         }
 
         fn turns(&self) -> usize {
@@ -336,7 +362,7 @@ mod tests {
             Ok(HarnessOutput {
                 raw: format!("{node_id} described its own work\n"),
                 candidate_sha: None,
-                assay_commands: vec![],
+                assay_commands: self.commands.clone(),
                 acceptance_mapped: false,
                 refusal: None,
                 execution_base: None,
@@ -445,6 +471,56 @@ mod tests {
         assert!(
             harness.turns() >= 1,
             "with no contract mode declared, this lane's work comes from a model turn"
+        );
+    }
+
+    /// OFF THE CONTRACT PATH THE MAP COMES FROM THE ROW, NOT FROM A MODEL (2026-10-03).
+    ///
+    /// The non-contract branch read `turn.out.acceptance_mapped` — a transport field NOTHING in the product ever
+    /// sets true — so a story whose commands ALL passed could only ever be ruled UNPROVEN. ENG-FORGE-C1-BUILD-INFO-01
+    /// hit exactly that: four commands green, `failed=[]`, no PASS, and therefore nothing published; every
+    /// non-contract story has hit it since 2026-09-19, the last time one passed. The row already carries the rule
+    /// the contract path measures (every assay command appears in the acceptance criteria), so this branch reads it
+    /// too — while UNPROVEN stays the answer when the row does not map the commands, because that is a finding
+    /// about the story and not a failure to paper over.
+    #[test]
+    fn a_non_contract_story_maps_acceptance_from_the_row() {
+        fn run(acceptance_mapped: bool) -> (String, String) {
+            let harness =
+                MeasurementHarness::new(true).with_commands(&["cargo check --all-targets"]);
+            let writer = RecordingWriter::default();
+            let runner = ProductionRoleRunner::new(&harness, ForgeGateEvidence::default())
+                .with_writer(&writer)
+                .with_contract_assay_commands(vec!["cargo check --all-targets".into()])
+                .with_contract_acceptance_mapped(acceptance_mapped);
+
+            let _ = AssayService::new(&runner).execute("qa_verify", &qa_task());
+
+            let artifacts = writer.artifacts.lock().unwrap();
+            let row = artifacts
+                .iter()
+                .find(|a| a.kind == "qa-assay-evidence")
+                .expect("the lane's own measurement is a row");
+            (
+                row.verdict.clone().unwrap_or_default(),
+                row.summary.clone().unwrap_or_default(),
+            )
+        }
+
+        let (verdict, summary) = run(true);
+        assert_eq!(
+            verdict, "PASS",
+            "the row maps every command, so a green measurement proves the acceptance: {summary}"
+        );
+
+        let (verdict, summary) = run(false);
+        assert_eq!(
+            verdict, "UNPROVEN",
+            "an acceptance the row does not map is not proven, and must not be reported as a failure: {summary}"
+        );
+        assert!(
+            summary.contains("ACCEPTANCE_MAP_MISSING"),
+            "the unproven reason names the missing map: {summary}"
         );
     }
 }
