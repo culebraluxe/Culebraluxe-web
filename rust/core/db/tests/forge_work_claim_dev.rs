@@ -772,6 +772,16 @@ fn the_claim_transaction_lives_in_the_database_not_in_rust() {
             "migration 263 defines {function}"
         );
     }
+    let begin =
+        std::fs::read_to_string(root.join("db/migrations/264_forge_agent_work_begin.sql")).unwrap();
+    assert!(
+        begin.contains("create or replace function forge_begin_agent_work_run("),
+        "migration 264 defines forge_begin_agent_work_run"
+    );
+    assert!(
+        dao.contains("from forge_begin_agent_work_run("),
+        "the DAO calls forge_begin_agent_work_run"
+    );
     for function in [
         "forge_finish_agent_work_run",
         "forge_reject_agent_work_configuration",
@@ -808,6 +818,9 @@ fn the_claim_transaction_lives_in_the_database_not_in_rust() {
         "begin(\"forge_engine.finish_agent_work_run",
         "begin(\"forge_engine.reject_agent_work_configuration",
         "Done refused",
+        // The run open (migration 264).
+        "insert into storyboard_story_run",
+        "begin(\"forge_engine.begin_agent_work_run",
     ] {
         assert!(
             !dao.contains(choreography),
@@ -948,6 +961,67 @@ async fn the_claim_routines_hold_the_claim_contract() {
             false
         ),
         "a refused claim must not take the owner or count an attempt"
+    );
+
+    // The run open (migration 264): a Ready item is not the caller's to begin, a Claimed one opens exactly one run
+    // with its own envelope, role and actual target, and a second begin opens nothing.
+    async fn runs(pool: &sqlx::PgPool, story: &str) -> i64 {
+        sqlx::query_scalar("select count(*) from storyboard_story_run where story_id = $1")
+            .bind(story)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+    assert!(engine
+        .begin_agent_work_run(&item_a)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        runs(pool, &story_a).await,
+        0,
+        "an unclaimed item opens no run"
+    );
+    let begun = engine
+        .begin_agent_work_run(&item_b)
+        .await
+        .unwrap()
+        .expect("the claimed item begins");
+    assert_eq!(
+        (
+            begun.execution_policy.as_str(),
+            begun.launch_intent.as_deref()
+        ),
+        ("Unattended OK", Some("SOLO"))
+    );
+    let (run_item, environment, run_type, state): (String, String, String, String) =
+        sqlx::query_as(
+            "select i.story_run_id::text, r.execution_environment, r.run_type, i.state
+           from agent_work_item i join storyboard_story_run r on r.id = i.story_run_id
+          where i.id = $1::uuid",
+        )
+        .bind(&item_b)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            run_item.as_str(),
+            environment.as_str(),
+            run_type.as_str(),
+            state.as_str()
+        ),
+        (begun.story_run_id.as_str(), "DEV", "smith", "Running")
+    );
+    assert!(engine
+        .begin_agent_work_run(&item_b)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        runs(pool, &story_b).await,
+        1,
+        "a second begin opens no second run"
     );
 
     // 6. No lost and no double claim under concurrency: eight workers race for one item, exactly one wins.

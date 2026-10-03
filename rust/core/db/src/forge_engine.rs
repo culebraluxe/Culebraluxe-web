@@ -72,7 +72,7 @@ impl AgentWorkOutcome {
 /// begins". The port never opened that row — `agent_work_item.story_run_id` stayed null on every claim, so a lane
 /// executed with nothing durable behind it and `forge_tool_artifact` had no parent to hang on. The id comes back
 /// with the fence answer so the caller can name the run it is executing.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct BeginAgentWorkRun {
     /// The claimed row's durable envelope, read at the moment the run starts.
     pub execution_policy: String,
@@ -476,107 +476,18 @@ impl ForgeEngineDao {
         &self,
         work_item_id: &str,
     ) -> DbResult<Option<BeginAgentWorkRun>> {
-        let mut tx = self.db.begin("forge_engine.begin_agent_work_run").await?;
-        let result = async {
-            // The item is locked before it is moved, so the story it belongs to cannot change under the run this
-            // opens, and a second begin on the same row is a no-op rather than a second run.
-            let claimed: Option<String> = sqlx::query_scalar(
-                "select story_id from agent_work_item
-                  where id=$1::uuid and state='Claimed'
-                  for update",
-            )
-            .bind(work_item_id)
-            .fetch_optional(tx.connection())
-            .await
-            .map_err(|error| {
-                DbFailure::from_sqlx("forge_engine.begin_agent_work_run.read", &error)
-            })?;
-            let Some(_story_id) = claimed else {
-                return Ok::<Option<BeginAgentWorkRun>, DbFailure>(None);
-            };
-
-            // THE STORY RUN IS OPENED HERE, WHERE EXECUTION BEGINS (migration 025 §2), and the claim is stamped
-            // with it in the same transaction: an item `Running` beside a run row that does not exist is the pair
-            // half-moved again, which is the defect every repair in this area has been undoing.
-            //
-            // THE SPECIFICATION IS COPIED FROM THE STORY ROW BY THE DATABASE, not passed in by the caller. Migration
-            // 024 §2 wants the twelve specification columns captured at the moment a run starts; a caller-supplied
-            // snapshot would be a second copy of a fact the row already holds (and a stale one, if a role edits the
-            // brief between the read and the claim). `select … from storyboard_story` makes the insert the only
-            // writer and the story row the only source, and `nullif(trim(…), '')` keeps a blank field the absence
-            // of a fact rather than an empty string that reads like one.
-            //
-            // `execution_environment` is the run's **actual** target (migration 030 §14-15: the item carries the
-            // intended one), and `run_type` is the item's own role/kind — read from the row, not from a caller's
-            // argument, so the run says what it was dispatched as. `base_commit_hash` is deliberately absent: the
-            // worktree does not exist yet, so it is stamped by `stamp_run_base_commit` the moment provisioning
-            // answers rather than guessed here.
-            let story_run_id: String = sqlx::query_scalar(
-                "insert into storyboard_story_run
-                     (story_id, started_at, execution_environment, run_type,
-                      goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
-                      context_refs_snapshot, acceptance_criteria_snapshot, postconditions_snapshot,
-                      dependencies_snapshot, scope_snapshot, operating_surface_snapshot,
-                      test_mode_snapshot, assay_commands_snapshot, packet_sha_snapshot)
-                 select s.id, now(), $2,
-                        coalesce(nullif(trim(i.role), ''), nullif(trim(i.kind), ''), 'dispatch'),
-                        nullif(trim(s.goal), ''), nullif(trim(s.preconditions), ''),
-                        nullif(trim(s.architect_brief), ''), nullif(trim(s.context_refs), ''),
-                        nullif(trim(s.acceptance_criteria), ''), nullif(trim(s.postconditions), ''),
-                        nullif(trim(s.dependencies), ''), nullif(trim(s.scope), ''),
-                        nullif(trim(s.operating_surface), ''), nullif(trim(s.test_mode), ''),
-                        nullif(trim(s.assay_commands), ''), nullif(trim(s.packet_sha), '')
-                   from agent_work_item i
-                   join storyboard_story s on s.id = i.story_id
-                  where i.id=$1::uuid
-                 returning id::text",
-            )
-            .bind(work_item_id)
-            .bind(run_execution_environment(self.db.declared_target()))
-            .fetch_one(tx.connection())
-            .await
-            .map_err(|error| {
-                DbFailure::from_sqlx("forge_engine.begin_agent_work_run.run", &error)
-            })?;
-
-            // The envelope travels back with the run: the model policy decides which model bills, and the launch
-            // intent is the Cockpit's cap on the Lead. Both are read from the row in the same statement that opens
-            // the run, so a launcher cannot substitute its own.
-            let envelope: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-                "update agent_work_item
-                 set state='Running', started_at=coalesce(started_at,now()),
-                     story_run_id=$2::uuid, updated_at=now()
-                 where id=$1::uuid and state='Claimed'
-                 returning execution_policy, model_policy, launch_intent",
-            )
-            .bind(work_item_id)
-            .bind(&story_run_id)
-            .fetch_optional(tx.connection())
-            .await
-            .map_err(|error| {
-                DbFailure::from_sqlx("forge_engine.begin_agent_work_run.update", &error)
-            })?;
-            let Some((execution_policy, model_policy, launch_intent)) = envelope else {
-                return Ok::<Option<BeginAgentWorkRun>, DbFailure>(None);
-            };
-            Ok::<Option<BeginAgentWorkRun>, DbFailure>(Some(BeginAgentWorkRun {
-                execution_policy,
-                story_run_id,
-                model_policy,
-                launch_intent,
-            }))
-        }
-        .await;
-        match result {
-            Ok(answer) => {
-                tx.commit().await?;
-                Ok(answer)
-            }
-            Err(error) => {
-                let _ = tx.rollback().await;
-                Err(error)
-            }
-        }
+        // The lock, the run snapshot and the `Claimed → Running` move are the database's:
+        // `forge_begin_agent_work_run` (migration 264). The run's actual target is the one fact only this process
+        // knows, so it is the one passed in.
+        sqlx::query_as::<_, BeginAgentWorkRun>(
+            "select execution_policy, story_run_id, model_policy, launch_intent
+               from forge_begin_agent_work_run($1::uuid, $2)",
+        )
+        .bind(work_item_id)
+        .bind(run_execution_environment(self.db.declared_target()))
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.begin_agent_work_run", &error))
     }
 
     /// Terminalize a claim that never became a run, because the configuration it was launched with is unusable.
