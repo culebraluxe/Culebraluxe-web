@@ -60,17 +60,28 @@ synced to iCloud (43 GB across the old worktrees); and half-deleted worktrees le
 The other trap was the pager: eight `git` commands were found on 2026-10-01 stuck in `less` for 6–26 hours, waiting for
 a `q` no agent can press, which is what a "blocked" agent looks like from the outside. Hence `core.pager=cat` and rule 4.
 
-## Open items on this machine (not yet done as of 2026-10-01)
+## Open items on this machine (the 2026-10-01 list, re-checked 2026-10-03)
 
-- Four LaunchAgents still point at the dead `~/Documents/Culebraluxe-web` path: `apple-local-listener`, `agent-worker`,
-  `apple-sync`, `calendar-sync` (`~/Library/LaunchAgents/com.culebraluxe.*`). They should be repointed here.
+Three of the four below closed on 2026-10-02/03. They are kept with the date rather than deleted, because the
+2026-10-01 wording described a machine that no longer exists and a reader who trusts it re-does finished work.
+
+- **The LaunchAgents are repointed (fixed).** All five — `agent-worker`, `apple-sync`, `apple-local-listener`,
+  `calendar-sync`, `wip-snapshot` (`~/Library/LaunchAgents/com.culebraluxe.*`) — carry
+  `/Users/Shared/dev/src/Culebraluxe-web`: `agent-worker` as `AGENT_WORKER_REPO`, the Apple jobs as `CULEBRALUXE_REPO`,
+  each regenerated from its own template by its own `pnpm *:install`. `plutil -p` finds no live path naming
+  `~/Documents`; the only mentions left are in the templates' comments.
+  **What is NOT settled:** `launchctl list` on 2026-10-03 shows `agent-worker`, `apple-sync` and `calendar-sync` with
+  PID `-` and last exit status 1, `apple-local-listener` running (pid 78), `wip-snapshot` exiting 0. Exit 1 is not by
+  itself a defect — "nothing due" and "broken" look identical from `launchctl` — and telling them apart means reading
+  `~/Library/Logs/CulebraLuxe/*.err.log`, which is a thing to ask for, never a reflex.
 - **No Time Machine destination.** The repo, four branches and the exports live on one internal disk; iCloud is not a
   backup, and it is currently holding ~43 GB of dead targets (see next line). This is the biggest open risk.
-- Still registered as worktrees, all removable: `/private/tmp/ocwt` (87 MB, in a purgeable directory) and
-  `~/Documents/Culebraluxe-web-roles` (33 GB, clean, HEAD `30b53b5d` — present in main). A third copy,
-  `~/Documents/Culebraluxe-web-claude` (9.6 GB), is an orphan: its `.git` file points at
-  `~/Documents/Culebraluxe-web/.git/worktrees/…`, which no longer exists.
-- `build/rust` is still empty, so the next `cargo` invocation pays the full cold compile. Warming it is optional.
+- **The dead worktree records are gone (2026-10-03).** `git worktree list` shows only the four live trees
+  (`Culebraluxe-web` and the three lanes): `/private/tmp/ocwt` is no longer registered (nor is its `refs/wip/ocwt`
+  snapshot), and neither `~/Documents/Culebraluxe-web-roles` (33 GB, clean, HEAD `30b53b5d` — present in main) nor
+  the orphan `~/Documents/Culebraluxe-web-claude` appears at all.
+- **`build/rust` is warm (2026-10-03).** 4.5 GB in the shared `CARGO_TARGET_DIR`, so the cold compile has already
+  been paid once and the next `cargo` invocation does not repeat it.
 
 ## The layout move (2026-10-01/02): what a lane does
 
