@@ -26,7 +26,7 @@ use forge::engine::writer::{
 use forge::roles::ForgeLaneServices;
 use std::env;
 use std::sync::Arc;
-use workflow::{MemoryStore, NeonStore, TxStore};
+use workflow::{MemoryStore, NeonStore, TxStore, WorkflowError};
 
 fn flag(args: &[String], name: &str) -> Option<String> {
     args.windows(2).find(|w| w[0] == name).map(|w| w[1].clone())
@@ -523,7 +523,10 @@ fn main() {
                     contract_acceptance_mapped,
                 )
             }
-            Err(e) => Err(format!("neon store: {e}")),
+            Err(e) => {
+                eprintln!("neon store: {e}");
+                Err(e)
+            }
         }
     };
     // One exit, one verdict. `Ok` means the story was driven through its turn (a story that stopped for a human comes
@@ -570,11 +573,15 @@ fn main() {
         }
         Err(error) => {
             eprintln!("{error}");
+            let fault = forge::engine::engine_fault::is_engine_fault_error(&error);
+            let error = error.to_string();
             // An engine fault is not the story's verdict. When the failure is the plumbing - the session was taken
             // away, the transport died, a statement was cut off - nothing about the story was decided, so the claim
             // is cleared back into the queue and the story keeps its turn (captain, 2026-09-29). Only a failure that
             // is about the work is recorded against it.
-            let outcome = if forge::engine::engine_fault::is_engine_fault(&error) {
+            // The verdict is read off the TYPED error (a connection failure needs no reading) before it is flattened
+            // to the text the row records.
+            let outcome = if fault {
                 eprintln!(
                     "work_item is cleared back into the queue: the engine failed, not the story"
                 );
@@ -617,7 +624,7 @@ fn drive<S: TxStore>(
     test_mode: Option<String>,
     contract_assay_commands: Vec<String>,
     contract_acceptance_mapped: bool,
-) -> Result<DriveSummary, String> {
+) -> Result<DriveSummary, WorkflowError> {
     let mut rt = match ForgeRuntime::from_store(
         store,
         writer.clone(),
@@ -632,7 +639,7 @@ fn drive<S: TxStore>(
         Ok(rt) => rt,
         Err(e) => {
             eprintln!("{e}");
-            return Err(format!("{e}"));
+            return Err(e);
         }
     };
     let evidence = ForgeGateEvidence {
@@ -656,7 +663,7 @@ fn drive<S: TxStore>(
     // and inherits the shared execution lifecycle. Workflow still owns sequencing, JobService still owns
     // execution reliability, and no role policy lives in this binary.
     let services = ForgeLaneServices::new(&runner);
-    let registry = services.registry().map_err(|error| error.to_string())?;
+    let registry = services.registry()?;
     let jobs = WorkflowJobService::new(rt.engine());
     match drive_forge_story_with_jobs(
         &rt,
@@ -695,7 +702,7 @@ fn drive<S: TxStore>(
         }),
         Err(e) => {
             eprintln!("{e}");
-            Err(format!("{e}"))
+            Err(e)
         }
     }
 }

@@ -34,7 +34,10 @@ pub fn is_engine_fault(message: &str) -> bool {
         "connection closed",
         "unexpected eof",
         "pool timed out",
-        "timed out",
+        // The transport's own timeouts, by name. A bare "timed out" used to be here, and it matched any role error
+        // that quoted one — a test that timed out, a vendor's message — turning a paid verdict into a free retry.
+        "connection timed out",
+        "operation timed out",
         "statement timeout",
     ];
     let message = message.to_ascii_lowercase();
@@ -58,6 +61,8 @@ mod tests {
             "io error: Connection reset by peer (os error 54)",
             "unexpected EOF while reading message",
             "pool timed out while waiting for an open connection",
+            "io error: Operation timed out (os error 60)",
+            "error connecting to server: Connection timed out (os error 110)",
             "statement timeout: query exceeded 300000 ms",
         ] {
             assert!(is_engine_fault(message), "{message}");
@@ -73,6 +78,8 @@ mod tests {
             "Smith could not build: error[E0308] mismatched types",
             "no ready task for wave 2; the packet names one that does not exist",
             "unsupported work type ANYTHING",
+            "QA verdict: FAIL - test forge_runtime::slow_case timed out after 60s",
+            "opencode-harness failed for smith: the provider request timed out",
         ] {
             assert!(!is_engine_fault(message), "{message}");
         }
