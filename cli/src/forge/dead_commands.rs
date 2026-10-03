@@ -335,6 +335,8 @@ pub fn run(args: &[String]) -> Result<u8, Failure> {
         );
         return Ok(1);
     }
+    // With BASELINE at 0 this can never fire; it stays so the ratchet still works if a baseline is ever re-opened.
+    #[allow(clippy::absurd_extreme_comparisons)]
     if menu.dead.len() < BASELINE {
         eprintln!(
             "\nThe count FELL to {}, below the baseline of {BASELINE}. Lower BASELINE in this file and \
