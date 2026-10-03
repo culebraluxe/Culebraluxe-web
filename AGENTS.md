@@ -4,6 +4,24 @@ This file is the repo-owned handbook. Vendor filenames (`CLAUDE.md`, Warp, Curso
 
 Per-story work lives in `docs/agent/packets/<STORY-ID>.md`. Skills live in `docs/agent/skills/`. Decisions that must outlive a tool live in `docs/agent/MEMORY.md`. `docs/agent/CURRENT.md` is not the memory file.
 
+## Where the tree lives
+
+The repo moved on 2026-10-01 to `/Users/Shared/dev/` — outside iCloud and outside macOS TCC, which is why git stopped
+stalling on privacy prompts:
+
+| path | what | branch |
+|---|---|---|
+| `src/Culebraluxe-web` | this checkout (the handbook you are reading) | `main` |
+| `src/lane-gpt`, `src/lane-claude`, `src/lane-deep` | per-agent worktrees (rule 4) | `lane/gpt`, `lane/claude`, `lane/deep` |
+| `build/rust` | shared `CARGO_TARGET_DIR` for every worktree | — |
+| `build/logs` | launchd logs, including `wip-snapshot.log` | — |
+
+To add a lane: `git worktree add ../lane-<name> -b lane/<name> origin/main`, then `pnpm install`. Then never work in
+`/tmp` or `~/Documents` again: macOS purges the first and iCloud resurrects deletions in the second, and both leave dead
+`git worktree` records that make `git worktree list` lie about what work exists (two such records — one in `/tmp`, one
+33 GB in `~/Documents` — were still registered on 2026-10-01). Full layout, lane recipe and reasoning:
+`/Users/Shared/dev/README.md`. The tree is `700` on purpose because a second account exists on this Mac; do not loosen it.
+
 **Stopping mid-work is a deliverable, not a failure.** A session that runs out of context, budget or time writes
 `docs/agent/HANDOFF-<topic>-<date>.md` in the shape of `docs/agent/HANDOFF-TEMPLATE.md` — status, holds, what landed with
 its commit ids, what is open in order, what is not verified — and pushes it before it stops. "I am full, here is what I
