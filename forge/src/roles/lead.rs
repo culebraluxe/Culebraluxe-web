@@ -101,8 +101,11 @@ impl ForgeRoleHooks for LeadHooks {
             return Ok(next);
         }
         if may_not_set_decision(node_id) {
-            next.lead_decision = None;
-            next.split_count = None;
+            // The REPLY may not set a decision; the decision already in the evidence stands. The port this replaced
+            // stripped the reply's marker and THEN merged it over the evidence; clearing the merged value instead
+            // (as this did from 792396d1, 2026-10-02) erased the standing decision and split count on every Lead turn.
+            next.lead_decision = evidence.lead_decision.clone();
+            next.split_count = evidence.split_count;
         }
         Ok(next)
     }
@@ -192,5 +195,46 @@ impl AbstractForgeService for LeadService<'_> {
 
     fn hooks(&self) -> &dyn ForgeRoleHooks {
         &LeadHooks
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn standing(decision: &str, split: Option<i64>) -> ForgeGateEvidence {
+        ForgeGateEvidence {
+            lead_decision: Some(decision.into()),
+            split_count: split,
+            ..Default::default()
+        }
+    }
+
+    fn collect(node: &str, base: ForgeGateEvidence, raw: &str) -> ForgeGateEvidence {
+        LeadHooks
+            .collect_evidence(node, base, raw, &RoleEffectPorts::default())
+            .expect("lead collects")
+    }
+
+    /// The standing decision survives every Lead turn that may not set one — and a reply cannot overwrite it.
+    #[test]
+    fn a_lead_turn_keeps_the_standing_decision_and_ignores_a_restated_one() {
+        let reply = "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"SOLO\",\"splitCount\":4}\n";
+        for node in ["lead_pre", "lead_solo_implement", "lead_post"] {
+            let next = collect(node, standing("SPLIT", Some(3)), reply);
+            assert_eq!(next.lead_decision.as_deref(), Some("SPLIT"), "{node}");
+            assert_eq!(next.split_count, Some(3), "{node}");
+        }
+    }
+
+    /// Chat JSON alone still cannot create a decision where none stood.
+    #[test]
+    fn a_reply_cannot_create_a_decision() {
+        let next = collect(
+            "lead_pre",
+            ForgeGateEvidence::default(),
+            "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"SMITH\"}\n",
+        );
+        assert_eq!(next.lead_decision, None);
     }
 }
