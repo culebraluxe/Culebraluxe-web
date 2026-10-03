@@ -365,6 +365,9 @@ impl<S: TxStore> WorkflowEngine<S> {
                         .and_then(|ts| ts.iter().find(|t| t.name == d.transition).cloned());
                 }
             }
+            if !decisions.is_empty() {
+                return otherwise_transition(node, decisions);
+            }
         }
         node.transitions.as_ref().and_then(|ts| ts.first().cloned())
     }
@@ -522,5 +525,94 @@ impl<S: TxStore> WorkflowEngine<S> {
             }
         }
         Ok(())
+    }
+}
+
+/// The transition a decision takes when none of its conditions matched: its OTHERWISE, which is the transition no
+/// condition names. `None` when every transition is guarded — the decision has no answer, and the caller refuses
+/// ("No valid transition from decision node …") instead of inventing one.
+///
+/// It used to be the FIRST transition, whatever it was. A definition that names every branch then answered an
+/// unknown fact with its first branch: Forge's `execution_shape` sent every story with no Lead decision to SOLO,
+/// and `qa_failure_route` — whose only unguarded transition is `hold`, by design, so an exhausted repair budget
+/// stops — sent every QA failure back to Smith with no bound. A definition whose otherwise IS its first transition
+/// (every decision in the RE supermodel) behaves exactly as before.
+fn otherwise_transition(
+    node: &NodeDefinition,
+    decisions: &[DecisionArm],
+) -> Option<TransitionDefinition> {
+    node.transitions.as_ref().and_then(|transitions| {
+        transitions
+            .iter()
+            .find(|t| !decisions.iter().any(|d| d.transition == t.name))
+            .cloned()
+    })
+}
+
+#[cfg(test)]
+mod otherwise_tests {
+    use super::*;
+
+    fn decision(arms: &[(&str, &str)], transitions: &[&str]) -> NodeDefinition {
+        NodeDefinition {
+            id: "d".into(),
+            node_type: "decision".into(),
+            decisions: Some(
+                arms.iter()
+                    .map(|(condition, transition)| DecisionArm {
+                        condition: (*condition).into(),
+                        transition: (*transition).into(),
+                    })
+                    .collect(),
+            ),
+            transitions: Some(
+                transitions
+                    .iter()
+                    .map(|name| TransitionDefinition {
+                        name: (*name).into(),
+                        to: format!("to_{name}"),
+                        condition: None,
+                        required: None,
+                    })
+                    .collect(),
+            ),
+            ..Default::default()
+        }
+    }
+
+    /// Forge's `qa_failure_route`: both eligibilities false matches nothing, and the designed answer is its one
+    /// unguarded transition, `hold` — not its first, `smith`, which made the repair budget unable to stop anything.
+    #[test]
+    fn no_match_takes_the_unguarded_otherwise_not_the_first_transition() {
+        let node = decision(
+            &[
+                ("qaRepairEligible == true", "smith"),
+                ("qaReplanEligible == true", "architect"),
+            ],
+            &["smith", "architect", "hold"],
+        );
+        let chosen = otherwise_transition(&node, node.decisions.as_deref().unwrap());
+        assert_eq!(chosen.map(|t| t.name).as_deref(), Some("hold"));
+    }
+
+    /// Forge's `execution_shape`: every branch guarded, so an absent decision has no answer and the caller refuses.
+    #[test]
+    fn a_fully_guarded_decision_with_no_match_has_no_answer() {
+        let node = decision(
+            &[
+                ("leadDecision == 'SOLO'", "solo"),
+                ("leadDecision == 'SMITH'", "smith"),
+            ],
+            &["solo", "smith"],
+        );
+        assert!(otherwise_transition(&node, node.decisions.as_deref().unwrap()).is_none());
+    }
+
+    /// The RE supermodel's shape — the otherwise IS the first transition — routes exactly as before.
+    #[test]
+    fn an_otherwise_that_is_also_first_is_unchanged() {
+        let node = decision(&[("inspectionRequired == true", "run")], &["skip", "run"]);
+        let chosen = otherwise_transition(&node, node.decisions.as_deref().unwrap());
+        assert_eq!(chosen.map(|t| t.name).as_deref(), Some("skip"));
     }
 }
