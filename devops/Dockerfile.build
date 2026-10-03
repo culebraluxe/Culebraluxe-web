@@ -1,0 +1,30 @@
+# LOCAL BUILD (your Mac, free): compiles the whole application and exports the finished files, so Vercel compiles
+# nothing. Runs natively on the Mac's ARM CPU and CROSS-COMPILES the server for Vercel's x86_64 Linux (all TLS is
+# pure Rust, so only a C cross-compiler is needed for the crypto crate). Cache mounts keep later builds incremental.
+#
+#   docker build -f devops/Dockerfile.build --output type=local,dest=<dir> .
+#   -> <dir>/culebraluxe (server binary, linux/amd64), <dir>/ui.js, <dir>/ui_bg.wasm
+FROM --platform=$BUILDPLATFORM rust:1-bookworm AS builder
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc-x86-64-linux-gnu libc6-dev-amd64-cross \
+    && rm -rf /var/lib/apt/lists/*
+RUN rustup target add wasm32-unknown-unknown x86_64-unknown-linux-gnu \
+    && cargo install wasm-bindgen-cli --version 0.2.128 --locked
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
+    CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc \
+    AR_x86_64_unknown_linux_gnu=x86_64-linux-gnu-ar
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY web middle db cli forge tests ./
+COPY scripts/rust-ui-build.sh ./scripts/rust-ui-build.sh
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/build/target \
+    mkdir -p public/rust-ui /out \
+    && RUST_UI_PROFILE=release bash scripts/rust-ui-build.sh \
+    && cp public/rust-ui/ui.js public/rust-ui/ui_bg.wasm /out/ \
+    && cargo build --locked --release --manifest-path Cargo.toml -p web --bin web --target x86_64-unknown-linux-gnu \
+    && cp target/x86_64-unknown-linux-gnu/release/web /out/culebraluxe \
+    && x86_64-linux-gnu-strip /out/culebraluxe
+
+FROM scratch AS out
+COPY --from=builder /out/ /

@@ -1,8 +1,9 @@
 # Rust workspace
 
-This is the whole CulebraLuxe application: the Yew UI (`ui`), the server that serves it and the HTTP API (`server`), the
-domain, database and service kernel (`core/*`), provider adapters (`integrations`), Forge (`forge`) and the operator CLI
-(`cli`). The map and the commands are in the repository [README](../README.md) and
+The whole CulebraLuxe application is one Cargo workspace at the repository root: the Yew UI (`web/ui`), the server
+that serves it and the HTTP API (`web`), the domain, database and service kernel (`middle/model`, `db`,
+`middle/services`, `middle/workflow`), provider adapters (`middle/apis`), Forge (`forge`), the operator CLI (`cli`) and
+the contract suite (`tests`). The map and the commands are in the repository [README](../README.md) and
 [docs/agent/ORIENTATION.md](../docs/agent/ORIENTATION.md).
 
 > **Everything below "Slice 1" is HISTORY** — the notes written while the port was being built (September 2026), when
@@ -11,19 +12,21 @@ domain, database and service kernel (`core/*`), provider adapters (`integrations
 
 ## Structure
 
-- `core/domain` — infrastructure-free domain types and rules.
-- `core/db` — the one Rust PostgreSQL pool plus DAOs and DB failure normalization.
-- `core/workflow` — workflow engine primitives.
-- `core/auth` — server-side authorization/authentication boundary.
+- `middle/model` — infrastructure-free domain types and rules.
+- `db` — the one Rust PostgreSQL pool plus DAOs and DB failure normalization; migrations, seeds and loads live here
+  too, and `db/migrations/` remains the canonical SQL migration history.
+- `middle/services` — the service kernel.
+- `middle/workflow` — workflow-engine primitives.
+- `web/auth` — server-side authorization/authentication boundary.
 - `forge` — Forge runtime and SDLC roles.
-- `server` — authoritative CulebraLuxe service/API layer.
-- `integrations` — external-system adapters.
+- `web` — authoritative CulebraLuxe service/API layer.
+- `middle/apis` — external-system adapters.
 - `cli` — operational command-line entry point.
+- `tests` — the contract suite and the harness that backs it.
 
-The existing repository-level `db/migrations/` remains the canonical SQL
-migration history. Do not create a competing Rust migration tree.
+Do not create a competing Rust migration tree.
 
-Dependency direction is inward toward `core/domain`. Infrastructure and
+Dependency direction is inward toward `middle/model`. Infrastructure and
 integration concerns must not leak into domain code.
 
 Forge role ownership is preserved structurally. QA verifies outcomes and does
@@ -60,7 +63,7 @@ that Neon's pooled endpoint rejects.
 
 ### Compile and test
 
-From `rust/`:
+From the repository root:
 
 ```bash
 cargo fmt --all -- --check
@@ -265,14 +268,14 @@ Pure bridge helpers are covered by the existing Node harness tests, including
 production URL behavior, minimum internal-key length, correlation/causation
 headers, and the invariant that role/security headers are absent.
 
-`rust/Dockerfile` packages the Axum binary as a non-root, provider-neutral
+`devops/Dockerfile` packages the Axum binary as a non-root, provider-neutral
 container with `/healthz` liveness probing. No production route is switched by
 this slice.
 
 Build from repository root:
 
 ```bash
-docker build -f rust/Dockerfile -t culebraluxe-rust-api .
+docker build -f devops/Dockerfile -t culebraluxe-rust-api .
 ```
 
 Runtime configuration remains external:

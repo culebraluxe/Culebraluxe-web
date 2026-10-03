@@ -11,7 +11,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 culebra
 
-COPY --from=builder /build/target/release/http /usr/local/bin/culebraluxe-rust-api
+COPY --from=builder /build/target/release/web /usr/local/bin/culebraluxe-rust-api
 
 USER culebra
 ENTRYPOINT ["/usr/local/bin/culebraluxe-rust-api"]

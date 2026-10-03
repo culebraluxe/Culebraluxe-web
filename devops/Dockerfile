@@ -1,8 +1,8 @@
 FROM rust:1.90-bookworm AS builder
 
 WORKDIR /build
-COPY rust ./rust
-WORKDIR /build/rust
+COPY Cargo.toml Cargo.lock ./
+COPY web middle db cli forge tests ./
 
 RUN cargo build --release -p web --bin web
 
@@ -13,7 +13,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 culebra
 
-COPY --from=builder /build/rust/target/release/http /usr/local/bin/culebraluxe-rust-api
+COPY --from=builder /build/target/release/web /usr/local/bin/culebraluxe-rust-api
 
 ENV RUST_API_BIND=0.0.0.0:8080
 EXPOSE 8080
