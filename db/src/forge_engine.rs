@@ -1177,6 +1177,20 @@ impl ForgeEngineDao {
     }
 
     /// The canonical story row's repair observer (legacy `INC_REPAIR`). One writer, one fact: the counter
+    /// The story's repair and replan counters (`forge_repair_attempts` / `forge_replan_attempts`, migration 114), as
+    /// the QA failure route must read them. Written by the completion ledger and, until 2026-10-03, read by nothing:
+    /// every QA route saw 0 attempts, so a REPAIR disposition could never exhaust its budget.
+    pub async fn story_repair_counts(&self, story_id: &str) -> DbResult<Option<(i32, i32)>> {
+        sqlx::query_as::<_, (i32, i32)>(
+            "select coalesce(forge_repair_attempts,0), coalesce(forge_replan_attempts,0)
+               from storyboard_story where id=$1",
+        )
+        .bind(story_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.story_repair_counts", &error))
+    }
+
     /// lives on `storyboard_story` (`forge_repair_attempts`, migration 114), never in a process.
     pub async fn increment_forge_repair_attempts(&self, story_id: &str) -> DbResult<()> {
         let result = sqlx::query(

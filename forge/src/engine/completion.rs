@@ -134,7 +134,11 @@ pub fn apply_completion_unit(ledger: &dyn CompletionLedger, rec: CompletionRecor
     }
     ledger.merge_evidence(&rec)?;
     match rec.node_id.as_deref() {
-        Some("repair_smith") => ledger.increment_repair(&rec.story_id)?,
+        // Both repair Smiths spend the one repair budget. `fast_repair_smith` was not counted, so the FAST lane's
+        // budget could never be spent and a failing candidate looped Smith ↔ QA until the money ran out.
+        Some("repair_smith") | Some("fast_repair_smith") => {
+            ledger.increment_repair(&rec.story_id)?
+        }
         Some("repair_architect") => ledger.increment_replan(&rec.story_id)?,
         _ => {}
     }

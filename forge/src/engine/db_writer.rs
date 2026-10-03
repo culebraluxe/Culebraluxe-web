@@ -9,33 +9,50 @@ pub fn read_story_evidence(story_id: &str) -> ForgeGateEvidence {
     let result = with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
-            dao.workflow_evidence_for_story(story_id)
+            let row = dao
+                .workflow_evidence_for_story(story_id)
                 .await
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.to_string())?;
+            let counts = dao
+                .story_repair_counts(story_id)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok::<_, String>((row, counts))
         })
     });
     match result {
-        Ok(Ok(Some(row))) => ForgeGateEvidence {
-            work_type: row.work_type,
-            scout_required: row.scout_required,
-            lead_decision: row.lead_decision,
-            qa_review_required: row.qa_review_required,
-            qa_review_passed: row.qa_review_passed,
-            qa_passed: row.qa_passed,
-            failure_class: row.failure_class,
-            failed_release_stage: row.failed_release_stage,
-            last_failure: row.last_failure,
-            publish_succeeded: row.publish_succeeded,
-            candidate_sha: row.candidate_sha,
-            qa_verified_sha: row.qa_verified_sha,
-            published_sha: row.published_sha,
-            ..ForgeGateEvidence::default()
-        },
-        Ok(Ok(None)) => ForgeGateEvidence::default(),
+        Ok(Ok((row, counts))) => {
+            let mut evidence = row.map(evidence_from_row).unwrap_or_default();
+            // The budget the QA failure route spends: without it every route read 0 attempts and never stopped.
+            if let Some((repairs, replans)) = counts {
+                evidence.repair_attempts = Some(repairs.max(0) as u32);
+                evidence.replan_attempts = Some(replans.max(0) as u32);
+            }
+            evidence
+        }
         Ok(Err(error)) | Err(error) => {
             eprintln!("forge evidence read failed for {story_id}: {error}");
             ForgeGateEvidence::default()
         }
+    }
+}
+
+fn evidence_from_row(row: db::ForgeEvidencePatch) -> ForgeGateEvidence {
+    ForgeGateEvidence {
+        work_type: row.work_type,
+        scout_required: row.scout_required,
+        lead_decision: row.lead_decision,
+        qa_review_required: row.qa_review_required,
+        qa_review_passed: row.qa_review_passed,
+        qa_passed: row.qa_passed,
+        failure_class: row.failure_class,
+        failed_release_stage: row.failed_release_stage,
+        last_failure: row.last_failure,
+        publish_succeeded: row.publish_succeeded,
+        candidate_sha: row.candidate_sha,
+        qa_verified_sha: row.qa_verified_sha,
+        published_sha: row.published_sha,
+        ..ForgeGateEvidence::default()
     }
 }
 

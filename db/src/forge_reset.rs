@@ -108,7 +108,8 @@ impl ForgeResetDao {
         // 5. Return the story to Planned.
         let status = self
             .execute(
-                "update storyboard_story set status='Planned', completion=0, updated_at=now()
+                "update storyboard_story set status='Planned', completion=0, forge_repair_attempts=0,
+                        forge_replan_attempts=0, updated_at=now()
                  where id=$1",
                 story_id,
             )
