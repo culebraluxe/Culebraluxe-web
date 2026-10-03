@@ -412,12 +412,7 @@ pub fn enqueue_ready_task(
     let request = ForgeJobBridge::new(&registry)
         .job_for_ready_task(task)
         .expect("READY role task has a service binding");
-    let service_key = request
-        .payload
-        .get("serviceKey")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+    let service_key = request.service_key.clone();
     let jobs = WorkflowJobService::new(fixture.rt.engine());
     let id = jobs.enqueue(&request)?;
     Ok((id, service_key))
