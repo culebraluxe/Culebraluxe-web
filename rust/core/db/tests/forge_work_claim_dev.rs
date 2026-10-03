@@ -785,6 +785,35 @@ fn the_claim_transaction_lives_in_the_database_not_in_rust() {
             "the DAO calls {function}"
         );
     }
+    let recovery =
+        std::fs::read_to_string(root.join("db/migrations/266_forge_stale_recovery.sql")).unwrap();
+    let control = std::fs::read_to_string(root.join("rust/core/db/src/forge_control.rs")).unwrap();
+    let reset = std::fs::read_to_string(root.join("rust/core/db/src/forge_reset.rs")).unwrap();
+    for (function, caller) in [
+        ("forge_hold_stale_work", &control),
+        ("forge_requeue_stale_work", &control),
+        ("forge_recover_stale_engine_claim", &reset),
+    ] {
+        assert!(
+            recovery.contains(&format!("create or replace function {function}(")),
+            "migration 266 defines {function}"
+        );
+        assert!(
+            caller.contains(&format!("{function}(")),
+            "the DAO calls {function}"
+        );
+    }
+    for (source, choreography) in [
+        (&control, "begin(\"forge_control.hold_stale_work"),
+        (&control, "begin(\"forge_control.requeue_stale_work"),
+        (&reset, "begin(\"forge_reset.recover_stale_claim"),
+        (&reset, "last_error='stale claim recovered'"),
+    ] {
+        assert!(
+            !source.contains(choreography),
+            "stale-recovery choreography `{choreography}` is still in Rust beside migration 266"
+        );
+    }
     let begin =
         std::fs::read_to_string(root.join("db/migrations/264_forge_agent_work_begin.sql")).unwrap();
     assert!(
@@ -836,6 +865,7 @@ fn the_claim_transaction_lives_in_the_database_not_in_rust() {
         "set status='Planned'",
         "begin(\"forge_engine.reconcile_dispatch_queue",
         "begin(\"forge_engine.ensure_story_dispatched",
+        // Stale recovery (migration 266) lives in forge_control.rs / forge_reset.rs, checked below.
         // The run open (migration 264).
         "insert into storyboard_story_run",
         "begin(\"forge_engine.begin_agent_work_run",
@@ -1345,4 +1375,158 @@ async fn dispatch_without_its_trigger_is_a_schema_mismatch_and_moves_nothing() {
         "the refused change into Ready did not stick"
     );
     assert_ne!(enabled, "D", "the trigger is enabled again on DEV");
+}
+
+/// One stale engine claim recovered (migration 266), proven inside a transaction that is always rolled back: the
+/// DAO's sweep would also recover genuine DEV claims, so the routine is driven directly on fixture rows that never
+/// commit. A stale claim is interrupted and its item released; a fresh one, and a second pass, write nothing.
+#[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV"]
+async fn a_stale_engine_claim_is_recovered_once_and_a_fresh_one_never() {
+    let database = Database::connect_target(DbTarget::Dev)
+        .await
+        .expect("DATABASE_URL_DEV");
+    let mut tx = database.pool().begin().await.unwrap();
+    let tag = uuid::Uuid::new_v4().simple().to_string();
+    let definition: String =
+        sqlx::query_scalar("select id::text from process_definitions order by id limit 1")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("DEV holds a process definition");
+
+    // A story with one running claim and one engine execution, whose heartbeat is `age` old.
+    async fn claim(
+        tx: &mut sqlx::PgConnection,
+        definition: &str,
+        story: &str,
+        age_minutes: i32,
+    ) -> (String, String, String) {
+        sqlx::query(
+            "insert into storyboard_story (id, workstream, title, priority, status, notes)
+             values ($1, 'PROOF', 'Stale engine claim proof', 'High', 'In Progress', '')",
+        )
+        .bind(story)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        let item: String = sqlx::query_scalar(
+            "insert into agent_work_item (story_id, state, priority, claimed_by, claimed_at)
+             values ($1, 'Running', 0, 'stale-worker', now()) returning id::text",
+        )
+        .bind(story)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        let instance: String = sqlx::query_scalar(
+            "insert into process_instances (definition_id, status) values ($1::uuid, 'active') returning id::text",
+        )
+        .bind(definition)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        let token: String = sqlx::query_scalar(
+            "insert into tokens (process_instance_id, node_id) values ($1::uuid, 'smith') returning id::text",
+        )
+        .bind(&instance)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        let task: String = sqlx::query_scalar(
+            "insert into tasks (process_instance_id, token_id, name)
+             values ($1::uuid, $2::uuid, 'smith') returning id::text",
+        )
+        .bind(&instance)
+        .bind(&token)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            "insert into forge_engine_task_execution
+                 (task_id, process_instance_id, token_id, story_id, node_id, work_item_id, worker_id, status,
+                  heartbeat_at)
+             values ($1::uuid, $2::uuid, $3::uuid, $4, 'smith', $5::uuid, 'stale-worker', 'running',
+                     now() - make_interval(mins => $6))",
+        )
+        .bind(&task)
+        .bind(&instance)
+        .bind(&token)
+        .bind(story)
+        .bind(&item)
+        .bind(age_minutes)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        (task, instance, item)
+    }
+    async fn recover(tx: &mut sqlx::PgConnection, ids: &(String, String, String)) -> bool {
+        sqlx::query_scalar(
+            "select forge_recover_stale_engine_claim($1::uuid, $2::uuid, $3::uuid, 10)",
+        )
+        .bind(&ids.0)
+        .bind(&ids.1)
+        .bind(&ids.2)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap()
+    }
+    async fn shape(
+        tx: &mut sqlx::PgConnection,
+        ids: &(String, String, String),
+    ) -> (
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+    ) {
+        sqlx::query_as(
+            "select e.status, e.last_error, i.state, i.claimed_by, i.error_text
+               from forge_engine_task_execution e join agent_work_item i on i.id = e.work_item_id
+              where e.task_id = $1::uuid",
+        )
+        .bind(&ids.0)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap()
+    }
+
+    let stale = claim(&mut tx, &definition, &format!("ENG-PROOF-STALE-{tag}"), 30).await;
+    let fresh = claim(&mut tx, &definition, &format!("ENG-PROOF-FRESH-{tag}"), 0).await;
+
+    assert!(
+        recover(&mut tx, &stale).await,
+        "a claim past the cutoff is recovered"
+    );
+    assert_eq!(
+        shape(&mut tx, &stale).await,
+        (
+            "interrupted".into(),
+            Some("stale claim recovered".into()),
+            "Ready".into(),
+            None,
+            Some("stale claim recovered; awaiting fresh attempt".into())
+        )
+    );
+    assert!(
+        !recover(&mut tx, &stale).await,
+        "a recovered claim is not recovered twice"
+    );
+
+    assert!(
+        !recover(&mut tx, &fresh).await,
+        "a live heartbeat is left alone"
+    );
+    assert_eq!(
+        shape(&mut tx, &fresh).await,
+        (
+            "running".into(),
+            None,
+            "Running".into(),
+            Some("stale-worker".into()),
+            None
+        ),
+        "and nothing about it was written"
+    );
+
+    tx.rollback().await.unwrap();
 }

@@ -75,130 +75,36 @@ impl ForgeControlDao {
         Ok(())
     }
 
+    /// Hold a stale claim the worker will not retry: `Error` on the item and `Hold` on the story, in one write —
+    /// `forge_hold_stale_work` (migration 266).
     pub async fn hold_stale_work(&self, id: &str, story_id: &str, reason: &str) -> DbResult<()> {
-        let mut tx = self.db.begin("forge_control.hold_stale_work").await?;
-        let result = async {
-            sqlx::query(
-                "update agent_work_item
-                 set state='Error', error_text=$2, finished_at=now(), updated_at=now()
-                 where id=$1::uuid and state in ('Claimed','Running','Paused')",
-            )
+        sqlx::query("select forge_hold_stale_work($1::uuid, $2, $3)")
             .bind(id)
-            .bind(reason)
-            .execute(tx.connection())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("forge_control.hold_stale_work.item", &error))?;
-            sqlx::query(
-                "update storyboard_story set status='Hold', completed_at=null, updated_at=now() where id=$1",
-            )
             .bind(story_id)
-            .execute(tx.connection())
+            .bind(reason)
+            .execute(self.db.pool())
             .await
-            .map_err(|error| DbFailure::from_sqlx("forge_control.hold_stale_work.story", &error))?;
-            Ok::<(), DbFailure>(())
-        }
-        .await;
-        match result {
-            Ok(()) => tx.commit().await,
-            Err(error) => {
-                let _ = tx.rollback().await;
-                Err(error)
-            }
-        }
+            .map_err(|error| DbFailure::from_sqlx("forge_control.hold_stale_work", &error))?;
+        Ok(())
     }
 
     /// Give a stale claim back to the queue — but only to a story that can still be worked.
     ///
-    /// This is `db::settlement_pair`'s rule pointing the other way: a requeue moves **both** rows or neither. The
-    /// version that shipped on 2026-09-29 set the story back to `Ready` whatever the board said, so a claim left
-    /// behind by a run whose work had already landed — or by a run a human had put on `Hold` — was requeued and the
-    /// story was run a second time. That is the mirror image of the `forge:clean` strand, and it is why the board is
-    /// read here first.
+    /// This is `forge_settlement_pair`'s rule (migration 263) pointing the other way: a requeue moves **both** rows
+    /// or neither. The version that shipped on 2026-09-29 set the story back to `Ready` whatever the board said, so a
+    /// claim left behind by a run whose work had already landed — or by a run a human had put on `Hold` — was
+    /// requeued and the story was run a second time. That is the mirror image of the `forge:clean` strand, and it is
+    /// why the board is read first.
     pub async fn requeue_stale_work(&self, id: &str, story_id: &str) -> DbResult<()> {
-        let mut tx = self.db.begin("forge_control.requeue_stale_work").await?;
-        let result = async {
-            let board: Option<String> = sqlx::query_scalar(
-                "select s.status
-                   from agent_work_item i
-                   join storyboard_story s on s.id = i.story_id
-                  where i.id=$1::uuid and i.state in ('Claimed','Running','Paused')
-                  for update of i",
-            )
+        // The board is read first and decides — `Complete` settles `Done`, `Hold` ends the claim, anything else
+        // retries the run and moves the story with it — in `forge_requeue_stale_work` (migration 266).
+        sqlx::query("select forge_requeue_stale_work($1::uuid, $2)")
             .bind(id)
-            .fetch_optional(tx.connection())
+            .bind(story_id)
+            .execute(self.db.pool())
             .await
-            .map_err(|error| {
-                DbFailure::from_sqlx("forge_control.requeue_stale_work.read", &error)
-            })?;
-            let Some(board) = board else {
-                return Ok::<(), DbFailure>(());
-            };
-            match board.as_str() {
-                // The work landed. A stale row is bookkeeping, not a reason to run the story again.
-                "Complete" => {
-                    sqlx::query(
-                        "update agent_work_item
-                            set state='Done', error_text=null, finished_at=now(), updated_at=now()
-                          where id=$1::uuid and state in ('Claimed','Running','Paused')",
-                    )
-                    .bind(id)
-                    .execute(tx.connection())
-                    .await
-                    .map_err(|error| {
-                        DbFailure::from_sqlx("forge_control.requeue_stale_work.completed", &error)
-                    })?;
-                }
-                // A human gate owns the story: do not reopen it, and do not leave a claim hanging on it either.
-                "Hold" => {
-                    sqlx::query(
-                        "update agent_work_item
-                            set state='Error', error_text='stale claim on a story a human holds',
-                                finished_at=now(), updated_at=now()
-                          where id=$1::uuid and state in ('Claimed','Running','Paused')",
-                    )
-                    .bind(id)
-                    .execute(tx.connection())
-                    .await
-                    .map_err(|error| {
-                        DbFailure::from_sqlx("forge_control.requeue_stale_work.held", &error)
-                    })?;
-                }
-                // A run the board still expects: retry it, and move the story with it.
-                _ => {
-                    sqlx::query(
-                        "update agent_work_item
-                         set state='Ready', queued_at=now(), claimed_at=null, claimed_by=null,
-                             started_at=null, finished_at=null, error_text=null, runtime_adapter=null,
-                             external_run_id=null, updated_at=now()
-                         where id=$1::uuid and state in ('Claimed','Running','Paused')",
-                    )
-                    .bind(id)
-                    .execute(tx.connection())
-                    .await
-                    .map_err(|error| {
-                        DbFailure::from_sqlx("forge_control.requeue_stale_work.item", &error)
-                    })?;
-                    sqlx::query(
-                        "update storyboard_story set status='Ready', completed_at=null, updated_at=now() where id=$1",
-                    )
-                    .bind(story_id)
-                    .execute(tx.connection())
-                    .await
-                    .map_err(|error| {
-                        DbFailure::from_sqlx("forge_control.requeue_stale_work.story", &error)
-                    })?;
-                }
-            }
-            Ok::<(), DbFailure>(())
-        }
-        .await;
-        match result {
-            Ok(()) => tx.commit().await,
-            Err(error) => {
-                let _ = tx.rollback().await;
-                Err(error)
-            }
-        }
+            .map_err(|error| DbFailure::from_sqlx("forge_control.requeue_stale_work", &error))?;
+        Ok(())
     }
 
     pub async fn due_flight_ids(&self) -> DbResult<Vec<String>> {

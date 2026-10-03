@@ -263,91 +263,24 @@ impl ForgeResetDao {
 
         let mut recovered = 0u64;
         let mut skipped = 0u64;
-        // Each recovery runs in its OWN transaction, so a failure in one never rolls back another — and never
-        // steals a claim that went fresh in the meantime.
+        // Each recovery is its OWN statement, so its own transaction: a failure in one never rolls back another, and
+        // a claim that went fresh in the meantime is re-read under the engine's lock order and left alone — in
+        // `forge_recover_stale_engine_claim` (migration 266).
         for claim in stale {
-            let mut tx = self.db.begin("forge_reset.recover_stale_claim").await?;
-            let outcome = async {
-                // 1. Lock the owning process instance first (the engine's lock order).
-                sqlx::query("select id from process_instances where id=$1::uuid for update")
-                    .bind(&claim.process_instance_id)
-                    .fetch_optional(tx.connection())
-                    .await
-                    .map_err(|error| DbFailure::from_sqlx("forge_reset.recover.lock", &error))?;
-
-                // 2. Re-read the execution row under lock, and decide again. Freshness is decided by the
-                //    DATABASE (`heartbeat_at` versus the cutoff), so no clock is read here and no timestamp is
-                //    parsed in Rust.
-                let row = sqlx::query_as::<_, (String, Option<bool>)>(
-                    "select status,
-                            (heartbeat_at > now() - ($2::text || ' minutes')::interval) as fresh
-                     from forge_engine_task_execution
-                     where task_id=$1::uuid for update",
-                )
-                .bind(&claim.task_id)
-                .bind(stale_minutes.max(1).to_string())
-                .fetch_optional(tx.connection())
-                .await
-                .map_err(|error| DbFailure::from_sqlx("forge_reset.recover.read", &error))?;
-                match row {
-                    None => return Ok::<bool, DbFailure>(false),
-                    Some((status, fresh)) => {
-                        if status != "claimed" && status != "running" {
-                            return Ok(false);
-                        }
-                        // A heartbeat that has since moved makes this a live claim: leave it alone.
-                        if fresh == Some(true) {
-                            return Ok(false);
-                        }
-                    }
-                }
-
-                // 3. CAS, with the row count as the load-bearing guard.
-                let updated = sqlx::query(
-                    "update forge_engine_task_execution
-                     set status='interrupted', last_error='stale claim recovered', updated_at=now()
-                     where task_id=$1::uuid
-                       and status in ('claimed', 'running')
-                       and heartbeat_at <= now() - ($2::text || ' minutes')::interval
-                     returning task_id",
-                )
-                .bind(&claim.task_id)
-                .bind(stale_minutes.max(1).to_string())
-                .execute(tx.connection())
-                .await
-                .map_err(|error| DbFailure::from_sqlx("forge_reset.recover.cas", &error))?;
-                if updated.rows_affected() == 0 {
-                    return Ok(false);
-                }
-
-                // 4. Release the work item back to Ready for a fresh attempt.
-                sqlx::query(
-                    "update agent_work_item
-                     set state='Ready', claimed_by=null,
-                         error_text='stale claim recovered; awaiting fresh attempt', updated_at=now()
-                     where id=$1::uuid and state in ('Claimed', 'Running')",
-                )
-                .bind(&claim.work_item_id)
-                .execute(tx.connection())
-                .await
-                .map_err(|error| DbFailure::from_sqlx("forge_reset.recover.release", &error))?;
-                Ok(true)
-            }
-            .await;
-
-            match outcome {
-                Ok(true) => {
-                    tx.commit().await?;
-                    recovered += 1;
-                }
-                Ok(false) => {
-                    tx.rollback().await?;
-                    skipped += 1;
-                }
-                Err(error) => {
-                    let _ = tx.rollback().await;
-                    return Err(error);
-                }
+            let was_recovered: bool = sqlx::query_scalar(
+                "select forge_recover_stale_engine_claim($1::uuid, $2::uuid, $3::uuid, $4)",
+            )
+            .bind(&claim.task_id)
+            .bind(&claim.process_instance_id)
+            .bind(&claim.work_item_id)
+            .bind(stale_minutes.max(1) as i32)
+            .fetch_one(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_reset.recover_stale_claim", &error))?;
+            if was_recovered {
+                recovered += 1;
+            } else {
+                skipped += 1;
             }
         }
         Ok((recovered, skipped))
