@@ -339,10 +339,26 @@ impl SeamFixture {
         tasks[0].clone()
     }
 
+    /// EVERY durable job the instance ever had, terminal ones included.
+    ///
+    /// The engine's `jobs_for_instance` lists OPEN jobs only (pending/locked), so a helper built on it could never
+    /// see a completed job — `terminal_jobs` below was always empty and seam 001's job count read 0 for a finished
+    /// story. Forge keys a role job by its Workflow task id, so the tasks in the instance's history name its jobs.
     pub fn jobs_for_instance(&self, instance_id: &str) -> Vec<Job> {
-        self.rt
-            .engine()
-            .jobs_for_instance(instance_id)
+        self.memory
+            .with_tx(|tx| {
+                let mut task_ids: Vec<String> = tx
+                    .history(instance_id, 10_000)?
+                    .into_iter()
+                    .filter_map(|event| event.task_id)
+                    .collect();
+                task_ids.sort();
+                task_ids.dedup();
+                Ok(task_ids
+                    .into_iter()
+                    .filter_map(|task_id| tx.get_job(&task_id).ok())
+                    .collect())
+            })
             .expect("jobs for process")
     }
 

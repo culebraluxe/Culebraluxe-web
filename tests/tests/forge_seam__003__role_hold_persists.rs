@@ -90,8 +90,8 @@ fn role_hold_keeps_uuid_task_and_process_identity_and_human_story_id() {
             .deliverable_rejection
             .as_deref()
             .unwrap_or_default()
-            .contains("lead_decision"),
-        "the hold must be caused by the role's missing decision"
+            .contains("lead-decision"),
+        "the hold must be caused by the role's missing decision (the gate names it `lead-decision`)"
     );
 
     let holds = writer.opened_holds.lock().expect("holds");
