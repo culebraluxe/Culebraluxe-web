@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  CulebraLuxe WIP snapshot — every 5 minutes (LaunchAgent).
+
+  Generated from this template by `pnpm wip:install` (scripts/wip-snapshot-install.sh),
+  which substitutes {{REPO_ROOT}}, {{HOME}}, {{LOG_DIR}} and {{PATH}}, validates with
+  plutil and bootstraps it into launchd (gui/$(id -u)). Edit by reinstalling; this
+  file is the template.
+
+  What it is for: a worker's window closing mid-edit (quota ceiling, context
+  limit, a 5-hour model lockout) must never cost code. The job writes a local
+  commit of every dirty worktree to refs/wip/<name>. It never pushes, never
+  runs a hook, never touches an index or a branch — see scripts/wip-snapshot.sh.
+
+  Manage with:
+    pnpm wip:install
+    pnpm wip:now
+    pnpm wip:uninstall
+    launchctl print gui/$(id -u)/com.culebraluxe.wip-snapshot
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.culebraluxe.wip-snapshot</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{REPO_ROOT}}/scripts/wip-snapshot.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>{{REPO_ROOT}}</string>
+
+  <!-- Every 5 minutes, counted from load, not from a wall clock time. -->
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <!-- Once at load, so an install is self-verifying: the first run appears in the log immediately. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <!-- Serialize: a snapshot must never overlap itself. -->
+  <key>AbandonProcessGroup</key>
+  <false/>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>{{PATH}}</string>
+    <key>CULEBRALUXE_REPO</key>
+    <string>{{REPO_ROOT}}</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>{{LOG_DIR}}/wip-snapshot.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>{{LOG_DIR}}/wip-snapshot.err.log</string>
+</dict>
+</plist>

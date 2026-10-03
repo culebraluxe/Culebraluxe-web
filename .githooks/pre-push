@@ -9,6 +9,9 @@
 #   The artifact's own build — a push that touches rust/ui compiles it for wasm first, because
 #     `cargo check --workspace` does NOT compile the app (it lives behind `--features wasm`), and a green
 #     workspace can still fail the deploy. See AGENTS.md "Build and QA".
+#   The workspace compile is deliberately NOT here — it moved to CI on 2026-10-01 (House Rules rule 9): running it on
+#     every push put a full workspace compile inside every worker's window, and a refused push was re-run and its output
+#     re-read. `gates.yml` runs it on main; `CULEBRALUXE_FULL_PUSH_CHECK=1` asks for it locally.
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
@@ -89,12 +92,22 @@ if [ "$ui_changed" = "1" ] || [ "$rust_changed" = "1" ]; then
         exit 1
       fi
     else
-      echo "pre-push: checking the Rust workspace..." >&2
-      if ! cargo check --manifest-path "$root/rust/Cargo.toml" --workspace --all-targets --quiet >"$out" 2>&1; then
-        echo "House Rules: the Rust workspace does not compile — refusing the push." >&2
-        cat "$out" >&2
-        rm -f "$out"
-        exit 1
+      # The workspace compile moved to CI on 2026-10-01 (House Rules rule 9). It ran here on
+      # every push, and rule 2 says push after every commit: that put a full workspace compile
+      # inside every worker's window, and a worker whose push was refused re-ran the compile and
+      # spent its quota reading output it had already seen. `gates.yml` runs exactly this on
+      # main, on the runner's clock. A worker that wants it locally asks for it here.
+      if [ -n "${CULEBRALUXE_FULL_PUSH_CHECK:-}" ]; then
+        echo "pre-push: checking the Rust workspace (CULEBRALUXE_FULL_PUSH_CHECK is set)..." >&2
+        if ! cargo check --manifest-path "$root/rust/Cargo.toml" --workspace --all-targets --quiet >"$out" 2>&1; then
+          echo "House Rules: the Rust workspace does not compile — refusing the push. CI would refuse it too." >&2
+          cat "$out" >&2
+          rm -f "$out"
+          exit 1
+        fi
+      else
+        echo "pre-push: Rust changed — the workspace compile belongs to CI (gates.yml, on main)." >&2
+        echo "  Locally: CULEBRALUXE_FULL_PUSH_CHECK=1 git push ...   Slice tier: pnpm slice:check" >&2
       fi
     fi
     rm -f "$out"

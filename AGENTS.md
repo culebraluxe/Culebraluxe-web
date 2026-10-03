@@ -40,11 +40,33 @@ and they override anything later in this file that says otherwise (including "wo
 8. **Done means landed with a receipt.** It builds, it passes the tier it owes, and either `git log origin/main` shows
    your commit or the hand-off carries a receipt naming what passed and what did not. Report the commit ids and the tier
    you ran — "done" without a named verification is a claim, not a result.
+9. **A refused git command is a report, not a retry.** When a hook refuses a push, that attempt is over: name the
+   failing file and the cause in one line, and stop. Re-running it re-runs the compiler and spends the window on output
+   you already have — on 2026-10-01 five refused attempts at one push burned a day's quota and closed the window with
+   the work still uncommitted. The hook prints its own escape hatch for exactly this case:
+   `CULEBRALUXE_SKIP_BUILD_CHECK=1 git push …` when the build check is what stands in the way, and
+   `CULEBRALUXE_FULL_PUSH_CHECK=1` to ask for the workspace compile locally. Commit locally first, always: a commit is
+   free, local and un-gated, while the push is the gated and expensive half. Whatever a window that closes early would
+   otherwise cost is also caught by the WIP snapshot job — local `refs/wip/<name>` refs written every 5 minutes by
+   `scripts/wip-snapshot.sh` (`pnpm wip:now`), which never pushes, never runs a hook, and cannot be blocked.
+   Never run a command that pages or waits for an editor: a pager waiting for `q` on a terminal you cannot press is
+   what a hung git command looks like — eight of them were found stuck in `less` for up to 26 hours on 2026-10-01.
+   Use `git --no-pager …` (or `--no-pager` equivalents) and always pass `-m`; `core.pager` is `cat` machine-wide for
+   this reason.
 
-The pre-push hook in `.githooks/` enforces rule 5 and the artifact's build on this machine: it refuses a push whose
-`rust/Cargo.lock` is out of date, and refuses one that leaves `rust/ui` (wasm) or the workspace not compiling. **It
-does not refuse branches** — it prints what a branch owes instead, because a refused branch does not stop branching, it
-only stops anyone hearing about it. A new clone turns the hook on with `git config core.hooksPath .githooks`.
+The pre-push hook in `.githooks/` enforces rule 5 and the deploy artifact on this machine: it refuses a push whose
+`rust/Cargo.lock` is out of date, and refuses one that leaves `rust/ui` (wasm) not compiling. The workspace compile
+(`cargo check --workspace --all-targets`) moved out of the hook on 2026-10-01: it ran on every push, and with rule 2
+("push after every commit") that put a full workspace compile inside every worker's window. `gates.yml` runs it on
+`main`, on the runner's clock; a worker who wants it locally asks for it with `CULEBRALUXE_FULL_PUSH_CHECK=1`.
+
+**It does not refuse branches** — it prints what a branch owes instead, because a refused branch does not stop
+branching, it only stops anyone hearing about it. A new clone turns the hook on with `git config core.hooksPath
+.githooks`.
+
+The WIP snapshot job (rule 9, `pnpm wip:install`) writes local `refs/wip/<name>` commits every 5 minutes for every
+worktree — tracked edits, untracked files, deletions. It never pushes, never runs a hook, and holds no lock anyone waits
+on, so it cannot block a worker; it exists so that a window closing mid-edit cannot cost code.
 
 ## The gate is tiered — a slice never runs a thousand tests
 
