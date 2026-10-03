@@ -336,6 +336,13 @@ those four answer questions §9 had left open, and both answers are checkable fa
 ### 10.5 What §10 does not change
 
 §1's lane positions, §2's holds, §5's other gaps and §6's open items all stand, with §9's item 1 answered above (its
-other prose corrections untouched). The worktree is clean, `lane/deep` is level with `main` plus its own three commits,
-and this pass wrote to neither database.
+other prose corrections untouched). This pass wrote to neither database.
+
+**End state, for whoever reads this next:** `lane/deep` and `origin/main` both sit at **`f3b83107`** — this lane's four
+commits are published on `main` (`bd36fad0..f3b83107`) — and `origin/lane/deep` was realigned with
+`git push --force-with-lease` because the rebase renumbered this lane's own three commits. The lease, and a patch-id
+check, are why this can be stated flat: `HEAD..origin/lane/deep` held only those three commits, each one's patch-id is
+**identical** to the version that landed on `main` (`6341055f`≡`1a89dd53` `5a3a38d9…`, `623dccb0`≡`8ed218e9`
+`2d66227f…`, `76b1c6de`≡`672e04ab` `ad81d9ec…`), and the old base `c0db049c` is still an ancestor of the tip. Nothing
+was discarded and nothing was held back.
 
