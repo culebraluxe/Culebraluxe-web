@@ -308,8 +308,34 @@ qa_review → qa_verify`, and the observed run takes **both** sides of the `exec
 `architect`, `lead_pre` and `qa_verify`. Nothing here changes: the expectation was not edited and the test was not
 excluded from any run.
 
-### 10.4 What §10 does not change
+**Re-measured after rebasing onto `main`'s current tip** (`bd36fad0`, which carries today's two engine commits —
+`a26ba686` "a failed role turn settles Error, and an engine fault goes back to the queue" and `bd36fad0` clippy): **still
+red, exit 101, the same two lists.** So the fix is not in those commits and the row is still the workflow lane's.
 
-§1's lane positions, §2's holds, §5's other gaps, §6's open items and §9's prose corrections all stand. The worktree is
-clean, `lane/deep` is level with `main`, and this pass wrote to neither database.
+### 10.4 The two questions §9 left open — both answered by the move (§9 item 1 is now closed)
+
+While this pass was running, `origin/main` moved four commits (`1c95d719`, `9aa69348`, `a26ba686`, `bd36fad0`) and
+`lane/deep` rebased onto them cleanly — this lane's three commits became `1a89dd53`, `8ed218e9`, `672e04ab`. Two of
+those four answer questions §9 had left open, and both answers are checkable facts rather than opinions:
+
+1. **§9 item 1 is closed: the held `740b5253` is already on `main` as `1c95d719`.** `git show <sha> | git patch-id
+   --stable` gives the **same patch-id, `686477d3…`,** for both, and the diffstats match exactly (AGENTS.md,
+   `docs/agent/LAYOUT.md`, `docs/agent/ORIENTATION.md`, `docs/agent/packets/TECH-FLIGHT-RECORDER-01.md` — 4 files, 17
+   insertions, 5 deletions) while the shas differ. So the main checkout's own `main` holds a *duplicate* of work already
+   published: nothing needs landing, and its local holders (`refs/heads/main`, `refs/heads/lane/claude`,
+   `refs/wip/Culebraluxe-web`) can be dropped whenever convenient. §9's finding ("three local holders, none of them on
+   `origin`") was true when written; it is answered now, not wrong.
+
+2. **`lane/gpt`'s held `6ed57f61` is a replay, not a story.** It is `chore(layout): replay the three-tier move onto this
+   lane's base` — the same move `main` has as `80cfc9da` (`refactor(layout): the tree is three tiers`). Its diffstat is
+   larger (921 files, 4224/3719) than `main`'s (867 files, 3586/3219) and its patch-id (`eb6bd57e…`) differs from
+   `main`'s (`de6c921b…`), which is what replaying a 21-behind base looks like: extra files that moved differently, not
+   extra work. **This pass did not settle that file by file**, so it stays an owner check — and rule 6 still says that
+   lane should push its commit or say why not.
+
+### 10.5 What §10 does not change
+
+§1's lane positions, §2's holds, §5's other gaps and §6's open items all stand, with §9's item 1 answered above (its
+other prose corrections untouched). The worktree is clean, `lane/deep` is level with `main` plus its own three commits,
+and this pass wrote to neither database.
 
