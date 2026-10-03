@@ -785,6 +785,23 @@ fn the_claim_transaction_lives_in_the_database_not_in_rust() {
             "the DAO calls {function}"
         );
     }
+    let artifact =
+        std::fs::read_to_string(root.join("db/migrations/267_forge_tool_artifact_write.sql"))
+            .unwrap();
+    for function in [
+        "forge_verdict_polarity",
+        "forge_artifact_verdict_for_run",
+        "forge_record_tool_artifact",
+    ] {
+        assert!(
+            artifact.contains(&format!("create or replace function {function}(")),
+            "migration 267 defines {function}"
+        );
+    }
+    assert!(
+        dao.contains("from forge_record_tool_artifact("),
+        "the DAO calls forge_record_tool_artifact"
+    );
     let recovery =
         std::fs::read_to_string(root.join("db/migrations/266_forge_stale_recovery.sql")).unwrap();
     let control = std::fs::read_to_string(root.join("rust/core/db/src/forge_control.rs")).unwrap();
@@ -866,6 +883,11 @@ fn the_claim_transaction_lives_in_the_database_not_in_rust() {
         "begin(\"forge_engine.reconcile_dispatch_queue",
         "begin(\"forge_engine.ensure_story_dispatched",
         // Stale recovery (migration 266) lives in forge_control.rs / forge_reset.rs, checked below.
+        // The artifact write (migration 267).
+        "fn artifact_verdict_for_run",
+        "fn verdict_polarity",
+        "insert into forge_tool_artifact",
+        "begin(\"forge_engine.record_tool_artifact",
         // The run open (migration 264).
         "insert into storyboard_story_run",
         "begin(\"forge_engine.begin_agent_work_run",
@@ -1529,4 +1551,98 @@ async fn a_stale_engine_claim_is_recovered_once_and_a_fresh_one_never() {
     );
 
     tx.rollback().await.unwrap();
+}
+
+/// The artifact verdict rule, against DEV: the case table the deleted Rust `artifact_verdict_for_run` /
+/// `verdict_polarity` unit tests held (the legacy "agrees by polarity, not by spelling" contract), asserted against
+/// migration 267's functions word for word.
+#[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV"]
+async fn the_artifact_verdict_rule_is_the_databases() {
+    let database = Database::connect_target(DbTarget::Dev)
+        .await
+        .expect("DATABASE_URL_DEV");
+    let pool = database.pool();
+    async fn kept(
+        pool: &sqlx::PgPool,
+        kind: &str,
+        ruling: Option<&str>,
+        verdict: Option<&str>,
+    ) -> Option<String> {
+        sqlx::query_scalar("select forge_artifact_verdict_for_run($1, $2, $3)")
+            .bind(kind)
+            .bind(ruling)
+            .bind(verdict)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+    async fn polarity(pool: &sqlx::PgPool, token: &str) -> Option<String> {
+        sqlx::query_scalar("select forge_verdict_polarity($1)")
+            .bind(token)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    // The guard agrees by polarity, not by spelling.
+    assert_eq!(
+        kept(pool, "run-verdict", Some("Complete"), Some("PASS"))
+            .await
+            .as_deref(),
+        Some("PASS")
+    );
+    assert_eq!(
+        kept(pool, "run-verdict", Some("Hold"), Some("Failed"))
+            .await
+            .as_deref(),
+        Some("Failed")
+    );
+    assert_eq!(
+        kept(pool, "run-verdict", Some("Complete"), Some("Hold")).await,
+        None,
+        "no contradiction"
+    );
+    assert_eq!(
+        kept(pool, "run-verdict", None, Some("Failed")).await,
+        None,
+        "an unruled run certifies nothing"
+    );
+    assert_eq!(
+        kept(pool, "qa-assay-evidence", None, Some("PASS"))
+            .await
+            .as_deref(),
+        Some("PASS"),
+        "an assay's own reading is a measurement, not a claim about the run"
+    );
+
+    // A reading that cannot be compared is not kept.
+    for ruling in ["Partial", "Deferred", "Cancelled", "Interrupted", ""] {
+        assert_eq!(
+            kept(pool, "run-verdict", Some(ruling), Some("PASS")).await,
+            None,
+            "{ruling:?}"
+        );
+    }
+    assert_eq!(
+        kept(pool, "run-verdict", Some("Complete"), Some("maybe")).await,
+        None
+    );
+    assert_eq!(
+        kept(pool, "run-verdict", Some("Complete"), None).await,
+        None
+    );
+    assert_eq!(kept(pool, "qa-assay-evidence", None, None).await, None);
+    assert_eq!(
+        kept(pool, " Run-Verdict ", Some("Complete"), Some("Hold")).await,
+        None,
+        "the kind is compared trimmed and case-blind"
+    );
+
+    // Polarity words, both spellings, and the misspelling that must not pass.
+    assert_eq!(polarity(pool, " passed ").await.as_deref(), Some("Affirm"));
+    assert_eq!(polarity(pool, "COMPLETE").await.as_deref(), Some("Affirm"));
+    assert_eq!(polarity(pool, "fail").await.as_deref(), Some("Negative"));
+    assert_eq!(polarity(pool, "HOLD").await.as_deref(), Some("Negative"));
+    assert_eq!(polarity(pool, "mostly fine").await, None);
 }

@@ -230,9 +230,9 @@ fn worktree_snapshot_command(base: &str, diff_args: &str) -> String {
 /// gets that file's entire contents in the patch), and it replays with `git apply`. `forge salvage` reads it back.
 ///
 /// `verdict` is deliberately `NULL`: a verdict here would be a claim about the *run*, and the run's verdict is
-/// the run's own (`kind='run-verdict'`, reconciled by `artifact_verdict_for_run`). This row reports what Smith
-/// wrote, which is a fact whether or not the run passes — and a failed run's code is exactly the code someone
-/// wants back.
+/// the run's own (`kind='run-verdict'`, reconciled by `forge_artifact_verdict_for_run`, migration 267). This row
+/// reports what Smith wrote, which is a fact whether or not the run passes — and a failed run's code is exactly
+/// the code someone wants back.
 pub fn smith_candidate_artifact(
     story_id: &str,
     story_run_id: Option<&str>,

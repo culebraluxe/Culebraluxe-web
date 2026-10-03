@@ -97,56 +97,6 @@ pub struct BeginAgentWorkRun {
 /// Migration 025 states the contract: `agent_work_item` "stores NO story specification; the authoritative spec
 /// lives on `storyboard_story` and is snapshotted into `storyboard_story_run` when execution begins".
 
-/// Which way an artifact's verdict points, if it points anywhere at all.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VerdictPolarity {
-    Affirm,
-    Negative,
-}
-
-/// The polarity words the engine and the schema share.
-///
-/// `Complete`/`PASS`/`passed` assert the work landed; `Hold`/`Failed`/`FAIL` assert it did not. A word that names
-/// neither — a blank, `Partial`, `Deferred`, a token nobody defined — claims no polarity, and two claims that cannot
-/// be compared never agree.
-pub fn verdict_polarity(token: &str) -> Option<VerdictPolarity> {
-    match token.trim().to_ascii_lowercase().as_str() {
-        "pass" | "passed" | "complete" | "completed" => Some(VerdictPolarity::Affirm),
-        "fail" | "failed" | "hold" => Some(VerdictPolarity::Negative),
-        _ => None,
-    }
-}
-
-/// What a tool artifact may carry, given the run it belongs to.
-///
-/// **An artifact carries a ruling, never a second opinion.** The guard compares *polarity, not spelling*, because
-/// `Complete`+`PASS` and `Hold`+`Failed` are the same agreement said twice:
-///
-/// | run ruling | artifact verdict | kept |
-/// | --- | --- | --- |
-/// | `Complete` | `PASS` | `PASS` |
-/// | `Hold` | `Failed` | `Failed` |
-/// | `Complete` | `Hold` | — (contradiction; the summary stays, the verdict does not) |
-/// | unruled (`NULL`, or a ruling that could not be read) | `Failed` | — |
-///
-/// A **cleared** run's `result_status` is NULL (migration 263, `forge_run_result_status_for`) and certifies nothing, so no artifact
-/// may hand it a verdict. Any other `kind` is that tool's own reading — an assay's `PASS` is a measurement, not a
-/// claim about the run — and passes through untouched. The Rust home of the rule the legacy
-/// `artifactVerdictForRun` enforced; the schema cannot express it, so the one writer does.
-pub fn artifact_verdict_for_run(
-    kind: &str,
-    ruling: Option<&str>,
-    verdict: Option<&str>,
-) -> Option<String> {
-    let verdict = verdict?;
-    if !kind.trim().eq_ignore_ascii_case("run-verdict") {
-        return Some(verdict.to_string());
-    }
-    let claimed = verdict_polarity(verdict)?;
-    let run = ruling.and_then(verdict_polarity)?;
-    (run == claimed).then(|| verdict.to_string())
-}
-
 /// A tool artifact as a role reports it, before the schema decides what the row may hold.
 #[derive(Debug, Clone)]
 pub struct NewToolArtifact {
@@ -202,74 +152,6 @@ pub struct DispatchReconcile {
     pub restated: u64,
     /// Open items whose story no longer expects a run: cleared.
     pub cleared: u64,
-}
-
-#[cfg(test)]
-mod artifact_verdict_tests {
-    use super::{artifact_verdict_for_run, verdict_polarity, VerdictPolarity};
-
-    /// The guard agreed **by polarity, not by spelling** — the legacy contract
-    /// (`legacy/workflow_app/tests/artifact-verdict.test.ts`, "the guard agrees by polarity, not by spelling"),
-    /// asserted here word for word.
-    #[test]
-    fn the_guard_agrees_by_polarity_not_by_spelling() {
-        assert_eq!(
-            artifact_verdict_for_run("run-verdict", Some("Complete"), Some("PASS")).as_deref(),
-            Some("PASS")
-        );
-        assert_eq!(
-            artifact_verdict_for_run("run-verdict", Some("Hold"), Some("Failed")).as_deref(),
-            Some("Failed")
-        );
-        assert_eq!(
-            artifact_verdict_for_run("run-verdict", Some("Complete"), Some("Hold")),
-            None,
-            "an artifact cannot contradict its run"
-        );
-        assert_eq!(
-            artifact_verdict_for_run("run-verdict", None, Some("Failed")),
-            None,
-            "an unruled run certifies nothing"
-        );
-        assert_eq!(
-            artifact_verdict_for_run("qa-assay-evidence", None, Some("PASS")).as_deref(),
-            Some("PASS"),
-            "an assay's own reading is a measurement, not a claim about the run"
-        );
-    }
-
-    /// The cases the legacy suite did not spell out, decided the same way and for the same reason.
-    #[test]
-    fn a_reading_that_cannot_be_compared_is_not_kept() {
-        // A run that is `Partial`/`Deferred`/`Cancelled` makes no pass/fail claim, so nothing agrees with it.
-        for ruling in ["Partial", "Deferred", "Cancelled", "Interrupted", ""] {
-            assert_eq!(
-                artifact_verdict_for_run("run-verdict", Some(ruling), Some("PASS")),
-                None,
-                "ruling {ruling:?} certifies nothing"
-            );
-        }
-        // A verdict word nobody defined claims no polarity, so it cannot be shown to agree either.
-        assert_eq!(
-            artifact_verdict_for_run("run-verdict", Some("Complete"), Some("maybe")),
-            None
-        );
-        // No verdict at all is no verdict, whatever the kind.
-        assert_eq!(
-            artifact_verdict_for_run("run-verdict", Some("Complete"), None),
-            None
-        );
-        assert_eq!(
-            artifact_verdict_for_run("qa-assay-evidence", None, None),
-            None
-        );
-        // Polarity words, both spellings, and the misspelling that must not pass.
-        assert_eq!(verdict_polarity(" passed "), Some(VerdictPolarity::Affirm));
-        assert_eq!(verdict_polarity("COMPLETE"), Some(VerdictPolarity::Affirm));
-        assert_eq!(verdict_polarity("fail"), Some(VerdictPolarity::Negative));
-        assert_eq!(verdict_polarity("HOLD"), Some(VerdictPolarity::Negative));
-        assert_eq!(verdict_polarity("mostly fine"), None);
-    }
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -683,71 +565,25 @@ impl ForgeEngineDao {
     /// **The one write of `forge_tool_artifact`** (migration 130): a tool's own reading of one execution, kept under
     /// its Story Run so a later reader queries it instead of re-deriving it.
     ///
-    /// The ruling is read inside the same transaction the artifact is written in, and it is read from the row, not
-    /// taken from the caller: an artifact whose verdict contradicts its run is not a finding a reader should have to
-    /// notice later — it is refused here, keeping the summary and dropping the verdict
-    /// ([`artifact_verdict_for_run`]).
-    ///
-    /// A ruling that cannot be **read** fails closed to no verdict and the artifact is still written: the measurement
-    /// happened, and a failure to read the run is not a licence to lend it one. The failure is not swallowed —
-    /// constructing the `DbFailure` announces it through `db::capture` — and the write proceeds with `verdict: null`.
+    /// The ruling is read from the run row, never taken from the caller, and an artifact whose verdict contradicts its
+    /// run keeps its summary and loses the verdict — the polarity rule and the write are the database's:
+    /// `forge_record_tool_artifact` (migration 267).
     pub async fn record_tool_artifact(&self, input: &NewToolArtifact) -> DbResult<ToolArtifactRow> {
-        let mut tx = self.db.begin("forge_engine.record_tool_artifact").await?;
-        let result = async {
-            let ruling: Option<String> = match input.story_run_id.as_deref() {
-                Some(run_id) => {
-                    match sqlx::query_scalar::<_, Option<String>>(
-                        "select result_status from storyboard_story_run where id=$1::uuid",
-                    )
-                    .bind(run_id)
-                    .fetch_optional(tx.connection())
-                    .await
-                    {
-                        Ok(row) => row.flatten(),
-                        Err(error) => {
-                            let _ = DbFailure::from_sqlx(
-                                "forge_engine.record_tool_artifact.ruling",
-                                &error,
-                            );
-                            None
-                        }
-                    }
-                }
-                None => None,
-            };
-            let verdict =
-                artifact_verdict_for_run(&input.kind, ruling.as_deref(), input.verdict.as_deref());
-            let row = sqlx::query_as::<_, ToolArtifactRow>(
-                "insert into forge_tool_artifact
-                     (story_id, story_run_id, tool, kind, verdict, summary, detail, sha)
-                 values ($1, $2::uuid, $3, $4, $5, $6, $7, $8)
-                 returning id::text as id, story_id, story_run_id::text as story_run_id, tool, kind,
-                           verdict, summary, sha, created_at::text as created_at",
-            )
-            .bind(&input.story_id)
-            .bind(input.story_run_id.as_deref())
-            .bind(&input.tool)
-            .bind(&input.kind)
-            .bind(verdict.as_deref())
-            .bind(input.summary.as_deref())
-            .bind(input.detail.as_ref())
-            .bind(input.sha.as_deref())
-            .fetch_one(tx.connection())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("forge_engine.record_tool_artifact", &error))?;
-            Ok::<ToolArtifactRow, DbFailure>(row)
-        }
-        .await;
-        match result {
-            Ok(row) => {
-                tx.commit().await?;
-                Ok(row)
-            }
-            Err(error) => {
-                let _ = tx.rollback().await;
-                Err(error)
-            }
-        }
+        sqlx::query_as::<_, ToolArtifactRow>(
+            "select id, story_id, story_run_id, tool, kind, verdict, summary, sha, created_at
+               from forge_record_tool_artifact($1, $2::uuid, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(&input.story_id)
+        .bind(input.story_run_id.as_deref())
+        .bind(&input.tool)
+        .bind(&input.kind)
+        .bind(input.verdict.as_deref())
+        .bind(input.summary.as_deref())
+        .bind(input.detail.as_ref())
+        .bind(input.sha.as_deref())
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.record_tool_artifact", &error))
     }
 
     /// The code a Smith lane captured for a story, read back out of the control plane.
