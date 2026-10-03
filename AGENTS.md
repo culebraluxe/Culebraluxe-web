@@ -234,9 +234,10 @@ Never
   not to recreate the deleted tree-era workflow.**
   **Captain exception (2026-10-03): the agent lanes are the one standing set of trees.** `main` lives in
   `/Users/Shared/dev/src/Culebraluxe-web`; each agent has exactly one lane beside it — `lane-claude`,
-  `lane-gpt`, `lane-deep`, a git worktree on branch `lane/<name>` — and works only in its own. A lane syncs
-  from `main` by rebasing onto it, never by merging `main` in; it lands on `main` by fast-forward from the
-  main checkout (`git merge --ff-only lane/<name>`), and nobody commits in the main checkout directly. A
+  `lane-gpt`, `lane-deep`, a git worktree on branch `lane/<name>` — and works only in its own. The trunk is
+  `origin/main` (Forge publishes there directly). A lane syncs by rebasing onto `origin/main`, never by merging
+  `main` in; it lands by fast-forward push (`git push origin lane/<name>:main`), and nobody commits in the main
+  checkout directly — it only follows the trunk (`git pull --ff-only`). A
   lane never reads, edits or builds in another lane's tree — work crosses between lanes only through `main`.
   No lane adds a second tree of its own: a new lane is the Captain's call and goes in `docs/agent/LAYOUT.md`
   first. Lanes hold code, not workflow — Neon is still the only workflow and control-plane authority, and a

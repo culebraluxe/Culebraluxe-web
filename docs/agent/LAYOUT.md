@@ -27,10 +27,13 @@ git worktree add ../lane-<name> -b lane/<name> origin/main
 cd ../lane-<name> && pnpm install
 ```
 
-One lane, one branch, one agent: commit on the lane branch, land it on `main` from the main checkout, and mind house
-rule 1 (`lane/*` is short-lived). Check out from `main` by rebasing (`git rebase main` in the lane), never by merging
-`main` in; check in with `git merge --ff-only lane/<name>` in the main checkout, so a lane that has not rebased is
-refused instead of merged. No lane reads another lane's tree — work crosses lanes only through `main` (`AGENTS.md`,
+One lane, one branch, one agent: commit on the lane branch, land it on `origin/main`, and mind house rule 1
+(`lane/*` is short-lived). **`origin/main` is the trunk, not the main checkout's local `main`:** Forge's publish path
+(`forge/src/engine/git_publish.rs`) pushes candidates straight to `origin/main`, so a local `main` is always behind
+something. Check out by rebasing (`git fetch origin && git rebase origin/main` in the lane), never by merging `main`
+in; check in with `git push origin lane/<name>:main`, which is fast-forward-only — a lane that has not rebased is
+refused instead of merged. Nobody commits on the main checkout; it follows the trunk with `git pull --ff-only`.
+No lane reads another lane's tree — work crosses lanes only through `main` (`AGENTS.md`,
 the 2026-10-03 lane exception to NO TREES). Lanes are worktrees, so they share history and one object store — that is the point.
 `CARGO_TARGET_DIR` is shared too, which is why four checkouts do not cost four 34 GB targets; the cost is that two
 simultaneous `cargo` runs serialize on the target lock instead of running in parallel. Lane checkout size on disk is
