@@ -5,7 +5,8 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 story="$1"
 # Persistent log dir: /tmp is periodically swept on macOS and took the run logs with
 # it (the DB is the source of truth, but the chain log is what makes a run debuggable).
-logdir="$HOME/Library/Logs/CulebraLuxe/forge"
+# It is the shared machine log tree, outside every checkout (docs/agent/LAYOUT.md).
+logdir="${CULEBRALUXE_FORGE_LOG_DIR:-/Users/Shared/dev/build/logs/forge}"
 mkdir -p "$logdir"
 nohup pnpm forge:engine -- --story "$story" --work-type FEATURE > "$logdir/$story.log" 2>&1 &
 echo "pid=$! story=$story log=$logdir/$story.log"

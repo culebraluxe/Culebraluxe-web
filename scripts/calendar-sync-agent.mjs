@@ -37,8 +37,10 @@ export function machinePaths(env = process.env) {
   const supportDir =
     env.CULEBRALUXE_SUPPORT_DIR ||
     join(home, 'Library', 'Application Support', 'CulebraLuxe')
+  // The shared machine log tree, outside every checkout, so one directory answers "what did the
+  // jobs do" (docs/agent/LAYOUT.md). CULEBRALUXE_CALENDAR_LOG_DIR still overrides it.
   const logDir =
-    env.CULEBRALUXE_CALENDAR_LOG_DIR || join(home, 'Library', 'Logs', 'CulebraLuxe')
+    env.CULEBRALUXE_CALENDAR_LOG_DIR || '/Users/Shared/dev/build/logs'
   const snapshot = env.MAC_BRIDGE_CALENDAR_JSON || '/tmp/culebraluxe-calendar.json'
   const uid = typeof process.getuid === 'function' ? process.getuid() : 501
   return {

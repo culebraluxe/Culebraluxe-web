@@ -77,7 +77,9 @@ APP_ENV="${APP_ENV:-production}"
 EXECUTION_ENV="${EXECUTION_ENV:-PROD}"
 export APP_ENV EXECUTION_ENV
 
-LOG_DIR="${AGENT_WORKER_LOG_DIR:-$HOME/Library/Logs/CulebraLuxe}"
+# The shared machine log tree, outside every checkout so one directory answers "what did the jobs do"
+# (docs/agent/LAYOUT.md, where the tree lives). `AGENT_WORKER_LOG_DIR` (set by the plist) still wins.
+LOG_DIR="${AGENT_WORKER_LOG_DIR:-/Users/Shared/dev/build/logs}"
 INVOCATION_LOG="$LOG_DIR/agent-worker.invocations.log"
 LOCK_DIR="$LOG_DIR/agent-worker.lock"
 mkdir -p "$LOG_DIR" || exit 1

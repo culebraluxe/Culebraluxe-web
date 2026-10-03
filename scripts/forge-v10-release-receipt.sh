@@ -6,6 +6,12 @@
 # that Vercel auto-builds. This script performs the real deploy and emits the
 # engine's exact-artifact receipt — no agent prose, no local-SHA shortcuts.
 #
+# SUPERSEDED 2026-10-03 — DO NOT RUN. The Rust-native path is now `pnpm deploy:prod` (release) with
+# `pnpm db:migrations` / `pnpm db:migrate` (Rust `db-tool`), and this script's `--apply-migrations` step calls
+# `node --env-file=.env.local scripts/apply-migration.mjs` on lines 40-41 — a file the TypeScript retirement
+# deleted, aimed at `prod`. Its doctrine ("push main and let Vercel auto-build") is older than the single-project
+# build in `devops/Dockerfile.build`. Kept for the record, not for a release.
+#
 # Usage:
 #   bash scripts/forge-v10-release-receipt.sh --apply-migrations "108_x 109_x"   # optional
 #   bash scripts/forge-v10-release-receipt.sh --push                              # push main

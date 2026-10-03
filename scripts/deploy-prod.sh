@@ -2,8 +2,8 @@
 # PRODUCTION DEPLOY — the CulebraLuxe application to its one Vercel project, culebraluxe-web-fp, which serves
 # culebraluxe.com and www.culebraluxe.com and holds every production setting.
 #
-# Everything is compiled HERE, on this Mac, for free (deploy/Dockerfile.build: the Yew UI to WebAssembly, and the
-# server cross-compiled for Vercel's x86_64 Linux). Vercel only unpacks the finished files (deploy/Dockerfile.runtime),
+# Everything is compiled HERE, on this Mac, for free (devops/Dockerfile.build: the Yew UI to WebAssembly, and the
+# server cross-compiled for Vercel's x86_64 Linux). Vercel only unpacks the finished files (devops/Dockerfile.runtime),
 # so it spends seconds, not a paid 14-minute compile.
 set -euo pipefail
 
@@ -28,13 +28,13 @@ printf '\n1/5 Building the stylesheet...\n'
 npx --no-install tailwindcss -i web/ui/styles/app.css -o public/app.css --minify || fail "The stylesheet build failed."
 
 printf '\n2/5 Compiling the application on this Mac (the first run is slow; later runs reuse the cache)...\n'
-docker build -f deploy/Dockerfile.build --output "type=local,dest=$WORK/build" . || fail "The local compile failed."
+docker build -f devops/Dockerfile.build --output "type=local,dest=$WORK/build" . || fail "The local compile failed."
 [ -f "$WORK/build/culebraluxe" ] && [ -f "$WORK/build/ui_bg.wasm" ] || fail "The compile produced no server or no wasm."
 
 printf '\n3/5 Packing the finished files...\n'
 STAGE="$WORK/stage"
 mkdir -p "$STAGE/public/rust-ui" "$STAGE/templates"
-cp deploy/Dockerfile.runtime "$STAGE/Dockerfile"
+cp devops/Dockerfile.runtime "$STAGE/Dockerfile"
 # THE BUILD STAMP IS THE DEPLOYED COMMIT, written into the image that serves it. `/api/build-info` reads these two at
 # runtime; the production smoke asserts the sha it reports is HEAD (or names the commits it is behind). Stamping here
 # rather than at compile time is what makes the answer true: the binary is built once and the container is rebuilt per

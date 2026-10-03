@@ -29,7 +29,9 @@ REMINDERS_SNAPSHOT="${MAC_BRIDGE_REMINDERS_JSON:-/tmp/culebraluxe-reminders.json
 PAST_DAYS="${CALENDAR_SYNC_PAST_DAYS:-7}"
 FUTURE_DAYS="${CALENDAR_SYNC_FUTURE_DAYS:-60}"
 
-LOG_DIR="${CULEBRALUXE_CALENDAR_LOG_DIR:-$HOME/Library/Logs/CulebraLuxe}"
+# The shared machine log tree, outside every checkout so one directory answers "what did the jobs do"
+# (docs/agent/LAYOUT.md, where the tree lives). `CULEBRALUXE_CALENDAR_LOG_DIR` (set by the plist) still wins.
+LOG_DIR="${CULEBRALUXE_CALENDAR_LOG_DIR:-/Users/Shared/dev/build/logs}"
 LOG_FILE="$LOG_DIR/calendar-sync.invocations.log"
 
 mkdir -p "$LOG_DIR" || { echo "cannot create log dir: $LOG_DIR" >&2; exit 1; }

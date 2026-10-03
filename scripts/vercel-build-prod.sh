@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# SUPERSEDED 2026-10-03 — DO NOT RUN THIS TO RELEASE.
+#
+# The release path is `pnpm deploy:prod` -> `scripts/deploy-prod.sh`: ONE Vercel project, with the whole
+# application compiled on this Mac inside `devops/Dockerfile.build` and only unpacked by Vercel
+# (`devops/Dockerfile.runtime`).
+#
+# This file belongs to the older Vercel-prebuilt path (2026-09-25, "one build, one deploy"). It generates
+# `lib/rust-ui/ui.js` — deleted with `lib/` in the TypeScript retirement — into a Next-era `.vercel/output` that no
+# longer describes a Rust site in a container. Kept for the record, not for the release.
+# `docs/agent/DEV-OPS-RELEASE.md` still lists this pair under "Kept for build-only and deploy-only work"; that list
+# is older doctrine than `deploy:prod`, and this file cannot complete as it stands.
+
 EXPECTED_NODE_MAJOR="24"
 VERCEL_ORG_ID="team_xk8vFaeSyY6CuSkS3OK55tTc"
 VERCEL_PROJECT_ID="prj_RHzXYauXOgIh2abiEsMiQJ1V3jlV"

@@ -1,10 +1,12 @@
 # Agent Worker Scheduler
 
-Local scheduler for the production agent worker. Every **5 minutes** the
-launchd LaunchAgent on this development Mac runs
-`scripts/agent-worker-once.sh`, which invokes `pnpm agent:work` **exactly
-once** and records operational output. The database owns all queue semantics;
-the scheduler only wakes the worker.
+Local scheduler for the production agent worker. Every **three minutes**
+(`StartInterval 180`) the launchd LaunchAgent on this development Mac runs
+`scripts/agent-worker-once.sh`, which invokes the Rust `forge-worker` binary and
+records operational output. The database owns all queue semantics; the
+scheduler only wakes the worker. (`pnpm agent:work` is that same binary and
+still works by hand; the wrapper runs `cargo` directly, so the job needs no
+Node.)
 
 ## Architecture
 
@@ -27,12 +29,14 @@ because macOS TCC forbids launchd-spawned processes from executing files under
 
 Rules enforced here and by `pnpm agent:work` / the database:
 
-- **One scheduled invocation = at most one story.** The wrapper never loops and
-  never processes a second work item.
-- Multiple `Ready` stories execute over **separate scheduler intervals**: a
-  story is claimed, the run lifecycle moves it to `In Progress` / `Running`,
-  the coding agent finishes it (`--finish`), and the next scheduled
-  invocation may claim the next `Ready` item.
+- **One wake, one work item at a time.** The wrapper re-invokes the worker until
+  it reports `no work`, fails, or `AGENT_WORKER_MAX_PASSES` (default 20) is
+  reached — it does not wait for the next scheduled wake to pick up the next
+  `Ready` item.
+- Multiple `Ready` stories execute over **separate passes**: a story is claimed,
+  the run lifecycle moves it to `In Progress` / `Running`, the coding agent
+  finishes it (`--finish`), and the loop's next pass claims the next `Ready`
+  item (or the next scheduled wake does, if the pass limit was reached).
 - The database (migration 025) remains the authoritative concurrency guard:
   the single-worker partial unique index plus the advisory lock mean two
   workers can never race into two active executions. The wrapper's local lock
@@ -40,7 +44,8 @@ Rules enforced here and by `pnpm agent:work` / the database:
 
 ## Cadence
 
-`StartInterval 300` in the LaunchAgent plist — one invocation every 5 minutes.
+`StartInterval 180` in the LaunchAgent plist — one invocation every three
+minutes (`cli/src/launchd/agent_worker.rs`, `CADENCE_SECONDS`).
 `RunAtLoad` runs once when the LaunchAgent loads (login or `install`).
 LaunchAgents run only while a user is logged in — the appropriate model for a
 development-host worker.
@@ -54,9 +59,13 @@ development-host worker.
 | `pnpm agent:scheduler:run` | run the exact same wrapper once (manual single-story claim) |
 | `pnpm agent:scheduler:stop` | **kill switch** — boot out now + persist disabled across login |
 | `pnpm agent:scheduler:uninstall` | stop + delete the plist |
-| `pnpm agent:workspace status` | list isolated worker workspaces (ENG-21) |
+| `pnpm agent:workspace status` | list isolated worker workspaces (ENG-21 — retired, see below) |
 
 ## Isolated worker workspaces (ENG-21)
+
+> **RETIRED 2026-10-03 (lane-deep).** There is no `agent:workspace` command in `package.json` any more, so the
+> commands in this section cannot be run. Work isolation is now the agent lanes — one standing worktree per agent
+> (`docs/agent/LAYOUT.md`) — and a lane may not create a tree of its own ("NO TREES. EVER."). Kept for the record.
 
 Every claimed story executes in its OWN Git worktree/branch rooted at an
 explicit approved integration base — the primary checkout is never a worker
@@ -78,7 +87,8 @@ naming, evidence, and cleanup semantics. Summary:
 
 ## Logs
 
-All under `~/Library/Logs/CulebraLuxe/` (outside the repository):
+All under `/Users/Shared/dev/build/logs/` — the shared machine log tree, outside the repository AND outside every
+checkout, so one directory answers "what did the jobs do" (`docs/agent/LAYOUT.md`):
 
 | file | contents |
 |---|---|
@@ -87,13 +97,15 @@ All under `~/Library/Logs/CulebraLuxe/` (outside the repository):
 | `agent-worker.invocations.log` | timestamped `start:` / `end: exit=<code>` per invocation |
 | `agent-worker.lock/` | local no-overlap lock (holds the worker pid) |
 
-Override the log location with `AGENT_WORKER_LOG_DIR`.
+Override the log location with `AGENT_WORKER_LOG_DIR` — `pnpm agent:scheduler:install` writes it into the plist, and
+the repository's copy of the wrapper falls back to the same directory.
 
 ## Environment requirements
 
 - Repository checked out at the path resolved from the wrapper (repo root).
-- `node` and `pnpm` on PATH. launchd provides a minimal PATH, so the wrapper
-  establishes one: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`.
+- `cargo` and `git` on PATH — the wrapper runs the Rust `forge-worker` binary, not `pnpm`. launchd provides a minimal
+  PATH, so the wrapper establishes one
+  (`/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`) and then prepends `$HOME/.cargo/bin`.
 
 ### `FORGE_ALLOW_PUBLISH` — the publish kill switch
 

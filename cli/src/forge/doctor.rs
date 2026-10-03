@@ -174,18 +174,15 @@ fn read_learn_anchor_at(root: &Path) -> Option<String> {
 }
 
 /// The scheduled worker's own invocation log. `AGENT_WORKER_LOG_DIR` overrides the location, exactly as the
-/// retired reader allowed.
+/// retired reader allowed; the fallback is the ONE shared machine log tree (`launchd::DEFAULT_LOG_DIR`), so the
+/// doctor reads the same directory the job writes. It used to build `~/Library/Logs/CulebraLuxe` itself, which
+/// would have left the doctor reporting "unknown" against a job logging somewhere else.
 fn worker_log_path() -> PathBuf {
     let dir = std::env::var("AGENT_WORKER_LOG_DIR")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                .join("Library")
-                .join("Logs")
-                .join("CulebraLuxe")
-        });
+        .unwrap_or_else(|| PathBuf::from(crate::launchd::DEFAULT_LOG_DIR));
     dir.join("agent-worker.invocations.log")
 }
 

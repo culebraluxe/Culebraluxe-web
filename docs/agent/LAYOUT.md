@@ -79,7 +79,16 @@ Three of the four below closed on 2026-10-02/03. They are kept with the date rat
   **What is NOT settled:** `launchctl list` on 2026-10-03 shows `agent-worker`, `apple-sync` and `calendar-sync` with
   PID `-` and last exit status 1, `apple-local-listener` running (pid 78), `wip-snapshot` exiting 0. Exit 1 is not by
   itself a defect — "nothing due" and "broken" look identical from `launchctl` — and telling them apart means reading
-  `~/Library/Logs/CulebraLuxe/*.err.log`, which is a thing to ask for, never a reflex.
+  The jobs keep their logs in `/Users/Shared/dev/build/logs` — the shared machine log tree, outside every checkout —
+  and asking to read one is still a thing to ask for, never a reflex.
+  **Verified 2026-10-03 (lane-deep): the repoint is real but not sufficient — the job is dead.** `plutil -p` shows
+  `AGENT_WORKER_REPO=/Users/Shared/dev/src/Culebraluxe-web` and `StartInterval 180` as intended, but the *deployed
+  wrapper* (`~/Library/Application Support/CulebraLuxe/agent-worker-once.sh`, line 229) still runs
+  `--manifest-path rust/Cargo.toml`, a path the 2026-10-02 move deleted — so every 180-second tick fails before the
+  Rust worker starts, which is why `launchctl list` shows `agent-worker` with PID `-` and exit 1. The plists were
+  repointed; the bodies they invoke were not. Fix: `pnpm agent:scheduler:install` from the main checkout (it
+  rewrites the wrapper *and* the plist's `AGENT_WORKER_LOG_DIR`); the Apple jobs need their own `install` for the
+  same reason.
 - **No Time Machine destination.** The repo, four branches and the exports live on one internal disk; iCloud is not a
   backup, and it is currently holding ~43 GB of dead targets (see next line). This is the biggest open risk.
 - **The dead worktree records are gone (2026-10-03).** `git worktree list` shows only the four live trees

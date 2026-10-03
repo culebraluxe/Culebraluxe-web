@@ -134,14 +134,15 @@ skills-lock.json
 
 # Rust UI build output (scripts/rust-ui-build.sh). Source lives in web/ui/src.
 #
-# THE ARTIFACTS ARE COMMITTED, deliberately. `next build` does not produce them and the frontend deploy does not run the
-# Rust toolchain, so without them the UI is broken at runtime with no build error to explain it. The host imports the
-# glue from lib/rust-ui and the browser fetches the binary from /rust-ui/, so both copies ship.
+# THE ARTIFACTS ARE BUILT BY THE DEPLOY, not shipped from a Mac: `devops/Dockerfile.build` runs
+# `scripts/rust-ui-build.sh` (via `RUST_UI_PROFILE=release bash scripts/site-build.sh`) inside the image, so
+# without that step the UI is broken at runtime with no build error to explain it. The page imports the
+# glue from public/rust-ui and the browser fetches the binary from /rust-ui/.
 #
 # WASM is platform-independent, so this carries none of the usual "built on someone's laptop" risk. That risk belongs to
 # the SERVER, which is built inside a Linux container (devops/Dockerfile.vercel) and never shipped from a Mac.
 #
-# `node scripts/build.mjs` rebuilds these when a wasm32 target is present, and keeps the committed ones when it is not.
+# `bash scripts/rust-ui-build.sh` rebuilds these (`pnpm build` runs it, then tailwind).
 #
 # `mount.ts` IS SOURCE, NOT OUTPUT, AND THIS RULE WAS SWALLOWING IT. It is hand-written, and it is the module that both
 # `components/rust-ui/rust-ui.tsx` and `scripts/rust-ui-mount.test.ts` import (it replaced `boot.ts`). The blanket `/lib/rust-ui/*` below silently

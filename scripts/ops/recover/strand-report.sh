@@ -167,7 +167,7 @@ printf 'stranded on %s: %s branch(es) | local only: %s | unpushed commits: %s | 
 if [ "$local_only" -gt 0 ] || [ "$temp" -gt 0 ]; then
   printf '%s\n' 'ATTENTION: work above exists in exactly one place. It is not a branch anyone can pull.'
 fi
-printf '%s\n' 'Next: land what should live (scripts/ops/recover/land.sh), or delete what should not.'
+printf '%s\n' 'Next: land what should live (rebase onto origin/main, then push origin lane/<name>:main), or delete what should not.'
 
 if [ -n "$FAIL_OVER" ]; then
   total=$((remote_stranded + local_only))

@@ -39,7 +39,9 @@ function paths(env = process.env) {
   const repo = env.CULEBRALUXE_REPO || repoRoot()
   const launchAgentsDir = env.CULEBRALUXE_LAUNCHAGENTS_DIR || join(home, 'Library', 'LaunchAgents')
   const supportDir = env.CULEBRALUXE_SUPPORT_DIR || join(home, 'Library', 'Application Support', 'CulebraLuxe')
-  const logDir = env.CULEBRALUXE_CALENDAR_LOG_DIR || join(home, 'Library', 'Logs', 'CulebraLuxe')
+  // The shared machine log tree, outside every checkout, so one directory answers "what did the
+  // jobs do" (docs/agent/LAYOUT.md). CULEBRALUXE_CALENDAR_LOG_DIR still overrides it.
+  const logDir = env.CULEBRALUXE_CALENDAR_LOG_DIR || '/Users/Shared/dev/build/logs'
   const uid = typeof process.getuid === 'function' ? process.getuid() : 501
   return {
     home,

@@ -33,14 +33,21 @@ use std::process::{Command, Output};
 pub const USAGE: &str =
     "launchd <agent|apple-sync|calendar-sync> <render|install|status|run|stop|uninstall>";
 
+/// Where this machine's launchd jobs keep their logs: outside every checkout, beside the shared
+/// `CARGO_TARGET_DIR`, so one directory answers "what did the jobs do" (`docs/agent/LAYOUT.md`, where the
+/// tree lives). A job's own `*_LOG_DIR` still wins over it.
+pub const DEFAULT_LOG_DIR: &str = "/Users/Shared/dev/build/logs";
+
 /// The machine this bridge acts on. Everything comes from the environment, so a test (or another machine) can
-/// point at a scratch tree; nothing is hardcoded except the two fallbacks the TypeScript also used: the login
-/// shell's HOME, and uid 501 when `id -u` cannot answer.
+/// point at a scratch tree; nothing is hardcoded except the three fallbacks the TypeScript also used: the login
+/// shell's HOME, uid 501 when `id -u` cannot answer, and the shared log tree above.
 pub struct Machine {
     pub repo: PathBuf,
     pub home: PathBuf,
     pub launch_agents_dir: PathBuf,
     pub support_dir: PathBuf,
+    /// The shared log tree — the third machine fact, resolved once so every job agrees on it.
+    pub log_dir: PathBuf,
     pub uid: u32,
 }
 
@@ -65,6 +72,7 @@ impl Machine {
                         .join("Application Support")
                         .join("CulebraLuxe")
                 }),
+            log_dir: PathBuf::from(DEFAULT_LOG_DIR),
             uid: current_uid(),
             home,
         }
@@ -208,6 +216,7 @@ mod tests {
             home: PathBuf::from("/Users/tester"),
             launch_agents_dir: PathBuf::from("/Users/tester/Library/LaunchAgents"),
             support_dir: PathBuf::from("/Users/tester/Library/Application Support/CulebraLuxe"),
+            log_dir: PathBuf::from("/Users/tester/scratch/logs"),
             uid: 502,
         };
 

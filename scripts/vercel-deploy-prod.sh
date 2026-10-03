@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# SUPERSEDED 2026-10-03 — DO NOT RUN THIS TO RELEASE.
+#
+# The release path is `pnpm deploy:prod` -> `scripts/deploy-prod.sh`. This file is the deploy half of the older
+# Vercel-prebuilt pair, and line 87 below still calls `scripts/vercel-deploy-rust-prod.sh` — deleted by `fea875b9`
+# (2026-09-27, "one production project, compiled on the Mac") when the container was folded into `deploy-prod.sh`.
+# So this script cannot reach the end: it deploys the frontend, then dies on the missing container step.
+# See `scripts/vercel-build-prod.sh` for the full note.
+
 VERCEL_ORG_ID="team_xk8vFaeSyY6CuSkS3OK55tTc"
 VERCEL_PROJECT_ID="prj_RHzXYauXOgIh2abiEsMiQJ1V3jlV"
 VERCEL_CLI_VERSION="59.25.4"

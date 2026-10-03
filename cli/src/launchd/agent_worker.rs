@@ -36,17 +36,12 @@ struct Paths {
 }
 
 /// The worker's log directory: the plist, the wrapper and the invocation log all agree on it, and
-/// `AGENT_WORKER_LOG_DIR` is the one place an operator may move it.
+/// `AGENT_WORKER_LOG_DIR` is the one place an operator may move it. The fallback is the machine's shared
+/// log tree (`Machine::log_dir`), which is outside every checkout — not a directory of this job's own.
 pub fn log_dir(machine: &Machine) -> PathBuf {
     env_var("AGENT_WORKER_LOG_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            machine
-                .home
-                .join("Library")
-                .join("Logs")
-                .join("CulebraLuxe")
-        })
+        .unwrap_or_else(|| machine.log_dir.clone())
 }
 
 fn paths(machine: &Machine) -> Paths {
@@ -478,6 +473,7 @@ mod tests {
             home: home.to_path_buf(),
             launch_agents_dir: home.join("Library/LaunchAgents"),
             support_dir: home.join("Library/Application Support/CulebraLuxe"),
+            log_dir: home.join("logs"),
             uid: 501,
         }
     }

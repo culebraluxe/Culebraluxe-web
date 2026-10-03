@@ -23,7 +23,7 @@
 #
 # Env (all optional):
 #   CULEBRALUXE_REPO             repository root (set by launcher/deployed copy)
-#   CULEBRALUXE_APPLE_LOG_DIR    log directory (default ~/Library/Logs/CulebraLuxe)
+#   CULEBRALUXE_APPLE_LOG_DIR    log directory (default /Users/Shared/dev/build/logs)
 #   CULEBRALUXE_APPLE_LOG        log file (default $LOG_DIR/apple-sync.log)
 #   APPLE_SYNC_LOCK              lock path (default /tmp/culebraluxe-apple-sync.lock)
 #   APPLE_SYNC_EXPORTER_DEBUG    set to 1 to use the Swift DEBUG build
@@ -42,7 +42,9 @@ else
 fi
 cd "$REPO_ROOT" || { echo "cannot cd to repo root: $REPO_ROOT" >&2; exit 1; }
 
-LOG_DIR="${CULEBRALUXE_APPLE_LOG_DIR:-$HOME/Library/Logs/CulebraLuxe}"
+# The shared machine log tree, outside every checkout so one directory answers "what did the jobs do"
+# (docs/agent/LAYOUT.md, where the tree lives). `CULEBRALUXE_APPLE_LOG_DIR` (set by the plist) still wins.
+LOG_DIR="${CULEBRALUXE_APPLE_LOG_DIR:-/Users/Shared/dev/build/logs}"
 LOG_FILE="${CULEBRALUXE_APPLE_LOG:-$LOG_DIR/apple-sync.log}"
 LOCK="${APPLE_SYNC_LOCK:-/tmp/culebraluxe-apple-sync.lock}"
 EXPORT_DIR="$REPO_ROOT/public/upload/data/apple-messages-export"
