@@ -218,7 +218,6 @@ impl RoleHarness for Workspace {
 /// the SHA eligible for publish are silently not the SHA that was reviewed. Owner: the Assay lane (`roles/qa.rs`).
 /// The contract allows either answer the test accepts: keep the reviewed candidate, or refuse the measurement.
 #[test]
-#[ignore = "RED ARCH-SEAM-005: Assay's RUST_CONTRACT road substitutes the workspace HEAD for the reviewed candidate — run with --ignored"]
 fn assay_measures_the_reviewed_candidate_not_the_workspace_head() {
     let workspace = Workspace {
         cwd: std::env::temp_dir(),

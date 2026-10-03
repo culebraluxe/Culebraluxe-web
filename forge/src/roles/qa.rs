@@ -140,11 +140,22 @@ fn run_rust_contract_qa(
     let mut current = ctx.current.clone();
     let head = ctx.harness.run_command("git rev-parse HEAD");
     let sha = head.output.trim();
-    if head.passed && sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        current.candidate_sha = Some(sha.to_ascii_lowercase());
-    } else {
-        current.candidate_sha = None;
+    let measured = (head.passed && sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then(|| sha.to_ascii_lowercase());
+    // THE REVIEWED CANDIDATE IS THE ONE MEASURED (ARCH-SEAM-005). When the evidence already names the candidate Smith
+    // delivered and Inspector reviewed, a workspace whose HEAD is another commit is refused rather than measured: the
+    // SHA this turn reports is the SHA release publishes, so substituting HEAD would publish a commit nobody reviewed.
+    if let Some(reviewed) = ctx.current.candidate_sha.as_deref() {
+        let reviewed = reviewed.trim().to_ascii_lowercase();
+        if measured.as_deref() != Some(reviewed.as_str()) {
+            return Err(WorkflowError::generic(format!(
+                "QA FAIL: RUST_CONTRACT workspace HEAD {} is not the reviewed candidate {reviewed}; refusing to \
+                 measure a commit that was not reviewed",
+                measured.as_deref().unwrap_or("(unreadable)")
+            )));
+        }
     }
+    current.candidate_sha = measured;
     if let Some(base) = ctx.harness.execution_base_commit() {
         current
             .extra
