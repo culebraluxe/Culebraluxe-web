@@ -150,12 +150,16 @@ fn run_rust_contract_qa(
             .extra
             .insert("recordedBase", workflow::Value::from(base));
     }
-    let AssayEvidence { evidence, verdict } = collect_rust_contract_assay_evidence(
+    let AssayEvidence {
+        mut evidence,
+        verdict,
+    } = collect_rust_contract_assay_evidence(
         current,
         Some(&|cmd| ctx.harness.run_command(cmd)),
         ctx.contract_assay_commands,
         ctx.contract_acceptance_mapped,
     );
+    dispose_failure(&mut evidence, &verdict);
 
     if let Some(writer) = ctx.writer {
         writer
@@ -177,6 +181,26 @@ fn run_rust_contract_qa(
         transition_name: Some("complete".into()),
         evidence,
     })
+}
+
+/// The route a measured failure takes when the turn named none.
+///
+/// The QA failure route REPAIRS only on a `disposition`, and that came from nowhere but a model's reply — so a
+/// failed command held every story whose QA turn happened not to say REPAIR, and (before the decision fix) the route
+/// fell through to Smith without one. Assay owns the measurement, so it owns this reading: a command that FAILED is
+/// the implementation's to repair, inside the repair budget; a verdict with nothing measured (UNPROVEN) is not
+/// something another Smith turn can fix, so it escalates to a person. A disposition the turn did state stands.
+pub fn dispose_failure(evidence: &mut ForgeGateEvidence, verdict: &AssayVerdict) {
+    if evidence.qa_passed != Some(false) || evidence.disposition.is_some() {
+        return;
+    }
+    evidence.disposition = Some(
+        match verdict {
+            AssayVerdict::Fail => "REPAIR",
+            AssayVerdict::Pass | AssayVerdict::Unproven => "ESCALATE",
+        }
+        .into(),
+    );
 }
 
 /// The artifact a QA lane's own measurement becomes (migration 130, `kind = 'qa-assay-evidence'`).
@@ -242,6 +266,7 @@ pub fn read_assay_measurement(
         verdict,
     } = collected;
     *evidence = measured;
+    dispose_failure(evidence, &verdict);
     // The lane's own measurement becomes a row (migration 130). It is written the moment it exists, not at
     // the end of the story, because the next question anyone asks about a QA lane is what it measured — and
     // this is the only moment the measurement is in hand. A write that fails fails the lane, like every other

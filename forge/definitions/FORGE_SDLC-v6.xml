@@ -131,7 +131,9 @@
   <decision id="fast_qa_route" label="FAST QA Failure Route" refresh-facts="true"
     description="Implementation repair stays in the same execution/workspace; a replan/architecture defect ends FAST.">
     <on condition="qaRepairEligible == true" transition="smith"/>
-    <on condition="qaReplanEligible == true" transition="hold"/>
+    <!-- HOLD is the OTHERWISE (no condition names it): replan-eligible, ESCALATE, or a spent repair budget all stop
+         here. It used to be guarded by `qaReplanEligible == true`, so a spent budget matched nothing — the engine
+         then took the first branch (an unbounded repair loop) and, since 2026-10-03, refuses an unanswered decision. -->
     <transition name="smith" to="fast_repair_smith"/>
     <transition name="hold" to="hold"/>
   </decision>

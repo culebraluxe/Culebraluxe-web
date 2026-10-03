@@ -39,6 +39,11 @@ pub fn is_engine_fault(message: &str) -> bool {
         "connection timed out",
         "operation timed out",
         "statement timeout",
+        // The vendor's own plumbing, which says nothing about the story: its local SQLite store contended by a
+        // concurrent run, and the provider account out of credit. Recorded against the story, an empty account held
+        // every story the worker claimed (production 2026-10-01: 175 runs in one outage).
+        "database is locked",
+        "insufficient balance",
     ];
     let message = message.to_ascii_lowercase();
     MARKS.iter().any(|mark| message.contains(mark))
@@ -62,6 +67,8 @@ mod tests {
             "unexpected EOF while reading message",
             "pool timed out while waiting for an open connection",
             "io error: Operation timed out (os error 60)",
+            "opencode-harness failed for fast_smith exit=Some(1): Error: Unexpected error\n\ndatabase is locked",
+            "opencode-harness failed for fast_smith exit=Some(1): Error: Insufficient Balance (request_id: abc)",
             "error connecting to server: Connection timed out (os error 110)",
             "statement timeout: query exceeded 300000 ms",
         ] {
