@@ -29,7 +29,7 @@ questions on purpose: a port can be complete and still cut over to nothing.
 **12 of 14 capabilities** have Rust as the production path.
 
 - **firms** — Built in Rust with no route attached, so nothing can call it yet.
-- **signature** — All four endpoints are attached to Axum: send, get, refresh, and the provider webhook — the webhook at the PRODUCTION path /api/integrations/boldsign/webhook, so BoldSign's configured URL does not have to change to cut over. The webhook is deliberately unauthenticated by the internal API key: BoldSign signs the raw body and that HMAC is verified inside the service against a System actor with no principal, because a webhook cannot present an application identity. Constructing the BoldSign provider required adding `integrations` to the server crate; without it the adapter was unreachable from the composition root, which is how this capability sat as 'built, 0 routes'. KNOWN GAP, deliberately not guessed: the TypeScript webhook answered 200 {acknowledged:true} for events it will not act on so BoldSign stops retrying, and 401 for a missing/invalid signature. The Rust service's outcome enum has no no-op variant, so the 200-for-non-actionable half of that retry contract is NOT mirrored yet — mapping it blind could mask real errors. productionPath moved from 'typescript' to 'rust' on 2026-09-28 with the rest of this map: the TypeScript application was deleted in 4cf98110, so there is no TypeScript path left that could be serving. rust/server/tests/signature_routes.rs fails if the router and this map disagree.
+- **signature** — All four endpoints are attached to Axum: send, get, refresh, and the provider webhook — the webhook at the PRODUCTION path /api/integrations/boldsign/webhook, so BoldSign's configured URL does not have to change to cut over. The webhook is deliberately unauthenticated by the internal API key: BoldSign signs the raw body and that HMAC is verified inside the service against a System actor with no principal, because a webhook cannot present an application identity. Constructing the BoldSign provider required adding `integrations` to the server crate; without it the adapter was unreachable from the composition root, which is how this capability sat as 'built, 0 routes'. KNOWN GAP, deliberately not guessed: the TypeScript webhook answered 200 {acknowledged:true} for events it will not act on so BoldSign stops retrying, and 401 for a missing/invalid signature. The Rust service's outcome enum has no no-op variant, so the 200-for-non-actionable half of that retry contract is NOT mirrored yet — mapping it blind could mask real errors. productionPath moved from 'typescript' to 'rust' on 2026-09-28 with the rest of this map: the TypeScript application was deleted in 4cf98110, so there is no TypeScript path left that could be serving. web/tests/signature_routes.rs fails if the router and this map disagree.
 - **whatsapp-intake** — Rust verifies and normalises Meta payloads and the mounted webhook route is the Rust one. rustStatus stays 'partial' because durable inbox/ODS persistence is not finished — the old note said that half 'belongs to TypeScript', which stopped being true when the TypeScript application was deleted in 4cf98110. What is missing is Rust that has not been written yet, not TypeScript that still exists.
 
 ## The live Rust surface
@@ -156,29 +156,29 @@ These areas arrived with the Rust server rather than being ported into it, so no
 They are claimed here so that "every mounted route is accounted for" stays a real check rather than a list
 that accepts anything:
 
-- `accounting` — 6 route(s), `rust/server/src/accounting/mod.rs`
-- `activity` — 1 route(s), `rust/server/src/api/routes.rs`
-- `catchup` — 1 route(s), `rust/server/src/api/routes.rs`
-- `cockpit` — 1 route(s), `rust/server/src/cockpit/mod.rs`
-- `commands` — 1 route(s), `rust/server/src/api/routes.rs`
-- `deals` — 3 route(s), `rust/server/src/deals/mod.rs`
-- `diagnostics` — 2 route(s), `rust/server/src/api/routes.rs`
-- `engine` — 4 route(s), `rust/server/src/api/routes.rs`
-- `flight-recorder` — 1 route(s), `rust/server/src/api/routes.rs`
-- `issues` — 1 route(s), `rust/server/src/api/routes.rs`
-- `media` — 2 route(s), `rust/server/src/media/mod.rs`
-- `properties` — 8 route(s), `rust/server/src/properties/mod.rs`
-- `public` — 8 route(s), `rust/server/src/api/routes.rs`
-- `relationship-evidence` — 2 route(s), `rust/server/src/api/routes.rs`
-- `security` — 8 route(s), `rust/server/src/security/mod.rs`
-- `services` — 6 route(s), `rust/server/src/api/routes.rs`
-- `support` — 5 route(s), `rust/server/src/api/routes.rs`
-- `tasks` — 1 route(s), `rust/server/src/api/routes.rs`
-- `tech` — 1 route(s), `rust/server/src/api/routes.rs`
-- `vault` — 6 route(s), `rust/server/src/vault/mod.rs`
-- `wbs` — 5 route(s), `rust/server/src/wbs/mod.rs`
-- `website-intake` — 2 route(s), `rust/server/src/api/routes.rs`
-- `workflows` — 2 route(s), `rust/server/src/api/routes.rs`
+- `accounting` — 6 route(s), `web/src/accounting/mod.rs`
+- `activity` — 1 route(s), `web/src/api/routes.rs`
+- `catchup` — 1 route(s), `web/src/api/routes.rs`
+- `cockpit` — 1 route(s), `web/src/cockpit/mod.rs`
+- `commands` — 1 route(s), `web/src/api/routes.rs`
+- `deals` — 3 route(s), `web/src/deals/mod.rs`
+- `diagnostics` — 2 route(s), `web/src/api/routes.rs`
+- `engine` — 4 route(s), `web/src/api/routes.rs`
+- `flight-recorder` — 1 route(s), `web/src/api/routes.rs`
+- `issues` — 1 route(s), `web/src/api/routes.rs`
+- `media` — 2 route(s), `web/src/media/mod.rs`
+- `properties` — 8 route(s), `web/src/properties/mod.rs`
+- `public` — 8 route(s), `web/src/api/routes.rs`
+- `relationship-evidence` — 2 route(s), `web/src/api/routes.rs`
+- `security` — 8 route(s), `web/src/security/mod.rs`
+- `services` — 6 route(s), `web/src/api/routes.rs`
+- `support` — 5 route(s), `web/src/api/routes.rs`
+- `tasks` — 1 route(s), `web/src/api/routes.rs`
+- `tech` — 1 route(s), `web/src/api/routes.rs`
+- `vault` — 6 route(s), `web/src/vault/mod.rs`
+- `wbs` — 5 route(s), `web/src/wbs/mod.rs`
+- `website-intake` — 2 route(s), `web/src/api/routes.rs`
+- `workflows` — 2 route(s), `web/src/api/routes.rs`
 
 ## TypeScript modules under the subjects
 

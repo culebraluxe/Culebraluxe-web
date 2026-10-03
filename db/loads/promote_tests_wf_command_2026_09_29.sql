@@ -4,22 +4,22 @@
 -- stories and these never reach the board. These three are the start of the estate, in the same shape as
 -- `promote_harness_foundation_2026_09_29.sql`: ONE status change per row, and the Ready trigger does the rest.
 -- The estate is rows-only — no tracked file in this repo defines it or its taxonomy (git grep for its marker text
--- and for any TST- id returns nothing), so the row IS the specification, which is what rust/forge/src/engine/packet.rs
+-- and for any TST- id returns nothing), so the row IS the specification, which is what forge/src/engine/packet.rs
 -- reads. Nothing about the estate needed regenerating to promote from it.
 --
 -- WHY THESE THREE, AND NOT THE FIRST ROWS BY ID. A test story can only pass if its subject exists in Rust.
--- TST-ACCOUNTING-CORE-001 ("OFX/QBO parsing") has no counterpart in rust/core/domain/src/accounting.rs — that file
+-- TST-ACCOUNTING-CORE-001 ("OFX/QBO parsing") has no counterpart in middle/model/src/accounting.rs — that file
 -- has Money, Expense, Receivable, PnlStatement and the category constants, and no parser — so promoting it first
 -- would spend a run on a test with nothing to test. Every WF.COMMAND row's subject is
 -- `command_id(process_instance_id, node_id, visit_sequence) -> String`
--- (rust/core/workflow/src/engine/handle_join.rs:373): one pure function, the same seam production uses, no database
+-- (middle/workflow/src/engine/handle_join.rs:373): one pure function, the same seam production uses, no database
 -- and no network, so the test is honest and the run can finish. Each row names its own deliverable file and its
 -- assay names the same name — `--test wf_command__001__deterministic_command_id`, whose acceptance criterion 1 is
 -- `rust/test-harness/tests/wf_command__001__deterministic_command_id.rs` — so the story creates exactly what it is
 -- measured on.
 --
 -- WHY THEY LEAD THE QUEUE, AND WHY NOTHING WAS BUMPED. The claim order is
--- `order by w.priority desc, w.queued_at asc, w.id` (rust/core/db/src/forge_engine.rs:752) and the trigger scores the
+-- `order by w.priority desc, w.queued_at asc, w.id` (db/src/forge_engine.rs:752) and the trigger scores the
 -- story's priority text (Critical 100, High 80 — db/migrations/025_agent_work_queue.sql:88-99). These rows were
 -- already Critical before this file touched them: their neighbours TST-WF-COMMAND-005..009 read Critical while still
 -- Planned, and the whole estate reads 430 Critical / 223 High / 36 Medium (measured on PROD 2026-09-29 22:07 UTC).

@@ -3,8 +3,8 @@
 //! CONTRACT. The pool boundary has two ways to time out, and both must end the same way: a caller that cannot get a
 //! connection before `acquire_timeout` expires (`sqlx::Error::PoolTimedOut`, from `PgPool::acquire`), and a statement
 //! the server cancels at `statement_timeout` (SQLSTATE `57014`, `query_canceled`). Each must be classified by the
-//! production taxonomy (`DbFailure::from_sqlx`, `rust/core/db/src/error.rs:104`) as `DbFailureKind::Timeout`, marked
-//! `retryable`, and handled by the production retry path (`db::retry`, `rust/core/db/src/retry.rs:57`) in a BOUNDED
+//! production taxonomy (`DbFailure::from_sqlx`, `db/src/error.rs:104`) as `DbFailureKind::Timeout`, marked
+//! `retryable`, and handled by the production retry path (`db::retry`, `db/src/retry.rs:57`) in a BOUNDED
 //! way. "Timeout" is therefore not "the call hangs" and it is not "the call fails forever": it is a classified,
 //! retryable failure that converges to one success or stops at the policy's attempt ceiling.
 //!
@@ -30,7 +30,7 @@
 //! the PRODUCTION database (it never connects at all). Level: L4 Adversarial, harness `DbPoolFaultHarness`.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test runtime_pool__003__timeout
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test runtime_pool__003__timeout
 
 use std::time::Duration;
 
@@ -96,7 +96,7 @@ async fn runtime_pool_003__timeout() {
     // (3b) NEGATIVE / ADVERSARIAL. A SQLSTATE whose NAME contains "timeout" is not automatically a `Timeout`. The
     //      idle-in-transaction timeout (`25P03`) TERMINATES THE SESSION, and "too many clients" (`53300`) REFUSES the
     //      connection: both are evidence about the session, and the production taxonomy classifies them
-    //      `DatabaseUnavailable` (`rust/core/db/src/error.rs:161-170`). A boundary that matched on the word "timeout"
+    //      `DatabaseUnavailable` (`db/src/error.rs:161-170`). A boundary that matched on the word "timeout"
     //      would call these `Timeout` and still pass step (3); this clause refuses that shortcut. They stay retryable
     //      — the work is fine, the session is not.
     for fault in [

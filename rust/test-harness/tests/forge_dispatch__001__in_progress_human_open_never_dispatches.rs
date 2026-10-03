@@ -2,7 +2,7 @@
 //!
 //! Contract: a `storyboard_story` that says `In Progress` while nothing Forge owns holds it — no open work item and
 //! no open Story Run — is a human's OPEN card, and `ForgeEngineDao::reconcile_dispatch_queue`
-//! (`rust/core/db/src/forge_engine.rs:1186`) must leave it exactly as a human left it. It must never be restated to
+//! (`db/src/forge_engine.rs:1186`) must leave it exactly as a human left it. It must never be restated to
 //! `Ready`, because a change into `Ready` is what fires the database's dispatch trigger
 //! (`agent_work_item_dispatch()`, `db/migrations/025_agent_work_queue.sql:101`, restated in
 //! `db/migrations/146_fix_storyboard_ready_dispatch_arbiter.sql:36`), and a manufactured `Ready` would open a work
@@ -11,7 +11,7 @@
 //!
 //! The subject is the real sweep, not a re-declaration of it. `reconcile_dispatch_queue` restates an `In Progress`
 //! story only on **positive evidence** that Forge owned it: an existing `Ready`/`Paused` work item or a Story Run
-//! that is still open (`ended_at is null`). The doc comment at `rust/core/db/src/forge_engine.rs:1192-1206` names the
+//! that is still open (`ended_at is null`). The doc comment at `db/src/forge_engine.rs:1192-1206` names the
 //! failure this fences as *manufacturing authorization*: a sweep that treated every `In Progress` row the same would
 //! turn a human's sticky note into `Ready`, let the trigger fire, and the engine would claim work nobody requested.
 //! That is precisely the boundary this contract proves.
@@ -29,7 +29,7 @@
 //! and runs cascade) and a zero-leftover count is asserted.
 //!
 //! Run with:
-//!   set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness \
+//!   set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness \
 //!     --test forge_dispatch__001__in_progress_human_open_never_dispatches -- --ignored
 //! The plain command (no `--ignored`) passes with the test skipped, because the L2 contract needs a disposable DEV
 //! database and the harness will never open a PRODUCTION one.

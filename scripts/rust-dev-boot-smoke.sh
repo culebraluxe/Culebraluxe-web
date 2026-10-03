@@ -9,7 +9,7 @@
 # can be green while the server process is dead. The only thing that noticed was the website.
 #
 # So this asks the process that serves production, not a sibling that shares its database:
-#   1. boot `server --bin http` with APP_ENV=dev and DATABASE_URL_DEV;
+#   1. boot `server --bin web` with APP_ENV=dev and DATABASE_URL_DEV;
 #   2. wait for `/readyz` — `state.db().ping()`, one real query on the process's shared pool;
 #   3. refuse unless the boot line and the answer both say `database_target=dev` (never PROD);
 #   4. one real domain read through the service kernel on the same pool:
@@ -67,7 +67,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "smoke:dev — booting the Rust server against DEV ($base)"
-cargo build --manifest-path rust/Cargo.toml -p server --bin http
+cargo build --manifest-path Cargo.toml -p web --bin web
 rust/target/debug/http >"$log" 2>&1 &
 pid=$!
 

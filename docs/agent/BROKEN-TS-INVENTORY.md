@@ -50,7 +50,7 @@ Reading one of these files for its intent is fine. Wiring live code to it is not
 when a broken file is unmarked or a marked file still loads — so the list and the tree cannot drift apart
 silently. It touches no database and no network.
 
-**It is Rust now, and it is the same gate.** Ported 2026-09-29 to `rust/cli/src/forge/ts_sweep.rs`
+**It is Rust now, and it is the same gate.** Ported 2026-09-29 to `cli/src/forge/ts_sweep.rs`
 (`cargo run -p cli -- forge ts-sweep`), because the port that removed the last Node script in this repository
 could not leave its own metric behind. The TypeScript it replaced printed the same four counts and the same
 drift sections, diffed line for line before the file was deleted; the one deliberate change is that the drift
@@ -86,16 +86,16 @@ capabilities are not "dead weight", they are **broken in production** (checked 2
 
 | live caller | calls | consequence |
 | --- | --- | --- |
-| `scripts/apple-sync.sh` — launchd `com.culebraluxe.apple-sync`, twice daily | **`rust/cli` apple-sync messages-intake** (was `scripts/apple-messages-intake.ts`) | **fixed 2026-09-27**: the launchd job's exit status 1 was the deleted intake script; the step is Rust now and the job needs re-arming (see §"Apple intake — ported") |
-| `scripts/apple-message-repair.sh` (`apple:repair:prod`) | **`rust/cli` apple-sync messages-intake --evidence-only --refresh** (was the same deleted file) | **fixed 2026-09-27**: repairs ODS evidence for the existing export and refreshes the Client read models, without replaying interactions |
-| `scripts/contacts-sync.sh` | **`rust/cli` apple-sync contacts-load / contacts-project / warehouse-promote** (was `load-apple-contacts.ts`, `project-apple-contacts.ts`, `promote-warehouse.ts`) | **fixed 2026-09-28: the whole Contacts chain is Rust.** All three steps are database functions in `db/migrations/254_apple_contacts_load_project.sql` (load, projection) and `253_apple_contacts_promote.sql` (promotion), called from `rust/cli/src/apple_contacts.rs` and repointed at `contacts-sync.sh:148,156,163`. DEV-verified: load replay 2855/2855 with 0 changed, projection before=after=2855, and `apple_contacts_fingerprint_audit()` re-derives **4794/4794** historical fingerprints — the ODS does not churn. `scripts/promote-warehouse.ts` is **deleted**; `load-apple-contacts.ts` / `project-apple-contacts.ts` stay bannered as reference and must never be revived |
-| `scripts/apple-calls-sync.sh:41` | **`rust/cli` apple-sync calls-intake** (was `scripts/apple-calls-intake.ts`) | **fixed 2026-09-28**: the wrapper is repointed; chain ported to Rust (`rust/cli/src/apple_calls.rs` + `domain::apple_calls`), DEV-verified (5236 calls replayed, 864 evidence rows, 4 interactions written / 403 already current) |
-| `scripts/email-sync.sh` | **`rust/cli` apple-sync mail-intake + mail-promote** (was `apple-mail-envelope-intake.ts` + `promote-applemail.ts`) | **fixed 2026-09-28**: the wrapper is repointed; intake needs macOS Full Disk Access (see `DEAD-TS-DOWNSIZE.md` §1) |
-| `scripts/gmail-sync.sh` | **`rust/cli` gmail-sync** (was `scripts/gmail-metadata-sync.ts`) | **fixed 2026-09-28**: repointed; needs GOOGLE_CLIENT_ID / SECRET / REFRESH_TOKEN in `.env.local`, which this machine does not have |
+| `scripts/apple-sync.sh` — launchd `com.culebraluxe.apple-sync`, twice daily | **`cli` apple-sync messages-intake** (was `scripts/apple-messages-intake.ts`) | **fixed 2026-09-27**: the launchd job's exit status 1 was the deleted intake script; the step is Rust now and the job needs re-arming (see §"Apple intake — ported") |
+| `scripts/apple-message-repair.sh` (`apple:repair:prod`) | **`cli` apple-sync messages-intake --evidence-only --refresh** (was the same deleted file) | **fixed 2026-09-27**: repairs ODS evidence for the existing export and refreshes the Client read models, without replaying interactions |
+| `scripts/contacts-sync.sh` | **`cli` apple-sync contacts-load / contacts-project / warehouse-promote** (was `load-apple-contacts.ts`, `project-apple-contacts.ts`, `promote-warehouse.ts`) | **fixed 2026-09-28: the whole Contacts chain is Rust.** All three steps are database functions in `db/migrations/254_apple_contacts_load_project.sql` (load, projection) and `253_apple_contacts_promote.sql` (promotion), called from `cli/src/apple_contacts.rs` and repointed at `contacts-sync.sh:148,156,163`. DEV-verified: load replay 2855/2855 with 0 changed, projection before=after=2855, and `apple_contacts_fingerprint_audit()` re-derives **4794/4794** historical fingerprints — the ODS does not churn. `scripts/promote-warehouse.ts` is **deleted**; `load-apple-contacts.ts` / `project-apple-contacts.ts` stay bannered as reference and must never be revived |
+| `scripts/apple-calls-sync.sh:41` | **`cli` apple-sync calls-intake** (was `scripts/apple-calls-intake.ts`) | **fixed 2026-09-28**: the wrapper is repointed; chain ported to Rust (`cli/src/apple_calls.rs` + `model::apple_calls`), DEV-verified (5236 calls replayed, 864 evidence rows, 4 interactions written / 403 already current) |
+| `scripts/email-sync.sh` | **`cli` apple-sync mail-intake + mail-promote** (was `apple-mail-envelope-intake.ts` + `promote-applemail.ts`) | **fixed 2026-09-28**: the wrapper is repointed; intake needs macOS Full Disk Access (see `DEAD-TS-DOWNSIZE.md` §1) |
+| `scripts/gmail-sync.sh` | **`cli` gmail-sync** (was `scripts/gmail-metadata-sync.ts`) | **fixed 2026-09-28**: repointed; needs GOOGLE_CLIENT_ID / SECRET / REFRESH_TOKEN in `.env.local`, which this machine does not have |
 
 **The promotion hop exists now, and it is not a script.** `warehouse_promote_apple_contacts(p_apply)`
 (`db/migrations/253_apple_contacts_promote.sql`) does the whole landing → warehouse transformation
-set-based inside Neon, called by `apple-sync warehouse-promote` (`rust/cli/src/apple_contacts.rs`) and
+set-based inside Neon, called by `apple-sync warehouse-promote` (`cli/src/apple_contacts.rs`) and
 repointed in `contacts-sync.sh:163`. `scripts/promote-warehouse.ts` is **deleted** (2026-09-28) — do not
 re-instate it. Its siblings for the load and the projection got the same treatment the same day:
 `apple_contacts_load(jsonb, text)` and `apple_contacts_project(text, uuid)` in
@@ -105,7 +105,7 @@ re-instate it. Its siblings for the load and the projection got the same treatme
 **Operator commands that cannot run and are named in AGENTS.md or used daily** — corrected 2026-09-28, because
 the Forge half of this list was stale: `forge:doctor`, `forge:clean`, `forge:story:reset`, `forge:packet-lint`,
 `forge:manifest`, `forge:sync-agents` and `forge:harness` **all run**. `package.json` points them at the Rust CLI
-(`rust/cli/src/forge/`), `pnpm broken:ts:commands` counts none of them among the 53 dead names, and both gates were
+(`cli/src/forge/`), `pnpm broken:ts:commands` counts none of them among the 53 dead names, and both gates were
 run green on 2026-09-28. Still dead and used daily: `sprint`, `health`, `test:story`, `test:sprint-fences`,
 `story:status`, `story:preflight`, `db:pull:dev`, `probe:kind:dev`. A runbook step that
 cannot execute is a finding, not a footnote.
@@ -116,43 +116,43 @@ cannot execute is a finding, not a footnote.
 Verified by path, not assumed. Most of the **product** survived the port; what is missing is mostly
 **tooling** (one-shot loaders, proofs, promotions, harness gates).
 
-- Apple — **partly, and the doc previously overstated this.** What exists: `rust/cli/src/apple_sync.rs`
+- Apple — **partly, and the doc previously overstated this.** What exists: `cli/src/apple_sync.rs`
   (380 lines — `drain`, `calendar-intake`, `reminder-intake`). What does NOT exist: any Rust
-  Messages/Calls/Contacts intake. `rust/integrations/src/apple/mod.rs` is a **4-line placeholder comment**
+  Messages/Calls/Contacts intake. `middle/apis/src/apple/mod.rs` is a **4-line placeholder comment**
   ("native Swift/EventKit helpers can remain native adapters"), not an implementation, so the Apple
   messages/calls/contacts *pipelines* are still the dead TS scripts named by the live `*-sync.sh` callers.
-- Mail: `rust/integrations/src/mail/mod.rs` (330 lines), `rust/integrations/src/bin/mail_test.rs`,
-  `rust/core/service/src/mailbox.rs` (1265 lines)
+- Mail: `middle/apis/src/mail/mod.rs` (330 lines), `middle/apis/src/bin/mail_test.rs`,
+  `middle/services/src/mailbox.rs` (1265 lines)
 - WhatsApp — **verified by reading the code on 2026-09-27, not by grep**. The captain's port is real
-  and complete: `rust/integrations/src/whatsapp/mod.rs` owns the Meta Cloud API trust boundary
+  and complete: `middle/apis/src/whatsapp/mod.rs` owns the Meta Cloud API trust boundary
   (the `X-Hub-Signature-256` HMAC over the exact raw body, compared with `subtle::ConstantTimeEq` —
   not `==`; `from_env` refuses a missing secret; `normalize_e164` validates the owned number),
   `whatsapp/payload.rs` (387 lines) parses the webhook into a normalized event,
-  `rust/core/db/src/whatsapp.rs` (736 lines) has `land`, `process_event` and
-  `refresh_client_read_models`, `rust/server/src/whatsapp.rs` has `verify_handshake` and
-  `handle_webhook`, and `rust/ui/src/app/screens/whatsapp_meta.rs` + `whatsapp_public.rs` are the
-  screens. **The security half is also Rust**, in `rust/server/src/security/`: `mod.rs` (540 lines)
+  `db/src/whatsapp.rs` (736 lines) has `land`, `process_event` and
+  `refresh_client_read_models`, `web/src/whatsapp.rs` has `verify_handshake` and
+  `handle_webhook`, and `web/ui/src/app/screens/whatsapp_meta.rs` + `whatsapp_public.rs` are the
+  screens. **The security half is also Rust**, in `web/src/security/`: `mod.rs` (540 lines)
   carries `resolve_identity`, `decide`, role entitlements, `get_principal`, `warm_identity_cache`,
   plus `audit.rs`, `entitlements.rs`, `entitlement_catalog.rs`, `guest.rs`, `identity_cache.rs`
   (~1900 lines total). Nothing about WhatsApp or its authorization is stranded in TypeScript.
-- Intake: `rust/core/db/src/intake.rs`, `rust/core/domain/src/intake.rs`, `rust/server/src/intake.rs`
-- Relationship evidence: `rust/core/db/src/relationship_evidence.rs`,
-  `rust/core/domain/src/relationship_evidence.rs`, `rust/server/src/relationship_evidence.rs`
-- Calendar / catch-up: `rust/server/src/calendar/`, `rust/server/src/showings/`
-- Communications / Gmail: `rust/core/domain/src/comms.rs`, `rust/core/domain/src/client.rs`,
-  `rust/server/src/communications/`
-- Accounting / bank: `rust/core/domain/src/accounting.rs`, `rust/ui/src/app/screens/accounting/`
-- Flight recorder: `rust/server/src/flight_recorder/`
+- Intake: `db/src/intake.rs`, `middle/model/src/intake.rs`, `web/src/intake.rs`
+- Relationship evidence: `db/src/relationship_evidence.rs`,
+  `middle/model/src/relationship_evidence.rs`, `web/src/relationship_evidence.rs`
+- Calendar / catch-up: `web/src/calendar/`, `web/src/showings/`
+- Communications / Gmail: `middle/model/src/comms.rs`, `middle/model/src/client.rs`,
+  `web/src/communications/`
+- Accounting / bank: `middle/model/src/accounting.rs`, `web/ui/src/app/screens/accounting/`
+- Flight recorder: `web/src/flight_recorder/`
 - CRM / clients / people / projects / deals / contracts / firms / properties / media / forms:
-  the matching `rust/server/src/` and `rust/core/domain/` modules
-- MQ delivery: `rust/server/src/mq_runtime.rs`
-- The Forge engine itself: `rust/forge/src/` — six roles (`roles/scout|architect|lead|smith|qa|dev_ops`),
+  the matching `web/src/` and `middle/model/` modules
+- MQ delivery: `web/src/mq_runtime.rs`
+- The Forge engine itself: `forge/src/` — six roles (`roles/scout|architect|lead|smith|qa|dev_ops`),
   the engine (`engine/dispatch`, `graph`, `split_join`, `spend_cap`, `evidence_gate`, `git_publish`,
   `xml`, `agents`, `routing_brain`, `db_writer`), plus `release/`, `execution/`, `routing/`, `evidence/`
   and the binaries `forge`, `forge_worker`, `forge_task`, `re_workflow`
-- The website transport: `rust/server` + `lib/rust-api/` (thin client only)
-- The cockpit and screens: `rust/ui` (Yew MVI)
-- DB gates: `rust/cli/src/db_tool.rs` — applier, ledger report, DEV/PROD parity gate
+- The website transport: `web` + `lib/rust-api/` (thin client only)
+- The cockpit and screens: `web/ui` (Yew MVI)
+- DB gates: `cli/src/db_tool.rs` — applier, ledger report, DEV/PROD parity gate
 
 **Not found in Rust at all** (grep over `rust --include=*.rs` returns nothing): the `warehouse`
 promotion, the `db-zombies` cleaner, and every Forge *harness* tool (`packet-lint`, scope manifest,
@@ -191,7 +191,7 @@ before writing anything) · **RETIRE** (do not build it again; the file stays as
    **RETIRE** under the current playbook (a Neon branch reset from PROD is instant and byte-exact);
    if a selective pull is ever needed, it is a new Rust subcommand, not this file.
 5. `scripts/mq-worker.ts` — `mq:worker`, `mq:worker:prod` — the broker poller entry point, "ONE
-   dispatch pass". The delivery runtime **is** in Rust (`rust/server/src/mq_runtime.rs`), so this is
+   dispatch pass". The delivery runtime **is** in Rust (`web/src/mq_runtime.rs`), so this is
    the one dead command whose capability already exists. **VERIFY then repoint or retire**: either
    `mq:worker` invokes the Rust runtime or the npm names go away with a note in MEMORY.md. Do not
    re-implement the broker in TypeScript.
@@ -200,17 +200,17 @@ before writing anything) · **RETIRE** (do not build it again; the file stays as
 
 6. `scripts/db-zombies.mjs` — find and terminate zombie/lingering backends. Not in Rust anywhere.
    **PORT** (`db-tool zombies`, terminate behind an explicit flag) — the pool work in
-   `rust/core/db/src/pool.rs` makes this the natural companion tool.
+   `db/src/pool.rs` makes this the natural companion tool.
 7. `scripts/import-property-photos.mjs`, `scripts/import-property-document.mjs`,
    `scripts/import-missing-guide-images.mjs`, `scripts/import-guide-images.mjs` — the four media
    importers. **PORT** as ONE Rust importer that goes through `media` and `property_media`
    (AGENTS.md: media is the reusable asset, `property_media` owns role and order). Never
    special-case a listing.
 8. `scripts/seed-flight-recorder-qa.ts` — `flight-recorder:qa-seed`, `flight-recorder:qa-reset` —
-   DEV-only durable QA golden transaction. `rust/server/src/flight_recorder/` exists; the seed does
+   DEV-only durable QA golden transaction. `web/src/flight_recorder/` exists; the seed does
    not. **PORT** (must fail closed on a PROD target).
 9. `scripts/seed-projects-mvi2-dev.ts` — **VERIFY** then PORT P2: projects live in
-   `rust/server/src/projects/`; a seed that only exists to fill a DEV screen may be **RETIRE**.
+   `web/src/projects/`; a seed that only exists to fill a DEV screen may be **RETIRE**.
 
 ## P2 — historic one-shots: RETIRE
 
@@ -229,13 +229,13 @@ before writing anything) · **RETIRE** (do not build it again; the file stays as
     (`lib/forms/` survives, so this is one of the few files whose import could still resolve — fixing
     it in TS is still out of scope). Otherwise **RETIRE**.
 16. `scripts/rust-api-client.test.ts`, `scripts/rust-ui-mount.test.ts` — **RETIRE.** Their subjects
-    are `rust/server` and `rust/ui`, and they are tested there now.
+    are `web` and `web/ui`, and they are tested there now.
 
 ---
 
 # 2. FORGE — priority order
 
-The engine itself is already Rust (`rust/forge/src/`). What is dead here is the **harness around
+The engine itself is already Rust (`forge/src/`). What is dead here is the **harness around
 it**: the lints, the manifest, the board feeders. Two of them are load-bearing gates.
 
 ## P0 — gates that currently enforce NOTHING
@@ -261,7 +261,7 @@ remembering. A gate that cannot run is worse than no gate, because the pipeline 
 
 **Is it DEV_OPS or Forge?** It is neither the engine nor the product. It is **harness plumbing that
 sits next to the engine and never touches it**: it did not port, and must not change, anything about
-roles, dispatch, the graph, spend or evidence in `rust/forge/src/`. The captain's port of the engine
+roles, dispatch, the graph, spend or evidence in `forge/src/`. The captain's port of the engine
 is not at risk here; this is the paperwork machine that reads packets and vendor files. Verdict:
 **PORT**, and it belongs in `rust/` with the rest of the tooling so it is one toolchain, not two.
 
@@ -269,23 +269,23 @@ is not at risk here; this is the paperwork machine that reads packets and vendor
    Enforces the packet rules, evidence-as-path-and-line-range (rule 10), and the drift check between
    AGENTS.md and the vendor pointer files. The file imports deleted `lib/agent-vendor-block` +
    `lib/scope-manifest`, so **`pnpm forge:packet-lint` cannot run and the guarantee is unenforced.**
-   **PORTED 2026-09-27** — `rust/cli` `forge harness-lint` (`rust/cli/src/forge/lint.rs` and its
+   **PORTED 2026-09-27** — `cli` `forge harness-lint` (`cli/src/forge/lint.rs` and its
    helpers), with 39 must-fail/must-pass fixtures — "a gate nobody has seen fail is indistinguishable
    from a gate that cannot fail" is written in the file itself, and it stays true. The four deleted
    `lib/` modules it depended on (`agent-vendor-block`, `scope-manifest`, `forge-decision`,
    `secret-shapes`) were recovered from `4cf98110^` and translated into
-   `rust/cli/src/forge/{vendor_block,citations,decision,secret_shapes}.rs`.
+   `cli/src/forge/{vendor_block,citations,decision,secret_shapes}.rs`.
 2. `scripts/forge-sync-agents.ts`, `scripts/forge-sync-agents.test.ts` — `forge:sync-agents`.
    Renders the managed guardrail block into vendor pointers. **PORTED 2026-09-27, in the same change
-   as 1** — `rust/cli` `forge sync-agents` (`rust/cli/src/forge/sync_agents.rs`); the four load-bearing
+   as 1** — `cli` `forge sync-agents` (`cli/src/forge/sync_agents.rs`); the four load-bearing
    rules and the backing AGENTS.md sentences come from ONE Rust module (`forge::vendor_block`), so lint
    and sync cannot disagree. Proof of the translation: `forge sync-agents --check` reports the existing
    `CLAUDE.md` block `ok` — a byte-identical match with the block the TypeScript renderer wrote.
 3. `scripts/forge-manifest.ts`, `scripts/forge-manifest.test.ts` — `forge:manifest`,
-   `forge:manifest:check`. **PORTED 2026-09-28** — `rust/cli` `forge manifest`, with the rules in
-   `rust/forge/src/scope_manifest.rs` (lanes, TF-IDF over the restricted corpus, rendering, drift,
+   `forge:manifest:check`. **PORTED 2026-09-28** — `cli` `forge manifest`, with the rules in
+   `forge/src/scope_manifest.rs` (lanes, TF-IDF over the restricted corpus, rendering, drift,
    the write refusal — pure, no filesystem, no git, no clock) and the gather-and-print half in
-   `rust/cli/src/forge/manifest.rs`. The two `lib/` modules it needed were recovered from `4cf98110^`
+   `cli/src/forge/manifest.rs`. The two `lib/` modules it needed were recovered from `4cf98110^`
    and translated: `lib/scope-manifest.ts` → `forge::scope_manifest`, `lib/git/sync-conflict.ts` →
    `forge::sync_conflict`. It is the writer half of a pair — the packet lint's rule 8 parses these rows
    and fails on a row that resolves nowhere — and it was the second link of `pnpm forge:harness`, so the
@@ -310,9 +310,9 @@ is not at risk here; this is the paperwork machine that reads packets and vendor
 8. `scripts/agent-work.ts`, `scripts/agent-work-entry.ts`, `scripts/agent-runtime-invoke.ts`,
    `scripts/agent-runtime-deepseek.ts`, `scripts/forge-orchestrate-wake.ts`,
    `scripts/forge-runtime-recover.ts`. `agent-runtime/` is deleted;
-   `rust/forge/src/bin/forge_worker.rs` is already the documented replacement for
+   `forge/src/bin/forge_worker.rs` is already the documented replacement for
    `agent-work-entry.ts`; the loop now lives in
-   `rust/forge/src/engine/{runtime,opencode,agents}.rs`. **RETIRE** once the worker's coverage is
+   `forge/src/engine/{runtime,opencode,agents}.rs`. **RETIRE** once the worker's coverage is
    confirmed (see "Verification debt" below).
 
 ## P2 — historic board writes: RETIRE
@@ -340,8 +340,8 @@ The product is largely Rust already. What is stranded here is intake and proof t
    alive, and the only missing half is **promotion** — which is DEV_OPS 2, not this file. The
    dead-list count is unchanged; only this file's verdict is.
 2. `scripts/apple-messages-intake.ts` (+ `-proof`, `-real-load`) — iMessage → ODS. **PORTED 2026-09-27.**
-   `rust/cli/src/apple_messages.rs` (`apple-sync messages-intake <export-dir>`), rules in
-   `rust/core/domain/src/apple_messages.rs` (11 unit tests, fingerprint verified against the deleted
+   `cli/src/apple_messages.rs` (`apple-sync messages-intake <export-dir>`), rules in
+   `middle/model/src/apple_messages.rs` (11 unit tests, fingerprint verified against the deleted
    TypeScript's own output), writes through `db::{RelationshipEvidenceDao, LandingDao}`:
    evidence upsert → deterministic reconcile (`record_decision`) → `l_imessage` landing (500-row
    batches) → `latest:<person>:<channel>` interaction → client read-model refresh. Verified live on
@@ -350,8 +350,8 @@ The product is largely Rust already. What is stranded here is intake and proof t
    serde's camelCase read the exporter's `dateISO` as `dateIso`, so every message silently lost its
    timestamp; fixed and pinned by a unit test.
 3. `scripts/apple-calls-intake.ts` — calls channel. **PORTED 2026-09-28.**
-   `rust/cli/src/apple_calls.rs` (`apple-sync calls-intake [dev|prod] --file <calls.jsonl>`), rules in
-   `rust/core/domain/src/apple_calls.rs` (6 unit tests): FaceTime decided by provider or call type,
+   `cli/src/apple_calls.rs` (`apple-sync calls-intake [dev|prod] --file <calls.jsonl>`), rules in
+   `middle/model/src/apple_calls.rs` (6 unit tests): FaceTime decided by provider or call type,
    directions derived from `originated`, evidence per counterparty address with `l_call` landing
    (`db::LandingDao::land_call_batch`, 500-row batches, source precision kept), reconciliation
    through the shared `decide_apple_handle`, one interaction per Person x call channel
@@ -365,13 +365,13 @@ The product is largely Rust already. What is stranded here is intake and proof t
    stays bannered as reference. The projection (`project-apple-contacts.ts`) landed the same way as
    `apple_contacts_project`.
 5. `scripts/bank-transaction-load.ts` — statement load. Accounting exists in
-   `rust/core/domain/src/accounting.rs`; the loader may not. **PORT P1.**
+   `middle/model/src/accounting.rs`; the loader may not. **PORT P1.**
 6. `scripts/gmail-metadata-sync.ts`, `scripts/rel-intel-load-gmail.ts` — bounded Gmail census and
-   metadata sync through the neutral ODS seam. **VERIFY** `rust/integrations/src/mail/` +
-   `rust/core/domain/src/comms.rs`, then **PORT P1** the missing half.
+   metadata sync through the neutral ODS seam. **VERIFY** `middle/apis/src/mail/` +
+   `middle/model/src/comms.rs`, then **PORT P1** the missing half.
 7. `scripts/whatsapp-coexistence-completion.test.ts` — **PORT P1 as a Rust test.** This answers the
    "was WhatsApp lost?" question: the implementation is NOT lost —
-   `rust/integrations/src/whatsapp/`, `rust/core/db/src/whatsapp.rs`, `rust/server/src/whatsapp.rs`
+   `middle/apis/src/whatsapp/`, `db/src/whatsapp.rs`, `web/src/whatsapp.rs`
    and the `whatsapp_meta` / `whatsapp_public` screens all exist. Only its coexistence test is
    stranded.
 
@@ -383,25 +383,25 @@ The product is largely Rust already. What is stranded here is intake and proof t
    `verify-needs-review-resolution.mjs`, `scripts/core-daily-proof-12-13.ts`,
    `scripts/rel-intel-proof-opps.ts`, `scripts/rel-intel-proof-readmodel.ts` — DEV proofs that a
    capability persists correctly. The capabilities are in
-   `rust/server/src/{intake,clients,people,deals,relationship_evidence}.rs`. **RETIRE**, or PORT P2
+   `web/src/{intake,clients,people,deals,relationship_evidence}.rs`. **RETIRE**, or PORT P2
    as Rust integration tests that live beside the module they prove.
 9. `scripts/calendar-eventkit-intake.ts`, `scripts/eventkit-seam-proof.ts`,
    `scripts/catchup-calendar-proof.ts`, `scripts/catchup-calendar-attention-proof.ts`,
-   `scripts/catchup-dev-proof.ts` — **VERIFY** `rust/server/src/calendar/`; keep at most one Rust
+   `scripts/catchup-dev-proof.ts` — **VERIFY** `web/src/calendar/`; keep at most one Rust
    seam proof (the EventKit round trip is the kind of seam a unit test cannot see).
 10. `scripts/verify-contract-mapper.ts`, `scripts/verify-listing-client-fill.ts`,
-    `scripts/verify-listing-contract-bridge.ts` — **VERIFY** against `rust/server/src/contracts/`
+    `scripts/verify-listing-contract-bridge.ts` — **VERIFY** against `web/src/contracts/`
     and `deals/`; likely already covered.
 
 ## Verification debt this inventory creates
 
 - **RESOLVED 2026-09-27 by reading the code, not by grep:** the WhatsApp capability — including its
-  Meta signature verification and its authorization (`rust/server/src/security/`, ~1900 lines with
+  Meta signature verification and its authorization (`web/src/security/`, ~1900 lines with
   `resolve_identity`, `decide`, entitlements, `get_principal`, `warm_identity_cache`, `audit.rs`) — is
   **already Rust and complete**. Nothing about WhatsApp or its security is stranded in TypeScript.
   See the verified bullet in "What is ALREADY in Rust" above.
 - **The Rust Apple Messages/Calls/Gmail intake channels are still claimed, not confirmed.**
-  Confirming them is one read of `rust/server/src/intake.rs` + `rust/core/db/src/intake.rs`, and it
+  Confirming them is one read of `web/src/intake.rs` + `db/src/intake.rs`, and it
   decides whether APP 2–4 are PORT or RETIRE. This is the single cheapest read left in this document.
 - The Rust Forge engine's coverage of the retired agent-loop scripts (FORGE 8) is likewise
   unverified. `docs/rust-parity-ledger.md` exists for exactly this question — read it before porting.
@@ -416,8 +416,8 @@ The product is largely Rust already. What is stranded here is intake and proof t
 1. **FORGE P0** (`forge-packet-lint` + `forge-sync-agents` in Rust, one rule source). First because
    it is a **gate that is currently enforcing nothing**, and because the file that defines the
    guardrails is itself unreadable to the tool that replicates them. It does not touch the engine.
-   **DONE 2026-09-27** — `rust/cli` `forge harness-lint` + `forge sync-agents`, one rule source in
-   `rust/cli/src/forge/vendor_block.rs`. What the first live run taught: the gate is green on HEAD
+   **DONE 2026-09-27** — `cli` `forge harness-lint` + `forge sync-agents`, one rule source in
+   `cli/src/forge/vendor_block.rs`. What the first live run taught: the gate is green on HEAD
    (0 failures) *because* it reports 175 baselined warnings — the 2026-09 port deleted the TypeScript
    tree and 22 packets/maps/manifests still cite it — and it also found that
    `docs/agent/harness-lint-baseline.json` had been CORRUPT JSON since it was written, which the
@@ -481,13 +481,13 @@ for a reason nobody could fix, which is how a gate gets switched off. The runner
 `scripts/test-harness.mjs`, which DERIVES its list instead of listing it: a suite carrying the
 `⚠ BROKEN ON PURPOSE` banner is skipped and named, an unmarked one runs. A repaired file rejoins the run
 automatically; a newly dead one is skipped the moment it is marked. Their Rust replacements are the fixtures
-in `rust/forge/src/scope_manifest.rs` + `rust/cli/src/forge/manifest.rs` and the sibling modules below.
+in `forge/src/scope_manifest.rs` + `cli/src/forge/manifest.rs` and the sibling modules below.
 
-    22 scripts/forge-packet-lint.ts                 FORGE P0    → PORTED 2026-09-27 (rust/cli forge harness-lint)
-    23 scripts/forge-packet-lint.test.ts            FORGE P0    → PORTED 2026-09-27 (39 fixtures in rust/cli/src/forge/*)
-    24 scripts/forge-sync-agents.ts                 FORGE P0    → PORTED 2026-09-27 (rust/cli forge sync-agents)
+    22 scripts/forge-packet-lint.ts                 FORGE P0    → PORTED 2026-09-27 (cli forge harness-lint)
+    23 scripts/forge-packet-lint.test.ts            FORGE P0    → PORTED 2026-09-27 (39 fixtures in cli/src/forge/*)
+    24 scripts/forge-sync-agents.ts                 FORGE P0    → PORTED 2026-09-27 (cli forge sync-agents)
     25 scripts/forge-sync-agents.test.ts            FORGE P0    → PORTED 2026-09-27 (fixtures in forge/sync_agents.rs)
-    26 scripts/forge-manifest.ts                    FORGE P1    → PORTED 2026-09-28 (rust/cli forge manifest)
+    26 scripts/forge-manifest.ts                    FORGE P1    → PORTED 2026-09-28 (cli forge manifest)
     27 scripts/forge-manifest.test.ts               FORGE P1    → PORTED 2026-09-28 (fixtures in forge/scope_manifest.rs + cli/forge/manifest.rs)
     28 scripts/forge-story-reset-config.ts          FORGE P1    → PORT (beside db_tool)
     29 scripts/forge-handoff.mjs                    FORGE P1    → VERIFY → RETIRE / PORT

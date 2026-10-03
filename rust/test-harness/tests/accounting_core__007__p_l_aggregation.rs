@@ -4,12 +4,12 @@
 //! tables, computed by Postgres on `numeric`, and it counts **exactly**:
 //!
 //! - income is `sum(amount)` of receivables whose `status = 'PAID'` and whose `paid_on` falls inside the period
-//!   (`INCOME_LINES_SELECT`, `rust/core/db/src/accounting/recent_expenses_select.rs:95-104`);
+//!   (`INCOME_LINES_SELECT`, `db/src/accounting/recent_expenses_select.rs:95-104`);
 //! - cost is `sum(amount)` of expenses whose `status = 'POSTED'` and whose `expense_on` falls inside the period
 //!   (`EXPENSE_LINES_SELECT`, `:107-116`);
 //! - net income is income minus cost, subtracted by the database in `numeric` (`RANGE_NET_SELECT`, `:119-130`);
 //! - the statement echoes the period it was asked for, so a caller can see that the range it requested is the range
-//!   it got (`AccountingDao::pnl`, `rust/core/db/src/accounting/receivable_row.rs:365-385`).
+//!   it got (`AccountingDao::pnl`, `db/src/accounting/receivable_row.rs:365-385`).
 //!
 //! THE THRESHOLD IS THE CONTRACT. A receivable that is `OPEN` is not income, a receivable that is `VOID` is not
 //! income, and a `PAID` receivable outside the period is not income in this period. An expense that is `DRAFT` or
@@ -17,13 +17,13 @@
 //! announce itself is a projection that quietly sums the wrong rows and prints a plausible number.
 //!
 //! MONEY IS EXACT. The amounts are `numeric` on both sides; the totals cross back as the digits Postgres holds
-//! (`Money`, `rust/core/domain/src/accounting.rs:69-134`). `0.10 + 0.20` in this projection is `0.30`, never
+//! (`Money`, `middle/model/src/accounting.rs:69-134`). `0.10 + 0.20` in this projection is `0.30`, never
 //! `0.30000000000000004`, which is the whole reason no total is a float.
 //!
 //! Negative/refusal cases: a `DRAFT` expense, a `VOID` expense, an `OPEN` receivable, a `VOID` receivable and rows
 //! dated outside the period are all excluded from the totals; an empty period totals `0` rather than nothing; and a
 //! backwards or malformed period is REFUSED (`PnlRequest::validate`,
-//! `rust/core/domain/src/accounting.rs:296-313`) rather than reported as an empty report.
+//! `middle/model/src/accounting.rs:296-313`) rather than reported as an empty report.
 //!
 //! Level: L2 Persistence — the production `AccountingDao` against an isolated, disposable DEV/Neon target. The
 //! harness refuses PRODUCTION before any socket is opened (`rust/test-harness/src/database.rs:68-75`). Fixture rows
@@ -31,13 +31,13 @@
 //! it was found.
 //!
 //! Run with:
-//!   DATABASE_URL_DEV=... cargo test --manifest-path rust/Cargo.toml -p test-harness \
+//!   DATABASE_URL_DEV=... cargo test --manifest-path Cargo.toml -p test-harness \
 //!     --test accounting_core__007__p_l_aggregation -- --ignored
 //! The plain command (no `--ignored`) passes with the test skipped, because the L2 contract needs a disposable DEV
 //! database and the harness will never open a PRODUCTION one.
 
 use db::{AccountingDao, DbFailure, DbTarget};
-use domain::accounting::{PnlLine, PnlRequest};
+use model::accounting::{PnlLine, PnlRequest};
 use sqlx::PgConnection;
 use test_harness::AccountingHarness;
 

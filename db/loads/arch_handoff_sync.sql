@@ -75,7 +75,7 @@ trust any status snapshot in this document, including the dated appendices in §
 - Agents execute captured architecture; they do not casually reinvent it.
 - Runtime evidence can overturn architecture; stale documentation cannot overrule fresh facts.
 - Persist important learning so each failure makes the factory better.
-- **The application is Rust, end to end** (§5). A screen reaches the database through route → service → repository → DAO, never directly. Zero TypeScript: even Google sign-in is Rust (`rust/server/src/api/google_auth.rs`), so any live TypeScript is unfinished work.
+- **The application is Rust, end to end** (§5). A screen reaches the database through route → service → repository → DAO, never directly. Zero TypeScript: even Google sign-in is Rust (`web/src/api/google_auth.rs`), so any live TypeScript is unfinished work.
 - **The screen is the contract.** Read the screen before inventing a mapping, and keep exactly ONE implementation of any vocabulary it declares.
 - **A schema story is not delivered until DEV and PROD both match the released code.** See the Database Delivery Rule.
 
@@ -157,9 +157,9 @@ failure, attempted fixes, likely root cause, exact blocker and recommended human
 **Test policy**
 
 Development/story loop: targeted tests for the changed seam; adjacent tests where justified;
-`cargo check` for the crates touched; `pnpm ui:check` whenever `rust/ui` changed (the workspace check
+`cargo check` for the crates touched; `pnpm ui:check` whenever `web/ui` changed (the workspace check
 does not compile the wasm build — see `AGENTS.md`, 2026-09-28); a live check against DEV
-(`rust/server/tests/*_dev.rs`, `scripts/rust-live-check/`) where a real database is the disputed
+(`web/tests/*_dev.rs`, `scripts/rust-live-check/`) where a real database is the disputed
 property; one real smoke test where runtime integration changed.
 
 - **Full regression runs only with Chris's explicit authorization.** A nightly or pre-major-release
@@ -241,20 +241,20 @@ database. What follows is the Rust application as it is on `main`.
 
 ### 5.1 One Rust workspace
 
-`rust/Cargo.toml` has ten crates. Dependencies point one way: UI → server → service/workflow → db.
+`Cargo.toml` has ten crates. Dependencies point one way: UI → server → service/workflow → db.
 
 | Crate | Owns |
 | --- | --- |
-| `rust/core/domain` | types and rules — no I/O, no SQL, no HTTP |
-| `rust/core/db` | the DAOs, the ONE pool per process (`pool.rs`, `shared.rs`), `DbFailure` and its capture (`capture.rs`), the outbox and command-receipt tables |
-| `rust/core/service` | the service kernel: `AbstractService`, `ServiceRuntime`, `ServiceContext`, authorization, audit, domain events, lifecycle, mailbox, error sink |
-| `rust/core/workflow` | the transaction state machine: `WorkflowEngine`, `TxStore`, instances, tokens, tasks, timers |
-| `rust/core/auth` | an empty shim (re-exports `domain`); sign-in and sessions live in `rust/server/src/api/google_auth.rs` and `ui_auth.rs` |
-| `rust/server` | HTTP (axum), identity, the services, the composition root, and the website itself (`site.rs`) |
-| `rust/ui` | the website and the portal: one Yew/WebAssembly app |
-| `rust/integrations` | Mux, Google, Apple, BoldSign, Neon, mail, WhatsApp |
-| `rust/forge` | the Forge delivery engine (§6) — tooling, not product |
-| `rust/cli` | operator commands: `db-tool`, the `forge` gates, Apple intake, media backfills |
+| `middle/model` | types and rules — no I/O, no SQL, no HTTP |
+| `db` | the DAOs, the ONE pool per process (`pool.rs`, `shared.rs`), `DbFailure` and its capture (`capture.rs`), the outbox and command-receipt tables |
+| `middle/services` | the service kernel: `AbstractService`, `ServiceRuntime`, `ServiceContext`, authorization, audit, domain events, lifecycle, mailbox, error sink |
+| `middle/workflow` | the transaction state machine: `WorkflowEngine`, `TxStore`, instances, tokens, tasks, timers |
+| `web/auth` | an empty shim (re-exports `domain`); sign-in and sessions live in `web/src/api/google_auth.rs` and `ui_auth.rs` |
+| `web` | HTTP (axum), identity, the services, the composition root, and the website itself (`site.rs`) |
+| `web/ui` | the website and the portal: one Yew/WebAssembly app |
+| `middle/apis` | Mux, Google, Apple, BoldSign, Neon, mail, WhatsApp |
+| `forge` | the Forge delivery engine (§6) — tooling, not product |
+| `cli` | operator commands: `db-tool`, the `forge` gates, Apple intake, media backfills |
 
 `legacy/` and the bannered files under `scripts/` and `agent-runtime/` are the retired TypeScript:
 read them for intent, never import, never repair (`docs/agent/BROKEN-TS-INVENTORY.md`).
@@ -262,7 +262,7 @@ read them for intent, never import, never repair (`docs/agent/BROKEN-TS-INVENTOR
 ### 5.2 Services — one kernel, one composition root
 
 Every domain operation is a method on an `AbstractService` registered in **one** catalog:
-`rust/server/src/composition.rs`, whose `registrations()` is the service map (32 services). A
+`web/src/composition.rs`, whose `registrations()` is the service map (32 services). A
 service is typed over a repository trait and built over a DAO; a method runs in a fixed order —
 **authorize → do the work through the repository → audit** — and a route reaches it only through
 the registered mailbox (`execute_registered`), so the queue, the timeout and the refusals apply to
@@ -280,17 +280,17 @@ build a second catalog and do not construct a service by hand.
   `Result`; never `let _ =` a failure you did not decide is unreportable.
 
 **Repository boundary rule.** A DAO turns driver values into stable domain types before they leave
-`rust/core/db`. Bind parameters, never string-built SQL; a `uuid` column needs `$1::uuid`.
+`db`. Bind parameters, never string-built SQL; a `uuid` column needs `$1::uuid`.
 
 ### 5.3 The UI — one Yew app, one `Screen` trait
 
-The browser gets one WebAssembly app (`rust/ui`) from the Rust server (`rust/server/src/site.rs`);
+The browser gets one WebAssembly app (`web/ui`) from the Rust server (`web/src/site.rs`);
 there is no Next.js. Every screen implements the `Screen` trait (MVI: `Model`, `Msg`, a pure
 `update`, a pure `view`); side effects leave `update` as `Cmd` values and are executed in exactly one
-place, `rust/ui/src/app/exec.rs`, the only UI code allowed to touch `web_sys`. URLs live only in the
+place, `web/ui/src/app/exec.rs`, the only UI code allowed to touch `web_sys`. URLs live only in the
 endpoint catalogue `app/api.rs`. The screen table `app/registry.rs` is the only path → screen map;
 the router, both menus and the headless walk are generated from it. The browser reaches
-`/api/portal/*` only (session cookie, `rust/server/src/api/portal_bridge.rs`); `/v1/*` is internal.
+`/api/portal/*` only (session cookie, `web/src/api/portal_bridge.rs`); `/v1/*` is internal.
 The contract, the holds (Marketing, WhatsApp Activation) and the recipe for a new screen are
 `docs/agent/UI-SCREEN-ARCHITECTURE.md`.
 
@@ -298,7 +298,7 @@ The contract, the holds (Marketing, WhatsApp Activation) and the recipe for a ne
 
 - `#[cfg(test)]` beside the code; a service is proved against an in-memory fake of its repository
   trait (the role `testv2/` used to play) — no HTTP, no database.
-- `rust/server/tests/*_dev.rs` run against a real DEV database, which is the only way the port's
+- `web/tests/*_dev.rs` run against a real DEV database, which is the only way the port's
   worst three bugs were ever caught. `scripts/rust-live-check/` is the live check.
 - UI tests only compile with `--features wasm` (`cargo test -p ui --features wasm`); a plain
   `cargo test -p ui` compiles none of the screen tests. `pnpm ui:check` is the pre-push gate.
@@ -308,10 +308,10 @@ The contract, the holds (Marketing, WhatsApp Activation) and the recipe for a ne
 1. **Screens do not read the database.** Screen → endpoint → route → service → repository → DAO.
 2. **Business truth lives in the domain and its services.** The workflow crate orchestrates only;
    Forge is tooling beside the product, and the product does not depend on it.
-3. **A new domain is a service in `rust/server/src/<domain>`** with a repository trait, a DAO in
-   `rust/core/db`, types in `rust/core/domain`, registered in `composition.rs`. No parallel roots.
+3. **A new domain is a service in `web/src/<domain>`** with a repository trait, a DAO in
+   `db`, types in `middle/model`, registered in `composition.rs`. No parallel roots.
 4. **Mutations are commands:** intent in, canonical service mutates, receipt/event proves it
-   (`rust/server/src/command_runtime.rs`, §6.4). Relational state stays the source of truth.
+   (`web/src/command_runtime.rs`, §6.4). Relational state stays the source of truth.
 5. **Presentation state belongs to the screen's own `Model`**; a screen never reads another
    screen's state, and side effects go through `Cmd`, never a hand-rolled browser call.
 6. **Conditional UI is derived from available data.** No listing-specific special-casing.
@@ -392,9 +392,9 @@ everything).
 Story Board (storyboard_story)
   -> durable agent_work_item command
   -> launchd com.culebraluxe.agent-worker, every 180s (scripts/agent-scheduler.mjs installs it)
-  -> scripts/agent-worker-once.sh -> the forge-worker binary (rust/forge/src/bin/forge_worker.rs)
-  -> the FORGE_SDLC workflow (rust/forge/definitions/FORGE_SDLC-v6.xml) on rust/core/workflow
-  -> RoleHarness (rust/forge/src/engine/runner.rs) per role: scout, architect, lead, smith, qa, dev_ops
+  -> scripts/agent-worker-once.sh -> the forge-worker binary (forge/src/bin/forge_worker.rs)
+  -> the FORGE_SDLC workflow (forge/definitions/FORGE_SDLC-v6.xml) on middle/workflow
+  -> RoleHarness (forge/src/engine/runner.rs) per role: scout, architect, lead, smith, qa, dev_ops
   -> model / tools
   -> evidence rows
   -> storyboard_story_run / forge_engine_task_execution / terminal work item
@@ -402,7 +402,7 @@ Story Board (storyboard_story)
 
 - **Story Board** = specification / architecture truth.
 - **`agent_work_item`** = durable command queue and the single-active lock.
-- **the worker** = command invoker; the engine (`rust/forge`) decides what happens next and writes
+- **the worker** = command invoker; the engine (`forge`) decides what happens next and writes
   that decision to Neon.
 - **`RoleHarness`** = execution abstraction; one role, one assignment, one report.
 - **`storyboard_story_run`**, **`forge_engine_task_execution`**, **`forge_tool_artifact`** = durable
@@ -432,7 +432,7 @@ no silent generic `DATABASE_URL` fallback from DEV intent to PROD.
 > **PROD only**; DEV is for application work and hand-run scripts. A run whose resolved target is not
 > PROD is a **defect**, the guard belongs at run start and must **fail closed**, and a run's
 > `execution_environment` must be **visible on the board** so a mismatch can never masquerade as PROD
-> evidence (the guard is `rust/forge/src/engine/execution_target.rs`). History gaps are recovered
+> evidence (the guard is `forge/src/engine/execution_target.rs`). History gaps are recovered
 > additively and idempotently — never by re-running work. (`pnpm forge:sync-history` was that tool;
 > it is a dead TypeScript script and has no Rust port yet.) See **SOP1** for the operator doctrine,
 > and DEEP1 §6 for the database-target
@@ -443,14 +443,14 @@ no silent generic `DATABASE_URL` fallback from DEV intent to PROD.
 
 **Application owns canonical business truth.**
 
-The state machine (`rust/core/workflow`, formerly `workflow_engine`) owns orchestration: tokens,
+The state machine (`middle/workflow`, formerly `workflow_engine`) owns orchestration: tokens,
 transitions, timers/jobs, retries, fork/join, generic human-task mechanics, terminal semantics. One
 engine step is one database transaction (`TxStore::with_tx`).
 
-The transaction runtime (`rust/forge/src/engine/re_*`, formerly `workflow_app`) owns: the
+The transaction runtime (`forge/src/engine/re_*`, formerly `workflow_app`) owns: the
 application port (`re_port.rs`), facts (`re_facts.rs`), command routing (`re_commands.rs`),
 claim-first command receipts (`re_receipt.rs`) and the verbs (`re_runtime.rs`). The API reaches it
-through `rust/server/src/api/engine.rs` on a bounded worker pool, because the engine blocks. Detail:
+through `web/src/api/engine.rs` on a bounded worker pool, because the engine blocks. Detail:
 `docs/layers/WORKFLOW.md`.
 
 **The engine must not know CRM/domain tables.**
@@ -462,9 +462,9 @@ seams.
 
 ### 6.4 Business command architecture
 
-The canonical Business Command layer exists: `rust/server/src/command_runtime.rs` (envelope,
+The canonical Business Command layer exists: `web/src/command_runtime.rs` (envelope,
 dispatcher, receipts through `CommandReceiptDao`, domain events through `DomainEventOutboxDao`), on the
-kernel types in `rust/core/service`. Extend it; do not build a second one. Its shape:
+kernel types in `middle/services`. Extend it; do not build a second one. Its shape:
 
 ```
 UI / Workflow / API / Agent
@@ -510,8 +510,8 @@ SUBSCRIBER = REACTION
 
 **Postgres is the V1 durable messaging substrate.** Borrow MQ semantics: durable delivery,
 at-least-once, subscriber idempotency, retries, correlation, replay, dead-letter/escalation
-concepts. The outbox is the `outbox_message` table, written and delivered by `rust/core/db/src/outbox.rs`
-(`rust/server/tests/mq_runtime_dev.rs` and `service_atomicity_dev.rs` prove it against DEV).
+concepts. The outbox is the `outbox_message` table, written and delivered by `db/src/outbox.rs`
+(`web/tests/mq_runtime_dev.rs` and `service_atomicity_dev.rs` prove it against DEV).
 
 Do **not** implement full event sourcing. Canonical relational state remains truth. Do not rebuild
 aggregates from event history. Do not introduce Kafka/RabbitMQ merely for architectural aesthetics —
@@ -651,7 +651,7 @@ TEST POLICY
   promotion boundary.
     - targeted tests for the changed seam
     - adjacent tests where justified
-    - cargo check for the crates touched; pnpm ui:check if rust/ui changed
+    - cargo check for the crates touched; pnpm ui:check if web/ui changed
     - pnpm build if routing/server/UI/deployment surface changed
     - one real smoke test if runtime integration changed
   DO NOT reflexively run the entire regression harness. Never run persistence suites concurrently
@@ -674,7 +674,7 @@ ACCEPTANCE CRITERIA
     3. a duplicate commandId returns the prior result and performs no duplicate mutation
     4. correlationId and causationId persist through the receipt
     5. targeted tests pass
-    6. cargo check (and pnpm ui:check for rust/ui) passes
+    6. cargo check (and pnpm ui:check for web/ui) passes
     7. the working tree contains only intended changes
     8. no production data changed
     9. evidence identifies exact files/tests/commit
@@ -795,7 +795,7 @@ a costly screen switch, stays current automatically, or justifies its visual/mai
 - Contracts → `/portal/deals`
 - Cabinet → `/portal/documents`
 - Projects → `/portal/projects`, Workflows → `/portal/workflows`, Forms → `/portal/forms`, Seller
-  Strategy → `/portal/core/seller-strategy` (the authoritative list is `rust/ui/src/app/registry.rs`)
+  Strategy → `/portal/core/seller-strategy` (the authoritative list is `web/ui/src/app/registry.rs`)
 
 OPPS, SUPPORT and TECH retain their names. The portal logo returns to the public site, and the MAIN
 top-nav item is removed; the public-site Portal link is the far-right final navigation item.
@@ -816,7 +816,7 @@ top-nav item is removed; the public-site Portal link is the far-right final navi
 
 **As of 2026-09-28** (each line names the check that proves it):
 
-- **UI.** `rust/ui/src/app/registry.rs` has 58 entries: 56 on the `Screen` trait (Marketing became the
+- **UI.** `web/ui/src/app/registry.rs` has 58 entries: 56 on the `Screen` trait (Marketing became the
   native Publishing Center on 2026-09-28, and the old global loop was then deleted), 2 external
   (WhatsApp Activation, `/portal`). `docs/agent/UI-SCREEN-ARCHITECTURE.md` STATUS.
 - **TypeScript.** No Next.js application; Google sign-in is Rust. `pnpm broken:ts:sweep`: 251 files
@@ -828,12 +828,12 @@ top-nav item is removed; the public-site Portal link is the far-right final navi
 - **Dead commands still on the menu.** `forge:sync-history`, `forge:tools`, `forge:decision` and
   `story:status` point at bannered scripts and cannot run. `test:engine` (and so `pnpm test`) runs
   `testv2/engine_tests/*.test.ts`, which matches no file.
-- **The architecture hard gate never runs.** `rust/forge/src/engine/qa_adjudicate.rs` reads
+- **The architecture hard gate never runs.** `forge/src/engine/qa_adjudicate.rs` reads
   `arch_ran` but no Rust code sets it, so the gate reads **INCOMPLETE**, never PASS. knip and
   dependency-cruiser are now installed but check TypeScript, which is not the product; the Rust
   boundaries are held by crate dependencies and the compiler.
 - **Release evidence** is now derived in Rust (`derive_release_evidence`,
-  `rust/forge/src/engine/role_slice.rs:93`). Whether real runs populate it (the old TECH-DEBT-07) is
+  `forge/src/engine/role_slice.rs:93`). Whether real runs populate it (the old TECH-DEBT-07) is
   **not verified** — ask the rows.
 - **Deploys** are manual: `pnpm deploy:prod` compiles on the Mac; git pushes do not deploy.
 - **Media.** Listing cards use the `card` copy (migration 252, DEV and PROD, backfilled 2026-09-28).

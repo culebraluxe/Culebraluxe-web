@@ -1,8 +1,8 @@
 //! The accounting read boundary, executable against one isolated, disposable DEV database.
 //!
 //! WHY THIS EXISTS. Accounting's summaries — the dashboard and the P&L — are not computed in Rust at all: every total
-//! is a Postgres `numeric` SUM over the two canonical tables, read back as `::text` (`rust/core/db/src/accounting/
-//! receivable_row.rs:365-385`, the line/total/net queries in `rust/core/db/src/accounting/recent_expenses_select.rs:
+//! is a Postgres `numeric` SUM over the two canonical tables, read back as `::text` (`db/src/accounting/
+//! receivable_row.rs:365-385`, the line/total/net queries in `db/src/accounting/recent_expenses_select.rs:
 //! 91-130`). A unit test cannot see any of it, because the arithmetic happens inside the database and the exact digits
 //! are the contract. The only honest way to prove a P&L aggregation contract is to run the production `AccountingDao`
 //! against a real Postgres and read back what committed.

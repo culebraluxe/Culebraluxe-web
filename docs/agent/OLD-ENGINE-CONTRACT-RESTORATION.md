@@ -82,7 +82,7 @@ made it enforceable.
 | --- | --- | --- | --- | --- |
 | 1 | Durable completion receipt / repair-replan ledger | post-transition completion unit persisted; `reconcile_completions()` could answer "did this task already complete" after a restart | **RESTORED 2026-09-29 (`DbCompletionLedger`)**: the unit is claimed and finalized in `workflow_command_receipt` (`forge.completion:{taskId}`), evidence merges into `forge_workflow_evidence`, the counters move on `storyboard_story`, and the runtime will not build without a ledger named at the call site — the process-local `MemoryLedger` is reachable only from test fixtures. The defect it replaced: `MemoryLedger` as the production default, so each per-dispatch process re-applied every completion in the instance history | `workflow_command_receipt`, `forge_workflow_evidence`, `forge_engine_task_execution`, `forge_story_run_receipt` (all exist) |
 | 2 | Story identity into every role task | runner resolved `process_instance.subject_id → storyboard_story.id` before any write | `story_id: String::new()`, substituted with the process-instance UUID at three write sites | `forge_hold_record.story_id → storyboard_story(id)`; ids are human keys |
-| 3 | Durable dispatch envelope reaching execution | `AgentWorkItem` carried role, model_profile, special_instructions, execution_policy, execution_environment, kind, model_policy, stop_after, launch_intent, runtime_adapter … and the child ran with them | **RESTORED 2026-09-29 (`d68c9634`, `3352673d`)** — the claim returns the envelope's four execution fields (`rust/core/db/src/forge_engine.rs`, `rust/forge/src/engine/agent_work.rs:30-32`) and each one bites: `execution_policy` refuses an unattended claim (`forge.rs:214`, rule `agent_work.rs:16`), `stop_after` becomes the child's `--stop-after` (`worker.rs:330-331`), `model_policy` names the model the lane bills (`forge.rs:256` → `OpenCodeHarness::from_env_for_policy`, table `opencode.rs:64-70`), `launch_intent` caps the Lead (`forge.rs:400` → `runner.rs:95-118` → `role_slice.rs:34-45`). Residue, named: `model_profile` is still carried by nothing, and both policies currently name the same pinned model (`opencode.rs:54-56`) so the selection is enforced but not observable as a different model | `agent_work_item` columns (35 exist) |
+| 3 | Durable dispatch envelope reaching execution | `AgentWorkItem` carried role, model_profile, special_instructions, execution_policy, execution_environment, kind, model_policy, stop_after, launch_intent, runtime_adapter … and the child ran with them | **RESTORED 2026-09-29 (`d68c9634`, `3352673d`)** — the claim returns the envelope's four execution fields (`db/src/forge_engine.rs`, `forge/src/engine/agent_work.rs:30-32`) and each one bites: `execution_policy` refuses an unattended claim (`forge.rs:214`, rule `agent_work.rs:16`), `stop_after` becomes the child's `--stop-after` (`worker.rs:330-331`), `model_policy` names the model the lane bills (`forge.rs:256` → `OpenCodeHarness::from_env_for_policy`, table `opencode.rs:64-70`), `launch_intent` caps the Lead (`forge.rs:400` → `runner.rs:95-118` → `role_slice.rs:34-45`). Residue, named: `model_profile` is still carried by nothing, and both policies currently name the same pinned model (`opencode.rs:54-56`) so the selection is enforced but not observable as a different model | `agent_work_item` columns (35 exist) |
 | 4 | Story Packet is authoritative; unreadable means no run | could not resolve the Story Board command/context → fail, no agent turn | `StoryPacket::load_from_neon` error → `eprintln!` + environment packet, run proceeds | Story Board rows are the authority |
 | 5 | Self-heal supplies the corrective instruction | retry named what was missing (`FORGE_ARCHITECT_HANDOFF`) | `_directive` computed and dropped; retry is the same prompt again | role deliverable set |
 | 6 | Canonical state writes are never discarded | failed Story Board write was surfaced | `let _ = mark_story_in_progress(...)`, `let _ = mark_story_human_hold(...)`, `let _ = open_forge_hold_record(...)` | `storyboard_story`, `forge_hold_record` |
@@ -161,15 +161,15 @@ out; (7) canonical Story Board state writes.
 
 ### 6.2 Rails that no execution code reads
 
-Searched `rust/forge/src`, `rust/server/src`, `rust/core/db/src` for each column:
+Searched `forge/src`, `web/src`, `db/src` for each column:
 
 | column | rail in the schema | readers found | what the readers are |
 | --- | --- | --- | --- |
-| `execution_policy` | **NOT NULL**, CHECK `Unattended OK / Daytime Only / Human Gate / Manual Only` | 2 files | the rail now has a reader: `rust/forge/src/engine/agent_work.rs:16` (the rule) and `rust/forge/src/bin/forge.rs:214` — a policy naming a human refuses the claim before any model turn (`FORGE_ATTENDED=1` is the deliberate attended override) |
+| `execution_policy` | **NOT NULL**, CHECK `Unattended OK / Daytime Only / Human Gate / Manual Only` | 2 files | the rail now has a reader: `forge/src/engine/agent_work.rs:16` (the rule) and `forge/src/bin/forge.rs:214` — a policy naming a human refuses the claim before any model turn (`FORGE_ATTENDED=1` is the deliberate attended override) |
 | `model_profile` | legacy envelope field | **none** | — carried by no claim and read by no code |
-| `model_policy` | CHECK `cheap / judgment` | 4 files | execution: `rust/forge/src/bin/forge.rs:256` → `OpenCodeHarness::from_env_for_policy` → `rust/forge/src/engine/opencode.rs:64-70`; reporting: `core/db/forge_doctor.rs`, `core/db/forge_read.rs` |
-| `launch_intent` | CHECK `SOLO / SMITH / SPLIT / HOLD`, DB comment "Carried to the Lead as benchIntent" | 4 files | the **writer** `rust/server/src/tech.rs` (Cockpit `set_dispatch_options`); the **reader** since `3352673d`: `rust/forge/src/bin/forge.rs:202` → `:400` → `rust/forge/src/engine/runner.rs:95-118` → `rust/forge/src/engine/role_slice.rs:34-45` — a decision outside the cap is a rejected deliverable |
-| `stop_after` | CHECK `scout / architect / lead`, DB comment "read by the engine worker when it claims the item" | 3 files | `rust/forge/src/engine/worker.rs:208` (off the claim) → `:330-331` (the child's `--stop-after`) → `rust/forge/src/bin/forge.rs:126-132` → `DriveForgeStoryOptions.stop_after` |
+| `model_policy` | CHECK `cheap / judgment` | 4 files | execution: `forge/src/bin/forge.rs:256` → `OpenCodeHarness::from_env_for_policy` → `forge/src/engine/opencode.rs:64-70`; reporting: `core/db/forge_doctor.rs`, `core/db/forge_read.rs` |
+| `launch_intent` | CHECK `SOLO / SMITH / SPLIT / HOLD`, DB comment "Carried to the Lead as benchIntent" | 4 files | the **writer** `web/src/tech.rs` (Cockpit `set_dispatch_options`); the **reader** since `3352673d`: `forge/src/bin/forge.rs:202` → `:400` → `forge/src/engine/runner.rs:95-118` → `forge/src/engine/role_slice.rs:34-45` — a decision outside the cap is a rejected deliverable |
+| `stop_after` | CHECK `scout / architect / lead`, DB comment "read by the engine worker when it claims the item" | 3 files | `forge/src/engine/worker.rs:208` (off the claim) → `:330-331` (the child's `--stop-after`) → `forge/src/bin/forge.rs:126-132` → `DriveForgeStoryOptions.stop_after` |
 | `execution_environment` | CHECK `DEV / PROD / TEST / LOCAL` | 1 file | `core/db/tech.rs` — inside a `json_build_object` for the cockpit, reporting |
 | `special_instructions` | legacy envelope field | 1 file | `engine/packet.rs:9` type, `:40` hardcoded `None`, `:106` read — from the environment packet, not the work item |
 
@@ -185,7 +185,7 @@ Distinction the guard must encode: `let _ = f()?;` propagates the error and disc
 1. ~~`engine/runtime.rs:145` — `ledger: Arc::new(MemoryLedger::new())` as the production default.~~
    **FIXED 2026-09-29.** `ForgeRuntime::from_store` now takes the ledger as a parameter, so the memory ledger is
    only reachable from the `in_memory*` fixtures; `bin/forge.rs` passes `durable_completion_ledger()`, fenced by
-   `rust/forge/tests/durable_completion_ledger.rs::the_engine_binary_installs_the_durable_ledger`.
+   `forge/tests/durable_completion_ledger.rs::the_engine_binary_installs_the_durable_ledger`.
 2. ~~`engine/process.rs:24`, `engine/process.rs:47`, `engine/executor.rs:289` — `let _ = self.reconcile_completions(..)?;`
    the reconcile result (how many completions were reconciled) is discarded at all three call sites.~~
    **FIXED 2026-09-29.** The count is now carried: `WakeResult::reconciled` and `DriveForgeStoryResult::reconciled`,
@@ -226,9 +226,9 @@ Two categories, and the difference is the answer to "what do we do about it":
 
 | site | the fact | disposition |
 | --- | --- | --- |
-| `rust/forge/src/engine/observer.rs` `INSERT_OBSERVER_SQL` — "never used" (compiler warning), pinned only by its own test | the Flight Recorder trace row (`workflow_execution_trace_event`) | **CLOSED 2026-10-02: the copy is deleted, not wired.** The const and its five text assertions are gone; `observer.rs` now owns only the event's identity (`observer_source_event_id`, whose stability is what the DAO's `ON CONFLICT` rests on). The writer is `ForgeEngineDao::record_observer` (`rust/core/db/src/forge_engine.rs:1940`); Forge reaches it through `rust/forge/src/engine/observer.rs:31`, called from the lane lifecycle as `let _ = record_forge_observer(…)` (`rust/forge/src/roles/lifecycle.rs:308`) — the containment is by design and never fails an execution. (This row used to name `runner.rs:350`; the live call site is the lane lifecycle's.) Asserted, so "no SQL in Forge" cannot mean "no writer": `arch_boundary__005` requires an *empty* SQL finding list, that the recorder owns the statement, that `ForgeEngineDao::record_observer` binds it, and that Forge reaches the row through `dao.record_observer(`. This row's only remainder — the third copy at `rust/core/workflow/src/neon/new_id.rs:748` — **CLOSED 2026-10-02 (`0692e768`)**: one statement now, `FlightRecorderDao::TRACE_EVENT_INSERT_SQL` (`rust/core/db/src/flight_recorder/sibling_limit.rs`), bound by both writers, so the `on conflict` predicate that must keep naming migration 090's partial unique index is spelled once; the kernel's `$1::uuid`/`$6::uuid`/`$7::uuid` casts went with the copy (those columns are text, and 091 made the ids around them text for the same reason). The guard's window grew to match: exactly one non-test file under `rust/` may hold the statement's text, and it is the recorder's |
-| `rust/forge/src/engine/neon_sql.rs` — nine SQL constants, no caller | a second COPY of statements `db::ForgeEngineDao` already owns (receipt claim/finalize/read/watermark, evidence read, story ledger, repair/replan increments, packet read) | **CLOSED 2026-09-29: deleted, not wired.** Wiring them would give `forge_workflow_evidence` and `storyboard_story` two writers each, which AGENTS.md:172 forbids; and the column-writer audit counted this file as a writer of `storyboard_story` while the writer that runs is `forge_engine.rs`. Kept: `RECEIPT_PREFIX`, the one literal with no SQL body. The bodies are in git history (`git show ae16ef38:…neon_sql.rs`) |
-| `rust/forge/src/engine/evidence_store.rs` `merge_forge_workflow_evidence` — no caller | a second door onto `forge_workflow_evidence` | **CLOSED 2026-09-29: deleted.** The merge runs through `db::ForgeEngineDao::merge_workflow_evidence`, driven by the completion ledger; the one mapping (`evidence_patch`) stays |
+| `forge/src/engine/observer.rs` `INSERT_OBSERVER_SQL` — "never used" (compiler warning), pinned only by its own test | the Flight Recorder trace row (`workflow_execution_trace_event`) | **CLOSED 2026-10-02: the copy is deleted, not wired.** The const and its five text assertions are gone; `observer.rs` now owns only the event's identity (`observer_source_event_id`, whose stability is what the DAO's `ON CONFLICT` rests on). The writer is `ForgeEngineDao::record_observer` (`db/src/forge_engine.rs:1940`); Forge reaches it through `forge/src/engine/observer.rs:31`, called from the lane lifecycle as `let _ = record_forge_observer(…)` (`forge/src/roles/lifecycle.rs:308`) — the containment is by design and never fails an execution. (This row used to name `runner.rs:350`; the live call site is the lane lifecycle's.) Asserted, so "no SQL in Forge" cannot mean "no writer": `arch_boundary__005` requires an *empty* SQL finding list, that the recorder owns the statement, that `ForgeEngineDao::record_observer` binds it, and that Forge reaches the row through `dao.record_observer(`. This row's only remainder — the third copy at `middle/workflow/src/neon/new_id.rs:748` — **CLOSED 2026-10-02 (`0692e768`)**: one statement now, `FlightRecorderDao::TRACE_EVENT_INSERT_SQL` (`db/src/flight_recorder/sibling_limit.rs`), bound by both writers, so the `on conflict` predicate that must keep naming migration 090's partial unique index is spelled once; the kernel's `$1::uuid`/`$6::uuid`/`$7::uuid` casts went with the copy (those columns are text, and 091 made the ids around them text for the same reason). The guard's window grew to match: exactly one non-test file under `rust/` may hold the statement's text, and it is the recorder's |
+| `forge/src/engine/neon_sql.rs` — nine SQL constants, no caller | a second COPY of statements `db::ForgeEngineDao` already owns (receipt claim/finalize/read/watermark, evidence read, story ledger, repair/replan increments, packet read) | **CLOSED 2026-09-29: deleted, not wired.** Wiring them would give `forge_workflow_evidence` and `storyboard_story` two writers each, which AGENTS.md:172 forbids; and the column-writer audit counted this file as a writer of `storyboard_story` while the writer that runs is `forge_engine.rs`. Kept: `RECEIPT_PREFIX`, the one literal with no SQL body. The bodies are in git history (`git show ae16ef38:…neon_sql.rs`) |
+| `forge/src/engine/evidence_store.rs` `merge_forge_workflow_evidence` — no caller | a second door onto `forge_workflow_evidence` | **CLOSED 2026-09-29: deleted.** The merge runs through `db::ForgeEngineDao::merge_workflow_evidence`, driven by the completion ledger; the one mapping (`evidence_patch`) stays |
 
 ### 6.7 The dispatch rule had two writers (found 2026-09-29, closed the same day)
 
@@ -239,9 +239,9 @@ partial unique index (`db/migrations/025_agent_work_queue.sql:101`, restated in
 
 | site | the fact | disposition |
 | --- | --- | --- |
-| `rust/core/db/src/forge_engine.rs` (the sweep's repair, `insert into agent_work_item` at `:694` before this change) | the stranded-story repair spelled the trigger's rule out again in Rust — the same insert, the same `story_priority_score()` call, the same arbiter predicate typed out a second time. A rule with two spellings drifts: 146 exists only because the arbiter was not restated when 143 replaced the index underneath it, and 258 was written to repair rows a writer that was not the trigger had left behind | **CLOSED: the insert is deleted.** The repair restores the CHANGE the trigger fires on (off `Ready` and back, one transaction) and the row is the trigger's |
-| `rust/server/src/tech.rs` (the board's ENGINE RUN Q move, `:348-361` before this change) | `set status='Ready'` plus a note that *claimed* an item had been queued. On a story already `Ready` — which is what a bench round trip leaves, because moving to the bench cancels the item and keeps the status — a same-value update fires no trigger, so the card moved, the human was told it was queued, and nothing was dispatched | **CLOSED: the note is read back, not assumed.** One verb, `ensure_story_dispatched`, returns `Queued { item }` / `AlreadyQueued { item }` / `Missing`, and the `captureCommit` scoping path (`:258-271`) uses it too, so "scope this dispatch" can no longer fail for a reason that is really "there is no dispatch" |
-| `rust/core/db/src/forge_control.rs:168-173` (stale-claim requeue), `rust/core/db/src/forge_reset.rs:325` (claim recovery) | they move an EXISTING item back to `Ready` | **KEPT, deliberately, and the line is written down**: the database owns *which items exist* for a story; the engine owns *the state of a claim it holds*. Neither creates a row, so there is no rule for the trigger to own, and `requeue_stale_work` moves the story half in the same transaction, so the pair still moves together |
+| `db/src/forge_engine.rs` (the sweep's repair, `insert into agent_work_item` at `:694` before this change) | the stranded-story repair spelled the trigger's rule out again in Rust — the same insert, the same `story_priority_score()` call, the same arbiter predicate typed out a second time. A rule with two spellings drifts: 146 exists only because the arbiter was not restated when 143 replaced the index underneath it, and 258 was written to repair rows a writer that was not the trigger had left behind | **CLOSED: the insert is deleted.** The repair restores the CHANGE the trigger fires on (off `Ready` and back, one transaction) and the row is the trigger's |
+| `web/src/tech.rs` (the board's ENGINE RUN Q move, `:348-361` before this change) | `set status='Ready'` plus a note that *claimed* an item had been queued. On a story already `Ready` — which is what a bench round trip leaves, because moving to the bench cancels the item and keeps the status — a same-value update fires no trigger, so the card moved, the human was told it was queued, and nothing was dispatched | **CLOSED: the note is read back, not assumed.** One verb, `ensure_story_dispatched`, returns `Queued { item }` / `AlreadyQueued { item }` / `Missing`, and the `captureCommit` scoping path (`:258-271`) uses it too, so "scope this dispatch" can no longer fail for a reason that is really "there is no dispatch" |
+| `db/src/forge_control.rs:168-173` (stale-claim requeue), `db/src/forge_reset.rs:325` (claim recovery) | they move an EXISTING item back to `Ready` | **KEPT, deliberately, and the line is written down**: the database owns *which items exist* for a story; the engine owns *the state of a claim it holds*. Neither creates a row, so there is no rule for the trigger to own, and `requeue_stale_work` moves the story half in the same transaction, so the pair still moves together |
 
 ## 6. Blocking decisions (Captain)
 
@@ -260,24 +260,24 @@ partial unique index (`db/migrations/025_agent_work_queue.sql:101`, restated in
 
 Landed files:
 
-- `rust/core/db/src/forge_engine.rs` — the receipt verbs. `claim_workflow_receipt` now answers
+- `db/src/forge_engine.rs` — the receipt verbs. `claim_workflow_receipt` now answers
   `WorkflowReceiptClaim::{Acquired, HeldByAnother, AlreadyFinal}` instead of `Option<row>` (where `None` had meant
   both "you own it" and "someone else does", and a `pending` row was filtered out of the answer);
   `read_workflow_receipt_outcome`, `receipt_watermark_ms` (finalized receipts only — a claim must not advance the
   watermark), `increment_forge_repair_attempts`, `increment_forge_replan_attempts` and a `finalize_workflow_receipt`
   that moves `updated_at` and refuses to finalize a row that does not exist.
-- `rust/forge/src/engine/db_ledger.rs` (new) — `DbCompletionLedger` + `durable_completion_ledger()`.
-- `rust/forge/src/engine/completion.rs` — `CompletionLedger` is fallible (`workflow::Result`): a database that
+- `forge/src/engine/db_ledger.rs` (new) — `DbCompletionLedger` + `durable_completion_ledger()`.
+- `forge/src/engine/completion.rs` — `CompletionLedger` is fallible (`workflow::Result`): a database that
   cannot answer must stop the caller, because `false` from `claim` means "already applied".
-- `rust/forge/src/engine/runtime.rs` — `from_store` **takes** the ledger; the memory ledger survives only in the
+- `forge/src/engine/runtime.rs` — `from_store` **takes** the ledger; the memory ledger survives only in the
   `in_memory*` fixtures. `reconcile_completions` propagates every ledger failure.
-- `rust/forge/src/engine/process.rs`, `rust/forge/src/engine/executor.rs`, `rust/forge/src/bin/forge.rs` — the
+- `forge/src/engine/process.rs`, `forge/src/engine/executor.rs`, `forge/src/bin/forge.rs` — the
   reconcile count is carried (`WakeResult::reconciled`, `DriveForgeStoryResult::reconciled`, `reconciled=` in the
   engine's summary line) and the binary installs the durable ledger.
 
 Legacy spec: `legacy/workflow_app/tests/interrupted-sequences.test.ts` (transition durable, evidence unwritten,
-receipt absent, resume applies once). Rust refusal tests: `rust/forge/tests/durable_completion_ledger.rs` (6 tests)
-and `rust/core/db/tests/forge_completion_receipt_dev.rs` (DEV, `--ignored`: claim → refused-in-flight → no watermark
+receipt absent, resume applies once). Rust refusal tests: `forge/tests/durable_completion_ledger.rs` (6 tests)
+and `db/tests/forge_completion_receipt_dev.rs` (DEV, `--ignored`: claim → refused-in-flight → no watermark
 while pending → finalize → `AlreadyFinal` → watermark advances → stale `pending` reclaimed → finalize-without-claim
 refused → counters move, missing story refused).
 
@@ -290,13 +290,13 @@ nowhere, and both policies name the same pinned model, so a policy change cannot
 
 Not a rail: the removal of two dead second doors, so the one-writer rule (§6.6) is what the audit reports.
 
-- `rust/forge/src/engine/neon_sql.rs` — nine SQL constants deleted (receipt claim/finalize/read/watermark, evidence
+- `forge/src/engine/neon_sql.rs` — nine SQL constants deleted (receipt claim/finalize/read/watermark, evidence
   read, story ledger, repair/replan increments, packet read). Every one was a never-executed copy of a statement
   `db::ForgeEngineDao` owns; `RECEIPT_PREFIX` stays. This also removed the file from the column-writer audit's writer
   set for `storyboard_story`, where it had been counted while the writer that runs is `forge_engine.rs`.
-- `rust/cli/src/forge/repo_guards.rs` — `TABLE_WRITERS_BASELINE` narrowed deliberately, in this commit, with the reason
+- `cli/src/forge/repo_guards.rs` — `TABLE_WRITERS_BASELINE` narrowed deliberately, in this commit, with the reason
   in the code: the fence must name the writer that serves.
-- `rust/forge/src/engine/evidence_store.rs` — the unused `merge_forge_workflow_evidence` wrapper deleted; the merge has
+- `forge/src/engine/evidence_store.rs` — the unused `merge_forge_workflow_evidence` wrapper deleted; the merge has
   one door (`ForgeEngineDao::merge_workflow_evidence`, driven by the ledger) and one mapping (`evidence_patch`).
 - `docs/agent/MAP-engine.md` — the "how the engine talks to Neon" row now points at `db_ledger.rs`, which is where the
   engine's database writes actually leave from.
@@ -310,14 +310,14 @@ forge_runtime 34, self_heal 1), `cargo check --workspace --all-targets` clean.
 The Captain's word was "collapse it": the port stops writing the row the database's function writes. Closed with a
 refusal rail first, then the change, then the proof on DEV (§6.7 has the finding).
 
-- `rust/cli/src/forge/repo_guards.rs` — a fourth repo guard,
+- `cli/src/forge/repo_guards.rs` — a fourth repo guard,
   `the_database_owns_dispatch_no_production_rust_file_inserts_a_work_item`: no production Rust file may contain
   `insert into agent_work_item`, because that rule has one writer and it is `agent_work_item_dispatch()`. It scans
   582 tracked production Rust files and exempts `tests/` deliberately (a fixture may build a shape the database would
   never create — `forge_work_claim_dev.rs` builds a `Ready` item for an `In Progress` story to prove dispatch refuses
-  it) and itself (a guard names the token it hunts). It **failed first**, naming `rust/core/db/src/forge_engine.rs`
+  it) and itself (a guard names the token it hunts). It **failed first**, naming `db/src/forge_engine.rs`
   as the second owner; that failure is the evidence this rail can see the thing it forbids.
-- `rust/core/db/src/forge_engine.rs` — `dispatch_story_in` (module scope) is now the only place a story is put into
+- `db/src/forge_engine.rs` — `dispatch_story_in` (module scope) is now the only place a story is put into
   the engine's queue: it locks the story, and if no open slot exists it restores the change into `Ready` that the
   trigger fires on — off `Ready` and back, as two statements in the caller's transaction, because a data-modifying
   CTE shares one snapshot and could not see its own update. It then **reads back the row the trigger wrote** and
@@ -325,15 +325,15 @@ refusal rail first, then the change, then the proof on DEV (§6.7 has the findin
   not shrugged). `ensure_story_dispatched_on` opens the transaction; `ForgeEngineDao::ensure_story_dispatched` and
   `TechCockpitDao::ensure_story_dispatched` are two doors onto it. `EnsureDispatch::{Queued, AlreadyQueued, Missing}`
   is what a caller's note to a human is built from.
-- `rust/core/db/src/forge_engine.rs` — `reconcile_dispatch_queue` finds the stranded `Ready` stories (a read) and
+- `db/src/forge_engine.rs` — `reconcile_dispatch_queue` finds the stranded `Ready` stories (a read) and
   hands each to `dispatch_story_in`, the same writer the board uses. `queued` counts stories the database dispatched.
   The sweep no longer contains a second spelling of the score call or the arbiter predicate.
-- `rust/server/src/tech.rs` — the ENGINE RUN Q move and the `captureCommit` scoping path go through the verb; the
+- `web/src/tech.rs` — the ENGINE RUN Q move and the `captureCommit` scoping path go through the verb; the
   note is chosen from its answer, so "queued a work item" is only said when the database produced one.
 
 Legacy spec: `legacy/workflow_app/tests/agent-work.test.ts:28-30` states the contract in the shape this change
 restores — "the dispatch trigger behavior (status INTO Ready creates one Ready work item)". Rust tests:
-`rust/core/db/tests/forge_dispatch_trigger_dev.rs` (DEV, `--ignored`, 2 tests) — the trigger writes and scores the
+`db/tests/forge_dispatch_trigger_dev.rs` (DEV, `--ignored`, 2 tests) — the trigger writes and scores the
 item (priority 80 = `story_priority_score('High')`), the stranded story is repaired to exactly one slot with the
 database's score, the story the board sees stays `Ready`, a second sweep and a manual off/on cycle add nothing, a
 benched-but-`Ready` story handed to the engine gets a real slot and the same id on a second call, and an absent story
@@ -350,7 +350,7 @@ ensure_story_dispatched (absent story): Missing
 test result: ok. 2 passed; 0 failed; 0 ignored
 ```
 
-Gates: `cargo test -p cli` 127 passed (the four repo guards among them), `cargo test -p db -p forge -p server` clean
+Gates: `cargo test -p cli` 127 passed (the four repo guards among them), `cargo test -p db -p forge -p web` clean
 (db 50, forge 93, server 114, durable_completion_ledger 6, forge_runtime 34, self_heal 1),
 `forge_work_claim_dev` (DEV) 2 passed — the pre-run sweep it exercises is the one that changed,
 `cargo check --workspace --all-targets` clean.
@@ -377,7 +377,7 @@ target, the run carries the *actual* one.
 
 Landed:
 
-- `rust/core/db/src/forge_engine.rs` — `BeginAgentWorkRun { execution_policy, story_run_id }` and
+- `db/src/forge_engine.rs` — `BeginAgentWorkRun { execution_policy, story_run_id }` and
   `run_result_status_for(item_state)`. `begin_agent_work_run` opens the run (`execution_environment` = the actual
   target, `run_type` = the item's own `role`/`kind`, read from the row) and stamps the claim with it **in one
   transaction**; `finish_agent_work_run` and `reject_agent_work_configuration` close it with the item's ruling
@@ -385,9 +385,9 @@ Landed:
 - A **cleared** claim (`AgentWorkOutcome::Abandoned` → `Ready`) rules nothing, so its run ends with `result_status`
   NULL. That is the value the artifact guard reads as "certifies nothing", and it is why an engine fault can no longer
   become a story verdict by accident.
-- `rust/forge/src/bin/forge.rs` — the run is named in the log, once, so a lane's execution can be followed.
+- `forge/src/bin/forge.rs` — the run is named in the log, once, so a lane's execution can be followed.
 
-DEV proof (`rust/core/db/tests/forge_work_claim_dev.rs`, `--ignored`, 2 passed): the claim opens a run, stamps
+DEV proof (`db/tests/forge_work_claim_dev.rs`, `--ignored`, 2 passed): the claim opens a run, stamps
 `story_run_id`, the run starts unruled (`result_status` NULL, `ended_at` NULL), a second `begin` on a row that is no
 longer `Claimed` refuses, and the settle closes the run `Complete`.
 
@@ -419,7 +419,7 @@ Landed:
 - The identity guard (a task carrying no story id is refused) moved **before** any write of the turn, because
   `forge_tool_artifact.story_id` is a foreign key to `storyboard_story(id)` exactly as `forge_hold_record.story_id` is.
 
-DEV proof (`rust/core/db/tests/forge_tool_artifact_dev.rs`, `--ignored`, 1 passed) — raw output:
+DEV proof (`db/tests/forge_tool_artifact_dev.rs`, `--ignored`, 1 passed) — raw output:
 
 ```
 unruled run + run-verdict "Failed"      -> verdict null, summary kept
@@ -431,13 +431,13 @@ run ruled Complete + "PASS"             -> verdict PASS
 test result: ok. 1 passed; 0 failed; 0 ignored
 ```
 
-Rust refusal tests: `rust/forge/tests/forge_runtime.rs` (3 new) — one measurement one artifact keyed to the run, the
+Rust refusal tests: `forge/tests/forge_runtime.rs` (3 new) — one measurement one artifact keyed to the run, the
 lane's own reading recorded (`PASS`/`FAIL`/`UNPROVEN`), and an artifact that cannot be recorded fails the lane. Unit
 tests: `the_guard_agrees_by_polarity_not_by_spelling` (the legacy assertions word for word),
 `a_reading_that_cannot_be_compared_is_not_kept`, `a_cleared_run_keeps_no_ruling`,
 `the_run_ruling_follows_the_pair_that_settles_it`.
 
-Gates for §7.4–7.5: `cargo test -p db` (54) `-p forge` (93 + 37) `-p server` (114) `-p cli` (127) green;
+Gates for §7.4–7.5: `cargo test -p db` (54) `-p forge` (93 + 37) `-p web` (114) `-p cli` (127) green;
 `cargo check --workspace --all-targets` clean; both DEV proofs above pass.
 
 Still open, named rather than implied: the run's packet snapshot columns (`goal_snapshot`, `packet_sha_snapshot`,
@@ -457,11 +457,11 @@ renders `docs/agent/LEGACY-TEST-PARITY.md` from `docs/agent/legacy-test-parity/s
 and its output is folded into the ledger by `bash scripts/legacy-test-parity.sh --scan`. It removes a file from the queue
 only on evidence, and two traps found while building it are why it is as narrow as it is:
 
-- **A citation is not coverage.** `rust/cli/src/forge/test_section.rs` names legacy test files as arguments to
+- **A citation is not coverage.** `cli/src/forge/test_section.rs` names legacy test files as arguments to
   `section_for_file(...)` — it is a routing table. Citing a file to classify it says nothing about its assertions, so a
   citation counts only from a comment (`//!`/`///`), which is where provenance actually gets written.
 - **A test count is not coverage.** `legacy/workflow_app/tests/accounting.test.ts` tests receivables and expenses;
-  `rust/core/db/src/accounting.rs` tests chart trend months. Same name, different subject. So a row must clear a
+  `db/src/accounting.rs` tests chart trend months. Same name, different subject. So a row must clear a
   per-case test: for each `test()` in the legacy file, is there a Rust test in the evidence files that talks about the
   same thing (≥2 significant words)? `already_covered` means every case cleared it; `gap` means some did and the delta
   is in the note; nothing cleared it and the file stays queued no matter how many Rust tests sit next to it.

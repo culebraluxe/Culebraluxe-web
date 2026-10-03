@@ -9,10 +9,10 @@ Work happens on `main` directly (owner's instruction: no side branches). Other s
 | --- | --- |
 | ff17cb7, a12af36 | Homepage cards: dead links fixed (Enquire → contact form with property, View All → /properties), interior SF, alt text; serif price, type eyebrow, highlights, scroll reveal (`.reveal` in app/globals.css) |
 | ef84730 | Contact form back in Yew (`yew_views/contact.rs` → `/api/rust-ui/website-intake` → existing intake action); save hearts + `/favorites` page; hero/page-hero fade, CTA underline, FAQ accordion, mobile menu closes on nav, footer year |
-| f02d81c | Buyers: Compare (max 3, side-by-side table), Saved searches (+N new alerts), live View filter. One matcher: `rust/ui/src/search.rs`. localStorage keys/shapes match the old TS |
+| f02d81c | Buyers: Compare (max 3, side-by-side table), Saved searches (+N new alerts), live View filter. One matcher: `web/ui/src/search.rs`. localStorage keys/shapes match the old TS |
 | b447bb7 | Tagline: Rust `GET /v1/public/listing-copy` (authorized `property.public.read`), merged into the home payload |
 | cd06a15 | Quick lead forms: "Send me these properties" (Saved page), "Tell me when new properties match" (Buyers, once a search is saved) |
-| 431c6c5 | Mail sender: `rust/integrations/src/mail` (SMTP to iCloud, smtp.mail.me.com:587). `pnpm mail:test you@x.com` — VERIFIED working from Lisa's Mac |
+| 431c6c5 | Mail sender: `middle/apis/src/mail` (SMTP to iCloud, smtp.mail.me.com:587). `pnpm mail:test you@x.com` — VERIFIED working from Lisa's Mac |
 | 199e2a0 | Lead emails: `POST /v1/website-intake/{id}/notify` → notice to lisa@culebraluxe.com (Reply goes to visitor) + visitor confirmation; once per lead via `notified_at` (migration 217). Policy: `website.lead.notify`, public-website actor only, reserved. `pnpm mail:preview you@x.com` sends samples |
 
 ## To make lead email live (owner actions)
@@ -31,14 +31,14 @@ Work happens on `main` directly (owner's instruction: no side branches). Other s
 
 ## Next (not started)
 
-1. **Visitor sign-in (email code + Google)** as a separate external/visitor account type that can never reach the portal. Today non-staff sign-ins go to /login/unauthorized (identity resolution in Rust SecurityService). This is the SECURITY STREAM's area — coordinate before editing `rust/server/src/security/*`.
+1. **Visitor sign-in (email code + Google)** as a separate external/visitor account type that can never reach the portal. Today non-staff sign-ins go to /login/unauthorized (identity resolution in Rust SecurityService). This is the SECURITY STREAM's area — coordinate before editing `web/src/security/*`.
 2. Sync saves / compare / saved searches to Neon per visitor (merge device localStorage on first sign-in).
 3. Automatic saved-search alert emails (uses the mail sender).
 
 ## Environment notes
 
 - The cloud sandbox cannot reach Neon over TCP or smtp.mail.me.com; the Neon MCP connector works for SQL. Live mail/DB tests run on Lisa's Mac.
-- WASM UI artifacts are committed: after changing `rust/ui`, run `pnpm ui:build:release` and commit `lib/rust-ui/ui.js`, `lib/rust-ui/ui.d.ts`, `public/rust-ui/ui_bg.wasm`.
+- WASM UI artifacts are committed: after changing `web/ui`, run `pnpm ui:build:release` and commit `lib/rust-ui/ui.js`, `lib/rust-ui/ui.d.ts`, `public/rust-ui/ui_bg.wasm`.
 - `next dev` appends a Next.js block to AGENTS.md — revert it (`git checkout AGENTS.md`), don't commit it.
-- Rust gates: `cargo fmt --all --check`, and the UI gate is `cargo check -p ui --features wasm --target wasm32-unknown-unknown --all-targets` (run from `rust/`, the workspace root). **Do not use plain `cargo test -p ui` as the UI gate**: `rust/ui/Cargo.toml:57` sets `default = []` and `app` is feature-gated at `rust/ui/src/lib.rs:40-41`, so it passes 146 tests while compiling **zero** of the 78 `#[test]`s under `rust/ui/src/app/` — every screen, registry and command test. Then `cargo test -p server -p integrations`.
+- Rust gates: `cargo fmt --all --check`, and the UI gate is `cargo check -p ui --features wasm --target wasm32-unknown-unknown --all-targets` (run from `rust/`, the workspace root). **Do not use plain `cargo test -p ui` as the UI gate**: `web/ui/Cargo.toml:57` sets `default = []` and `app` is feature-gated at `web/ui/src/lib.rs:40-41`, so it passes 146 tests while compiling **zero** of the 78 `#[test]`s under `web/ui/src/app/` — every screen, registry and command test. Then `cargo test -p web -p apis`.
 - SECURITY: the Neon password (shared by dev and prod), the Apple account password and the other keys in .env.local were pasted into a chat — rotate them.

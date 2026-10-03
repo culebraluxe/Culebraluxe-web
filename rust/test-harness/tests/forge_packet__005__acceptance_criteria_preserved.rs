@@ -5,14 +5,14 @@
 //! production seams carry the same fact, and they may not disagree:
 //!
 //!   1. **the packet source** — `ForgeEngineDao::story_packet`
-//!      (`rust/core/db/src/forge_engine.rs:1615`) reads the story row verbatim.
+//!      (`db/src/forge_engine.rs:1615`) reads the story row verbatim.
 //!   2. **the run snapshot** — `ForgeEngineDao::begin_agent_work_run`
-//!      (`rust/core/db/src/forge_engine.rs:820`) copies `storyboard_story.acceptance_criteria` into
+//!      (`db/src/forge_engine.rs:820`) copies `storyboard_story.acceptance_criteria` into
 //!      `storyboard_story_run.acceptance_criteria_snapshot`, in the same statement that opens the run,
 //!      by the database, from the story row (lines 859-885) — not from a caller argument, which is why
 //!      a stale or edited copy cannot be substituted.
 //!   3. **the task text** — `forge::engine::packet::build_task_text`
-//!      (`rust/forge/src/engine/packet.rs:117-125`) embeds it under the sentinel
+//!      (`forge/src/engine/packet.rs:117-125`) embeds it under the sentinel
 //!      `Acceptance criteria (do not mark Complete unless these are satisfied):`.
 //!
 //! "Preserved" means byte-exact for the authored content, absence-preserving for a blank criterion
@@ -35,7 +35,7 @@
 //! zero-leftover count is asserted.
 //!
 //! Run with:
-//!   DATABASE_URL_DEV=... cargo test --manifest-path rust/Cargo.toml -p test-harness \
+//!   DATABASE_URL_DEV=... cargo test --manifest-path Cargo.toml -p test-harness \
 //!     --test forge_packet__005__acceptance_criteria_preserved -- --ignored
 //! The plain command (no `--ignored`) passes with the test skipped, because the composed contract needs
 //! a disposable DEV database and the harness will never open a PRODUCTION one.
@@ -57,7 +57,7 @@ const PROOF_PREFIX: &str = "TST-FORGE-PACKET-005-";
 const CRITERIA_A: &str = "AC-1: the packet preserves the authored acceptance criteria verbatim.\n\
 AC-2: preservation is byte-exact, including newlines and punctuation.\n\
 AC-3: a later edit must not rewrite what the run executed against.";
-/// The exact sentinel `build_task_text` writes before the criteria (`rust/forge/src/engine/packet.rs:123`).
+/// The exact sentinel `build_task_text` writes before the criteria (`forge/src/engine/packet.rs:123`).
 const SENTINEL: &str = "Acceptance criteria (do not mark Complete unless these are satisfied):";
 
 /// Connect to the disposable DEV branch, tolerating a cold-pool timeout under concurrent test load.
@@ -95,9 +95,9 @@ async fn insert_ready_story(pool: &PgPool, story_id: &str, criteria: &str) -> St
               dependencies, scope, operating_surface, packet_sha)
          values ($1, 'PROOF', 'Forge packet proof', 'Critical', 'Ready', '',
                  'acceptance criteria preserved', 'SCOPED',
-                 'cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_packet__005__acceptance_criteria_preserved',
+                 'cargo test --manifest-path Cargo.toml -p test-harness --test forge_packet__005__acceptance_criteria_preserved',
                  $2, 'a disposable DEV branch', 'the run preserves the authored criteria',
-                 'brief for the run', 'rust/core/db/src/forge_engine.rs',
+                 'brief for the run', 'db/src/forge_engine.rs',
                  'none', 'rust/test-harness', 'NEXUS', 'sha256:proof')",
     )
     .bind(story_id)
@@ -184,7 +184,7 @@ async fn forge_packet_005__acceptance_criteria_preserved() {
     );
 
     // THE TASK TEXT carries the same fact. The packet the engine binary builds (`StoryPacket::load_from_neon`,
-    // `rust/forge/src/engine/packet.rs:19-60`) reads through the process-global pool and is deliberately not
+    // `forge/src/engine/packet.rs:19-60`) reads through the process-global pool and is deliberately not
     // usable on a disposable target, so this composes the SAME production packet read with the SAME production
     // builder: for a non-blank criterion the row field is the packet field.
     let packet_a = StoryPacket {

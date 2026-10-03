@@ -5,7 +5,7 @@
 //! the release path. The handbook states the rule twice and names a guard for each half: `AGENTS.md` forbids
 //! pushing, merging or rebasing from a worker, and forbids a git commit from Scout, Assay and Inspector.
 //! This test is the harness's own reading of what those guards protect — deliberately not a copy of them:
-//! the guards scan `rust/forge/src`, this one scans the whole workspace, the service binding that assigns
+//! the guards scan `forge/src`, this one scans the whole workspace, the service binding that assigns
 //! those roles, and the agent-facing instruction door as well.
 //!
 //! THREE FACTS, each pinned in **both directions** — a new hole fails here (that is the point) and a pin the
@@ -14,7 +14,7 @@
 //!   1. THE QA SURFACE NAMES NO GIT. Seven `.rs` files have a QA stem (pinned below). Their code contains
 //!      none of the git tokens, none of the lineage tokens, and none of the release-surface identifiers —
 //!      so there is nothing in the QA surface to commit, push, rebase or "check the sha" *with*. QA's own
-//!      work runs through the engine's command port (`rust/forge/src/engine/runner.rs`, `run_command`), not
+//!      work runs through the engine's command port (`forge/src/engine/runner.rs`, `run_command`), not
 //!      through a process a QA module spawns itself.
 //!   2. THE LANES. `FORGE_SDLC-v6.xml` is the one place that says which engine node is which service, and a
 //!      service is a lane. This is asserted against the live binding and the live registry, not against
@@ -26,9 +26,9 @@
 //!      deliberate edit. What the release lane owns is TST-ARCH-BOUNDARY-012's subject; what this test pins is
 //!      that QA is not in it.
 //!   3. ONE DOOR IN THE WHOLE WORKSPACE. Across every `.rs` under `rust/`, the three mutation verbs of
-//!      `AGENTS.md` appear **once**, in one file: `rust/forge/src/engine/git_publish.rs`, behind
+//!      `AGENTS.md` appear **once**, in one file: `forge/src/engine/git_publish.rs`, behind
 //!      `FORGE_ALLOW_PUBLISH`. The release handle is constructed at exactly one site — the composition root
-//!      (`rust/forge/src/bin/forge.rs`) — and exported by the DevOps lane module, while the QA lane module
+//!      (`forge/src/bin/forge.rs`) — and exported by the DevOps lane module, while the QA lane module
 //!      exports verification and nothing else. The instruction door matches: a harness file that tells
 //!      Scout, Assay or Inspector to commit is refused by rule `non-builder-commit-instruction`, whose role
 //!      pattern is those same three names, and the vendor guardrail block quotes the handbook sentence it is
@@ -46,7 +46,7 @@
 //!     failure classifier). Naming a sha is not gating on one — the class `ENG-FORGE-QA-NO-GIT-GUARD-01`
 //!     deleted a guard that did gate on it, because a git fact may never void paid work. The decidable defect
 //!     is the git call, which is what is scanned.
-//!   * `rust/forge/tests/handbook_engine_guards.rs` already proves the runtime half for `rust/forge/src`
+//!   * `forge/tests/handbook_engine_guards.rs` already proves the runtime half for `forge/src`
 //!     (the QA release path runs no git command and checks no lineage; only the publish path may push, merge
 //!     or rebase) and `forge guard-lint` already proves every `guard:` path in the handbook resolves to a
 //!     file holding a test. This test repeats neither: it pins *which* test, and it covers the tree those two
@@ -60,7 +60,7 @@
 //! process spawned.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test arch_boundary__011__qa_cannot_own_git_mutations
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test arch_boundary__011__qa_cannot_own_git_mutations
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -83,13 +83,13 @@ const SELF: &str = "rust/test-harness/tests/arch_boundary__011__qa_cannot_own_gi
 /// Every `.rs` file in the tree whose name says QA — the surface that may own no git door. Pinned as a set:
 /// a new QA module fails here until it is added, and once added it is scanned.
 const QA_SURFACE: [&str; 7] = [
-    "rust/forge/src/engine/assay.rs",
-    "rust/forge/src/engine/qa_adjudicate.rs",
-    "rust/forge/src/engine/qa_assert.rs",
-    "rust/forge/src/engine/qa_classify.rs",
-    "rust/forge/src/engine/qa_repair.rs",
-    "rust/forge/src/qa_consistency.rs",
-    "rust/forge/src/roles/qa.rs",
+    "forge/src/engine/assay.rs",
+    "forge/src/engine/qa_adjudicate.rs",
+    "forge/src/engine/qa_assert.rs",
+    "forge/src/engine/qa_classify.rs",
+    "forge/src/engine/qa_repair.rs",
+    "forge/src/qa_consistency.rs",
+    "forge/src/roles/qa.rs",
 ];
 
 /// What the QA surface may not name in its code: the git binary and the mutating subcommands, the read-only
@@ -124,14 +124,14 @@ const QA_GIT_TOKENS: [&str; 22] = [
 /// Two QA files that must still say the thing they are for. Without these the scan could pass by reading the
 /// wrong file, or an empty one — the failure mode `source.rs` warns about.
 const QA_READ_PROOF: [(&str, &str); 2] = [
-    ("rust/forge/src/engine/qa_repair.rs", "route_qa_result"),
-    ("rust/forge/src/engine/qa_classify.rs", "evaluated_sha"),
+    ("forge/src/engine/qa_repair.rs", "route_qa_result"),
+    ("forge/src/engine/qa_classify.rs", "evaluated_sha"),
 ];
 /// The three mutation verbs the handbook refuses from a worker, as an author writes them in code.
 const MUTATION_VERBS: [&str; 3] = ["\"push\"", "\"merge\"", "\"rebase\""];
 
 /// The one file in the workspace permitted to name a mutation verb.
-const THE_ONE_PUSHER: &str = "rust/forge/src/engine/git_publish.rs";
+const THE_ONE_PUSHER: &str = "forge/src/engine/git_publish.rs";
 
 /// The switch that must sit between the tree and that push.
 const PUBLISH_SWITCH: &str = "FORGE_ALLOW_PUBLISH";
@@ -141,7 +141,7 @@ const PUBLISH_SWITCH: &str = "FORGE_ALLOW_PUBLISH";
 const PUBLISH_GATE_WINDOW: usize = 12;
 
 /// The only site that builds the release handle — the composition root, not a lane.
-const RELEASE_HANDLE_WIRED: &str = "rust/forge/src/bin/forge.rs";
+const RELEASE_HANDLE_WIRED: &str = "forge/src/bin/forge.rs";
 
 /// The QA lane module's entire export surface: four verification items, no handle.
 const QA_LANE_EXPORTS: [&str; 4] = [
@@ -236,23 +236,23 @@ const VENDOR_GUARDRAIL_ANCHOR: &str = "Commit on the worker branch only when the
 /// The handbook's two `Never` lines on this subject, verbatim, each with the guard it declares. The guard
 /// path is parsed back out of the line and must resolve to a file naming the test that holds the rule.
 const AGENTS_GUARD_LINES: [&str; 2] = [
-    "- Push, merge, or rebase from a worker. guard: rust/forge/tests/handbook_engine_guards.rs",
-    "- Keep a git commit as Scout, Assay, or Inspector. guard: rust/cli/src/forge/lint.rs",
+    "- Push, merge, or rebase from a worker. guard: forge/tests/handbook_engine_guards.rs",
+    "- Keep a git commit as Scout, Assay, or Inspector. guard: cli/src/forge/lint.rs",
 ];
 
 /// Each declared guard path, and the test inside it that is the guard. `forge guard-lint` already proves the
 /// path resolves to a file that holds a test; this pins *which* test, so renaming the guard is an edit here.
 const GUARD_TESTS: [(&str, &str); 3] = [
     (
-        "rust/forge/tests/handbook_engine_guards.rs",
+        "forge/tests/handbook_engine_guards.rs",
         "the_qa_release_path_runs_no_git_command_and_checks_no_lineage",
     ),
     (
-        "rust/forge/tests/handbook_engine_guards.rs",
+        "forge/tests/handbook_engine_guards.rs",
         "only_the_publish_path_may_push_merge_or_rebase",
     ),
     (
-        "rust/cli/src/forge/lint.rs",
+        "cli/src/forge/lint.rs",
         "non-builder-commit-instruction",
     ),
 ];
@@ -630,7 +630,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
                 !code.contains(token),
                 "{path} names `{token}`. The QA surface owns no git door: it does not run git, resolve \
                  lineage, or hold the release handle — it verifies what a Builder produced. Its own commands \
-                 go through the engine's command port (rust/forge/src/engine/runner.rs). If a QA module \
+                 go through the engine's command port (forge/src/engine/runner.rs). If a QA module \
                  genuinely needs this name, that is an architecture decision, not a test edit"
             );
         }
@@ -780,7 +780,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
     // lanes is that table typed out again in Rust.
     let mut tables: BTreeMap<String, BTreeSet<&str>> = BTreeMap::new();
     for (path, code) in &swept {
-        if !path.starts_with("rust/forge/src/") {
+        if !path.starts_with("forge/src/") {
             continue;
         }
         let named = lanes_named_by(code);
@@ -825,12 +825,12 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
     // ── 4. NO HANDLE: the QA lane exports verification, the release handle is built in one place. ──────────
 
     assert_eq!(
-        role_exports("rust/forge/src/roles/qa.rs"),
+        role_exports("forge/src/roles/qa.rs"),
         QA_LANE_EXPORTS.iter().map(|path| path.to_string()).collect::<BTreeSet<String>>(),
         "the QA lane module's exports are pinned: four verification items, no release handle. An export added \
          here is the QA lane being handed a capability it may not own"
     );
-    let dev_ops_exports = role_exports("rust/forge/src/roles/dev_ops.rs");
+    let dev_ops_exports = role_exports("forge/src/roles/dev_ops.rs");
     assert!(
         dev_ops_exports.iter().any(|item| item.ends_with("HostReleaseExecutor"))
             && dev_ops_exports.iter().any(|item| item.ends_with("DbForgeReleaseExecutor")),
@@ -896,7 +896,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
 
     // ── 6. THE INSTRUCTION DOOR: a packet cannot tell a QA role to commit, and the handbook says so twice. ─
 
-    let lint = source::read(&in_repo("rust/cli/src/forge/lint.rs"));
+    let lint = source::read(&in_repo("cli/src/forge/lint.rs"));
     assert!(
         lint.contains(ROLES_THAT_MAY_NOT_COMMIT),
         "the rule's role pattern changed: the lint must name Scout, Assay and Inspector — the same three \
@@ -919,7 +919,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
             "the lint test `{test_name}` is gone"
         );
     }
-    let harness = source::read(&in_repo("rust/cli/src/forge/lint/harness.rs"));
+    let harness = source::read(&in_repo("cli/src/forge/lint/harness.rs"));
     assert_eq!(
         harness.matches(NON_BUILDER_COMMIT_RULE).count(),
         1,
@@ -936,7 +936,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
         "the handbook sentence the vendor guardrail is anchored to is gone; `forge sync-agents` and the \
          packet lint both fail without it"
     );
-    let vendor = source::read(&in_repo("rust/cli/src/forge/vendor_block.rs"));
+    let vendor = source::read(&in_repo("cli/src/forge/vendor_block.rs"));
     assert!(
         vendor.contains(VENDOR_GUARDRAIL) && vendor.contains(VENDOR_GUARDRAIL_ANCHOR),
         "the vendor block must carry the rule and the handbook sentence that backs it"

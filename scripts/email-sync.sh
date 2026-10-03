@@ -4,7 +4,7 @@
 #
 #   local Mail.app Envelope Index (read-only, via the Python bridge)
 #     -> l_applemail                          (landing: source evidence, no judgment)
-#     -> rust/cli apple-sync mail-promote     (evidence -> reconcile -> interaction)
+#     -> cli apple-sync mail-promote     (evidence -> reconcile -> interaction)
 #     -> Client read models
 #
 # Metadata only: no bodies, snippets, attachments or raw MIME are read, shipped or stored.
@@ -44,7 +44,7 @@ esac
 # the resolver refuses to guess, and the tally it prints names the target it resolved.
 run_cli() {
   APP_ENV=production CULEBRALUXE_REPO="$REPO_ROOT" \
-    cargo run -q --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- "$@"
+    cargo run -q --manifest-path "$REPO_ROOT/Cargo.toml" -p cli -- "$@"
 }
 
 # Local box -> bounded SQLite pages -> l_applemail, for every configured account. The newest band

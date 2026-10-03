@@ -22,7 +22,7 @@
 >     **Work** address and `l_person.display_address` projects the Home one — so removing it
 >     (DEV `f374d68f…`, PROD `a455636e…`) is hygiene, and it is destructive, so it waits for
 >     the Captain's word.
->   * Also fixed while verifying: `rust/server/src/catch_up.rs`'s test harness built a
+>   * Also fixed while verifying: `web/src/catch_up.rs`'s test harness built a
 >     context with no principal, which is GUEST, and GUEST may not command
 >     (`default:guest.command-deny`) — the test had been failing since that default landed.
 >     It now carries a `BUSINESS_POWER_USER` principal and a second test pins the refusal.
@@ -47,7 +47,7 @@
 >     `apple_contacts_load(p_payload, p_source_account)` (batch receipt + one inbox receipt per contact
 >     + immutable staged revisions + snapshot membership + batch totals, one transaction) and
 >     `apple_contacts_project(p_source_account, p_batch_id)` (the three projection statements + tally).
->   * `rust/cli/src/apple_contacts.rs` `contacts_load` / `contacts_project`; `apple_sync.rs` dispatch
+>   * `cli/src/apple_contacts.rs` `contacts_load` / `contacts_project`; `apple_sync.rs` dispatch
 >     `"contacts-load"` / `"contacts-project"`; wrapper `scripts/contacts-sync.sh:148,156`.
 >   * `scripts/promote-warehouse.ts` **deleted** (and its two `package.json` names); the two remaining TS
 >     files stay bannered as reference only.
@@ -70,7 +70,7 @@
 >   * `db/migrations/253_apple_contacts_promote.sql` — `normalize_identity_email`, `normalize_identity_phone`
 >     (the Rust domain rules restated in SQL, because the matching happens in SQL) and
 >     `warehouse_promote_apple_contacts(p_apply boolean)` — plan, tallies and every write, set-based.
->   * `rust/cli/src/apple_contacts.rs` `warehouse_promote` + `apple-sync warehouse-promote [dev|prod] [--apply]`,
+>   * `cli/src/apple_contacts.rs` `warehouse_promote` + `apple-sync warehouse-promote [dev|prod] [--apply]`,
 >     thin caller, `--apply` refreshes the client read models afterwards (a materialized view cannot be
 >     refreshed `concurrently` inside a function's transaction).
 >   * `scripts/contacts-sync.sh:158` repointed; `promote-warehouse.ts` is dead and stays dead.
@@ -94,7 +94,7 @@ TypeScript. Mail, Gmail, Messages and Calls are done. **Contacts is the one left
 | S1 | The scheduled Apple Messages job runs the Rust intake again; its last failure was the deleted script and nothing else | `pnpm apple:sync:status` — wrapper is `scripts/apple-sync.sh`, `cargo run … apple-sync messages-intake`, last failure 2026-09-28T12:04 was `apple-messages-intake.ts` |
 | S2 | Full Disk Access survived the launcher rebuild | `pnpm apple:sync:verify-tcc` → `TCC VERIFY: OK chat.db opened READ-ONLY message_count=95084` |
 | S3 | `apple-calls-sync.sh` is repointed and the whole calls chain is Rust | `git show c292beea --stat`, wrapper line ~41 |
-| S4 | The contacts notes step is Rust | `rust/cli/src/apple_contacts.rs`; `cargo run -p cli -- apple-sync contacts-notes --file <export.json>` |
+| S4 | The contacts notes step is Rust | `cli/src/apple_contacts.rs`; `cargo run -p cli -- apple-sync contacts-notes --file <export.json>` |
 | S5 | **`contacts-sync.sh:130,135,143,149` still call deleted TypeScript** — ported so far: line 130 only | `grep -n 'import tsx' scripts/contacts-sync.sh` |
 | S6 | Contacts is the chain that writes `person`/`property` (and `db/migrations/228_person_merge.sql` reads it) — this is the data-integrity-sensitive path | `scripts/promote-warehouse.ts` header; inventory §"Live callers" |
 | S7 | The mail chain touches no canonical row: `person` 2683→2683, `property` 2156→2156 on the DEV promotion | `docs/agent/HANDOFF-forge-port-2026-09-28.md` §9 |
@@ -111,16 +111,16 @@ TypeScript. Mail, Gmail, Messages and Calls are done. **Contacts is the one left
 
 | Your task | Read | The files you touch |
 | --- | --- | --- |
-| Port the ODS load | `scripts/load-apple-contacts.ts` (reference only) + its deleted deps: `git show 4cf98110^:lib/intake/apple-contacts.ts`, `…:lib/intake/batch.ts`, `…:legacy/db/integration-inbox.ts` | `rust/cli/src/apple_contacts.rs`, `rust/core/db/src/{apple_ods,intake}.rs` |
+| Port the ODS load | `scripts/load-apple-contacts.ts` (reference only) + its deleted deps: `git show 4cf98110^:lib/intake/apple-contacts.ts`, `…:lib/intake/batch.ts`, `…:legacy/db/integration-inbox.ts` | `cli/src/apple_contacts.rs`, `db/src/{apple_ods,intake}.rs` |
 | Port the `l_person`/`l_property` projection | `scripts/project-apple-contacts.ts` — the SQL is in §5 | same |
-| Port the warehouse promotion (DEV_OPS P0) | `scripts/promote-warehouse.ts` — SQL and rules in §5 | `rust/cli/src/apple_contacts.rs`, `db::PersonDao` if a statement is missing |
+| Port the warehouse promotion (DEV_OPS P0) | `scripts/promote-warehouse.ts` — SQL and rules in §5 | `cli/src/apple_contacts.rs`, `db::PersonDao` if a statement is missing |
 | Repoint the wrapper | `scripts/contacts-sync.sh:130,135,143,149` | that file, then `docs/agent/BROKEN-TS-INVENTORY.md:64` |
 
 ## 4. DONE — what landed, with the receipts
 
 | Commit | What it changed | The gate that ran |
 | --- | --- | --- |
-| `c292beea` | Calls chain ported; `apple-calls-sync.sh` repointed; inventory updated | `cargo check --workspace --all-targets` (exit 0), `cargo test -p domain apple_calls` (6 passed), live DEV run |
+| `c292beea` | Calls chain ported; `apple-calls-sync.sh` repointed; inventory updated | `cargo check --workspace --all-targets` (exit 0), `cargo test -p model apple_calls` (6 passed), live DEV run |
 | `82030fed` | Contacts notes merge ported (`apple-sync contacts-notes`) | `cargo check -p cli --all-targets`, `cargo test -p cli apple_contacts` (2 passed), live run on a copy of the export: 21 people with notes, 9/2855 merged, 2.1s |
 
 ## 5. The extracted design — port this, do not re-read the TypeScript
@@ -173,7 +173,7 @@ transaction, all keyed on the newest **loaded** batch:
 **`warehouse-promote --env prod [--apply]`** (from `promote-warehouse.ts`; dry run by default)
 
 - `LANDING_SQL`: `l_person` for `source='apple_contacts'` plus its LEGAL address from `l_property`;
-- identity is the normalized email/phone (`domain::apple_messages::{normalize_email,
+- identity is the normalized email/phone (`model::apple_messages::{normalize_email,
   normalize_phone}`); read every `person_identity` once; exactly one owner → match, none → create,
   more than one → **ambiguous and left alone, never guessed**;
 - create the new people (`display_name` = landing name or `(unnamed)`, role `unclassified`,
@@ -191,8 +191,8 @@ transaction, all keyed on the newest **loaded** batch:
 ## 6. NOT VERIFIED — the honest gaps
 
 - Nothing in the Contacts chain has run in Rust: `load`, `project` and `promote` do not exist yet.
-- `pnpm ui:check` was not run — neither commit touches `rust/ui`.
-- `cargo test -p server catch_up::tests::snooze_is_bounded_and_handle_is_a_repository_command` fails
+- `pnpm ui:check` was not run — neither commit touches `web/ui`.
+- `cargo test -p web catch_up::tests::snooze_is_bounded_and_handle_is_a_repository_command` fails
   on the clean tree as well (stashed, re-run, failed identically). Pre-existing, not from this work.
 - The DEV calls run proves replay safety and the interaction write; it says nothing about PROD counts.
 
@@ -215,6 +215,6 @@ transaction, all keyed on the newest **loaded** batch:
   four JSON tallies; no: leave it DEV-verified and say so.
 - "Re-arm the scheduled job again?" — only if `pnpm apple:sync:verify-tcc` fails after a macOS
   update: `pnpm apple:sync:install`, then re-grant Full Disk Access when macOS asks.
-- "Gmail API fallback?" — `rust/cli gmail-sync` needs `GOOGLE_CLIENT_ID`/`_SECRET`/`_REFRESH_TOKEN`
+- "Gmail API fallback?" — `cli gmail-sync` needs `GOOGLE_CLIENT_ID`/`_SECRET`/`_REFRESH_TOKEN`
   only if the local Mail.app `[Gmail]/All Mail` route ever misses mail; today it does not.
 

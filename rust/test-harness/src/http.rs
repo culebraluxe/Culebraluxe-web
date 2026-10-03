@@ -6,7 +6,7 @@
 //! client, or a race for one.
 //!
 //! Every helper takes the router the production code would build. If a test needs a router, it composes it the way
-//! `rust/server` composes it; the harness does not own a second one.
+//! `web` composes it; the harness does not own a second one.
 
 use axum::body::{to_bytes, Body, Bytes};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};

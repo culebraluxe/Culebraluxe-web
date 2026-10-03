@@ -2,12 +2,12 @@
 //!
 //! Contract: a line that enters the book from outside — a bank feed, an import, a form — is normalised by exactly
 //! three rules and no others: text is **trimmed**, a blank optional becomes **absent** (`trimmed_or_none`,
-//! `rust/core/domain/src/accounting.rs:477`) rather than an empty string, and the amount keeps **the digits it was
-//! given** (`CreateReceivableCommand::normalised`, `rust/core/domain/src/accounting.rs:417`;
+//! `middle/model/src/accounting.rs:477`) rather than an empty string, and the amount keeps **the digits it was
+//! given** (`CreateReceivableCommand::normalised`, `middle/model/src/accounting.rs:417`;
 //! `CreateExpenseCommand::normalised`, `:366`).
 //!
 //! Normalisation is NOT a repair step. It never rounds, re-scales or re-formats an amount — Postgres `numeric` holds
-//! what it is given and the module note at `rust/core/domain/src/accounting.rs:7-11` says why (an f64 cannot
+//! what it is given and the module note at `middle/model/src/accounting.rs:7-11` says why (an f64 cannot
 //! represent 0.1, and a summary that is a cent out is a summary nobody can reconcile) — and it never rewrites a
 //! value it could not validate: a malformed amount is refused by `validate` before `normalised` can store it.
 //!
@@ -17,9 +17,9 @@
 //! Level: L0 Pure — no database, no socket, deterministic.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test accounting_core__002__bank_transaction_normalization
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test accounting_core__002__bank_transaction_normalization
 
-use domain::accounting::{trimmed_or_none, CreateExpenseCommand, CreateReceivableCommand, Money};
+use model::accounting::{trimmed_or_none, CreateExpenseCommand, CreateReceivableCommand, Money};
 
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ACCOUNTING-CORE-002); the file and the assay use it.

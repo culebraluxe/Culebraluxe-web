@@ -1,0 +1,25 @@
+[package]
+name = "cli"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64.workspace = true
+chrono.workspace = true
+dotenvy = "0.15"
+db = { path = "../db" }
+model = { path = "../middle/model" }
+forge = { path = "../forge" }
+indexmap = { version = "2", features = ["serde"] }
+apis = { path = "../middle/apis" }
+regex.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+web = { path = "../web" }
+services = { path = "../middle/services" }
+tokio.workspace = true
+uuid.workspace = true
+workflow = { path = "../middle/workflow" }

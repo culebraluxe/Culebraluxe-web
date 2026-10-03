@@ -1,6 +1,6 @@
 ---
 name: ui
-description: Use when changing UI under rust/ui - brand tokens, the editorial house style, iPad targets, data-derived screens
+description: Use when changing UI under web/ui - brand tokens, the editorial house style, iPad targets, data-derived screens
 ---
 
 # Skill: ui

@@ -10,7 +10,7 @@
 #   ~/Library/Messages/chat.db
 #     -> apple-messages-export (READ-ONLY)
 #     -> public/upload/data/apple-messages-export/   (gitignored package)
-#     -> rust/cli apple-sync messages-intake         (ODS -> reconcile -> interaction)
+#     -> cli apple-sync messages-intake         (ODS -> reconcile -> interaction)
 #     -> Client read-model refresh  (conversation-burst Contact History)
 #
 # Replay-safe: canonical interactions key on (source_system=apple_messages,
@@ -115,7 +115,7 @@ step_log "verifying environment"
 [ -f .env.local ] || fail "missing .env.local at $REPO_ROOT"
 grep -qE '^DATABASE_URL_PROD=.+' .env.local || fail "DATABASE_URL_PROD missing/empty in .env.local (refusing to touch pipeline)"
 command -v swift >/dev/null 2>&1 || fail "swift not found in PATH"
-command -v cargo >/dev/null 2>&1 || fail "cargo not found in PATH (the intake is Rust: rust/cli apple-sync messages-intake)"
+command -v cargo >/dev/null 2>&1 || fail "cargo not found in PATH (the intake is Rust: cli apple-sync messages-intake)"
 
 # --- fresh export ------------------------------------------------------------
 step_log "exporter start"
@@ -152,14 +152,14 @@ manifest_dated="$(grep -qE '"minimumMessageDate"[[:space:]]*:[[:space:]]*"' "$EX
 step_log "validation OK: messages=$msg_count dated=yes"
 
 # --- PROD intake --------------------------------------------------------------
-# The intake is the Rust CLI (`rust/cli`, apple-sync messages-intake): one pass that upserts ODS
+# The intake is the Rust CLI (`cli`, apple-sync messages-intake): one pass that upserts ODS
 # evidence, reconciles to a canonical Person, materializes interactions and refreshes the client
 # read models. APP_ENV=production is what makes it the PRODUCTION database - the resolver refuses to
 # guess and the tally it prints names the target it actually resolved.
 step_log "intake start (PROD, rust)"
 intake_out="$(mktemp)"; intake_err="$(mktemp)"
 if APP_ENV=production CULEBRALUXE_REPO="$REPO_ROOT" \
-  cargo run -q --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- \
+  cargo run -q --manifest-path "$REPO_ROOT/Cargo.toml" -p cli -- \
   apple-sync messages-intake "$EXPORT_DIR" \
   > >(tee "$intake_out") \
   2> >(tee "$intake_err" >&2); then

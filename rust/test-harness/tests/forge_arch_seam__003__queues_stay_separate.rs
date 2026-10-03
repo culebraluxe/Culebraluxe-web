@@ -77,9 +77,9 @@ fn a_generation_runs_its_role_jobs_with_no_story_queue_row_and_carries_no_work_i
 
 /// The story-queue side, and what it may never touch.
 const STORY_QUEUE_RUST: [&str; 5] = [
-    "core/db/src/forge_engine.rs",
-    "core/db/src/forge_control.rs",
-    "core/db/src/forge_reset.rs",
+    "db/src/forge_engine.rs",
+    "db/src/forge_control.rs",
+    "db/src/forge_reset.rs",
     "forge/src/engine/agent_work.rs",
     "forge/src/engine/worker.rs",
 ];
@@ -163,7 +163,7 @@ fn the_role_job_stack_never_touches_the_story_queue() {
     .map(|file| (file.to_string(), production_code(&rust_root().join(file))))
     .collect();
     tree.extend(production_tree("forge/src/roles"));
-    tree.extend(production_tree("core/workflow/src"));
+    tree.extend(production_tree("middle/workflow/src"));
     let hits = naming(&tree, &STORY_QUEUE_VOCABULARY);
     assert!(
         hits.is_empty(),
@@ -175,7 +175,7 @@ fn the_role_job_stack_never_touches_the_story_queue() {
 #[test]
 fn the_composition_root_is_the_one_place_both_queues_meet() {
     let mut both = Vec::new();
-    for tree in ["forge/src", "cli/src", "server/src"] {
+    for tree in ["forge/src", "cli/src", "web/src"] {
         for (path, code) in production_tree(tree) {
             let story = STORY_QUEUE_VOCABULARY
                 .iter()
@@ -194,7 +194,7 @@ fn the_composition_root_is_the_one_place_both_queues_meet() {
     }
     assert_eq!(
         both,
-        vec!["rust/forge/src/bin/forge.rs".to_string()],
+        vec!["forge/src/bin/forge.rs".to_string()],
         "a second production file holds both queues — the place a re-collapse would start"
     );
 }

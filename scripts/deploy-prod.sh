@@ -25,7 +25,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 printf '\n1/5 Building the stylesheet...\n'
-npx --no-install tailwindcss -i rust/ui/styles/app.css -o public/app.css --minify || fail "The stylesheet build failed."
+npx --no-install tailwindcss -i web/ui/styles/app.css -o public/app.css --minify || fail "The stylesheet build failed."
 
 printf '\n2/5 Compiling the application on this Mac (the first run is slow; later runs reuse the cache)...\n'
 docker build -f deploy/Dockerfile.build --output "type=local,dest=$WORK/build" . || fail "The local compile failed."
@@ -46,7 +46,7 @@ gzip -9 -c "$WORK/build/culebraluxe" > "$STAGE/culebraluxe.gz"
 rsync -a --exclude rust-ui --exclude '* 2.*' --exclude '* 2' public/ "$STAGE/public/"
 cp "$WORK/build/ui.js" "$STAGE/public/rust-ui/ui.js"
 gzip -9 -c "$WORK/build/ui_bg.wasm" > "$STAGE/public/rust-ui/ui_bg.wasm.gz"
-rsync -a lib/forms/templates/ "$STAGE/templates/"
+rsync -a middle/model/forms/templates/ "$STAGE/templates/"
 printf '  upload size: %s\n' "$(du -sh "$STAGE" | cut -f1)"
 
 printf '\n4/5 Making sure the project runs the application container...\n'

@@ -1,6 +1,6 @@
 # Layer: FORGE (separate on purpose)
 
-Crate: **`rust/forge`**. **Owns:** the engine that *builds this product* — not the product. If you are changing how a
+Crate: **`forge`**. **Owns:** the engine that *builds this product* — not the product. If you are changing how a
 client's transaction behaves, you are in [WORKFLOW.md](WORKFLOW.md), not here. Forge is tooling, and nothing the product
 serves depends on it.
 
@@ -14,7 +14,7 @@ serves depends on it.
 
 ## Layout
 
-`rust/forge/src/engine/` — around sixty modules. Groups, not an index:
+`forge/src/engine/` — around sixty modules. Groups, not an index:
 
 | group | examples | what they are |
 | --- | --- | --- |

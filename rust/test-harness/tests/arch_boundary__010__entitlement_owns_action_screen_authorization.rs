@@ -1,25 +1,25 @@
 //! ARCH.BOUNDARY — Entitlement owns action/screen authorization (TST-ARCH-BOUNDARY-010).
 //!
 //! Contract: a screen's visibility and an offered control are **one entitlement decision each**, made from a vocabulary
-//! the server can actually decide. `rust/server/src/security/entitlement_catalog.rs` is that vocabulary — an action it
+//! the server can actually decide. `web/src/security/entitlement_catalog.rs` is that vocabulary — an action it
 //! cannot name cannot be decided by the authorize endpoint, and the file says so — so **no screen may gate itself on a
 //! code the catalog does not contain**. A gate on an uncatalogued code is not a gate: it is a screen that can only ever
-//! be reached by ROOT (`Actor::holds_entitlement` satisfies ROOT for everything, `rust/ui/src/navigation.rs:78-81`),
+//! be reached by ROOT (`Actor::holds_entitlement` satisfies ROOT for everything, `web/ui/src/navigation.rs:78-81`),
 //! with no policy able to grant it to anyone else. That is exactly how a screen becomes invisible for reasons nobody can
 //! diagnose, and it is what this test refuses.
 //!
 //! Three facts are pinned, each in **both directions** — a new one fails (that is the new hole) and a pin that no longer
 //! matches fails too (so the surface may only change deliberately):
 //!
-//!   - **The gate vocabulary.** The 60 entries in `rust/ui/src/app/registry.rs` require 12 distinct entitlements and 4
+//!   - **The gate vocabulary.** The 60 entries in `web/ui/src/app/registry.rs` require 12 distinct entitlements and 4
 //!     distinct authorities. Every required entitlement is a catalogued action; the authority half is legacy vocabulary
 //!     (see the debt below).
-//!   - **The readers.** Exactly four places in `rust/ui/src` read the actor's entitlement list to decide a boolean:
+//!   - **The readers.** Exactly four places in `web/ui/src` read the actor's entitlement list to decide a boolean:
 //!     `registry.rs item_visible`, `registry.rs surface_visible`, `screen.rs can` and `navigation.rs holds_entitlement`.
 //!     A fifth reader is a second adjudicator.
 //!   - **The root-only codes have one writer.** `security.entitlement.manage` and `security.role.manage` are written as
-//!     string literals in exactly one file in the tree — `rust/core/domain/src/security.rs` — and every other production
-//!     site names them through `domain::security::{ENTITLEMENT_MANAGE, ROLE_MANAGE}`. A retyped literal is how the
+//!     string literals in exactly one file in the tree — `middle/model/src/security.rs` — and every other production
+//!     site names them through `model::security::{ENTITLEMENT_MANAGE, ROLE_MANAGE}`. A retyped literal is how the
 //!     server and the portal drift apart.
 //!
 //! The honest state of the tree today, recorded rather than hidden:
@@ -38,12 +38,12 @@
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test arch_boundary__010__entitlement_owns_action_screen_authorization
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test arch_boundary__010__entitlement_owns_action_screen_authorization
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use domain::security::{ENTITLEMENT_MANAGE, ROLE_MANAGE};
+use model::security::{ENTITLEMENT_MANAGE, ROLE_MANAGE};
 use test_harness::source;
 
 /// The entitlement every screen gate asks for, pinned. Adding a screen that asks for a new action is a deliberate edit
@@ -71,12 +71,12 @@ const SCREEN_AUTHORITIES: [&str; 4] = ["deal.read", "portal.read", "settings.rea
 /// by moving a screen's gate onto a catalogued entitlement or by cataloguing the action.
 const AUTHORITIES_WITHOUT_AN_ACTION: [&str; 1] = ["settings.read"];
 
-/// Every place in `rust/ui/src` that reads the actor's entitlement list to decide a boolean, as `path function`.
+/// Every place in `web/ui/src` that reads the actor's entitlement list to decide a boolean, as `path function`.
 const ENTITLEMENT_READERS: [&str; 4] = [
-    "rust/ui/src/app/registry.rs item_visible",
-    "rust/ui/src/app/registry.rs surface_visible",
-    "rust/ui/src/app/screen.rs can",
-    "rust/ui/src/navigation.rs holds_entitlement",
+    "web/ui/src/app/registry.rs item_visible",
+    "web/ui/src/app/registry.rs surface_visible",
+    "web/ui/src/app/screen.rs can",
+    "web/ui/src/navigation.rs holds_entitlement",
 ];
 
 /// The public read actions, which the anonymous door uses and which must therefore be catalogued like any other.
@@ -93,7 +93,7 @@ const UNGATED_ENTRIES: usize = 31;
 /// 42 actions today and is allowed to grow.
 const CATALOG_FLOOR: usize = 40;
 
-/// A floor on the UI sources the reader scan walks. 146 `.rs` files live under `rust/ui/src` today.
+/// A floor on the UI sources the reader scan walks. 146 `.rs` files live under `web/ui/src` today.
 const UI_SOURCE_FLOOR: usize = 100;
 
 fn in_repo(relative: &str) -> PathBuf {
@@ -166,12 +166,12 @@ fn call_args(body: &str) -> Vec<String> {
     args
 }
 
-/// The action → operation-kind pairs the server's catalog declares, with the two `domain::security` constants resolved.
+/// The action → operation-kind pairs the server's catalog declares, with the two `model::security` constants resolved.
 ///
 /// A constant the test does not know is a failure, not a skip: an unnamed entry would silently leave the catalog looking
 /// smaller than it is, which is the one thing this scanner must not do.
 fn entitlement_catalog() -> Vec<(String, String)> {
-    let text = source::read(&in_repo("rust/server/src/security/entitlement_catalog.rs"));
+    let text = source::read(&in_repo("web/src/security/entitlement_catalog.rs"));
     let mut out = Vec::new();
     let mut inside = false;
     let mut constants = 0;
@@ -194,7 +194,7 @@ fn entitlement_catalog() -> Vec<(String, String)> {
             assert_eq!(
                 found.len(),
                 2,
-                "rust/server/src/security/entitlement_catalog.rs — `{code}` is not an action and its operation kind; a \
+                "web/src/security/entitlement_catalog.rs — `{code}` is not an action and its operation kind; a \
                  differently shaped entry must update this scanner, not slip past it"
             );
             out.push((found[0].clone(), found[1].clone()));
@@ -203,8 +203,8 @@ fn entitlement_catalog() -> Vec<(String, String)> {
         constants += 1;
         let name = body.split(',').next().unwrap_or(body).trim();
         let action = match name {
-            "domain::security::ENTITLEMENT_MANAGE" => domain::security::ENTITLEMENT_MANAGE,
-            "domain::security::ROLE_MANAGE" => domain::security::ROLE_MANAGE,
+            "model::security::ENTITLEMENT_MANAGE" => model::security::ENTITLEMENT_MANAGE,
+            "model::security::ROLE_MANAGE" => model::security::ROLE_MANAGE,
             other => panic!(
                 "the catalog names `{other}`, which this contract does not know: a new constant in the catalog is a \
                  deliberate addition — resolve it here so its action stays visible to the scanner"
@@ -216,7 +216,7 @@ fn entitlement_catalog() -> Vec<(String, String)> {
     }
     assert_eq!(
         constants, 2,
-        "the catalog names its two root-only actions through `domain::security`; another constant reference is a new \
+        "the catalog names its two root-only actions through `model::security`; another constant reference is a new \
          root-only action, and a privilege change this test exists to see"
     );
     out
@@ -224,11 +224,11 @@ fn entitlement_catalog() -> Vec<(String, String)> {
 
 /// The public read actions, as the server's authorize seam declares them.
 fn public_read_actions() -> BTreeSet<String> {
-    let text = source::read(&in_repo("rust/server/src/security/entitlements.rs"));
+    let text = source::read(&in_repo("web/src/security/entitlements.rs"));
     let line = text
         .lines()
         .find(|line| source::code_of(line).contains("const PUBLIC_READ_ACTIONS"))
-        .expect("rust/server/src/security/entitlements.rs declares PUBLIC_READ_ACTIONS");
+        .expect("web/src/security/entitlements.rs declares PUBLIC_READ_ACTIONS");
     literals(source::code_of(line)).into_iter().collect()
 }
 
@@ -238,12 +238,12 @@ struct Gate {
     entitlement: String,
 }
 
-/// The `entry(...)` gates in `rust/ui/src/app/registry.rs`.
+/// The `entry(...)` gates in `web/ui/src/app/registry.rs`.
 ///
 /// Every call must read as the signature's eight arguments: a gate written in a shape this scanner cannot read would be
 /// a gate that is not checked, so a mismatch is a failure with the reason, never a skip.
 fn registry_gates() -> Vec<Gate> {
-    let text = source::read(&in_repo("rust/ui/src/app/registry.rs"));
+    let text = source::read(&in_repo("web/ui/src/app/registry.rs"));
     let mut out = Vec::new();
     for line in text.lines() {
         let code = source::code_of(line);
@@ -257,7 +257,7 @@ fn registry_gates() -> Vec<Gate> {
         assert_eq!(
             args.len(),
             8,
-            "rust/ui/src/app/registry.rs — this `entry(...)` call does not read as eight arguments ({} found: {:?}); the \
+            "web/ui/src/app/registry.rs — this `entry(...)` call does not read as eight arguments ({} found: {:?}); the \
              registry's gate codes must stay visible to this contract",
             args.len(),
             args
@@ -265,7 +265,7 @@ fn registry_gates() -> Vec<Gate> {
         let unquote = |argument: &str, what: &str| -> String {
             assert!(
                 argument.starts_with('"') && argument.ends_with('"') && argument.len() >= 2,
-                "rust/ui/src/app/registry.rs — a gate's {what} is `{argument}`, not a string literal; a computed gate \
+                "web/ui/src/app/registry.rs — a gate's {what} is `{argument}`, not a string literal; a computed gate \
                  cannot be checked against the catalog"
             );
             argument.trim_matches('"').to_string()
@@ -328,10 +328,10 @@ fn enclosing_fn(text: &str, first_line: usize) -> String {
     "<none>".to_string()
 }
 
-/// Every place under `rust/ui/src` that decides from an entitlement list, as `path function`.
+/// Every place under `web/ui/src` that decides from an entitlement list, as `path function`.
 fn entitlement_readers() -> BTreeSet<String> {
     let mut out = BTreeSet::new();
-    for path in source::sources_under(&source::rust_root().join("ui/src")) {
+    for path in source::sources_under(&source::rust_root().join("web/ui/src")) {
         let text = source::read(&path);
         let lines: Vec<&str> = text.lines().collect();
         for index in 0..lines.len() {
@@ -386,7 +386,7 @@ fn arch_boundary_010__entitlement_owns_action_screen_authorization() {
         ),
         (
             vec![
-                "            entitlement_codes: domain::security::ROOT_ONLY_ACTIONS",
+                "            entitlement_codes: model::security::ROOT_ONLY_ACTIONS",
                 "                .iter()",
                 "                .map(|code| code.to_string())",
                 "                .collect(),",
@@ -442,7 +442,7 @@ fn arch_boundary_010__entitlement_owns_action_screen_authorization() {
     assert_eq!(
         declared.len(),
         catalog.len(),
-        "an action is named twice in rust/server/src/security/entitlement_catalog.rs: one fact, one row"
+        "an action is named twice in web/src/security/entitlement_catalog.rs: one fact, one row"
     );
     let kinds: BTreeSet<&str> = catalog.values().map(String::as_str).collect();
     assert_eq!(
@@ -479,7 +479,7 @@ fn arch_boundary_010__entitlement_owns_action_screen_authorization() {
     assert_eq!(
         gates.len(),
         ENTRY_COUNT,
-        "the registry's screen count changed: a screen was added to or removed from rust/ui/src/app/registry.rs, and \
+        "the registry's screen count changed: a screen was added to or removed from web/ui/src/app/registry.rs, and \
          this contract's pins move with it"
     );
     let ungated = gates
@@ -505,8 +505,8 @@ fn arch_boundary_010__entitlement_owns_action_screen_authorization() {
     for code in &entitlements {
         assert!(
             catalog.contains_key(*code),
-            "rust/ui/src/app/registry.rs gates a screen on `{code}`, which \
-             rust/server/src/security/entitlement_catalog.rs cannot name: the authorize endpoint refuses what it cannot \
+            "web/ui/src/app/registry.rs gates a screen on `{code}`, which \
+             web/src/security/entitlement_catalog.rs cannot name: the authorize endpoint refuses what it cannot \
              name, so no role could ever be granted it and only ROOT would reach the screen"
         );
     }
@@ -538,7 +538,7 @@ fn arch_boundary_010__entitlement_owns_action_screen_authorization() {
          new entry here means a new gate built on a vocabulary the server cannot answer"
     );
 
-    // 5. THE READERS. Four places in `rust/ui/src` decide from an entitlement list. A fifth is a second adjudicator: it
+    // 5. THE READERS. Four places in `web/ui/src` decide from an entitlement list. A fifth is a second adjudicator: it
     //    is how a screen ends up offering what the API refuses.
     let readers = entitlement_readers();
     assert_eq!(
@@ -551,15 +551,15 @@ fn arch_boundary_010__entitlement_owns_action_screen_authorization() {
          inline instead of calling `Actor::holds_entitlement` (a second copy of one rule, equivalent today) — if that \
          refactor lands, this pin is the record of it"
     );
-    let ui_sources = source::sources_under(&source::rust_root().join("ui/src")).len();
+    let ui_sources = source::sources_under(&source::rust_root().join("web/ui/src")).len();
     assert!(
         ui_sources >= UI_SOURCE_FLOOR,
-        "the reader scan walked {ui_sources} files under rust/ui/src, below the {UI_SOURCE_FLOOR} floor: a scan that \
+        "the reader scan walked {ui_sources} files under web/ui/src, below the {UI_SOURCE_FLOOR} floor: a scan that \
          found almost nothing would pass this test while checking nothing"
     );
     assert!(
-        source::read(&in_repo("rust/ui/src/app/screen.rs")).contains("domain::security::is_root_only("),
-        "the portal offers a root-only action by asking the domain (`domain::security::is_root_only`), never by \
+        source::read(&in_repo("web/ui/src/app/screen.rs")).contains("model::security::is_root_only("),
+        "the portal offers a root-only action by asking the domain (`model::security::is_root_only`), never by \
          re-typing the two codes"
     );
 
@@ -568,17 +568,17 @@ fn arch_boundary_010__entitlement_owns_action_screen_authorization() {
     for code in [ENTITLEMENT_MANAGE, ROLE_MANAGE] {
         assert_eq!(
             files_mentioning(&source::rust_root(), code),
-            BTreeSet::from(["rust/core/domain/src/security.rs".to_string()]),
+            BTreeSet::from(["middle/model/src/security.rs".to_string()]),
             "the root-only action `{code}` is written as a string literal outside \
-             rust/core/domain/src/security.rs; name it through `domain::security` instead, so the two readers cannot \
+             middle/model/src/security.rs; name it through `model::security` instead, so the two readers cannot \
              disagree about what it says"
         );
     }
-    let catalog_text = source::read(&in_repo("rust/server/src/security/entitlement_catalog.rs"));
+    let catalog_text = source::read(&in_repo("web/src/security/entitlement_catalog.rs"));
     for constant in ["ENTITLEMENT_MANAGE", "ROLE_MANAGE"] {
         assert_eq!(
             catalog_text
-                .matches(&format!("domain::security::{constant}"))
+                .matches(&format!("model::security::{constant}"))
                 .count(),
             1,
             "the catalog names `{constant}` once, through the domain constant"

@@ -10,25 +10,25 @@
 //! This is the production boundary, not a re-declaration of it. The real `WorkflowEngine<FlakyConnectionStore>` is
 //! driven through `start_process` and `complete_task`; the `FlakyConnectionStore` delegates every byte of storage to
 //! the production `MemoryStore` and composes the production transaction contract. The subject under test is
-//! `WorkflowEngine::handle_join` at `rust/core/workflow/src/engine/handle_join.rs:7-119`:
+//! `WorkflowEngine::handle_join` at `middle/workflow/src/engine/handle_join.rs:7-119`:
 //!
-//! - `count_required_active_siblings` (`rust/core/workflow/src/engine/handle_join.rs:42`) is the only gate that can
-//!   hold the join back, and it counts **required** siblings only (`rust/core/workflow/src/memory.rs:283-294`).
-//! - `list_optional_active_siblings` (`rust/core/workflow/src/engine/handle_join.rs:46`,
-//!   `rust/core/workflow/src/memory.rs:296-308`) is the set the join skips: each is completed `Skipped`, its tasks
+//! - `count_required_active_siblings` (`middle/workflow/src/engine/handle_join.rs:42`) is the only gate that can
+//!   hold the join back, and it counts **required** siblings only (`middle/workflow/src/memory.rs:283-294`).
+//! - `list_optional_active_siblings` (`middle/workflow/src/engine/handle_join.rs:46`,
+//!   `middle/workflow/src/memory.rs:296-308`) is the set the join skips: each is completed `Skipped`, its tasks
 //!   obsoleted and its jobs cancelled, with a `token.skipped` event per branch
-//!   (`rust/core/workflow/src/engine/handle_join.rs:46-80`).
+//!   (`middle/workflow/src/engine/handle_join.rs:46-80`).
 //! - Once no required sibling remains, exactly one `token.joined` event and one result token are produced
-//!   (`rust/core/workflow/src/engine/handle_join.rs:106-118`).
+//!   (`middle/workflow/src/engine/handle_join.rs:106-118`).
 //!
 //! Level: L4 Adversarial, harness `WorkflowHarness`. The adversarial half is a deterministic fault: the join step
 //! dies once on a broken connection and the **production** retry rule (`repeat_connection_failures`,
-//! `rust/core/workflow/src/store.rs:146-165`, the same function `NeonStore::with_tx` runs) repeats the step. The
+//! `middle/workflow/src/store.rs:146-165`, the same function `NeonStore::with_tx` runs) repeats the step. The
 //! rolled-back attempt must leave no trace, so the run converges on **one** legal durable state — one join, one
 //! skip per optional sibling.
 //!
 //! A ledger graph is used because the fork is where optional siblings are born (`required = transition.required
-//! .unwrap_or(true)`, `rust/core/workflow/src/engine/execute_node_leave.rs:388`):
+//! .unwrap_or(true)`, `middle/workflow/src/engine/execute_node_leave.rs:388`):
 //!
 //! ```text
 //! start -> fan (fork)
@@ -43,7 +43,7 @@
 //! retirement path is exercised for an open task and for a held (locked) job whose lease it must clear.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test wf_join__002__optional_siblings_handled_correctly
 
 use std::collections::BTreeMap;
 
@@ -95,7 +95,7 @@ const WORKER: &str = "worker-1";
 /// storage is `MemoryStore`'s and the decision to repeat a broken step is `repeat_connection_failures`, the function
 /// `NeonStore::with_tx` calls in production. On the scripted fault the step body is run against the real store and
 /// then the transaction is forced to fail; `MemoryStore` restores its snapshot
-/// (`rust/core/workflow/src/memory.rs:38-53`), so the repeated step sees exactly the state the first attempt saw.
+/// (`middle/workflow/src/memory.rs:38-53`), so the repeated step sees exactly the state the first attempt saw.
 #[derive(Clone)]
 struct FlakyConnectionStore {
     memory: MemoryStore,
@@ -172,7 +172,7 @@ fn ledger_definition() -> ProcessDefinition {
             name: Some("Fan".to_string()),
             transitions: Some(vec![
                 // main — a required branch BY DEFAULT: the transition carries no explicit `required`, and the fork
-                // rule (`transition.required.unwrap_or(true)`, `rust/core/workflow/src/engine/execute_node_leave.rs:388`)
+                // rule (`transition.required.unwrap_or(true)`, `middle/workflow/src/engine/execute_node_leave.rs:388`)
                 // still mints it required. Only an explicit `false` below makes a sibling optional, so a sibling that
                 // merely omits `required` must keep holding the join — that is the boundary the optionals are defined
                 // against, and the fork-event assertion below pins it.
@@ -408,7 +408,7 @@ fn wf_join_002__optional_siblings_handled_correctly() {
 
     // The default is the load-bearing half of the split. The required branch's transition declared NO `required`,
     // yet the production fork rule minted it required; the optional branches are optional only because they said
-    // `false` explicitly (`rust/core/workflow/src/engine/execute_node_leave.rs:388`,
+    // `false` explicitly (`middle/workflow/src/engine/execute_node_leave.rs:388`,
     // `let required = transition.required.unwrap_or(true)`). The `token.forked` events carry that decision, so a fork
     // that defaulted an unspecified sibling to optional — silently letting the join fire early — fails here, where
     // the token counts above already would, but the durable log names the rule that produced them.
@@ -567,7 +567,7 @@ fn wf_join_002__optional_siblings_handled_correctly() {
     // and each optional branch — the one that arrived and the two it retired — and no other token. A join that
     // listed an unrelated token, dropped an optional sibling, or double-counted one would satisfy the count above
     // but fail here, so this clause pins `branches` to the sibling set the fork actually minted
-    // (`rust/core/workflow/src/engine/handle_join.rs:82-86`, fed to the event at `:106-117`).
+    // (`middle/workflow/src/engine/handle_join.rs:82-86`, fed to the event at `:106-117`).
     let mut joined_branches: Vec<String> = joined[0]
         .data
         .get("branches")
@@ -600,7 +600,7 @@ fn wf_join_002__optional_siblings_handled_correctly() {
         "{HARNESS}: the join names the single result token"
     );
     // The event's own durable `token_id` column must be the result token too, not merely the `resultTokenId` datum.
-    // The join emits with `token_id: Some(new_token.id.clone())` (`rust/core/workflow/src/engine/handle_join.rs:110`),
+    // The join emits with `token_id: Some(new_token.id.clone())` (`middle/workflow/src/engine/handle_join.rs:110`),
     // so a join that attributed the event to the arriving branch token — the `token` it was called with — while still
     // naming the right result in its payload would satisfy every other clause and fail only here. The two must agree.
     assert_eq!(
@@ -614,7 +614,7 @@ fn wf_join_002__optional_siblings_handled_correctly() {
         "{HARNESS}: the result token belongs to the fork that was joined"
     );
     // Optional siblings are absorbed by the join, but the join's own continuation is a REQUIRED token
-    // (`rust/core/workflow/src/engine/handle_join.rs:99`, `required: true`). If the result were minted optional, the
+    // (`middle/workflow/src/engine/handle_join.rs:99`, `required: true`). If the result were minted optional, the
     // join output would itself be skippable and could not hold an enclosing join; nothing else in this test reads the
     // result token's `required` flag, so a regression there would pass silently without this clause.
     assert!(
@@ -624,7 +624,7 @@ fn wf_join_002__optional_siblings_handled_correctly() {
     // The join event is attributed to the join node it actually fired at, not merely to a token: both the event's
     // `node_id` and its `joinNodeId` datum must name `converge`. A join that recorded the wrong node — or dropped
     // the datum — would still carry the right roster and result token, so it fails only here
-    // (`rust/core/workflow/src/engine/handle_join.rs:111-114`).
+    // (`middle/workflow/src/engine/handle_join.rs:111-114`).
     assert_eq!(
         joined[0].node_id.as_deref(),
         Some(JOIN_NODE),
@@ -719,7 +719,7 @@ fn wf_join_002__optional_siblings_handled_correctly() {
     // The cancel is announced on the durable log, not only left in the job row: one `job.cancelled`, naming the
     // optional branch's own job and token with the skip reason. Cancelling the row but dropping the event — or
     // cancelling another branch's job — would still satisfy the status assertions above, so this is the clause
-    // that pins the production retirement path (`rust/core/workflow/src/engine/handle_join.rs:62-79`).
+    // that pins the production retirement path (`middle/workflow/src/engine/handle_join.rs:62-79`).
     let cancelled = events_of_type(reader.memory(), &instance, "job.cancelled");
     assert_eq!(
         cancelled.len(),
@@ -741,7 +741,7 @@ fn wf_join_002__optional_siblings_handled_correctly() {
         Some("branch skipped"),
         "{HARNESS}: the cancellation carries the join's skip reason"
     );
-    // The cancellation must also name the retired job's own type (`rust/core/workflow/src/engine/handle_join.rs:75`,
+    // The cancellation must also name the retired job's own type (`middle/workflow/src/engine/handle_join.rs:75`,
     // `"type": job.job_type`), so a reader of the durable log can tell which work the optional branch left behind. No
     // other clause reads this datum, so dropping it — or writing a different job's type — would otherwise pass.
     assert_eq!(
@@ -755,7 +755,7 @@ fn wf_join_002__optional_siblings_handled_correctly() {
     // that flipped the row Obsolete but dropped the event — or obsoleted a task on the required branch or the
     // arrived optional branch — would satisfy the task-status assertions above and fail here, so this clause pins
     // the task half of the same retirement path the job cancellation clause pins
-    // (`rust/core/workflow/src/engine/handle_join.rs:59-61`, event at `execute_node_leave.rs:160-170`).
+    // (`middle/workflow/src/engine/handle_join.rs:59-61`, event at `execute_node_leave.rs:160-170`).
     let obsoleted = events_of_type(reader.memory(), &instance, "task.obsoleted");
     assert_eq!(
         obsoleted.len(),
@@ -778,7 +778,7 @@ fn wf_join_002__optional_siblings_handled_correctly() {
     // the join (`token.skipped`, `task.obsoleted`, `job.cancelled`) must carry a lower id than the `token.joined`
     // event. A join that announced itself before it retired the still-active optional branches would leave those
     // branches open behind a join that had already fired; the row-state and count checks above cannot see that
-    // ordering, so this clause pins it (`rust/core/workflow/src/engine/handle_join.rs:46-80` before `:106-117`).
+    // ordering, so this clause pins it (`middle/workflow/src/engine/handle_join.rs:46-80` before `:106-117`).
     let retirement_ids: Vec<i64> = history(reader.memory(), &instance)
         .into_iter()
         .filter(|event| {

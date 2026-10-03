@@ -32,5 +32,5 @@ fi
 # same Apple gateway outbox rows and delivers them through scripts/macbridge/AppleGatewayWrite.swift,
 # which is exactly what the scheduled job already runs (scripts/macbridge/sync-calendar-eventkit.sh).
 exec env APP_ENV=production EXECUTION_ENV=PROD \
-  cargo run --quiet --release --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- \
+  cargo run --quiet --release --manifest-path "$REPO_ROOT/Cargo.toml" -p cli -- \
   apple-sync drain

@@ -17,20 +17,20 @@ production parser/validator (none was needed).
 ## Architect brief
 
 Taxonomy WF.DEFINITION; level L0 Pure; harness WorkflowHarness. The production parser is
-`parse_process_definition_xml` / `definition_from_xml` (`rust/forge/src/engine/xml.rs`), the one parser `deploy_xml`
-(`rust/forge/src/engine/deploy.rs`) and the engine binary (`rust/forge/src/bin/forge_task.rs`) call. The second
-production seam is `validate_definition_xml` (`rust/forge/src/engine/validate.rs`), which consumes that same parser,
+`parse_process_definition_xml` / `definition_from_xml` (`forge/src/engine/xml.rs`), the one parser `deploy_xml`
+(`forge/src/engine/deploy.rs`) and the engine binary (`forge/src/bin/forge_task.rs`) call. The second
+production seam is `validate_definition_xml` (`forge/src/engine/validate.rs`), which consumes that same parser,
 so the two seams may not disagree. The shipped definition itself is `FORGE_SDLC_V6_XML`
-(`rust/forge/src/engine/xml.rs:428`).
+(`forge/src/engine/xml.rs:428`).
 
 ## Context refs
 
 - `rust/test-harness/tests/wf_definition__005__missing_target.rs:1-369` — the canonical test.
-- `rust/forge/src/engine/xml.rs:352-426` — `parse_process_definition_xml` / `definition_from_xml`, the production parser.
-- `rust/forge/src/engine/xml.rs:387-396` — the missing-target refusal: the node map is built first, then every edge's `to` must resolve.
-- `rust/forge/src/engine/xml.rs:266` — `collect_transitions` runs before the element-name switch, so the rule is a property of the edge, not one node type.
-- `rust/forge/src/engine/validate.rs:16-75` — `validate_definition_xml`, the second production seam (structured `errors`).
-- `rust/forge/src/engine/deploy.rs:83-92` — `deploy_xml` calls the same parser, so the refusal is the one production deploys through.
+- `forge/src/engine/xml.rs:352-426` — `parse_process_definition_xml` / `definition_from_xml`, the production parser.
+- `forge/src/engine/xml.rs:387-396` — the missing-target refusal: the node map is built first, then every edge's `to` must resolve.
+- `forge/src/engine/xml.rs:266` — `collect_transitions` runs before the element-name switch, so the rule is a property of the edge, not one node type.
+- `forge/src/engine/validate.rs:16-75` — `validate_definition_xml`, the second production seam (structured `errors`).
+- `forge/src/engine/deploy.rs:83-92` — `deploy_xml` calls the same parser, so the refusal is the one production deploys through.
 
 ## Acceptance criteria
 
@@ -46,8 +46,8 @@ so the two seams may not disagree. The shipped definition itself is `FORGE_SDLC_
 7. No legacy TypeScript test ported. — met.
 8. Deterministic and isolated; never PROD; no live provider. — met: literal XML strings into pure functions.
 9. Coverage named and discoverable even where the invariant already held. — met: this canonical file.
-10. `cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__005__missing_target` passes. — met.
-11. `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` passes. — met.
+10. `cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__005__missing_target` passes. — met.
+11. `cargo check --manifest-path Cargo.toml --workspace --all-targets` passes. — met.
 
 ## Preconditions
 
@@ -76,8 +76,8 @@ SCOPED
 
 ## Assay commands
 
-- cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__005__missing_target
-- cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+- cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__005__missing_target
+- cargo check --manifest-path Cargo.toml --workspace --all-targets
 
 ## Raw verification — fast_smith self-heal (2026-10-01)
 
@@ -99,25 +99,25 @@ parsed") if the production parser accepts the fixture, so the test cannot pass u
 The commands below are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__005__missing_target
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__005__missing_target
 running 1 test
 test wf_definition_005__missing_target ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 25s
 CHECK_EXIT=0
 ```
 
-Mutation check (this node's own): disabling the production refusal at `rust/forge/src/engine/xml.rs:389`
+Mutation check (this node's own): disabling the production refusal at `forge/src/engine/xml.rs:389`
 (`if false && !nodes.contains_key(&t.to)`) makes the test fail at the first refusal clause
 (`rust/test-harness/tests/wf_definition__005__missing_target.rs:97`, "expected the parser to refuse a missing target,
 but it parsed"), `test result: FAILED` (exit 101):
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__005__missing_target
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__005__missing_target
 thread 'wf_definition_005__missing_target' panicked at test-harness/tests/wf_definition__005__missing_target.rs:97:20:
 WorkflowHarness/L0 Pure: expected the parser to refuse a missing target, but it parsed key 'TST-WF-DEFINITION-005'
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
@@ -126,7 +126,7 @@ MUTATION_EXIT=101
 
 The production file was restored byte-for-byte and the test is green again (`TEST_EXIT=0`), so the contract is not
 vacuous. Unrelated, pre-existing working-tree changes elsewhere in the workspace (another lane's in-flight
-`rust/forge/src/engine/xml.rs` dynamic-fork edit and test files) were present at run time; they were left untouched
+`forge/src/engine/xml.rs` dynamic-fork edit and test files) were present at run time; they were left untouched
 and are not part of this candidate.
 
 FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequired":false,"derivedRefreshRequired":false,"deploymentRequired":false}

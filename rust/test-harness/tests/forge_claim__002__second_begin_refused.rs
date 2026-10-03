@@ -2,17 +2,17 @@
 //!
 //! Contract: beginning a claimed work item opens **at most one** Story Run. `Claimed → Running` is a
 //! compare-and-set: the production `begin_agent_work_run` reads the row `where state='Claimed' for update`
-//! (`rust/core/db/src/forge_engine.rs:806-810`) and moves it with the same predicate on the update
-//! (`rust/core/db/src/forge_engine.rs:864-870`). A second call on the same item is therefore refused — it returns
+//! (`db/src/forge_engine.rs:806-810`) and moves it with the same predicate on the update
+//! (`db/src/forge_engine.rs:864-870`). A second call on the same item is therefore refused — it returns
 //! `None` and commits nothing, not even the row's own `updated_at` — so one claim can never open two runs, whatever
 //! the caller does. The run itself is opened in that same transaction
-//! (`rust/core/db/src/forge_engine.rs:835-859`), so "refused" means no second `storyboard_story_run` row exists
+//! (`db/src/forge_engine.rs:835-859`), so "refused" means no second `storyboard_story_run` row exists
 //! *and* the item's committed state, `story_run_id` and timestamps are unchanged.
 //!
 //! This file exercises the production boundary, not a re-declaration of it. The real `ForgeEngineDao` is driven
 //! through the `ForgeHarness` against an isolated, disposable DEV database; the claim is taken through the
-//! production `claim_specific_agent_work` (`rust/core/db/src/forge_engine.rs:651`), the begin is the production
-//! `begin_agent_work_run` (`rust/core/db/src/forge_engine.rs:798`), and every assertion is read back on the pool the
+//! production `claim_specific_agent_work` (`db/src/forge_engine.rs:651`), the begin is the production
+//! `begin_agent_work_run` (`db/src/forge_engine.rs:798`), and every assertion is read back on the pool the
 //! DAO committed to. Level: L2 Persistence, harness `ForgeHarness`.
 //!
 //! The negative/fault cases are load-bearing. A test that merely called `begin` twice and asserted `None` would not
@@ -22,7 +22,7 @@
 //! end, so the disposable DEV branch is left as it was found.
 //!
 //! Run with (the DEV branch only):
-//!   set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness \
+//!   set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness \
 //!     --test forge_claim__002__second_begin_refused -- --ignored
 
 use test_harness::ForgeHarness;

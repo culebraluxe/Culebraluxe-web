@@ -149,7 +149,8 @@ fn the_harness_supports_all_five_levels() {
 fn no_production_crate_depends_on_the_harness() {
     let rust_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("the harness lives under rust/")
+        .and_then(|path| path.parent())
+        .expect("the harness lives in rust/test-harness, below the repository root")
         .to_path_buf();
 
     let mut manifests: Vec<std::path::PathBuf> = Vec::new();
@@ -286,7 +287,7 @@ fn the_one_way_guard_allows_dev_dependencies_and_the_members_list() {
     // The workspace members list names the crate without depending on it.
     assert_eq!(
         production_dependency_naming_harness(
-            "[workspace]\nmembers = [\n    \"core/domain\",\n    \"test-harness\",\n]\n"
+            "[workspace]\nmembers = [\n    \"middle/model\",\n    \"test-harness\",\n]\n"
         ),
         None
     );

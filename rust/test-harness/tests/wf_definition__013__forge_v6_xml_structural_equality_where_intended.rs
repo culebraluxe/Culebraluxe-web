@@ -1,19 +1,19 @@
 //! WF.DEFINITION — Forge v6 XML structural equality where intended (TST-WF-DEFINITION-013).
 //!
-//! Contract: the Forge v6 XML **is** the definition (`rust/forge/src/engine/xml.rs:1-2`,
-//! `rust/forge/definitions/FORGE_SDLC-v6.xml`), and the structure the production parser reads from it is structurally
+//! Contract: the Forge v6 XML **is** the definition (`forge/src/engine/xml.rs:1-2`,
+//! `forge/definitions/FORGE_SDLC-v6.xml`), and the structure the production parser reads from it is structurally
 //! equal to itself — and to the structure that survives the production persistence boundary — exactly where the
 //! definition intends, and structurally unequal exactly where a real structural edit is made.
 //!
 //! The three production pieces this file exercises, all pure:
 //!
-//! - `definition_from_xml` / `parse_process_definition_xml` (`rust/forge/src/engine/xml.rs:352-426`) — the one parser
-//!   production uses; `deploy_xml` (`rust/forge/src/engine/deploy.rs:83-92`) and the engine binary
-//!   (`rust/forge/src/bin/forge_task.rs:45`) both call it.
-//! - `graphs_equal` (`rust/forge/src/engine/version_policy.rs:39-41`) — the production structural-equality predicate:
+//! - `definition_from_xml` / `parse_process_definition_xml` (`forge/src/engine/xml.rs:352-426`) — the one parser
+//!   production uses; `deploy_xml` (`forge/src/engine/deploy.rs:83-92`) and the engine binary
+//!   (`forge/src/bin/forge_task.rs:45`) both call it.
+//! - `graphs_equal` (`forge/src/engine/version_policy.rs:39-41`) — the production structural-equality predicate:
 //!   `graph_to_json(a) == graph_to_json(b)`. It is what `classify_deploy`
-//!   (`rust/forge/src/engine/version_policy.rs:43-62`) uses to decide a re-deploy is a duplicate.
-//! - `graph_to_json` / `graph_from_json` (`rust/core/workflow/src/json_codec.rs:214-220`) — the codec that writes the
+//!   (`forge/src/engine/version_policy.rs:43-62`) uses to decide a re-deploy is a duplicate.
+//! - `graph_to_json` / `graph_from_json` (`middle/workflow/src/json_codec.rs:214-220`) — the codec that writes the
 //!   parsed graph to the Neon `jsonb` column and reads it back; the graph's structure must be a fixed point of it.
 //!
 //! WHERE INTENDED is the point of the contract, and it is demonstrated in both directions:
@@ -37,7 +37,7 @@
 //! input is the production XML embedded in the binary and the outputs are the parser's and the pure policies' own.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 
 use forge::engine::commands::{is_release, is_routed, XML_RELEASE_COMMANDS};
 use forge::engine::topology::{structural_problems, topology_from_graph, POSITIONS};
@@ -291,7 +291,7 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
 
     // 3g. WHERE INTENDED (entity references) — an XML entity reference names the same value as the character it
     //     stands for, so `&apos;` inside an attribute value is the same structure as a literal `'`. The production
-    //     parser decodes `&amp; &lt; &gt; &quot; &apos;` (`rust/forge/src/engine/xml.rs:219-234`); a parser that kept
+    //     parser decodes `&amp; &lt; &gt; &quot; &apos;` (`forge/src/engine/xml.rs:219-234`); a parser that kept
     //     the raw reference instead of decoding it would read a different decision condition and fail here, even
     //     though the definition means the same thing.
     let entity_encoded =
@@ -304,7 +304,7 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     );
 
     // 3h. WHERE INTENDED (default outcome) — an end-state that does not declare an outcome means Completed; the
-    //     parser supplies that default (`rust/forge/src/engine/xml.rs:280-285`). Declaring the default explicitly is
+    //     parser supplies that default (`forge/src/engine/xml.rs:280-285`). Declaring the default explicitly is
     //     therefore not structure: removing `outcome="completed"` from an end-state must parse to a structurally
     //     equal graph. The anchor is asserted first so the clause cannot pass vacuously — a no-op `replacen` would
     //     leave the source byte-identical and the equality would hold for the wrong reason.
@@ -321,7 +321,7 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     );
 
     // 3i. WHERE INTENDED (attribute whitespace) — XML permits whitespace around an attribute's `=` and before a
-    //     self-close, and it is not structure. The parser skips it (`rust/forge/src/engine/xml.rs:130,151-156`), so a
+    //     self-close, and it is not structure. The parser skips it (`forge/src/engine/xml.rs:130,151-156`), so a
     //     transition written with spaced attributes and a spaced self-close must parse to a structurally equal graph.
     //     A parser that read up to the next non-name byte would refuse or misread this source.
     let spaced_attrs = FORGE_SDLC_V6_XML.replacen(
@@ -337,7 +337,7 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     );
 
     // 3j. WHERE INTENDED (close-tag whitespace) — whitespace between a close tag's name and its `>` is not structure.
-    //     The parser skips it (`rust/forge/src/engine/xml.rs:182`), so `</start-state >` must parse to the same graph
+    //     The parser skips it (`forge/src/engine/xml.rs:182`), so `</start-state >` must parse to the same graph
     //     as `</start-state>`. A parser that compared the raw close name including the space would refuse the
     //     definition outright.
     let spaced_close = FORGE_SDLC_V6_XML.replacen("</start-state>", "</start-state >", 1);
@@ -350,7 +350,7 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
 
     // 3k. WHERE INTENDED (trailing misc) — whitespace, a declaration and a comment AFTER the root element are not
     //     structure either; `parse_xml` runs `skip_misc` once more after the root before it demands EOF
-    //     (`rust/forge/src/engine/xml.rs:69-73`), so a definition with a trailing comment must parse to a
+    //     (`forge/src/engine/xml.rs:69-73`), so a definition with a trailing comment must parse to a
     //     structurally equal graph. A parser that ignored `skip_misc` after the root would refuse the definition
     //     outright; one that treated the comment as content would report a difference the definition does not mean.
     let trailing_misc = format!(
@@ -489,7 +489,7 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
 
     // 4c. WHERE INTENDED (node identity metadata) — the production parser reads a node's `label` into `name`, its
     //     `description` into `description`, and a task's `form-key` into `form_key`; the production codec
-    //     (`rust/core/workflow/src/json_codec.rs:246-251,273-275`) represents all three, so a change to any one is
+    //     (`middle/workflow/src/json_codec.rs:246-251,273-275`) represents all three, so a change to any one is
     //     structure, not decoration. Each anchor is the first occurrence the definition declares, so the rest of the
     //     definition stays identical and the parse can never silently no-op.
     let relabelled =
@@ -524,8 +524,8 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
 
     // 4d. WHERE INTENDED (dynamic-fork control) — the dynamic fork is fully control: its `count-variable`,
     //     `plan-variable` and `branch-node` name the runtime inputs and the node to spawn, and its `minimum` bounds
-    //     the fan-out. The production parser reads each (`rust/forge/src/engine/xml.rs:328-337`) and the codec writes
-    //     each (`rust/core/workflow/src/json_codec.rs:309-326`), so each is structure. The `maximum` clause above
+    //     the fan-out. The production parser reads each (`forge/src/engine/xml.rs:328-337`) and the codec writes
+    //     each (`middle/workflow/src/json_codec.rs:309-326`), so each is structure. The `maximum` clause above
     //     already pins the upper bound; these pin the rest.
     let recounted = FORGE_SDLC_V6_XML.replacen(
         "count-variable=\"splitCount\"",
@@ -572,8 +572,8 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     );
 
     // 4f. WHERE INTENDED (responsibility → candidate groups) — a task's (or command's) `responsibility` is the Forge
-    //     position the node runs as; the parser writes it to `candidate_groups` (`rust/forge/src/engine/xml.rs:289-291`)
-    //     and the codec persists it as `candidateGroups` (`rust/core/workflow/src/json_codec.rs:276-281`). Changing it
+    //     position the node runs as; the parser writes it to `candidate_groups` (`forge/src/engine/xml.rs:289-291`)
+    //     and the codec persists it as `candidateGroups` (`middle/workflow/src/json_codec.rs:276-281`). Changing it
     //     is therefore structure. The anchor is the first `responsibility="smith"` the definition declares, so the
     //     rest of the definition stays identical and the parse cannot silently no-op.
     let reassigned =
@@ -586,8 +586,8 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     );
 
     // 4g. WHERE INTENDED (command-node transition) — a command node's `transition` attribute names where the command
-    //     goes when it completes; the parser reads it (`rust/forge/src/engine/xml.rs:300`) and the codec persists it
-    //     (`rust/core/workflow/src/json_codec.rs:303-305`). Changing it is structure, not decoration.
+    //     goes when it completes; the parser reads it (`forge/src/engine/xml.rs:300`) and the codec persists it
+    //     (`middle/workflow/src/json_codec.rs:303-305`). Changing it is structure, not decoration.
     let rerouted_command = FORGE_SDLC_V6_XML.replacen(
         "command-type=\"forge.publish_candidate\" transition=\"complete\"",
         "command-type=\"forge.publish_candidate\" transition=\"hold\"",
@@ -730,7 +730,7 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     );
 
     //     A second root-level element after the root is not trailing misc: `parse_xml` demands EOF once
-    //     `skip_misc` is exhausted (`rust/forge/src/engine/xml.rs:71-73`), so a definition with content after its
+    //     `skip_misc` is exhausted (`forge/src/engine/xml.rs:71-73`), so a definition with content after its
     //     root is REFUSED rather than silently truncated into an equal graph. The anchor is the whole definition, so
     //     the edit always changes the source and the clause cannot pass on a no-op.
     let trailing_content = format!("{FORGE_SDLC_V6_XML}\n<extra/>\n");

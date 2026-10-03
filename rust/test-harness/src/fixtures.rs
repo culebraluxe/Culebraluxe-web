@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 
-use service::{ServiceActor, ServiceActorKind, ServiceContext, ServicePrincipal};
+use services::{ServiceActor, ServiceActorKind, ServiceContext, ServicePrincipal};
 
 use crate::clock::TestClock;
 use crate::ids::DeterministicIds;

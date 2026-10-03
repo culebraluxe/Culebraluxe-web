@@ -103,7 +103,7 @@ medium, 2 low — `sharp 0.35.3` (8.9), `qs 6.15.2`, `next 16.3.0`, `postcss`, `
    finding stood) and `194_stellar_listing_details.sql` (directive above the statement, while
    `prefer-bigint-over-int` was reported on the `tax_year integer` line).
 6. **`CREATE INDEX CONCURRENTLY` cannot run in this repository at all** — and that is a real limitation,
-   not a preference. `pnpm db:migrate` (`rust/cli/src/db_tool.rs`, the `apply` subcommand) executes an entire migration file as one
+   not a preference. `pnpm db:migrate` (`cli/src/db_tool.rs`, the `apply` subcommand) executes an entire migration file as one
    `pool.query(sql)`, and PostgreSQL runs a multi-statement simple query in a **single implicit
    transaction**, inside which `CONCURRENTLY` is refused outright. No migration here uses it, for that
    reason. So the index on a busy table WILL take a write lock, and squawk's safest available pattern is

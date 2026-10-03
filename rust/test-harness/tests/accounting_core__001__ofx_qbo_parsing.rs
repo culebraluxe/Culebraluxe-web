@@ -2,7 +2,7 @@
 //!
 //! Contract: text that arrives from an institution export (OFX, QBO/QuickBooks) is **not money** until it has been
 //! reduced to the decimal digits this book stores. The one gate every amount crosses is `Money::parse`
-//! (`rust/core/domain/src/accounting.rs:84`), and it REFUSES anything that is not a bare decimal rather than
+//! (`middle/model/src/accounting.rs:84`), and it REFUSES anything that is not a bare decimal rather than
 //! coercing it, defaulting it to zero or truncating it.
 //!
 //! Where the parse itself lives today, said plainly: **nowhere in Rust.** The only OFX code in the tree is dead
@@ -20,9 +20,9 @@
 //! Level: L0 Pure — no database, no socket, deterministic.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test accounting_core__001__ofx_qbo_parsing
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test accounting_core__001__ofx_qbo_parsing
 
-use domain::accounting::Money;
+use model::accounting::Money;
 
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ACCOUNTING-CORE-001); the file and the assay use it.
@@ -74,7 +74,7 @@ fn accounting_core_001__ofx_qbo_parsing() {
     );
 
     // 4. A value read back out of a `numeric` column crosses the wire as the same digits
-    //    (`Money::from_database`, `rust/core/domain/src/accounting.rs:126`).
+    //    (`Money::from_database`, `middle/model/src/accounting.rs:126`).
     let from_row = Money::from_database("12000.00");
     assert_eq!(from_row.as_str(), "12000.00");
     assert_eq!(

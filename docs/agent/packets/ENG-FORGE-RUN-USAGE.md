@@ -38,7 +38,7 @@ is true now.
   vendor documents — `session export <id> --standalone` for the totals (authoritative, and
   preferred), and `session list --standalone --format json` for finding the lane's own
   session. A source guard (`forge_never_reads_opencodes_private_session_store`) fails if any
-  `rust/forge/src` file reaches for `sqlite3`, `opencode.db` or `FORGE_OPENCODE_DB` again.
+  `forge/src` file reaches for `sqlite3`, `opencode.db` or `FORGE_OPENCODE_DB` again.
 - **`opencode stats` is still not used**, deliberately. Per-run accounting needs
   per-*session* numbers; `stats` is an aggregate and cannot attribute spend to a run.
 - **Child sessions are DECLARED, not silently dropped.** V1 summed child sessions into

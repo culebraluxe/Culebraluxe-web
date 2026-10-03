@@ -26,32 +26,32 @@ ledger, and the two are joined in the queue table below.
 
 | area | files | legacy cases | what it is | Rust serves it in |
 | --- | --- | --- | --- | --- |
-| `forge` | 153 | 1111 | the SDLC engine: roles, routing, findings, QA verdicts, repair ledger, release | `rust/forge/src/{roles,routing,engine,evidence,release}` |
-| `agent-runtime` | 54 | 408 | the lane harness: role runner, provider gateway, worker workspace, dispatch | `rust/forge/src/{runtime,execution}, rust/forge/src/engine` |
-| `workflow-engine` | 50 | 456 | the workflow engine proper: definitions, expressions, store, split/join | `rust/core/workflow/src, rust/forge/src/engine` |
-| `core/clients` | 26 | 213 | clients and relationships: identity, evidence, promotion, client room | `rust/core/domain/src/{client,client_room,relationship_evidence}, rust/core/db/src/client` |
-| `platform` | 23 | 114 | repo and CI guards, worker workspace, the engine's own tooling | `rust/cli/src/forge/{repo_guards,lint}, rust/forge/src/sync_conflict.rs, .githooks/` |
-| `core/security` | 17 | 132 | auth, sessions, guest access, vault, security audit | `rust/core/auth/src, rust/core/domain/src/security.rs, rust/core/db/src/security.rs` |
-| `services` | 16 | 112 | the service tier: BaseService, authorization, registry, projections | `rust/core/service/src` |
-| `core/calendar` | 13 | 108 | calendar, catch-up, reminders, closings, showings, offers | `rust/core/domain/src/{calendar,catch_up,showing}.rs` |
-| `core/db` | 10 | 91 | schema, migrations, query discipline, receipts, unit of work | `rust/core/db/src, db/migrations` |
-| `core/property` | 10 | 104 | listings, media, syndication, marketing, public listing | `rust/core/domain/src/{property,media,marketing,public_listing}.rs` |
-| `core/deals` | 9 | 74 | deals, financing, lender clearance, seller strategy | `rust/core/db/src/deal_portal, rust/core/domain/src/contract.rs` |
-| `core/projects` | 9 | 44 | projects, work breakdown, tasks, transaction documents | `rust/core/domain/src/{project,wbs,task}.rs` |
-| `ui/core/storyboard` | 9 | 100 | the Story Board screens and read models | `rust/ui/src/app/screens/storyboard.rs, rust/core/db/src/forge_read.rs` |
-| `core/forms` | 8 | 56 | form documents: template registry, versioning, geometry, signatures, PDF | `rust/core/domain/src/{forms,forms_template,forms_geometry,forms_execution}` |
-| `ui/core/portal` | 8 | 88 | portal shell: navigation, write errors, shared read models | `rust/ui/src/app/{shell,chrome}.rs` |
-| `core/comms` | 7 | 55 | messages: Gmail, Apple Mail, WhatsApp, conversation bursts | `rust/core/domain/src/{gmail,applemail,apple_messages,comms}.rs` |
-| `core/signature` | 7 | 78 | agreements, signatures, signing execution | `rust/core/domain/src/{contract,signature,forms_broker_signature}.rs` |
-| `ui/core/forms` | 7 | 47 | the forms screens | `rust/ui/src/app/screens/forms` |
-| `core/people` | 6 | 61 | people, firms, addresses, contact identity | `rust/core/domain/src/{person,firm}.rs` |
-| `core/flight-recorder` | 5 | 32 | the run trace: records, views, id guards | `rust/core/domain/src/flight_recorder.rs, rust/core/db/src/flight_recorder` |
-| `ui/core/design-system` | 4 | 12 | shared components and the UI lab | `rust/ui/src/app/screens/ui_lab.rs, rust/ui/src/app/template.rs` |
-| `core/accounting` | 3 | 29 | receivables, expenses, invoices, bank feeds | `rust/core/domain/src/accounting.rs, rust/core/db/src/accounting` |
-| `core/commands` | 3 | 28 | the command bus: contracts, dispatcher, receipts | `rust/core/service/src/command.rs, rust/core/db/src/command_receipt.rs` |
-| `core/operations` | 3 | 26 | issues, support, guides, diagnostics, accounting | `rust/core/domain/src/{issue,support,guide,tech,accounting}.rs` |
-| `mq` | 3 | 27 | the message queue: outbox, subscriptions, leases, retries, proof consumers | `rust/core/db/src/outbox.rs, rust/server/tests/mq_runtime_dev.rs` |
-| `ui/core/clients` | 2 | 11 | the client workspace screen | `rust/ui/src/app/screens/clients.rs` |
+| `forge` | 153 | 1111 | the SDLC engine: roles, routing, findings, QA verdicts, repair ledger, release | `forge/src/{roles,routing,engine,evidence,release}` |
+| `agent-runtime` | 54 | 408 | the lane harness: role runner, provider gateway, worker workspace, dispatch | `forge/src/{runtime,execution}, forge/src/engine` |
+| `workflow-engine` | 50 | 456 | the workflow engine proper: definitions, expressions, store, split/join | `middle/workflow/src, forge/src/engine` |
+| `core/clients` | 26 | 213 | clients and relationships: identity, evidence, promotion, client room | `middle/model/src/{client,client_room,relationship_evidence}, db/src/client` |
+| `platform` | 23 | 114 | repo and CI guards, worker workspace, the engine's own tooling | `cli/src/forge/{repo_guards,lint}, forge/src/sync_conflict.rs, .githooks/` |
+| `core/security` | 17 | 132 | auth, sessions, guest access, vault, security audit | `web/auth/src, middle/model/src/security.rs, db/src/security.rs` |
+| `services` | 16 | 112 | the service tier: BaseService, authorization, registry, projections | `middle/services/src` |
+| `core/calendar` | 13 | 108 | calendar, catch-up, reminders, closings, showings, offers | `middle/model/src/{calendar,catch_up,showing}.rs` |
+| `core/db` | 10 | 91 | schema, migrations, query discipline, receipts, unit of work | `db/src, db/migrations` |
+| `core/property` | 10 | 104 | listings, media, syndication, marketing, public listing | `middle/model/src/{property,media,marketing,public_listing}.rs` |
+| `core/deals` | 9 | 74 | deals, financing, lender clearance, seller strategy | `db/src/deal_portal, middle/model/src/contract.rs` |
+| `core/projects` | 9 | 44 | projects, work breakdown, tasks, transaction documents | `middle/model/src/{project,wbs,task}.rs` |
+| `ui/core/storyboard` | 9 | 100 | the Story Board screens and read models | `web/ui/src/app/screens/storyboard.rs, db/src/forge_read.rs` |
+| `core/forms` | 8 | 56 | form documents: template registry, versioning, geometry, signatures, PDF | `middle/model/src/{forms,forms_template,forms_geometry,forms_execution}` |
+| `ui/core/portal` | 8 | 88 | portal shell: navigation, write errors, shared read models | `web/ui/src/app/{shell,chrome}.rs` |
+| `core/comms` | 7 | 55 | messages: Gmail, Apple Mail, WhatsApp, conversation bursts | `middle/model/src/{gmail,applemail,apple_messages,comms}.rs` |
+| `core/signature` | 7 | 78 | agreements, signatures, signing execution | `middle/model/src/{contract,signature,forms_broker_signature}.rs` |
+| `ui/core/forms` | 7 | 47 | the forms screens | `web/ui/src/app/screens/forms` |
+| `core/people` | 6 | 61 | people, firms, addresses, contact identity | `middle/model/src/{person,firm}.rs` |
+| `core/flight-recorder` | 5 | 32 | the run trace: records, views, id guards | `middle/model/src/flight_recorder.rs, db/src/flight_recorder` |
+| `ui/core/design-system` | 4 | 12 | shared components and the UI lab | `web/ui/src/app/screens/ui_lab.rs, web/ui/src/app/template.rs` |
+| `core/accounting` | 3 | 29 | receivables, expenses, invoices, bank feeds | `middle/model/src/accounting.rs, db/src/accounting` |
+| `core/commands` | 3 | 28 | the command bus: contracts, dispatcher, receipts | `middle/services/src/command.rs, db/src/command_receipt.rs` |
+| `core/operations` | 3 | 26 | issues, support, guides, diagnostics, accounting | `middle/model/src/{issue,support,guide,tech,accounting}.rs` |
+| `mq` | 3 | 27 | the message queue: outbox, subscriptions, leases, retries, proof consumers | `db/src/outbox.rs, web/tests/mq_runtime_dev.rs` |
+| `ui/core/clients` | 2 | 11 | the client workspace screen | `web/ui/src/app/screens/clients.rs` |
 | **total** | **465** | **3617** | | |
 
 ## The queue by area

@@ -12,11 +12,11 @@ Three sentences, if that is all you read:
 
 ## What the repository is
 
-One Rust application. The website and the portal are a single Yew/WebAssembly app (`rust/ui`) that the Rust server hands
-to the browser (`rust/server/src/site.rs`); the domain, the database and the HTTP API behind it are Rust crates under
+One Rust application. The website and the portal are a single Yew/WebAssembly app (`web/ui`) that the Rust server hands
+to the browser (`web/src/site.rs`); the domain, the database and the HTTP API behind it are Rust crates under
 `rust/`. Neon/Postgres stores the business and property data, Mux delivers video, Google Maps shows locations, and
 Vercel serves the deployment - compiled on this Mac rather than on Vercel (`scripts/deploy-prod.sh`). On top of all of
-it runs Forge, the workflow engine that delivers the work: also Rust (`rust/forge`), with its state in Neon.
+it runs Forge, the workflow engine that delivers the work: also Rust (`forge`), with its state in Neon.
 
 There is no Next.js application here. `app/`, `components/`, `services/`, `lib/` and the TypeScript server were retired
 and deleted; what remains of that world is `legacy/` and the dead files under `scripts/` and `agent-runtime/`. All of it
@@ -27,19 +27,19 @@ place (`docs/agent/BROKEN-TS-INVENTORY.md`).
 
 | Layer | Where | What it is |
 | --- | --- | --- |
-| Website and portal UI | `rust/ui/src/app/` | Screens on the `Screen` trait (MVI: `Model` / `Msg` / `update` / `view`), the screen table `registry.rs`, the master `template.rs`, the `shell.rs` and its executor. |
-| HTTP API | `rust/server/src/api/` | `routes.rs` (the whole surface), `portal_bridge.rs` (the portal's screen reads and its commands), `public_ui.rs` (the public site), `context.rs` and `ui_auth.rs` (identity), `engine.rs` (the engine's door), `error.rs` (`ApiError`). |
-| Services | `rust/server/src/<domain>` (`mod.rs` or `<domain>.rs`) | One service per domain: the rules, typed over a repository. Registered once in `composition.rs`. |
-| Service kernel | `rust/core/service/src/` | `AbstractService`, `ServiceRuntime`, `ServiceContext`, authorization, audit, domain events, lifecycle, mailbox, error sink. |
-| Domain | `rust/core/domain/src/` | Types and rules. No I/O, no SQL, no HTTP. |
-| Database | `rust/core/db/src/` | DAOs and the one pool per process (`pool.rs`, `shared.rs`); failures as `DbFailure` (`capture.rs`). Migrations in `db/migrations`. |
-| Integrations | `rust/integrations/src/` | Mux, Google, Apple, BoldSign, Neon, mail, WhatsApp. |
-| Engine | `rust/forge/src/` | Forge: the definition (`definitions/FORGE_SDLC-v6.xml`), phases, gates, roles, executor. |
-| CLI | `rust/cli/src/` | `forge` gates (`rust/cli/src/forge/`: harness lint, vendor-block sync), `db-tool`, Apple intake. |
+| Website and portal UI | `web/ui/src/app/` | Screens on the `Screen` trait (MVI: `Model` / `Msg` / `update` / `view`), the screen table `registry.rs`, the master `template.rs`, the `shell.rs` and its executor. |
+| HTTP API | `web/src/api/` | `routes.rs` (the whole surface), `portal_bridge.rs` (the portal's screen reads and its commands), `public_ui.rs` (the public site), `context.rs` and `ui_auth.rs` (identity), `engine.rs` (the engine's door), `error.rs` (`ApiError`). |
+| Services | `web/src/<domain>` (`mod.rs` or `<domain>.rs`) | One service per domain: the rules, typed over a repository. Registered once in `composition.rs`. |
+| Service kernel | `middle/services/src/` | `AbstractService`, `ServiceRuntime`, `ServiceContext`, authorization, audit, domain events, lifecycle, mailbox, error sink. |
+| Domain | `middle/model/src/` | Types and rules. No I/O, no SQL, no HTTP. |
+| Database | `db/src/` | DAOs and the one pool per process (`pool.rs`, `shared.rs`); failures as `DbFailure` (`capture.rs`). Migrations in `db/migrations`. |
+| Integrations | `middle/apis/src/` | Mux, Google, Apple, BoldSign, Neon, mail, WhatsApp. |
+| Engine | `forge/src/` | Forge: the definition (`definitions/FORGE_SDLC-v6.xml`), phases, gates, roles, executor. |
+| CLI | `cli/src/` | `forge` gates (`cli/src/forge/`: harness lint, vendor-block sync), `db-tool`, Apple intake. |
 | Retired TypeScript | `legacy/`, dead files in `scripts/` and `agent-runtime/` | Read-only reference, out of scope, never imported. |
 | Build and ops | `scripts/`, `deploy/` | `dev.sh`, `site-build.sh`, `deploy-prod.sh`, `Dockerfile.build` and `Dockerfile.runtime`. |
 | Docs | `docs/agent/` | This map, `MEMORY.md`, packets, skills, releases. |
-| Tests | `#[cfg(test)]` beside the code, `rust/server/tests/*_dev.rs`, `rust/**/tests/` | The live suites. |
+| Tests | `#[cfg(test)]` beside the code, `web/tests/*_dev.rs`, `rust/**/tests/` | The live suites. |
 
 ## One database, one repository, no third store
 
@@ -55,7 +55,7 @@ from the rows.
 pnpm build                  # the Yew wasm (release) + Tailwind + the server binary
 pnpm dev                    # scripts/dev.sh - the local server
 cargo check --workspace --all-targets
-cargo test -p db -p server -p forge -p workflow
+cargo test -p db -p web -p forge -p workflow
 cargo test -p ui                           # the UI's screen, registry and command tests (wasm is a default feature)
 cargo build -p ui --target wasm32-unknown-unknown --features wasm   # proves the browser build, fast
 pnpm test                   # the engine suites + cargo test -p workflow -p forge
@@ -93,7 +93,7 @@ pnpm smoke:prod    # ask production whether it works, from outside
 - **Every request in the browser has a way out.** One request may carry about 4.5 MB (the hosting gateway) and must
   finish in well under a minute (Safari). Big things go in pieces: photos through `/api/property-media/chunked`
   (resumable, skips what is already stored), films straight to Mux through a direct-upload URL, both in
-  `rust/ui/src/app/exec.rs` with a timeout and retries on every piece. A slow server step runs in the background and
+  `web/ui/src/app/exec.rs` with a timeout and retries on every piece. A slow server step runs in the background and
   the page asks for its status.
 - **Before a UI change, read the whole original screen.** The owner designed these screens; reproduce their structure,
   never a simplified version (`git show 4cf98110^:<path>` reads the deleted TypeScript original).
@@ -112,23 +112,23 @@ cascades** — deleting two demo deals once took 47 contract documents with them
 | --- | --- |
 | Why is the system shaped this way? | `docs/agent/MEMORY.md` - the decisions, each with its date |
 | How do I add or change a domain operation? | `MAP-services.md` - the four files a domain has, and the registration |
-| How do I add a screen? | `UI-SCREEN-ARCHITECTURE.md` ("Adding a screen - the recipe"); the reference read is `rust/ui/src/app/screens/db_test.rs` |
+| How do I add a screen? | `UI-SCREEN-ARCHITECTURE.md` ("Adding a screen - the recipe"); the reference read is `web/ui/src/app/screens/db_test.rs` |
 | What does the engine do? | `MAP-engine.md`, then `WORKFLOW-ARCHITECTURE.md` |
-| How should the UI look and word things? | `docs/agent/skills/ui.md` and `rust/ui/src/app/template.rs` |
+| How should the UI look and word things? | `docs/agent/skills/ui.md` and `web/ui/src/app/template.rs` |
 | Which capability serves production where? | `docs/rust-parity-ledger.md` |
 | What did production get, and when? | `docs/agent/releases.md` |
 | How is a database story delivered? | `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` |
 | How do I make a Rust change without the usual traps? | `docs/rust-contributing.md` |
 | What is dead, and why? | `docs/agent/BROKEN-TS-INVENTORY.md` |
 | How do people, properties and contracts link? Who may change them? | `MEMORY.md`, 2026-09-28 (golden data) |
-| How do photos, films and signed PDFs get stored? | `rust/ui/src/app/exec.rs` (uploads), `media/` and `vault/` services; PDFs open at `/api/portal/documents/{id}/file` |
+| How do photos, films and signed PDFs get stored? | `web/ui/src/app/exec.rs` (uploads), `media/` and `vault/` services; PDFs open at `/api/portal/documents/{id}/file` |
 | How is DEV refreshed from production? | `docs/agent/SOP-DEV-REFRESH.md` |
 
 ## Boundaries
 
 - `legacy/**`, the dead `scripts/**` and `agent-runtime/**` files are reference only. A live import from them is a lint
   failure, and the suppressed-import list may only shrink.
-- New UI capability goes in `rust/ui/src/app/`; new backend capability goes in `rust/server` plus `rust/core`.
+- New UI capability goes in `web/ui/src/app/`; new backend capability goes in `web` plus `rust/core`.
 - Anything crossing a process boundary - a webhook body, a route body, a provider response - is unknown until a runtime
   schema validates it. A hand-written type or an `as` cast is not validation.
 - `main` is production-sensitive. Never deploy, and never touch the production database, without the Captain's explicit

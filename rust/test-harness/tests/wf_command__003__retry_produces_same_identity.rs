@@ -2,16 +2,16 @@
 //!
 //! Contract: when a command step dies on a broken connection and the engine repeats it, the retry produces the
 //! **same** command identity. The `WorkflowEngine` derives a command's id from `(process_instance_id, node_id,
-//! visit_sequence)` — `command_id` at `rust/core/workflow/src/engine/handle_join.rs:359-363` — and every input is
+//! visit_sequence)` — `command_id` at `middle/workflow/src/engine/handle_join.rs:359-363` — and every input is
 //! persisted state: the instance id is committed before the command runs, and the visit sequence is
-//! `command_visit_count + 1` read back from the store (`rust/core/workflow/src/engine/handle_join.rs:201-202`). A
+//! `command_visit_count + 1` read back from the store (`middle/workflow/src/engine/handle_join.rs:201-202`). A
 //! step that dies on the connection commits nothing (the production transaction contract,
-//! `rust/core/workflow/src/memory.rs:38-54`), so the retry re-reads the same count, regenerates the same id, and the
+//! `middle/workflow/src/memory.rs:38-54`), so the retry re-reads the same count, regenerates the same id, and the
 //! store records the command exactly once.
 //!
 //! The retry is **the production retry rule**, not a loop written here. Production repeats a failed step in
-//! `TxStore::with_tx` through `repeat_connection_failures` (`rust/core/workflow/src/store.rs:146`), and the only
-//! production store wired to it is `NeonStore` (`rust/core/workflow/src/neon/neon_store.rs:90-104`). That store needs
+//! `TxStore::with_tx` through `repeat_connection_failures` (`middle/workflow/src/store.rs:146`), and the only
+//! production store wired to it is `NeonStore` (`middle/workflow/src/neon/neon_store.rs:90-104`). That store needs
 //! a real database, so the contract exercises the same rule at the `TxStore` seam: `FlakyConnectionStore` delegates
 //! every byte of storage to the production `MemoryStore` and wraps the step in the production
 //! `repeat_connection_failures`. The engine makes ONE `complete_task` call; the retry is invisible to it, exactly as
@@ -21,7 +21,7 @@
 //! The retry is exercised on an instance that was **already committed** by an earlier, successful transaction: the
 //! process starts and parks on a task node, the first attempt to drive the command out of that task dies mid-step,
 //! and the retry re-drives the *same* instance. That shape matters — production mints an instance id once, with
-//! `uuid_v4()` at `rust/core/workflow/src/ids.rs:5`, and never re-derives it — so a contract that only held
+//! `uuid_v4()` at `middle/workflow/src/ids.rs:5`, and never re-derives it — so a contract that only held
 //! when a fresh `start_process` re-minted its instance would not be a production contract.
 //!
 //! The real `WorkflowEngine` is driven through `start_process` and `complete_task`; its `command` node calls the
@@ -407,7 +407,7 @@ fn wf_command_003__retry_produces_same_identity() {
     );
 
     // ...and it does so across a moved clock. The engine advances the harness clock on every step (the
-    // `command.requested` event is stamped from `self.now()`, `rust/core/workflow/src/engine/handle_join.rs:213,341`),
+    // `command.requested` event is stamped from `self.now()`, `middle/workflow/src/engine/handle_join.rs:213,341`),
     // so the failed attempt and the retry are observed at DIFFERENT instants. If any wall-time value reached the
     // command identity, the equalities above would break here — this makes the clock-independence half of the
     // contract load-bearing instead of assumed.

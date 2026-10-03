@@ -4,7 +4,7 @@
 -- WF.COMMAND tests were still being exercised at 2026-09-30 01:0x local when the captain ordered every running
 -- test story killed. The kill itself is `pkill` on the worker and its children; clearing the CONTROL PLANE is
 -- `forge clean`, and `forge clean` does not cancel only the rows you came for — it cancels every stale OPEN work
--- item in the estate and holds the story it belonged to (rust/cli/src/forge/reset.rs, the `clean` mode:
+-- item in the estate and holds the story it belonged to (cli/src/forge/reset.rs, the `clean` mode:
 -- "held stories whose stale work was cancelled: N"). Its own first pass reported 14, and the measured blast
 -- radius, from `agent_work_item.updated_at` (2026-09-30T05:03:50Z, one transaction), is 17 rows:
 --

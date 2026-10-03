@@ -6,14 +6,14 @@
 //! writer. Two production-owned boundaries carry that rule and this test exercises both, exactly as the engine binary
 //! does:
 //!
-//!   1. The Forge execution-target policy (`db::resolve_forge_target`, `rust/core/db/src/pool.rs:584`): a declaration
+//!   1. The Forge execution-target policy (`db::resolve_forge_target`, `db/src/pool.rs:584`): a declaration
 //!      that resolves to PROD is accepted; one that resolves to DEV is refused ("Forge runs against PRODUCTION only").
 //!   2. The Forge state writer (`forge::engine::db_writer::DbForgeStateWriter::connect_env`,
-//!      `rust/forge/src/engine/db_writer.rs:10`): with `DATABASE_URL_PROD` unset it returns the refusal
+//!      `forge/src/engine/db_writer.rs:10`): with `DATABASE_URL_PROD` unset it returns the refusal
 //!      "DATABASE_URL_PROD is not set; Forge writes story state in production only". The probe it sits on
-//!      (`forge::engine::vendor_session::database_url`, `rust/forge/src/engine/vendor_session.rs:46`) deliberately
+//!      (`forge::engine::vendor_session::database_url`, `forge/src/engine/vendor_session.rs:46`) deliberately
 //!      reads `DATABASE_URL_PROD` and nothing else.
-//!   3. The production database pool (`db::Database::connect_forge_from_env`, `rust/core/db/src/pool.rs:87`): with
+//!   3. The production database pool (`db::Database::connect_forge_from_env`, `db/src/pool.rs:87`): with
 //!      PROD declared and `DATABASE_URL_PROD` unset it fails closed in `connect_target` with
 //!      "`DATABASE_URL_PROD` is not configured; Rust DB refuses to fall back to another environment" — before any
 //!      socket is opened.
@@ -30,7 +30,7 @@
 //! and the production database is never touched. Level: L0 Pure, harness `RuntimeHarness`.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness \
+//!   cargo test --manifest-path Cargo.toml -p test-harness \
 //!     --test runtime_env__004__prod_forge_execution_with_missing_database_url_prod_is_refused
 
 use db::{resolve_forge_target, Database, DbTarget};

@@ -5,7 +5,7 @@ port has produced three bugs only a real one could catch: a `uuid = text` bind, 
 query, and a panic that killed a request without leaving a record. Run these before calling a change done.
 
 ```bash
-pnpm dev                              # or: cd rust && cargo run -p server --bin http
+pnpm dev                              # or: cd rust && cargo run -p web --bin web
 node scripts/rust-live-check/engine-routes.mjs
 node scripts/rust-live-check/pool-counters.mjs 5
 ```

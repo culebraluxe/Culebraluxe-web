@@ -1,6 +1,6 @@
 //! ARCH.BOUNDARY — Forge persistence enters only through approved DAO and writer interfaces (TST-ARCH-BOUNDARY-005).
 //!
-//! Contract: `rust/forge` decides, records and publishes. It does not own a connection and it holds no statement.
+//! Contract: `forge` decides, records and publishes. It does not own a connection and it holds no statement.
 //! Across its 111 source files there is no `sqlx`, no pool, no driver URL and no SQL in code; persistence enters
 //! through the `db` crate's DAO and writer functions, which 24 of those files name. That is the difference between a
 //! run whose state is queryable and auditable — the same rows every other lane reads — and a run that keeps its own
@@ -24,7 +24,7 @@
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test arch_boundary__005__forge_persistence_only_enters_through_approved_dao_writer_interfaces
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test arch_boundary__005__forge_persistence_only_enters_through_approved_dao_writer_interfaces
 
 use test_harness::source;
 
@@ -142,14 +142,14 @@ fn arch_boundary_005__forge_persistence_only_enters_through_approved_dao_writer_
     // able to mean "the trace row has no writer". The flight recorder holds the one spelling — two systems write this
     // table, and the dedupe both depend on is `on conflict (source_system, source_event_id)` against migration 090's
     // partial unique index, so a second spelling of that predicate is a second thing to keep in step with it.
-    let owner_path = source::rust_root().join("core/db/src/flight_recorder/sibling_limit.rs");
+    let owner_path = source::rust_root().join("db/src/flight_recorder/sibling_limit.rs");
     let owner = source::read(&owner_path);
     assert!(
         owner.contains("pub const TRACE_EVENT_INSERT_SQL")
             && owner.contains("on conflict (source_system, source_event_id)"),
         "the flight recorder holds the one spelling of the trace `INSERT`, replay backstop included"
     );
-    let dao = source::read(&source::rust_root().join("core/db/src/forge_engine.rs"));
+    let dao = source::read(&source::rust_root().join("db/src/forge_engine.rs"));
     assert!(
         dao.contains("TRACE_EVENT_INSERT_SQL") && dao.contains("pub async fn record_observer"),
         "`ForgeEngineDao::record_observer` binds the recorder's statement rather than holding a copy of it"
@@ -159,7 +159,7 @@ fn arch_boundary_005__forge_persistence_only_enters_through_approved_dao_writer_
         caller.contains("dao.record_observer("),
         "Forge must still write the trace row — through the DAO, never with SQL of its own"
     );
-    let kernel = source::read(&source::rust_root().join("core/workflow/src/neon/new_id.rs"));
+    let kernel = source::read(&source::rust_root().join("middle/workflow/src/neon/new_id.rs"));
     assert!(
         kernel.contains("TRACE_EVENT_INSERT_SQL"),
         "the workflow kernel is the second writer at this table, so its `insert_event` binds the same statement — the \

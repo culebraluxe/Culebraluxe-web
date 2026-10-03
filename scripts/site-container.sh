@@ -15,7 +15,7 @@ port="${SITE_CONTAINER_PORT:-8090}"
 
 # The wasm is built inside the image; only the stylesheet is built here.
 if [ -z "${SKIP_SITE_BUILD:-}" ]; then
-  npx --no-install tailwindcss -i rust/ui/styles/app.css -o public/app.css --minify
+  npx --no-install tailwindcss -i web/ui/styles/app.css -o public/app.css --minify
 fi
 
 echo "==> docker build ($image)"

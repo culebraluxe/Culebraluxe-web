@@ -3,7 +3,7 @@
 # CulebraLuxe — canonical Gmail metadata -> PROD latest-context sync.
 #
 #   Gmail API (metadata only)  -> l_email                 (landing: source evidence)
-#     -> rust/cli gmail-sync                              (evidence -> interaction -> read models)
+#     -> cli gmail-sync                              (evidence -> interaction -> read models)
 #
 # Metadata only: no body, snippet, attachment or raw MIME is requested, transported or stored.
 # Only exact-linked Gmail identities are read, each over a bounded window of its newest messages.
@@ -36,7 +36,7 @@ done
 # tally the job prints names the target it resolved.
 log "PROD metadata intake start (Gmail metadata -> l_email -> interaction)"
 APP_ENV=production CULEBRALUXE_REPO="$REPO_ROOT" \
-  cargo run -q --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- \
+  cargo run -q --manifest-path "$REPO_ROOT/Cargo.toml" -p cli -- \
   gmail-sync prod --window="${CULEBRALUXE_GMAIL_WINDOW:-25}" \
   || fail "Gmail metadata sync failed"
 

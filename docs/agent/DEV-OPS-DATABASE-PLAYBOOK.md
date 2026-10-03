@@ -116,7 +116,7 @@ fixing it**. The 2026-09-10 drill proved this: a reset would have masked PROD's
 missing migrations and kept the `security_role` bug live. Always run:
 
 ```sh
-pnpm db:parity        # cargo run -p cli -- db-tool parity (rust/cli/src/db_tool.rs)
+pnpm db:parity        # cargo run -p cli -- db-tool parity (cli/src/db_tool.rs)
 ```
 
 Exits non-zero on drift. Treat it as a release gate for any schema story.

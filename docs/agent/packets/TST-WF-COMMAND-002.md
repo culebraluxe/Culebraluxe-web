@@ -26,13 +26,13 @@ adapter seam, and reads commands back through the production `Store`.
 
 - `rust/test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs:136-536` — the canonical test.
 - `rust/test-harness/src/engine.rs:51-61` — `with_application_port`, the production engine wired to the `ApplicationPort` seam.
-- `rust/core/workflow/src/engine/handle_join.rs:201-202` — `visit_sequence = command_visit_count + 1`, then `command_id` from the triple.
-- `rust/core/workflow/src/engine/handle_join.rs:225-240` — the adapter is called once and the command is recorded once.
-- `rust/core/workflow/src/engine/handle_join.rs:359` — `command_id(instance, node, visit_sequence)`, the derivation production runs.
-- `rust/core/workflow/src/store.rs:103-104` — the `Store` contract: `command_visit_count` and `insert_command`.
-- `rust/core/workflow/src/memory.rs:573-580` — the visit count filters on `process_instance_id` AND `node_id` (per node).
-- `rust/core/workflow/src/memory.rs:582-609` — the duplicate-command and duplicate-visit refusal (`COMMAND_VISIT_DUPLICATE`).
-- `rust/core/workflow/src/neon/new_id.rs:705-717` — the production query behind `command_visit_count`, the same per-node filter.
+- `middle/workflow/src/engine/handle_join.rs:201-202` — `visit_sequence = command_visit_count + 1`, then `command_id` from the triple.
+- `middle/workflow/src/engine/handle_join.rs:225-240` — the adapter is called once and the command is recorded once.
+- `middle/workflow/src/engine/handle_join.rs:359` — `command_id(instance, node, visit_sequence)`, the derivation production runs.
+- `middle/workflow/src/store.rs:103-104` — the `Store` contract: `command_visit_count` and `insert_command`.
+- `middle/workflow/src/memory.rs:573-580` — the visit count filters on `process_instance_id` AND `node_id` (per node).
+- `middle/workflow/src/memory.rs:582-609` — the duplicate-command and duplicate-visit refusal (`COMMAND_VISIT_DUPLICATE`).
+- `middle/workflow/src/neon/new_id.rs:705-717` — the production query behind `command_visit_count`, the same per-node filter.
 - `db/migrations/108_forge_v10_command_visits.sql:1-14` — the unique index on `(process_instance_id, node_id, visit_sequence)` the store guard mirrors.
 
 ## Acceptance criteria
@@ -52,8 +52,8 @@ adapter seam, and reads commands back through the production `Store`.
 7. No legacy TypeScript test ported. — met.
 8. Deterministic and isolated; never PROD; no live provider. — met: `TestClock` + `MemoryStore` + fakes.
 9. Coverage named and discoverable even where the invariant already held. — met: this canonical file.
-10. `cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit` passes. — met.
-11. `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` passes. — met.
+10. `cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit` passes. — met.
+11. `cargo check --manifest-path Cargo.toml --workspace --all-targets` passes. — met.
 
 ## Preconditions
 
@@ -79,18 +79,18 @@ SCOPED
 
 ## Assay commands
 
-- cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
-- cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+- cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+- cargo check --manifest-path Cargo.toml --workspace --all-targets
 
 ## Verification (2026-09-30)
 
 Landed by `843024a8` (the canonical test), strengthened across `61e5530e`, `683a5699`, `93dcda92`, `0a43d1d4`, and
 this node's per-node case. Commits are local only; this node's brief says do not push.
 
-- `cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit`
+- `cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit`
   → **1 passed, 0 failed**.
-- `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` → **exit 0**.
-- Mutation check: dropping the `node_id` filter from `rust/core/workflow/src/memory.rs:594` fails the new per-node
+- `cargo check --manifest-path Cargo.toml --workspace --all-targets` → **exit 0**.
+- Mutation check: dropping the `node_id` filter from `middle/workflow/src/memory.rs:594` fails the new per-node
   assertion at `rust/test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs:505`; restored
   afterwards.
 
@@ -100,13 +100,13 @@ The repair_smith node was re-run to deliver the missing `smith-candidate`. The c
 block is committed with; the commands below are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
 running 1 test
 test wf_command_002__command_generated_once_per_node_visit ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.39s
 CHECK_EXIT=0
 ```
@@ -119,18 +119,18 @@ canonical test `rust/test-harness/tests/wf_command__002__command_generated_once_
 exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
 running 1 test
 test wf_command_002__command_generated_once_per_node_visit ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 01s
 CHECK_EXIT=0
 ```
 
-Unrelated, pre-existing working-tree changes under `rust/core/workflow/` and `rust/forge/` were present at run time;
+Unrelated, pre-existing working-tree changes under `middle/workflow/` and `forge/` were present at run time;
 they were left untouched and are not part of this story's candidate.
 
 ## QA verdict — qa_verify (2026-09-30)
@@ -143,19 +143,19 @@ lines moved); they were corrected to the current tree so the named evidence stil
 changed.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
 running 1 test
 test wf_command_002__command_generated_once_per_node_visit ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 36s
 CHECK_EXIT=0
 ```
 
 Mutation check (the per-node bypass): removing the `node_id` filter from
-`rust/core/workflow/src/memory.rs:578` (`command_visit_count`) makes the test fail at
+`middle/workflow/src/memory.rs:578` (`command_visit_count`) makes the test fail at
 `rust/test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs:505`
 (`the second node's first visit is its own visit 1, not a per-instance visit 2`), `test result: FAILED` (exit 101).
 The production file was restored with `git checkout --` and the test is green again, so the per-node clause is
@@ -167,17 +167,17 @@ The repair_smith node was re-issued for this story with the canonical test alrea
 `rust/test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs`. No production or test change was
 required: the acceptance commands below are this node's own run against the current tree, pasted with their exit
 status. The candidate is the git commit this block is committed with. Unrelated working-tree changes under
-`rust/core/workflow/` and `rust/forge/` (parallel-timer concurrency work, not this story) were present at run time
+`middle/workflow/` and `forge/` (parallel-timer concurrency work, not this story) were present at run time
 and are deliberately not part of this candidate.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
 running 1 test
 test wf_command_002__command_generated_once_per_node_visit ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
 CHECK_EXIT=0
 ```
 
@@ -200,18 +200,18 @@ What changed in the canonical test
    the second node would derive a per-instance sequence and the logged id would disagree with the boundary.
 
 No production code changed; the two edits strengthen the test's negative and per-node coverage. Unrelated
-working-tree changes under `rust/core/workflow/` and `rust/forge/` (parallel-lane work, not this story) were present
+working-tree changes under `middle/workflow/` and `forge/` (parallel-lane work, not this story) were present
 at run time and are deliberately not part of this candidate.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
 running 1 test
 test wf_command_002__command_generated_once_per_node_visit ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 34.40s
 CHECK_EXIT=0
 ```
@@ -223,25 +223,25 @@ an ancestor of HEAD) and the acceptance commands below are this node's own run a
 their exit status. The candidate this node freezes is the git commit this block is committed with.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
 running 1 test
 test wf_command_002__command_generated_once_per_node_visit ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 32.78s
 CHECK_EXIT=0
 ```
 
 Mutation check (this node's own, the per-node bypass): dropping the `node_id` filter from `command_visit_count` at
-`rust/core/workflow/src/memory.rs:578` (so the visit counter becomes instance-wide) makes the test fail at
+`middle/workflow/src/memory.rs:578` (so the visit counter becomes instance-wide) makes the test fail at
 `rust/test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs:532`
 (`the second node's first visit is its own visit 1, not a per-instance visit 2`), `test result: FAILED` (exit 101):
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__002__command_generated_once_per_node_visit
 test wf_command_002__command_generated_once_per_node_visit ... FAILED
 thread '...' panicked at test-harness/tests/wf_command__002__command_generated_once_per_node_visit.rs:532:5:
 assertion `left == right` failed: WorkflowHarness/L3 Composition: the second node's first visit is its own visit 1, not a per-instance visit 2
@@ -249,10 +249,10 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; 
 MUTATION_EXIT=101
 ```
 
-The filter was restored byte-for-byte with the editor (not `git checkout --`), because `rust/core/workflow/src/memory.rs`
+The filter was restored byte-for-byte with the editor (not `git checkout --`), because `middle/workflow/src/memory.rs`
 carried another story's in-flight edit; `git diff` confirms only that unrelated edit remains, and the test is green
 again (`TEST_EXIT=0`). The per-node clause is therefore load-bearing and the contract is not vacuous.
 
-Unrelated, pre-existing working-tree changes under `rust/core/workflow/` and `rust/forge/` (parallel-timer concurrency
+Unrelated, pre-existing working-tree changes under `middle/workflow/` and `forge/` (parallel-timer concurrency
 work: `concurrency.rs`, the `TxStore: Send + Sync` bound and the bounded timer-fire change) were present at run time;
 they were left untouched and are deliberately not part of this story's candidate.

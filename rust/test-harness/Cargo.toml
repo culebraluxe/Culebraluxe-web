@@ -17,24 +17,24 @@ async-trait.workspace = true
 axum.workspace = true
 chrono.workspace = true
 # `db` is named `database` inside this crate; the module path is `test_harness::database`.
-db = { path = "../core/db" }
-domain = { path = "../core/domain" }
+db = { path = "../../db" }
+model = { path = "../../middle/model" }
 serde.workspace = true
 serde_json.workspace = true
-service = { path = "../core/service" }
+services = { path = "../../middle/services" }
 sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tower.workspace = true
 # The MVI boundary: the harness drives real `Screen` implementations (`ui::app::Screen`), so the contract it makes
 # executable is the one the browser runs, not a re-declared copy of it.
-ui = { path = "../ui" }
+ui = { path = "../../web/ui" }
 uuid.workspace = true
-workflow = { path = "../core/workflow" }
+workflow = { path = "../../middle/workflow" }
 
 [dev-dependencies]
 # The Forge definition boundary under test (TST-WF-DEFINITION-013): the production XML parser
 # (`forge::engine::xml`) and the pure definition policies it feeds (`version_policy`, `commands`, `topology`).
 # Test-only, so the harness's own modules never link the Forge runtime — the parse is the same one the deploy path
 # (`forge::engine::deploy::deploy_xml`) and the engine binary use, not a re-declared copy of it.
-forge = { path = "../forge" }
+forge = { path = "../../forge" }

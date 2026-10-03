@@ -2,19 +2,19 @@
 //!
 //! Contract: a claim whose owner stopped heartbeating is **recovered** from the durable queue, and recovery never
 //! touches a claim that is still alive. The production boundary is the Forge control-plane DAO the worker pass calls
-//! through (`recover_stale_agent_work`, `rust/forge/src/engine/worker.rs:176-224`, is a thin policy over exactly these
+//! through (`recover_stale_agent_work`, `forge/src/engine/worker.rs:176-224`, is a thin policy over exactly these
 //! three methods):
 //!
 //!   * `ForgeControlDao::stale_agent_work` — DISCOVERY. A claim is stale when `state in ('Claimed','Running',
 //!     'Paused')` **and** `updated_at` is older than the caller's window
-//!     (`rust/core/db/src/forge_control.rs:39-54`). Freshness is decided by the DATABASE (`updated_at` versus
+//!     (`db/src/forge_control.rs:39-54`). Freshness is decided by the DATABASE (`updated_at` versus
 //!     `now() - interval`), so this contract pins nothing on a Rust clock.
 //!   * `ForgeControlDao::requeue_stale_work` — RECOVERY, board-driven: a story the board still expects goes back to
 //!     the queue (`Ready`/`Ready`), landed work settles `Done` without being rerun, and a human-held story settles
-//!     `Error` without being reopened (`rust/core/db/src/forge_control.rs:117-202`).
+//!     `Error` without being reopened (`db/src/forge_control.rs:117-202`).
 //!   * `ForgeControlDao::hold_stale_work` — RECOVERY, terminal: a claim that must not be retried (an assay role, or
 //!     one out of attempts) is terminalized and the board is moved to `Hold` in the same transaction
-//!     (`rust/core/db/src/forge_control.rs:78-108`).
+//!     (`db/src/forge_control.rs:78-108`).
 //!
 //! WHY A REAL DATABASE. The subject *is* a SQL predicate and a committed write: which rows a window admits, and the
 //! pair (item, story) a recovery leaves behind. An in-memory fake would assert a re-statement of the predicate, not
@@ -28,7 +28,7 @@
 //! (`TestDatabase::with_rollback`).
 //!
 //! Run it (ignored by default, like every DEV database contract in this repo):
-//!   DATABASE_URL_DEV=... cargo test --manifest-path rust/Cargo.toml -p test-harness \
+//!   DATABASE_URL_DEV=... cargo test --manifest-path Cargo.toml -p test-harness \
 //!       --test forge_claim__003__stale_recovery -- --ignored
 //!
 //! THE NEGATIVE CASES ARE LOAD-BEARING, not garnish. A live peer (fresh `updated_at`) must survive the sweep; an

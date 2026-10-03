@@ -20,16 +20,16 @@ and executable).
 ## Architect brief
 
 Taxonomy FORGE.CLAIM; level L2 Persistence; harness `ForgeHarness`. The production worker pass is
-`recover_stale_agent_work` (`rust/forge/src/engine/worker.rs:176-224`), a thin policy over exactly three
+`recover_stale_agent_work` (`forge/src/engine/worker.rs:176-224`), a thin policy over exactly three
 `ForgeControlDao` methods:
 
-- `stale_agent_work` — DISCOVERY (`rust/core/db/src/forge_control.rs:39-54`): a claim is stale when `state in
+- `stale_agent_work` — DISCOVERY (`db/src/forge_control.rs:39-54`): a claim is stale when `state in
   ('Claimed','Running','Paused')` **and** `updated_at < now() - interval`; freshness is decided by the DATABASE, so
   the contract pins nothing on a Rust clock.
-- `requeue_stale_work` — RECOVERY, board-driven (`rust/core/db/src/forge_control.rs:117-202`): a story the board still
+- `requeue_stale_work` — RECOVERY, board-driven (`db/src/forge_control.rs:117-202`): a story the board still
   expects returns to `Ready`/`Ready`; landed work settles `Done` without a rerun; a human-held story settles `Error`
   without being reopened.
-- `hold_stale_work` — RECOVERY, terminal (`rust/core/db/src/forge_control.rs:78-108`): a claim that must not be
+- `hold_stale_work` — RECOVERY, terminal (`db/src/forge_control.rs:78-108`): a claim that must not be
   retried is terminalized and the board moves to `Hold` in the same transaction.
 
 The subject *is* a SQL predicate and a committed write, so an in-memory fake would only re-state the predicate. The
@@ -41,10 +41,10 @@ into a rerun. Remove any of those and the test would pass vacuously on the easy 
 ## Context refs
 
 - `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:1-482` — the canonical test.
-- `rust/core/db/src/forge_control.rs:39-54` — `stale_agent_work`, the windowed discovery predicate.
-- `rust/core/db/src/forge_control.rs:117-202` — `requeue_stale_work`, the board-driven recovery transaction.
-- `rust/core/db/src/forge_control.rs:78-108` — `hold_stale_work`, the terminal recovery transaction.
-- `rust/forge/src/engine/worker.rs:176-224` — `recover_stale_agent_work`, the production policy over the three methods.
+- `db/src/forge_control.rs:39-54` — `stale_agent_work`, the windowed discovery predicate.
+- `db/src/forge_control.rs:117-202` — `requeue_stale_work`, the board-driven recovery transaction.
+- `db/src/forge_control.rs:78-108` — `hold_stale_work`, the terminal recovery transaction.
+- `forge/src/engine/worker.rs:176-224` — `recover_stale_agent_work`, the production policy over the three methods.
 - `rust/test-harness/src/database.rs:68-75` — `guard_target`, the pure PROD refusal every constructor is built on.
 - `rust/test-harness/src/database.rs:116-123` — `connect_declared`, the declaration resolved as production does.
 
@@ -67,8 +67,8 @@ into a rerun. Remove any of those and the test would pass vacuously on the easy 
 8. Deterministic and isolated; never PROD; no live provider. — met: `TestDatabase` refuses PRODUCTION; the proof rows
    are deleted at the end.
 9. Coverage named and discoverable even where the invariant already held. — met: this canonical file and packet.
-10. `cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery` passes. — verified.
-11. `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` passes. — verified.
+10. `cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery` passes. — verified.
+11. `cargo check --manifest-path Cargo.toml --workspace --all-targets` passes. — verified.
 
 ## Preconditions
 
@@ -95,32 +95,32 @@ SCOPED
 
 ## Assay commands
 
-- cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
-- cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+- cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+- cargo check --manifest-path Cargo.toml --workspace --all-targets
 
 ## Verification — architect (2026-09-30)
 
 The canonical file was inspected against the current tree: its production citations resolve (`stale_agent_work` at
-`rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
-`recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`). No production or test code changed in this
+`db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
+`recover_stale_agent_work` at `forge/src/engine/worker.rs:176-224`). No production or test code changed in this
 node; the architect deliverable is this brief. Commands run from the repo root, output pasted:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.64s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.66s
 CHECK_EXIT=0
 ```
@@ -138,21 +138,21 @@ row is read back as `Running` inside its transaction and the committed row reads
 production code changed. Commands run from the repo root, output pasted:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.34s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.03s
 CHECK_EXIT=0
 ```
@@ -166,7 +166,7 @@ immediate retry — a transient wake-up, not a code fault.
 **Decision: ASSAY.** The canonical test named by this story's acceptance criteria is already committed on the base
 (`rust/test-harness/tests/forge_claim__003__stale_recovery.rs`, landed `5ad32cb6`, refined `0e7964a7`) and every
 acceptance criterion is met by it, so the cheapest sound strategy is to JUDGE the existing work rather than re-author
-it — the `leadDecision == 'ASSAY'` branch (`rust/forge/definitions/FORGE_SDLC-v6.xml:257`) routes straight to the
+it — the `leadDecision == 'ASSAY'` branch (`forge/definitions/FORGE_SDLC-v6.xml:257`) routes straight to the
 deterministic `qa_verify` node. No production or test code changed in this node.
 
 The lead re-ran this story's own assay commands against the disposable DEV branch. The plain command is green with the
@@ -177,21 +177,21 @@ and absent from a second sweep, a live peer stays `Running`, landed work settles
 rollback probe leaves committed truth intact. Commands run from the repo root, output pasted:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.61s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.90s
 CHECK_EXIT=0
 ```
@@ -204,40 +204,40 @@ The DEV run asserted `target = Dev` before any assertion ran; PRODUCTION was nev
 on the base (`0e7964a7`, refined) and every acceptance criterion is met by it; there was no split to integrate (serially
 authored) and no production or test code needed to change. The candidate this node freezes for QA is the git commit this
 block is committed with. Production citations were re-checked against the current tree and all resolve:
-`stale_agent_work` at `rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work`
-at `:117-202`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`, `guard_target` at
+`stale_agent_work` at `db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work`
+at `:117-202`, `recover_stale_agent_work` at `forge/src/engine/worker.rs:176-224`, `guard_target` at
 `rust/test-harness/src/database.rs:68-75`.
 
 This node's own run of the story's two acceptance commands is pasted with its exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.08s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.36s
 CHECK_EXIT=0
 ```
 
 **Mutation check (this node's own) — the window is load-bearing.** Flipping the stale predicate's comparison from
 `updated_at < now() - interval` to `updated_at > now() - interval` in `stale_agent_work`
-(`rust/core/db/src/forge_control.rs:47`) makes the sweep discover the *live* peer instead of the stale claim, and the
+(`db/src/forge_control.rs:47`) makes the sweep discover the *live* peer instead of the stale claim, and the
 test fails at `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:220`
 (`a claim silently older than the window must be discovered as stale`), `test result: FAILED` (exit 101):
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... FAILED
 thread '...' panicked at test-harness/tests/forge_claim__003__stale_recovery.rs:220:5:
 ForgeHarness/L2 Persistence: a claim silently older than the window must be discovered as stale
@@ -255,7 +255,7 @@ changes beyond this packet section were carried into the frozen candidate.
 The `repair_smith` node was re-issued for this story. The canonical test
 `rust/test-harness/tests/forge_claim__003__stale_recovery.rs` already proved "stale recovery" at the production
 `ForgeControlDao` boundary, but the migration-259 commit `728c107e` (declared work type) inserted the work-type
-resolution helpers above `recover_stale_agent_work` in `rust/forge/src/engine/worker.rs`, so the production citation
+resolution helpers above `recover_stale_agent_work` in `forge/src/engine/worker.rs`, so the production citation
 the test header and this packet named for that policy no longer resolved: `worker.rs:141-189` pointed at
 `work_type_for_kind`/`work_type_for_item`/`assay_terminal_role`, not at the recovery policy. The QA bar for this
 sibling story (`TST-FORGE-CLAIM-002`) already requires the named evidence to resolve after `728c107e`; this run repairs
@@ -264,35 +264,35 @@ the citation to the current tree. No production behavior changed and no migratio
 What changed:
 
 1. Test header `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:5` — `recover_stale_agent_work`
-   citation `rust/forge/src/engine/worker.rs:141-189 → 176-224` (the function spans `176` to its closing brace on
+   citation `forge/src/engine/worker.rs:141-189 → 176-224` (the function spans `176` to its closing brace on
    `224`).
 2. Packet architect brief (`:23`), Context refs (`:47`) and the two verification blocks that re-check the citation
    against the current tree (`:105`, `:208`) — the same `worker.rs:141-189 → 176-224` correction, so both halves of
    the story's evidence name the policy's actual lines.
 
 The other citations were re-checked against the current tree and all resolve: `stale_agent_work` at
-`rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
+`db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
 `guard_target` at `rust/test-harness/src/database.rs:68-75`, `connect_declared` at `:116-123`, and the canonical test
 at `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:1-462`. The test body is unchanged.
 
 Commands run from the repo root, output pasted:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.29s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.13s
 CHECK_EXIT=0
 ```
@@ -310,22 +310,22 @@ current tree and lands the candidate commit the control plane asked for. No prod
 body changed.
 
 What was checked: the canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:1-462` still
-resolves its production citations — `stale_agent_work` at `rust/core/db/src/forge_control.rs:39-54`,
+resolves its production citations — `stale_agent_work` at `db/src/forge_control.rs:39-54`,
 `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`, `recover_stale_agent_work` at
-`rust/forge/src/engine/worker.rs:176-224`, `guard_target` at `rust/test-harness/src/database.rs:68-75`, and
+`forge/src/engine/worker.rs:176-224`, `guard_target` at `rust/test-harness/src/database.rs:68-75`, and
 `connect_declared` at `:116-123`.
 
 Commands run from the repo root, output pasted:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.91s
 CHECK_EXIT=0
 ```
@@ -343,8 +343,8 @@ candidate for QA. There was no split to integrate (the story is serially authore
 needed to change — the canonical test is judged correct as it stands.
 
 The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:1-462` resolves its production
-citations against this tree: `stale_agent_work` at `rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at
-`:78-108`, `requeue_stale_work` at `:117-202`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`,
+citations against this tree: `stale_agent_work` at `db/src/forge_control.rs:39-54`, `hold_stale_work` at
+`:78-108`, `requeue_stale_work` at `:117-202`, `recover_stale_agent_work` at `forge/src/engine/worker.rs:176-224`,
 `guard_target` at `rust/test-harness/src/database.rs:68-75`, and `connect_declared` at `:116-123`. The live run
 asserted `target = dev` before any assertion ran and deletes its proof stories at the end; PRODUCTION was never
 connected to. Unlike the prior re-issue, `DATABASE_URL_DEV` is set in this environment and the `-- --ignored` L2
@@ -353,21 +353,21 @@ contract ran green here, not skipped.
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.75s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.28s
 CHECK_EXIT=0
 ```
@@ -396,7 +396,7 @@ live L2 DEV contract is green. All eleven acceptance criteria are met.
 
 **Independent non-vacuity check (this node's own).** Inverting the discovery predicate's comparison in
 `stale_agent_work` from `updated_at < now() - interval` to `updated_at > now() - interval`
-(`rust/core/db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the
+(`db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the
 canonical test fails exactly at its discovery assertion
 (`rust/test-harness/tests/forge_claim__003__stale_recovery.rs:220`, `a claim silently older than the window must be
 discovered as stale`), `test result: FAILED`, exit 101. The production file was restored with `git checkout --`
@@ -406,26 +406,26 @@ run is green again. The staleness window is therefore load-bearing and the contr
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.26s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.69s
 CHECK_EXIT=0
 
-$ # mutation — discovery predicate inverted (rust/core/db/src/forge_control.rs:47)
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ # mutation — discovery predicate inverted (db/src/forge_control.rs:47)
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... FAILED
 thread '...' panicked at test-harness/tests/forge_claim__003__stale_recovery.rs:220:5:
 ForgeHarness/L2 Persistence: a claim silently older than the window must be discovered as stale
@@ -433,8 +433,8 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; 
 MUTATION_EXIT=101
 
 $ # restore + re-run
-$ git checkout -- rust/core/db/src/forge_control.rs   # sha256 a8f0e22a…, git status clean
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ git checkout -- db/src/forge_control.rs   # sha256 a8f0e22a…, git status clean
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.89s
 LIVE_AFTER_RESTORE_EXIT=0
@@ -456,8 +456,8 @@ The `repair_smith` node was re-issued once more (task `a387e27c-7123-409e-a16d-8
 `d2e54b8a633747bdf622b33f2d9d42da65edc75cb4ebff9c50fbfc4594ac97dc`, unchanged since `a92ae424`) and every acceptance
 criterion is still met by the current tree. This node independently re-ran the story's two acceptance commands, both
 of which are green, and re-resolved every production citation the file names:
-`stale_agent_work` at `rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`,
-`requeue_stale_work` at `:117-202`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`,
+`stale_agent_work` at `db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`,
+`requeue_stale_work` at `:117-202`, `recover_stale_agent_work` at `forge/src/engine/worker.rs:176-224`,
 `guard_target` at `rust/test-harness/src/database.rs:68-75`, and `connect_declared` at `:116-123`. No production or
 test code changed and no migration ran.
 
@@ -468,21 +468,21 @@ stories at the end, so the disposable DEV branch is left as it was found; PRODUC
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.72s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 47s
 CHECK_EXIT=0
 ```
@@ -507,28 +507,28 @@ descendant candidate commit the control plane records. The canonical test
 criterion is still met by it, so no production or test body changed and no migration ran.
 
 Every production citation the file and this packet name re-resolves against the current tree: `stale_agent_work` at
-`rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
-`recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`, `guard_target` at
+`db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
+`recover_stale_agent_work` at `forge/src/engine/worker.rs:176-224`, `guard_target` at
 `rust/test-harness/src/database.rs:68-75`, and `connect_declared` at `:116-123`.
 
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.01s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 33s
 CHECK_EXIT=0
 ```
@@ -551,8 +551,8 @@ QA. The candidate this node commits is this packet section.
 The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is **byte-identical** to the QA-frozen
 candidate (`sha256 d2e54b8a633747bdf622b33f2d9d42da65edc75cb4ebff9c50fbfc4594ac97dc`, unchanged since `a92ae424`) and
 every production citation it names re-resolves against the current tree: `stale_agent_work` at
-`rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
-`recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`, `guard_target` at
+`db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
+`recover_stale_agent_work` at `forge/src/engine/worker.rs:176-224`, `guard_target` at
 `rust/test-harness/src/database.rs:68-75`, and `connect_declared` at `:116-123`.
 
 The live run asserted `target() == "dev"` before any assertion and deletes its six proof stories at the end, so the
@@ -562,21 +562,21 @@ disposable DEV branch is left as it was found; PRODUCTION is never connected to.
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.01s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 48s
 CHECK_EXIT=0
 ```
@@ -601,13 +601,13 @@ plus a suite of negative/refusal/fault cases, and deletes its proof stories at t
 green and the live L2 DEV contract is green. All eleven acceptance criteria are met.
 
 Every production citation the file and this packet name re-resolves against the current tree: `stale_agent_work` at
-`rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
-`recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`, `guard_target` at
+`db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
+`recover_stale_agent_work` at `forge/src/engine/worker.rs:176-224`, `guard_target` at
 `rust/test-harness/src/database.rs:68-75`, and `connect_declared` at `:116-123`.
 
 **Independent non-vacuity check (this node's own).** Inverting the discovery predicate's comparison in
 `stale_agent_work` from `updated_at < now() - interval` to `updated_at > now() - interval`
-(`rust/core/db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the
+(`db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the
 canonical test fails exactly at its discovery assertion
 (`rust/test-harness/tests/forge_claim__003__stale_recovery.rs:220`,
 `a claim silently older than the window must be discovered as stale`), `test result: FAILED`, exit 101. The production
@@ -618,26 +618,26 @@ not vacuous.
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.85s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 02s
 CHECK_EXIT=0
 
-$ # mutation — discovery predicate inverted (rust/core/db/src/forge_control.rs:47)
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ # mutation — discovery predicate inverted (db/src/forge_control.rs:47)
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... FAILED
 thread 'forge_claim_003__stale_recovery' panicked at test-harness/tests/forge_claim__003__stale_recovery.rs:220:5:
 ForgeHarness/L2 Persistence: a claim silently older than the window must be discovered as stale
@@ -645,8 +645,8 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; 
 MUTATION_EXIT=101
 
 $ # restore + re-run
-$ git checkout -- rust/core/db/src/forge_control.rs   # sha256 a8f0e22a…, git status clean
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ git checkout -- db/src/forge_control.rs   # sha256 a8f0e22a…, git status clean
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.29s
 LIVE_AFTER_RESTORE_EXIT=0
@@ -673,29 +673,29 @@ descendant candidate commit the control plane records. The canonical test
 criterion is still met by it, so no production or test body changed and no migration ran.
 
 Every production citation the file and this packet name re-resolves against the current tree:
-`stale_agent_work` at `rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`,
-`requeue_stale_work` at `:117-202`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`,
+`stale_agent_work` at `db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`,
+`requeue_stale_work` at `:117-202`, `recover_stale_agent_work` at `forge/src/engine/worker.rs:176-224`,
 `guard_target` at `rust/test-harness/src/database.rs:68-75`, and `connect_declared` at `:116-123`
 (`grep -n` found the four DAO/policy declarations at lines 39, 78, 117, 176 and the two harness functions at 68, 116).
 
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.98s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.30s
 CHECK_EXIT=0
 ```
@@ -719,28 +719,28 @@ re-verifies the artifact against the current tree and lands the descendant commi
 candidate.
 
 Every production citation the file and this packet name re-resolves against the current tree: `stale_agent_work` at
-`rust/core/db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
-`recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`, `guard_target` at
+`db/src/forge_control.rs:39-54`, `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`,
+`recover_stale_agent_work` at `forge/src/engine/worker.rs:176-224`, `guard_target` at
 `rust/test-harness/src/database.rs:68-75`, and `connect_declared` at `:116-123`.
 
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.43s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 34s
 CHECK_EXIT=0
 ```
@@ -764,12 +764,12 @@ fresh candidate for QA. The only working-tree change this node commits is this p
 The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is **byte-identical** to the QA-frozen
 candidate (sha256 `d2e54b8a633747bdf622b33f2d9d42da65edc75cb4ebff9c50fbfc4594ac97dc`; `git diff a92ae424 -- <file>` is
 empty) and every production citation it names re-resolves against the current tree by declaration line:
-`stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate
+`stale_agent_work` at `db/src/forge_control.rs:39` (predicate
 `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`), `hold_stale_work` at `:78`, `requeue_stale_work`
-at `:117`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target`
+at `:117`, `recover_stale_agent_work` at `forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target`
 at `rust/test-harness/src/database.rs:68`, and `connect_declared` at `:116`. The production bytes are unchanged for this
-node: `rust/core/db/src/forge_control.rs` sha256
-`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `rust/forge/src/engine/worker.rs`
+node: `db/src/forge_control.rs` sha256
+`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `forge/src/engine/worker.rs`
 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`, `rust/test-harness/src/database.rs`
 `493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`.
 
@@ -783,21 +783,21 @@ independently twice, inverting `:47` and observing the test fail at
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.41s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 43s
 CHECK_EXIT=0
 ```
@@ -830,17 +830,17 @@ no-op), and deletes its six proof stories at the end. Both acceptance commands a
 contract is green. All eleven acceptance criteria are met.
 
 Every production citation the file and this packet name re-resolves against the current tree, and the three
-production bytes are unchanged for this node: `stale_agent_work` at `rust/core/db/src/forge_control.rs:39`
+production bytes are unchanged for this node: `stale_agent_work` at `db/src/forge_control.rs:39`
 (predicate `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`), `hold_stale_work` at `:78`,
 `requeue_stale_work` at `:117` (file sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`);
-`recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176` (sha256
+`recover_stale_agent_work` at `forge/src/engine/worker.rs:176` (sha256
 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`); `guard_target` at
 `rust/test-harness/src/database.rs:68`, `connect_declared` at `:116` (sha256
 `493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`).
 
 **Independent non-vacuity check (this node's own).** Inverting the discovery predicate's comparison in
 `stale_agent_work` from `updated_at < now() - interval` to `updated_at > now() - interval`
-(`rust/core/db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the
+(`db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the
 canonical test fails exactly at its discovery assertion
 (`rust/test-harness/tests/forge_claim__003__stale_recovery.rs:220`,
 `a claim silently older than the window must be discovered as stale`), `test result: FAILED`. The production file was
@@ -850,34 +850,34 @@ staleness window is therefore load-bearing and the contract is not vacuous.
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.41s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 33s
 CHECK_EXIT=0
 
-$ # mutation — discovery predicate inverted (rust/core/db/src/forge_control.rs:47)
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ # mutation — discovery predicate inverted (db/src/forge_control.rs:47)
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... FAILED
 thread 'forge_claim_003__stale_recovery' panicked at test-harness/tests/forge_claim__003__stale_recovery.rs:220:5:
 ForgeHarness/L2 Persistence: a claim silently older than the window must be discovered as stale
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.13s
 
 $ # restore + re-run
-$ git checkout -- rust/core/db/src/forge_control.rs   # sha256 a8f0e22a…, git status clean
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ git checkout -- db/src/forge_control.rs   # sha256 a8f0e22a…, git status clean
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.95s
 LIVE_AFTER_RESTORE_EXIT=0
@@ -905,12 +905,12 @@ This node re-verifies the artifact against the current tree and lands the descen
 as the candidate.
 
 Every production citation the file and this packet name re-resolves against the current tree by declaration line:
-`stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate
+`stale_agent_work` at `db/src/forge_control.rs:39` (predicate
 `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`), `hold_stale_work` at `:78`, `requeue_stale_work`
-at `:117`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target`
+at `:117`, `recover_stale_agent_work` at `forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target`
 at `rust/test-harness/src/database.rs:68`, and `connect_declared` at `:116`. The production bytes are unchanged for
-this node: `rust/core/db/src/forge_control.rs` sha256
-`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `rust/forge/src/engine/worker.rs`
+this node: `db/src/forge_control.rs` sha256
+`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `forge/src/engine/worker.rs`
 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`, `rust/test-harness/src/database.rs`
 `493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`.
 
@@ -923,21 +923,21 @@ it was found.
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.61s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7m 43s
 CHECK_EXIT=0
 ```
@@ -948,7 +948,7 @@ the live peer; `requeue_stale_work` returns it to `Ready`/`Ready` and advances `
 path moves the claim to `Error` and the board to `Hold` in one write; and the `with_rollback` probe shows the committed
 `Ready` row survives an uncommitted rewrite. The negative cases (live survivor, no double recovery, landed/held
 refusals) keep the test non-vacuous. The workspace check emitted only pre-existing `forge` test-bin warnings unrelated
-to this candidate. An unrelated working-tree change (`rust/ui/src/app/registry.rs`, a `vault.read` → `vault.reaad`
+to this candidate. An unrelated working-tree change (`web/ui/src/app/registry.rs`, a `vault.read` → `vault.reaad`
 typo) and an untracked `rust/test-harness/tests/arch_boundary__010__entitlement_owns_action_screen_authorization.rs`
 left in the shared checkout by a concurrent writer belong to other in-flight stories; they were left untouched and are
 deliberately not part of this candidate. The candidate this node commits is the git commit this section is committed
@@ -969,34 +969,34 @@ What changed in the canonical test (`rust/test-harness/tests/forge_claim__003__s
 2. NEGATIVE (live peer): `survivor.updated_at == fresh_before.updated_at` — a recovery that rewrote or re-timestamped a
    row it decided not to move passes the state-only assertion and fails this one.
 3. NEGATIVE (settled no-op): `settled.updated_at == settled_before.updated_at` — a no-op recovery must commit *nothing*,
-   so the guard-clause branch of `requeue_stale_work` (`rust/core/db/src/forge_control.rs:133-135`) is now pinned by a
+   so the guard-clause branch of `requeue_stale_work` (`db/src/forge_control.rs:133-135`) is now pinned by a
    whole-row comparison rather than only by `state`.
 
 The contract is otherwise unchanged; the header paragraph now names the no-write proof. The production bytes are
-unchanged for this node: `stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate
+unchanged for this node: `stale_agent_work` at `db/src/forge_control.rs:39` (predicate
 `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`), `hold_stale_work` at `:78`, `requeue_stale_work` at
-`:117`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176`, `guard_target` at
+`:117`, `recover_stale_agent_work` at `forge/src/engine/worker.rs:176`, `guard_target` at
 `rust/test-harness/src/database.rs:68`, and `connect_declared` at `:116`. New test-file sha256:
 `a2e78bd618c400191dca0d830e092f26001c20d8818d44224ada46bd11e9df56`.
 
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.32s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 23s
 CHECK_EXIT=0
 ```
@@ -1020,11 +1020,11 @@ this node commits is this packet section.
 The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is the QA-frozen artifact with the
 self-heal no-write proof (sha256 `a2e78bd618c400191dca0d830e092f26001c20d8818d44224ada46bd11e9df56`), and every
 production citation it names re-resolves against the current tree by declaration line: `stale_agent_work` at
-`rust/core/db/src/forge_control.rs:39` (predicate `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`),
+`db/src/forge_control.rs:39` (predicate `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`),
 `hold_stale_work` at `:78`, `requeue_stale_work` at `:117`, `recover_stale_agent_work` at
-`rust/forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target` at `rust/test-harness/src/database.rs:68`,
-and `connect_declared` at `:116`. The production bytes are unchanged for this node: `rust/core/db/src/forge_control.rs`
-sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `rust/forge/src/engine/worker.rs` sha256
+`forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target` at `rust/test-harness/src/database.rs:68`,
+and `connect_declared` at `:116`. The production bytes are unchanged for this node: `db/src/forge_control.rs`
+sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `forge/src/engine/worker.rs` sha256
 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`, `rust/test-harness/src/database.rs` sha256
 `493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`.
 
@@ -1038,21 +1038,21 @@ not re-run the mutation (the `qa_verify` nodes inverted `:47` independently and 
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.27s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
 warning: unused import: `Store`
   --> core/workflow/src/concurrency.rs:70:24
 warning: `workflow` (lib test) generated 2 warnings
@@ -1088,16 +1088,16 @@ and deletes its six proof stories at the end. Both acceptance commands are green
 green. All eleven acceptance criteria are met.
 
 Every production citation the file and this packet name re-resolves against the current tree, and the production bytes
-are unchanged for this node: `stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate
+are unchanged for this node: `stale_agent_work` at `db/src/forge_control.rs:39` (predicate
 `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`), `hold_stale_work` at `:78`, `requeue_stale_work`
 at `:117` (file sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`); `recover_stale_agent_work`
-at `rust/forge/src/engine/worker.rs:176` (sha256 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`);
+at `forge/src/engine/worker.rs:176` (sha256 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`);
 `guard_target` at `rust/test-harness/src/database.rs:68`, `connect_declared` at `:116` (sha256
 `493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`).
 
 **Independent non-vacuity check (this node's own).** Inverting the discovery predicate's comparison in
 `stale_agent_work` from `updated_at < now() - interval` to `updated_at > now() - interval`
-(`rust/core/db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the
+(`db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the
 canonical test fails exactly at its discovery assertion
 (`rust/test-harness/tests/forge_claim__003__stale_recovery.rs:222`,
 `a claim silently older than the window must be discovered as stale`), `test result: FAILED`. The production file was
@@ -1107,34 +1107,34 @@ is green again. The staleness window is therefore load-bearing and the contract 
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.00s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.02s
 CHECK_EXIT=0
 
-$ # mutation — discovery predicate inverted (rust/core/db/src/forge_control.rs:47)
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ # mutation — discovery predicate inverted (db/src/forge_control.rs:47)
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... FAILED
 thread 'forge_claim_003__stale_recovery' panicked at test-harness/tests/forge_claim__003__stale_recovery.rs:222:5:
 ForgeHarness/L2 Persistence: a claim silently older than the window must be discovered as stale
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.61s
 
 $ # restore + re-run
-$ git checkout -- rust/core/db/src/forge_control.rs   # sha256 a8f0e22a…, production edits clean
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ git checkout -- db/src/forge_control.rs   # sha256 a8f0e22a…, production edits clean
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.58s
 LIVE_AFTER_RESTORE_EXIT=0
@@ -1164,12 +1164,12 @@ candidate commit the control plane records.
 The test is byte-identical to the QA-frozen artifact (sha256
 `a2e78bd618c400191dca0d830e092f26001c20d8818d44224ada46bd11e9df56`, the self-heal no-write proof). Every production
 citation the file and this packet name re-resolves against the current tree by declaration line:
-`stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate
+`stale_agent_work` at `db/src/forge_control.rs:39` (predicate
 `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`), `hold_stale_work` at `:78`, `requeue_stale_work`
-at `:117`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target`
+at `:117`, `recover_stale_agent_work` at `forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target`
 at `rust/test-harness/src/database.rs:68`, and `connect_declared` at `:116`. The production bytes are unchanged:
-`rust/core/db/src/forge_control.rs` sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`,
-`rust/forge/src/engine/worker.rs` sha256 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`,
+`db/src/forge_control.rs` sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`,
+`forge/src/engine/worker.rs` sha256 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`,
 `rust/test-harness/src/database.rs` sha256 `493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`.
 
 The live run asserts `target() == "dev"` before any assertion, calls
@@ -1181,21 +1181,21 @@ disposable DEV branch as it was found.
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.18s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
 warning: `workflow` (lib test) generated 2 warnings
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.64s
 CHECK_EXIT=0
@@ -1232,7 +1232,7 @@ What changed (two files, both in the story's scope):
    The rollback probe uses `harness.database().with_rollback(...)`. **No assertion changed**; the subject (the windowed
    predicate and the board-driven recovery writes) is untouched, and the file is now 482 lines.
 
-Production behaviour and schema did not change: `rust/core/db/src/forge_control.rs` is byte-identical before and after
+Production behaviour and schema did not change: `db/src/forge_control.rs` is byte-identical before and after
 (sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`), and no migration ran. The live run asserts
 `target() == "dev"` before any assertion and only reads `DATABASE_URL_DEV`
 (`ep-muddy-lab-axtgckj9-pooler`, distinct from the PROD host `ep-flat-art-ax92tn7a-pooler`); PRODUCTION was never
@@ -1241,21 +1241,21 @@ connected to. The six proof stories are deleted at the end.
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; APP_ENV=development cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; APP_ENV=development cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.88s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
 warning: `workflow` (lib test) generated 2 warnings
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 00s
 CHECK_EXIT=0
@@ -1263,7 +1263,7 @@ CHECK_EXIT=0
 
 **Independent non-vacuity check (this node's own).** Inverting the discovery predicate's comparison in
 `stale_agent_work` from `updated_at < now() - interval` to `updated_at > now() - interval`
-(`rust/core/db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the
+(`db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the
 canonical test fails exactly at its discovery assertion
 (`rust/test-harness/tests/forge_claim__003__stale_recovery.rs:223`, `a claim silently older than the window must be
 discovered as stale`), `test result: FAILED`. The production file was restored with `git checkout --` (sha256 back to
@@ -1291,12 +1291,12 @@ The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs`
 (sha256 `635016b2adb004a3f0a547df58794c6c983d3b1a8d9dde6e9b65d04916fbf2de`), which supersedes the earlier
 `a2e78bd6…` no-write artifact by routing the same assertions through `ForgeHarness::connect_declared` /
 `harness.control()` / `harness.pool()` / `harness.database()`. Every production citation it names re-resolves against
-the current tree by declaration line: `stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate
+the current tree by declaration line: `stale_agent_work` at `db/src/forge_control.rs:39` (predicate
 `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`), `hold_stale_work` at `:78`, `requeue_stale_work`
-at `:117`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target`
+at `:117`, `recover_stale_agent_work` at `forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target`
 at `rust/test-harness/src/database.rs:68`, and `connect_declared` at `:116`. The production bytes are unchanged for this
-node: `rust/core/db/src/forge_control.rs` sha256
-`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `rust/forge/src/engine/worker.rs` sha256
+node: `db/src/forge_control.rs` sha256
+`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `forge/src/engine/worker.rs` sha256
 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`, `rust/test-harness/src/database.rs` sha256
 `493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`, and the only harness file this story's
 `repair_smith` changed, `rust/test-harness/src/forge.rs`, sha256
@@ -1312,21 +1312,21 @@ read the code only.
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.45s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
 warning: unused import: `Store`
   --> core/workflow/src/concurrency.rs:70:24
 warning: `workflow` (lib test) generated 2 warnings
@@ -1364,18 +1364,18 @@ proof stories at the end. Both acceptance commands are green and the live L2 DEV
 acceptance criteria are met.
 
 Every production citation the file and this packet name re-resolves against the current tree by declaration line:
-`stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate `updated_at < now() - ($1::text || '
+`stale_agent_work` at `db/src/forge_control.rs:39` (predicate `updated_at < now() - ($1::text || '
 minutes')::interval` at `:47`), `hold_stale_work` at `:78`, `requeue_stale_work` at `:117`,
-`recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target` at
+`recover_stale_agent_work` at `forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target` at
 `rust/test-harness/src/database.rs:68`, and `connect_declared` at `:116`. The production bytes are unchanged for this
-node: `rust/core/db/src/forge_control.rs` sha256
-`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `rust/forge/src/engine/worker.rs` sha256
+node: `db/src/forge_control.rs` sha256
+`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `forge/src/engine/worker.rs` sha256
 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`, `rust/test-harness/src/database.rs` sha256
 `493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`, and `rust/test-harness/src/forge.rs` sha256
 `82ea34239b7b60791061198ed77df2368aba8d9f6014112c925773f015aa8225`.
 
 **Independent non-vacuity check (this node's own).** Inverting the discovery predicate's comparison in `stale_agent_work`
-from `updated_at < now() - interval` to `updated_at > now() - interval` (`rust/core/db/src/forge_control.rs:47`) makes
+from `updated_at < now() - interval` to `updated_at > now() - interval` (`db/src/forge_control.rs:47`) makes
 the sweep admit the live peer instead of the stale claim, and the canonical test fails exactly at its discovery
 assertion (`rust/test-harness/tests/forge_claim__003__stale_recovery.rs:223`,
 `a claim silently older than the window must be discovered as stale`), `test result: FAILED`, exit 101. The production
@@ -1386,19 +1386,19 @@ is green again. The staleness window is therefore load-bearing and the contract 
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.89s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
 warning: unused import: `TxStore`
   --> core/workflow/src/concurrency.rs:70:31
 warning: unused import: `Store`
@@ -1406,8 +1406,8 @@ warning: unused import: `Store`
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.77s
 CHECK_EXIT=0
 
-$ # mutation — discovery predicate inverted (rust/core/db/src/forge_control.rs:47)
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ # mutation — discovery predicate inverted (db/src/forge_control.rs:47)
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... FAILED
 thread 'forge_claim_003__stale_recovery' panicked at test-harness/tests/forge_claim__003__stale_recovery.rs:223:5:
 ForgeHarness/L2 Persistence: a claim silently older than the window must be discovered as stale
@@ -1415,8 +1415,8 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; 
 MUTATION_EXIT=101
 
 $ # restore + re-run
-$ git checkout -- rust/core/db/src/forge_control.rs   # sha256 a8f0e22a…, git status clean
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ git checkout -- db/src/forge_control.rs   # sha256 a8f0e22a…, git status clean
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.29s
 LIVE_AFTER_RESTORE_EXIT=0
@@ -1452,8 +1452,8 @@ migration ran. This node re-verifies the artifact against the current tree and l
 the control plane records.
 
 Every production citation the file and this packet name re-resolves against the current tree by declaration line:
-`stale_agent_work` at `rust/core/db/src/forge_control.rs:39`, `hold_stale_work` at `:78`, `requeue_stale_work` at
-`:117`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target` at
+`stale_agent_work` at `db/src/forge_control.rs:39`, `hold_stale_work` at `:78`, `requeue_stale_work` at
+`:117`, `recover_stale_agent_work` at `forge/src/engine/worker.rs:176`, the harness PROD refusal `guard_target` at
 `rust/test-harness/src/database.rs:68`, and `connect_declared` at `:116`. The test declares exactly one
 `#[tokio::test]` named `forge_claim_003__stale_recovery` (annotation at
 `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:129`).
@@ -1467,21 +1467,21 @@ connected to. The six proof stories are deleted at the end, leaving the disposab
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.72s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
 warning: unused import: `TxStore`
   --> core/workflow/src/concurrency.rs:70:31
 warning: unused import: `Store`
@@ -1522,12 +1522,12 @@ What changed in this node (one file, the story packet):
 The canonical test declares exactly one `#[tokio::test]` named `forge_claim_003__stale_recovery` (annotation at
 `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:129`) and is 482 lines. Every production citation the
 file and this packet name re-resolves against the current tree by declaration line: `stale_agent_work` at
-`rust/core/db/src/forge_control.rs:39` (predicate `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`,
+`db/src/forge_control.rs:39` (predicate `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`,
 closing `:54`), `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`, `recover_stale_agent_work` at
-`rust/forge/src/engine/worker.rs:176-224`, the harness PROD refusal `guard_target` at
+`forge/src/engine/worker.rs:176-224`, the harness PROD refusal `guard_target` at
 `rust/test-harness/src/database.rs:68-75`, and `connect_declared` at `:116-123`. The production bytes are unchanged:
-`rust/core/db/src/forge_control.rs` sha256
-`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `rust/forge/src/engine/worker.rs` sha256
+`db/src/forge_control.rs` sha256
+`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `forge/src/engine/worker.rs` sha256
 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`, `rust/test-harness/src/database.rs` sha256
 `493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`, and the story's only changed harness file
 `rust/test-harness/src/forge.rs` sha256 `82ea34239b7b60791061198ed77df2368aba8d9f6014112c925773f015aa8225`.
@@ -1535,19 +1535,19 @@ closing `:54`), `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-20
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; APP_ENV=development cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; APP_ENV=development cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.54s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.92s
 CHECK_EXIT=0
 ```
@@ -1583,12 +1583,12 @@ The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs`
 `forge_claim_003__stale_recovery` (annotation at
 `rust/test-harness/tests/forge_claim__003__stale_recovery.rs:126`, function at `:129`) and is 482 lines. Every
 production citation it names re-resolves against the current tree by declaration line: `stale_agent_work` at
-`rust/core/db/src/forge_control.rs:39` (predicate `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`,
+`db/src/forge_control.rs:39` (predicate `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`,
 closing `:54`), `hold_stale_work` at `:78-108`, `requeue_stale_work` at `:117-202`, `recover_stale_agent_work` at
-`rust/forge/src/engine/worker.rs:176-224`, the harness PROD refusal `guard_target` at
+`forge/src/engine/worker.rs:176-224`, the harness PROD refusal `guard_target` at
 `rust/test-harness/src/database.rs:68-75`, and `connect_declared` at `:116-123`. The production bytes are unchanged
-for this node: `rust/core/db/src/forge_control.rs` sha256
-`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `rust/forge/src/engine/worker.rs` sha256
+for this node: `db/src/forge_control.rs` sha256
+`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `forge/src/engine/worker.rs` sha256
 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`, `rust/test-harness/src/database.rs` sha256
 `493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`, and the only harness file this story's
 `repair_smith` changed, `rust/test-harness/src/forge.rs`, sha256
@@ -1605,21 +1605,21 @@ only.
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.75s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
 warning: unused import: `TxStore`
   --> core/workflow/src/concurrency.rs:70:31
 warning: unused import: `Store`
@@ -1662,19 +1662,19 @@ and deletes its six proof stories at the end. Both acceptance commands are green
 All eleven acceptance criteria are met.
 
 Every production citation the file and this packet name re-resolves against the current tree by declaration line:
-`stale_agent_work` at `rust/core/db/src/forge_control.rs:39` (predicate
+`stale_agent_work` at `db/src/forge_control.rs:39` (predicate
 `updated_at < now() - ($1::text || ' minutes')::interval` at `:47`, closing `:54`), `hold_stale_work` at `:78-108`,
-`requeue_stale_work` at `:117-202`, `recover_stale_agent_work` at `rust/forge/src/engine/worker.rs:176-224`, the harness
+`requeue_stale_work` at `:117-202`, `recover_stale_agent_work` at `forge/src/engine/worker.rs:176-224`, the harness
 PROD refusal `guard_target` at `rust/test-harness/src/database.rs:68-75`, and `connect_declared` at `:116-123`. The
-production bytes are unchanged for this node: `rust/core/db/src/forge_control.rs` sha256
-`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `rust/forge/src/engine/worker.rs` sha256
+production bytes are unchanged for this node: `db/src/forge_control.rs` sha256
+`a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`, `forge/src/engine/worker.rs` sha256
 `4131fdd664ef2f5cc48a0cc454a22997d45da592b664874fc3655f9e977c6bad`, `rust/test-harness/src/database.rs` sha256
 `493e72466fdb79686f8e9692d5046a190290d9b86d921cc2a5623943d0786bfa`, and the story's only changed harness file
 `rust/test-harness/src/forge.rs` sha256 `82ea34239b7b60791061198ed77df2368aba8d9f6014112c925773f015aa8225`.
 
 **Independent non-vacuity check (this node's own).** Inverting the discovery predicate's comparison in `stale_agent_work`
 from `updated_at < now() - interval` to `updated_at > now() - interval`
-(`rust/core/db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the canonical
+(`db/src/forge_control.rs:47`) makes the sweep admit the live peer instead of the stale claim, and the canonical
 test fails exactly at its discovery assertion
 (`rust/test-harness/tests/forge_claim__003__stale_recovery.rs:223`,
 `a claim silently older than the window must be discovered as stale`), `test result: FAILED`, exit 101. The production
@@ -1688,25 +1688,25 @@ Commands run from the repo root, output pasted with exit status:
 $ shasum -a 256 rust/test-harness/tests/forge_claim__003__stale_recovery.rs
 635016b2adb004a3f0a547df58794c6c983d3b1a8d9dde6e9b65d04916fbf2de  rust/test-harness/tests/forge_claim__003__stale_recovery.rs
 
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.87s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
 warning: `workflow` (lib test) generated 2 warnings
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.09s
 CHECK_EXIT=0
 
-$ # mutation — discovery predicate inverted (rust/core/db/src/forge_control.rs:47)
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ # mutation — discovery predicate inverted (db/src/forge_control.rs:47)
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... FAILED
 thread 'forge_claim_003__stale_recovery' (19882876) panicked at test-harness/tests/forge_claim__003__stale_recovery.rs:223:5:
 ForgeHarness/L2 Persistence: a claim silently older than the window must be discovered as stale
@@ -1714,8 +1714,8 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; 
 MUTATION_EXIT=101
 
 $ # restore + re-run
-$ git checkout -- rust/core/db/src/forge_control.rs   # sha256 a8f0e22a…, git status clean
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ git checkout -- db/src/forge_control.rs   # sha256 a8f0e22a…, git status clean
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.80s
 LIVE_AFTER_RESTORE_EXIT=0
@@ -1743,8 +1743,8 @@ this packet section; its `FORGE_EVIDENCE_JSON` carries `qaPassed = true`.
 
 **Verdict: PASS (qaPassed = true).** The prior run of this node was held for a missing `qa-verdict` deliverable: the
 section above explained the evidence in prose but the reply emitted no literal `FORGE_EVIDENCE_JSON:` marker, and the
-engine reads `evidence.qa_passed` only from that marker (`rust/forge/src/engine/role_mapping.rs:154,167`, gated at
-`rust/forge/src/engine/phase.rs:151-155`). Nothing in the candidate was wrong; only the deliverable was missing. This
+engine reads `evidence.qa_passed` only from that marker (`forge/src/engine/role_mapping.rs:154,167`, gated at
+`forge/src/engine/phase.rs:151-155`). Nothing in the candidate was wrong; only the deliverable was missing. This
 re-run re-verified the frozen candidate and now emits the marker.
 
 The canonical test `rust/test-harness/tests/forge_claim__003__stale_recovery.rs` is byte-identical to the frozen
@@ -1757,7 +1757,7 @@ held → `Error`, settled no-op). PROD is never connected: the test declares the
 (`ForgeHarness::connect_declared(None, Some("test"))`), so the shell environment cannot route it; the harness refuses
 PROD before any socket (`rust/test-harness/src/database.rs:68`), and the DEV host is `ep-muddy-lab-axtgckj9-pooler`
 (PROD is `ep-flat-art-ax92tn7a-pooler`). The production bytes are unchanged for this node
-(`rust/core/db/src/forge_control.rs` sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`,
+(`db/src/forge_control.rs` sha256 `a8f0e22ae34988a7aaf946278f80dd053b1d9084a62e4dc2ab9d4f99ebb21ddd`,
 `git status` clean for that path). The workspace check emitted only pre-existing warnings (`workflow` unused imports at
 `core/workflow/src/concurrency.rs:70`), unrelated to this candidate. The untracked
 `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` in this shared checkout belongs to another
@@ -1770,31 +1770,31 @@ Commands run from the repo root, output pasted with exit status:
 $ shasum -a 256 rust/test-harness/tests/forge_claim__003__stale_recovery.rs
 635016b2adb004a3f0a547df58794c6c983d3b1a8d9dde6e9b65d04916fbf2de  rust/test-harness/tests/forge_claim__003__stale_recovery.rs
 
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.80s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
 warning: `workflow` (lib test) generated 2 warnings
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.92s
 CHECK_EXIT=0
 
-$ # independent non-vacuity: invert the discovery predicate rust/core/db/src/forge_control.rs:47 (< -> >)
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ # independent non-vacuity: invert the discovery predicate db/src/forge_control.rs:47 (< -> >)
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 thread 'forge_claim_003__stale_recovery' panicked at test-harness/tests/forge_claim__003__stale_recovery.rs:223:5:
 ForgeHarness/L2 Persistence: a claim silently older than the window must be discovered as stale
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.27s
 MUTATION_EXIT=101
 
-$ git checkout -- rust/core/db/src/forge_control.rs   # sha256 back to a8f0e22a…; git status clean for that path
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ git checkout -- db/src/forge_control.rs   # sha256 back to a8f0e22a…; git status clean for that path
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 test forge_claim_003__stale_recovery ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.04s
 LIVE_AFTER_RESTORE_EXIT=0
@@ -1826,19 +1826,19 @@ left untouched, and are not part of this candidate. The only change this node co
 Commands run from the repo root, output pasted with exit status:
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
+$ cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery
 running 1 test
 test forge_claim_003__stale_recovery ... ignored, needs DATABASE_URL_DEV
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
 PLAIN_EXIT=0
 
-$ set -a; . ./.env.local; set +a; cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
+$ set -a; . ./.env.local; set +a; cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__003__stale_recovery -- --ignored
 running 1 test
 test forge_claim_003__stale_recovery ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.65s
 LIVE_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 05s
 CHECK_EXIT=0
 ```

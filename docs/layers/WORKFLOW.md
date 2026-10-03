@@ -1,9 +1,9 @@
 # Layer: WORKFLOW
 
-Crates: **`rust/core/workflow`** (the state machine) + **`rust/forge/src/engine/re_*`** (the residential-transaction
+Crates: **`middle/workflow`** (the state machine) + **`forge/src/engine/re_*`** (the residential-transaction
 runtime that drives it). **Owns:** what a transaction is doing, who is allowed to move it, and when a timer fires.
 
-## The state machine (`rust/core/workflow`)
+## The state machine (`middle/workflow`)
 
 A **process instance** is one transaction. Inside it: **tokens** (where the process is), **tasks** (what a person or
 system must do), **jobs** (timers). Definitions come from an XML "supermodel" parsed at startup.
@@ -12,7 +12,7 @@ The rule that shapes everything: **one engine step is one database transaction**
 synchronous, its store methods block, and `block_on` from inside a runtime panics — which is why the engine is reached
 through a bridge, not called directly from a handler.
 
-## The transaction runtime (`rust/forge/src/engine/re_*`)
+## The transaction runtime (`forge/src/engine/re_*`)
 
 | file | what it does |
 | --- | --- |
@@ -28,7 +28,7 @@ already ran, and the stored outcome is returned instead of running it twice. Wit
 
 ## How the API reaches it
 
-`rust/server/src/api/engine.rs`:
+`web/src/api/engine.rs`:
 
 ```
 POST /v1/engine/transactions | timers/reconcile | tasks/complete | reclaim
@@ -52,7 +52,7 @@ retryable, rather than spawning threads. The engine is **warmed at boot**, so no
 
 ## Read the code
 
-`rust/core/workflow/src/engine.rs` for the operations, `rust/workflow/../src/neon.rs` for the store and its one
-transaction per step, `rust/forge/src/engine/re_runtime.rs` for the verbs, and `rust/server/src/api/engine.rs` for the
+`middle/workflow/src/engine.rs` for the operations, `rust/workflow/../src/neon.rs` for the store and its one
+transaction per step, `forge/src/engine/re_runtime.rs` for the verbs, and `web/src/api/engine.rs` for the
 bridge. Deep background on Forge's own workflow (roles, work items, publish path):
 [docs/agent/WORKFLOW-ARCHITECTURE.md](../agent/WORKFLOW-ARCHITECTURE.md).

@@ -61,7 +61,7 @@ frozen to agent action. Prepare, verify in DEV, and stop.
   whatever target it is given, from an explicit env file. That means step 4 above is a manual, human-authorised step —
   it does not happen because code shipped.
 - Both halves of a release must be built together: the Next application (`next build`) and the Rust binary
-  (`cargo build --release -p server --bin http`, which is what the container does). A release that ships one without
+  (`cargo build --release -p web --bin web`, which is what the container does). A release that ships one without
   the other is not one release.
 
 Do **not** return with:

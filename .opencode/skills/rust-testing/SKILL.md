@@ -8,7 +8,7 @@ description: Use when adding, running or fixing Rust tests - nextest in CI, carg
 - CI runs `cargo nextest run --workspace --profile ci`. Locally `cargo test -p <crate>` is the same tests with a
   friendlier reporter; `cargo nextest` only helps if it is installed.
 - Database-touching suites are `#[ignore]`d and run explicitly, single-threaded:
-  `cargo test -p server --test service_harness_dev -- --ignored --test-threads=1`. An ignored test that nothing
+  `cargo test -p web --test service_harness_dev -- --ignored --test-threads=1`. An ignored test that nothing
   invokes is a test nobody runs.
 - Formatting is a gate, not a preference: `cargo fmt --all -- --check`. Read the deferral list in `gates.yml`
   before "fixing" a formatting failure — four module trees are deliberately deferred, and reformatting them buries

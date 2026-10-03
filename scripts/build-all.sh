@@ -11,10 +11,10 @@ echo '==> rust workspace check'
 (cd rust && cargo check --workspace --all-targets)
 
 echo '==> rust server (release, exactly what the container builds)'
-(cd rust && cargo build --release -p server --bin http)
+(cd rust && cargo build --release -p web --bin web)
 
 echo '==> rust tests'
-(cd rust && cargo test -p db -p server -p forge -p workflow)
+(cd rust && cargo test -p db -p web -p forge -p workflow)
 
 echo '==> rust ui (wasm) + next'
 node scripts/build.mjs

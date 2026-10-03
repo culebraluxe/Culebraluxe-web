@@ -27,7 +27,7 @@ log "package OK: handles=$handle_count messages=$message_count"
 log "rebuilding evidence only (no interaction replay), then refreshing the Client read models"
 
 APP_ENV=production CULEBRALUXE_REPO="$REPO_ROOT" \
-  cargo run -q --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- \
+  cargo run -q --manifest-path "$REPO_ROOT/Cargo.toml" -p cli -- \
   apple-sync messages-intake "$EXPORT_DIR" --evidence-only --refresh
 
 log "PROD relationship evidence and all Client read models repaired"

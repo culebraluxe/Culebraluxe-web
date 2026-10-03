@@ -6,45 +6,45 @@ two tests on it.
 
 ## Goal (one line)
 
-`rust/server/src/api/google_auth.rs` gains the tests its security-relevant surfaces need — the return-address
+`web/src/api/google_auth.rs` gains the tests its security-relevant surfaces need — the return-address
 filter, the state-cookie codec, and the origin/redirect derivation — and the one real defect those tests
 expose is fixed.
 
 ## Scope
 
-- **In:** unit tests inside `rust/server/src/api/google_auth.rs` (`#[cfg(test)] mod tests`), plus the
+- **In:** unit tests inside `web/src/api/google_auth.rs` (`#[cfg(test)] mod tests`), plus the
   smallest fix in that same file for a return address that leaves the site.
-- **Out:** no route change, no new dependency, no change to `rust/server/src/api/ui_auth.rs`, no DB, no
+- **Out:** no route change, no new dependency, no change to `web/src/api/ui_auth.rs`, no DB, no
   domain, no migration, no deploy, no other file. `safe_next` keeps its job (a path on this site or the
   default); this story does not redesign where `state` lives and does not add origin binding.
 
 ## Why (the gap, measured)
 
-The file serves `signin/google`, `callback/google` and `signout` (`rust/server/src/api/google_auth.rs:28-33`).
+The file serves `signin/google`, `callback/google` and `signout` (`web/src/api/google_auth.rs:28-33`).
 Everything it does between "Google answered" and "the session cookie is set" is trusted by construction,
 and two tests (lines 250-269) cover one function and one round trip.
 
 ## Context refs (live paths — verified 2026-09-29)
 
-- `rust/server/src/api/google_auth.rs:74-78` — `safe_next`: a return address is used when it starts with
+- `web/src/api/google_auth.rs:74-78` — `safe_next`: a return address is used when it starts with
   `/` and not `//`. The filter does not consider `\`, which every browser reads as `/`: `/\evil.example`
   is `//evil.example` when the Location header is followed. That is an off-site redirect after a
   successful sign-in, reachable with no credentials.
-- `rust/server/src/api/google_auth.rs:36-45` — `encode`; `rust/server/src/api/google_auth.rs:226-242` —
+- `web/src/api/google_auth.rs:36-45` — `encode`; `web/src/api/google_auth.rs:226-242` —
   `percent_decode`. The pair is the state/next cookie codec. One happy-path round trip is tested.
-- `rust/server/src/api/google_auth.rs:48-67` — `origin`, `rust/server/src/api/google_auth.rs:69-71` —
+- `web/src/api/google_auth.rs:48-67` — `origin`, `web/src/api/google_auth.rs:69-71` —
   `redirect_uri`. The redirect URI must equal what is registered in Google Cloud, so its derivation
   deserves a pinned test rather than a reading.
-- `rust/server/src/api/google_auth.rs:80-87` — `set_cookie`: `HttpOnly`, `SameSite=Lax`, `Secure` only in
+- `web/src/api/google_auth.rs:80-87` — `set_cookie`: `HttpOnly`, `SameSite=Lax`, `Secure` only in
   a production target, `Max-Age` from the caller.
-- `rust/server/src/api/google_auth.rs:215-218` — the order in the callback: `percent_decode` **then**
+- `web/src/api/google_auth.rs:215-218` — the order in the callback: `percent_decode` **then**
   `safe_next`. The order is what makes the filter see a decoded value; a test asserts it stays that way.
 - `.github/workflows/gates.yml:336` — CI runs `cargo test --workspace --all-targets`, so these tests are
   actually executed in the gate, not only locally.
 
 ## Acceptance criteria
 
-1. `cargo test -p server google_auth` passes with the new cases, and fails if the fix is reverted.
+1. `cargo test -p web google_auth` passes with the new cases, and fails if the fix is reverted.
 2. `safe_next` refuses a return address beginning `/\` (`/\evil.example`, and `/\` alone) as it already
    refuses `//evil.example` and `https://evil.example`; the default stays `/portal/dashboard`.
 3. `percent_decode(&encode(path)) == path` for: a space, `&`, `%`, a non-ASCII path, and a trailing
@@ -74,8 +74,8 @@ SCOPED
 ## Assay commands
 
 ```sh
-cargo test --manifest-path rust/Cargo.toml -p server google_auth
-cargo check --manifest-path rust/Cargo.toml -p server --all-targets
+cargo test --manifest-path Cargo.toml -p web google_auth
+cargo check --manifest-path Cargo.toml -p web --all-targets
 ```
 
 ## Risks (what could invalidate this)

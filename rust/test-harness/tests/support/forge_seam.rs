@@ -169,7 +169,7 @@ impl RoleHarness for SeamHarness {
                     "FORGE_ARCHITECT_HANDOFF: {\"version\":1,\"baseRef\":\"base-seam\",",
                     "\"findings\":[{\"id\":\"F1\",\"required\":true,",
                     "\"summary\":\"Exercise the Forge seam\",",
-                    "\"scope\":[\"rust/forge/src/lib.rs\"],\"proofs\":[],\"risks\":[]}]}\n"
+                    "\"scope\":[\"forge/src/lib.rs\"],\"proofs\":[],\"risks\":[]}]}\n"
                 )
                 .to_string(),
                 None,
@@ -198,7 +198,7 @@ impl RoleHarness for SeamHarness {
             "qa_verify" | "fast_qa_verify" => (
                 "deterministic assay\n".to_string(),
                 None,
-                vec!["cargo test --manifest-path rust/Cargo.toml -p forge".to_string()],
+                vec!["cargo test --manifest-path Cargo.toml -p forge".to_string()],
                 true,
             ),
             other => (format!("{other} complete\n"), None, vec![], false),

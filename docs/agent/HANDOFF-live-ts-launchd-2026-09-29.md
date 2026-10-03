@@ -9,7 +9,7 @@ are installed and running on this machine (§1 S3–S6) — so they need a port,
 
 | # | Fact | How to check it |
 | --- | --- | --- |
-| S1 | The ledger gates are Rust: `forge ts-sweep` (`rust/cli/src/forge/ts_sweep.rs`), `forge dead-commands` (`rust/cli/src/forge/dead_commands.rs`); `pnpm broken:ts:sweep` / `:commands` are repointed to them | `pnpm broken:ts:sweep` → `10 scanned / 0 cannot load / 0 cannot work / 0 marked`, "the tree and the inventory agree" |
+| S1 | The ledger gates are Rust: `forge ts-sweep` (`cli/src/forge/ts_sweep.rs`), `forge dead-commands` (`cli/src/forge/dead_commands.rs`); `pnpm broken:ts:sweep` / `:commands` are repointed to them | `pnpm broken:ts:sweep` → `10 scanned / 0 cannot load / 0 cannot work / 0 marked`, "the tree and the inventory agree" |
 | S2 | The menu is clean: **0** dead commands of 97 scripts, and that baseline is enforced by CI | `pnpm broken:ts:commands --check` → `ok: 0 dead commands, at the baseline.` |
 | S3 | **`launchd agent-worker` (Rust) manages the installed `com.culebraluxe.agent-worker` LaunchAgent** — cadence 180s, wrapper `scripts/agent-worker-once.sh`. `scripts/agent-scheduler.mjs` no longer exists | `cargo run -p cli -- launchd agent-worker status`; `pnpm agent:scheduler:status` |
 | S4 | `scripts/apple-sync-agent.mjs` (315 lines) manages `com.culebraluxe.apple-sync`, 08:00/18:00 local, invoking a Swift FDA launcher that execs a deployed `apple-sync.sh` | same, label `com.culebraluxe.apple-sync` |
@@ -35,7 +35,7 @@ first six plus `{{APPLE_LAUNCHER}} {{SNAPSHOT}}`.
 
 | Your task | Read | The files you touch |
 | --- | --- | --- |
-| Port the three installers | this file §6, then the three `.mjs` files' `machinePaths` / `renderPlist` / `install` / `printStatus` | `rust/cli/src/launchd/*.rs` (new), `rust/cli/src/forge/mod.rs`, `rust/cli/src/main.rs`, `package.json` |
+| Port the three installers | this file §6, then the three `.mjs` files' `machinePaths` / `renderPlist` / `install` / `printStatus` | `cli/src/launchd/*.rs` (new), `cli/src/forge/mod.rs`, `cli/src/main.rs`, `package.json` |
 | Port the listener | this file §6.3 | a Rust binary + a new plist, `launchctl` re-bootstrap |
 | Prove a port faithful | §6.1–6.2 | the installed plists, byte-diffed against the Rust render |
 
@@ -44,7 +44,7 @@ first six plus `{{APPLE_LAUNCHER}} {{SNAPSHOT}}`.
 | Commit | What it changed | The gate that ran |
 | --- | --- | --- |
 | `2e5fd282` | the two ledger gates → Rust; both `.mjs` deleted; `package.json` repointed; CI step moved to the `rust` job; `BASELINE` re-measured to 0; 5 docs updated | `cargo test -p cli` 101 passed (13 new); `pnpm broken:ts:sweep`, `pnpm broken:ts:commands --check`, `scripts/ts-ratchet.sh`, `pnpm test:harness`, `pnpm lint`, `pnpm forge:packet-lint` (0 failures), `git diff --check` — all green, and both ports were diffed **byte-identical** against the TypeScript before it was deleted |
-| `28052a4c` | `scripts/agent-scheduler.mjs` → `rust/cli/src/launchd/` (`launchd agent-worker`), 5 `pnpm` names repointed, script + allowlist row + eslint suppression deleted, template comment corrected | `cargo test -p cli` 110 passed (9 new); `render` Byte-diffed against the TypeScript's render **and** against the installed plist; `status` and the `run` refusal (exit 2) diffed line for line; `ts-ratchet` PASS 10; `broken:ts:sweep` 0/0/0/0; `broken:ts:commands --check` ok at 0; `pnpm lint`, `test:harness`, `forge:packet-lint` green |
+| `28052a4c` | `scripts/agent-scheduler.mjs` → `cli/src/launchd/` (`launchd agent-worker`), 5 `pnpm` names repointed, script + allowlist row + eslint suppression deleted, template comment corrected | `cargo test -p cli` 110 passed (9 new); `render` Byte-diffed against the TypeScript's render **and** against the installed plist; `status` and the `run` refusal (exit 2) diffed line for line; `ts-ratchet` PASS 10; `broken:ts:sweep` 0/0/0/0; `broken:ts:commands --check` ok at 0; `pnpm lint`, `test:harness`, `forge:packet-lint` green |
 
 ## 5. NOT VERIFIED — the honest gaps
 
@@ -64,7 +64,7 @@ first six plus `{{APPLE_LAUNCHER}} {{SNAPSHOT}}`.
 ## 6. OPEN — the next actions, in order
 
 1. **Port `apple-sync-agent.mjs` and `calendar-sync-agent.mjs` onto the module that now exists.** Read
-   `rust/cli/src/launchd/{mod.rs,agent_worker.rs}` first: `Machine`, `escape_xml`, `render_plist`, `launchctl`,
+   `cli/src/launchd/{mod.rs,agent_worker.rs}` first: `Machine`, `escape_xml`, `render_plist`, `launchctl`,
    `plutil_lint`, `sha256_file`, `short_sha`, `write_with_mode` are all shared already. Per agent only the
    descriptor differs — label, template, cadence (apple-sync has none: 08:00/18:00 — and calendar-sync's
    `CALENDAR_SYNC_CADENCE_SECONDS` defaults to 1800), log dir, deployed wrapper/launcher, the `{{PATH}}` and

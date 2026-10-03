@@ -1,9 +1,9 @@
 //! ARCH.BOUNDARY — no MVI screen performs direct DB access (TST-ARCH-BOUNDARY-002).
 //!
 //! Contract: a screen is a reducer and a view. It decides state and renders it; it never opens a connection. The only
-//! data path out of a screen is the URL it calls (`rust/ui/src/app/api.rs`) or the command it dispatches to the
-//! service boundary — which is why `rust/ui/Cargo.toml:13-56` lists `domain`, `serde`, `chrono` and the wasm bindings
-//! and no database crate at all, and why all 100 files under `rust/ui/src/app/screens/**` are free of SQL today.
+//! data path out of a screen is the URL it calls (`web/ui/src/app/api.rs`) or the command it dispatches to the
+//! service boundary — which is why `web/ui/Cargo.toml:13-56` lists `domain`, `serde`, `chrono` and the wasm bindings
+//! and no database crate at all, and why all 100 files under `web/ui/src/app/screens/**` are free of SQL today.
 //!
 //! The rule is proven against the sources themselves, so it cannot drift: if a screen ever grows a query, the tree
 //! fails this test rather than the browser failing in production. The detector is deliberately word-accurate — it
@@ -16,7 +16,7 @@
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test arch_boundary__002__no_mvi_screen_performs_direct_db_access
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test arch_boundary__002__no_mvi_screen_performs_direct_db_access
 
 /// What a screen may never contain: a database client, a driver URL, or a SQL statement in code.
 ///
@@ -70,11 +70,13 @@ fn contains_word(haystack: &str, needle: &str) -> bool {
     })
 }
 
-/// The repository's `rust/` root — the harness lives in `rust/test-harness`.
+/// The repository root — every Rust crate is a tier directory (`web/`, `middle/`, `db/`) or an entry point
+/// (`cli/`, `forge/`) under it now; the harness still lives in `rust/test-harness`.
 fn rust_root() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("the harness lives under rust/")
+        .and_then(std::path::Path::parent)
+        .expect("the harness lives in rust/test-harness, below the repository root")
         .to_path_buf()
 }
 
@@ -101,10 +103,10 @@ fn rust_sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ARCH-BOUNDARY-002); the file and the assay use it.
 fn arch_boundary_002__no_mvi_screen_performs_direct_db_access() {
     let rust = rust_root();
-    let screens = rust.join("ui/src/app/screens");
+    let screens = rust.join("web/ui/src/app/screens");
     assert!(
         screens.is_dir(),
-        "the MVI screens live at rust/ui/src/app/screens; the scan cannot be vacuous"
+        "the MVI screens live at web/ui/src/app/screens; the scan cannot be vacuous"
     );
 
     let mut paths = Vec::new();

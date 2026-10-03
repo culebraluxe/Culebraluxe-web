@@ -1,9 +1,9 @@
 # Workflow engine + Forge — this lane is done
 
 Scope: the TypeScript workflow kernel and Forge execution path.
-Out of scope: CRM HTTP, portal routes, Next.js, GPT’s `rust/server` slices.
+Out of scope: CRM HTTP, portal routes, Next.js, GPT’s `web` slices.
 
-## Engine (rust/core/workflow)
+## Engine (middle/workflow)
 Public operations match `workflow_engine/lib/workflow/engine.ts`:
 
 start, signal, claim/release/reassign/complete task, cancel process,
@@ -15,7 +15,7 @@ tasks for user.
 Host: `cargo run -p workflow --bin workflow -- start --definition …`
 Store: `NeonStore` on the existing Neon schema. No new tables.
 
-## Forge (rust/forge)
+## Forge (forge)
 XML FORGE_SDLC, drive, OpenCode harness, QA, release, holds, worktree,
 self-heal, agent_work claim, decisions, scope, ready-gate, serial Smith
 doors, verification anchors, migration ledger guard.

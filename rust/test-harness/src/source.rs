@@ -11,20 +11,22 @@
 
 use std::path::{Path, PathBuf};
 
-/// The repository root — the parent of the workspace's `rust/` directory.
+/// The repository root — which is also the workspace's root. Every Rust crate is a tier directory under it now
+/// (`web/`, `middle/`, `db/`) or an entry point beside them (`cli/`, `forge/`).
 pub fn repo_root() -> PathBuf {
-    rust_root()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("the workspace lives in rust/ under the repository root")
+        .and_then(Path::parent)
+        .expect("the harness lives in rust/test-harness, two levels below the repository root")
         .to_path_buf()
 }
 
-/// The workspace root, `rust/`, resolved from this crate's manifest so a test can be run from anywhere.
+/// Where the Rust sources are: the tier directories and the entry points, i.e. the repository root itself.
+///
+/// This used to be `rust/`, the single directory the whole workspace lived in. The walkers below skip build output,
+/// VCS metadata and `node_modules`, and nothing else in the tree holds a `.rs` file, so the root is the honest bound.
 pub fn rust_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("the harness lives in rust/test-harness")
-        .to_path_buf()
+    repo_root()
 }
 
 /// A path as the repository writes it — relative to the root, for failure messages a reader can act on.

@@ -7,7 +7,7 @@
 -- purpose today is writing tests. Measured on PROD before this apply (2026-09-30 06:0x UTC): nine open items, all
 -- queued 05:12:45 — i.e. the nine would be dispatched ahead of every test row the moment the scheduler resumes.
 --
--- WHAT. Two statements, one transaction, the same shape `clean` uses (rust/core/db/src/forge_reset.rs:413-461):
+-- WHAT. Two statements, one transaction, the same shape `clean` uses (db/src/forge_reset.rs:413-461):
 -- cancel the open work item(s) of exactly these nine stories, and move exactly these nine stories to `Hold`.
 -- Nothing is inferred from a time window and nothing outside the nine ids is touched — this is the aimed version
 -- of the sweep that caused the problem in the first place.

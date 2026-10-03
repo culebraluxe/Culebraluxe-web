@@ -8,7 +8,7 @@ tree at `24f4f33b` unless a different commit is named. Anything not measured is 
 
 ### WBS 1 — `pnpm test` under-reports the suite (measured, fix still open)
 
-`package.json:57` runs `cargo test --manifest-path rust/Cargo.toml -p workflow -p forge` — two crates. The gate
+`package.json:57` runs `cargo test --manifest-path Cargo.toml -p workflow -p forge` — two crates. The gate
 that decides whether `main` is healthy runs the whole workspace (`.github/workflows/gates.yml`, the Rust workspace
 check-and-test step added after `305026d7`). A local `pnpm test` therefore reports a passing subset and says
 nothing about `db`, `server`, `ui`, `cli` or `workflow_app`; the pipeline is right and the local command is the one
@@ -18,9 +18,9 @@ that lies. The fix is one line in `package.json:57` and has not been made in thi
 
 `coexist` occurs three times in the Rust tree and none of them is behaviour:
 
-- `rust/ui/src/app/registry.rs:176` — a route key, `"whatsapp-coexistence"`, registered as `Kind::External`;
-- `rust/ui/src/model.rs:246` — the same screen as a deferred row;
-- `rust/ui/src/app/screens/site/content.rs:420` — a sentence in the public policy copy.
+- `web/ui/src/app/registry.rs:176` — a route key, `"whatsapp-coexistence"`, registered as `Kind::External`;
+- `web/ui/src/model.rs:246` — the same screen as a deferred row;
+- `web/ui/src/app/screens/site/content.rs:420` — a sentence in the public policy copy.
 
 There is no engine, domain or identity concept of two channels coexisting, so there is no guard to write. The item
 is closed as a false premise. If the owner meant the behaviour of the `Kind::External` screen, that is a UI story
@@ -34,13 +34,13 @@ newest invocation `2026-09-29T03:58:29-0400`, last failure none. Nothing is left
 
 ### WBS 4 — not started (no claim)
 
-All 16 `#[ignore]` tests in the tree are DATABASE_URL-gated (`rust/core/db/tests/*`, `rust/server/tests/*_dev.rs`),
+All 16 `#[ignore]` tests in the tree are DATABASE_URL-gated (`db/tests/*`, `web/tests/*_dev.rs`),
 so the existing pattern does not fit an EventKit ingest test. Untouched by this lane; no number here is verified
 beyond the count of 16.
 
 ### WBS 5 — the smallest real slice, written and fired
 
-`docs/agent/packets/ENG-AUTH-GOOGLE-01.md`. One file (`rust/server/src/api/google_auth.rs`), tests plus one fix,
+`docs/agent/packets/ENG-AUTH-GOOGLE-01.md`. One file (`web/src/api/google_auth.rs`), tests plus one fix,
 SCOPED, no schema. It carries a real defect rather than a hypothetical one: the return-address filter rejects an
 address beginning `//` but not one beginning `/\`, which every browser resolves to `//` — an off-site redirect
 after a successful sign-in, reachable with no credentials.
@@ -72,7 +72,7 @@ manifest (`docs/agent/manifest/*.md`) — it reports those as warnings — but i
 the handbook, which is the one place a dead pointer means a rule is silently unenforced.
 
 The machinery that could catch this already exists and stops one step short:
-`rust/cli/src/forge/vendor_block.rs:168` (`orphaned_guardrails`) checks that a guardrail's anchoring **sentence** is
+`cli/src/forge/vendor_block.rs:168` (`orphaned_guardrails`) checks that a guardrail's anchoring **sentence** is
 still present in the handbook, but nothing anywhere checks that the guard **path** it names exists. A guard that
 cannot run is not a guard; the check belongs beside the one that already runs, and it is the cheapest fix in this
 document.
@@ -90,7 +90,7 @@ following them is told to reuse seams that are gone. The Rust equivalents are re
 `db/migrations/025_agent_work_queue.sql:104` fires the dispatch trigger only when
 `new.status = 'Ready' and (tg_op = 'INSERT' or old.status is distinct from 'Ready')`. An already-`Ready` row that
 loses its work item is therefore invisible forever: no trigger, no item, and the worker's claim query
-(`rust/core/db/src/forge_control.rs:264-274`) only ever looks at `agent_work_item`. Two stories seeded `Ready` in
+(`db/src/forge_control.rs:264-274`) only ever looks at `agent_work_item`. Two stories seeded `Ready` in
 `db/loads/stories_2026_09_28.sql:10` and `:26` show the symptom — `open work items: 0` while both sit at `Ready`
 — and this morning's `forge:clean --force` cancelled open work items on PROD, which is exactly how a `Ready` story
 becomes an orphan. The mechanism is certain; whether those two rows are orphans for this reason has not been
@@ -108,7 +108,7 @@ there was nothing to fix. Recorded so the next lane does not "repair" it again.
 1. `package.json:57` — make `pnpm test` run the workspace (WBS 1).
 2. **CLOSED 2026-09-29** (`01403e8a`, `07d1705a`, `3eee3e1d`, `a40368aa`, `dcb1583c`, `fb7a68be`,
    `2a9f2c16`, `61c83dd9`, `86cb77bb`) — the guard-path check is
-   `rust/cli/src/forge/guard_paths.rs`, blocking as `forge guard-lint` and also wired into
+   `cli/src/forge/guard_paths.rs`, blocking as `forge guard-lint` and also wired into
    `forge harness-lint`; see "Closed after this sweep" below.
 3. The parity-ledger decision — restore the Rust generator or re-label the file (WBS 6).
 4. **CLOSED 2026-09-29** (`01403e8a`) — `AGENTS.md`'s dead TypeScript paths and the retired Error Capture
@@ -121,7 +121,7 @@ there was nothing to fix. Recorded so the next lane does not "repair" it again.
 The two findings this document raised about `AGENTS.md` are enforced now, not noted. Both landed under
 `ENG-GUARD-AGENTS-LINT-01`.
 
-- **A — every guard path is linted.** `rust/cli/src/forge/guard_paths.rs` reads every `guard:` clause in
+- **A — every guard path is linted.** `cli/src/forge/guard_paths.rs` reads every `guard:` clause in
   `AGENTS.md` and fails when the path does not exist, when it exists but holds no test (an empty file is not a
   guard), when a `Never` rule declares no guard at all, or when a bare `guard: NONE` gives no reason. It is
   blocking as `forge guard-lint` (`.github/workflows/gates.yml`, static job), it runs inside `forge harness-lint`,

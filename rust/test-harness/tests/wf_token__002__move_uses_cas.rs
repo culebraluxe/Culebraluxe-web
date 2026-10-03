@@ -3,10 +3,10 @@
 //! Contract: moving a workflow token is a **compare-and-swap** at the persistence boundary, not a blind overwrite.
 //! `Store::move_token(id, expected_version, to_node)` commits the move only when the row's `version` still equals the
 //! `expected_version` the caller holds; on success it sets `node_id` to `to_node` and advances `version` by exactly
-//! one (`rust/core/workflow/src/memory.rs:238-249`, `rust/core/workflow/src/neon/new_id.rs:253-265`). A move carrying
+//! one (`middle/workflow/src/memory.rs:238-249`, `middle/workflow/src/neon/new_id.rs:253-265`). A move carrying
 //! a stale version is refused — `Ok(false)`, no node change, no version bump — and a move for an absent row is refused
 //! the same way (it is not a create). The engine's only move path relies on that result: `move_token` at
-//! `rust/core/workflow/src/engine/execute_node_leave.rs:95` turns a refused swap into `WorkflowError::stale_token`
+//! `middle/workflow/src/engine/execute_node_leave.rs:95` turns a refused swap into `WorkflowError::stale_token`
 //! (`:96-99`), so a lost race is a hard refusal rather than a silent second write.
 //!
 //! This is why the contract is a CAS and not an `UPDATE ... SET node_id`: two holders of the same token cannot both
@@ -14,7 +14,7 @@
 //!
 //! This file exercises the production boundary, not a re-declaration of it. The CAS half drives the production
 //! `Store` interface implemented by the production `MemoryStore` (the same interface `NeonStore` implements with the
-//! identical `WHERE id = $1 AND version = $2` predicate, `rust/core/workflow/src/neon/new_id.rs:257-258`). The engine
+//! identical `WHERE id = $1 AND version = $2` predicate, `middle/workflow/src/neon/new_id.rs:257-258`). The engine
 //! half drives the real `WorkflowEngine<MemoryStore>` through `start_process` and `complete_task`, observing the
 //! durable `token.moved` events and the token's own durable version, so the moves it reads back are the ones the
 //! production method committed. The engine-side negative injects a refused CAS at the `Store` seam — a fake only at
@@ -25,7 +25,7 @@
 //! no database, no network, no filesystem write, no live provider.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_token__002__move_uses_cas
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test wf_token__002__move_uses_cas
 
 use std::collections::BTreeMap;
 
@@ -168,7 +168,7 @@ fn start_params() -> StartProcessParams {
 
 /// The `(from, to, transition)` of every committed `token.moved`, in commit order.
 ///
-/// `Store::history` is newest-first (`rust/core/workflow/src/memory.rs:568` sorts by descending id), so the collected
+/// `Store::history` is newest-first (`middle/workflow/src/memory.rs:568` sorts by descending id), so the collected
 /// list is reversed here: ids are assigned in insertion order and the test clock never moves, so descending id is
 /// exactly reverse commit order.
 fn token_moves(store: &MemoryStore, instance_id: &str) -> Vec<(String, String, String)> {

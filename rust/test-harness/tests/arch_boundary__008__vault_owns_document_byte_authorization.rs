@@ -11,9 +11,9 @@
 //! passing quietly. Two further service doors hand out a `media` row's bytes under weaker actions, and the readers they
 //! — and the CLI — stand on carry **no `media_type` restriction at all**:
 //!
-//!   - `rust/server/src/media/media_bytes.rs` — service door `media.bytes`, action `property.read`, over
+//!   - `web/src/media/media_bytes.rs` — service door `media.bytes`, action `property.read`, over
 //!     `MediaDao::media_bytes`, whose SQL is `select ... from media where id = $1` with no type filter.
-//!   - `rust/server/src/public_listings.rs` — service door `property.publicMediaBytes`, action `property.public.read`
+//!   - `web/src/public_listings.rs` — service door `property.publicMediaBytes`, action `property.public.read`
 //!     (anonymous), over `PublicListingDao::media_bytes`, which gates on the Property link but never on `media_type`.
 //!   - `MediaDao::original_bytes` — a third reader with no type filter, reachable only from the CLI (`media-cards`).
 //!
@@ -30,43 +30,43 @@
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test arch_boundary__008__vault_owns_document_byte_authorization
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test arch_boundary__008__vault_owns_document_byte_authorization
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
 use test_harness::source;
 
-/// Every SQL statement in `rust/core/db` that reads `media.file_data`, as `path function`.
+/// Every SQL statement in `db` that reads `media.file_data`, as `path function`.
 ///
 /// The set is pinned so a new byte reader is a deliberate entry here rather than a new way to reach a file, and so a
 /// reader that disappears is noticed.
 const MEDIA_BYTE_READERS: [&str; 6] = [
-    "rust/core/db/src/broker_signature.rs load_protected_asset",
-    "rust/core/db/src/media/media_row.rs media_bytes",
-    "rust/core/db/src/media/media_row.rs original_bytes",
-    "rust/core/db/src/public_listing.rs media_bytes",
-    "rust/core/db/src/vault/database.rs media_bytes",
-    "rust/core/db/src/vault/database.rs public_listing_document_bytes",
+    "db/src/broker_signature.rs load_protected_asset",
+    "db/src/media/media_row.rs media_bytes",
+    "db/src/media/media_row.rs original_bytes",
+    "db/src/public_listing.rs media_bytes",
+    "db/src/vault/database.rs media_bytes",
+    "db/src/vault/database.rs public_listing_document_bytes",
 ];
 
 /// The byte readers that do **not** restrict `media_type`: the debt that lets a document's bytes out of a door that is
 /// not the Vault's. Pinned so it can only shrink — and so adding the missing filter to one of them fails the test until
 /// the pin is updated, which is the record that the hole was closed.
 const TYPE_UNRESTRICTED_READERS: [&str; 3] = [
-    "rust/core/db/src/media/media_row.rs media_bytes",
-    "rust/core/db/src/media/media_row.rs original_bytes",
-    "rust/core/db/src/public_listing.rs media_bytes",
+    "db/src/media/media_row.rs media_bytes",
+    "db/src/media/media_row.rs original_bytes",
+    "db/src/public_listing.rs media_bytes",
 ];
 
-/// Every service method in `rust/server/src` whose return type is a file's bytes, as
+/// Every service method in `web/src` whose return type is a file's bytes, as
 /// `path function resource action`. A door with no `authorize` call cannot appear here at all: the scanner reports an
 /// empty action, which fails the comparison.
 const BYTE_DOORS: [&str; 4] = [
-    "rust/server/src/media/media_bytes.rs media_bytes media property.read",
-    "rust/server/src/public_listings.rs media_bytes property property.public.read",
-    "rust/server/src/vault/mod.rs media_bytes vault vault.read",
-    "rust/server/src/vault/mod.rs public_listing_document_bytes vault vault.publicListingDocument.read",
+    "web/src/media/media_bytes.rs media_bytes media property.read",
+    "web/src/public_listings.rs media_bytes property property.public.read",
+    "web/src/vault/mod.rs media_bytes vault vault.read",
+    "web/src/vault/mod.rs public_listing_document_bytes vault vault.publicListingDocument.read",
 ];
 
 /// The clauses the anonymous Vault door must keep, each one load-bearing: without them a guest could receive a signed
@@ -81,18 +81,18 @@ const GUEST_DOCUMENT_GUARDS: [&str; 7] = [
     "from transaction_document td",
 ];
 
-/// The only files in `rust/server/src` allowed to name the Vault's DAO: the adapter and the composition root. A route
+/// The only files in `web/src` allowed to name the Vault's DAO: the adapter and the composition root. A route
 /// or a service holding `VaultDao` is a second path to the bytes, past the Vault's own decision.
 const VAULT_DAO_FILES: [&str; 2] = [
-    "rust/server/src/composition.rs",
-    "rust/server/src/vault/mod.rs",
+    "web/src/composition.rs",
+    "web/src/vault/mod.rs",
 ];
 
 /// The only files allowed to name the media DAO, for the same reason.
 const MEDIA_DAO_FILES: [&str; 3] = [
-    "rust/server/src/composition.rs",
-    "rust/server/src/media/media_repository.rs",
-    "rust/server/src/media/mod.rs",
+    "web/src/composition.rs",
+    "web/src/media/media_repository.rs",
+    "web/src/media/mod.rs",
 ];
 
 /// One SQL statement lifted out of a source file.
@@ -383,8 +383,8 @@ fn reader_key(reader: &Reader) -> String {
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ARCH-BOUNDARY-008); the file and the assay use it.
 fn arch_boundary_008__vault_owns_document_byte_authorization() {
-    let db_root = source::rust_root().join("core/db/src");
-    let server_root = source::rust_root().join("server/src");
+    let db_root = source::rust_root().join("db/src");
+    let server_root = source::rust_root().join("web/src");
 
     // 0. The walkers found a tree. Every assertion below is silent about a file nobody read, so the floor comes first.
     let db_files = source::sources_under(&db_root);
@@ -440,7 +440,7 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
     //    authorization the contract names, so it is asserted clause by clause rather than as "the file mentions it".
     let vault_readers: Vec<&Reader> = readers
         .iter()
-        .filter(|reader| reader.file == "rust/core/db/src/vault/database.rs")
+        .filter(|reader| reader.file == "db/src/vault/database.rs")
         .collect();
     assert_eq!(
         vault_readers.len(),
@@ -492,7 +492,7 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
     );
     for reader in readers.iter().filter(|reader| !reader.restricted) {
         assert!(
-            !reader.file.starts_with("rust/core/db/src/vault/"),
+            !reader.file.starts_with("db/src/vault/"),
             "{} `{}` serves any media type from inside the Vault",
             reader.file,
             reader.function
@@ -551,8 +551,8 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
     //    them do not restrict `media_type` — so a document's bytes are reachable without the Vault's decision. This
     //    assertion exists to make that a fact the suite states, rather than a thing a reader has to notice.
     let weak_doors = [
-        "rust/server/src/media/media_bytes.rs media_bytes",
-        "rust/server/src/public_listings.rs media_bytes",
+        "web/src/media/media_bytes.rs media_bytes",
+        "web/src/public_listings.rs media_bytes",
     ];
     for door in doors.iter().filter(|door| door.resource != "vault") {
         let key = format!("{} {}", door.file, door.function);

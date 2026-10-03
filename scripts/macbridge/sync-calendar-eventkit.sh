@@ -66,7 +66,7 @@ fi
 # FORGE/application MQ deliveries. It writes command payloads through private
 # temp files and logs aggregate counts only.
 if ! APP_ENV=production EXECUTION_ENV=PROD \
-  cargo run --quiet --release --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- \
+  cargo run --quiet --release --manifest-path "$REPO_ROOT/Cargo.toml" -p cli -- \
   apple-sync drain >>"$LOG_FILE" 2>&1; then
   log "result=failure stage=apple-outbound attempted-at=$attempted_at"
   exit 1
@@ -99,14 +99,14 @@ fi
 
 # --- Inbound: EventKit snapshots -> PROD landing -----------------------------
 if ! APP_ENV=production EXECUTION_ENV=PROD \
-  cargo run --quiet --release --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- \
+  cargo run --quiet --release --manifest-path "$REPO_ROOT/Cargo.toml" -p cli -- \
   apple-sync calendar-intake "$SNAPSHOT" >>"$LOG_FILE" 2>&1; then
   log "result=failure stage=calendar-landing snapshot=$SNAPSHOT generated-at=$generated_at events=$count changed=$changed"
   exit 1
 fi
 
 if ! APP_ENV=production EXECUTION_ENV=PROD \
-  cargo run --quiet --release --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- \
+  cargo run --quiet --release --manifest-path "$REPO_ROOT/Cargo.toml" -p cli -- \
   apple-sync reminder-intake "$REMINDERS_SNAPSHOT" >>"$LOG_FILE" 2>&1; then
   log "result=failure stage=reminder-landing snapshot=$REMINDERS_SNAPSHOT reminders=$reminder_count"
   exit 1

@@ -168,7 +168,7 @@ export default tseslint.config(
   // They exist to read the read models on behalf of the Rust screens, so they import `legacy/` by design - that is
   // what they are for. This is an override rather than a suppression on purpose: a suppression is debt that gets
   // pruned the moment the rule stops firing, and this is not debt, it is the boundary working. The import lives here
-  // and nowhere else; when this feed moves into rust/server (see docs/layers/SERVICES.md), the exception goes with it.
+  // and nowhere else; when this feed moves into web (see docs/layers/SERVICES.md), the exception goes with it.
   {
     files: [
       'app/api/portal/rust-ui/rows/route.ts',

@@ -9,7 +9,7 @@ Read `AGENTS.md`, `docs/agent/ORIENTATION.md`, `docs/agent/MEMORY.md` (top entri
 | PROD schema = DEV schema | `pnpm db:parity` → PARITY OK (after 217, 219, 223, 250 went to PROD today) |
 | Lead emails work in PROD; notice subject now starts `LEAD:` (ships next deploy) | test lead 12a3880a saved + emailed 19:10Z; commit 50222f5b |
 | Card-size listing photos live in PROD; ferry photo is a real JPEG | MEDIA-CARD-PROD-01 Complete; `/api/media/61822357…?size=card` 200 |
-| The old global UI loop is deleted; 56 of 58 registry entries are `Screen`s | c0b9b1a3; `rust/ui/src/app/registry.rs` |
+| The old global UI loop is deleted; 56 of 58 registry entries are `Screen`s | c0b9b1a3; `web/ui/src/app/registry.rs` |
 | Catch-Up lives in Projects (Today / Unscheduled / People); off the CORE nav | 4ef9b58d |
 | Projects navigator redesigned with the owner (denser rows, pole click, lens flip keeps project, Seen from, keys, due dates, overdue counts + bell to hide them, Books) | a1526ec9, d2f5b6c9 |
 | Grok review items 1–8 fixed; the `operation` alias removed | c588bd7c … e5855957, cb4518f4 |
@@ -28,8 +28,8 @@ Read `AGENTS.md`, `docs/agent/ORIENTATION.md`, `docs/agent/MEMORY.md` (top entri
 
 | Task | Place |
 | --- | --- |
-| Projects screen | `rust/ui/src/app/screens/projects/` (`mod.rs`, `selection.rs`, `edits.rs`, `nav.rs`, `catch_up.rs`, `view/*.rs`, `tests.rs`) |
-| URL catalogue | `rust/ui/src/app/api.rs` (`Endpoint`, `FileEndpoint`, `api::auth`) |
+| Projects screen | `web/ui/src/app/screens/projects/` (`mod.rs`, `selection.rs`, `edits.rs`, `nav.rs`, `catch_up.rs`, `view/*.rs`, `tests.rs`) |
+| URL catalogue | `web/ui/src/app/api.rs` (`Endpoint`, `FileEndpoint`, `api::auth`) |
 | Service door rule | `docs/layers/SERVICES.md` "Two doors, one implementation" |
 | ARCH-HANDOFF row | generated from `docs/agent/ARCH-HANDOFF.md` by `db/loads/arch_handoff_sync.sql` (`db-tool apply … --force` after regenerating) |
 
@@ -64,7 +64,7 @@ Nothing blocking. Deploy when ready (`pnpm deploy:prod`) to ship today's UI work
 | MVI contract | no URL literal and no `web_sys` in `app/screens` (links in `api::links`/`api::auth`, browser reads in `app/exec`); every load state from `template::remote`/`remote_toned`/`loading_line` | `ae2f3b93` |
 | Service doors | no HTTP handler touches a DAO (diagnostics via `SupportDiagnosticsService::db_counts` + one explicit System grant; app events via the capture seam); `clients`/`client` audit name recorded as decided | `0886b229` |
 | Docs match HEAD | `AGENTS.md` Rust First and `rust/README.md` describe the one Rust app | `1aa4170f` |
-| Shared policy | the root-only codes have one source (`domain::security`), bound into the SQL guard; one test per reader | `a2c4c9bb` |
+| Shared policy | the root-only codes have one source (`model::security`), bound into the SQL guard; one test per reader | `a2c4c9bb` |
 | Boundedness | every `.rs` file under `rust/` is at most 800 lines except DeepSeek's four live files (`cli/src/forge/lint.rs`, `core/domain/src/apple_messages.rs`, `applemail.rs`, `cli/src/apple_mail.rs`) — split them on their next edit | `360daa13` … `41ca7658` |
 
 How the splits were made (move only): contiguous top-level ranges moved to child modules with `use super::*`; moved items

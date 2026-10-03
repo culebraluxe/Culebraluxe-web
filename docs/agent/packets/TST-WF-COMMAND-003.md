@@ -27,14 +27,14 @@ the `TxStore` seam. No retry loop lives in the test.
 ## Context refs
 
 - `rust/test-harness/tests/wf_command__003__retry_produces_same_identity.rs:304-534` — the canonical test.
-- `rust/core/workflow/src/engine/handle_join.rs:201-202` — `visit_sequence = command_visit_count + 1`, then `command_id` from the triple.
-- `rust/core/workflow/src/engine/handle_join.rs:359-363` — `command_id(instance, node, visit_sequence)`, the derivation production runs.
-- `rust/core/workflow/src/store.rs:146-165` — `repeat_connection_failures`, the production retry rule, published for the `TxStore` seam.
-- `rust/core/workflow/src/memory.rs:38-53` — the in-memory transaction contract: a failed body restores the snapshot, so the repeat sees the first attempt's state.
-- `rust/core/workflow/src/memory.rs:573-580` — the visit count filters on `process_instance_id` AND `node_id`.
-- `rust/core/workflow/src/memory.rs:582-609` — the duplicate-command / duplicate-visit refusal (`COMMAND_DUPLICATE`, `COMMAND_VISIT_DUPLICATE`).
-- `rust/core/workflow/src/neon/neon_store.rs:90-104` — `NeonStore::with_tx`, the only production caller of the retry rule.
-- `rust/core/workflow/src/ids.rs:5` — `uuid_v4()`, the instance id minted once and never re-derived.
+- `middle/workflow/src/engine/handle_join.rs:201-202` — `visit_sequence = command_visit_count + 1`, then `command_id` from the triple.
+- `middle/workflow/src/engine/handle_join.rs:359-363` — `command_id(instance, node, visit_sequence)`, the derivation production runs.
+- `middle/workflow/src/store.rs:146-165` — `repeat_connection_failures`, the production retry rule, published for the `TxStore` seam.
+- `middle/workflow/src/memory.rs:38-53` — the in-memory transaction contract: a failed body restores the snapshot, so the repeat sees the first attempt's state.
+- `middle/workflow/src/memory.rs:573-580` — the visit count filters on `process_instance_id` AND `node_id`.
+- `middle/workflow/src/memory.rs:582-609` — the duplicate-command / duplicate-visit refusal (`COMMAND_DUPLICATE`, `COMMAND_VISIT_DUPLICATE`).
+- `middle/workflow/src/neon/neon_store.rs:90-104` — `NeonStore::with_tx`, the only production caller of the retry rule.
+- `middle/workflow/src/ids.rs:5` — `uuid_v4()`, the instance id minted once and never re-derived.
 
 ## Acceptance criteria
 
@@ -52,8 +52,8 @@ the `TxStore` seam. No retry loop lives in the test.
 7. No legacy TypeScript test ported. — met.
 8. Deterministic and isolated; never PROD; no live provider. — met: `TestClock` + `MemoryStore` + fakes.
 9. Coverage named and discoverable even where the invariant already held. — met: this canonical file.
-10. `cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity` passes. — met.
-11. `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` passes. — met.
+10. `cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity` passes. — met.
+11. `cargo check --manifest-path Cargo.toml --workspace --all-targets` passes. — met.
 
 ## Preconditions
 
@@ -79,17 +79,17 @@ SCOPED
 
 ## Assay commands
 
-- cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity
-- cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+- cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity
+- cargo check --manifest-path Cargo.toml --workspace --all-targets
 
 ## Verification (2026-09-30)
 
 Landed by `efa5b740`, then strengthened across `81ad7373`, `565cf1d8`, and `f422fdd2`. Commits are local only; this
 node's brief says do not push.
 
-- `cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity`
+- `cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity`
   → **1 passed, 0 failed**.
-- `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` → **exit 0**.
+- `cargo check --manifest-path Cargo.toml --workspace --all-targets` → **exit 0**.
 
 ## Raw verification — repair_smith (2026-09-30, re-run)
 
@@ -110,14 +110,14 @@ The candidate is the git commit this block is committed with; the commands below
 their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity
 running 1 test
 test wf_command_003__retry_produces_same_identity ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 32.30s
 CHECK_EXIT=0
 ```
@@ -134,25 +134,25 @@ at `5a93eb0b`; the frozen candidate SHA for QA is this lead_post integration com
 the node's `FORGE_EVIDENCE_JSON`, visible as HEAD). The production citations had drifted under later commits, so
 they were re-pointed at the current tree — the canonical test at
 `rust/test-harness/tests/wf_command__003__retry_produces_same_identity.rs:304-534`, the retry rule at
-`rust/core/workflow/src/store.rs:146-165`, the in-memory transaction contract at
-`rust/core/workflow/src/memory.rs:38-53` and the duplicate refusals at `rust/core/workflow/src/memory.rs:582-609`,
-and `NeonStore::with_tx` at `rust/core/workflow/src/neon/neon_store.rs:90-104`. No production or test behavior
+`middle/workflow/src/store.rs:146-165`, the in-memory transaction contract at
+`middle/workflow/src/memory.rs:38-53` and the duplicate refusals at `middle/workflow/src/memory.rs:582-609`,
+and `NeonStore::with_tx` at `middle/workflow/src/neon/neon_store.rs:90-104`. No production or test behavior
 changed. Both commands are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity
 running 1 test
 test wf_command_003__retry_produces_same_identity ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.74s
 CHECK_EXIT=0
 ```
 
-Unrelated, pre-existing working-tree changes under `rust/core/workflow/` and `rust/forge/` (another story's in-flight
+Unrelated, pre-existing working-tree changes under `middle/workflow/` and `forge/` (another story's in-flight
 work: `concurrency.rs` and the `TxStore: Send + Sync` / bounded timer-fire changes) were present at run time; they
 were left untouched and are not part of this story's candidate.
 
@@ -162,24 +162,24 @@ The `qa_verify` node re-ran the story's own acceptance commands against the curr
 canonical file `rust/test-harness/tests/wf_command__003__retry_produces_same_identity.rs` exists with the test
 `wf_command_003__retry_produces_same_identity`, and it proves "retry produces same identity" at the production
 `WorkflowEngine`/`TxStore`/`ApplicationPort` boundary. The only change this node made is a comment citation refreshed
-to the current tree: the inline ref to the production retry rule moved from `rust/core/workflow/src/store.rs:144` to
+to the current tree: the inline ref to the production retry rule moved from `middle/workflow/src/store.rs:144` to
 `:146` (two lines were added above it by in-flight work). No production or test behavior changed.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__003__retry_produces_same_identity
 running 1 test
 test wf_command_003__retry_produces_same_identity ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 34.64s
 CHECK_EXIT=0
 ```
 
 Mutation check (the retry rule is load-bearing): replacing the body of
-`repeat_connection_failures` at `rust/core/workflow/src/store.rs:146-165` with an unconditional `return Err(error)`
+`repeat_connection_failures` at `middle/workflow/src/store.rs:146-165` with an unconditional `return Err(error)`
 (so a broken connection is never repeated) makes `complete_task` return the `Unavailable` failure and the test fail at
 `rust/test-harness/tests/wf_command__003__retry_produces_same_identity.rs:363`
 (`the production retry repeats the broken step and the repeat commits: Unavailable { message: "error communicating
@@ -189,5 +189,5 @@ file carried another story's in-flight edits and `git checkout --` would have de
 contract depends on production repeating the failed step — the test is not vacuous.
 
 The candidate is the git commit this block is committed with (local only; no push, per this node's brief). The
-unrelated working-tree changes under `rust/core/workflow/` and `rust/forge/` remain present, untouched, and are not
+unrelated working-tree changes under `middle/workflow/` and `forge/` remain present, untouched, and are not
 part of this candidate.

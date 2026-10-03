@@ -6,7 +6,7 @@ a clean `git` sequence inside one sitting.
 
 **Corrected 2026-10-02, by the captain, because the first version of this file guessed wrong.** GPT **does** have a Rust
 toolchain — he compiles and runs tests. What he does not have is a window that survives the full suite: the harness is
-1062 tests, and the habit the handbook taught was a per-hand-off `cargo test -p db -p server -p forge -p workflow`, which
+1062 tests, and the habit the handbook taught was a per-hand-off `cargo test -p db -p web -p forge -p workflow`, which
 is four crates of every test and consumed the session that was meant to write the code. His `git` is a browser session,
 so a check-in that depends on a clean rebase-and-push is a check-in that does not happen. The captain's observation is
 the requirement, so it is quoted rather than paraphrased: **"GPT in a browser session can produce a lot of code in

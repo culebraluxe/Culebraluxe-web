@@ -1,11 +1,11 @@
 //! ARCH.BOUNDARY — the domain cannot depend on server, UI or integrations (TST-ARCH-BOUNDARY-004).
 //!
-//! Contract: `rust/core/domain` is the innermost layer. It knows business nouns and rules, and it knows nothing about
+//! Contract: `middle/model` is the innermost layer. It knows business nouns and rules, and it knows nothing about
 //! who calls it: not the HTTP server, not the browser bundle, not a provider integration, not a database driver and
-//! not a runtime. Its dependency table is the whole proof of that — `rust/core/domain/Cargo.toml:7-13` lists six
+//! not a runtime. Its dependency table is the whole proof of that — `middle/model/Cargo.toml:7-13` lists six
 //! external crates (`chrono`, `serde`, `serde_json`, `sha2`, `thiserror`, `unicode-normalization`), every one of them
 //! a pure library, and **no path dependency at all**, which is the only way a sibling workspace crate could reach it.
-//! The 56 files under `rust/core/domain/src` agree: not one of them names `server`, `ui`, `integrations`, `service`,
+//! The 56 files under `middle/model/src` agree: not one of them names `server`, `ui`, `integrations`, `service`,
 //! `forge` or `db`.
 //!
 //! The direction is what matters. `server` depends on `domain`, and `domain` depending back on `server` — directly or
@@ -16,17 +16,17 @@
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test arch_boundary__004__domain_cannot_depend_on_server_ui_integrations
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test arch_boundary__004__domain_cannot_depend_on_server_ui_integrations
 
 use test_harness::source;
 
 /// Crates that may not be reachable from the domain: workspace members that own I/O, and the I/O stacks themselves.
 const FORBIDDEN: [&str; 22] = [
     "db",
-    "server",
+    "web",
     "ui",
-    "integrations",
-    "service",
+    "apis",
+    "services",
     "forge",
     "cli",
     "workflow",
@@ -75,7 +75,7 @@ fn foreign_crate_in(line: &str) -> Option<String> {
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ARCH-BOUNDARY-004); the file and the assay use it.
 fn arch_boundary_004__domain_cannot_depend_on_server_ui_integrations() {
     // 1. The manifest. `serde` must be present, so a parse that found nothing cannot pass as a clean table.
-    let manifest = source::read(&source::rust_root().join("core/domain/Cargo.toml"));
+    let manifest = source::read(&source::rust_root().join("middle/model/Cargo.toml"));
     let declared: Vec<String> = source::manifest_keys(&manifest, "dependencies")
         .iter()
         .map(|key| source::crate_name_of(key))
@@ -106,7 +106,7 @@ fn arch_boundary_004__domain_cannot_depend_on_server_ui_integrations() {
     );
 
     // 2. The sources. A `use` of any crate other than the language's own is the same violation in code.
-    let domain_src = source::rust_root().join("core/domain/src");
+    let domain_src = source::rust_root().join("middle/model/src");
     let files = source::sources_under(&domain_src);
     assert!(
         files.len() >= 40,
@@ -137,9 +137,9 @@ fn arch_boundary_004__domain_cannot_depend_on_server_ui_integrations() {
 
     // 3. The negative control. Every detector above must fire on the violation it exists to catch.
     assert_eq!(
-        foreign_crate_in("use server::api::routes;"),
-        Some("server".to_string()),
-        "a `use server::` in the domain is a finding"
+        foreign_crate_in("use web::api::routes;"),
+        Some("web".to_string()),
+        "a `use web::` in the domain is a finding"
     );
     assert_eq!(
         foreign_crate_in("use sqlx::PgPool;"),

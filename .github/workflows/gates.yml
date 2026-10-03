@@ -87,7 +87,7 @@ jobs:
       #     TypeScript ever returns, the step comes back with it.
       #   * `node scripts/app-runtime-boundary.mjs` — it walks `app/`, which was deleted with the TypeScript
       #     application, so it exits ENOENT. Its boundary (the UI must not import the retired server) is
-      #     enforced by `eslint.config.mjs` over `rust/ui`-facing TypeScript now.
+      #     enforced by `eslint.config.mjs` over `web/ui`-facing TypeScript now.
       #   * `node --import tsx scripts/forge-static-gate.ts` — its module
       #     `legacy/workflow_app/forge/forge-static-gate` was deleted in the same port; the file carries the
       #     `⚠ BROKEN ON PURPOSE` banner. The Rust-side static checks it stood for are `rust-client-cutover.yml`
@@ -104,7 +104,7 @@ jobs:
       # Every `guard:` line in AGENTS.md is a CLAIM that a test exists, and nothing read those claims: eight
       # `guard: workflow_app/tests/*.test.ts` lines survived the deletion of the whole TypeScript application,
       # so the handbook read as if nine rules were guarded and not one file was there. `forge guard-lint`
-      # (`rust/cli/src/forge/guard_paths.rs`) is the blocking half: a path that does not exist, or that exists
+      # (`cli/src/forge/guard_paths.rs`) is the blocking half: a path that does not exist, or that exists
       # but holds no test, FAILS with its line number and exits 1. `pnpm forge:packet-lint` above runs the same
       # check but only WARNS, and the `cargo test` assertion in the rust job sits below the format step — so
       # this explicit step is what makes a dead guard path actually stop the pipeline.
@@ -378,7 +378,7 @@ jobs:
       # repository can hold to zero today: they are, verified locally, warning-free.
       - name: rust warnings are errors (every crate except the engine)
         working-directory: rust
-        run: RUSTFLAGS="-D warnings" cargo check -p ui -p db -p integrations -p domain -p service -p workflow --all-targets
+        run: RUSTFLAGS="-D warnings" cargo check -p ui -p db -p apis -p model -p services -p workflow --all-targets
 
       # THE RUST DEPENDENCY SCAN. osv-scanner reads `pnpm-lock.yaml` and says nothing about the 364 crates in
       # `rust/Cargo.lock`, which are the ones that actually run in production. `cargo audit` closes that: at the
@@ -399,7 +399,7 @@ jobs:
       # length is the length of the case it proves, so the test estate is not counted.
       #
       # THREE EXEMPTIONS, ALL EXPLICIT:
-      #  * the test estate — any path with a `tests/` segment (`rust/forge/tests/**`, `rust/core/db/tests/**`, …) and
+      #  * the test estate — any path with a `tests/` segment (`forge/tests/**`, `db/tests/**`, …) and
       #    the whole `rust/test-harness/` crate. Production `src/` stays governed; a `#[cfg(test)]` module inside a
       #    `src/` file still counts, because it lives in the production file;
       #  * the four engine-owned module trees, deferred with the format step above;
@@ -411,7 +411,7 @@ jobs:
       - name: rust file boundedness (800-line rule)
         run: |
           set -euo pipefail
-          deferred='rust/cli/src/apple_mail(\.rs|/)|rust/cli/src/forge/lint(\.rs|/)|rust/core/domain/src/applemail(\.rs|/)|rust/core/domain/src/apple_messages(\.rs|/)'
+          deferred='cli/src/apple_mail(\.rs|/)|cli/src/forge/lint(\.rs|/)|middle/model/src/applemail(\.rs|/)|middle/model/src/apple_messages(\.rs|/)'
           test_estate='(^|/)tests/|^rust/test-harness/'
           listed="$(find rust -path rust/target -prune -o -name '*.rs' -print \
             | xargs wc -l \
@@ -440,7 +440,7 @@ jobs:
       # THE DEAD-TYPESCRIPT LEDGER, RUST AND HERE (moved out of the `static` job, 2026-09-29).
       #
       # Both gates were Node scripts until the port deleted the last Node runtime in this repository:
-      # they are `forge` subcommands now (`rust/cli/src/forge/{ts_sweep,dead_commands}.rs`), so they
+      # they are `forge` subcommands now (`cli/src/forge/{ts_sweep,dead_commands}.rs`), so they
       # run in the job that has cargo and a warm cache. `pnpm broken:ts:sweep` and
       # `pnpm broken:ts:commands` still exist and call exactly these two commands. The menu gate is the
       # one that can refuse: a new dead command is a finding, and the count may only fall.
@@ -481,26 +481,26 @@ jobs:
 
       - name: Rust external ServiceHarness lifecycle proof
         working-directory: rust
-        run: cargo test -p server --test service_harness_dev -- --ignored --test-threads=1
+        run: cargo test -p web --test service_harness_dev -- --ignored --test-threads=1
 
       - name: Rust durable command runtime proofs
         working-directory: rust
-        run: cargo test -p server --test command_runtime_dev -- --ignored --test-threads=1
+        run: cargo test -p web --test command_runtime_dev -- --ignored --test-threads=1
 
       - name: Rust service mutation and outbox atomicity proofs
         working-directory: rust
-        run: cargo test -p server --test service_atomicity_dev -- --ignored --test-threads=1
+        run: cargo test -p web --test service_atomicity_dev -- --ignored --test-threads=1
 
       - name: Rust MQ delivery runtime proofs
         working-directory: rust
-        run: cargo test -p server --test mq_runtime_dev -- --ignored --test-threads=1
+        run: cargo test -p web --test mq_runtime_dev -- --ignored --test-threads=1
 
   rust_dev_server:
     name: rust DEV server boot + query
     # THE GATE THAT WOULD HAVE CAUGHT THE 2-HOUR OUTAGE (2026-09-28). Production went down in the
     # pool's CONNECT path, so every request failed while `cargo test`, `cargo check` and even the CLI's
     # `db-smoke` — which builds its own pool and never boots the server — all stayed green. The thing
-    # that serves production is `server --bin http`, so `scripts/rust-dev-boot-smoke.sh` boots exactly
+    # that serves production is `server --bin web`, so `scripts/rust-dev-boot-smoke.sh` boots exactly
     # that against DEV, waits for `/readyz` (`state.db().ping()`, one real query on the process's own
     # shared pool), REFUSES anything that did not resolve `database_target=dev`, and then makes one
     # domain read (`/api/rust-ui/public-page?screen=site-buyers`, the published listings).

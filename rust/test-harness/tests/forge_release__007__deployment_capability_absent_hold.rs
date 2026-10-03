@@ -8,19 +8,19 @@
 //! Three production seams carry the same fact, and they may not disagree:
 //!
 //!   1. **the process composition** — the real `FORGE_SDLC-v6.xml` definition (`forge_sdlc_definition`,
-//!      `rust/forge/src/engine/definition.rs:212`). A `deploymentRequired == true` story is routed by
+//!      `forge/src/engine/definition.rs:212`). A `deploymentRequired == true` story is routed by
 //!      `deploy_required` to the `deploy` task-node, whose `hold` transition routes to the `hold` node
-//!      (`rust/forge/definitions/FORGE_SDLC-v6.xml:563-575`).
+//!      (`forge/definitions/FORGE_SDLC-v6.xml:563-575`).
 //!   2. **the role-runner gate** — `ProductionRoleRunner::run` for the `deploy` node
-//!      (`rust/forge/src/engine/runner.rs:241`). The DevOps lane's deliverable is a machine receipt, and the
+//!      (`forge/src/engine/runner.rs:241`). The DevOps lane's deliverable is a machine receipt, and the
 //!      lane that owns it is the one that reads it: `DevOpsHooks::collect_evidence` takes the capability from
 //!      the turn's effect ports and the gate's `missing_deliverables` (kinds from
-//!      `rust/forge/src/engine/phase.rs`) names `DevopsReceipt` as the kind still owed
-//!      (`rust/forge/src/roles/dev_ops.rs`). With no receipt, the lane records a
+//!      `forge/src/engine/phase.rs`) names `DevopsReceipt` as the kind still owed
+//!      (`forge/src/roles/dev_ops.rs`). With no receipt, the lane records a
 //!      `DELIVERABLE_REJECTED` hold through the state-writer port (`runner.rs:473-498`), which is the
 //!      production Hold.
 //!   3. **the fact projection** — `forge_deploy_hold_reason` / `project_forge_gate_facts`
-//!      (`rust/forge/src/engine/facts.rs:219-245`) projects `deploymentBlocked = true` when deployment is
+//!      (`forge/src/engine/facts.rs:219-245`) projects `deploymentBlocked = true` when deployment is
 //!      required, not deferred, and no producer (a valid artifact SHA plus a non-empty receipt) is configured.
 //!
 //! The external provider boundary is faked, not mocked over: the harness supplies a scripted `RoleHarness`
@@ -36,7 +36,7 @@
 //! production `RecordingWriter` records what the runner asked to write; nothing is committed anywhere.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness \
+//!   cargo test --manifest-path Cargo.toml -p test-harness \
 //!     --test forge_release__007__deployment_capability_absent_hold
 
 use forge::engine::assay::CommandResult;

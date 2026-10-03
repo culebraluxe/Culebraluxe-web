@@ -1,7 +1,7 @@
 -- 262_forge_agent_work_claim.sql
 --
 -- WHY: the two queue claims were transactions choreographed from Rust (`ForgeEngineDao::claim_specific_agent_work`
--- and `claim_next_agent_work`, rust/core/db/src/forge_engine.rs): open a transaction, take the claim lock, read,
+-- and `claim_next_agent_work`, db/src/forge_engine.rs): open a transaction, take the claim lock, read,
 -- decide, compare-and-set, commit. That is database behaviour, so it lives in the database now and the Rust DAO
 -- binds two parameters and maps the row. Translated as-is: no new column, no new queue, no change to ordering,
 -- eligibility or attempts.

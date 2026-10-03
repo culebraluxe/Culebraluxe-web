@@ -1,6 +1,6 @@
 # Layer: DB
 
-Crate: **`rust/core/db`** + migrations in **`db/migrations`**. **Owns:** the one pool, the DAOs, retry, the failure
+Crate: **`db`** + migrations in **`db/migrations`**. **Owns:** the one pool, the DAOs, retry, the failure
 taxonomy, and the writing of failures to `app_error`.
 
 ## One pool per process
@@ -60,6 +60,6 @@ sign-in codes, command receipts). A migration that reached only DEV is the usual
 
 ## Read the code
 
-`rust/core/db/src/pool.rs` (policy + metrics), `retry.rs` (and its tests), `error.rs` (the taxonomy), `capture.rs` (the
+`db/src/pool.rs` (policy + metrics), `retry.rs` (and its tests), `error.rs` (the taxonomy), `capture.rs` (the
 announce path), `shared.rs` (the one pool), then any DAO. Live verification:
 `scripts/rust-live-check/`.

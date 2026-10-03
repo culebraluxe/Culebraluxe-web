@@ -4,7 +4,7 @@
 //! alone — `id uuid primary key default gen_random_uuid()` (`db/migrations/087_accounting.sql:11`) — and the imported
 //! half is not an identity: `reference text` (`db/migrations/087_accounting.sql:13`) has no unique constraint, and
 //! `account_expense` has none either (`db/migrations/087_accounting.sql:31-40`). The DAO writes with a plain
-//! `insert ... returning id::text` and **no** `on conflict` (`rust/core/db/src/accounting/receivable_row.rs:418-426`;
+//! `insert ... returning id::text` and **no** `on conflict` (`db/src/accounting/receivable_row.rs:418-426`;
 //! the expense path at `:392-400`). So a statement line imported twice is two rows unless the importer decides
 //! otherwise before it calls this boundary — which is the truth worth pinning, because the opposite belief (that the
 //! domain silently absorbs a re-import) is how a real invoice disappears.
@@ -12,7 +12,7 @@
 //! There is no importer in Rust to test: the only bank/import code in the tree is dead TypeScript
 //! (`legacy/workflow_app/tests/bank-transaction.test.ts`), which `AGENTS.md` forbids repairing. What exists, and what
 //! this file proves, is the command boundary the importer must use: a command carries no id at all
-//! (`CreateReceivableCommand`, `rust/core/domain/src/accounting.rs:383-393`), two identical imports normalise to
+//! (`CreateReceivableCommand`, `middle/model/src/accounting.rs:383-393`), two identical imports normalise to
 //! byte-identical commands, and no rule folds or fuzzes content into a key.
 //!
 //! Negative case: `reference` is not case-folded (`INV-1` and `inv-1` stay two different references — two genuinely
@@ -23,9 +23,9 @@
 //! Level: L0 Pure — no database, no socket, deterministic.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test accounting_core__006__duplicate_import
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test accounting_core__006__duplicate_import
 
-use domain::accounting::{CreateExpenseCommand, CreateReceivableCommand};
+use model::accounting::{CreateExpenseCommand, CreateReceivableCommand};
 
 fn line() -> CreateReceivableCommand {
     CreateReceivableCommand {

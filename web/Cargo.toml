@@ -1,0 +1,45 @@
+[package]
+name = "web"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64.workspace = true
+flate2.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+tower.workspace = true
+auth = { path = "auth" }
+chrono.workspace = true
+casbin = "=2.20.0"
+db = { path = "../db" }
+model = { path = "../middle/model" }
+# The composition root wires adapters, so `server` depends on `integrations` and `domain` never does. This line is
+# what made the BoldSign adapter attachable: without it the Signature service could not be constructed on this
+# transport, which is why the `signature` capability sat in the parity ledger as "built, 0 routes".
+apis = { path = "../middle/apis" }
+# The workflow engine's operations live in the forge crate. The composition root hosts them, the same way
+# `integrations` is what made the BoldSign adapter attachable: the engine stops being a process we spawn per call
+# and becomes a route that shares this server's pool, retry policy, error capture and identity resolution.
+forge = { path = "../forge" }
+image.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+sha2.workspace = true
+hmac.workspace = true
+# The internal key is compared in constant time (`api/context.rs`), so the class of timing leak that turns a
+# shared secret into a byte-by-byte guess is closed at the comparison itself.
+subtle.workspace = true
+services = { path = "../middle/services" }
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+reqwest.workspace = true
+unicode-normalization = "0.1"
+

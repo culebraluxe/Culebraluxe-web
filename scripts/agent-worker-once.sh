@@ -67,7 +67,7 @@ export AGENT_WORKER_ID="${AGENT_WORKER_ID:-scheduler}"
 MAX_PASSES="${AGENT_WORKER_MAX_PASSES:-20}"
 
 # Forge runs against PRODUCTION only, and the Rust worker hard-refuses anything else
-# (rust/forge/src/bin/forge_worker.rs:3 — `forge-worker must target production`, exit 2).
+# (forge/src/bin/forge_worker.rs:3 — `forge-worker must target production`, exit 2).
 # The retired `pnpm agent:work` shim carried this; when the scheduler was switched to invoke
 # the Rust worker directly the prefix was dropped, so every unattended tick since 2026-09-25
 # died with exit=2 before claiming a single work item. Declared here rather than merely
@@ -115,7 +115,7 @@ trap release_lock EXIT
 
 # The worker's own pool needs the production connection string, and this is the one entry point in the
 # repository that could not find it. Every `forge`/`db-tool` command reaches `.env.local` through the CLI's
-# `load_env()` (`rust/cli/src/apple_sync.rs:68`); `forge-worker` is its own binary in the `forge` crate and calls
+# `load_env()` (`cli/src/apple_sync.rs:68`); `forge-worker` is its own binary in the `forge` crate and calls
 # nothing, so from 2026-09-25 an unattended tick died with `DatabaseUnavailable … DATABASE_URL_PROD is not
 # configured` before claiming a single work item — and exited 1, which reads like a crashing run rather than an
 # unstarted one. Read narrowly, not by sourcing the whole file: every variable this process holds is inherited by
@@ -141,7 +141,7 @@ if [ -z "${DATABASE_URL_PROD:-}" ]; then
 fi
 
 if [ "${AGENT_WORKER_DRY_RUN:-0}" = "1" ]; then
-  echo "[agent-worker] dry-run: cargo run --manifest-path rust/Cargo.toml -p forge --bin forge-worker -- not invoked"
+  echo "[agent-worker] dry-run: cargo run --manifest-path Cargo.toml -p forge --bin forge-worker -- not invoked"
   inv_log "dry-run"
   exit 0
 fi
@@ -223,10 +223,10 @@ inv_log "git-sync: complete head=$(git rev-parse --short HEAD 2>/dev/null || ech
 
 pass=1
 while [ "$pass" -le "$MAX_PASSES" ]; do
-  inv_log "pass=$pass start cmd=\"cargo run --manifest-path rust/Cargo.toml -p forge --bin forge-worker --\""
+  inv_log "pass=$pass start cmd=\"cargo run --manifest-path Cargo.toml -p forge --bin forge-worker --\""
 
   output_file="$(mktemp -t culebraluxe-forge-worker.XXXXXX)"
-  cargo run --manifest-path rust/Cargo.toml -p forge --bin forge-worker -- 2>&1 | tee "$output_file"
+  cargo run --manifest-path Cargo.toml -p forge --bin forge-worker -- 2>&1 | tee "$output_file"
   rc=${PIPESTATUS[0]}
 
   inv_log "pass=$pass end exit=$rc"

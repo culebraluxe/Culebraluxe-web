@@ -8,7 +8,7 @@
 -- no Lead, no DEV_OPS model runs, deterministic QA never skipped) and migration 173 made `FAST` a
 -- work type the ledger accepts. Nothing could ENTER it. The entry fact is the work type, and on the
 -- queue path the work type is derived from `agent_work_item.kind`
--- (`rust/forge/src/engine/worker.rs:126`), whose vocabulary is the BATCH's six words — `qa`, `fix`,
+-- (`forge/src/engine/worker.rs:126`), whose vocabulary is the BATCH's six words — `qa`, `fix`,
 -- `feature`, `crm`, `judgment`, `learn` (migration 179) — which map to BUG / RESEARCH / FEATURE and
 -- cannot express FAST. And `kind` is NULL on every item the board queues: the Ready trigger inserts
 -- `(story_id, state, priority)` and nothing else (`146:40`). So every story the board dispatches ran
@@ -32,7 +32,7 @@
 -- (`db/loads/declare_tst_fast_lane_2026_09_30.sql`).
 --
 -- NOTHING IS WEAKENED. Declaring FAST does not grant the lane: `forge_fast_eligibility`
--- (`rust/forge/src/engine/facts.rs:247`) still refuses it for a story that needs a migration, a
+-- (`forge/src/engine/facts.rs:247`) still refuses it for a story that needs a migration, a
 -- derived refresh, a deployment, an architecture change, or one the Lead split. This column chooses
 -- which work type the run is DISPATCHED as; the graph still decides what it may do.
 --

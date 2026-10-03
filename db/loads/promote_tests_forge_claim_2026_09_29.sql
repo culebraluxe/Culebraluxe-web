@@ -15,14 +15,14 @@
 --
 -- WHY THE ROWS ARE THE SPECIFICATION. This estate is rows-only — no tracked file defines it or its taxonomy
 -- (`grep -rn "TST-FORGE-CLAIM" db/ rust/ docs/` returns nothing but this comment), so the row IS the
--- specification, which is what `rust/forge/src/engine/packet.rs` reads. Each row's assay names the file it must
--- create — `cargo test --manifest-path rust/Cargo.toml -p test-harness --test
+-- specification, which is what `forge/src/engine/packet.rs` reads. Each row's assay names the file it must
+-- create — `cargo test --manifest-path Cargo.toml -p test-harness --test
 -- forge_claim__001__only_owner_starts_run`, absent from `rust/test-harness/tests/` today — the same shape as the
 -- promoted WF.COMMAND trio (`promote_tests_wf_command_2026_09_29.sql`), where the story creates exactly what it is
 -- measured on.
 --
 -- WHY THEY LEAD THE QUEUE, AND WHY NOTHING WAS BUMPED. The claim order is
--- `order by w.priority desc, w.queued_at asc, w.id` (rust/core/db/src/forge_engine.rs:752) and the Ready trigger
+-- `order by w.priority desc, w.queued_at asc, w.id` (db/src/forge_engine.rs:752) and the Ready trigger
 -- scores the story's priority text (Critical 100 — db/migrations/025_agent_work_queue.sql:88-99). All five were
 -- already Critical while Planned, so the `priority` clause below is a no-op kept only to put the intent on the
 -- page. The status change is the whole promotion: the trigger inserts at most one item per story and never raises

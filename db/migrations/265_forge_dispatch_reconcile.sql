@@ -3,7 +3,7 @@
 -- WHY: putting a story into the engine's queue (`dispatch_story_in`, behind `ensure_story_dispatched` — the board's
 -- ENGINE RUN Q move and the `captureCommit` scoping path) and the control-plane sweep that runs before every run
 -- (`ForgeEngineDao::reconcile_dispatch_queue`) were transactions choreographed from Rust
--- (rust/core/db/src/forge_engine.rs). The sweep calls the dispatch verb, so they move together: one spelling of
+-- (db/src/forge_engine.rs). The sweep calls the dispatch verb, so they move together: one spelling of
 -- "make the database dispatch this story" for the board and for the sweep. Translated as-is — the fourth
 -- stored-routine slice after 262 (claim), 263 (settlement) and 264 (run open). No change to the trigger, the
 -- score, the arbiter, any status or any guard.

@@ -1,8 +1,8 @@
 -- Arm the five claim-contract test rows again, so the fixed engine is smoke-tested by WRITING RUST TESTS.
 --
 -- WHY. The deliverable of these rows is Rust test code, and the row is the specification
--- (`rust/forge/src/engine/packet.rs` reads it): each row's assay names the file it must create —
--- `cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run`,
+-- (`forge/src/engine/packet.rs` reads it): each row's assay names the file it must create —
+-- `cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run`,
 -- absent from `rust/test-harness/tests/` today. This file only decides what the engine works on next: the five
 -- claim invariants of the code that changed last night (`begin_agent_work_run`, the `state='Claimed'` CAS,
 -- `stale_agent_work`/`recover_stale_agent_work`, `heartbeat_agent_work`, and the requeue window).

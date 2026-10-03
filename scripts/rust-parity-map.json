@@ -1,5 +1,5 @@
 {
-  "note": "Capability pairing for the Rust port. Hand-maintained, MACHINE-VERIFIED: scripts/rust-parity-ledger.ts fails if any path or route listed here does not exist, so this file cannot rot silently. rustStatus says what exists in Rust; productionPath says what actually serves production today. UPDATED 2026-09-28, when the port finished (the TypeScript application was deleted in 4cf98110). Two consequences, both factual rather than tidy: `tsFiles` is empty for every capability, because there is no TypeScript left to move; and productionPath is 'rust' wherever a route is mounted, because the Rust server is now the only implementation that exists — `scripts/vercel-build-prod.sh` builds it and `rust/server/src/site.rs` serves the site, so nothing else can be answering. productionPath 'none' means the capability has no mounted route, so nothing can call it yet. `nativeRoutes` below is the rest of the mounted surface: routes that were never part of this port, so no cutover question is open for them.",
+  "note": "Capability pairing for the Rust port. Hand-maintained, MACHINE-VERIFIED: scripts/rust-parity-ledger.ts fails if any path or route listed here does not exist, so this file cannot rot silently. rustStatus says what exists in Rust; productionPath says what actually serves production today. UPDATED 2026-09-28, when the port finished (the TypeScript application was deleted in 4cf98110). Two consequences, both factual rather than tidy: `tsFiles` is empty for every capability, because there is no TypeScript left to move; and productionPath is 'rust' wherever a route is mounted, because the Rust server is now the only implementation that exists — `scripts/vercel-build-prod.sh` builds it and `web/src/site.rs` serves the site, so nothing else can be answering. productionPath 'none' means the capability has no mounted route, so nothing can call it yet. `nativeRoutes` below is the rest of the mounted surface: routes that were never part of this port, so no cutover question is open for them.",
   "statuses": {
     "rustStatus": ["built", "partial", "not-started"],
     "productionPath": ["typescript", "rust", "shadow", "none"]
@@ -16,9 +16,9 @@
         "/v1/clients/{person_id}/history"
       ],
       "rustModules": [
-        "rust/server/src/clients",
-        "rust/core/db/src/client.rs",
-        "rust/core/domain/src/client.rs"
+        "web/src/clients",
+        "db/src/client.rs",
+        "middle/model/src/client.rs"
       ],
       "tsFiles": []
     },
@@ -28,9 +28,9 @@
       "productionPath": "rust",
       "routes": ["/v1/people/search", "/v1/people/{id}", "/v1/people/{id}/properties"],
       "rustModules": [
-        "rust/server/src/people",
-        "rust/core/db/src/person.rs",
-        "rust/core/domain/src/person.rs"
+        "web/src/people",
+        "db/src/person.rs",
+        "middle/model/src/person.rs"
       ],
       "tsFiles": []
     },
@@ -40,10 +40,10 @@
       "productionPath": "rust",
       "routes": ["/v1/properties/{id}", "/v1/properties/{id}/media"],
       "rustModules": [
-        "rust/server/src/properties",
-        "rust/server/src/media",
-        "rust/core/db/src/property.rs",
-        "rust/core/domain/src/property.rs"
+        "web/src/properties",
+        "web/src/media",
+        "db/src/property.rs",
+        "middle/model/src/property.rs"
       ],
       "tsFiles": []
     },
@@ -53,9 +53,9 @@
       "productionPath": "rust",
       "routes": ["/v1/contracts", "/v1/contracts/{id}", "/v1/process-instances/{id}/contracts"],
       "rustModules": [
-        "rust/server/src/contracts",
-        "rust/core/db/src/contract.rs",
-        "rust/core/domain/src/contract.rs"
+        "web/src/contracts",
+        "db/src/contract.rs",
+        "middle/model/src/contract.rs"
       ],
       "tsFiles": []
     },
@@ -70,7 +70,7 @@
         "/v1/forms/{id}/issued-document",
         "/v1/forms/{id}"
       ],
-      "rustModules": ["rust/server/src/forms", "rust/core/db/src/forms.rs", "rust/core/domain/src/forms.rs"],
+      "rustModules": ["web/src/forms", "db/src/forms.rs", "middle/model/src/forms.rs"],
       "tsFiles": []
     },
     {
@@ -79,9 +79,9 @@
       "productionPath": "rust",
       "routes": ["/v1/comms/{person_id}/panel", "/v1/comms/{person_id}/timeline"],
       "rustModules": [
-        "rust/server/src/communications",
-        "rust/core/db/src/comms.rs",
-        "rust/core/domain/src/comms.rs"
+        "web/src/communications",
+        "db/src/comms.rs",
+        "middle/model/src/comms.rs"
       ],
       "tsFiles": []
     },
@@ -91,9 +91,9 @@
       "productionPath": "rust",
       "routes": ["/v1/calendar"],
       "rustModules": [
-        "rust/server/src/calendar",
-        "rust/core/db/src/calendar.rs",
-        "rust/core/domain/src/calendar.rs"
+        "web/src/calendar",
+        "db/src/calendar.rs",
+        "middle/model/src/calendar.rs"
       ],
       "tsFiles": []
     },
@@ -102,7 +102,7 @@
       "rustStatus": "built",
       "productionPath": "rust",
       "routes": ["/v1/vault/documents", "/v1/vault/documents/{id}"],
-      "rustModules": ["rust/server/src/vault", "rust/core/db/src/vault.rs", "rust/core/domain/src/vault.rs"],
+      "rustModules": ["web/src/vault", "db/src/vault.rs", "middle/model/src/vault.rs"],
       "tsFiles": []
     },
     {
@@ -111,9 +111,9 @@
       "productionPath": "rust",
       "routes": ["/v1/projects", "/v1/projects/{id}"],
       "rustModules": [
-        "rust/server/src/projects",
-        "rust/core/db/src/project.rs",
-        "rust/core/domain/src/project.rs"
+        "web/src/projects",
+        "db/src/project.rs",
+        "middle/model/src/project.rs"
       ],
       "tsFiles": []
     },
@@ -122,7 +122,7 @@
       "rustStatus": "built",
       "productionPath": "none",
       "routes": [],
-      "rustModules": ["rust/server/src/firms", "rust/core/db/src/firm.rs", "rust/core/domain/src/firm.rs"],
+      "rustModules": ["web/src/firms", "db/src/firm.rs", "middle/model/src/firm.rs"],
       "tsFiles": [],
       "note": "Built in Rust with no route attached, so nothing can call it yet."
     },
@@ -137,12 +137,12 @@
         "/api/integrations/boldsign/webhook"
       ],
       "rustModules": [
-        "rust/server/src/signature",
-        "rust/core/db/src/signature.rs",
-        "rust/core/domain/src/signature.rs"
+        "web/src/signature",
+        "db/src/signature.rs",
+        "middle/model/src/signature.rs"
       ],
       "tsFiles": [],
-      "note": "All four endpoints are attached to Axum: send, get, refresh, and the provider webhook — the webhook at the PRODUCTION path /api/integrations/boldsign/webhook, so BoldSign's configured URL does not have to change to cut over. The webhook is deliberately unauthenticated by the internal API key: BoldSign signs the raw body and that HMAC is verified inside the service against a System actor with no principal, because a webhook cannot present an application identity. Constructing the BoldSign provider required adding `integrations` to the server crate; without it the adapter was unreachable from the composition root, which is how this capability sat as 'built, 0 routes'. KNOWN GAP, deliberately not guessed: the TypeScript webhook answered 200 {acknowledged:true} for events it will not act on so BoldSign stops retrying, and 401 for a missing/invalid signature. The Rust service's outcome enum has no no-op variant, so the 200-for-non-actionable half of that retry contract is NOT mirrored yet — mapping it blind could mask real errors. productionPath moved from 'typescript' to 'rust' on 2026-09-28 with the rest of this map: the TypeScript application was deleted in 4cf98110, so there is no TypeScript path left that could be serving. rust/server/tests/signature_routes.rs fails if the router and this map disagree."
+      "note": "All four endpoints are attached to Axum: send, get, refresh, and the provider webhook — the webhook at the PRODUCTION path /api/integrations/boldsign/webhook, so BoldSign's configured URL does not have to change to cut over. The webhook is deliberately unauthenticated by the internal API key: BoldSign signs the raw body and that HMAC is verified inside the service against a System actor with no principal, because a webhook cannot present an application identity. Constructing the BoldSign provider required adding `integrations` to the server crate; without it the adapter was unreachable from the composition root, which is how this capability sat as 'built, 0 routes'. KNOWN GAP, deliberately not guessed: the TypeScript webhook answered 200 {acknowledged:true} for events it will not act on so BoldSign stops retrying, and 401 for a missing/invalid signature. The Rust service's outcome enum has no no-op variant, so the 200-for-non-actionable half of that retry contract is NOT mirrored yet — mapping it blind could mask real errors. productionPath moved from 'typescript' to 'rust' on 2026-09-28 with the rest of this map: the TypeScript application was deleted in 4cf98110, so there is no TypeScript path left that could be serving. web/tests/signature_routes.rs fails if the router and this map disagree."
     },
     {
       "id": "showings",
@@ -150,9 +150,9 @@
       "productionPath": "none",
       "routes": [],
       "rustModules": [
-        "rust/server/src/showings",
-        "rust/core/db/src/showing.rs",
-        "rust/core/domain/src/showing.rs"
+        "web/src/showings",
+        "db/src/showing.rs",
+        "middle/model/src/showing.rs"
       ],
       "tsFiles": []
     },
@@ -161,7 +161,7 @@
       "rustStatus": "built",
       "productionPath": "rust",
       "routes": ["/v1/wbs/project-items", "/v1/wbs/{id}"],
-      "rustModules": ["rust/server/src/wbs", "rust/core/db/src/wbs.rs", "rust/core/domain/src/wbs.rs"],
+      "rustModules": ["web/src/wbs", "db/src/wbs.rs", "middle/model/src/wbs.rs"],
       "tsFiles": []
     },
     {
@@ -170,37 +170,37 @@
       "productionPath": "rust",
       "routes": ["/api/integrations/whatsapp/webhook"],
       "rustModules": [
-        "rust/integrations/src/whatsapp",
-        "rust/core/db/src/whatsapp.rs"
+        "middle/apis/src/whatsapp",
+        "db/src/whatsapp.rs"
       ],
       "tsFiles": [],
       "note": "Rust verifies and normalises Meta payloads and the mounted webhook route is the Rust one. rustStatus stays 'partial' because durable inbox/ODS persistence is not finished — the old note said that half 'belongs to TypeScript', which stopped being true when the TypeScript application was deleted in 4cf98110. What is missing is Rust that has not been written yet, not TypeScript that still exists."
     }
   ],
   "nativeRoutes": [
-    { "area": "accounting", "module": "rust/server/src/accounting/mod.rs", "routes": ["/v1/accounting/dashboard","/v1/accounting/receivables","/v1/accounting/receivables/{id}/paid","/v1/accounting/expenses","/v1/accounting/expense-categories","/v1/accounting/pnl"] },
-    { "area": "activity", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/activity"] },
-    { "area": "catchup", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/catchup/leads"] },
-    { "area": "cockpit", "module": "rust/server/src/cockpit/mod.rs", "routes": ["/v1/cockpit"] },
-    { "area": "commands", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/commands/dispatch"] },
-    { "area": "deals", "module": "rust/server/src/deals/mod.rs", "routes": ["/v1/deals","/v1/deals/{id}","/v1/deals/{id}/commands"] },
-    { "area": "diagnostics", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/diagnostics/app-error","/v1/diagnostics/db"] },
-    { "area": "engine", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/engine/transactions","/v1/engine/timers/reconcile","/v1/engine/tasks/complete","/v1/engine/reclaim"] },
-    { "area": "flight-recorder", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/flight-recorder/{id}"] },
-    { "area": "issues", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/issues"] },
-    { "area": "media", "module": "rust/server/src/media/mod.rs", "routes": ["/v1/media/{id}","/v1/media/upload"] },
-    { "area": "properties", "module": "rust/server/src/properties/mod.rs", "routes": ["/v1/properties/admin","/v1/properties/{id}/admin","/v1/properties/{id}/video","/v1/properties/{id}/media/uploads","/v1/properties/{id}/media/uploads/{upload_id}/chunks/{index}","/v1/properties/{id}/media/uploads/{upload_id}/complete","/v1/properties/{id}/video-uploads","/v1/properties/{id}/video-uploads/{upload_id}/finalize"] },
-    { "area": "public", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/public/listing-copy","/v1/public/listings","/v1/public/property","/v1/public/media/{id}","/v1/public/similar","/v1/public/slugs","/v1/public/guide","/v1/public/marketing-content"] },
-    { "area": "relationship-evidence", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/relationship-evidence/review","/v1/relationship-evidence/actions"] },
-    { "area": "security", "module": "rust/server/src/security/mod.rs", "routes": ["/v1/security/identity","/v1/security/guests","/v1/security/guest-code","/v1/security/guest-code/verify","/v1/security/authorize","/v1/security/authorize/public","/v1/security/role-entitlements","/v1/security/users"] },
-    { "area": "services", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/services","/v1/services/health","/v1/services/kernel/health","/v1/services/runtime/health","/v1/services/{domain}/control","/v1/services/dispatch"] },
-    { "area": "support", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/support/security-status","/v1/support/break-glass-readiness","/v1/support/system-health","/v1/support/workflow-diagnostics","/v1/support/workflow-diagnostics/{id}"] },
-    { "area": "tasks", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/tasks/{id}/complete"] },
-    { "area": "tech", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/tech/cockpit"] },
-    { "area": "vault", "module": "rust/server/src/vault/mod.rs", "routes": ["/v1/vault/deals/{id}/documents","/v1/vault/forms/{id}/contract","/v1/vault/forms/{id}/bind-contract","/v1/vault/contracts/{contract_id}/templates/{template_id}/prior","/v1/vault/public-listing-documents/{id}","/v1/vault/document-bytes/{id}"] },
-    { "area": "wbs", "module": "rust/server/src/wbs/mod.rs", "routes": ["/v1/wbs","/v1/wbs/dependencies/{project_id}","/v1/wbs/dependencies/{project_id}/{source_id}/{target_id}","/v1/wbs/{id}/apple-reminder","/v1/wbs/{id}/route"] },
-    { "area": "website-intake", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/website-intake","/v1/website-intake/{id}/notify"] },
-    { "area": "workflows", "module": "rust/server/src/api/routes.rs", "routes": ["/v1/workflows","/v1/workflows/{id}"] }
+    { "area": "accounting", "module": "web/src/accounting/mod.rs", "routes": ["/v1/accounting/dashboard","/v1/accounting/receivables","/v1/accounting/receivables/{id}/paid","/v1/accounting/expenses","/v1/accounting/expense-categories","/v1/accounting/pnl"] },
+    { "area": "activity", "module": "web/src/api/routes.rs", "routes": ["/v1/activity"] },
+    { "area": "catchup", "module": "web/src/api/routes.rs", "routes": ["/v1/catchup/leads"] },
+    { "area": "cockpit", "module": "web/src/cockpit/mod.rs", "routes": ["/v1/cockpit"] },
+    { "area": "commands", "module": "web/src/api/routes.rs", "routes": ["/v1/commands/dispatch"] },
+    { "area": "deals", "module": "web/src/deals/mod.rs", "routes": ["/v1/deals","/v1/deals/{id}","/v1/deals/{id}/commands"] },
+    { "area": "diagnostics", "module": "web/src/api/routes.rs", "routes": ["/v1/diagnostics/app-error","/v1/diagnostics/db"] },
+    { "area": "engine", "module": "web/src/api/routes.rs", "routes": ["/v1/engine/transactions","/v1/engine/timers/reconcile","/v1/engine/tasks/complete","/v1/engine/reclaim"] },
+    { "area": "flight-recorder", "module": "web/src/api/routes.rs", "routes": ["/v1/flight-recorder/{id}"] },
+    { "area": "issues", "module": "web/src/api/routes.rs", "routes": ["/v1/issues"] },
+    { "area": "media", "module": "web/src/media/mod.rs", "routes": ["/v1/media/{id}","/v1/media/upload"] },
+    { "area": "properties", "module": "web/src/properties/mod.rs", "routes": ["/v1/properties/admin","/v1/properties/{id}/admin","/v1/properties/{id}/video","/v1/properties/{id}/media/uploads","/v1/properties/{id}/media/uploads/{upload_id}/chunks/{index}","/v1/properties/{id}/media/uploads/{upload_id}/complete","/v1/properties/{id}/video-uploads","/v1/properties/{id}/video-uploads/{upload_id}/finalize"] },
+    { "area": "public", "module": "web/src/api/routes.rs", "routes": ["/v1/public/listing-copy","/v1/public/listings","/v1/public/property","/v1/public/media/{id}","/v1/public/similar","/v1/public/slugs","/v1/public/guide","/v1/public/marketing-content"] },
+    { "area": "relationship-evidence", "module": "web/src/api/routes.rs", "routes": ["/v1/relationship-evidence/review","/v1/relationship-evidence/actions"] },
+    { "area": "security", "module": "web/src/security/mod.rs", "routes": ["/v1/security/identity","/v1/security/guests","/v1/security/guest-code","/v1/security/guest-code/verify","/v1/security/authorize","/v1/security/authorize/public","/v1/security/role-entitlements","/v1/security/users"] },
+    { "area": "services", "module": "web/src/api/routes.rs", "routes": ["/v1/services","/v1/services/health","/v1/services/kernel/health","/v1/services/runtime/health","/v1/services/{domain}/control","/v1/services/dispatch"] },
+    { "area": "support", "module": "web/src/api/routes.rs", "routes": ["/v1/support/security-status","/v1/support/break-glass-readiness","/v1/support/system-health","/v1/support/workflow-diagnostics","/v1/support/workflow-diagnostics/{id}"] },
+    { "area": "tasks", "module": "web/src/api/routes.rs", "routes": ["/v1/tasks/{id}/complete"] },
+    { "area": "tech", "module": "web/src/api/routes.rs", "routes": ["/v1/tech/cockpit"] },
+    { "area": "vault", "module": "web/src/vault/mod.rs", "routes": ["/v1/vault/deals/{id}/documents","/v1/vault/forms/{id}/contract","/v1/vault/forms/{id}/bind-contract","/v1/vault/contracts/{contract_id}/templates/{template_id}/prior","/v1/vault/public-listing-documents/{id}","/v1/vault/document-bytes/{id}"] },
+    { "area": "wbs", "module": "web/src/wbs/mod.rs", "routes": ["/v1/wbs","/v1/wbs/dependencies/{project_id}","/v1/wbs/dependencies/{project_id}/{source_id}/{target_id}","/v1/wbs/{id}/apple-reminder","/v1/wbs/{id}/route"] },
+    { "area": "website-intake", "module": "web/src/api/routes.rs", "routes": ["/v1/website-intake","/v1/website-intake/{id}/notify"] },
+    { "area": "workflows", "module": "web/src/api/routes.rs", "routes": ["/v1/workflows","/v1/workflows/{id}"] }
   ],
   "knownUnmappedRoutes": [
     "/healthz",

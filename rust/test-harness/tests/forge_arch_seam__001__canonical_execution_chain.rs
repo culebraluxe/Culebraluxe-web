@@ -231,7 +231,7 @@ fn the_composition_root_wires_the_chain_in_order_and_nothing_drives_around_it() 
     // The non-durable `drive_forge_story` calls `runner.run` directly. It may exist for fixtures; nothing in
     // production may call it.
     let mut callers = Vec::new();
-    for tree in ["forge/src", "cli/src", "server/src"] {
+    for tree in ["forge/src", "cli/src", "web/src"] {
         for (path, code) in production_tree(tree) {
             if path.ends_with("engine/executor.rs") {
                 continue;
@@ -306,7 +306,7 @@ fn roles_own_no_durable_job_semantics() {
 #[test]
 fn the_workflow_launches_no_vendor_and_the_vendor_harness_routes_nothing() {
     let workflow = naming(
-        &production_tree("core/workflow/src"),
+        &production_tree("middle/workflow/src"),
         &["opencode", "OpenCode", "RoleHarness", "forge::"],
     );
     assert!(

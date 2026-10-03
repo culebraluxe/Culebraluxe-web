@@ -1,31 +1,31 @@
 # MAP - services (where the domain lives, and how to add one)
 
-A **service** is a Rust struct that holds the rules for one domain. It lives in `rust/server/src/<domain>/mod.rs`, or in
-`rust/server/src/<domain>.rs` when it is small. It is typed over a **repository trait**, so a test can hand it a fake
-instead of a database, and it is constructed over a **DAO** (`rust/core/db/src/<domain>.rs`), which is the only file
-that runs SQL for that domain. It becomes reachable only when it is registered in `rust/server/src/composition.rs`.
+A **service** is a Rust struct that holds the rules for one domain. It lives in `web/src/<domain>/mod.rs`, or in
+`web/src/<domain>.rs` when it is small. It is typed over a **repository trait**, so a test can hand it a fake
+instead of a database, and it is constructed over a **DAO** (`db/src/<domain>.rs`), which is the only file
+that runs SQL for that domain. It becomes reachable only when it is registered in `web/src/composition.rs`.
 
 The short version of where a new rule goes:
 
 | You are writing | It goes in |
 | --- | --- |
-| A type, a validation, an invariant | `rust/core/domain/src/<domain>.rs` |
-| A query or a write | `rust/core/db/src/<domain>.rs` (`<Domain>Dao`) |
-| An operation with authorization and audit | `rust/server/src/<domain>/mod.rs` (`<Domain>Service`) |
-| A URL | `rust/server/src/api/routes.rs` (or `portal_bridge.rs` for a portal screen read) |
-| The wiring that makes it dispatchable | `rust/server/src/composition.rs` |
+| A type, a validation, an invariant | `middle/model/src/<domain>.rs` |
+| A query or a write | `db/src/<domain>.rs` (`<Domain>Dao`) |
+| An operation with authorization and audit | `web/src/<domain>/mod.rs` (`<Domain>Service`) |
+| A URL | `web/src/api/routes.rs` (or `portal_bridge.rs` for a portal screen read) |
+| The wiring that makes it dispatchable | `web/src/composition.rs` |
 
-`rust/server/src/issues.rs` is the whole shape in 72 lines. Read it before writing a new service; the recipe below is
+`web/src/issues.rs` is the whole shape in 72 lines. Read it before writing a new service; the recipe below is
 that file, generalized.
 
 ## What the kernel gives a service for free
 
-`rust/core/service/` is the kernel; `rust/server/src/service_support.rs` is how a server-side service uses it. A service
+`middle/services/` is the kernel; `web/src/service_support.rs` is how a server-side service uses it. A service
 does not fetch identity, decide authorization, write audit rows, publish events or capture failures by itself - it asks
 the runtime:
 
 - **Identity** - `ServiceContext` (actor, principal, correlation id, `OperationKind`). Built per request by
-  `rust/server/src/api/context.rs`, never inside a service.
+  `web/src/api/context.rs`, never inside a service.
 - **Authorization** - `authorize(&runtime, domain, action, operation, kind, context)` returns a decision, or
   `FORBIDDEN`. A refusal is written to audit and is **not** an error row: it is control flow.
 - **Audit** - `audit_result(...)` writes exactly one row per operation with its outcome and its error code, success or
@@ -40,10 +40,10 @@ the runtime:
 
 ## How to add a service - the recipe
 
-**1. The types.** Add them to `rust/core/domain/src/<domain>.rs` and export from `rust/core/domain/src/lib.rs`. Types
+**1. The types.** Add them to `middle/model/src/<domain>.rs` and export from `middle/model/src/lib.rs`. Types
 carry `serde` and, where they cross a boundary, a validating constructor. No SQL, no HTTP, no provider client here.
 
-**2. The DAO.** `rust/core/db/src/<domain>.rs`:
+**2. The DAO.** `db/src/<domain>.rs`:
 
 ```rust
 #[derive(Clone)]
@@ -66,10 +66,10 @@ impl WidgetDao {
 - One pool per process: `self.db.pool()` - never build one in the DAO.
 - Bind parameters. Never string-build SQL, never hand-escape. A `uuid` column needs `$1::uuid`.
 - Return `DbResult<T>` so a failure keeps its incident id; do not `unwrap` a query.
-- Reads that can be retried go through the `db::retrying_read!` macro (used in `rust/server/src/issues.rs`).
-- Export the DAO from `rust/core/db/src/lib.rs`.
+- Reads that can be retried go through the `db::retrying_read!` macro (used in `web/src/issues.rs`).
+- Export the DAO from `db/src/lib.rs`.
 
-**3. The service.** `rust/server/src/<domain>/mod.rs`, with the repository trait as the test seam:
+**3. The service.** `web/src/<domain>/mod.rs`, with the repository trait as the test seam:
 
 ```rust
 #[async_trait]
@@ -105,7 +105,7 @@ The order is fixed: **authorize, do the work, audit.** A service that writes pub
 runtime as well. Refuse with `CoreServiceError::business("WIDGET_LOCKED", "...", false)` (code, message, retryable) when
 the user should read the reason; never turn a failure into an empty result and never swallow a `Result`.
 
-**4. Register it - five places, all in `rust/server/src/composition.rs`.**
+**4. Register it - five places, all in `web/src/composition.rs`.**
 
 1. a field on `ServiceCatalog` (`widget: Arc<WidgetService<WidgetDao>>`),
 2. its construction in `ServiceCatalog::new` - `WidgetDao::new(db.clone())` plus `infrastructure.clone()`,
@@ -119,10 +119,10 @@ there still compiles; its route fails at runtime with `ServiceDispatchError::Ser
 kernel's typed failure. That is the symptom of a forgotten step 5.
 
 The list of domains the HTTP surface is expected to reach is itself a test:
-`every_http_service_family_maps_to_its_registered_mailbox` in `rust/server/src/api/routes.rs` (it pairs each URL family
+`every_http_service_family_maps_to_its_registered_mailbox` in `web/src/api/routes.rs` (it pairs each URL family
 with the domain it must dispatch to). Add your route to it.
 
-**5. The route.** In `rust/server/src/api/routes.rs`, mount it on the router and call the service method. HTTP calls the
+**5. The route.** In `web/src/api/routes.rs`, mount it on the router and call the service method. HTTP calls the
 area service directly (authorization and audit are inside the method); wrap the call in `execute_registered` when the
 domain's mailbox bound matters (a heavy read, a write that must queue), as below. Envelope dispatch is for the engine,
 the mailbox and MQ, never a second HTTP path (`docs/layers/SERVICES.md`, "Two doors, one implementation"):
@@ -147,14 +147,14 @@ inside a service.
 
 **6. A portal screen read.** Portal screens read one page at a time
 (`/api/portal/rust-ui/page?screen=<screen>`). Add the field to the page payload in
-`rust/server/src/api/portal_bridge.rs`, add it to `PortalPage` in `rust/ui/src/model.rs`, and let the screen pick it (see
-`UI-SCREEN-ARCHITECTURE.md`; `rust/ui/src/app/screens/db_test.rs` is the smallest complete read).
+`web/src/api/portal_bridge.rs`, add it to `PortalPage` in `web/ui/src/model.rs`, and let the screen pick it (see
+`UI-SCREEN-ARCHITECTURE.md`; `web/ui/src/app/screens/db_test.rs` is the smallest complete read).
 
 **7. Verify.**
 
 ```sh
 cargo check --workspace --all-targets
-cargo test -p db -p server
+cargo test -p db -p web
 pnpm db:migrations            # if anything touched schema
 ```
 
@@ -165,27 +165,27 @@ live check against DEV: `scripts/rust-live-check/`.
 
 The repository trait exists for this. A test implements `WidgetRepository` for an in-memory fake and asserts the
 service's decisions: which authorization it demanded, what it did on a refusal, what it audited. The kernel's lifecycle
-is tested once for everyone in `rust/server/tests/service_harness_dev.rs`, which builds services with
+is tested once for everyone in `web/tests/service_harness_dev.rs`, which builds services with
 `ServiceHarness::isolated` - a new service does not need to re-prove the kernel.
 
 ## Which services exist
 
-The authoritative list is `registrations()` in `rust/server/src/composition.rs`. The ones you will meet first:
+The authoritative list is `registrations()` in `web/src/composition.rs`. The ones you will meet first:
 
 | Domain | Service | DAO |
 | --- | --- | --- |
-| `cockpit` | `rust/server/src/cockpit/mod.rs` | `rust/core/db/src/cockpit.rs` |
-| `deal` | `rust/server/src/deals/mod.rs` | `rust/core/db/src/deal_portal.rs` |
-| `issue` | `rust/server/src/issues.rs` | `rust/core/db/src/issue.rs` |
-| `task` | `rust/server/src/task/mod.rs` | `rust/core/db/src/task.rs` |
-| `property` | `rust/server/src/properties/mod.rs` | `rust/core/db/src/property.rs` |
-| `client` | `rust/server/src/clients/mod.rs` | `rust/core/db/src/client.rs` |
-| `person` | `rust/server/src/people/mod.rs` | `rust/core/db/src/person.rs` |
-| `media` | `rust/server/src/media/mod.rs` | `rust/core/db/src/media.rs` |
-| `forms` | `rust/server/src/forms/mod.rs` | `rust/core/db/src/forms.rs` |
-| `vault` | `rust/server/src/vault/mod.rs` | `rust/core/db/src/vault.rs` |
+| `cockpit` | `web/src/cockpit/mod.rs` | `db/src/cockpit.rs` |
+| `deal` | `web/src/deals/mod.rs` | `db/src/deal_portal.rs` |
+| `issue` | `web/src/issues.rs` | `db/src/issue.rs` |
+| `task` | `web/src/task/mod.rs` | `db/src/task.rs` |
+| `property` | `web/src/properties/mod.rs` | `db/src/property.rs` |
+| `client` | `web/src/clients/mod.rs` | `db/src/client.rs` |
+| `person` | `web/src/people/mod.rs` | `db/src/person.rs` |
+| `media` | `web/src/media/mod.rs` | `db/src/media.rs` |
+| `forms` | `web/src/forms/mod.rs` | `db/src/forms.rs` |
+| `vault` | `web/src/vault/mod.rs` | `db/src/vault.rs` |
 
-**The door is not the design; the trait is.** Every service implements `AbstractService` and is registered in the catalog, and all 32 do. `abstract_service!` is a shortcut that stamps a trivial descriptor: empty `capabilities`, empty `invariants`, inherited `UnknownOperation` dispatch. Because the kernel treats empty capabilities as inline policy (`rust/server/src/service_kernel.rs:211-236`), such a service cannot declare an operation or refuse an unknown one. So a service with real operations implements the trait itself and declares them — which is what the seven larger domains below do, calendar's 5 capabilities among them. That is the OO design used properly, not a violation. What this paragraph means: do not hand-copy boilerplate into a new service that needs only a trivial descriptor. (Corrected 2026-09-28: I had read the shortcut as the design and recorded a violation that was not there. Calendar is correctly built.)
+**The door is not the design; the trait is.** Every service implements `AbstractService` and is registered in the catalog, and all 32 do. `abstract_service!` is a shortcut that stamps a trivial descriptor: empty `capabilities`, empty `invariants`, inherited `UnknownOperation` dispatch. Because the kernel treats empty capabilities as inline policy (`web/src/service_kernel.rs:211-236`), such a service cannot declare an operation or refuse an unknown one. So a service with real operations implements the trait itself and declares them — which is what the seven larger domains below do, calendar's 5 capabilities among them. That is the OO design used properly, not a violation. What this paragraph means: do not hand-copy boilerplate into a new service that needs only a trivial descriptor. (Corrected 2026-09-28: I had read the shortcut as the design and recorded a violation that was not there. Calendar is correctly built.)
 
 **If no domain fits what you are doing, that is a design question.** Extend the closest existing service rather than
 adding a folder (AGENTS.md: extend existing abstractions before inventing parallel systems).

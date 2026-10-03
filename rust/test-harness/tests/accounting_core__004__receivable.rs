@@ -1,16 +1,16 @@
 //! ACCOUNTING.CORE — receivable (TST-ACCOUNTING-CORE-004).
 //!
 //! Contract: a receivable is a description, a non-negative amount and an issue date that exists —
-//! `CreateReceivableCommand::validate` (`rust/core/domain/src/accounting.rs:396`). The amount is a decimal string
-//! (`Money::parse`, `rust/core/domain/src/accounting.rs:84`), the dates are `YYYY-MM-DD` and nothing else
-//! (`date`, `rust/core/domain/src/accounting.rs:486`), and a date that does not exist (`2026-02-30`) is refused
+//! `CreateReceivableCommand::validate` (`middle/model/src/accounting.rs:396`). The amount is a decimal string
+//! (`Money::parse`, `middle/model/src/accounting.rs:84`), the dates are `YYYY-MM-DD` and nothing else
+//! (`date`, `middle/model/src/accounting.rs:486`), and a date that does not exist (`2026-02-30`) is refused
 //! rather than rolled forward.
 //!
 //! The category is the documented exception: unlike expenses it is NOT enforced, because tightening it would reject
-//! rows that already exist (`rust/core/domain/src/accounting.rs:42-45`) — `normalise_receivable_category`
+//! rows that already exist (`middle/model/src/accounting.rs:42-45`) — `normalise_receivable_category`
 //! (`:462`) uppercases what it is given and falls back to `COMMISSION`.
 //!
-//! The status vocabulary is closed (`RECEIVABLE_STATUSES`, `rust/core/domain/src/accounting.rs:21`), and the database
+//! The status vocabulary is closed (`RECEIVABLE_STATUSES`, `middle/model/src/accounting.rs:21`), and the database
 //! enforces the same three plus "a PAID receivable must say when" (`db/migrations/087_accounting.sql:20-21` and
 //! `:32-33`) — the domain's `PAID_ON_INVALID` rule is what keeps that constraint reachable rather than violated.
 //!
@@ -20,9 +20,9 @@
 //! Level: L0 Pure — no database, no socket, deterministic.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test accounting_core__004__receivable
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test accounting_core__004__receivable
 
-use domain::accounting::{
+use model::accounting::{
     normalise_receivable_category, CreateReceivableCommand, RECEIVABLE_CATEGORIES,
     RECEIVABLE_STATUSES,
 };

@@ -1,16 +1,16 @@
 //! CRM.PERSON — identity normalization (TST-CRM-PERSON-001).
 //!
 //! Contract: a person's email, phone and external identities are compared and stored **normalised**, by exactly
-//! three rules and no others (`normalized_identity`, `rust/core/db/src/person.rs:65-71`):
+//! three rules and no others (`normalized_identity`, `db/src/person.rs:65-71`):
 //!
 //! - a **phone** keeps only its ASCII digits, and drops a leading US country code (`1`) when the result is eleven
-//!   digits (`semantic_phone`, `rust/core/db/src/person.rs:53-63`), so `+1 (787) 555-1234`, `787-555-1234` and
+//!   digits (`semantic_phone`, `db/src/person.rs:53-63`), so `+1 (787) 555-1234`, `787-555-1234` and
 //!   `17875551234` are one identity;
 //! - an **email** is trimmed and lower-cased (`:68`);
 //! - an **external** id is trimmed, its case preserved (`:69`).
 //!
 //! The same normalisation is applied to the *stored* row and to the *lookup* value — `find_by_identity`
-//! (`rust/core/db/src/person.rs:104-152`) normalises the argument with `normalized_identity` and its SQL
+//! (`db/src/person.rs:104-152`) normalises the argument with `normalized_identity` and its SQL
 //! (`:122-131`) normalises the stored `identity_value` the same way, so a query typed one way finds a row written
 //! another. `attach_identity` (`:321-404`) and `set_contact` (`:235-319`) refuse an identity whose *normalised*
 //! form already belongs to another person: normalisation is what makes that uniqueness enforceable, because two
@@ -34,13 +34,13 @@
 //! Greenfield Rust: this is not a port of any TypeScript test.
 //!
 //! Run with:
-//!   DATABASE_URL_DEV=... cargo test --manifest-path rust/Cargo.toml -p test-harness \
+//!   DATABASE_URL_DEV=... cargo test --manifest-path Cargo.toml -p test-harness \
 //!     --test crm_person__001__identity_normalization -- --ignored
 //! The plain command (no `--ignored`) passes with the test skipped, because the L2 contract needs a disposable DEV
 //! database and the harness will never open a PRODUCTION one.
 
 use db::{DbFailure, DbFailureKind, DbTarget, PersonDao};
-use domain::{AttachPersonIdentityRequest, PersonIdentity, PersonIdentityKind};
+use model::{AttachPersonIdentityRequest, PersonIdentity, PersonIdentityKind};
 use sqlx::PgConnection;
 use test_harness::CrmHarness;
 

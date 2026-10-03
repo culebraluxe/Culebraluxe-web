@@ -2,11 +2,11 @@
 //!
 //! A test that exercises authorization needs a principal, and a hand-built principal that does not match what the
 //! server would resolve is a test that proves nothing. `ActorBuilder` builds a [`ServicePrincipal`] from the same
-//! vocabulary the production resolver uses (`domain::security`), and [`ActorBuilder::screen_ctx`] projects it into the
+//! vocabulary the production resolver uses (`model::security`), and [`ActorBuilder::screen_ctx`] projects it into the
 //! UI's [`ScreenCtx`], so an MVI test and a service test can be handed the *same* actor and disagree about nothing.
 
-use domain::security::{self, SecurityLevel};
-use service::{ServiceActor, ServiceActorKind, ServiceContext, ServicePrincipal};
+use model::security::{self, SecurityLevel};
+use services::{ServiceActor, ServiceActorKind, ServiceContext, ServicePrincipal};
 use ui::app::screen::ScreenCtx;
 use ui::model::PortalEntitlements;
 use ui::navigation::{Actor as UiActor, Level as UiLevel};

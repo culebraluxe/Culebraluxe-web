@@ -7,10 +7,10 @@ is the owner's call to start (§7). This file is the state, not the story.
 
 | # | Fact | How to check it |
 | --- | --- | --- |
-| S1 | A claim opens `storyboard_story_run` with all twelve specification columns copied from `storyboard_story` by the INSERT itself — no caller-supplied snapshot | `rust/core/db/src/forge_engine.rs` `begin_agent_work_run` |
+| S1 | A claim opens `storyboard_story_run` with all twelve specification columns copied from `storyboard_story` by the INSERT itself — no caller-supplied snapshot | `db/src/forge_engine.rs` `begin_agent_work_run` |
 | S2 | The INSERT is the only writer of those columns: `storyboard_story_run` carries **no trigger** | `cli forge sql --target prod --sql "select tgname from pg_trigger where tgrelid='storyboard_story_run'::regclass and not tgisinternal"` → `rows=0` |
 | S3 | The twelve source columns exist on `storyboard_story` in DEV and PROD: `goal, preconditions, architect_brief, context_refs, acceptance_criteria, postconditions, dependencies, scope, operating_surface, test_mode, assay_commands, packet_sha` | `forge sql` on `information_schema.columns` → `spec_cols=12` on both targets |
-| S4 | `base_commit_hash` is stamped separately, only while NULL | `rust/core/db/src/forge_engine.rs` `stamp_run_base_commit` |
+| S4 | `base_commit_hash` is stamped separately, only while NULL | `db/src/forge_engine.rs` `stamp_run_base_commit` |
 | S5 | PROD queue: `Done` 1183, `Error` 39, `Ready` 8, `Running` 1 — the one Running is stale (item `10defc2a-…`, story `ENG-GUARD-REPO-RUST-01`, `claimed_by=scheduler`, started `14:35:55Z`) | `forge sql --target prod` on `agent_work_item` grouped by `state` |
 | S6 | The scheduler is **installed but not loaded** (`running: no`, `disabled: yes`) | `rust/target/debug/cli launchd agent-worker status` |
 | S7 | The 10:34 tick reached `pass=1 start` and never logged an end; its claim is the stale `Running` row in S5 | the invocation log named by `launchd agent-worker status` |
@@ -31,10 +31,10 @@ is the owner's call to start (§7). This file is the state, not the story.
 
 | Your task | Read | The files you touch |
 | --- | --- | --- |
-| Run the engine once | `scripts/agent-worker-once.sh` (the pass loop) and `rust/forge/src/bin/forge_worker.rs` | nothing |
-| Read what a run recorded | `rust/cli/src/forge/sql.rs`, `rust/core/db/src/forge_read.rs` | nothing |
-| Change what a run snapshots | migration 024 §2, then the insert in `rust/core/db/src/forge_engine.rs` | `rust/core/db/src/forge_engine.rs`, `rust/core/db/tests/forge_work_claim_dev.rs` |
-| Prove it without a model lane | `rust/core/db/tests/forge_work_claim_dev.rs` (assertion 5c) | as above |
+| Run the engine once | `scripts/agent-worker-once.sh` (the pass loop) and `forge/src/bin/forge_worker.rs` | nothing |
+| Read what a run recorded | `cli/src/forge/sql.rs`, `db/src/forge_read.rs` | nothing |
+| Change what a run snapshots | migration 024 §2, then the insert in `db/src/forge_engine.rs` | `db/src/forge_engine.rs`, `db/tests/forge_work_claim_dev.rs` |
+| Prove it without a model lane | `db/tests/forge_work_claim_dev.rs` (assertion 5c) | as above |
 
 ## 4. DONE — what landed, with the receipts
 
@@ -42,7 +42,7 @@ is the owner's call to start (§7). This file is the state, not the story.
 | --- | --- | --- |
 | `3352673d` | the packet loads before the claim; `begin_agent_work_run` opens the run; model policy and launch intent are read from the row; `stamp_run_base_commit` | `cargo check --workspace --all-targets` |
 | `882b8684` | `forge sql` — one read-only query against a database the caller must name | live on DEV and PROD; a `delete from app_error` was refused (exit 2) |
-| `4ff9c1de` | the run's specification is copied from the story row inside the INSERT — twelve columns, was four, caller-passed | `cargo test -p db -p server -p forge -p workflow` → 32 binaries ok, 323 passed, 0 failed, `exit=0`; `cargo test -p db --test forge_work_claim_dev -- --ignored` → 2 passed |
+| `4ff9c1de` | the run's specification is copied from the story row inside the INSERT — twelve columns, was four, caller-passed | `cargo test -p db -p web -p forge -p workflow` → 32 binaries ok, 323 passed, 0 failed, `exit=0`; `cargo test -p db --test forge_work_claim_dev -- --ignored` → 2 passed |
 
 ## 5. NOT VERIFIED — the honest gaps
 

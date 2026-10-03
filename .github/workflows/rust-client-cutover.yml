@@ -34,7 +34,7 @@ jobs:
 
       # THE ALLOWLIST NAMES A MODULE TREE, NOT A FILE (fixed 2026-09-28).
       #
-      # `rust/core/workflow/src/neon.rs` became the directory `rust/core/workflow/src/neon/` when that file was
+      # `middle/workflow/src/neon.rs` became the directory `middle/workflow/src/neon/` when that file was
       # split under the 800-line rule, and this gate's exemption was a literal file prefix — so the split turned a
       # green step red at `neon/new_id.rs` without one line of SQL moving or changing. The exemption is now one
       # filter per path shape (the `neon.rs` file and the `neon/` directory), so it follows the adapter wherever its
@@ -59,7 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           violations="$(
-            grep -RInE 'sqlx::(query|query_as|query_scalar)|\.pool\(\)' rust --include='*.rs'               | grep -v '^rust/core/db/'               | grep -v '^rust/core/workflow/src/neon.rs:'               | grep -v '^rust/core/workflow/src/neon/'               | grep -v '^rust/integrations/src/boldsign/store.rs:'               | grep -v '^rust/core/db/tests/'               | grep -v '^rust/server/tests/'               | grep -v '^rust/experiments/'               | grep -v '^rust/test-harness/'               || true
+            grep -RInE 'sqlx::(query|query_as|query_scalar)|\.pool\(\)' rust --include='*.rs'               | grep -v '^db/'               | grep -v '^middle/workflow/src/neon.rs:'               | grep -v '^middle/workflow/src/neon/'               | grep -v '^middle/apis/src/boldsign/store.rs:'               | grep -v '^db/tests/'               | grep -v '^web/tests/'               | grep -v '^rust/experiments/'               | grep -v '^rust/test-harness/'               || true
           )"
           if [ -n "$violations" ]; then
             echo "Raw database access escaped the approved Rust persistence boundaries:"
@@ -72,7 +72,7 @@ jobs:
         run: |
           rustup target add wasm32-unknown-unknown
           cargo check -p ui --features wasm --target wasm32-unknown-unknown
-      # THE WHOLE WORKSPACE'S TESTS, not a hand-picked list. `-p domain -p db -p server` was the only test step and
+      # THE WHOLE WORKSPACE'S TESTS, not a hand-picked list. `-p model -p db -p web` was the only test step and
       # it is exactly how a failing WhatsApp normalisation test stayed invisible: those three packages never ran it.
       # The check step above already compiled everything, so this run is cheap in CI.
       - name: Rust workspace tests
@@ -85,5 +85,5 @@ jobs:
         run: |
           mv legacy /tmp/culebraluxe-legacy-disabled
           test ! -e legacy
-          cargo test --manifest-path rust/Cargo.toml -p workflow -p forge --all-targets
+          cargo test --manifest-path Cargo.toml -p workflow -p forge --all-targets
           bash -n scripts/agent-worker-once.sh

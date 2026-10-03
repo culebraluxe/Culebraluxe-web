@@ -1,6 +1,6 @@
 -- 258_reopen_stranded_ready_work_items.sql
 --
--- WHY: `forge clean` (rust/core/db/src/forge_reset.rs:164-174) cancels open `agent_work_item` rows without
+-- WHY: `forge clean` (db/src/forge_reset.rs:164-174) cancels open `agent_work_item` rows without
 -- moving `storyboard_story.status` off 'Ready'. The dispatch trigger that turns a Ready story into a work
 -- item fires only on INSERT or on a *change* of status (db/migrations/025_agent_work_queue.sql:104), so a
 -- story left at Ready with a Cancelled item is never re-queued: it stays on the board as Ready and can
@@ -9,7 +9,7 @@
 -- next worker tick ended `idle: no work`.
 --
 -- WHAT: re-open the newest Cancelled item of every story that is currently Ready and has no open item.
--- `queued_at` is kept, so the FIFO order `next_ready_work` uses (rust/core/db/src/forge_control.rs:264)
+-- `queued_at` is kept, so the FIFO order `next_ready_work` uses (db/src/forge_control.rs:264)
 -- is the order the story had before the sweep. Idempotent: a story that already has an open item is
 -- untouched, and a re-run after the repair matches no rows.
 --

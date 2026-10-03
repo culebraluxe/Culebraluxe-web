@@ -1,19 +1,19 @@
 //! ARCH.BOUNDARY — no server or UI module bypasses the Abstract Service where a service exists (TST-ARCH-BOUNDARY-001).
 //!
-//! Contract: a route does not talk to Postgres. `rust/server/src` — 106 files, every route in the portal and the
+//! Contract: a route does not talk to Postgres. `web/src` — 106 files, every route in the portal and the
 //! website — contains no `sqlx`, no driver URL, no pool type and no SQL statement in code. Persistence enters through
 //! the two approved seams, and the same scan proves they are actually used: 59 of those files name `db::` and 56 name
-//! `service::`. A layer that reached the database directly would have to open it here, and that is what this test
+//! `services::`. A layer that reached the database directly would have to open it here, and that is what this test
 //! refuses.
 //!
 //! The detector reads code, not prose. The real tree contains a sentence that looks like a query — `select fields from
-//! their options` in a doc comment at `rust/server/src/api/forms_grok.rs:6` — and it must not be a finding, which is
+//! their options` in a doc comment at `web/src/api/forms_grok.rs:6` — and it must not be a finding, which is
 //! why every check runs on `source::code_of(line)` and why that sentence is asserted here as a control.
 //!
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test arch_boundary__001__no_server_ui_module_bypasses_the_abstract_service_where_a_service_exists
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test arch_boundary__001__no_server_ui_module_bypasses_the_abstract_service_where_a_service_exists
 
 use test_harness::source;
 
@@ -52,11 +52,11 @@ fn direct_db_access(line: &str) -> Option<&'static str> {
 /// Whether the file reaches persistence through an approved seam.
 fn uses_a_seam(text: &str) -> (&'static str, bool) {
     let dao = text.contains("db::");
-    let service = text.contains("service::");
+    let service = text.contains("services::");
     if dao {
         ("db::", true)
     } else if service {
-        ("service::", true)
+        ("services::", true)
     } else {
         ("neither", false)
     }
@@ -65,7 +65,7 @@ fn uses_a_seam(text: &str) -> (&'static str, bool) {
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ARCH-BOUNDARY-001); the file and the assay use it.
 fn arch_boundary_001__no_server_ui_module_bypasses_the_abstract_service_where_a_service_exists() {
-    let server_src = source::rust_root().join("server/src");
+    let server_src = source::rust_root().join("web/src");
     let files = source::sources_under(&server_src);
     assert!(
         files.len() >= 80,
@@ -82,7 +82,7 @@ fn arch_boundary_001__no_server_ui_module_bypasses_the_abstract_service_where_a_
         if text.contains("db::") {
             via_dao += 1;
         }
-        if text.contains("service::") {
+        if text.contains("services::") {
             via_service += 1;
         }
         for (number, line) in text.lines().enumerate() {
@@ -103,11 +103,11 @@ fn arch_boundary_001__no_server_ui_module_bypasses_the_abstract_service_where_a_
         findings.join("\n")
     );
 
-    // The positive control: the seams must actually be there. A tree with no `db::` and no `service::` would be clean
+    // The positive control: the seams must actually be there. A tree with no `db::` and no `services::` would be clean
     // for the wrong reason — this is the same scan that proves the server is a consumer of them.
     assert!(
         via_dao >= 20 && via_service >= 20,
-        "the server must reach persistence through db:: and service:: (found {via_dao} and {via_service} files)"
+        "the server must reach persistence through db:: and services:: (found {via_dao} and {via_service} files)"
     );
 
     // The negative control: the detector fires on a query and stays quiet on the prose that is really in the tree.
@@ -123,7 +123,7 @@ fn arch_boundary_001__no_server_ui_module_bypasses_the_abstract_service_where_a_
     assert_eq!(
         direct_db_access("//! YYYY-MM-DD, select fields from their options, never an email the agent did not state."),
         None,
-        "the prose at rust/server/src/api/forms_grok.rs:6 is not a query"
+        "the prose at web/src/api/forms_grok.rs:6 is not a query"
     );
     assert_eq!(
         direct_db_access("let selected = inventory.filter(|row| row.is_active()).count();"),
@@ -137,8 +137,8 @@ fn arch_boundary_001__no_server_ui_module_bypasses_the_abstract_service_where_a_
         ("db::", true)
     );
     assert_eq!(
-        uses_a_seam("let out = service::command::execute(cmd).await?;"),
-        ("service::", true)
+        uses_a_seam("let out = services::command::execute(cmd).await?;"),
+        ("services::", true)
     );
     assert_eq!(
         uses_a_seam("fn render(state: &ScreenState) -> Html { }"),

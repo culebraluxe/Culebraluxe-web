@@ -95,7 +95,7 @@ fi
 # makes the target PRODUCTION (the resolver refuses to guess and names the target it used).
 run_cli() {
   APP_ENV=production CULEBRALUXE_REPO="$REPO_ROOT" \
-    cargo run -q --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- "$@"
+    cargo run -q --manifest-path "$REPO_ROOT/Cargo.toml" -p cli -- "$@"
 }
 
 log "exporting Apple Contacts from this Mac"

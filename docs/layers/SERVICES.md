@@ -1,6 +1,6 @@
 # Layer: SERVICES
 
-Crate: **`rust/server`**. **Owns:** HTTP, identity, authorization, audit, error responses. It is the only way into the
+Crate: **`web`**. **Owns:** HTTP, identity, authorization, audit, error responses. It is the only way into the
 domain, and the only place that knows about HTTP.
 
 ## Files that matter

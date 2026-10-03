@@ -1,7 +1,7 @@
 # Layer: UI
 
-Crate: **`rust/ui`** — one Yew/WebAssembly app for the website and the portal, served by the Rust server
-(`rust/server/src/site.rs`). **Owns:** what a person sees and does. Nothing else: no business rules, no SQL, ever.
+Crate: **`web/ui`** — one Yew/WebAssembly app for the website and the portal, served by the Rust server
+(`web/src/site.rs`). **Owns:** what a person sees and does. Nothing else: no business rules, no SQL, ever.
 
 There is no Next.js application and no TypeScript UI. `app/`, `components/`, the TypeScript host and the rows relay
 were deleted in the port; `legacy/` is read-only reference (`docs/agent/BROKEN-TS-INVENTORY.md`).
@@ -13,22 +13,22 @@ The contract every screen implements, the holds, and the recipe for a new screen
 
 | Piece | Where | Rule |
 | --- | --- | --- |
-| `Screen`, `ScreenCtx` | `rust/ui/src/app/screen.rs` | Each screen owns its `Model` and `Msg`; `update` and `view` are pure. The context carries actor, record id, query, path and grants (visibility only — the server authorizes) |
-| `Cmd<Msg>` | `rust/ui/src/app/cmd.rs` | Side effects as data. No escape hatch: a new capability is a new named variant |
-| Executor | `rust/ui/src/app/exec.rs` | The only UI code that touches `web_sys`: requests, navigation, uploads, storage, share |
-| Endpoints | `rust/ui/src/app/api.rs` | The only place that knows a URL |
-| Registry | `rust/ui/src/app/registry.rs` | The only path → screen map; router, menus and the headless walk are generated from it |
-| Template | `rust/ui/src/app/template.rs` | How shared things are drawn |
+| `Screen`, `ScreenCtx` | `web/ui/src/app/screen.rs` | Each screen owns its `Model` and `Msg`; `update` and `view` are pure. The context carries actor, record id, query, path and grants (visibility only — the server authorizes) |
+| `Cmd<Msg>` | `web/ui/src/app/cmd.rs` | Side effects as data. No escape hatch: a new capability is a new named variant |
+| Executor | `web/ui/src/app/exec.rs` | The only UI code that touches `web_sys`: requests, navigation, uploads, storage, share |
+| Endpoints | `web/ui/src/app/api.rs` | The only place that knows a URL |
+| Registry | `web/ui/src/app/registry.rs` | The only path → screen map; router, menus and the headless walk are generated from it |
+| Template | `web/ui/src/app/template.rs` | How shared things are drawn |
 
-The browser reaches `/api/portal/*` only (session cookie, `rust/server/src/api/portal_bridge.rs`); `/v1/*` is the
-internal API. Sign-in is Rust too (`rust/server/src/api/google_auth.rs`, `ui_auth.rs`).
+The browser reaches `/api/portal/*` only (session cookie, `web/src/api/portal_bridge.rs`); `/v1/*` is the
+internal API. Sign-in is Rust too (`web/src/api/google_auth.rs`, `ui_auth.rs`).
 
 ## Where the port stands (checked 2026-09-28)
 
-`ENTRIES` in `rust/ui/src/app/registry.rs` has **58** lines: **56** `Kind::Screen`, **2** `Kind::External` (WhatsApp
+`ENTRIES` in `web/ui/src/app/registry.rs` has **58** lines: **56** `Kind::Screen`, **2** `Kind::External` (WhatsApp
 Activation and `/portal`). The pre-trait global loop (`view.rs`, `update.rs`, `yew_effects.rs`, `yew_views/`,
 `yew_portal.rs`, `document.rs`) was deleted on 2026-09-28; the public site's copy it held is in
-`rust/ui/src/app/screens/site/content.rs`.
+`web/ui/src/app/screens/site/content.rs`.
 
 ## Building and checking it
 

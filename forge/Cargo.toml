@@ -1,0 +1,32 @@
+[package]
+name = "forge"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "forge"
+path = "src/bin/forge.rs"
+
+[dependencies]
+async-trait.workspace = true
+model = { path = "../middle/model" }
+sqlx.workspace = true
+db = { path = "../db" }
+workflow = { path = "../middle/workflow" }
+apis = { path = "../middle/apis" }
+services = { path = "../middle/services" }
+tokio.workspace = true
+serde_json.workspace = true
+
+[[bin]]
+name = "re-workflow"
+path = "src/bin/re_workflow.rs"
+
+[[bin]]
+name = "forge-task"
+path = "src/bin/forge_task.rs"
+
+[[bin]]
+name = "forge-worker"
+path = "src/bin/forge_worker.rs"

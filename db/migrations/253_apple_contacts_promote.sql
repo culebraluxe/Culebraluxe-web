@@ -9,9 +9,9 @@
 --
 --   warehouse_promote_apple_contacts(p_apply)  l_person + l_property -> person / property / person_property
 --
--- Identity normalization is the same rule the Rust domain applies (`domain::apple_messages::
+-- Identity normalization is the same rule the Rust domain applies (`model::apple_messages::
 -- normalize_email` / `normalize_phone`), restated in SQL because the matching happens in SQL. The two
--- are pinned to each other by tests on both sides: `rust/core/domain/src/apple_messages.rs` for the
+-- are pinned to each other by tests on both sides: `middle/model/src/apple_messages.rs` for the
 -- Rust copy, and the migration's own `select` checks below for this one.
 --
 -- The promotion is idempotent, set-based, and never pulls a row into an application to mutate it.

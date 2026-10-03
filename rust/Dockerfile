@@ -4,7 +4,7 @@ WORKDIR /build
 COPY rust ./rust
 WORKDIR /build/rust
 
-RUN cargo build --release -p server --bin http
+RUN cargo build --release -p web --bin web
 
 FROM debian:bookworm-slim AS runtime
 

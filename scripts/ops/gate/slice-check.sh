@@ -15,7 +15,7 @@
 #
 # Why T1 and not "everything, to be safe": scope is the whole point of the tier. Widening it back to the workspace is
 # what burned the windows this script protects; narrowing it to the green files is fraud. Run what you touched — the
-# sections' crates, including the tests you broke. `forge test-section --changed` (rust/cli/src/forge/test_section.rs) is
+# sections' crates, including the tests you broke. `forge test-section --changed` (cli/src/forge/test_section.rs) is
 # the house's own logical domains and the only taxonomy this script trusts.
 set -euo pipefail
 
@@ -110,7 +110,7 @@ failed=""
 # seconds. Cold: the price of the first build, paid once per machine.
 echo "slice-check: T0 — cargo check --workspace --all-targets"
 started=$SECONDS
-if cargo check --manifest-path rust/Cargo.toml --workspace --all-targets --quiet >"$log" 2>&1; then
+if cargo check --manifest-path Cargo.toml --workspace --all-targets --quiet >"$log" 2>&1; then
   t0="PASS ($((SECONDS - started))s)"
 else
   t0="FAIL ($((SECONDS - started))s)"
@@ -171,12 +171,12 @@ fi
 if [ -z "$failed" ]; then
   echo "slice-check: T1 — $mode"
   started=$SECONDS
-  if ! cargo build --manifest-path rust/Cargo.toml -p cli --quiet >"$log" 2>&1; then
+  if ! cargo build --manifest-path Cargo.toml -p cli --quiet >"$log" 2>&1; then
     t1="NOT RUN — the gate binary (cli) does not compile"
-    failed="T1 — rust/cli does not compile, so no section could be run"
+    failed="T1 — cli does not compile, so no section could be run"
     cat "$log" >&2
   else
-    runner=(cargo run --manifest-path rust/Cargo.toml -p cli --quiet -- forge test-section --changed)
+    runner=(cargo run --manifest-path Cargo.toml -p cli --quiet -- forge test-section --changed)
     if [ -n "$since" ]; then
       runner+=(--since "$since")
     fi
@@ -205,7 +205,7 @@ if [ "$full" = "1" ]; then
     fi
   else
     t2name="cargo test --workspace (cargo-nextest is not installed)"
-    if cargo test --manifest-path rust/Cargo.toml --workspace 2>&1 | tee "$log"; then
+    if cargo test --manifest-path Cargo.toml --workspace 2>&1 | tee "$log"; then
       t2="PASS ($((SECONDS - started))s)"
     else
       t2="FAIL ($((SECONDS - started))s)"

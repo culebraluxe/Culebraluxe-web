@@ -1,6 +1,6 @@
 # OPS Property and Stellar column reconciliation
 
-Source: live DEV `information_schema.columns` on 2026-09-24; actual `FieldSpec` controls and the Person picker in `rust/ui/src/yew_views/portal_ops.rs`.
+Source: live DEV `information_schema.columns` on 2026-09-24; actual `FieldSpec` controls and the Person picker in `web/ui/src/yew_views/portal_ops.rs`.
 
 Production currently has 120 `property` columns and 17 `property_stellar_listing` columns. Its Property table lacks the five columns in migration 214, eight in 215, and one in 216. This reconciliation targets the DEV schema and cannot run against production until those migrations are promoted with the corresponding Rust deployment.
 

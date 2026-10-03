@@ -14,6 +14,6 @@ while IFS= read -r line; do
 done < .env.local
 if [ "${1:-}" = "--preview" ]; then
   shift
-  exec cargo run --quiet --manifest-path rust/Cargo.toml -p server --bin lead_mail_preview -- "$@"
+  exec cargo run --quiet --manifest-path Cargo.toml -p web --bin lead_mail_preview -- "$@"
 fi
-exec cargo run --quiet --manifest-path rust/Cargo.toml -p integrations --bin mail-test -- "$@"
+exec cargo run --quiet --manifest-path Cargo.toml -p apis --bin mail-test -- "$@"

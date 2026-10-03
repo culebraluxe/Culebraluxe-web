@@ -23,7 +23,7 @@ test could pass because the harness, not the code, implemented the behaviour.
 
 ## Context refs
 
-- `rust/Cargo.toml:3-15` — the workspace member list, `test-harness` named.
+- `Cargo.toml:3-15` — the workspace member list, `test-harness` named.
 - `rust/test-harness/Cargo.toml:1-33` — every dependency is a boundary under test.
 - `rust/test-harness/src/lib.rs:1-56` — the one-way rule and the L0–L4 taxonomy.
 - `rust/test-harness/src/database.rs:68-75` — `guard_target`, the pure PRODUCTION refusal.
@@ -46,8 +46,8 @@ test could pass because the harness, not the code, implemented the behaviour.
    including the async constructor path.
 7. The harness supports L0 Pure, L1 Component, L2 Persistence, L3 Composition, and L4 Adversarial tests. — met;
    `level::TestLevel`.
-8. `cargo test --manifest-path rust/Cargo.toml -p test-harness` passes. — met.
-9. `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` passes. — met.
+8. `cargo test --manifest-path Cargo.toml -p test-harness` passes. — met.
+9. `cargo check --manifest-path Cargo.toml --workspace --all-targets` passes. — met.
 
 ## Preconditions
 
@@ -73,8 +73,8 @@ SCOPED
 
 ## Assay commands
 
-- cargo test --manifest-path rust/Cargo.toml -p test-harness
-- cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+- cargo test --manifest-path Cargo.toml -p test-harness
+- cargo check --manifest-path Cargo.toml --workspace --all-targets
 
 ## Verification (2026-09-29)
 
@@ -82,5 +82,5 @@ Landed by `5844cb00` (the crate and its modules), `9b012a6c` (self-tests classif
 rule enforced), `9c1b2980` (NO-TREES exception owned; per-instance DB isolation), `833ba76f` (the PROD guard proven on
 the connect path). These commits are local only; this node's brief says do not push, so nothing was pushed from here.
 
-- `cargo test --manifest-path rust/Cargo.toml -p test-harness` → **57 passed, 0 failed** (47 unit + 10 self-tests).
-- `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` → **exit 0**.
+- `cargo test --manifest-path Cargo.toml -p test-harness` → **57 passed, 0 failed** (47 unit + 10 self-tests).
+- `cargo check --manifest-path Cargo.toml --workspace --all-targets` → **exit 0**.

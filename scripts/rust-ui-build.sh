@@ -10,7 +10,7 @@
 # DELETE THIS SCRIPT and go back to `wasm-pack build` when wasm-pack understands the current cargo.
 #
 # Output: public/rust-ui/ui.js (the ES module the page imports) and public/rust-ui/ui_bg.wasm, both served as static
-# files by the Rust server (rust/server/src/site.rs).
+# files by the Rust server (web/src/site.rs).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -27,7 +27,7 @@ fi
 # One array, never empty: bash 3.2 (the one macOS ships) treats an empty array under `set -u` as an unbound variable,
 # which is a silly way to lose a build.
 build_args=(
-  --manifest-path "$root/rust/Cargo.toml"
+  --manifest-path "$root/Cargo.toml"
   -p ui
   --features wasm
   --target wasm32-unknown-unknown

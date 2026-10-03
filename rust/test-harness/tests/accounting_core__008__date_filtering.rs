@@ -5,12 +5,12 @@
 //!
 //! - income is the receivables whose `paid_on` falls inside `[from, to]` — the date the money was actually received,
 //!   NOT the date the receivable was issued (`INCOME_LINES_SELECT`,
-//!   `rust/core/db/src/accounting/recent_expenses_select.rs:95-104`);
+//!   `db/src/accounting/recent_expenses_select.rs:95-104`);
 //! - cost is the expenses whose `expense_on` falls inside `[from, to]` (`EXPENSE_LINES_SELECT`, `:107-116`);
 //! - BOTH ENDS ARE INCLUSIVE. `paid_on >= $1::date and paid_on <= $2::date` is the boundary production applies, so a
 //!   row dated exactly `from` or exactly `to` is in the period and a row one day outside is not.
 //! - the projection echoes the period it was asked for (`AccountingDao::pnl`,
-//!   `rust/core/db/src/accounting/receivable_row.rs:365-385`), so a screen that asked for a window can see it got that
+//!   `db/src/accounting/receivable_row.rs:365-385`), so a screen that asked for a window can see it got that
 //!   window and not a widened one.
 //!
 //! WHY THIS IS ITS OWN CONTRACT. A date filter is the place a projection goes quietly wrong: it clamps an inclusive
@@ -26,7 +26,7 @@
 //! Negative/refusal cases: a PAID receivable dated outside the period, an OPEN and a VOID receivable inside it, a
 //! POSTED expense dated outside, and a DRAFT and a VOID expense inside it all contribute nothing; a period with no
 //! rows totals `0` rather than nothing; and a backwards or malformed period is REFUSED
-//! (`PnlRequest::validate`, `rust/core/domain/src/accounting.rs:296-313`) rather than reported as an empty report.
+//! (`PnlRequest::validate`, `middle/model/src/accounting.rs:296-313`) rather than reported as an empty report.
 //!
 //! Level: L2 Persistence — the production `AccountingDao` against an isolated, disposable DEV/Neon target. The
 //! harness refuses PRODUCTION before any socket is opened (`rust/test-harness/src/database.rs:68-75`). Fixture rows
@@ -34,13 +34,13 @@
 //! it was found.
 //!
 //! Run with:
-//!   DATABASE_URL_DEV=... cargo test --manifest-path rust/Cargo.toml -p test-harness \
+//!   DATABASE_URL_DEV=... cargo test --manifest-path Cargo.toml -p test-harness \
 //!     --test accounting_core__008__date_filtering -- --ignored
 //! The plain command (no `--ignored`) passes with the test skipped, because the L2 contract needs a disposable DEV
 //! database and the harness will never open a PRODUCTION one.
 
 use db::{AccountingDao, DbFailure, DbTarget};
-use domain::accounting::{PnlLine, PnlRequest};
+use model::accounting::{PnlLine, PnlRequest};
 use sqlx::PgConnection;
 use test_harness::AccountingHarness;
 

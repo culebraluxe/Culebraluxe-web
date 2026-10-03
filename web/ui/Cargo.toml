@@ -1,0 +1,73 @@
+[package]
+name = "ui"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# One Yew/WebAssembly application, the website and the portal, served by the Rust server. The browser calls the
+# server's own routes directly (`app/exec.rs`, over `gloo-net`), with the session cookie; there is no TypeScript host.
+#
+# `wasm` is a DEFAULT feature so that a plain `cargo test -p ui` and `cargo check --workspace` compile and test the real
+# application — screens, registry and commands — on the host. Nothing here needs a browser to compile; `web_sys` values
+# are only used at runtime by the executor. The deploy's own check is `pnpm ui:check` (the wasm32 target).
+[dependencies]
+model = { path = "../../middle/model" }
+base64.workspace = true
+chrono.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+console_error_panic_hook = { version = "0.1", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", optional = true, features = [
+    "AbortController",
+    "AbortSignal",
+    "CustomEvent",
+    "CustomEventInit",
+    "Document",
+    "Element",
+    "Event",
+    "EventTarget",
+    "FormData",
+    "FileList",
+    "File",
+    "Blob",
+    "DragEvent",
+    "DataTransfer",
+    "HtmlAnchorElement",
+    "HtmlElement",
+    "HtmlFormElement",
+    "HtmlInputElement",
+    "Clipboard",
+    "Navigator",
+    "HtmlSelectElement",
+    "HtmlTextAreaElement",
+    "History",
+    "MouseEvent",
+    "KeyboardEvent",
+    "Location",
+    "NodeList",
+    "Window",
+    "Storage",
+] }
+yew = { version = "0.23.0", features = ["csr"], optional = true }
+yew-router = { version = "0.20.0", optional = true }
+gloo-net = { version = "0.5.0", default-features = false, features = ["http", "json"], optional = true }
+
+[features]
+default = ["wasm"]
+wasm = [
+    "dep:wasm-bindgen",
+    "dep:js-sys",
+    "dep:web-sys",
+    "dep:console_error_panic_hook",
+    "yew",
+    "yew-router",
+    "gloo-net",
+]
+yew = ["dep:yew"]
+yew-router = ["dep:yew-router"]
+gloo-net = ["dep:gloo-net"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]

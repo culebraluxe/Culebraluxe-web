@@ -1,16 +1,16 @@
 //! ACCOUNTING.CORE — mark paid (TST-ACCOUNTING-CORE-005).
 //!
 //! Contract: marking a receivable paid requires a receivable and a real date, and nothing else —
-//! `MarkReceivablePaidCommand::validate` (`rust/core/domain/src/accounting.rs:442`). A blank id is refused
+//! `MarkReceivablePaidCommand::validate` (`middle/model/src/accounting.rs:442`). A blank id is refused
 //! (`RECEIVABLE_REQUIRED`) so a malformed id never reaches the DAO, where the id is compared as text
-//! (`where id::text = $1`, `rust/core/db/src/accounting/receivable_row.rs:462`) precisely so "no such receivable" is a
+//! (`where id::text = $1`, `db/src/accounting/receivable_row.rs:462`) precisely so "no such receivable" is a
 //! conflict rather than a cast error reported as a 500. A blank or unparseable date is refused (`PAID_ON_INVALID`)
 //! before the DAO's `$2::date` bind can fail — and that is what keeps the two database rules reachable rather than
 //! violated: `check (status <> 'PAID' or paid_on is not null)` (`db/migrations/087_accounting.sql:32-33`) and the
 //! closed status list (`db/migrations/087_accounting.sql:20-21`).
 //!
 //! Whether the transition is ALLOWED is the database's answer, not the caller's: the DAO transitions in one statement
-//! with `status <> 'VOID'` in its WHERE clause (`rust/core/db/src/accounting/receivable_row.rs:462`), so a voided
+//! with `status <> 'VOID'` in its WHERE clause (`db/src/accounting/receivable_row.rs:462`), so a voided
 //! receivable and a missing one both come back as a conflict. This file proves the half that is pure — the command's
 //! own refusals and the shape of the outcome the screen reports.
 //!
@@ -20,9 +20,9 @@
 //! Level: L0 Pure — no database, no socket, deterministic.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test accounting_core__005__mark_paid
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test accounting_core__005__mark_paid
 
-use domain::accounting::{
+use model::accounting::{
     MarkReceivablePaidCommand, MarkReceivablePaidOutcome, RECEIVABLE_STATUSES,
 };
 

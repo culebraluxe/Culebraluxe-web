@@ -1,7 +1,7 @@
 //! WF.HUMAN_TASK — candidate claim (TST-WF-HUMAN-TASK-001).
 //!
 //! Contract: a human task whose definition names **candidates** may be claimed by a candidate, and by no one
-//! else. `WorkflowEngine::claim_task` at `rust/core/workflow/src/engine/engine_options.rs:188` is the production
+//! else. `WorkflowEngine::claim_task` at `middle/workflow/src/engine/engine_options.rs:188` is the production
 //! boundary: it locks the instance and the task, admits only a `Ready`/`Reserved` task
 //! (`engine_options.rs:202-207`), and then applies the candidate gate —
 //!
@@ -30,7 +30,7 @@
 //! store, and no database — nothing is written outside the process.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_human_task__001__candidate_claim
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test wf_human_task__001__candidate_claim
 
 use std::collections::BTreeMap;
 

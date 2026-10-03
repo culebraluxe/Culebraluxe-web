@@ -5,11 +5,11 @@
 //! `agent_work_item.claimed_by`; the run may be started once, by that owner, from `Claimed`, and a second caller
 //! (any caller) is refused because the row has already left `Claimed`.
 //!
-//! The subject is `ForgeEngineDao::begin_agent_work_run` at `rust/core/db/src/forge_engine.rs:798` — the CAS the
-//! engine binary runs before its first role turn (`rust/forge/src/bin/forge.rs:198-244`, "refusing to run a story
+//! The subject is `ForgeEngineDao::begin_agent_work_run` at `db/src/forge_engine.rs:798` — the CAS the
+//! engine binary runs before its first role turn (`forge/src/bin/forge.rs:198-244`, "refusing to run a story
 //! whose claim this process does not own"). The CAS it performs is read-then-update on `state='Claimed'`
-//! (`rust/core/db/src/forge_engine.rs:806-810` for the lock, `:864-870` for the transition), and it opens
-//! `storyboard_story_run` in the same transaction (`rust/core/db/src/forge_engine.rs:835-859`). `Ok(None)` is the
+//! (`db/src/forge_engine.rs:806-810` for the lock, `:864-870` for the transition), and it opens
+//! `storyboard_story_run` in the same transaction (`db/src/forge_engine.rs:835-859`). `Ok(None)` is the
 //! refusal: the row was not `Claimed`, so this process does not own the run and must not drive the story. The bug
 //! this contract fences was real (2026-09-29 review): `begin_agent_work_run` used to return `Ok(())`
 //! unconditionally, so a row that had settled, been cancelled, or been requeued by recovery took the update as a
@@ -28,7 +28,7 @@
 //! can only strand rows under its own unique namespace, which no later run reads.
 //!
 //! Run with:
-//!   DATABASE_URL_DEV=... cargo test --manifest-path rust/Cargo.toml -p test-harness \
+//!   DATABASE_URL_DEV=... cargo test --manifest-path Cargo.toml -p test-harness \
 //!     --test forge_claim__001__only_owner_starts_run -- --ignored
 //! The plain command (no `--ignored`) passes with the test skipped, because the L2 contract needs a disposable
 //! DEV database and the harness will never open a PRODUCTION one.
@@ -84,9 +84,9 @@ async fn insert_ready_story(pool: &PgPool, story_id: &str) -> String {
               dependencies, scope, operating_surface, packet_sha)
          values ($1, 'PROOF', 'Forge claim proof', 'Critical', 'Ready', '',
                  'only the owner starts the run', 'SCOPED',
-                 'cargo test --manifest-path rust/Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run',
+                 'cargo test --manifest-path Cargo.toml -p test-harness --test forge_claim__001__only_owner_starts_run',
                  'a run opens exactly once, for the live Claimed claim', 'a disposable DEV branch',
-                 'the claim is settled or requeued', 'brief for the run', 'rust/core/db/src/forge_engine.rs',
+                 'the claim is settled or requeued', 'brief for the run', 'db/src/forge_engine.rs',
                  'none', 'rust/test-harness', 'NEXUS', 'sha256:proof')",
     )
     .bind(story_id)
@@ -406,7 +406,7 @@ async fn forge_claim_001__only_owner_starts_run() {
     // 4. NEGATIVE / FAULT — A REQUEUED CLAIM IS NO LONGER OWNED. This is the exact 2026-09-29 review bug: a row
     //    recovery has put back into the queue (`claimed_by = null`, state `Ready`) took the old unconditional
     //    update as a no-op and the engine was told the claim was open. The production recovery path is driven here
-    //    (`ForgeControlDao::requeue_stale_work`, `rust/core/db/src/forge_control.rs:117`), and `begin` must refuse.
+    //    (`ForgeControlDao::requeue_stale_work`, `db/src/forge_control.rs:117`), and `begin` must refuse.
     // -----------------------------------------------------------------------------------------------------------
     let requeued_item = insert_ready_story(&pool, &requeued_story).await;
     engine

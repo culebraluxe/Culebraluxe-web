@@ -20,19 +20,19 @@ production parser/codec/policies (none was needed).
 ## Architect brief
 
 Taxonomy WF.DEFINITION; level L0 Pure; harness WorkflowHarness. The production parser is
-`parse_process_definition_xml` / `definition_from_xml` (`rust/forge/src/engine/xml.rs`), the one parser `deploy_xml`
-(`rust/forge/src/engine/deploy.rs`) and the engine binary (`rust/forge/src/bin/forge_task.rs`) call. The production
-structural-equality predicate is `graphs_equal` (`rust/forge/src/engine/version_policy.rs:39-41`), which is
+`parse_process_definition_xml` / `definition_from_xml` (`forge/src/engine/xml.rs`), the one parser `deploy_xml`
+(`forge/src/engine/deploy.rs`) and the engine binary (`forge/src/bin/forge_task.rs`) call. The production
+structural-equality predicate is `graphs_equal` (`forge/src/engine/version_policy.rs:39-41`), which is
 `graph_to_json(a) == graph_to_json(b)`; its one caller is `classify_deploy` (duplicate-vs-real redeploy).
 
 ## Context refs
 
 - `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:1-773` — the canonical test.
-- `rust/forge/src/engine/xml.rs:352-426` — `parse_process_definition_xml` / `definition_from_xml`, the production parser.
-- `rust/forge/src/engine/xml.rs:196-199` — the nested-comment skip inside an element's children.
-- `rust/forge/src/engine/version_policy.rs:39-41` — `graphs_equal`, the production equality predicate.
-- `rust/forge/src/engine/version_policy.rs:43-62` — `classify_deploy`, its one production caller.
-- `rust/core/workflow/src/json_codec.rs:214-220` — `graph_to_json` / `graph_from_json`, the Neon `jsonb` persistence codec.
+- `forge/src/engine/xml.rs:352-426` — `parse_process_definition_xml` / `definition_from_xml`, the production parser.
+- `forge/src/engine/xml.rs:196-199` — the nested-comment skip inside an element's children.
+- `forge/src/engine/version_policy.rs:39-41` — `graphs_equal`, the production equality predicate.
+- `forge/src/engine/version_policy.rs:43-62` — `classify_deploy`, its one production caller.
+- `middle/workflow/src/json_codec.rs:214-220` — `graph_to_json` / `graph_from_json`, the Neon `jsonb` persistence codec.
 
 ## Acceptance criteria
 
@@ -49,8 +49,8 @@ structural-equality predicate is `graphs_equal` (`rust/forge/src/engine/version_
 7. No legacy TypeScript test ported. — met.
 8. Deterministic and isolated; never PROD; no live provider. — met: pure functions over the embedded v6 XML.
 9. Coverage named and discoverable even where the invariant already held. — met: this canonical file.
-10. `cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended` passes. — met.
-11. `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` passes. — met.
+10. `cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended` passes. — met.
+11. `cargo check --manifest-path Cargo.toml --workspace --all-targets` passes. — met.
 
 ## Preconditions
 
@@ -80,8 +80,8 @@ SCOPED
 
 ## Assay commands
 
-- cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
-- cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+- cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+- cargo check --manifest-path Cargo.toml --workspace --all-targets
 
 ## Raw verification — fast_repair_smith self-heal (2026-09-30, task 53e18b3b)
 
@@ -92,7 +92,7 @@ the candidate is a new commit descending from the retry base. No production code
 What changed in the canonical test:
 
 1. WHERE INTENDED (comments anywhere): a comment **between the root's child elements** (not only before the root) must
-   parse to a structurally equal graph — the parser's nested-comment skip (`rust/forge/src/engine/xml.rs:196-199`).
+   parse to a structurally equal graph — the parser's nested-comment skip (`forge/src/engine/xml.rs:196-199`).
 2. WHERE INTENDED (element form): an element written `<x></x>` is the same element as `<x/>` and must parse to a
    structurally equal graph — the explicit-close parse path.
 3. NEGATIVE (refusal): a mismatched close tag (`</start_node>` for `</start-state>`) is refused, not repaired into an
@@ -101,25 +101,25 @@ What changed in the canonical test:
 The commands below are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 running 1 test
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 43s
 CHECK_EXIT=0
 ```
 
 Mutation check (this node's own, the mismatched-close clause): deleting the `close != name` refusal
-(`rust/forge/src/engine/xml.rs:187-189`) makes the test fail exactly at the new clause
+(`forge/src/engine/xml.rs:187-189`) makes the test fail exactly at the new clause
 (`.../wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:396`,
 `a mismatched close tag is refused, not repaired into an equal graph`), `test result: FAILED` (exit 101):
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 thread '...' panicked at test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:396:5:
 WorkflowHarness/L0 Pure: a mismatched close tag is refused, not repaired into an equal graph
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
@@ -148,21 +148,21 @@ What changed in the canonical test (this node's own candidate, `9e09d746`):
 
 1. Step 4b — an edge's `condition`, an edge's `required`, a decision's `refresh-facts`, a task's `priority`, an
    end-state's `outcome`, and a dynamic fork's `maximum` each parse and are structurally unequal, because the
-   production codec `graph_to_json` (`rust/core/workflow/src/json_codec.rs:242-355`) represents every one of them.
+   production codec `graph_to_json` (`middle/workflow/src/json_codec.rs:242-355`) represents every one of them.
 2. `routing_signature` now carries `refresh-facts` and `priority`, so step 5 proves those survive
    `graph_to_json`/`graph_from_json` as well.
 
 Commands below are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 running 1 test
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.76s
 CHECK_EXIT=0
 ```
@@ -180,7 +180,7 @@ FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequire
 ## Raw verification — fast_repair_smith self-heal re-run (task 63d53243)
 
 This run was HELD because it did not deliver a `smith-candidate`: the smith deliverable is the run's workspace HEAD
-(`OpenCodeHarness::run_role` sets `candidate_sha = git rev-parse HEAD`, `rust/forge/src/engine/opencode.rs:316-324`),
+(`OpenCodeHarness::run_role` sets `candidate_sha = git rev-parse HEAD`, `forge/src/engine/opencode.rs:316-324`),
 and a commit from another lane had moved HEAD past the prior candidate `9e09d746`. The canonical test was already
 committed and green, so this node lands a fresh, load-bearing commit — the candidate is the commit this block is
 committed with — and changes no production code.
@@ -189,11 +189,11 @@ What changed in the canonical test (this node's own candidate):
 
 1. WHERE INTENDED (attribute quoting) — XML lets an attribute value be quoted with `'` or `"`; both name the same
    value. A source where `version="6"` is written `version='6'` must parse to a structurally equal graph, exercising
-   the parser's `q != '"' && q != '\''` branch (`rust/forge/src/engine/xml.rs:158-160`).
+   the parser's `q != '"' && q != '\''` branch (`forge/src/engine/xml.rs:158-160`).
 2. WHERE INTENDED (declaration order) — the order the node elements are declared in the source is not structure:
    `display-order` is the definition's explicit order and the parser keys nodes by id, so swapping two adjacent
    `<task-node>` elements must parse to a structurally equal graph. This pins the canonical-encoding property of
-   `graph_to_json` (`rust/core/workflow/src/json_codec.rs:222-240`).
+   `graph_to_json` (`middle/workflow/src/json_codec.rs:222-240`).
 
 Both clauses are self-proving: a production regression that made either cosmetic difference structural would fail the
 `assert!(graphs_equal(..))` at the new lines.
@@ -201,20 +201,20 @@ Both clauses are self-proving: a production regression that made either cosmetic
 Commands below are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 running 1 test
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 00s
 CHECK_EXIT=0
 ```
 
 Mutation check (this node's own, the attribute-quoting clause): narrowing the production branch to double quotes only
-(`rust/forge/src/engine/xml.rs:158`, `if q != '"' && q != '\''` → `if q != '"'`) makes the test fail exactly at the new
+(`forge/src/engine/xml.rs:158`, `if q != '"' && q != '\''` → `if q != '"'`) makes the test fail exactly at the new
 clause, `test result: FAILED` (exit 101):
 
 ```
@@ -224,7 +224,7 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; 
 MUTATION_EXIT=101
 ```
 
-The production file was restored byte-for-byte with `git checkout -- rust/forge/src/engine/xml.rs`, so the new clause is
+The production file was restored byte-for-byte with `git checkout -- forge/src/engine/xml.rs`, so the new clause is
 load-bearing and the contract is not vacuous.
 
 An untracked `arch_boundary__011__qa_cannot_own_git_mutations.rs` (another lane) was present in the working tree at run
@@ -243,25 +243,25 @@ changes documentation only — no production or test behavior changed.
 Both commands are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 running 1 test
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.21s
 CHECK_EXIT=0
 ```
 
 Mutation check (the structural-equality predicate is load-bearing): forcing `graphs_equal` to a constant `true` at
-`rust/forge/src/engine/version_policy.rs:39-41` makes the test fail exactly at the structural-inequality clause
+`forge/src/engine/version_policy.rs:39-41` makes the test fail exactly at the structural-inequality clause
 `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:292`
 (`a changed transition target is a structural difference, not a cosmetic one`), `test result: FAILED` (exit 101):
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... FAILED
 thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at .../wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:292:5
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
@@ -280,7 +280,7 @@ FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequire
 
 The canonical test was already committed and green (last test-touching commit `dc779bb0`), but a later commit moved
 HEAD past that candidate, so this node lands a fresh, load-bearing commit: the smith deliverable is the run's workspace
-HEAD. The production parser's entity-reference path (`parse_ent`, `rust/forge/src/engine/xml.rs:219-234`) was the one
+HEAD. The production parser's entity-reference path (`parse_ent`, `forge/src/engine/xml.rs:219-234`) was the one
 parser behaviour the contract did not yet pin; two clauses are added to the canonical test and no production code
 changed.
 
@@ -299,20 +299,20 @@ directions would fail — the parse never silently no-ops.
 Commands below are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 running 1 test
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 48s
 CHECK_EXIT=0
 ```
 
 Mutation check A (this node's own, the entity-equality clause): keeping `apos` undecoded in production
-(`rust/forge/src/engine/xml.rs:231`, `"apos" => "'".into(),` → `"apos" => "&apos;".into(),`) makes the test fail exactly
+(`forge/src/engine/xml.rs:231`, `"apos" => "'".into(),` → `"apos" => "&apos;".into(),`) makes the test fail exactly
 at the new clause, `test result: FAILED` (exit 101):
 
 ```
@@ -323,7 +323,7 @@ MUTATION_A_EXIT=101
 ```
 
 Mutation check B (the unknown-entity refusal): swallowing an unknown entity in production
-(`rust/forge/src/engine/xml.rs:232`, `_ => return Err(..)` → `_ => "".into(),`) makes the `&bogus;` source parse and the
+(`forge/src/engine/xml.rs:232`, `_ => return Err(..)` → `_ => "".into(),`) makes the `&bogus;` source parse and the
 test fail exactly at the new refusal clause, `test result: FAILED` (exit 101):
 
 ```
@@ -344,7 +344,7 @@ FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequire
 ## Raw verification — fast_repair_smith self-heal re-run (2026-09-30, task fc4b0878)
 
 This run was HELD because it did not deliver a `smith-candidate`: the smith deliverable is the run's workspace HEAD
-(`OpenCodeHarness::run_role` sets `candidate_sha = git rev-parse HEAD`, `rust/forge/src/engine/opencode.rs:316-324`), and
+(`OpenCodeHarness::run_role` sets `candidate_sha = git rev-parse HEAD`, `forge/src/engine/opencode.rs:316-324`), and
 the packet's own documentation commit had moved HEAD past the prior test candidate. The canonical test was already
 committed and green, so this node lands a fresh, load-bearing commit — the candidate is the commit this block records —
 and changes no production code.
@@ -352,11 +352,11 @@ and changes no production code.
 What changed in the canonical test (this node's own candidate, `8f99b394`):
 
 1. WHERE INTENDED (node identity metadata) — a node's `label` (`name`), a node's `description`, and a task's
-   `form-key` (`form_key`) are each read by the production parser (`rust/forge/src/engine/xml.rs:263-265,292`) and
-   written by the production codec (`rust/core/workflow/src/json_codec.rs:246-251,273-275`), so a change to any one
+   `form-key` (`form_key`) are each read by the production parser (`forge/src/engine/xml.rs:263-265,292`) and
+   written by the production codec (`middle/workflow/src/json_codec.rs:246-251,273-275`), so a change to any one
    parses and is structurally unequal.
 2. WHERE INTENDED (dynamic-fork control) — a dynamic fork's `count-variable`, `plan-variable`, `branch-node` and
-   `minimum` are structure (`rust/forge/src/engine/xml.rs:328-337`, `rust/core/workflow/src/json_codec.rs:309-326`);
+   `minimum` are structure (`forge/src/engine/xml.rs:328-337`, `middle/workflow/src/json_codec.rs:309-326`);
    `maximum` was already pinned.
 3. `routing_signature` now carries `formKey`, so step 5 proves it also survives the production JSON codec round trip.
 
@@ -367,20 +367,20 @@ the parse never silently no-ops.
 Commands below are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 running 1 test
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 21s
 CHECK_EXIT=0
 ```
 
 Mutation check (this node's own, the form-key clause): dropping the production read of `form-key`
-(`rust/forge/src/engine/xml.rs:292`, `node.form_key = el.attrs.get("form-key").cloned();` → `node.form_key = None;`)
+(`forge/src/engine/xml.rs:292`, `node.form_key = el.attrs.get("form-key").cloned();` → `node.form_key = None;`)
 makes the test fail exactly at the new clause, `test result: FAILED` (exit 101):
 
 ```
@@ -411,25 +411,25 @@ changes documentation only — no production or test behaviour changed.
 Both commands are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 running 1 test
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 21s
 CHECK_EXIT=0
 ```
 
 Mutation check (the structural-equality predicate is load-bearing): forcing `graphs_equal` to a constant `true` at
-`rust/forge/src/engine/version_policy.rs:39-41` makes the test fail exactly at the structural-inequality clause
+`forge/src/engine/version_policy.rs:39-41` makes the test fail exactly at the structural-inequality clause
 `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:313`
 (`a changed transition target is a structural difference, not a cosmetic one`), `test result: FAILED` (exit 101):
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... FAILED
 thread 'wf_definition_013__forge_v6_xml_structural_equality_where_intended' panicked at test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:313:5:
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
@@ -439,7 +439,7 @@ MUTATION_EXIT=101
 The production file was restored byte-for-byte (`cmp` clean against the pre-mutation copy) and the test is green again
 (`TEST_EXIT=0`), so the equality contract is not vacuous and the cosmetic-vs-structural split is genuinely exercised.
 
-An in-flight WF-JOIN-002 lane had a modified `rust/core/workflow/src/engine/execute_node_leave.rs` and
+An in-flight WF-JOIN-002 lane had a modified `middle/workflow/src/engine/execute_node_leave.rs` and
 `rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` in the working tree, plus an untracked
 `arch_boundary__011__qa_cannot_own_git_mutations.rs`; they were left untouched and are not part of this candidate.
 
@@ -455,32 +455,32 @@ Context ref range is refreshed from `:1-638` to `:1-674` so `pnpm forge:packet-l
 What changed in the canonical test (this node's own candidate, `b35a9368`):
 
 1. WHERE INTENDED (default outcome) — an end-state that omits `outcome` means `Completed`; the parser supplies that
-   default (`rust/forge/src/engine/xml.rs:280-285`). Declaring the default explicitly is not structure, so removing
+   default (`forge/src/engine/xml.rs:280-285`). Declaring the default explicitly is not structure, so removing
    `outcome="completed"` from the definition's first end-state must parse to a structurally equal graph. The anchor is
    asserted before the edit, so the clause cannot pass on a no-op `replacen`.
 2. WHERE INTENDED (display order is ordered) — `display-order` is the definition's explicit sequence and order is
    meaning: swapping two adjacent entries parses (the source stays legal) and is structurally unequal
-   (`rust/forge/src/engine/xml.rs:364-375`, `rust/core/workflow/src/json_codec.rs:233-238`). The anchor is two
+   (`forge/src/engine/xml.rs:364-375`, `middle/workflow/src/json_codec.rs:233-238`). The anchor is two
    adjacent lines, so an absent anchor would no-op and `assert!(!graphs_equal(..))` would fail — the clause is
    self-proving.
 
 Commands below are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 running 1 test
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 34s
 CHECK_EXIT=0
 ```
 
 Mutation check A (this node's own, the default-outcome clause): making an absent outcome parse as `Cancelled`
-(`rust/forge/src/engine/xml.rs:284`, add `None => ProcessOutcome::Cancelled,`) makes the test fail exactly at the new
+(`forge/src/engine/xml.rs:284`, add `None => ProcessOutcome::Cancelled,`) makes the test fail exactly at the new
 clause `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:319`,
 `test result: FAILED` (exit 101):
 
@@ -492,7 +492,7 @@ MUTATION_A_EXIT=101
 ```
 
 Mutation check B (this node's own, the display-order clause): making the parser sort the collected order
-(`rust/forge/src/engine/xml.rs`, `display_order.sort();` before `Ok(ParsedDefinition { .. })`) makes the two swapped
+(`forge/src/engine/xml.rs`, `display_order.sort();` before `Ok(ParsedDefinition { .. })`) makes the two swapped
 sequences equal and the test fail exactly at the new clause
 `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:382`,
 `test result: FAILED` (exit 101):
@@ -515,7 +515,7 @@ FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequire
 ## Raw verification — fast_repair_smith self-heal re-run (2026-09-30, task 977d3bdb)
 
 This run was HELD because it did not deliver a `smith-candidate`: the smith deliverable is the run's workspace HEAD
-(`OpenCodeHarness::run_role` sets `candidate_sha = git rev-parse HEAD`, `rust/forge/src/engine/opencode.rs:316-324`), and
+(`OpenCodeHarness::run_role` sets `candidate_sha = git rev-parse HEAD`, `forge/src/engine/opencode.rs:316-324`), and
 a documentation commit from the prior attempt had moved HEAD past the test candidate it recorded. The canonical test was
 already committed and green, so this node lands a fresh, load-bearing commit on the canonical test — the candidate is
 this run's workspace HEAD, which owns the test change — and changes no production code.
@@ -523,15 +523,15 @@ this run's workspace HEAD, which owns the test change — and changes no product
 What changed in the canonical test (this node's own candidate, `71c08644`):
 
 1. WHERE INTENDED (attribute whitespace) — whitespace around an attribute's `=` and before a self-close is not
-   structure; the parser skips it (`rust/forge/src/engine/xml.rs:130,151-156`), so a transition written
+   structure; the parser skips it (`forge/src/engine/xml.rs:130,151-156`), so a transition written
    `name = "begin" ... />` must parse to a structurally equal graph.
 2. WHERE INTENDED (close-tag whitespace) — whitespace between a close tag's name and its `>` is not structure
-   (`rust/forge/src/engine/xml.rs:182`), so `</start-state >` must parse to a structurally equal graph.
+   (`forge/src/engine/xml.rs:182`), so `</start-state >` must parse to a structurally equal graph.
 3. WHERE INTENDED (responsibility → candidate groups) — a task's `responsibility` is read into `candidate_groups`
-   (`rust/forge/src/engine/xml.rs:289-291`) and persisted as `candidateGroups`
-   (`rust/core/workflow/src/json_codec.rs:276-281`), so changing it parses and is structurally unequal.
-4. WHERE INTENDED (command-node transition) — a command node's `transition` is read (`rust/forge/src/engine/xml.rs:300`)
-   and persisted (`rust/core/workflow/src/json_codec.rs:303-305`), so changing it parses and is structurally unequal.
+   (`forge/src/engine/xml.rs:289-291`) and persisted as `candidateGroups`
+   (`middle/workflow/src/json_codec.rs:276-281`), so changing it parses and is structurally unequal.
+4. WHERE INTENDED (command-node transition) — a command node's `transition` is read (`forge/src/engine/xml.rs:300`)
+   and persisted (`middle/workflow/src/json_codec.rs:303-305`), so changing it parses and is structurally unequal.
 5. NEGATIVE (refusal) — a root that is not `<process-definition>` and a definition that declares no `key` are both
    refused.
 6. `routing_signature` now carries candidate groups, so step 5 also proves they survive the production JSON codec.
@@ -543,20 +543,20 @@ never silently no-ops.
 Commands below are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 running 1 test
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5m 25s
 CHECK_EXIT=0
 ```
 
 Mutation check (this node's own, the close-tag-whitespace clause): deleting the production `c.skip_ws()` before the
-close tag's `>` (`rust/forge/src/engine/xml.rs:182`) makes the test fail exactly at the new clause, `test result:
+close tag's `>` (`forge/src/engine/xml.rs:182`) makes the test fail exactly at the new clause, `test result:
 FAILED` (exit 101):
 
 ```
@@ -583,29 +583,29 @@ commands against the current tree (HEAD `54302c59`). Verdict: **PASS**. The cano
 `rust/test-harness/tests/wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs` (748 lines) is tracked,
 contains the test `wf_definition_013__forge_v6_xml_structural_equality_where_intended`, and exercises the production
 boundary directly: `parse_process_definition_xml` / `definition_from_xml`
-(`rust/forge/src/engine/xml.rs:352,414`), `graphs_equal` = `graph_to_json(a) == graph_to_json(b)`
-(`rust/forge/src/engine/version_policy.rs:39-41`), `classify_deploy` (`:43-62`), and
-`graph_to_json`/`graph_from_json` (`rust/core/workflow/src/json_codec.rs:214-220`). The verified candidate is the
+(`forge/src/engine/xml.rs:352,414`), `graphs_equal` = `graph_to_json(a) == graph_to_json(b)`
+(`forge/src/engine/version_policy.rs:39-41`), `classify_deploy` (`:43-62`), and
+`graph_to_json`/`graph_from_json` (`middle/workflow/src/json_codec.rs:214-220`). The verified candidate is the
 `fast_repair_smith` commit `387d36a1` — the last commit to touch the canonical test (unchanged at the current HEAD); this
 node changes documentation only, no production or test behavior.
 
 Both commands are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 running 1 test
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.57s
 CHECK_EXIT=0
 ```
 
 Mutation check (this node's own, the structural-equality predicate is load-bearing): forcing `graphs_equal` to a
-constant `true` at `rust/forge/src/engine/version_policy.rs:39-41`
+constant `true` at `forge/src/engine/version_policy.rs:39-41`
 (`graph_to_json(a) == graph_to_json(b)` → `let _ = (a, b); true`) makes the test fail exactly at the
 structural-inequality clause, `test result: FAILED` (exit 101):
 
@@ -628,7 +628,7 @@ FORGE_EVIDENCE_JSON: {"qaPassed":true,"publishSucceeded":false,"migrationRequire
 The canonical test was already committed and green (last test-touching commit `387d36a1`), but the QA/packet commits
 after it moved HEAD past that candidate, so this node lands a fresh, load-bearing commit: the smith deliverable is the
 run's workspace HEAD. The one parser behaviour the contract did not yet pin is the after-root handling in `parse_xml`
-(`rust/forge/src/engine/xml.rs:69-73`): `skip_misc` runs once more after the root and then EOF is demanded. Two clauses
+(`forge/src/engine/xml.rs:69-73`): `skip_misc` runs once more after the root and then EOF is demanded. Two clauses
 are added to the canonical test and no production code changed.
 
 What changed in the canonical test (this node's own candidate):
@@ -645,20 +645,20 @@ ignore — a parser that dropped either behaviour fails the corresponding `asser
 Commands below are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 running 1 test
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 21s
 CHECK_EXIT=0
 ```
 
 Mutation check A (this node's own, the trailing-content refusal clause): deleting the post-root EOF guard
-(`rust/forge/src/engine/xml.rs:71-73`, `if !c.eof() { return Err(..) }`) makes the test fail exactly at the new clause,
+(`forge/src/engine/xml.rs:71-73`, `if !c.eof() { return Err(..) }`) makes the test fail exactly at the new clause,
 `test result: FAILED` (exit 101):
 
 ```
@@ -669,7 +669,7 @@ MUTATION_A_EXIT=101
 ```
 
 Mutation check B (this node's own, the trailing-misc clause): deleting the post-root `skip_misc` call
-(`rust/forge/src/engine/xml.rs:70`) makes even the trailing-comment source fail to parse and the test fail,
+(`forge/src/engine/xml.rs:70`) makes even the trailing-comment source fail to parse and the test fail,
 `test result: FAILED` (exit 101):
 
 ```
@@ -690,7 +690,7 @@ FORGE_EVIDENCE_JSON: {"qaPassed":null,"publishSucceeded":false,"migrationRequire
 ## Raw verification — fast_repair_smith self-heal re-run (2026-09-30, task 58e9c9b5)
 
 This run was HELD because it did not deliver a `smith-candidate`: the smith deliverable is the run's workspace HEAD
-(`OpenCodeHarness::run_role` sets `candidate_sha = git rev-parse HEAD`, `rust/forge/src/engine/opencode.rs:316-324`).
+(`OpenCodeHarness::run_role` sets `candidate_sha = git rev-parse HEAD`, `forge/src/engine/opencode.rs:316-324`).
 The canonical test was already committed and green at the run's base, so this node lands a fresh, load-bearing commit —
 the candidate is this run's workspace HEAD, which owns the canonical test change below — and changes no production
 code.
@@ -699,30 +699,30 @@ What changed in the canonical test (this node's own candidate):
 
 1. WHERE INTENDED (outcome variants are distinct) — an end-state's `outcome` is the terminus the runtime records, and
    the production parser maps `failed` to its own value, distinct from `cancelled`
-   (`rust/forge/src/engine/xml.rs:280-285`). Editing the definition's `failed` end-state to `cancelled` parses and is
+   (`forge/src/engine/xml.rs:280-285`). Editing the definition's `failed` end-state to `cancelled` parses and is
    structurally unequal — a parser that collapsed the two terminuses would make them indistinguishable. The anchor is
    the single `outcome="failed"` the definition declares, so an absent anchor would no-op and the `assert!` would fail.
 2. NEGATIVE (refusal) — a dynamic fork must declare the command its branches run; the parser requires
-   `branch-command-type` (`rust/forge/src/engine/xml.rs:331`, `req(..)`), so a definition that omits it is REFUSED, not
+   `branch-command-type` (`forge/src/engine/xml.rs:331`, `req(..)`), so a definition that omits it is REFUSED, not
    parsed into a fork with nothing to spawn. The anchor is the whole attribute, so the edit always changes the source.
 
 Commands below are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__013__forge_v6_xml_structural_equality_where_intended
 running 1 test
 test wf_definition_013__forge_v6_xml_structural_equality_where_intended ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 03s
 CHECK_EXIT=0
 ```
 
 Mutation check A (this node's own, the failed-terminus clause): collapsing the production `failed` arm to `Cancelled`
-(`rust/forge/src/engine/xml.rs:283`, `Some("failed") => ProcessOutcome::Failed,` →
+(`forge/src/engine/xml.rs:283`, `Some("failed") => ProcessOutcome::Failed,` →
 `Some("failed") => ProcessOutcome::Cancelled,`) makes the test fail exactly at the new clause
 (`.../wf_definition__013__forge_v6_xml_structural_equality_where_intended.rs:442`), `test result: FAILED` (exit 101):
 
@@ -734,7 +734,7 @@ MUTATION_A_EXIT=101
 ```
 
 Mutation check B (this node's own, the required-branch-command-type clause): relaxing the production requirement to an
-optional read (`rust/forge/src/engine/xml.rs:331`, `Some(req(el, "branch-command-type")?)` →
+optional read (`forge/src/engine/xml.rs:331`, `Some(req(el, "branch-command-type")?)` →
 `el.attrs.get("branch-command-type").cloned()`) made the fork parse and the test fail at that candidate's then-current branch-command refusal clause (then line 794); `test result: FAILED` (exit 101):
 
 ```

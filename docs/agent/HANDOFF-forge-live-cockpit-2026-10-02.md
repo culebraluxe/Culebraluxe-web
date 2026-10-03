@@ -12,11 +12,11 @@ and this file travels with the same push.
 | --- | --- | --- |
 | S1 | The 19 commits (`513f4afd`..`5f5fc052`) and five cleanup commits — `1a683113` (the Live selection), `e7259f76` (rustfmt), `f58d8db8` (fixture rename), `0a9623fb` (workflow imports), `b2d1da54` (the orphan `result_runs`) — plus this file and the two commits below (`a75859c9`, `8e2794ab`) are on `main`, fast-forwarded from `b01f4692`: no merge commit, no branch left behind | `git log --oneline origin/main \| head -29` |
 | S2 | `main` was red **before** this stack: `gates` failed at `b01f4692` (2026-10-02 11:27) on the pending rustfmt backlog and on three fixture keys gitleaks read as secrets. Neither is the cockpit's fault and both are fixed here | `gh run list --branch main --limit 3` |
-| S3 | The stack is 58 files and **every one is a modification** — no file is added: 10 in `rust/forge/src/roles`, 5 in `rust/test-harness/tests`, 5 in `rust/core/domain/src`, 4 in `rust/server/src`, 4 in `rust/forge/src/engine`, 4 in `rust/core/db/src`, 7 under `rust/ui/src/app/screens/tech`, 2 in `rust/core/workflow/src`, and singles | `git diff --name-only b01f4692..origin/main \| wc -l` |
+| S3 | The stack is 58 files and **every one is a modification** — no file is added: 10 in `forge/src/roles`, 5 in `rust/test-harness/tests`, 5 in `middle/model/src`, 4 in `web/src`, 4 in `forge/src/engine`, 4 in `db/src`, 7 under `web/ui/src/app/screens/tech`, 2 in `middle/workflow/src`, and singles | `git diff --name-only b01f4692..origin/main \| wc -l` |
 | S4 | The three fixture keys now say what they are instead of being excused: `definition-kinds-under-test-not-a-secret`, `definition-self-loop-under-test-not-a-secret`, `definition-orphan-under-test-not-a-secret` | `rust/test-harness/tests/wf_definition__005__missing_target.rs:64,86,221` |
 | S5 | Only `VALID_DEFINITION` (`:51`) is asserted; the three renamed keys are parsed and never compared, so the rename weakens no test | `rust/test-harness/tests/wf_definition__005__missing_target.rs:113,144` |
 | S6 | `.gitleaksignore` gained three fingerprints, naming the two commits that carried the old literals, each with its reason written beside it. The file's own doctrine — "rename the fixture, not a line here" — is repeated in that block | `.gitleaksignore` (the 2026-10-02 block) |
-| S7 | The Cockpit tabs are named by operating purpose, Work in Flight is wired to Forge live data, and the live metric values are borrowed rather than cloned | `rust/ui/src/app/screens/tech/view.rs`, `rust/ui/src/app/screens/tech/view/assembly.rs` |
+| S7 | The Cockpit tabs are named by operating purpose, Work in Flight is wired to Forge live data, and the live metric values are borrowed rather than cloned | `web/ui/src/app/screens/tech/view.rs`, `web/ui/src/app/screens/tech/view/assembly.rs` |
 | S8 | PR #35 reads **MERGED** (2026-10-02T17:44:38Z, head `5f5fc052`) because its commits are on `main` — nothing was merged into it and no branch was pushed. The goal "the screens are in `main`" is met; "the checks are green" is not, for the two reasons in §5 | `gh pr view 35 --json state,mergedAt,headRefOid` |
 
 ## 2. HOLDS — do not act on these
@@ -24,28 +24,28 @@ and this file travels with the same push.
 | # | Held | Who holds it | What an agent must do |
 | --- | --- | --- | --- |
 | H1 | Three uncommitted files in `/Users/lisapenfieldicloud.com/Documents/Culebraluxe-web`: `rust/Cargo.lock` (modified), `db/loads/arm_recovery_batch_2026_10_01.sql` and `db/loads/settle_landed_candidates_2026_10_01.sql` (untracked) | the live lane working in that folder | do not commit, stash, clean or reset them. That lane's next `git pull --rebase` will complain about the modified lock; clearing it is their call, not yours. That lock is the same repair now on `main` (`a75859c9`), so it can be discarded without losing anything |
-| H2 | The four deferred trees: `rust/cli/src/apple_mail`, `rust/cli/src/forge/lint` (`lint.rs` **and** `lint/`), `rust/core/domain/src/applemail`, `rust/core/domain/src/apple_messages` | the captain — the fmt gate defers them by name (`.github/workflows/gates.yml:338`) | never run `cargo fmt --all` across them and never hand-format them. `rust/cli/src/forge/lint.rs:103` defines `pattern!(roles_that_may_not_commit, r"(?i)\b(scout\|assay\|inspector)\b")` as **source text**, and `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs:193` pins that exact string: rustfmt reformats it and the assay fails. Hit this while cleaning up; reverted |
+| H2 | The four deferred trees: `cli/src/apple_mail`, `cli/src/forge/lint` (`lint.rs` **and** `lint/`), `middle/model/src/applemail`, `middle/model/src/apple_messages` | the captain — the fmt gate defers them by name (`.github/workflows/gates.yml:338`) | never run `cargo fmt --all` across them and never hand-format them. `cli/src/forge/lint.rs:103` defines `pattern!(roles_that_may_not_commit, r"(?i)\b(scout\|assay\|inspector)\b")` as **source text**, and `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs:193` pins that exact string: rustfmt reformats it and the assay fails. Hit this while cleaning up; reverted |
 | H3 | `origin/forge-service-finish-20261002` and PR #35 | the captain | never push to it — the pre-push hook refuses any branch but `main`. Its commits are on `main` now, so PR #35 should read as merged; deleting the remote branch is a GitHub-UI job |
 
 ## 3. WHERE TO LOOK — task → the one place
 
 | Your task | Read | The files you touch |
 | --- | --- | --- |
-| Change what the Forge live cockpit shows | `docs/agent/COCKPIT-PURPOSE.md` — the captain's own framing of the two engine lists | `rust/ui/src/app/screens/tech/view.rs`, `rust/ui/src/app/screens/tech/view/assembly.rs` |
+| Change what the Forge live cockpit shows | `docs/agent/COCKPIT-PURPOSE.md` — the captain's own framing of the two engine lists | `web/ui/src/app/screens/tech/view.rs`, `web/ui/src/app/screens/tech/view/assembly.rs` |
 | Ship it to production | `docs/agent/COCKPIT-SMOKE-TEST.md` §HOW A CHANGE REACHES PRODUCTION (prebuilt on this Mac, needs Node 24) | `scripts/vercel-build-prod.sh`, `scripts/vercel-deploy-prod.sh` |
-| Read the live Forge facts | the read model and the service boundary his lane finished | `rust/core/db/src`, `rust/forge/src/roles/`, `rust/server/src/api/` |
+| Read the live Forge facts | the read model and the service boundary his lane finished | `db/src`, `forge/src/roles/`, `web/src/api/` |
 | Know which gates exist and which are asleep | `.github/workflows/gates.yml` — fmt `:334`, secrets `:165`, the parked DB jobs `:443`, `:485`, `:518` | — |
 
 ## 4. DONE — what landed, with the receipts
 
 | Commit | What it changed | The gate that ran |
 | --- | --- | --- |
-| `1a683113` | the Live selection is read before the message moves — the `E0505` that killed his branch's `rust core` before a single test ran | `RUSTFLAGS="-D warnings" cargo check -p ui -p db -p integrations -p domain -p service -p workflow --all-targets` → exit 0 (CI's own command) |
+| `1a683113` | the Live selection is read before the message moves — the `E0505` that killed his branch's `rust core` before a single test ran | `RUSTFLAGS="-D warnings" cargo check -p ui -p db -p apis -p model -p services -p workflow --all-targets` → exit 0 (CI's own command) |
 | `e7259f76` | `cargo fmt --all` over the tree, the four deferred trees untouched | the fmt step's exact grep (`.github/workflows/gates.yml:334-345`) → nothing outside the deferred trees |
 | `f58d8db8` | the three fixture keys renamed to say what they are | `gitleaks git .` → no leaks; `cargo nextest run --profile ci` → 1062/1062 |
-| `0a9623fb` | `rust/core/workflow/src/concurrency.rs` loses the two `store` imports its test never used — main's own warning debt, which `rust warnings are errors` would have failed | same `cargo check` → exit 0 |
-| `b2d1da54` | `rust/ui/src/app/screens/tech/view/assembly.rs` loses `result_runs`, orphaned by his own live-ops rework | same `cargo check` → exit 0; `cargo check -p ui --features wasm --target wasm32-unknown-unknown` → exit 0 |
-| `a75859c9` | `rust/Cargo.lock` gains `async-trait` and `service` under the `forge` package — `47ea7977` (another lane, already on `main`) added both to `rust/forge/Cargo.toml` and left the lock behind, so **rule 5's hook was refusing every push from every worktree**, and the deploy's `--locked` build would have failed | the hook's own test, `cargo metadata --manifest-path rust/Cargo.toml --locked --offline` → exit 0 (exit 1 before this commit) |
+| `0a9623fb` | `middle/workflow/src/concurrency.rs` loses the two `store` imports its test never used — main's own warning debt, which `rust warnings are errors` would have failed | same `cargo check` → exit 0 |
+| `b2d1da54` | `web/ui/src/app/screens/tech/view/assembly.rs` loses `result_runs`, orphaned by his own live-ops rework | same `cargo check` → exit 0; `cargo check -p ui --features wasm --target wasm32-unknown-unknown` → exit 0 |
+| `a75859c9` | `rust/Cargo.lock` gains `async-trait` and `service` under the `forge` package — `47ea7977` (another lane, already on `main`) added both to `forge/Cargo.toml` and left the lock behind, so **rule 5's hook was refusing every push from every worktree**, and the deploy's `--locked` build would have failed | the hook's own test, `cargo metadata --manifest-path Cargo.toml --locked --offline` → exit 0 (exit 1 before this commit) |
 | his 19 (`513f4afd`..`5f5fc052`) | the Forge hop: domain + db read model, the authorized live query, the service boundary and its API error mapping, Cockpit tabs named by purpose, Work in Flight wired to live data | every gate above ran on the **combined** stack — the first tree in which his work ever compiled. On `main` it is now gated by `static gates` and `rust core` like everything else |
 
 His five failures, for the record: the `E0505` above; a 50-file rustfmt backlog (his rework **and** main's 2026-09-30
@@ -85,16 +85,16 @@ One receipt caveat, stated because the shape of this file is the point: `a75859c
     should add rows to make the step pass.
   - `rust file boundedness`: 12 `.rs` files over 800 lines, and the step has **no baseline** — it fails on any of them
     outside the four deferred trees, so it cannot be satisfied by fixing what this stack touched. Seven are untouched
-    by anyone here (`rust/ui/src/flight_recorder.rs` 1996, `rust/core/db/src/forge_engine.rs` 2205,
-    `rust/ui/src/app/screens/flight_recorder.rs` 1366, `rust/core/db/src/pool.rs` 970,
-    `rust/core/workflow/src/neon/new_id.rs` 900,
+    by anyone here (`web/ui/src/flight_recorder.rs` 1996, `db/src/forge_engine.rs` 2205,
+    `web/ui/src/app/screens/flight_recorder.rs` 1366, `db/src/pool.rs` 970,
+    `middle/workflow/src/neon/new_id.rs` 900,
     `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` 902,
     `rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` 856). Four more were already over
-    before this stack and stayed over, two of them shrinking (`rust/server/src/document_sign/mod.rs` 1184→1170,
-    `rust/server/src/command_runtime.rs` 1447→1430, `rust/server/src/signature/mod.rs` 932→935,
-    `rust/server/src/signer/mod.rs` 1145→1151). The policy this step does not implement is stated in
+    before this stack and stayed over, two of them shrinking (`web/src/document_sign/mod.rs` 1184→1170,
+    `web/src/command_runtime.rs` 1447→1430, `web/src/signature/mod.rs` 932→935,
+    `web/src/signer/mod.rs` 1145→1151). The policy this step does not implement is stated in
     `docs/agent/UI-SCREEN-ARCHITECTURE.md:301`: such a file "is split the next time it is edited".
-  - **One of them is this stack's, and it is a collision between two gates**: `rust/core/db/src/signature/database.rs`
+  - **One of them is this stack's, and it is a collision between two gates**: `db/src/signature/database.rs`
     is 798 lines unformatted and **801** once rustfmt-clean (798 at his tip too — the fmt commit alone crossed it, by
     re-wrapping an `if` and a `map_err`). Formatted it breaks the 800-line step; unformatted it breaks the fmt step.
     Only a real move-only split satisfies both, and doing it while 7 untouched files keep the step red would buy
@@ -122,7 +122,7 @@ One receipt caveat, stated because the shape of this file is the point: `a75859c
 ## 7. ASK THE OWNER
 
 - **The 800-line rule — split the 12 files, or give the step the baseline the policy describes?** Split → a move-only
-  programme across `rust/server`, `rust/core/db`, `rust/ui` and `rust/test-harness`, i.e. three lanes' code, and
+  programme across `web`, `db`, `web/ui` and `rust/test-harness`, i.e. three lanes' code, and
   `rust core` stays red until the last file is done. Baseline → the step compares against the files that were already
   over at a named commit and lets the rule bite on the next edit, which is what `UI-SCREEN-ARCHITECTURE.md:301` already
   says. Nothing else turns `rust core` green.

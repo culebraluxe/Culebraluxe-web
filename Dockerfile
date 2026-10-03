@@ -11,7 +11,7 @@ WORKDIR /build
 COPY rust ./rust
 COPY scripts/rust-ui-build.sh ./scripts/rust-ui-build.sh
 RUN mkdir -p public/rust-ui && RUST_UI_PROFILE=release bash scripts/rust-ui-build.sh
-RUN cargo build --locked --release --manifest-path rust/Cargo.toml -p server --bin http
+RUN cargo build --locked --release --manifest-path Cargo.toml -p web --bin web
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
@@ -22,7 +22,7 @@ WORKDIR /app
 COPY --from=builder /build/rust/target/release/http /usr/local/bin/culebraluxe
 COPY public ./public
 COPY --from=builder /build/public/rust-ui/ui.js /build/public/rust-ui/ui_bg.wasm ./public/rust-ui/
-COPY lib/forms/templates ./templates
+COPY middle/model/forms/templates ./templates
 ENV CULEBRA_SITE_DIR=/app/public \
     FORMS_TEMPLATES_DIR=/app/templates \
     PORT=8080

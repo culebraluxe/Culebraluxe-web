@@ -1,7 +1,7 @@
 -- 263_forge_agent_work_settlement.sql
 --
 -- WHY: settling a claim was a transaction choreographed from Rust (`ForgeEngineDao::finish_agent_work_run` and
--- `reject_agent_work_configuration`, rust/core/db/src/forge_engine.rs), with the pair it writes chosen by a Rust
+-- `reject_agent_work_configuration`, db/src/forge_engine.rs), with the pair it writes chosen by a Rust
 -- policy (`settlement_pair`, `run_result_status_for`) and the run closed by a Rust helper (`close_story_run_in`).
 -- All of it is database behaviour, so all of it lives here now and the DAO binds parameters and maps the row.
 -- Translated as-is, the second stored-routine slice after 262 (the claim): no new column, no change to any state,

@@ -1,7 +1,7 @@
 # Dead TypeScript — the downsize decision
 
 **187 files are broken. 8 of them described work that still had to happen. Four are now ported
-(`apple-messages-intake.ts`, the two Apple Mail files and `gmail-metadata-sync.ts` → `rust/cli`); 4 are left to
+(`apple-messages-intake.ts`, the two Apple Mail files and `gmail-metadata-sync.ts` → `cli`); 4 are left to
 port. The other 179 are junk — not translated, not kept alive, not paid for.** This page is the whole decision; the
 file-by-file list is `BROKEN-TS-INVENTORY.md`, and `pnpm broken:ts:sweep` keeps the count honest.
 
@@ -9,14 +9,14 @@ file-by-file list is `BROKEN-TS-INVENTORY.md`, and `pnpm broken:ts:sweep` keeps 
 
 | file | what it does, plainly | lines | verdict |
 | --- | --- | --- | --- |
-| `apple-messages-intake.ts` | reads the iMessage/SMS export, writes text threads into the client timeline | 365 | **PORTED** — `rust/cli/src/apple_messages.rs` + `domain::apple_messages` + `db::{RelationshipEvidenceDao, LandingDao}`; live check `scripts/rust-live-check/apple-messages-intake.mjs` |
+| `apple-messages-intake.ts` | reads the iMessage/SMS export, writes text threads into the client timeline | 365 | **PORTED** — `cli/src/apple_messages.rs` + `model::apple_messages` + `db::{RelationshipEvidenceDao, LandingDao}`; live check `scripts/rust-live-check/apple-messages-intake.mjs` |
 | `apple-calls-intake.ts` | same for phone calls | 186 | **PORT** |
 | `load-apple-contacts.ts` | reads the Apple Contacts export into the landing tables | 545 | **PORT** |
 | `project-apple-contacts.ts` | landing tables → client records | 346 | **PORT** |
 | `promote-warehouse.ts` | landing tables → `person` / `property` — **the hop with no Rust home at all** | 405 | **PORT** |
-| `apple-mail-envelope-intake.ts` | Apple Mail headers → landing | 440 | **PORTED** — `rust/cli/src/apple_mail.rs` (`apple-sync mail-intake`) + `domain::applemail` + `db::{AppleMailLanding, IntakeCheckpoint}`; the Python Envelope Index bridge is kept as the extractor (it is the only part that needs macOS TCC); live check `scripts/rust-live-check/apple-mail.mjs` |
+| `apple-mail-envelope-intake.ts` | Apple Mail headers → landing | 440 | **PORTED** — `cli/src/apple_mail.rs` (`apple-sync mail-intake`) + `model::applemail` + `db::{AppleMailLanding, IntakeCheckpoint}`; the Python Envelope Index bridge is kept as the extractor (it is the only part that needs macOS TCC); live check `scripts/rust-live-check/apple-mail.mjs` |
 | `promote-applemail.ts` | mail landing → mail timeline | 193 | **PORTED** — `apple-sync mail-promote` in the same Rust module: `l_applemail` → evidence → reconcile (`decide_apple_handle`) → `interaction` → read models |
-| `gmail-metadata-sync.ts` | Gmail metadata → landing | 193 | **PORTED 2026-09-28** — `rust/cli/src/gmail.rs` (`gmail-sync`) + `domain::gmail` + `db::EmailLanding`; the captain's word was "yes fix email sync" (the Gmail path was the orphaned one). Needs `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN` in `.env.local` — absent on this machine, so only the fail-closed path is verified locally |
+| `gmail-metadata-sync.ts` | Gmail metadata → landing | 193 | **PORTED 2026-09-28** — `cli/src/gmail.rs` (`gmail-sync`) + `model::gmail` + `db::EmailLanding`; the captain's word was "yes fix email sync" (the Gmail path was the orphaned one). Needs `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN` in `.env.local` — absent on this machine, so only the fail-closed path is verified locally |
 
 ≈2,480 lines of TS become **one Rust job: four feeds in, one promotion out**. These are the five shell
 scripts that already schedule them, so nothing new calls them into being —
@@ -44,10 +44,10 @@ bridge to read All Mail with the global-message-id identity it already has), the
 
 ## 2. Already in Rust — do not port, do not rebuild
 
-Calendar intake and reminders (`rust/cli/src/apple_sync.rs`), outbound-to-Apple delivery (`drain` +
-the event outbox), the mailbox service (`rust/core/service/src/mailbox.rs`, 1265 lines), WhatsApp,
+Calendar intake and reminders (`cli/src/apple_sync.rs`), outbound-to-Apple delivery (`drain` +
+the event outbox), the mailbox service (`middle/services/src/mailbox.rs`, 1265 lines), WhatsApp,
 website forms. `apple-gateway-worker.ts` (230 lines) is the outbound path → **KILL**, the Rust side
-already exists. The Forge control plane is Rust too (`rust/forge/src/bin/forge.rs`, `forge_task.rs`,
+already exists. The Forge control plane is Rust too (`forge/src/bin/forge.rs`, `forge_task.rs`,
 `forge_worker.rs`), which is why ~20 `forge-*.ts` files are **KILL** — they were replaced, not deleted.
 
 ## 3. The other 179: KILL
@@ -58,7 +58,7 @@ loader, dev fixtures, story scaffolding, the runtime dogfood harness. None of it
 
 **Two exceptions, and they matter — and both are already Rust (corrected 2026-09-28):**
 `forge-packet-lint.ts` (663) and `forge-sync-agents.ts` (172) are the gates that keep AGENTS.md and the
-vendor pointer files honest. They are no longer enforced by nothing: `rust/cli/src/forge/{lint,sync_agents,vendor_block}.rs`
+vendor pointer files honest. They are no longer enforced by nothing: `cli/src/forge/{lint,sync_agents,vendor_block}.rs`
 replace them, `package.json` runs the Rust binary (`forge:packet-lint` → `forge harness-lint`,
 `forge:sync-agents` → `forge sync-agents`), and both were run green on 2026-09-28. The earlier claim that they
 "cannot run at all" was true of the deleted TypeScript and is now stale. Nothing to port here.
@@ -95,7 +95,7 @@ argument for keeping them survived measurement.
   dead trees go — not before.
 - **§1 above is stale.** All four "PORT" files (`apple-calls-intake.ts`, `load-apple-contacts.ts`,
   `project-apple-contacts.ts`, `promote-warehouse.ts`) are already absent from `git ls-files`, and the Apple
-  chain's promotion hop is Rust (`rust/cli/src/apple_contacts.rs`, `rust/cli/src/apple_mail/promote.rs`).
+  chain's promotion hop is Rust (`cli/src/apple_contacts.rs`, `cli/src/apple_mail/promote.rs`).
   "Marked, not deleted" existed to preserve intent for work not yet ported; that work is done, or its files
   are gone.
 
@@ -139,7 +139,7 @@ and **no TypeScript at all**. Measured after the move, on the tree without it:
   §5.1 measured are gone, so §5.1's open question ("banner them or delete them?") is answered by the move. What
   remains of that finding: the sweep still does not look at this repository's remaining JavaScript, which is five
   files and would cost nothing to cover.
-- **`rust/cli/src/forge/test_section.rs` was deliberately not touched.** The gate's section classifier still
+- **`cli/src/forge/test_section.rs` was deliberately not touched.** The gate's section classifier still
   classifies `legacy/...` paths and still lists `legacy/workflow_app/tests` as a test root: `--since` diffs
   contain those paths now that the deletion itself is in history (`historical_fence_paths_keep_their_sections`),
   and the root is guarded by `if path.exists()`. Removing either would change what the gate reports, and a

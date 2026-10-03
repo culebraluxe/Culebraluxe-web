@@ -98,7 +98,7 @@ Override the log location with `AGENT_WORKER_LOG_DIR`.
 ### `FORGE_ALLOW_PUBLISH` — the publish kill switch
 
 `forge` publishes a Smith's candidate by pushing it to `origin/main`
-(`rust/forge/src/engine/git_publish.rs`). That path is the **only** door out:
+(`forge/src/engine/git_publish.rs`). That path is the **only** door out:
 House Rule 1 refuses a push of any branch but `main` (`.githooks/pre-push`), so a
 candidate cannot leave this machine as an `agent/*` branch.
 

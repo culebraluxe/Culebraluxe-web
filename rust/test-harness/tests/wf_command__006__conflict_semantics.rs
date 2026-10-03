@@ -13,13 +13,13 @@
 //! `Store` — the durable instance and the durable event log. Level: L3 Composition, harness `WorkflowHarness`.
 //!
 //! The production lines this contract pins:
-//! `rust/core/workflow/src/engine/handle_join.rs:287-303` emits `command.failed` and then maps **`Conflict` to
+//! `middle/workflow/src/engine/handle_join.rs:287-303` emits `command.failed` and then maps **`Conflict` to
 //! `ProcessOutcome::Conflict`** while every other non-success maps to `ProcessOutcome::Failed`;
-//! `rust/core/workflow/src/engine/execute_node_leave.rs:216-220` maps the conflict outcome to `ProcessStatus::Error`;
-//! `rust/core/workflow/src/engine/execute_node_leave.rs:263-267` emits `process.conflict` (distinct from
-//! `process.failed`); `rust/core/workflow/src/engine/execute_node_leave.rs:223-238` cancels the still-active token;
-//! and `rust/core/workflow/src/engine/handle_join.rs:226-240` records the command with the outcome string actually
-//! returned. `ApplicationCommandOutcome::Conflict` is `rust/core/workflow/src/types.rs:336-356`.
+//! `middle/workflow/src/engine/execute_node_leave.rs:216-220` maps the conflict outcome to `ProcessStatus::Error`;
+//! `middle/workflow/src/engine/execute_node_leave.rs:263-267` emits `process.conflict` (distinct from
+//! `process.failed`); `middle/workflow/src/engine/execute_node_leave.rs:223-238` cancels the still-active token;
+//! and `middle/workflow/src/engine/handle_join.rs:226-240` records the command with the outcome string actually
+//! returned. `ApplicationCommandOutcome::Conflict` is `middle/workflow/src/types.rs:336-356`.
 //!
 //! The shape matters. The distinguishing negative is the whole point: the *same* graph run with a
 //! `ValidationFailure` must end as `ProcessOutcome::Failed` with `process.failed`, so a boundary that collapsed
@@ -28,7 +28,7 @@
 //! not an artifact of a broken graph.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__006__conflict_semantics
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__006__conflict_semantics
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};

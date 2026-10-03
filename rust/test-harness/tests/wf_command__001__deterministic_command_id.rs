@@ -2,11 +2,11 @@
 //!
 //! Contract: the command id the `WorkflowEngine` mints for a `command` node is a **pure function** of
 //! `(process_instance_id, node_id, visit_sequence)` — `command_id` at
-//! `rust/core/workflow/src/engine/handle_join.rs:359`, the derivation production runs
+//! `middle/workflow/src/engine/handle_join.rs:359`, the derivation production runs
 //! (`handle_command` reads the committed visit count, `visit_sequence = command_visit_count + 1` at
-//! `rust/core/workflow/src/engine/handle_join.rs:201`, then hashes the triple). The same triple yields the same
+//! `middle/workflow/src/engine/handle_join.rs:201`, then hashes the triple). The same triple yields the same
 //! id whatever the wall clock says; the id is the global dedup key the store refuses to duplicate
-//! (`rust/core/workflow/src/memory.rs:582-606`, mirrored by the production unique index).
+//! (`middle/workflow/src/memory.rs:582-606`, mirrored by the production unique index).
 //!
 //! This file exercises the production boundary, not a re-declaration of it. The real `WorkflowEngine<MemoryStore>`
 //! is driven through `start_process` and `complete_task`; its `command` node calls the production `ApplicationPort`
@@ -15,7 +15,7 @@
 //! `WorkflowHarness`.
 //!
 //! The shape matters. Production mints an instance id **once**, randomly, with `uuid_v4()`
-//! (`rust/core/workflow/src/neon/new_id.rs:7-9`), and never re-derives it, so two independent runs are two distinct
+//! (`middle/workflow/src/neon/new_id.rs:7-9`), and never re-derives it, so two independent runs are two distinct
 //! identities and must mint two distinct command ids. A determinism proof that starts a *fresh* engine twice and
 //! finds the same id is therefore proving a `MemoryStore` counter artifact, not this contract. So the contract is
 //! pinned to a **fixed, committed instance**: the process commits and parks on a task, the clock moves, the command
@@ -24,7 +24,7 @@
 //! test cannot pass if the id stops being a function of the whole triple.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};

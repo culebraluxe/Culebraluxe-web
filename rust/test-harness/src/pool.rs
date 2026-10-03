@@ -80,7 +80,7 @@ pub enum PoolFault {
     LockTimeout,
     /// `idle_in_transaction_session_timeout` fired: SQLSTATE `25P03`. The name says "timeout", but it TERMINATES THE
     /// SESSION rather than cancelling a statement, so it is a connection failure (`DatabaseUnavailable`), not a
-    /// `Timeout` — the trap the classifier explicitly refuses (`rust/core/db/src/error.rs:161-170`).
+    /// `Timeout` — the trap the classifier explicitly refuses (`db/src/error.rs:161-170`).
     IdleInTransactionTimeout,
     /// The server has no free connection slots: SQLSTATE `53300`. A pool-boundary connection failure, not a `Timeout`.
     ConnectionExhausted,

@@ -9,8 +9,8 @@ legacy TypeScript estate is not the specification.
 ## Scope
 
 In: `rust/test-harness/tests/runtime_pool__003__timeout.rs`, the one canonical file, and the production boundary it
-exercises (`DbFailure::from_sqlx`, `rust/core/db/src/error.rs`, and the production retry loop `db::retry`,
-`rust/core/db/src/retry.rs`), driven through the harness seam `DbPoolFaultHarness` (`rust/test-harness/src/pool.rs`).
+exercises (`DbFailure::from_sqlx`, `db/src/error.rs`, and the production retry loop `db::retry`,
+`db/src/retry.rs`), driven through the harness seam `DbPoolFaultHarness` (`rust/test-harness/src/pool.rs`).
 
 Out: porting any TypeScript test; any live external provider; any PRODUCTION database connection; any change to the
 production classifier or retry loop (none was needed).
@@ -29,9 +29,9 @@ cannot pass.
 - `rust/test-harness/tests/runtime_pool__003__timeout.rs:1-260` — the canonical test.
 - `rust/test-harness/src/pool.rs:1-238` — `DbPoolFaultHarness` / `PoolFault`, the driver-shaped fault seam (runs production classification, classifies nothing itself).
 - `rust/test-harness/src/pool.rs:72-121` — the fault taxonomy, including `PoolTimedOut`, `StatementTimeout`, `LockTimeout`, `IdleInTransactionTimeout`, `ConnectionExhausted`, `ConstraintViolation`, `SchemaMismatch`.
-- `rust/core/db/src/error.rs:83-151` — `DbFailure::from_sqlx`, the one production classifier of driver errors.
-- `rust/core/db/src/error.rs:154-173` — `classify_sqlstate`, including the `25P03`/`53300` connection-class branch.
-- `rust/core/db/src/retry.rs:54-74` — `retry`, the production bounded retry loop that consumes `retryable`.
+- `db/src/error.rs:83-151` — `DbFailure::from_sqlx`, the one production classifier of driver errors.
+- `db/src/error.rs:154-173` — `classify_sqlstate`, including the `25P03`/`53300` connection-class branch.
+- `db/src/retry.rs:54-74` — `retry`, the production bounded retry loop that consumes `retryable`.
 
 ## Acceptance criteria
 
@@ -44,8 +44,8 @@ cannot pass.
 7. No legacy TypeScript test ported. — met.
 8. Deterministic and isolated; never PROD; no live provider. — met: the fault is a value, the harness never connects.
 9. Coverage named and discoverable even where the invariant already held. — met: this canonical file.
-10. `cargo test --manifest-path rust/Cargo.toml -p test-harness --test runtime_pool__003__timeout` executed and its PASS/FAIL recorded. — met.
-11. `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` passes. — met.
+10. `cargo test --manifest-path Cargo.toml -p test-harness --test runtime_pool__003__timeout` executed and its PASS/FAIL recorded. — met.
+11. `cargo check --manifest-path Cargo.toml --workspace --all-targets` passes. — met.
 
 ## Preconditions
 
@@ -73,8 +73,8 @@ SCOPED
 
 ## Assay commands
 
-- cargo test --manifest-path rust/Cargo.toml -p test-harness --test runtime_pool__003__timeout
-- cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+- cargo test --manifest-path Cargo.toml -p test-harness --test runtime_pool__003__timeout
+- cargo check --manifest-path Cargo.toml --workspace --all-targets
 
 ## Raw verification — fast_smith self-heal (2026-09-30, task 50923a1c)
 
@@ -97,25 +97,25 @@ What changed:
 The commands below are this node's own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test runtime_pool__003__timeout
+$ cargo test --manifest-path Cargo.toml -p test-harness --test runtime_pool__003__timeout
 running 1 test
 test runtime_pool_003__timeout ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.86s
 CHECK_EXIT=0
 ```
 
 Mutation check (this node's own, the `25P03`/`53300` clause): deleting `25P03` and `53300` from the connection-class
-branch at `rust/core/db/src/error.rs:169` makes the new clause fail at
+branch at `db/src/error.rs:169` makes the new clause fail at
 `rust/test-harness/tests/runtime_pool__003__timeout.rs:114` (`IdleInTransactionTimeout is a session/connection
 failure`), `test result: FAILED` (exit 101):
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test runtime_pool__003__timeout
+$ cargo test --manifest-path Cargo.toml -p test-harness --test runtime_pool__003__timeout
 thread 'runtime_pool_003__timeout' panicked at test-harness/tests/runtime_pool__003__timeout.rs:114:9:
 assertion `left == right` failed: IdleInTransactionTimeout is a session/connection failure
   left: Unknown

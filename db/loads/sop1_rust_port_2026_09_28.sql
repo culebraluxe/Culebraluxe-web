@@ -12,31 +12,31 @@ set architect_brief = architect_brief || $sop$
 RUST PORT AMENDMENT 2026-09-28 - THE SAME DOCTRINE, NEW MACHINERY
 ================================================================================
 
-The doctrine and the 2026-09-11/12 amendment above still hold. Forge is now Rust (rust/forge), and every
+The doctrine and the 2026-09-11/12 amendment above still hold. Forge is now Rust (forge), and every
 TypeScript script the earlier amendment names is dead. What a watcher uses today:
 
 1. WHAT RUNS FORGE. launchd com.culebraluxe.agent-worker ticks every 180s (installed by
 pnpm agent:scheduler:install, stopped by pnpm agent:scheduler:stop) and runs scripts/agent-worker-once.sh, which
-runs the Rust forge-worker binary (rust/forge/src/bin/forge_worker.rs). Stop the scheduler before any manual drive.
+runs the Rust forge-worker binary (forge/src/bin/forge_worker.rs). Stop the scheduler before any manual drive.
 
 2. HOW TO WATCH - ASK THE ROWS. pnpm forge:doctor (open engine tasks, active claims), pnpm forge:batch:status and
 pnpm forge:roi are Rust (cli forge ...) and read PROD. The rows: agent_work_item, forge_engine_task_execution,
 forge_tool_artifact, storyboard_story_run, forge_workflow_evidence, app_error. One query, one answer - never a log
 tail. pnpm forge:clean is a PRODUCTION action with --force: it needs the captain's go every time.
 
-3. PROD ONLY, STILL. The fail-closed guard is rust/forge/src/engine/execution_target.rs
+3. PROD ONLY, STILL. The fail-closed guard is forge/src/engine/execution_target.rs
 (FORGE_EXECUTION_ENVIRONMENT = "PROD"). pnpm forge:sync-history is DEAD (scripts/sync-forge-history.ts) and has no
 Rust port: a history gap has no recovery tool today. Report it; do not re-run work to fill it.
 
 4. RELEASE GATES. pnpm db:parity and pnpm db:migrations are now Rust (cli db-tool parity / status). Still gates,
 not reports, and a branch reset still hides drift.
 
-5. THE ARCHITECTURE GATE NEVER RUNS. rust/forge/src/engine/qa_adjudicate.rs reads arch_ran, and no Rust code sets
+5. THE ARCHITECTURE GATE NEVER RUNS. forge/src/engine/qa_adjudicate.rs reads arch_ran, and no Rust code sets
 it, so the honest reading is INCOMPLETE on every run. pnpm forge:tools is dead. knip and dependency-cruiser are now
 installed but check TypeScript, which is not the product.
 
 6. DEPLOY RECEIPTS. Release evidence is now derived in Rust (derive_release_evidence,
-rust/forge/src/engine/role_slice.rs). Whether real runs populate it is NOT VERIFIED - check the rows before
+forge/src/engine/role_slice.rs). Whether real runs populate it is NOT VERIFIED - check the rows before
 classifying a devops-receipt HOLD. A fabricated receipt is still worse than a HOLD.
 
 7. THE SPLIT DOOR. The FORGE_SPLIT_* switches no longer exist. split_eligibility (engine/graph.rs) and the split

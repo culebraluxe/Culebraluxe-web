@@ -6,19 +6,19 @@
 //! this module opens a socket, reads a credential, or names a provider endpoint, and each fake answers
 //! [`SignatureProvider::name`] with a `fake-` prefix so a log makes plain which side answered.
 //!
-//! The fakes implement `service::SignatureProvider`, the same trait the BoldSign adapter implements, so a service
+//! The fakes implement `services::SignatureProvider`, the same trait the BoldSign adapter implements, so a service
 //! test is wired to the real boundary and substituted at the adapter seam production itself uses.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use domain::{
+use model::{
     SignatureArtifactDownload, SignatureProviderActionResult, SignatureProviderEvent,
     SignatureProviderSendRequest, SignatureProviderSendResult, SignatureProviderStatusResult,
     SignatureRequestStatus, SignatureWebhookVerification,
 };
-use service::SignatureProvider;
+use services::SignatureProvider;
 
 /// One call the code under test made against the fake.
 #[derive(Debug, Clone, PartialEq, Eq)]

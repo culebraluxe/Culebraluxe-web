@@ -1,9 +1,9 @@
 //! ARCH.BOUNDARY — the UI cannot import the database crate (TST-ARCH-BOUNDARY-003).
 //!
 //! Contract: the browser bundle contains no database client, because the UI is compiled for `wasm32` and has no
-//! socket to a database at all. `rust/ui/Cargo.toml` names `domain`, `serde`, `chrono`, `base64` and the wasm bindings,
+//! socket to a database at all. `web/ui/Cargo.toml` names `domain`, `serde`, `chrono`, `base64` and the wasm bindings,
 //! and no member of the workspace that owns a connection — not `db`, not `sqlx`, not `server`, not `service`, not
-//! `forge`, not `workflow`. All 146 files under `rust/ui/src` are equally free of a client, a driver URL and a SQL
+//! `forge`, not `workflow`. All 146 files under `web/ui/src` are equally free of a client, a driver URL and a SQL
 //! statement.
 //!
 //! Both halves are checked, because either one alone can be satisfied while the boundary is broken: a dependency-free
@@ -14,7 +14,7 @@
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test arch_boundary__003__ui_cannot_import_db_crate
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test arch_boundary__003__ui_cannot_import_db_crate
 
 use test_harness::source;
 
@@ -23,11 +23,11 @@ use test_harness::source;
 const FORBIDDEN_CRATES: [&str; 12] = [
     "db",
     "sqlx",
-    "server",
-    "service",
+    "web",
+    "services",
     "forge",
     "workflow",
-    "integrations",
+    "apis",
     "cli",
     "auth",
     "tokio",
@@ -38,7 +38,7 @@ const FORBIDDEN_CRATES: [&str; 12] = [
 /// What a UI source file may never contain: a database client, a driver URL, or a SQL statement in code.
 fn db_access(line: &str) -> Option<&'static str> {
     // Comments are read as prose here too, not as code: the tree has exactly one line naming a client token — the note
-    // at `rust/ui/src/flight_recorder.rs:1687` recording that its vocabulary was measured against `DATABASE_URL_DEV` —
+    // at `web/ui/src/flight_recorder.rs:1687` recording that its vocabulary was measured against `DATABASE_URL_DEV` —
     // and a comment is not a connection.
     let code = source::code_of(line);
     for client in [
@@ -75,11 +75,11 @@ fn db_access(line: &str) -> Option<&'static str> {
 fn arch_boundary_003__ui_cannot_import_db_crate() {
     // 1. The manifest. The UI's own dependency table is the boundary, so it is read as a table, not as text: a mention
     //    of `db` inside a comment or a feature name must not satisfy the rule, and a real entry must not slip past it.
-    let manifest = source::read(&source::rust_root().join("ui/Cargo.toml"));
+    let manifest = source::read(&source::rust_root().join("web/ui/Cargo.toml"));
     let declared = source::manifest_keys(&manifest, "dependencies");
     assert!(
-        declared.iter().any(|key| key == "domain"),
-        "the UI's dependency table must have been found; it lists domain (found: {declared:?})"
+        declared.iter().any(|key| key == "model"),
+        "the UI's dependency table must have been found; it lists model (found: {declared:?})"
     );
 
     let offenders: Vec<String> = declared
@@ -92,9 +92,9 @@ fn arch_boundary_003__ui_cannot_import_db_crate() {
         "the UI bundle cannot link these crates: {offenders:?}"
     );
 
-    // 2. The sources. Every file under `rust/ui/src`, not just the screens.
+    // 2. The sources. Every file under `web/ui/src`, not just the screens.
     let rust = source::rust_root();
-    let ui_src = rust.join("ui/src");
+    let ui_src = rust.join("web/ui/src");
     let paths = source::sources_under(&ui_src);
     assert!(
         paths.len() >= 100,
@@ -150,7 +150,7 @@ fn arch_boundary_003__ui_cannot_import_db_crate() {
             "/// measured read-only against DATABASE_URL_DEV: forge_observer/command/domain; RUN_START/RUN_END"
         ),
         None,
-        "the note at rust/ui/src/flight_recorder.rs:1687 names an env var in prose, not a client"
+        "the note at web/ui/src/flight_recorder.rs:1687 names an env var in prose, not a client"
     );
     assert!(
         db_access("let selected = inventory.iter().filter(|p| p.featured).count();").is_none(),

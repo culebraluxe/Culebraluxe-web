@@ -92,8 +92,8 @@ closed on empty `--source-account` and on DEV/PROD URL ambiguity.
 ## 6. Projection command
 
 ```sh
-cargo run --manifest-path rust/Cargo.toml -p cli -- apple-sync contacts-project dev
-cargo run --manifest-path rust/Cargo.toml -p cli -- apple-sync contacts-project prod
+cargo run --manifest-path Cargo.toml -p cli -- apple-sync contacts-project dev
+cargo run --manifest-path Cargo.toml -p cli -- apple-sync contacts-project prod
 ```
 
 `apple_contacts_project` (migration 254) reads the **latest staged revision** per

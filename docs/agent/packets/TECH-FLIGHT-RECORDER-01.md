@@ -18,9 +18,9 @@ cleaned first).
 
 | Piece | State |
 | --- | --- |
-| The trace read | **Rust, done.** `rust/core/db/src/flight_recorder.rs` (846 lines), `rust/core/domain/src/flight_recorder.rs` (`FlightRecorderTransaction`: transaction context, workflows with `graph` + `node_states`, events, `instances` window), `rust/server/src/flight_recorder/mod.rs` (`transaction(instance_id)`, authorized + audited). |
+| The trace read | **Rust, done.** `db/src/flight_recorder.rs` (846 lines), `middle/model/src/flight_recorder.rs` (`FlightRecorderTransaction`: transaction context, workflows with `graph` + `node_states`, events, `instances` window), `web/src/flight_recorder/mod.rs` (`transaction(instance_id)`, authorized + audited). |
 | A route | `/v1/flight-recorder/{id}` only (`routes.rs`) — **the internal API; a page cannot reach it.** |
-| The screen | `rust/ui/src/app/screens/flight_recorder.rs` — a "widget removed" placeholder. The list (`tech-flight-recorder`) is `Nav::Retired`; `portal_bridge.rs` still answers `screen=tech-flight-recorder` (with `workflows`). |
+| The screen | `web/ui/src/app/screens/flight_recorder.rs` — a "widget removed" placeholder. The list (`tech-flight-recorder`) is `Nav::Retired`; `portal_bridge.rs` still answers `screen=tech-flight-recorder` (with `workflows`). |
 
 ## The original (read in full — `git show 4cf98110^:<path>`)
 
@@ -83,15 +83,15 @@ cleaned first).
 `groupEventsBySystem`, `isSelectedCausalEdge`, `rawEventFields`), `lib/causal-graph.ts` (`buildCausalGraph`,
 `layoutGraph`), `components/portal/tech/flight-recorder-console/useFlightRecorderState.ts` (filters, density, the
 default selection), `format.ts` (`formatClock`, `formatDisplayTime`, `formatDuration`, `formatOffset`), `KindGlyph.tsx`
-(the per-kind glyphs — port the paths into `rust/ui/src/icons.rs` style).
+(the per-kind glyphs — port the paths into `web/ui/src/icons.rs` style).
 
 ## Build plan
 
 1. `GET /api/portal/flight-recorder/{instanceId}` in `portal_bridge.rs`, calling `services().flight_recorder()
    .transaction(..)` (same auth as the other portal reads).
-2. Pure Rust in `rust/ui/src/flight_recorder.rs`: the adapter, the view helpers, both layouts, the formats — with unit
+2. Pure Rust in `web/ui/src/flight_recorder.rs`: the adapter, the view helpers, both layouts, the formats — with unit
    tests for each classifier and both layouts (fixtures from a real Forge trace on DEV).
-3. The screen on the `Screen` trait (`rust/ui/src/app/screens/flight_recorder.rs`): the three columns and five views
+3. The screen on the `Screen` trait (`web/ui/src/app/screens/flight_recorder.rs`): the three columns and five views
    above, SVG for the graphs and swimlane, keyboard on the timeline container (not a window listener). A trace of a few
    hundred events renders without virtualization; window it only if a real trace needs it.
 4. Put the list back in the Tech menu (`model.rs` `tech-flight-recorder` `Nav::Retired` → listed) and check the Cockpit
@@ -104,7 +104,7 @@ no Forge changes.
 
 ## Verification (2026-09-29)
 
-Landed by `dcf2be3f` (the port: `rust/ui/src/flight_recorder.rs`, the screen, the portal route
+Landed by `dcf2be3f` (the port: `web/ui/src/flight_recorder.rs`, the screen, the portal route
 `/api/portal/flight-recorder/{id}`) and `2110d6a5` (timeline arrow `preventDefault`). `dcf2be3f` is on `origin/main`;
 `2110d6a5` is local only — this node's brief says **do not push**, so nothing was pushed from here.
 
@@ -120,11 +120,11 @@ Landed by `dcf2be3f` (the port: `rust/ui/src/flight_recorder.rs`, the screen, th
   Workflow Graph showed the real node names (Architect, Architect Review Gate, Research Complete, Deploy, …); the
   Causality Graph, System Swimlane (Forge Observer lane) and Raw Events table all rendered. **No page errors, no
   "could not load" banner.** The literal Safari confirmation on the owner's machine remains his manual step.
-- **No TypeScript:** the commits touched only `rust/**/*.rs` and `rust/ui/Cargo.toml`.
+- **No TypeScript:** the commits touched only `rust/**/*.rs` and `web/ui/Cargo.toml`.
 
 **Deviation from build plan step 4 — the old list is deliberately NOT put back in the Tech menu.** There is no
 registry mount for `tech-flight-recorder`, its retirement is a deliberate owner decision recorded in `model.rs`, and
 the registry test `the_rail_is_the_designed_menu_in_its_order` fixes the Tech rail to *Cockpit / Story Board / UI Lab*.
-The console is reached from the Cockpit (`rust/ui/src/app/screens/tech/view/engine.rs:105` and `workbench.rs:177`) and
-by direct URL (`trace-record`, `rust/ui/src/app/registry.rs:199`). Listing the old list would be a dead link and would
+The console is reached from the Cockpit (`web/ui/src/app/screens/tech/view/engine.rs:105` and `workbench.rs:177`) and
+by direct URL (`trace-record`, `web/ui/src/app/registry.rs:199`). Listing the old list would be a dead link and would
 reopen a decision the registry closed.

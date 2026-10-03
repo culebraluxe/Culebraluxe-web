@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = [
+    "web",
+    "web/ui",
+    "web/auth",
+    "middle/model",
+    "middle/services",
+    "middle/workflow",
+    "middle/apis",
+    "db",
+    "cli",
+    "forge",
+    "rust/test-harness",
+]
+# `experiments/` is deliberately OUTSIDE the workspace. The bench crate there exists to compare stacks we have not
+# adopted - it pulls tokio-postgres and deadpool, which production must not depend on. Excluding it keeps
+# `cargo check --workspace` and the test suite measuring the shipped code and nothing else. Build it from its own
+# directory: `cd experiments/pool-bench && cargo run --release`.
+exclude = ["experiments/pool-bench"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+publish = false
+
+[workspace.dependencies]
+base64 = "0.22"
+axum = { version = "0.8", features = ["multipart"] }
+tower-http = { version = "0.6", features = ["fs"] }
+tower = { version = "0.5", features = ["util"] }
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+hmac = "0.12"
+flate2 = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+sha2 = "0.10"
+subtle = "2"
+sqlx = { version = "0.9", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls-ring-native-roots",
+    "postgres",
+    "chrono",
+    "derive",
+    "json",
+] }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+unicode-normalization = "0.1"

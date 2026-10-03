@@ -17,7 +17,7 @@ Before this pass, `static gates` died on a useless regex escape and then on gitl
 false positives), and the Rust job's history-reader test could not see a `git log` because the
 checkout was shallow. Each was fixed rather than skipped; see `6a03f802`, `93344aaf`, `d7756e46`.
 
-## `cargo test -p db -p server -p forge -p workflow`
+## `cargo test -p db -p web -p forge -p workflow`
 
 ```
 252 passed; 0 failed; 0 ignored     (across the four crates, --no-fail-fast, exit 0)
@@ -98,7 +98,7 @@ libpq **startup packet** (`PgConnectOptions::options`), and both DEV and PROD ar
 where PgBouncer refuses it — `unsupported startup parameter in options: statement_timeout`, SQLSTATE
 08P01. Every connection died before a single query. No unit test opens a socket, so a green `cargo test`
 said nothing about it. Fixed in `7a187251` by applying the ceiling with `after_connect` (a static statement,
-the value as a bind), with `rust/core/db/tests/pool_connect_dev.rs` as the live DEV test that fails at
+the value as a bind), with `db/tests/pool_connect_dev.rs` as the live DEV test that fails at
 connect for the old mistake: it reads the ceiling back from the server, proves it survives a later
 checkout, and proves a `pg_sleep(40)` is cancelled at the 30s ceiling (1 passed, 34.55s).
 
@@ -110,17 +110,17 @@ checkout, and proves a `pg_sleep(40)` is cancelled at the 30s ceiling (1 passed,
    braces in them):
 
    ```
-   683  rust/server/src/api/portal_bridge/forms_write.rs:6   forms_write
-   379  rust/server/src/tech.rs:138                          command
-   150  rust/core/domain/src/deal_portal.rs:107              derive_deal_health
-   105  rust/server/src/signature/mod.rs:241                 send
-    37  rust/server/src/forms/mod.rs:222                     update_instance
+   683  web/src/api/portal_bridge/forms_write.rs:6   forms_write
+   379  web/src/tech.rs:138                          command
+   150  middle/model/src/deal_portal.rs:107              derive_deal_health
+   105  web/src/signature/mod.rs:241                 send
+    37  web/src/forms/mod.rs:222                     update_instance
    ```
 
    Two were genuinely too big (`forms_write`, `tech::command`). **`forms_write` is now split** (this pass,
    2026-09-28): it was not tangled logic but four whole handlers stacked in one `match`, and the move was
    **text-exact** — each arm's body was sliced out and re-emitted in
-   `rust/server/src/api/portal_bridge/forms_write_actions.rs` unchanged, the arm became a call, and the
+   `web/src/api/portal_bridge/forms_write_actions.rs` unchanged, the arm became a call, and the
    compiler checked every captured local (it caught one: `save_or_issue` reads `action` to tell `save`
    from `issue`, now passed in rather than re-derived). Sizes after the split: `forms_write.rs` is 69
    lines (the dispatcher, `camel_keys`, `str_at`) and the actions file is 667 lines across four
@@ -128,7 +128,7 @@ checkout, and proves a `pg_sleep(40)` is cancelled at the 30s ceiling (1 passed,
    no `form_id`; the other three act on an existing instance and take `form_id: Option<&str>`, which each
    already refused as its first act.
 
-   **Verified as a move, not as a rewrite.** `cargo check -p server --all-targets` clean, `cargo test -p
+   **Verified as a move, not as a rewrite.** `cargo check -p web --all-targets` clean, `cargo test -p
    server` 106 passed, and the text itself compared at token level: each arm body, whitespace-free, is
    present unchanged in the new file (630 lines moved, 0 altered; braces and commas excluded because
    rustfmt is entitled to collapse `{ StatusCode::BAD_REQUEST }` once the body is dedented — it did

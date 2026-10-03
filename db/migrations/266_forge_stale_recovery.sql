@@ -1,8 +1,8 @@
 -- 266_forge_stale_recovery.sql
 --
 -- WHY: the three stale-recovery writes were transactions choreographed from Rust — `ForgeControlDao::
--- hold_stale_work` and `requeue_stale_work` (rust/core/db/src/forge_control.rs) and the per-claim transaction of
--- `ForgeResetDao::recover_stale_engine_claims` (rust/core/db/src/forge_reset.rs). Each is one atomic database
+-- hold_stale_work` and `requeue_stale_work` (db/src/forge_control.rs) and the per-claim transaction of
+-- `ForgeResetDao::recover_stale_engine_claims` (db/src/forge_reset.rs). Each is one atomic database
 -- write, so each lives here now and the DAO binds parameters. Translated as-is — the fifth stored-routine slice
 -- after 262–265. The POLICY that chooses between hold and requeue (role, attempts) and the run interrupt stay
 -- with the worker that owns the sweep; the candidate list stays a plain read; and the engine-claim sweep keeps

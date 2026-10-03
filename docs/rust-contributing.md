@@ -10,21 +10,21 @@ Work flows outward. Pick your entry point by what you are changing:
 | you are changing | start here |
 | --- | --- |
 | A screen's look or interaction | `app/`, `components/` (TypeScript) |
-| What a screen shows, aggregating domain data | `rust/ui` (MVI) or an existing route |
-| A business rule or transition | `rust/core/domain`, `rust/core/workflow` |
-| A query or table | `rust/core/db` + `db/migrations/NNN_*.sql` |
-| An endpoint | `rust/server/src/api/routes.rs` + a service in `rust/server/src/<area>/` |
-| Engine behaviour (timers, tasks, reclaim) | `rust/forge/src/engine/` |
+| What a screen shows, aggregating domain data | `web/ui` (MVI) or an existing route |
+| A business rule or transition | `middle/model`, `middle/workflow` |
+| A query or table | `db` + `db/migrations/NNN_*.sql` |
+| An endpoint | `web/src/api/routes.rs` + a service in `web/src/<area>/` |
+| Engine behaviour (timers, tasks, reclaim) | `forge/src/engine/` |
 
 ### Adding an endpoint, end to end
 
-1. **Domain type** in `rust/core/domain` if the response shape is new.
-2. **DAO** in `rust/core/db/src/<area>.rs`: `sqlx::query_as::<_, Row>` with **binds** (`$1`), a `FromRow` struct, and
+1. **Domain type** in `middle/model` if the response shape is new.
+2. **DAO** in `db/src/<area>.rs`: `sqlx::query_as::<_, Row>` with **binds** (`$1`), a `FromRow` struct, and
    `DbFailure::from_sqlx("area.operation", &error)` on the error path. Read paths go through the repository trait so
    they get retry — see `impl ClientRepository for ClientDao`.
-3. **Service** in `rust/server/src/<area>/mod.rs`: a repository trait implemented for the DAO, an `authorize(...)` call,
+3. **Service** in `web/src/<area>/mod.rs`: a repository trait implemented for the DAO, an `authorize(...)` call,
    the work, then `audit_result(...)`. This is where policy lives, not in the route.
-4. **Composition**: wire the service into `rust/server/src/composition.rs` so `state.services()` can build it.
+4. **Composition**: wire the service into `web/src/composition.rs` so `state.services()` can build it.
 5. **Route** in `routes.rs`: resolve the context first (`resolve_request_context`), call the service, wrap with
    `success(value, &resolved)`. Register it in `build_router` next to its siblings.
 6. **Tests**: a `#[cfg(test)] mod tests` beside the code, plus a live check (below).
@@ -42,7 +42,7 @@ Captain** (`STARTUP-DELIVERY-OPERATING-RULES.md` §2): prepare and stop.
 ## Verification: three levels, all required
 
 1. **Compile**: `cargo check --workspace --all-targets` and `npx tsc --noEmit`.
-2. **Test**: `cargo test -p db -p server -p forge -p workflow`.
+2. **Test**: `cargo test -p db -p web -p forge -p workflow`.
 3. **Live check against DEV**, because unit tests do not touch a real database and this port has produced three bugs
    that only a real one could catch. Scripts: `scripts/rust-live-check/` (see its README).
 
@@ -56,8 +56,8 @@ Two techniques worth knowing, both learned the hard way:
 
 ## The Rust UI (MVI)
 
-Screens live in `rust/ui`. One `Model` is the whole screen state, `Msg` is what can happen to it, `update` is the only
-place state changes, `view` is a pure render, `shell` is the layout. `SCREENS` in `rust/ui/src/model.rs` is a table —
+Screens live in `web/ui`. One `Model` is the whole screen state, `Msg` is what can happen to it, `update` is the only
+place state changes, `view` is a pure render, `shell` is the layout. `SCREENS` in `web/ui/src/model.rs` is a table —
 add a row to add a screen. Screens are ported from the TypeScript originals one at a time; the ledger tracks which.
 
 ## Calling the API by hand

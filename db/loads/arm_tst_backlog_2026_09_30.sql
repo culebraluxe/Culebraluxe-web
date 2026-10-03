@@ -3,14 +3,14 @@
 --
 -- WHY. The deliverable of a TST-* row IS Rust test code, and the row is the specification: the architect/smith read
 -- the row's `assay_commands` (the file it must create), `acceptance_criteria`, `scope` and `context_refs`
--- (`rust/forge/src/engine/packet.rs`). Nothing outside the board decides scope — so the whole backlog can be put in
+-- (`forge/src/engine/packet.rs`). Nothing outside the board decides scope — so the whole backlog can be put in
 -- front of the engine by changing status alone.
 --
 -- WHAT. `status = 'Planned'` → `status = 'Ready'` for every TST-* row. The Ready trigger inserts at most one work
 -- item per story and never raises (`db/migrations/146_fix_storyboard_ready_dispatch_arbiter.sql:39-49`), so the status
 -- change is the whole arm. `priority` is left alone: the planner's ordering is the engine's order of work.
 --
--- WHY ALL AT ONCE, NOT FIVE. The engine claims with `limit 1` per pass (`rust/core/db/src/forge_engine.rs:757`), so a
+-- WHY ALL AT ONCE, NOT FIVE. The engine claims with `limit 1` per pass (`db/src/forge_engine.rs:757`), so a
 -- deep queue is not a flood — it is a queue that never runs dry while the engine grinds. A shallow queue makes the
 -- machine idle between my visits, which is the cost the captain measured.
 --

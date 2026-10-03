@@ -1,6 +1,6 @@
 # Skill: rust-yew-mvi
 
-A screen is one folder under `rust/ui/src/app/screens/<screen>/` holding the parts of a single loop: `update.rs`
+A screen is one folder under `web/ui/src/app/screens/<screen>/` holding the parts of a single loop: `update.rs`
 (the reducer) plus its view, document, fields and rail pieces. The reducer has exactly one shape:
 
 ```rust
@@ -18,6 +18,6 @@ pub(super) fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg>
   `pnpm ui:check` = `cargo check -p ui --features wasm --target wasm32-unknown-unknown`.
 
 ## Anchored to
-- `rust/ui/src/app/screens/forms/update.rs` — the reducer signature and `Cmd::request`.
-- `rust/ui/src/app/registry.rs` — the screen registry and its entitlement codes.
-- `rust/ui/Cargo.toml`, `package.json` — the features and `ui:check`.
+- `web/ui/src/app/screens/forms/update.rs` — the reducer signature and `Cmd::request`.
+- `web/ui/src/app/registry.rs` — the screen registry and its entitlement codes.
+- `web/ui/Cargo.toml`, `package.json` — the features and `ui:check`.

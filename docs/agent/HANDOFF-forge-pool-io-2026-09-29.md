@@ -10,19 +10,19 @@ it is §4. The live-run gate (AC #5) is still open — §5 and §6.
 
 | # | Fact | How to check it |
 | --- | --- | --- |
-| S1 | `rust/forge` opens **no** transaction at all: 0 hits for `with_tx`, `.begin(`, `Transaction`, `DbTransaction` in the whole crate (engine, execution, runtime, roles, bin). | `grep -rn --include='*.rs' -E 'with_tx\|\.begin\(\|Transaction' rust/forge/src \| wc -l` → `0` |
-| S2 | The kernel's `with_tx` is **synchronous** over a synchronous, SQL-only `Store` trait, and commits/rolls back in the same function. | `rust/core/workflow/src/store.rs:119-121` (`F: FnOnce(&mut dyn Store) -> Result<R>`), `rust/core/workflow/src/neon/neon_store.rs:62-105` |
-| S3 | All 31 kernel `with_tx` call sites are job/token/option bookkeeping, and the kernel never runs a process, a harness or a role: no `Command::new`, no `run_role`, no `tokio::spawn`. | `grep -rn 'with_tx(' rust/core/workflow/src/engine \| wc -l` → `31`; the `std::process` hits in the crate are `std::process::exit` in `rust/core/workflow/src/bin/workflow.rs` |
-| S4 | The role turn is called from **exactly one** place, and the caller holds no transaction, connection or pool handle: its fields are `harness`, `current`, `writer`, `require_prod`. | `rust/forge/src/engine/runner.rs:91` (`self.harness.run_role(node_id, task)`); struct at `rust/forge/src/engine/runner.rs:46-51` |
-| S5 | The incident's `during workflow.step` is a **constant label**, not a location: `with_tx` labels *every* kernel transaction `"workflow.step"`. | `rust/core/workflow/src/neon/neon_store.rs:68` (`self.db.begin("workflow.step")`) |
-| S6 | The only long-lived-transaction mechanism in the workspace is the server's HTTP mutation scope, and forge never touches it. | `DbTransaction::scoped` at `rust/core/db/src/transaction.rs:11`, handed out at `rust/core/db/src/pool.rs:306`, its single caller `rust/core/db/src/unit_of_work.rs:102` |
+| S1 | `forge` opens **no** transaction at all: 0 hits for `with_tx`, `.begin(`, `Transaction`, `DbTransaction` in the whole crate (engine, execution, runtime, roles, bin). | `grep -rn --include='*.rs' -E 'with_tx\|\.begin\(\|Transaction' forge/src \| wc -l` → `0` |
+| S2 | The kernel's `with_tx` is **synchronous** over a synchronous, SQL-only `Store` trait, and commits/rolls back in the same function. | `middle/workflow/src/store.rs:119-121` (`F: FnOnce(&mut dyn Store) -> Result<R>`), `middle/workflow/src/neon/neon_store.rs:62-105` |
+| S3 | All 31 kernel `with_tx` call sites are job/token/option bookkeeping, and the kernel never runs a process, a harness or a role: no `Command::new`, no `run_role`, no `tokio::spawn`. | `grep -rn 'with_tx(' middle/workflow/src/engine \| wc -l` → `31`; the `std::process` hits in the crate are `std::process::exit` in `middle/workflow/src/bin/workflow.rs` |
+| S4 | The role turn is called from **exactly one** place, and the caller holds no transaction, connection or pool handle: its fields are `harness`, `current`, `writer`, `require_prod`. | `forge/src/engine/runner.rs:91` (`self.harness.run_role(node_id, task)`); struct at `forge/src/engine/runner.rs:46-51` |
+| S5 | The incident's `during workflow.step` is a **constant label**, not a location: `with_tx` labels *every* kernel transaction `"workflow.step"`. | `middle/workflow/src/neon/neon_store.rs:68` (`self.db.begin("workflow.step")`) |
+| S6 | The only long-lived-transaction mechanism in the workspace is the server's HTTP mutation scope, and forge never touches it. | `DbTransaction::scoped` at `db/src/transaction.rs:11`, handed out at `db/src/pool.rs:306`, its single caller `db/src/unit_of_work.rs:102` |
 | S7 | The dispatched run dies **before any role-turn output**, and no story run has ever been recorded for it — so it cannot be idle-in-transaction across a turn it never reached. | `forge story-show ENG-AUTH-GOOGLE-01` → `receipt: none — no run has been recorded for this story` (same for `ENG-GUARD-AGENTS-LINT-01`); `~/Library/Logs/CulebraLuxe/agent-worker.out.log` ends at the banner (`routing-brain=Engine`, `workflow store=neon`) |
 | S8 | What did land is on `origin/main`: a session the server terminated now costs a round trip instead of a run. | `git log origin/main -1` → `d3f7552b` |
 | S9 | The first tick on the new binary **still died on 25P03** — the classifier is live (the label changed), the retry did not rescue that pass. | `~/Library/Logs/CulebraLuxe/agent-worker.out.log`, pass `08:10:04` (git-sync head `d3f7552b`) → `DatabaseUnavailable during workflow.step (incident 5e575d72-40cf-4b41-91ff-3415df054a20, sqlstate 25P03)`; `pass=1 end exit=1` at `08:13:46` |
 | S10 | `pnpm forge:clean` **empties the queue and strands it**: it cancels open work items (`forge_reset.rs:164-174`) without moving `storyboard_story.status` off `Ready`, and nothing re-queues a `Ready` story (`025_agent_work_queue.sql:104`). Measured, not inferred: `cancelled stale open work items: 8` → `open work items: 0` → the next tick `idle: no work`. | `pnpm forge:clean` output; `forge doctor`; invocations `08:17:39 idle: no work` |
 | S11 | `reset` does **not** strand (it returns the story to `Planned`, `forge_reset.rs:108-116`) — and it was not needed: `ENG-AUTH-GOOGLE-01` was already off `Ready`, because the 08:10 run took it. | `forge batch-status` → `Ready on the board` names the same 8 stories as the queue, without `ENG-AUTH-GOOGLE-01` |
 | S12 | The queue was restored by `db/migrations/258_reopen_stranded_ready_work_items.sql` (DEV then PROD, ledger-recorded), which re-opens the newest `Cancelled` item of every `Ready` story and keeps `queued_at` so FIFO order survives. Tick after it: `open work items: 11`, `08:20:40 pass=1 start`. | `cli db-tool apply … dev` / `… prod --force`; `forge doctor` |
-| S13 | **The first live run on `d3f7552b` got past the point where every earlier run died, and it is in a real role turn with the database untouched.** 25m21s alive (turn 24m01s) against the auth story's 2m40s; the turn is a live `opencode run … --model deepseek/deepseek-flash --auto Execute SDLC story TECH-FLIGHT-RECORDER-…`; it is **demonstrably working** — it wrote `rust/ui/src/flight_recorder.rs` at `08:34:34` and `rust/server/src/api/portal_bridge/flight_recorder.rs` at `08:31:41`; and `pg_stat_activity` shows **no forge session at all** during it, `IDLE-IN-TRANSACTION: 0`. The pass's log carries **no failure line**; the only `sqlstate` in it is the 08:10 death above (S9). **The step write is still absent at 08:46** — `storyboard_story_run`, `forge_engine_task_execution` and `forge_tool_artifact` are all `0` rows for this story, so AC #5's second half is open (§6 item 1). | `ps -eo pid,etime,command`; file mtimes; `pg_stat_activity` samples §5 |
+| S13 | **The first live run on `d3f7552b` got past the point where every earlier run died, and it is in a real role turn with the database untouched.** 25m21s alive (turn 24m01s) against the auth story's 2m40s; the turn is a live `opencode run … --model deepseek/deepseek-flash --auto Execute SDLC story TECH-FLIGHT-RECORDER-…`; it is **demonstrably working** — it wrote `web/ui/src/flight_recorder.rs` at `08:34:34` and `web/src/api/portal_bridge/flight_recorder.rs` at `08:31:41`; and `pg_stat_activity` shows **no forge session at all** during it, `IDLE-IN-TRANSACTION: 0`. The pass's log carries **no failure line**; the only `sqlstate` in it is the 08:10 death above (S9). **The step write is still absent at 08:46** — `storyboard_story_run`, `forge_engine_task_execution` and `forge_tool_artifact` are all `0` rows for this story, so AC #5's second half is open (§6 item 1). | `ps -eo pid,etime,command`; file mtimes; `pg_stat_activity` samples §5 |
 
 **Read S5 with S4.** The earlier reading of this failure ("the engine holds a transaction across the role turn") was
 built on three things that each mislead: the operation label `workflow.step` (S5 — it is the constant on every kernel
@@ -36,7 +36,7 @@ span, and it must not be written down as the cause until someone measures it.
 
 | # | Held | Who holds it | What an agent must do |
 | --- | --- | --- | --- |
-| H1 | The brief's premise, and the AC it implies (a commit naming the old span `file:line`; a test that fails if the span is reintroduced) | smith (this session), under the brief's own stop rule | Do not write a fence for a span that does not exist: `rust/forge` has no transaction to open, and a test asserting "no `Transaction` is in scope at `runner.rs:91`" would pass forever by construction — which is the theater the brief forbids. If a fence is still wanted it belongs on the store side (S2: `with_tx` stays synchronous and closure-scoped) |
+| H1 | The brief's premise, and the AC it implies (a commit naming the old span `file:line`; a test that fails if the span is reintroduced) | smith (this session), under the brief's own stop rule | Do not write a fence for a span that does not exist: `forge` has no transaction to open, and a test asserting "no `Transaction` is in scope at `runner.rs:91`" would pass forever by construction — which is the theater the brief forbids. If a fence is still wanted it belongs on the store side (S2: `with_tx` stays synchronous and closure-scoped) |
 | H2 | `pnpm forge:clean` and `pnpm forge:story:reset ENG-AUTH-GOOGLE-01 reset --force` | the Captain | `forge:clean` sets `APP_ENV=production` (PROD, `--force`) and is a production-mutating command; both need his explicit go, and he may prefer to type them himself |
 | H3 | Story `ENG-AUTH-GOOGLE-01`'s standing in the queue, and every other story in it | Grok / the Captain | Do not reset, re-enqueue or retitle another lane's story to make a proof run convenient |
 
@@ -45,9 +45,9 @@ span, and it must not be written down as the cause until someone measures it.
 | Your task | Read | The files you touch |
 | --- | --- | --- |
 | Re-check that no transaction spans a role turn | §1 S1–S4 and S6 of this doc — each row is a re-runnable command | nothing (read-only) |
-| Prove or kill the §5 hypothesis (a killed pass leaves a server-side session open) | §5, then the log | `rust/core/db/src/pool.rs` (`begin` retry), `rust/core/workflow/src/neon/neon_store.rs:84-103` |
+| Prove or kill the §5 hypothesis (a killed pass leaves a server-side session open) | §5, then the log | `db/src/pool.rs` (`begin` retry), `middle/workflow/src/neon/neon_store.rs:84-103` |
 | Take the live-run gate (AC #5) | §6 item 1 | nothing — it is an observation |
-| The engine's own budgets (do not undo) | `rust/forge/src/engine/db_budget.rs`, commits `9a1d53d7`, `59f75f8c` | — |
+| The engine's own budgets (do not undo) | `forge/src/engine/db_budget.rs`, commits `9a1d53d7`, `59f75f8c` | — |
 
 ## 4. DONE — what landed, with the receipts
 
@@ -103,14 +103,14 @@ terminated session costs a round trip, not a run.
 - **The 2m45s and the "Broken pipe after nine role turns" were measured by the previous session**, not re-measured
   here. They are quoted from `docs/agent/HANDOFF-forge-refire-2026-09-29.md`, whose item 5 still states the disproven
   premise and now carries a correction pointer to this file.
-- `rust/forge/src/execution/mod.rs` and `rust/forge/src/runtime/mod.rs` were read as inventories, not line by line.
+- `forge/src/execution/mod.rs` and `forge/src/runtime/mod.rs` were read as inventories, not line by line.
   The conclusion does not rest on them (§1 S1 and S4 do).
 - `pnpm forge:clean` **was** run (H2 answered Yes — §7) and it emptied the queue (§1 S10); the story reset was not
   run and is not needed (§1 S11). `db/migrations/258_reopen_stranded_ready_work_items.sql` was applied to DEV and to
   PROD — that is the only write this session made to either control plane. Nothing was deployed.
 - **This checkout's working tree is dirty with the running agent's own work, and that is not litter:**
-  `rust/server/src/api/portal_bridge.rs`, `rust/ui/src/app/api/portal.rs`, `rust/ui/src/lib.rs` modified and
-  `rust/server/src/api/portal_bridge/flight_recorder.rs`, `rust/ui/src/flight_recorder.rs` untracked, as of
+  `web/src/api/portal_bridge.rs`, `web/ui/src/app/api/portal.rs`, `web/ui/src/lib.rs` modified and
+  `web/src/api/portal_bridge/flight_recorder.rs`, `web/ui/src/flight_recorder.rs` untracked, as of
   `08:31`–`08:34`. That is the `TECH-FLIGHT-RECORDER-01` role turn implementing its story. **Do not clean, stash,
   commit or revert it**, and expect `git pull --rebase` to refuse here while a run is live — push the handoff doc
   alone and leave those files to the engine.
@@ -151,7 +151,7 @@ terminated session costs a round trip, not a run.
   where id='ENG-AUTH-GOOGLE-01'`, which fires the dispatch trigger — and running it is the cheapest way to test
   whether `d3f7552b`'s retry carries *that* failure, which a fresh story may never reproduce.
 - **Is a second fence wanted** — a store-side test asserting `with_tx` stays synchronous and closure-scoped (H1)?
-  Yes → one small commit in `rust/core/workflow`. No → §1 is the fence.
+  Yes → one small commit in `middle/workflow`. No → §1 is the fence.
 - **Was the packet's `file:line` for the old span ever written down by the lane that rewrote the brief?** If it was,
   it names a site this search says does not exist, and that is worth knowing before the next agent re-derives it.
 - **Should the `Story Board` show a story as `Ready` when it has no work item?** `forge doctor` and
@@ -167,19 +167,19 @@ disagreement, and every line below is measured, not read.
 
 | # | Fact | How to check it |
 | --- | --- | --- |
-| S14 | The worker does **not claim**: `next_ready_story()` is a bare `select story_id, kind … where state='Ready' … limit 1`, and the child gets **only** `--story/--work-type`. No `--work-item`, no `Claimed`, no `claimed_by`. | `rust/forge/src/engine/worker.rs:106-120`, `:155-179`; `rust/core/db/src/forge_control.rs:264-274` |
-| S15 | The real machinery exists and has **no caller anywhere in the workspace**: `claim_next_agent_work` (advisory lock `9_000_212`, global active-slot check, `Ready → Claimed`, `claimed_by`, `claimed_at`, `attempts+1`, ordered **`priority desc, queued_at asc, id`**), `claim_specific_agent_work`, `begin_agent_work_run` (`Claimed → Running`), `reject_agent_work_configuration`. | `rust/core/db/src/forge_engine.rs:111-198`; wrappers `rust/forge/src/engine/agent_work.rs:27-73`, re-exported at `rust/forge/src/engine/mod.rs:107`; `rg` finds no other reference |
+| S14 | The worker does **not claim**: `next_ready_story()` is a bare `select story_id, kind … where state='Ready' … limit 1`, and the child gets **only** `--story/--work-type`. No `--work-item`, no `Claimed`, no `claimed_by`. | `forge/src/engine/worker.rs:106-120`, `:155-179`; `db/src/forge_control.rs:264-274` |
+| S15 | The real machinery exists and has **no caller anywhere in the workspace**: `claim_next_agent_work` (advisory lock `9_000_212`, global active-slot check, `Ready → Claimed`, `claimed_by`, `claimed_at`, `attempts+1`, ordered **`priority desc, queued_at asc, id`**), `claim_specific_agent_work`, `begin_agent_work_run` (`Claimed → Running`), `reject_agent_work_configuration`. | `db/src/forge_engine.rs:111-198`; wrappers `forge/src/engine/agent_work.rs:27-73`, re-exported at `forge/src/engine/mod.rs:107`; `rg` finds no other reference |
 | S16 | **Consequence, dated:** `Done` newest `2026-09-19`, `Error` newest `2026-09-18`, `Cancelled` newest `2026-09-29`, `Ready` 8 rows all `2026-09-29`, **zero `Claimed`/`Running`/`Paused`**. Nothing has terminalized a work item since the cutover: the queue has had no writer but the sweep. | `select state, count(*), min(updated_at), max(updated_at) from agent_work_item group by state` |
 | S17 | The documented contract is `priority DESC, queued_at ASC` with `agent_work_item_single_active` (partial unique index) as the system-wide single-active lock — and `next_ready_work` **drops priority**, so the lock it protects is never taken. | `db/migrations/025_agent_work_queue.sql:22-23`, `:73-86`; `forge_control.rs:264-274` |
 | S18 | **The dead path carries a landmine.** `reject_agent_work_configuration` writes `state='Failed'`, and the live CHECK allows only `Ready, Claimed, Running, Paused, Done, Error, Cancelled`. Proven on DEV inside a rolled-back transaction: `new row for relation "agent_work_item" violates check constraint "agent_work_item_state_check"`. Wiring the DAO as-is throws on its first failure path. | `forge_engine.rs:187`; `pg_constraint` on `agent_work_item` |
-| S19 | **The coherent pattern already exists, for one path only:** `hold_stale_work` moves item → `Error` **and** story → `Hold` in **one transaction**; `requeue_stale_work` does the same shape back to `Ready`. That is the template for every other lifecycle transition, and the only one the Rust port kept. | `rust/core/db/src/forge_control.rs:84-114`, `:117-140` |
+| S19 | **The coherent pattern already exists, for one path only:** `hold_stale_work` moves item → `Error` **and** story → `Hold` in **one transaction**; `requeue_stale_work` does the same shape back to `Ready`. That is the template for every other lifecycle transition, and the only one the Rust port kept. | `db/src/forge_control.rs:84-114`, `:117-140` |
 | S20 | The contract the port dropped is written down in the retired worker: `4a828f3b:agent-runtime/invoker.ts` — nine responsibilities, headed by *"find next ELIGIBLE work and atomically claim it"* and closed by *"terminalize the work item"*. The file is **absent from HEAD**; `legacy/agent-runtime/` no longer exists. | `git --no-pager show 4a828f3b:agent-runtime/invoker.ts` |
 
 **Read S14 with S16.** It is not that the claim is skipped — it is that the queue stopped having a lifecycle:
 an item is created by the trigger, and from then on the only writers are `forge:clean` and stale recovery.
 That is why the same story can be dispatched again, why `capture` of the queue says `Ready` while a run is
 in flight, why the single-active lock never fires (S17), and why `forge doctor`'s claim count had to be
-de-confused from the queue once already today (`rust/core/db/src/forge_doctor.rs:201`, `:225`, and the
+de-confused from the queue once already today (`db/src/forge_doctor.rs:201`, `:225`, and the
 comment at `:252-253` recording `active claims: 8` on the morning the two were summed).
 
 **Implementation order** (scope for a new story — `ENG-FORGE-WORKER-CLAIM-01` — not started here):
@@ -221,12 +221,12 @@ the guard in 10.2.
 
 | Where | What changed |
 | --- | --- |
-| `rust/core/db/src/forge_engine.rs` | `claim_next_agent_work` selects `w.state='Ready' **and** s.status='Ready'` (join `storyboard_story`); `reject_agent_work_configuration` writes `Error` not `Failed` (10.4); new `heartbeat_agent_work`; new `finish_agent_work_run(id, AgentWorkOutcome{Done,Error,Cancelled}, error_text)` guarded by `state in ('Claimed','Running')`; `ForgeAgentWorkRow` carries `kind` so the claim keeps the lane the old selector read off `next_ready_work` |
-| `rust/core/db/src/forge_control.rs` | `next_ready_work` + `ReadyAgentWorkRow` **deleted** (only the worker used them; the shape *is* the defect, so no selector is left to re-enter the seam through) |
-| `rust/forge/src/engine/agent_work.rs` | `heartbeat_agent_work`, `finish_agent_work_run` wrappers; `AgentWorkItem.kind` |
-| `rust/forge/src/engine/worker.rs` | `next_ready_story` → `claim_next_dispatch(worker_id)` (`AGENT_WORKER_ID`, else `forge-worker-<pid>`); launches the child with `--work-item <id>`; holds a **heartbeat thread** for the child's life; settles `Error` if the launch fails or the child exits non-zero without a verdict |
-| `rust/forge/src/bin/forge.rs` | `--work-item`/`FORGE_WORK_ITEM_ID`; `begin_agent_work_run` (Claimed→Running) **before** the first role turn and only if the claim opened; `reject_agent_work_configuration` on the pre-claim configuration exits; one terminal write on the way out (`Done` on `Ok`, `Error` on `Err`); `drive` returns `Result<String,String>` so the verdict carries the reason |
-| `rust/core/db/tests/forge_work_claim_dev.rs` | the DEV proof (10.3); `worker.rs` unit tests for the heartbeat window and worker identity |
+| `db/src/forge_engine.rs` | `claim_next_agent_work` selects `w.state='Ready' **and** s.status='Ready'` (join `storyboard_story`); `reject_agent_work_configuration` writes `Error` not `Failed` (10.4); new `heartbeat_agent_work`; new `finish_agent_work_run(id, AgentWorkOutcome{Done,Error,Cancelled}, error_text)` guarded by `state in ('Claimed','Running')`; `ForgeAgentWorkRow` carries `kind` so the claim keeps the lane the old selector read off `next_ready_work` |
+| `db/src/forge_control.rs` | `next_ready_work` + `ReadyAgentWorkRow` **deleted** (only the worker used them; the shape *is* the defect, so no selector is left to re-enter the seam through) |
+| `forge/src/engine/agent_work.rs` | `heartbeat_agent_work`, `finish_agent_work_run` wrappers; `AgentWorkItem.kind` |
+| `forge/src/engine/worker.rs` | `next_ready_story` → `claim_next_dispatch(worker_id)` (`AGENT_WORKER_ID`, else `forge-worker-<pid>`); launches the child with `--work-item <id>`; holds a **heartbeat thread** for the child's life; settles `Error` if the launch fails or the child exits non-zero without a verdict |
+| `forge/src/bin/forge.rs` | `--work-item`/`FORGE_WORK_ITEM_ID`; `begin_agent_work_run` (Claimed→Running) **before** the first role turn and only if the claim opened; `reject_agent_work_configuration` on the pre-claim configuration exits; one terminal write on the way out (`Done` on `Ok`, `Error` on `Err`); `drive` returns `Result<String,String>` so the verdict carries the reason |
+| `db/tests/forge_work_claim_dev.rs` | the DEV proof (10.3); `worker.rs` unit tests for the heartbeat window and worker identity |
 
 
 ### 10.2 The heartbeat — a second hole in the same seam, found while wiring it
@@ -246,7 +246,7 @@ claimable, so the live `TECH-FLIGHT-RECORDER-01` run cannot be twin-dispatched b
 ### 10.3 Proof — the DB write (AC #5's mechanism)
 
 ```
-DATABASE_URL_DEV=… cargo test --manifest-path rust/Cargo.toml -p db --test forge_work_claim_dev -- --ignored --nocapture
+DATABASE_URL_DEV=… cargo test --manifest-path Cargo.toml -p db --test forge_work_claim_dev -- --ignored --nocapture
 running 1 test
 proof: claim fell to pre-existing DEV item cb05111f-a073-41f0-9658-7797b8c5f239 (story TECH-FLIGHT-RECORDER-01); restored to Ready
 proof: item cb05111f-a073-41f0-9658-7797b8c5f239 walked Ready->Claimed->Running->Done; a `Ready` item over an `In Progress` story was not dispatched
@@ -292,7 +292,7 @@ caller passes. The DEV proof exercises the path live.
 
 The review checked §10 against `main` and found the ownership seam repaired but the **queue and the Story Board
 still settling separately**. Six defects, one root cause, all six now closed. The rule lives in one function,
-`db::settlement_pair` (`rust/core/db/src/forge_engine.rs`), and it derives the board half from the story status
+`db::settlement_pair` (`db/src/forge_engine.rs`), and it derives the board half from the story status
 read **inside the settling transaction** — never from a caller:
 
 | outcome | board says | item becomes | story becomes |
@@ -328,7 +328,7 @@ of finding 3. It reads the board first now: `Complete` → item `Done`, `Hold` �
 ### Verification (raw)
 
 ```
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s        # exit 0
 
 $ cargo test -p db -p forge --lib
@@ -352,7 +352,7 @@ the item and its board status**; the two proof stories are deleted. PROD was not
 
 1. `recover_story` (reset mode `recover`) cancels `Claimed`/`Running` items and leaves the board at `In Progress` —
    where the claim gate refuses it until something moves the story. The other half is a *human* action: the portal's
-   status setter (`rust/core/db/src/tech.rs:300`), a flight firing (`forge_control.rs:244`) or a learn item opening
+   status setter (`db/src/tech.rs:300`), a flight firing (`forge_control.rs:244`) or a learn item opening
    (`forge_control.rs:405`). None of those is what `recover` is documented to mean ("release stale claims so an
    existing instance RESUMES"), so if `recover` is expected to leave a story re-dispatchable on its own, it is a
    seventh writer of a half. Not changed here, because changing it would change that meaning.
@@ -427,15 +427,15 @@ and an active instance, because pre-fix unowned runs hold nothing at all.
 now it provably cannot be. Live evidence, taken from the running processes rather than from code: `ps eww` on the
 worker (23237) and its engine child (23265) shows `APP_ENV=production`, `EXECUTION_ENV=PROD` and
 `DATABASE_URL_PROD=…ep-flat-art-ax92tn7a-pooler…` (the PROD branch). The child refuses anything else at boot
-(`rust/forge/src/bin/forge.rs:122` → exit 2), every control-plane script in `package.json` declares
+(`forge/src/bin/forge.rs:122` → exit 2), every control-plane script in `package.json` declares
 `APP_ENV=production`, and `resolve_declared_target` refuses silence instead of defaulting. What read as "against dev"
-was the **targeted DEV tests** (`rust/core/db/tests/*_dev.rs`, DEV by construction) and §12's DEV proof walk — DAO
+was the **targeted DEV tests** (`db/tests/*_dev.rs`, DEV by construction) and §12's DEV proof walk — DAO
 walks, never an engine lane. Closed anyway, so the read cannot happen again: `db::resolve_forge_target`
-(`rust/core/db/src/pool.rs`) is the one authority (PROD or refuse; a declared `dev` is refused *in the resolver*), the
+(`db/src/pool.rs`) is the one authority (PROD or refuse; a declared `dev` is refused *in the resolver*), the
 worker's private `APP_ENV` check is gone, `vendor_session::database_url()` no longer falls back to DEV, and the memory
 store is reachable only by name (`FORGE_STORE=memory`) instead of by `APP_ENV` being unset.
 
-**The legacy retry logic was never lost — it was half-bounded.** `rust/forge/definitions/FORGE_SDLC-v6.xml` is
+**The legacy retry logic was never lost — it was half-bounded.** `forge/definitions/FORGE_SDLC-v6.xml` is
 byte-identical to `legacy/workflow_app/definitions/FORGE_SDLC-v6.xml` (648 lines each, `diff` empty). The QA-fail
 loop is in production and has run for real: `ENG-FORGE-SPLIT-SHAPE-01` (1 repair), `ENG-FORGE-MIGRATION-LINT-01` (2),
 `ENG-FORGE-DEPENDENCY-AUDIT-01` (2), `ENG-FORGE-TWO-UNIT-DOGFOOD-02` (1 → `Hold`). The split case is
@@ -454,10 +454,10 @@ positive evidence Forge owned the story (an open `Ready`/`Paused` item, or a `st
 `ended_at is null`). A story with neither is OPEN and stays as the human left it. Twelve `In Progress` stories are
 live in PROD; under the old predicate every one of them was one tick away from being auto-dispatched.
 
-**Files:** `rust/core/db/src/{pool.rs,lib.rs,forge_engine.rs}`, `rust/forge/src/engine/{failure.rs,facts.rs,vendor_session.rs,db_writer.rs}`,
-`rust/forge/src/bin/{forge.rs,forge_worker.rs}`, `rust/core/db/tests/forge_work_claim_dev.rs`, `docs/agent/MEMORY.md`.
+**Files:** `db/src/{pool.rs,lib.rs,forge_engine.rs}`, `forge/src/engine/{failure.rs,facts.rs,vendor_session.rs,db_writer.rs}`,
+`forge/src/bin/{forge.rs,forge_worker.rs}`, `db/tests/forge_work_claim_dev.rs`, `docs/agent/MEMORY.md`.
 
-**Verified:** `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` clean;
+**Verified:** `cargo check --manifest-path Cargo.toml --workspace --all-targets` clean;
 `cargo test -p db -p forge --lib` → 50 + 88 passed (four new tests);
 DEV walk `forge_work_claim_dev -- --ignored --test-threads=1` → 2 passed, including the new case 6.
 

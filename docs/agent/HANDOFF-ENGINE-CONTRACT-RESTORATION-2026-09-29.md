@@ -26,11 +26,11 @@ rails move only toward more enforcement; no schema change.
 | # | Fact | How to check it |
 | --- | --- | --- |
 | S1 | Seven seams were inventoried, ten mask sites named, seven rails found with no execution reader | `docs/agent/OLD-ENGINE-CONTRACT-RESTORATION.md`, Phase 0 |
-| S2 | Four rails have execution readers now: story identity into role tasks, authoritative Story Packet, canonical Story Board writes, `execution_policy` + `stop_after` from the claimed row | `rust/forge/src/engine/runtime.rs:404-431`, `rust/forge/src/bin/forge.rs:136-200`, `rust/core/db/src/forge_engine.rs:347-380` |
-| S3 | The self-heal retry carries its directive | `rust/forge/src/engine/runner.rs:30-41`, `rust/forge/tests/self_heal_directive.rs` |
-| S4 | ~~The completion ledger is still process-local in production~~ — **FIXED `ae16ef38`**: `DbCompletionLedger` over `workflow_command_receipt`, and `ForgeRuntime::from_store` now takes the ledger so the memory one is fixture-only | `rust/forge/src/engine/db_ledger.rs`, `rust/core/db/src/forge_engine.rs` (`claim_workflow_receipt` → `WorkflowReceiptClaim`) |
-| S5 | The receipt verbs exist in `db`, and the DEV proof passed: claim → `HeldByAnother` → `AlreadyFinal` → stale `pending` reclaimed → finalize-without-claim refused → story counters move | `rust/core/db/tests/forge_completion_receipt_dev.rs` (run with `DATABASE_URL_DEV … -- --ignored`) |
-| S6 | `model_policy` and `launch_intent` are carried on the claim and printed, wired to no decision | `rust/forge/src/engine/worker.rs:261-270` |
+| S2 | Four rails have execution readers now: story identity into role tasks, authoritative Story Packet, canonical Story Board writes, `execution_policy` + `stop_after` from the claimed row | `forge/src/engine/runtime.rs:404-431`, `forge/src/bin/forge.rs:136-200`, `db/src/forge_engine.rs:347-380` |
+| S3 | The self-heal retry carries its directive | `forge/src/engine/runner.rs:30-41`, `forge/tests/self_heal_directive.rs` |
+| S4 | ~~The completion ledger is still process-local in production~~ — **FIXED `ae16ef38`**: `DbCompletionLedger` over `workflow_command_receipt`, and `ForgeRuntime::from_store` now takes the ledger so the memory one is fixture-only | `forge/src/engine/db_ledger.rs`, `db/src/forge_engine.rs` (`claim_workflow_receipt` → `WorkflowReceiptClaim`) |
+| S5 | The receipt verbs exist in `db`, and the DEV proof passed: claim → `HeldByAnother` → `AlreadyFinal` → stale `pending` reclaimed → finalize-without-claim refused → story counters move | `db/tests/forge_completion_receipt_dev.rs` (run with `DATABASE_URL_DEV … -- --ignored`) |
+| S6 | `model_policy` and `launch_intent` are carried on the claim and printed, wired to no decision | `forge/src/engine/worker.rs:261-270` |
 | S7 | The scheduler is stopped and nothing is in flight | `pnpm forge:doctor` (`open engine tasks: 0`, `active claims: 0`) |
 | S8 | Working tree clean; `origin/main` is at least `ae16ef38` (the ledger) — read the log, this line cannot stay current | `git status --short`, `git --no-pager log --oneline -3 origin/main` |
 
@@ -47,10 +47,10 @@ rails move only toward more enforcement; no schema change.
 
 | Your task | Read | The files you touch |
 | --- | --- | --- |
-| The artifact/verdict funnel (next rail) | §6.1a, legacy `$ARCHIVE/legacy/workflow_app/tests/artifact-verdict.test.ts` | `rust/core/db/src/forge_engine.rs` (new verbs), `rust/forge/src/engine/artifact.rs` (new), `rust/forge/src/qa_consistency.rs` (the polarity vocabulary already exists there) |
-| Wire the dispatch model policy | §6.3, legacy `$ARCHIVE/legacy/workflow_app/tests/forge-kind-routing.test.ts` | `rust/forge/src/engine/worker.rs`, `bin/forge.rs`, `engine/opencode.rs` |
-| Wire the lead launch cap | §6.4, legacy `$ARCHIVE/legacy/workflow_app/tests/forge-lead-routing-bench.test.ts` | `rust/forge/src/engine/phase.rs` (`RoleEffectPorts`), `rust/forge/src/roles/hooks.rs` (the lane contract — `engine/agents.rs` is deleted, `2026-10-02`) |
-| Find remaining parity gaps | §6.5, the 465 restored legacy tests | `$ARCHIVE/legacy/workflow_app/tests/**` vs `rust/forge/tests/**` |
+| The artifact/verdict funnel (next rail) | §6.1a, legacy `$ARCHIVE/legacy/workflow_app/tests/artifact-verdict.test.ts` | `db/src/forge_engine.rs` (new verbs), `forge/src/engine/artifact.rs` (new), `forge/src/qa_consistency.rs` (the polarity vocabulary already exists there) |
+| Wire the dispatch model policy | §6.3, legacy `$ARCHIVE/legacy/workflow_app/tests/forge-kind-routing.test.ts` | `forge/src/engine/worker.rs`, `bin/forge.rs`, `engine/opencode.rs` |
+| Wire the lead launch cap | §6.4, legacy `$ARCHIVE/legacy/workflow_app/tests/forge-lead-routing-bench.test.ts` | `forge/src/engine/phase.rs` (`RoleEffectPorts`), `forge/src/roles/hooks.rs` (the lane contract — `engine/agents.rs` is deleted, `2026-10-02`) |
+| Find remaining parity gaps | §6.5, the 465 restored legacy tests | `$ARCHIVE/legacy/workflow_app/tests/**` vs `forge/tests/**` |
 
 ## 4. DONE — what landed, with the receipts
 
@@ -59,7 +59,7 @@ rails move only toward more enforcement; no schema change.
 | `4ee9d6e2` | Story identity into role tasks (no process-UUID substitution); Story Packet fail-closed (`FORGE_PACKET_FROM_ENV=1` = attended escape); `mark_story_in_progress` and the human-gate hold no longer discarded | `cargo test -p forge` → lib 90 ok, forge_runtime 34 ok |
 | `00044bd1` | `RoleHarness::run_role(node, task, self_heal)`; the OpenCode harness appends the corrective directive to the task text | `cargo test -p forge` → lib 90 ok; `--test self_heal_directive` 1 ok (fails on the old code) |
 | `d68c9634` | Dispatch envelope read on claim: the poller excludes non-`Unattended OK`; the claim returns the policy; worker **and** engine binary refuse a human-gated dispatch (`FORGE_ATTENDED=1` override); `stop_after` off the row into `--stop-after` and the driver; the claim carries `model_policy`/`launch_intent` | `cargo test -p db -p forge` → db 50 ok, forge 93 ok (3 new), forge_runtime 34 ok, self_heal 1 ok; `cargo check --workspace --all-targets` clean |
-| `ae16ef38` | **The completion unit is durable** (`DbCompletionLedger`): `WorkflowReceiptClaim::{Acquired,HeldByAnother,AlreadyFinal}` + stale-`pending` takeover, watermark over finalized receipts only, `read_workflow_receipt_outcome`, story repair/replan counters, `finalize_workflow_receipt` moving `updated_at`; `CompletionLedger` is fallible; `ForgeRuntime::from_store` **takes** the ledger (memory one is fixture-only, `bin/forge.rs` passes the durable one); the reconcile count is carried (`WakeResult::reconciled`, `DriveForgeStoryResult::reconciled`, `reconciled=` in the summary line) | `cargo test -p db -p forge` → db 50 ok, forge 93 ok, `--test durable_completion_ledger` 6 ok; `--test forge_completion_receipt_dev -- --ignored` **1 ok against DEV**; `cargo test -p server -p workflow` → 114 ok; `cargo check --workspace --all-targets` clean |
+| `ae16ef38` | **The completion unit is durable** (`DbCompletionLedger`): `WorkflowReceiptClaim::{Acquired,HeldByAnother,AlreadyFinal}` + stale-`pending` takeover, watermark over finalized receipts only, `read_workflow_receipt_outcome`, story repair/replan counters, `finalize_workflow_receipt` moving `updated_at`; `CompletionLedger` is fallible; `ForgeRuntime::from_store` **takes** the ledger (memory one is fixture-only, `bin/forge.rs` passes the durable one); the reconcile count is carried (`WakeResult::reconciled`, `DriveForgeStoryResult::reconciled`, `reconciled=` in the summary line) | `cargo test -p db -p forge` → db 50 ok, forge 93 ok, `--test durable_completion_ledger` 6 ok; `--test forge_completion_receipt_dev -- --ignored` **1 ok against DEV**; `cargo test -p web -p workflow` → 114 ok; `cargo check --workspace --all-targets` clean |
 
 Raw output behind the last gate (`ae16ef38`):
 
@@ -92,7 +92,7 @@ $ cargo check --workspace --all-targets 2>&1 | rg -e '^error' -e 'Finished|error
   `increment_forge_{repair,replan}_attempts` were exercised by the DEV test's DAO half (counters) but the ledger's
   merge path only by unit test — it needs a story + instance pair on DEV, which is the next DEV proof to write.
 - Earlier commits' gaps still stand: the `ForgeAgentWorkRow` shape change is compiled workspace-wide, `pnpm ui:check`
-  / `pnpm build` were not run (nothing under `rust/ui` changed), and the self-heal directive's effect on a real model
+  / `pnpm build` were not run (nothing under `web/ui` changed), and the self-heal directive's effect on a real model
   turn is unmeasured.
 - `cargo fmt --check` is not clean in this repository and was not made clean: pre-existing diffs sit in files this
   work did not touch (`core/db/src/lib.rs`, `core/db/tests/forge_work_claim_dev.rs`, `engine/db_writer.rs`,
@@ -114,7 +114,7 @@ $ cargo check --workspace --all-targets 2>&1 | rg -e '^error' -e 'Finished|error
    nothing, a failed ruling read fails closed to no verdict) and still insert the row with its summary; for any other
    kind (`qa-assay-evidence`) the verdict is the artifact's own. The vocabulary needed for the polarity comparison
    already exists in Rust — `expected_verdict_for_run_status` / `normalize_qa_verdict_token` in
-   `rust/forge/src/qa_consistency.rs` — **but note the difference**: `expected_verdict_for_run_status('Hold')` is
+   `forge/src/qa_consistency.rs` — **but note the difference**: `expected_verdict_for_run_status('Hold')` is
    `None` ("a run that did not complete cleanly certifies nothing"), while the artifact guard must read `Hold` as a
    *negative* ruling that `Failed` agrees with. Do not collapse the two readings; write the polarity function next to
    the artifact funnel and keep the doctor's stricter one. **Open question to settle before wiring** (and the reason
@@ -126,9 +126,9 @@ $ cargo check --workspace --all-targets 2>&1 | rg -e '^error' -e 'Finished|error
 3. **`model_policy` → the model** (P1, blocked on H3). The legacy table is
    `$ARCHIVE/legacy/workflow_app/tests/forge-kind-routing.test.ts`: exactly two policies, `cheap` and `judgment`, both naming
    `deepseek/deepseek-v4-flash`, unknown/null reading as `cheap`. The Rust pin is `deepseek/deepseek-flash`
-   (`rust/forge/src/engine/opencode.rs:25`), so wiring the table **changes which model runs and what bills**.
+   (`forge/src/engine/opencode.rs:25`), so wiring the table **changes which model runs and what bills**.
 4. **`launch_intent` → the Lead's cap** (P1, blocked on H4). Migration 167 says it rides the role-effect ports as
-   `benchIntent` where the Lead's cap check enforces it; `RoleEffectPorts` (`rust/forge/src/engine/phase.rs:42`) has no
+   `benchIntent` where the Lead's cap check enforces it; `RoleEffectPorts` (`forge/src/engine/phase.rs:42`) has no
    such field, so the column is read for nothing but the log line. Specification:
    `$ARCHIVE/legacy/workflow_app/tests/forge-lead-routing-bench.test.ts` (`benchIntent = 'HOLD' | 'SOLO'`).
 5. **Phase 1 parity audit** (the inventory count is a floor). Walk the 465 restored legacy tests under

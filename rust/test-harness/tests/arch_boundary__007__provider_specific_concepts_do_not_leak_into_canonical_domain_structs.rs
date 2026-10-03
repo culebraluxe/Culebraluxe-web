@@ -1,11 +1,11 @@
 //! ARCH.BOUNDARY — provider-specific concepts do not leak into canonical domain structs (TST-ARCH-BOUNDARY-007).
 //!
-//! Contract: `rust/core/domain` holds the canonical records — `Property`, `Media`, `Person`, `Calendar`, `Wbs` and
-//! their neighbours — in provider-neutral terms. A provider's name belongs at the edge (`rust/integrations`, which
+//! Contract: `middle/model` holds the canonical records — `Property`, `Media`, `Person`, `Calendar`, `Wbs` and
+//! their neighbours — in provider-neutral terms. A provider's name belongs at the edge (`middle/apis`, which
 //! owns the transports), not inside the struct every other layer reads.
 //!
 //! The honest state of the tree today is that this contract is **partly violated**, and this test says so instead of
-//! passing quietly. Reading every canonical module (`rust/core/domain/src/*.rs` bar the six provider-named ones)
+//! passing quietly. Reading every canonical module (`middle/model/src/*.rs` bar the six provider-named ones)
 //! finds **13** declarations that name a provider:
 //!
 //!   - `calendar.rs:47,59` — `CreateAppleCalendarEventRequest`, `UpdateAppleCalendarEventRequest`
@@ -17,7 +17,7 @@
 //! provider token in a canonical struct fails (that is the leak the contract exists to stop), and an entry that is no
 //! longer found fails too (so the baseline may only shrink, never quietly widen). The wanted change is a
 //! provider-neutral shape — `Playback { asset_id, playback_id }`, `ReminderUpsertRequest` — with the Mux/Apple names
-//! kept in `rust/integrations`; the taxonomy row stays open until that is done.
+//! kept in `middle/apis`; the taxonomy row stays open until that is done.
 //!
 //! What this test does not cover, stated so nobody reads more into a green run: function names, string literals and
 //! behaviour (`if provider == …`) are out of scope — the subject is the *shape* of the canonical structs.
@@ -25,7 +25,7 @@
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test arch_boundary__007__provider_specific_concepts_do_not_leak_into_canonical_domain_structs
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test arch_boundary__007__provider_specific_concepts_do_not_leak_into_canonical_domain_structs
 
 use std::path::Path;
 
@@ -184,7 +184,7 @@ fn top_component(path: &Path, src: &Path) -> String {
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ARCH-BOUNDARY-007); the file and the assay use it.
 fn arch_boundary_007__provider_specific_concepts_do_not_leak_into_canonical_domain_structs() {
-    let src = source::rust_root().join("core/domain/src");
+    let src = source::rust_root().join("middle/model/src");
     let files = source::sources_under(&src);
     assert!(
         files.len() >= 40,
@@ -257,7 +257,7 @@ fn arch_boundary_007__provider_specific_concepts_do_not_leak_into_canonical_doma
     assert!(
         added.is_empty(),
         "a provider-specific concept leaked into a canonical domain struct; keep the provider's name at the edge \
-         (`rust/integrations`) or extend BASELINE with a written reason:\n{}",
+         (`middle/apis`) or extend BASELINE with a written reason:\n{}",
         added
             .iter()
             .map(|item| format!("  + {item}"))

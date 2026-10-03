@@ -12,7 +12,7 @@
 **Status:** durable explainer. Owner: whoever holds the engine. Written 2026-09-13 from a session
 that fixed nine defects in one day; every law below was paid for.
 
-**Read this for doctrine if** you are about to touch `rust/forge`, `rust/forge/definitions/FORGE_SDLC-v6.xml`,
+**Read this for doctrine if** you are about to touch `forge`, `forge/definitions/FORGE_SDLC-v6.xml`,
 the publish path, or any screen that claims to show what the engine did. For file ownership and open work, use
 `CURRENT.md`, `MAP-engine.md`, and `QUEUE-2026-10-02.md` instead.
 

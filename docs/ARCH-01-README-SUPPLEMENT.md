@@ -18,14 +18,14 @@ TypeScript: reference only, never imported, never repaired (`AGENTS.md`, `docs/a
 
 | layer | code | owns | doc |
 | --- | --- | --- | --- |
-| **UI** | `rust/ui` (Yew, MVI → WASM) | screens, interaction, nothing else | [layers/UI.md](layers/UI.md) |
-| **SERVICES** | `rust/server` + `rust/core/service` | HTTP, identity, authorization, audit, error responses, the domain services | [layers/SERVICES.md](layers/SERVICES.md) |
-| **WORKFLOW** | `rust/core/workflow` + `rust/forge/src/engine/re_*` | the transaction state machine: instances, tokens, tasks, timers | [layers/WORKFLOW.md](layers/WORKFLOW.md) |
-| **DB** | `rust/core/db` + `db/migrations` | the one pool, the DAOs, retry, failure taxonomy, captures | [layers/DB.md](layers/DB.md) |
-| **FORGE** | `rust/forge` | the delivery engine that builds this product, not the product | [layers/FORGE.md](layers/FORGE.md) |
+| **UI** | `web/ui` (Yew, MVI → WASM) | screens, interaction, nothing else | [layers/UI.md](layers/UI.md) |
+| **SERVICES** | `web` + `middle/services` | HTTP, identity, authorization, audit, error responses, the domain services | [layers/SERVICES.md](layers/SERVICES.md) |
+| **WORKFLOW** | `middle/workflow` + `forge/src/engine/re_*` | the transaction state machine: instances, tokens, tasks, timers | [layers/WORKFLOW.md](layers/WORKFLOW.md) |
+| **DB** | `db` + `db/migrations` | the one pool, the DAOs, retry, failure taxonomy, captures | [layers/DB.md](layers/DB.md) |
+| **FORGE** | `forge` | the delivery engine that builds this product, not the product | [layers/FORGE.md](layers/FORGE.md) |
 
-Types and rules with no I/O live in `rust/core/domain`; provider clients (Mux, Google, Apple, BoldSign, WhatsApp) in
-`rust/integrations`; operator commands in `rust/cli`.
+Types and rules with no I/O live in `middle/model`; provider clients (Mux, Google, Apple, BoldSign, WhatsApp) in
+`middle/apis`; operator commands in `cli`.
 
 Dependencies point one way: UI → SERVICES → WORKFLOW → DB. A layer never reaches upward. Forge sits outside that chain —
 it is tooling, it owns its own data, and the product does not depend on it.

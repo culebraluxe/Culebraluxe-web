@@ -1,21 +1,21 @@
 # The Rust UI port — state of play
 
-Read this before touching `rust/ui/**`, `lib/rust-ui/**`, `components/rust-ui/host.tsx`, or the two
+Read this before touching `web/ui/**`, `lib/rust-ui/**`, `components/rust-ui/host.tsx`, or the two
 `app/api/rust-ui/*` routes. It exists so a new session does not have to rediscover any of it.
 
 ## What the port is
 
 The public site's pages are painted by Rust instead of React. The Next route is unchanged and still owns the URL; it
 mounts `<RustUiHost start="site-…" pagePath="/api/rust-ui/public-page" />`, which boots a wasm module
-(`rust/ui/**` → `lib/rust-ui/ui.js` + `public/rust-ui/ui_bg.wasm`) and hands it JSON. Rust renders markup; the host
+(`web/ui/**` → `lib/rust-ui/ui.js` + `public/rust-ui/ui_bg.wasm`) and hands it JSON. Rust renders markup; the host
 owns the network, the session and the permission checks.
 
-- `rust/ui/src/model.rs` — the screen registry, the model, the effects as types
-- `rust/ui/src/update.rs` — messages to state and effects (`is_editorial()` lives here)
-- `rust/ui/src/view.rs` — every renderer; pages are functions returning HTML strings
-- `rust/ui/src/shell.rs` — the wasm entry points (`mount`, `rows_loaded`, `page_loaded`), the event listeners, and the
+- `web/ui/src/model.rs` — the screen registry, the model, the effects as types
+- `web/ui/src/update.rs` — messages to state and effects (`is_editorial()` lives here)
+- `web/ui/src/view.rs` — every renderer; pages are functions returning HTML strings
+- `web/ui/src/shell.rs` — the wasm entry points (`mount`, `rows_loaded`, `page_loaded`), the event listeners, and the
   repaint boundary: the whole document on mount or a screen change, `#rust-page` for everything else
-- `rust/ui/src/icons.rs` — lucide icons as inline SVG
+- `web/ui/src/icons.rs` — lucide icons as inline SVG
 - `lib/rust-ui/boot.ts` — boots the module once, serves the effects (this file was gitignored until recently), and owns
   the run generation: every await boundary checks whether the run is still current before it touches Rust
 - `app/api/rust-ui/public-page/route.ts` — page payloads (blocks, listings, guide, property records)
@@ -29,7 +29,7 @@ something the payload does not carry, the control waits (trap 7) or the work sto
 new TypeScript file. The TypeScript that remains — the routes, the two payload feeds, the host — is the scaffolding the
 port is removing, not a surface to extend.
 
-The one thing that will eventually have to change outside `rust/ui/**` is a server endpoint a browser form can POST to
+The one thing that will eventually have to change outside `web/ui/**` is a server endpoint a browser form can POST to
 (the Contact form). That is server code, not UI, and it is called out in Not done rather than written silently.
 
 ## Traps that have already cost days
@@ -61,7 +61,7 @@ The one thing that will eventually have to change outside `rust/ui/**` is a serv
 9. **The browser runs the WASM, not the source.** `cargo check` proves the source compiles and says nothing about what
    the page executes: a fix can be committed, pushed and invisible for days while the browser runs an artifact built
    before it. `pnpm ui:build:release` owns the artifact and the artifact is committed with the slice that changed it —
-   `pnpm dev` now refuses to start when `rust/ui/src/**` is newer than `public/rust-ui/ui_bg.wasm`.
+   `pnpm dev` now refuses to start when `web/ui/src/**` is newer than `public/rust-ui/ui_bg.wasm`.
 10. **Screen-local state must not destroy the chrome.** The shell repaints `#rust-page` and leaves the header and footer
     alone unless the model says the screen itself changed (`Program::chrome_signature`). Repainting the whole mount
     point for a keystroke rebuilt the navigation on every character — which closed the mobile menu, because a

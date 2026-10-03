@@ -1,7 +1,7 @@
 //! ARCH.BOUNDARY — Security owns role resolution (TST-ARCH-BOUNDARY-009).
 //!
 //! Contract: turning a user's role codes into a level, and choosing their canonical primary role, is one rule in one
-//! place — `rust/core/domain/src/security.rs:83-140`. Nothing else in the system may decide it: a second resolver is
+//! place — `middle/model/src/security.rs:83-140`. Nothing else in the system may decide it: a second resolver is
 //! how a screen ends up granting access the API refuses, and this port has already paid for one duplicated adjudicator.
 //! The two functions are pure, so the rule can be exercised directly, and three properties matter more than the happy
 //! path:
@@ -14,9 +14,9 @@
 //! Level: L0 Pure — the domain's own functions, no I/O.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test arch_boundary__009__security_owns_role_resolution
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test arch_boundary__009__security_owns_role_resolution
 
-use domain::security::{
+use model::security::{
     canonical_primary_role, is_root_only, resolve_security_level, SecurityLevel,
     CANONICAL_INTERNAL_ROLE_CODES, ROOT_ONLY_ACTIONS,
 };

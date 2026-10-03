@@ -1,8 +1,8 @@
 //! FORGE.JOB — the job layer stays generic, and stays apart from the story-level queue.
 //!
 //! Contract 11 (registry is lookup only), structural half: the PRODUCTION code of the JobService module
-//! (`rust/forge/src/engine/job.rs`, everything above its `#[cfg(test)]`) and of the registry
-//! (`rust/forge/src/roles/registry.rs`) names no role, no Forge node, no lane enum and no node→lane map. Service
+//! (`forge/src/engine/job.rs`, everything above its `#[cfg(test)]`) and of the registry
+//! (`forge/src/roles/registry.rs`) names no role, no Forge node, no lane enum and no node→lane map. Service
 //! identity reaches a job only through `task.service_key()` (the XML binding) and leaves it only through
 //! `registry.resolve(key)`. The executed half is `forge_job__011`. This is a tripwire: the day someone writes
 //! `if node == "fast_smith"` in the job layer, this fails and says where.

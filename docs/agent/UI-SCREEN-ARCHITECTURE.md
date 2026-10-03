@@ -1,26 +1,26 @@
 # UI Screen Architecture — the contract every screen implements
 
 **Read this first if you are an agent picking up UI work.** The status, then the holds, then where to look for a task.
-Code: `rust/ui/src/app/`.
+Code: `web/ui/src/app/`.
 
 ## STATUS (checked 2026-09-28)
 
 | # | Fact | Value |
 | --- | --- | --- |
-| S1 | The registry | `rust/ui/src/app/registry.rs` — 58 entries, one line per screen, the only path→screen map |
+| S1 | The registry | `web/ui/src/app/registry.rs` — 58 entries, one line per screen, the only path→screen map |
 | S2 | On the `Screen` trait | 56 entries, `Kind::Screen(mount::<S>)` — both Marketing entries mount `Publishing` |
 | S3 | Still on the old loop | none — the old loop and its `LegacyPortal` kind were deleted 2026-09-28 |
 | S4 | Not renderable here | 2 entries, `Kind::External` — WhatsApp Activation, `/portal` itself |
 | S5 | The cutover ledger | closed: every entry is `Kind::Screen` or `Kind::External` |
 | S6 | What the old loop is | `view.rs`, `update.rs`, `yew_effects.rs`, `yew_views/` — deleted 2026-09-28 (with `document.rs`, `yew_portal.rs`, the old shell listeners and the global `Model`/`Msg`/`Effect`). The site copy it held lives in `app/screens/site/content.rs` |
-| S7 | There is no Next.js application | `rust/server/src/site.rs` answers every path with this one Yew app; `legacy/` TypeScript is read-only and out of scope |
+| S7 | There is no Next.js application | `web/src/site.rs` answers every path with this one Yew app; `legacy/` TypeScript is read-only and out of scope |
 
 ## HOLDS — do not act on these
 
 | # | Held | Who holds it | What an agent must do |
 | --- | --- | --- | --- |
-| H1 | **Lifted 2026-09-28.** Marketing was held for redesign; GPT then replaced both entries with a native `Screen`, the Publishing Center (`rust/ui/src/app/screens/publishing.rs`, commits `3c4805f2`, `451cc2f0`, `af5de849`), and the owner accepted it ("something is better than nothing") | the owner | Nothing is held here any more. Publishing is ordinary screen work; its quality is unreviewed dog-food |
-| H2 | **The services layer**: `abstract_service!` and the composition root (`rust/server/src/composition.rs`) | GPT wrote the services layer; the owner required the `abstract_service!` pattern of it | **`abstract_service!` is an absolute requirement, not a preference.** The composition root on `main` is the correct one; do not restructure it, do not add a second catalog, and do not migrate a service between the macro and its hand-written descriptor without the owner's word. **The door is not the design; the trait is.** Every service implements `AbstractService` and is registered in the catalog, and all 32 do. `abstract_service!` is a shortcut that stamps a trivial descriptor: empty `capabilities`, empty `invariants`, inherited `UnknownOperation` dispatch. Because the kernel treats empty capabilities as inline policy (`rust/server/src/service_kernel.rs:211-236`), such a service cannot declare an operation or refuse an unknown one. So a service with real operations implements the trait itself and declares them — which is what the seven larger domains below do, calendar's 5 capabilities among them. That is the OO design used properly, not a violation. What this paragraph means: do not hand-copy boilerplate into a new service that needs only a trivial descriptor. (Corrected 2026-09-28: I had read the shortcut as the design and recorded a violation that was not there. Calendar is correctly built.) |
+| H1 | **Lifted 2026-09-28.** Marketing was held for redesign; GPT then replaced both entries with a native `Screen`, the Publishing Center (`web/ui/src/app/screens/publishing.rs`, commits `3c4805f2`, `451cc2f0`, `af5de849`), and the owner accepted it ("something is better than nothing") | the owner | Nothing is held here any more. Publishing is ordinary screen work; its quality is unreviewed dog-food |
+| H2 | **The services layer**: `abstract_service!` and the composition root (`web/src/composition.rs`) | GPT wrote the services layer; the owner required the `abstract_service!` pattern of it | **`abstract_service!` is an absolute requirement, not a preference.** The composition root on `main` is the correct one; do not restructure it, do not add a second catalog, and do not migrate a service between the macro and its hand-written descriptor without the owner's word. **The door is not the design; the trait is.** Every service implements `AbstractService` and is registered in the catalog, and all 32 do. `abstract_service!` is a shortcut that stamps a trivial descriptor: empty `capabilities`, empty `invariants`, inherited `UnknownOperation` dispatch. Because the kernel treats empty capabilities as inline policy (`web/src/service_kernel.rs:211-236`), such a service cannot declare an operation or refuse an unknown one. So a service with real operations implements the trait itself and declares them — which is what the seven larger domains below do, calendar's 5 capabilities among them. That is the OO design used properly, not a violation. What this paragraph means: do not hand-copy boilerplate into a new service that needs only a trivial descriptor. (Corrected 2026-09-28: I had read the shortcut as the design and recorded a violation that was not there. Calendar is correctly built.) |
 | H3 | **WhatsApp Activation** (S4, `Kind::External`) | the owner | It is a lifeline, not a cutover target: the Meta Embedded Signup page is the only proven way back if activation must be redone. Do not convert it, do not test it against Meta, do not "clean it up" — see "Decisions recorded" |
 
 Nothing else about screens is held: the 56 ported screens, the shared machinery (§4–§9) and any NEW route that is not one
@@ -31,7 +31,7 @@ of the held entries are open for work.
 | Your task | Read | The files you touch |
 | --- | --- | --- |
 | Add a screen | §7a, the recipe | `app/screens/<world>/<name>.rs`, one line in `app/registry.rs`, the endpoint in `app/api.rs` |
-| A screen needs a read that does not exist | §1, §7a step 1 | the bridge arm in `rust/server/src/api/portal_bridge.rs`, the shape in `rust/ui/src/model.rs` |
+| A screen needs a read that does not exist | §1, §7a step 1 | the bridge arm in `web/src/api/portal_bridge.rs`, the shape in `web/ui/src/model.rs` |
 | Change how something is DRAWN that several screens share | §6 | `app/template.rs` |
 | Understand a route, a menu, a breadcrumb or a drill-in | §7, §8 | `app/registry.rs` only — never a second map |
 | A vendor widget: map, video, timeline, calendar | §9 | the command in `app/exec.rs`; `timeline.rs`, `calendar.rs` for the mechanic |
@@ -39,7 +39,7 @@ of the held entries are open for work.
 | Run the checks before you say you are done | "What is forbidden, mechanically" | — |
 | The API contract between a screen and the server | §4 | `app/cmd.rs` (trait), `app/api.rs` (catalogue), `app/exec.rs` (executor) |
 
-This document is the contract for all UI work in `rust/ui`. It supersedes the ad hoc per-screen patterns: when code
+This document is the contract for all UI work in `web/ui`. It supersedes the ad hoc per-screen patterns: when code
 and this document disagree, the code is wrong.
 
 ## Why
@@ -134,7 +134,7 @@ executed in one place: `app/exec.rs` is that place, and it is the only UI code a
 ```rust
 pub trait Endpoint {
     const METHOD: Method;                       // Get | Post | Put
-    type Response: DeserializeOwned + 'static;  // shared types from `rust/core/domain` where the server has them
+    type Response: DeserializeOwned + 'static;  // shared types from `middle/model` where the server has them
     fn path(&self) -> String;
     fn body(&self) -> Option<serde_json::Value> { None }
 }
@@ -147,8 +147,8 @@ executor (`app/exec.rs`) adds the correlation id, unwraps the `{ ok, value }` en
 typed `ApiError`. A screen never sees a URL, a status code or `fetch`.
 
 What answers those URLs is the Rust server — the `/api/portal/rust-ui/**` and `/api/rust-ui/**` bridges in
-`rust/server/src/api/portal_bridge.rs` and `routes.rs`. Adding a field to a read is a change to the server shape and
-to `rust/ui/src/model.rs` together; there is no relay and no TypeScript in between any more.
+`web/src/api/portal_bridge.rs` and `routes.rs`. Adding a field to a read is a change to the server shape and
+to `web/ui/src/model.rs` together; there is no relay and no TypeScript in between any more.
 
 ### 5. `Remote<T>` and the standard states
 
@@ -198,7 +198,7 @@ keeps the state and asks `S::url_changed`.
 Screens are registered in one place — 58 `entry(...)` lines, and the table order is the menu order:
 
 ```rust
-// rust/ui/src/app/registry.rs
+// web/ui/src/app/registry.rs
 entry("db-test", "/portal/db-test", Surface::Support, "DB Test", Menu::Rail("DB Test"), "portal.read", "portal.read",
       Kind::Screen(mount::<DbTest>)),
 ```
@@ -222,8 +222,8 @@ legacy count only goes down.
 test. Steps 1 and 2 are where a screen is actually designed; the rest is mechanical.
 
 1. **The read, in Rust, first.** A screen that shows something needs a server answer. If a service method answers,
-   reuse it; otherwise add the bridge arm in `rust/server/src/api/portal_bridge.rs` (the `match screen` in the page
-   read / `support_payload`) and the shape in `rust/ui/src/model.rs` (for portal screens, a field on `PortalPage`).
+   reuse it; otherwise add the bridge arm in `web/src/api/portal_bridge.rs` (the `match screen` in the page
+   read / `support_payload`) and the shape in `web/ui/src/model.rs` (for portal screens, a field on `PortalPage`).
    A screen never fetches and never knows a URL.
 2. **The endpoint**, in `app/api.rs`: a struct and `impl Endpoint` (`const METHOD`, `type Response`, `fn path`, and
    `body()` if it writes). A screen that reads the whole portal page uses `PortalScreenPage::of("your-key")`, which is
@@ -242,7 +242,7 @@ test. Steps 1 and 2 are where a screen is actually designed; the rest is mechani
    name a screen.
 6. **A test in the screen's own file**, the way `db_test.rs` does it: assert the first `Cmd` carries the URL you
    meant (`cmd.into_requests().remove(0)`), feed the answer back through `update`, assert the model; then feed a
-   failure and assert it says so. When a real payload exists, put it in `rust/ui/fixtures/` and decode it
+   failure and assert it says so. When a real payload exists, put it in `web/ui/fixtures/` and decode it
    (`include_str!`), so the contract is checked against the server's actual shape.
 7. **Verify**: `cargo check -p ui --features wasm --target wasm32-unknown-unknown --all-targets`. The whole `app`
    module sits behind `wasm` + `yew` + `yew-router`, which are default features (since 2026-09-28), so `cargo test -p ui`
@@ -251,7 +251,7 @@ test. Steps 1 and 2 are where a screen is actually designed; the rest is mechani
 
 ### 8. One app, one router
 
-One Yew application serves every URL: the public site and the portal. `rust/server/src/site.rs` answers **every** path
+One Yew application serves every URL: the public site and the portal. `web/src/site.rs` answers **every** path
 with this app, so the Yew router owns navigation and moving between screens is in-app, not a page load. There is no
 other page server and no relay layer: `app/`, `components/` and `lib/` are the retired TypeScript stack, out of scope
 for the website (`docs/agent/LEGACY-TYPESCRIPT.md`). Access is decided server-side — a `/portal/**` request without a
@@ -277,8 +277,8 @@ plumbing belonged to the Next world and went with it. What the widgets actually 
 - **Video** is an `<iframe>` on Mux (`https://player.mux.com/{playbackId}`) drawn by the screen that owns it
   (`app/screens/site/`, `app/screens/tech/`), and a film is uploaded straight from the browser to Mux through
   `Cmd::VideoUpload` (`app/exec.rs:54`), whose progress comes back as messages.
-- **Timeline, calendar and gantt-style panes are this app's own drawing** (`rust/ui/src/timeline.rs`,
-  `rust/ui/src/calendar.rs`) — Projects' Workplan, Timeline and Calendar panes are Yew, not SVAR.
+- **Timeline, calendar and gantt-style panes are this app's own drawing** (`web/ui/src/timeline.rs`,
+  `web/ui/src/calendar.rs`) — Projects' Workplan, Timeline and Calendar panes are Yew, not SVAR.
 - **Maps** are a Google Maps `<iframe>`.
 
 If a vendor widget is ever genuinely needed, it arrives the way every other capability does: a named `Cmd` variant
@@ -294,7 +294,7 @@ Each rule names the check that actually holds it today, so it can be enforced ra
 | --- | --- |
 | A screen does not reach the retired TypeScript | the Rust UI cannot load `legacy/` at all; on the TS side `pnpm lint` fails a new import and `eslint-suppressions.json` may only shrink; `pnpm broken:ts:sweep` keeps the dead-TS inventory honest |
 | No screen state outside its own module | a screen's state is its own `Model`; the old global loop (`Model`/`Msg`/`update.rs`) was deleted 2026-09-28 and `model.rs` holds only shared data shapes |
-| No HTML strings, no `data-*` intents | `from_html_unchecked` has one use, `rust/ui/src/icons.rs` (the scoped SVG table); the string renderer and the document listeners were deleted with the old loop |
+| No HTML strings, no `data-*` intents | `from_html_unchecked` has one use, `web/ui/src/icons.rs` (the scoped SVG table); the string renderer and the document listeners were deleted with the old loop |
 | No transport in a screen | no `gloo_net`, no `fetch`, no `spawn_local` anywhere in `app/screens/`: a screen returns a `Cmd` and `app/exec.rs` performs it. `web_sys` there is allowed only for reading an event's target (input, select, drag, file) |
 | One route table | `app/registry.rs` is the only mapping from path to screen; a second one is a review reject |
 | One URL catalogue | every URL a screen reaches — requests (`Endpoint`), files (`FileEndpoint`: chunked uploads, multipart forms) and the sign-in form actions (`api::auth`) — is in `app/api.rs`. A path literal in `app/screens/` outside a test is a review reject |

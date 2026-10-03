@@ -1,7 +1,7 @@
 # CulebraLuxe
 
 A residential real-estate transaction platform, and **one Rust application**: the website and the portal are a single
-Yew/WebAssembly app (`rust/ui`) served by the Rust server (`rust/server/src/site.rs`), and the domain, the database and
+Yew/WebAssembly app (`web/ui`) served by the Rust server (`web/src/site.rs`), and the domain, the database and
 the HTTP API are Rust crates under `rust/`. There is no Next.js application and no TypeScript in the product — even
 Google sign-in is Rust. This file is the map; the rules live in [AGENTS.md](AGENTS.md) and the start-here guide is
 [docs/agent/ORIENTATION.md](docs/agent/ORIENTATION.md).
@@ -9,7 +9,7 @@ Google sign-in is Rust. This file is the map; the rules live in [AGENTS.md](AGEN
 ## What production serves
 
 The Rust server answers every path. For a page it returns the one document that boots the Yew app, which routes the
-URL through its registry (`rust/ui/src/app/registry.rs`); the app talks to the same server over `/api/portal/*` (the
+URL through its registry (`web/ui/src/app/registry.rs`); the app talks to the same server over `/api/portal/*` (the
 session cookie) and `/api/rust-ui/*` (the public site). `/v1/*` is the internal API. The server picks its database from
 the environment and says which at boot (`target=dev` / `target=prod`, also `GET /v1/diagnostics/db`).
 
@@ -44,12 +44,12 @@ Run the CLI from the repository root: it reads `.env.local` there.
 
 ```bash
 cd rust && cargo check --workspace --all-targets     # every crate, the UI app included
-cargo test -p ui -p db -p server -p forge -p workflow
+cargo test -p ui -p db -p web -p forge -p workflow
 pnpm ui:check                                        # the UI for the wasm target — what the deploy compiles
 pnpm forge:harness                                   # the harness gates
 ```
 
-Unit tests do not touch a real database; `rust/server/tests/*_dev.rs` and `scripts/rust-live-check/` run against DEV.
+Unit tests do not touch a real database; `web/tests/*_dev.rs` and `scripts/rust-live-check/` run against DEV.
 A UI change is also checked in WebKit, because the owner uses Safari. **How to make a change**, with the traps that
 have already cost time: [docs/rust-contributing.md](docs/rust-contributing.md).
 

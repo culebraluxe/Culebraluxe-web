@@ -2,7 +2,7 @@
 //!
 //! WHY THIS EXISTS. A person's identities — email, phone, an external system's id — are not compared as typed.
 //! `PersonDao` normalises every one of them before it is stored or looked up (`normalized_identity`,
-//! `rust/core/db/src/person.rs:65-71`, mirrored by the SQL in `find_by_identity`, `set_contact` and
+//! `db/src/person.rs:65-71`, mirrored by the SQL in `find_by_identity`, `set_contact` and
 //! `attach_identity`): a phone keeps only its digits and drops a US country code, an email is trimmed and
 //! lower-cased, an external id is trimmed. That normalisation is the only thing that makes `+1 (787) 555-1234`,
 //! `787-555-1234` and `17875551234` the *same* identity, and it is the reason two people cannot end up sharing one
@@ -20,7 +20,7 @@
 //! [`TestDatabase`] refuses PRODUCTION before any socket is opened.
 
 use db::{DbFailure, PersonDao};
-use domain::{AttachPersonIdentityRequest, Person, PersonIdentity};
+use model::{AttachPersonIdentityRequest, Person, PersonIdentity};
 use sqlx::PgPool;
 
 use crate::database::{HarnessDbError, TestDatabase};

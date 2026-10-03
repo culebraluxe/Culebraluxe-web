@@ -9,7 +9,7 @@ cd rust
 cargo check --workspace --all-targets           # expect 0 errors (the CI gate)
 cargo test --workspace --all-targets            # expect 0 failures (the same gate)
 cd ..
-pnpm forge:packet-lint                          # rust/cli `forge harness-lint` — expect 0 failures
+pnpm forge:packet-lint                          # cli `forge harness-lint` — expect 0 failures
 git status --porcelain                          # expect empty
 ```
 
@@ -43,7 +43,7 @@ curl -s -H "x-culebra-internal-key: $KEY" localhost:8080/v1/diagnostics/db
 
 `pnpm deploy:prod` (`scripts/deploy-prod.sh`) is the whole thing, and it runs HERE, on this Mac:
 
-1. **The stylesheet** — Tailwind over `rust/ui/styles/app.css` into `public/app.css` (Tailwind scans the Rust sources,
+1. **The stylesheet** — Tailwind over `web/ui/styles/app.css` into `public/app.css` (Tailwind scans the Rust sources,
    so the CSS is built after the UI source is final).
 2. **The compile** — `docker build -f deploy/Dockerfile.build`: the Yew UI to wasm, and the server cross-compiled for
    Vercel's x86_64 Linux. Local and free; Vercel never compiles.
@@ -61,7 +61,7 @@ the environment variables; nothing about them lives in git.
 
 **The schema is NOT applied by the deploy.** There is no migration step in the build. A migration is a separate,
 explicit action, and it must happen in the same release window as the code that needs it:
-`pnpm db:migrations` (per-target state), `pnpm db:migrate` (`rust/cli db-tool apply`), `pnpm db:parity` (the gate).
+`pnpm db:migrations` (per-target state), `pnpm db:migrate` (`cli db-tool apply`), `pnpm db:parity` (the gate).
 
 Deploys are not triggered by git: `vercel.json` sets `deploymentEnabled: false`. A deploy is a deliberate act, run by
 the operator. Pushing to `main` triggers CI gates only.

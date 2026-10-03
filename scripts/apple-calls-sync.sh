@@ -39,7 +39,7 @@ swift scripts/macbridge/AppleCallHistory.swift --out "$CALLS_FILE"
 
 echo "[apple-calls] PROD intake start (rust)"
 APP_ENV=production CULEBRALUXE_REPO="$REPO_ROOT" \
-  cargo run -q --manifest-path "$REPO_ROOT/rust/Cargo.toml" -p cli -- \
+  cargo run -q --manifest-path "$REPO_ROOT/Cargo.toml" -p cli -- \
   apple-sync calls-intake prod --file "$CALLS_FILE"
 
 echo "[apple-calls] complete"

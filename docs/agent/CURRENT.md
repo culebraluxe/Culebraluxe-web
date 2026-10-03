@@ -31,30 +31,30 @@ reads it: the last measurement before it went, `cargo check --workspace` with `l
 exited 0. Read the archive through `docs/agent/MAP-engine.md` and `docs/agent/LEGACY-TEST-PARITY.md`, which
 are the accounting.
 
-1. Engine: `rust/forge`, driven by `pnpm forge:engine` (`cargo run -p forge --bin forge`), with
+1. Engine: `forge`, driven by `pnpm forge:engine` (`cargo run -p forge --bin forge`), with
    `forge-worker`, `forge-task` and `re-workflow` beside it for the worker, single-task and RE paths
-   (`rust/forge/src/bin/`). The definition is `rust/forge/definitions/FORGE_SDLC-v6.xml`, embedded in the
-   binary (`rust/forge/src/engine/xml.rs:482`, `include_str!`) and parsed by the production parser
+   (`forge/src/bin/`). The definition is `forge/definitions/FORGE_SDLC-v6.xml`, embedded in the
+   binary (`forge/src/engine/xml.rs:482`, `include_str!`) and parsed by the production parser
    (`wf_definition__013`). The `legacy/` copy is in the archive and is read by nothing — measured
    2026-10-02, no file under `rust/` names that path.
-2. Roles are **seven** services in `rust/forge/src/roles/`, each implementing `roles/service.rs`'s
+2. Roles are **seven** services in `forge/src/roles/`, each implementing `roles/service.rs`'s
    `AbstractForgeService` (descriptor, runner, hooks) and each answering `roles/hooks.rs`'s `ForgeRoleHooks` —
    one lane's reading of its own turn: `ScoutService` (`forge.scout`), `ArchitectService` (`forge.architect`),
    `LeadService` (`forge.lead`), `SmithService` (`forge.smith`), `InspectorService` (`forge.inspector`),
    `AssayService` (`forge.assay`, in `roles/qa.rs`), `DevOpsService` (`forge.devops`, in `roles/dev_ops.rs`).
    Which service owns a node is read from the definition, not from Rust: `FORGE_SDLC-v6.xml` binds
-   `service="forge.smith"` on each task-node (`rust/forge/src/engine/service_binding.rs`), a human gate carries
+   `service="forge.smith"` on each task-node (`forge/src/engine/service_binding.rs`), a human gate carries
    none, and `ForgeLaneServices` composes the seven once into `roles/registry.rs`'s `ForgeServiceRegistry`. Work
-   reaches them as durable jobs: `rust/forge/src/engine/job.rs` turns a READY task into a `forge.role` job (lease,
-   heartbeat, attempts) and `rust/forge/src/bin/forge.rs` drives it with `WorkflowJobService` plus that registry.
-   The shared `rust/forge/src/roles/lifecycle.rs` asks the lane rather than switching on a node id and stays the
-   decider, with the gate's kinds, deliverable table and effect ports in `rust/forge/src/engine/phase.rs`. (The
+   reaches them as durable jobs: `forge/src/engine/job.rs` turns a READY task into a `forge.role` job (lease,
+   heartbeat, attempts) and `forge/src/bin/forge.rs` drives it with `WorkflowJobService` plus that registry.
+   The shared `forge/src/roles/lifecycle.rs` asks the lane rather than switching on a node id and stays the
+   decider, with the gate's kinds, deliverable table and effect ports in `forge/src/engine/phase.rs`. (The
    pair `legacy/workflow_app/forge/agents/role-agents.ts` / `legacy/workflow_app/forge/forge-phase-agent.ts` is
    retired with the rest of `legacy/workflow_app/forge/`.)
-3. A lane runs through the OpenCode harness, which is Rust too (`rust/forge/src/engine/opencode.rs`,
-   `rust/forge/src/engine/opencode_agents.rs`, `rust/forge/src/engine/opencode_client.rs`,
-   `rust/forge/src/engine/opencode_events.rs`), in the ONE workspace the engine provisions for a run
-   (`rust/forge/src/engine/worktree.rs`: branch `agent/…`, `culebraluxe-forge-worktrees`). There is no
+3. A lane runs through the OpenCode harness, which is Rust too (`forge/src/engine/opencode.rs`,
+   `forge/src/engine/opencode_agents.rs`, `forge/src/engine/opencode_client.rs`,
+   `forge/src/engine/opencode_events.rs`), in the ONE workspace the engine provisions for a run
+   (`forge/src/engine/worktree.rs`: branch `agent/…`, `culebraluxe-forge-worktrees`). There is no
    per-lane tree, and a tracked file that introduces one fails a test — AGENTS.md, "NO TREES. EVER.".
    The TypeScript `agent-runtime/` harness is gone — with its 40-file test suite, deleted 2026-10-02
    (`legacy/agent-runtime`, `legacy/services`, `legacy/lib`, 45 files; the rail is `arch_boundary__012`) —
@@ -73,11 +73,11 @@ model's chat reply.
    rows that were never written. Fields win; text is the fallback.
 3. The Lead decision has ONE seat in the live engine: it is taken once, in the PRE phase, and a reply
    that restates one during any other Lead turn is stripped rather than believed
-   (`rust/forge/src/roles/lead.rs`), with the routing assay (`LeadProposal`, `RoutingReview`) and the
-   bench cap (`bench_intent_errors`) in `rust/forge/src/engine/role_slice.rs`. A refusal cannot be
+   (`forge/src/roles/lead.rs`), with the routing assay (`LeadProposal`, `RoutingReview`) and the
+   bench cap (`bench_intent_errors`) in `forge/src/engine/role_slice.rs`. A refusal cannot be
    re-reviewed by a second evaluator because there is no second resolver — the retired
    `legacy/workflow_app/forge/lead-proposal-resolve.ts` was that seat in the TypeScript engine, and the
-   assertions behind it outlive it as tests in `rust/forge/src/engine/role_slice.rs`.
+   assertions behind it outlive it as tests in `forge/src/engine/role_slice.rs`.
 
 ## Measured facts (do not re-derive these)
 
@@ -87,8 +87,8 @@ model's chat reply.
 2. The `rtk` shim used to fork-bomb every tool call (4,627 processes, load 34, about 80s
    blocked per call, every parent asleep on its child). The fix lived in `forge-tool-seams.ts`,
    retired with the TypeScript harness — `rtk` survives in the tree only as a skill NAME
-   (`rust/forge/src/engine/opencode_agents.rs`), and the live launch path
-   (`rust/forge/src/engine/opencode_client.rs`) spawns the harness with no PATH rewriting of its own.
+   (`forge/src/engine/opencode_agents.rs`), and the live launch path
+   (`forge/src/engine/opencode_client.rs`) spawns the harness with no PATH rewriting of its own.
    History of the old harness: if a shim returns to the launch path, this is the failure to expect.
 3. Forge runs execute against PROD only. See `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md`.
 4. WARM SESSION (2026-09-13, `ENG-FORGE-WARM-SESSION-01`): one OpenCode session serves

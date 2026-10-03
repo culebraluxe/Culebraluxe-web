@@ -1,7 +1,7 @@
 -- 267_forge_tool_artifact_write.sql
 --
 -- WHY: the one write of `forge_tool_artifact` (migration 130) was a transaction choreographed from Rust
--- (`ForgeEngineDao::record_tool_artifact`, rust/core/db/src/forge_engine.rs): read the run's ruling, decide which
+-- (`ForgeEngineDao::record_tool_artifact`, db/src/forge_engine.rs): read the run's ruling, decide which
 -- verdict the artifact may carry with a Rust policy (`artifact_verdict_for_run`, `verdict_polarity`), insert. The
 -- policy only ever compared database values, so all of it lives here now. Translated as-is — the sixth
 -- stored-routine slice after 262–266.

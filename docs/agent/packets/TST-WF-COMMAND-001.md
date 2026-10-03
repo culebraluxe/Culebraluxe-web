@@ -29,10 +29,10 @@ derives a different id; the store refuses a recomputed duplicate id (`COMMAND_DU
 ## Context refs
 
 - `rust/test-harness/tests/wf_command__001__deterministic_command_id.rs:276-502` — the canonical test.
-- `rust/core/workflow/src/engine/handle_join.rs:201-202` — `visit_sequence = command_visit_count + 1`, then `command_id` from the triple.
-- `rust/core/workflow/src/engine/handle_join.rs:359-363` — `command_id(instance, node, visit_sequence)`, the derivation production runs.
-- `rust/core/workflow/src/memory.rs:583-594` — the duplicate-command refusal (`COMMAND_DUPLICATE`), the dedup key the deterministic id supplies.
-- `rust/core/workflow/src/neon/new_id.rs:7-9` — `uuid_v4()`, the instance id minted once and never re-derived, so two independent runs are two distinct identities.
+- `middle/workflow/src/engine/handle_join.rs:201-202` — `visit_sequence = command_visit_count + 1`, then `command_id` from the triple.
+- `middle/workflow/src/engine/handle_join.rs:359-363` — `command_id(instance, node, visit_sequence)`, the derivation production runs.
+- `middle/workflow/src/memory.rs:583-594` — the duplicate-command refusal (`COMMAND_DUPLICATE`), the dedup key the deterministic id supplies.
+- `middle/workflow/src/neon/new_id.rs:7-9` — `uuid_v4()`, the instance id minted once and never re-derived, so two independent runs are two distinct identities.
 
 ## Acceptance criteria
 
@@ -50,8 +50,8 @@ derives a different id; the store refuses a recomputed duplicate id (`COMMAND_DU
 7. No legacy TypeScript test ported. — met.
 8. Deterministic and isolated; never PROD; no live provider. — met: `TestClock` + `MemoryStore` + a recording fake.
 9. Coverage named and discoverable even where the invariant already held. — met: this canonical file.
-10. `cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id` passes. — met.
-11. `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` passes. — met.
+10. `cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id` passes. — met.
+11. `cargo check --manifest-path Cargo.toml --workspace --all-targets` passes. — met.
 
 ## Preconditions
 
@@ -77,18 +77,18 @@ SCOPED
 
 ## Assay commands
 
-- cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
-- cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+- cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
+- cargo check --manifest-path Cargo.toml --workspace --all-targets
 
 ## Verification (2026-09-30)
 
 Landed by `b682d333`, then strengthened across `92a30c19`, `d3a3c784`, and `59df250a`. Commits are local only; this
 node's brief says do not push.
 
-- `cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id`
+- `cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id`
   → **1 passed, 0 failed**.
-- `cargo test --manifest-path rust/Cargo.toml -p test-harness` → **all tests passed, 0 failed**.
-- `cargo check --manifest-path rust/Cargo.toml --workspace --all-targets` → **exit 0**.
+- `cargo test --manifest-path Cargo.toml -p test-harness` → **all tests passed, 0 failed**.
+- `cargo check --manifest-path Cargo.toml --workspace --all-targets` → **exit 0**.
 
 ## Raw verification — repair_smith (2026-09-30)
 
@@ -98,19 +98,19 @@ is committed with; the commands below are this node's own run, pasted with their
 code was changed for this story.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
 running 1 test
 test wf_command_001__deterministic_command_id ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 18s
 CHECK_EXIT=0
 ```
 
 Mutation check: appending the live `SystemTime::now()` nanos to the canonical preimage in `command_id`
-(`rust/core/workflow/src/engine/handle_join.rs:359-363`) fails the determinism assertion at
+(`middle/workflow/src/engine/handle_join.rs:359-363`) fails the determinism assertion at
 `rust/test-harness/tests/wf_command__001__deterministic_command_id.rs:317` (`test result: FAILED`, exit 101); the
 production file was restored with `git checkout --` and the test is green again. A clock or entropy added inside the
 derivation therefore cannot pass this contract.
@@ -124,13 +124,13 @@ strengthens the one gap left in the fault coverage — the store's authoritative
 touches no production code. The candidate is the git commit this block is committed with.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
 running 1 test
 test wf_command_001__deterministic_command_id ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 EXIT=0
 
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness
+$ cargo test --manifest-path Cargo.toml -p test-harness
 test result: ok. 10 passed; 0 failed; ... (harness self test)
 test wf_command_001__deterministic_command_id ... ok
 test wf_command_002__command_generated_once_per_node_visit ... ok
@@ -138,7 +138,7 @@ test wf_command_003__retry_produces_same_identity ... ok
 test result: ok. all test binaries 0 failed
 EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 35s
 CHECK_EXIT=0
 ```
@@ -155,24 +155,24 @@ canonical test `rust/test-harness/tests/wf_command__001__deterministic_command_i
 the frozen candidate SHA for QA is this lead_post integration commit (reported as `candidateSha` in the node's
 `FORGE_EVIDENCE_JSON`, visible as HEAD). The production citations in this packet had drifted under later commits, so
 they were re-pointed at the current tree — `visit_sequence`/`command_id` at
-`rust/core/workflow/src/engine/handle_join.rs:201-202`, the derivation at
-`rust/core/workflow/src/engine/handle_join.rs:359-363`, the `COMMAND_DUPLICATE` refusal at
-`rust/core/workflow/src/memory.rs:583-594`. No production or test behavior changed. Both commands are this node's
+`middle/workflow/src/engine/handle_join.rs:201-202`, the derivation at
+`middle/workflow/src/engine/handle_join.rs:359-363`, the `COMMAND_DUPLICATE` refusal at
+`middle/workflow/src/memory.rs:583-594`. No production or test behavior changed. Both commands are this node's
 own run, pasted with their exit status.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
 running 1 test
 test wf_command_001__deterministic_command_id ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
 CHECK_EXIT=0
 ```
 
-Unrelated, pre-existing working-tree changes under `rust/core/workflow/` and `rust/forge/` (another story's in-flight
+Unrelated, pre-existing working-tree changes under `middle/workflow/` and `forge/` (another story's in-flight
 work) were present at run time; they were left untouched and are not part of this story's candidate.
 
 ## QA verdict — qa_verify (2026-09-30)
@@ -183,20 +183,20 @@ the canonical test at `rust/test-harness/tests/wf_command__001__deterministic_co
 `(instance, node, visit)` triple yields the same id a day later, a distinct instance/node/visit yields a distinct id,
 a recorded id is refused with `COMMAND_DUPLICATE`, and an already-commanded visit is refused with
 `COMMAND_VISIT_DUPLICATE` even under a fresh id. The production line numbers named in the test header had drifted
-under later commits (`command_id` had moved to `rust/core/workflow/src/engine/handle_join.rs:359`, the visit-sequence
-derivation to `rust/core/workflow/src/engine/handle_join.rs:201`, the store dedup guard to
-`rust/core/workflow/src/memory.rs:582-606`); they were corrected to the current tree so the named evidence still
+under later commits (`command_id` had moved to `middle/workflow/src/engine/handle_join.rs:359`, the visit-sequence
+derivation to `middle/workflow/src/engine/handle_join.rs:201`, the store dedup guard to
+`middle/workflow/src/memory.rs:582-606`); they were corrected to the current tree so the named evidence still
 resolves. No production behavior changed.
 
 ```
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
+$ cargo test --manifest-path Cargo.toml -p test-harness --test wf_command__001__deterministic_command_id
 running 1 test
 test wf_command_001__deterministic_command_id ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 TEST_EXIT=0
 
-$ cargo test --manifest-path rust/Cargo.toml -p test-harness
+$ cargo test --manifest-path Cargo.toml -p test-harness
 test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
 test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 test wf_command_001__deterministic_command_id ... ok
@@ -204,16 +204,16 @@ test wf_command_002__command_generated_once_per_node_visit ... ok
 test wf_command_003__retry_produces_same_identity ... ok
 HARNESS_EXIT=0
 
-$ cargo check --manifest-path rust/Cargo.toml --workspace --all-targets
+$ cargo check --manifest-path Cargo.toml --workspace --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.20s
 CHECK_EXIT=0
 ```
 
 Mutation check (independent, this node): appending the live `SystemTime::now()` nanos to the canonical preimage inside
-`command_id` (`rust/core/workflow/src/engine/handle_join.rs:359-363`) fails the determinism assertion at
+`command_id` (`middle/workflow/src/engine/handle_join.rs:359-363`) fails the determinism assertion at
 `rust/test-harness/tests/wf_command__001__deterministic_command_id.rs:317` (`test result: FAILED`, exit 101); the
 production file was restored with `git checkout --` and the test is green again (`TEST_EXIT=0`). A clock or entropy
 added inside the derivation therefore cannot pass this contract, so the test is not vacuous.
 
-Unrelated, pre-existing working-tree changes under `rust/core/workflow/` and `rust/forge/` (parallel concurrency work,
+Unrelated, pre-existing working-tree changes under `middle/workflow/` and `forge/` (parallel concurrency work,
 not this story) were present at run time; they were left untouched and are not part of this story's candidate.

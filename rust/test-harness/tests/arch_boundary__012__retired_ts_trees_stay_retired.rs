@@ -22,7 +22,7 @@
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test arch_boundary__012__retired_ts_trees_stay_retired
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test arch_boundary__012__retired_ts_trees_stay_retired
 
 use std::path::{Path, PathBuf};
 

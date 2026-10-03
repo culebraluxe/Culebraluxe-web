@@ -1,21 +1,21 @@
 //! WF.DEFINITION — missing target (TST-WF-DEFINITION-005).
 //!
-//! Contract: the Forge v6 XML **is** the definition (`rust/forge/src/engine/xml.rs:1-2`,
-//! `rust/forge/definitions/FORGE_SDLC-v6.xml`), so the production definition parser refuses a definition whose
+//! Contract: the Forge v6 XML **is** the definition (`forge/src/engine/xml.rs:1-2`,
+//! `forge/definitions/FORGE_SDLC-v6.xml`), so the production definition parser refuses a definition whose
 //! `<transition>` names a node that the same definition does not declare. "Missing target" is the parser's exact
-//! refusal, not a fuzzy lookup: `parse_process_definition_xml` (`rust/forge/src/engine/xml.rs:387-396`) builds the
+//! refusal, not a fuzzy lookup: `parse_process_definition_xml` (`forge/src/engine/xml.rs:387-396`) builds the
 //! node map first and then, for every edge it collected, demands `nodes.contains_key(&t.to)`. A definition that would
 //! ship an edge no runtime could ever follow is never accepted — `deploy_xml`
-//! (`rust/forge/src/engine/deploy.rs:83-92`) and the engine binary (`rust/forge/src/bin/forge_task.rs:45`) both call
+//! (`forge/src/engine/deploy.rs:83-92`) and the engine binary (`forge/src/bin/forge_task.rs:45`) both call
 //! this one parser, so the refusal is the same one production deploys through.
 //!
 //! The production pieces this file exercises, all pure:
 //!
-//! - `definition_from_xml` / `parse_process_definition_xml` (`rust/forge/src/engine/xml.rs:352-426`) — the one
+//! - `definition_from_xml` / `parse_process_definition_xml` (`forge/src/engine/xml.rs:352-426`) — the one
 //!   parser production uses; its `XmlError` message names the edge, its declaring node and the missing target.
-//! - `validate_definition_xml` (`rust/forge/src/engine/validate.rs:16-75`) — the second production boundary that
+//! - `validate_definition_xml` (`forge/src/engine/validate.rs:16-75`) — the second production boundary that
 //!   consumes the parser and reports the definition `valid == false`, so the two seams may not disagree.
-//! - `FORGE_SDLC_V6_XML` (`rust/forge/src/engine/xml.rs:428`) — the shipped definition itself, which must carry no
+//! - `FORGE_SDLC_V6_XML` (`forge/src/engine/xml.rs:428`) — the shipped definition itself, which must carry no
 //!   missing target, and whose own `begin` edge is the edit anchor that proves the rule applies to it.
 //!
 //! The shape matters. The contract is demonstrated in both directions:
@@ -34,7 +34,7 @@
 //! inputs are literal XML strings and the output is the production parser's and validator's own.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test wf_definition__005__missing_target
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test wf_definition__005__missing_target
 
 use forge::engine::validate::validate_definition_xml;
 use forge::engine::xml::{definition_from_xml, parse_process_definition_xml, FORGE_SDLC_V6_XML};
@@ -214,7 +214,7 @@ fn wf_definition_005__missing_target() {
     }
 
     // 2d. THE CHECK IS OVER EVERY DECLARED NODE, NOT ONLY THOSE REACHABLE FROM START. Production walks the whole node
-    //     map (`rust/forge/src/engine/xml.rs:387-396`), so an edge on an orphan node — one no path from the start ever
+    //     map (`forge/src/engine/xml.rs:387-396`), so an edge on an orphan node — one no path from the start ever
     //     reaches — is still refused. A parser that validated only reachable nodes would ship a definition with a
     //     dangling edge hidden behind an unreachable node, and this clause fails.
     // The key says what it is: gitleaks reads a taxonomy-shaped key as a generic API key.
@@ -234,7 +234,7 @@ fn wf_definition_005__missing_target() {
     );
 
     // 2e. AN END-STATE'S OWN EDGE IS CHECKED TOO. `collect_transitions` runs before the element-name switch
-    //     (`rust/forge/src/engine/xml.rs:266`), so an `<end-state>` that declares a `<transition>` is subject to the
+    //     (`forge/src/engine/xml.rs:266`), so an `<end-state>` that declares a `<transition>` is subject to the
     //     same rule; a missing target there is refused, not ignored because the node is a terminus.
     let end_edge = r#"<process-definition key="TST-WF-DEFINITION-005-END-EDGE" version="1" name="End edge">
   <start-state id="start">

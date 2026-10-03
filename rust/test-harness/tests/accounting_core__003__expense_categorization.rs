@@ -1,27 +1,27 @@
 //! ACCOUNTING.CORE — expense categorization (TST-ACCOUNTING-CORE-003).
 //!
 //! Contract: an expense carries one of the controlled categories, and membership is **exact** —
-//! `EXPENSE_CATEGORIES` (`rust/core/domain/src/accounting.rs:30`), enforced by
-//! `CreateExpenseCommand::validate` (`rust/core/domain/src/accounting.rs:347-353`) and readable through
-//! `is_expense_category` (`rust/core/domain/src/accounting.rs:472`). A closed list rather than a category table, and
+//! `EXPENSE_CATEGORIES` (`middle/model/src/accounting.rs:30`), enforced by
+//! `CreateExpenseCommand::validate` (`middle/model/src/accounting.rs:347-353`) and readable through
+//! `is_expense_category` (`middle/model/src/accounting.rs:472`). A closed list rather than a category table, and
 //! a spelling the list does not carry is **rejected**, not stored and not repaired to its nearest neighbour — the
 //! behaviour the TypeScript seam had, kept deliberately.
 //!
 //! Normalisation does not launder a category: `CreateExpenseCommand::normalised`
-//! (`rust/core/domain/src/accounting.rs:366`) copies the category through, so the only way a category reaches a row
+//! (`middle/model/src/accounting.rs:366`) copies the category through, so the only way a category reaches a row
 //! is by having been validated exactly.
 //!
 //! The negative case is every near miss — lower case, upper case, a trailing space, an abbreviation, the empty
 //! string — each refused with `EXPENSE_CATEGORY_INVALID`. Expenses also have a closed status vocabulary
-//! (`EXPENSE_STATUSES`, `rust/core/domain/src/accounting.rs:23`), mirrored by the `check (status in ('DRAFT',
+//! (`EXPENSE_STATUSES`, `middle/model/src/accounting.rs:23`), mirrored by the `check (status in ('DRAFT',
 //! 'POSTED', 'VOID'))` constraint in `db/migrations/087_accounting.sql:31-35`.
 //!
 //! Level: L0 Pure — no database, no socket, deterministic.
 //!
 //! Run with:
-//!   cargo test --manifest-path rust/Cargo.toml -p test-harness --test accounting_core__003__expense_categorization
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test accounting_core__003__expense_categorization
 
-use domain::accounting::{
+use model::accounting::{
     is_expense_category, CreateExpenseCommand, EXPENSE_CATEGORIES, EXPENSE_STATUSES,
 };
 

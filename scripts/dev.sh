@@ -23,4 +23,4 @@ export RUST_API_BIND="${RUST_API_BIND:-127.0.0.1:3000}"
 
 bash scripts/site-build.sh
 echo "==> Rust server on http://localhost:${RUST_API_BIND##*:} (APP_ENV=$APP_ENV)"
-exec cargo run --manifest-path rust/Cargo.toml -p server --bin http
+exec cargo run --manifest-path Cargo.toml -p web --bin web

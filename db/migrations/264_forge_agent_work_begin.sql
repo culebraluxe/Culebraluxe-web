@@ -1,7 +1,7 @@
 -- 264_forge_agent_work_begin.sql
 --
 -- WHY: opening a run was a transaction choreographed from Rust (`ForgeEngineDao::begin_agent_work_run`,
--- rust/core/db/src/forge_engine.rs): lock the claimed item, open the Story Run with the story's specification
+-- db/src/forge_engine.rs): lock the claimed item, open the Story Run with the story's specification
 -- snapshotted, move the item `Claimed → Running` stamped with that run, commit. That is database behaviour, so it
 -- lives here now and the DAO binds two parameters and maps the row. Translated as-is — the third stored-routine
 -- slice after 262 (claim) and 263 (settlement): no new column, no change to the snapshot, the guard or the envelope.

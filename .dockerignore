@@ -6,4 +6,4 @@ rust/target
 !scripts/rust-ui-build.sh
 !public
 public/rust-ui
-!lib/forms/templates
+!middle/model/forms/templates

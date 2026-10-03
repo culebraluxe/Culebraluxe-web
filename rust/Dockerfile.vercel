@@ -2,7 +2,7 @@ FROM rust:1.94-bookworm AS builder
 
 WORKDIR /build
 COPY . .
-RUN cargo build --locked --release -p server --bin http
+RUN cargo build --locked --release -p web --bin web
 
 FROM debian:bookworm-slim AS runtime
 
