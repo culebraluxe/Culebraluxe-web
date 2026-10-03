@@ -401,6 +401,8 @@ neither is required today.
   `scripts/validate-move-script.sh`, and the contract test
   `tests/tests/arch_boundary__013__the_tree_is_three_tiers_and_rust_is_gone.rs` (227 lines, `d81d0d5d`). A per-lane
   replay is therefore reproducible from `main`, which is what makes keep-or-delete a cheap decision rather than a loss.
-- To take at will when `lane/gpt` is revived: delete the branch and create the lane from `origin/main`
-  (`docs/agent/LAYOUT.md` recipe). Until then it costs one ref and holds nothing unique.
+- It also has a **worktree already registered**: `git worktree list` shows `/Users/Shared/dev/src/lane-gpt` at
+  `6ed57f61`. So reviving it is `git worktree remove ../lane-gpt`, drop the branch, then re-add the lane from
+  `origin/main` (`docs/agent/LAYOUT.md` recipe) — not a `worktree add` onto a branch that still exists. Until then it
+  costs one ref and one worktree, and holds nothing unique.
 
