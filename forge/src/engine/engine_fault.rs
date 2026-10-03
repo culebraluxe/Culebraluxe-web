@@ -44,6 +44,13 @@ pub fn is_engine_fault(message: &str) -> bool {
         // every story the worker claimed (production 2026-10-01: 175 runs in one outage).
         "database is locked",
         "insufficient balance",
+        // The vendor server failing, or a vendor that cannot be run as Forge needs it (C1, 2026-10-03: the architect
+        // turn died on OpenCode's own HTTP 500 with zero tokens spent and was ruled the story's failure). A 5xx is the
+        // server's fault, never the request's; a 4xx stays the work's.
+        "unexpectedstatus: 5",
+        "connection refused",
+        "could not be run at all",
+        "is not the opencode build",
     ];
     let message = message.to_ascii_lowercase();
     MARKS.iter().any(|mark| message.contains(mark))
@@ -71,6 +78,10 @@ mod tests {
             "opencode-harness failed for fast_smith exit=Some(1): Error: Insufficient Balance (request_id: abc)",
             "error connecting to server: Connection timed out (os error 110)",
             "statement timeout: query exceeded 300000 ms",
+            "opencode-harness failed for architect exit=Some(1) (spent tokens_in=0): UnexpectedStatus: 500",
+            "opencode-harness: `/usr/local/bin/opencode` is not the OpenCode build this adapter is written against.",
+            "opencode-harness: the vendor CLI at `x` (unknown version) could not be run at all",
+            "tcp connect error: Connection refused (os error 61)",
         ] {
             assert!(is_engine_fault(message), "{message}");
         }
@@ -87,6 +98,7 @@ mod tests {
             "unsupported work type ANYTHING",
             "QA verdict: FAIL - test forge_runtime::slow_case timed out after 60s",
             "opencode-harness failed for smith: the provider request timed out",
+            "opencode-harness failed for smith: UnexpectedStatus: 400",
         ] {
             assert!(!is_engine_fault(message), "{message}");
         }

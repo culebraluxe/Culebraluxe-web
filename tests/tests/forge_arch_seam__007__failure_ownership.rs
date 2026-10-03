@@ -160,7 +160,6 @@ fn a_malformed_envelope_is_the_job_layers_and_costs_no_turn() {
 /// gate (ARCH-SEAM-006) keeps the common case from reaching a turn, but the classifier owns the rule and has no
 /// configuration class. Owner: `forge/src/engine/engine_fault.rs`.
 #[test]
-#[ignore = "RED ARCH-SEAM-007: a vendor-contract failure mid-turn is classified as a role verdict — run with --ignored"]
 fn a_vendor_contract_failure_is_never_a_role_verdict() {
     assert!(
         is_engine_fault_error(&vendor_contract_invalid()),
