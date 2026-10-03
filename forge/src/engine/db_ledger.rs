@@ -90,6 +90,20 @@ impl CompletionLedger for DbCompletionLedger {
         self.increment(story_id, "repair")
     }
 
+    fn reset_budget(&self, story_id: &str) -> Result<()> {
+        let id = story_id.to_string();
+        with_shared(|db, rt| {
+            let dao = ForgeEngineDao::new(db.clone());
+            rt.block_on(async {
+                dao.reset_forge_attempts(&id)
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        })
+        .map_err(|error| failed("reset_budget", error))?
+        .map_err(|error| failed(&format!("reset_budget({story_id})"), error))
+    }
+
     fn increment_replan(&self, story_id: &str) -> Result<()> {
         self.increment(story_id, "replan")
     }

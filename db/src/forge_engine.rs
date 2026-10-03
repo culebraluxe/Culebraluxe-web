@@ -1200,6 +1200,19 @@ impl ForgeEngineDao {
         .map_err(|error| DbFailure::from_sqlx("forge_engine.story_repair_counts", &error))
     }
 
+    /// Return a story's repair and replan budget to full — a fresh workflow instance is a fresh attempt.
+    pub async fn reset_forge_attempts(&self, story_id: &str) -> DbResult<()> {
+        sqlx::query(
+            "update storyboard_story set forge_repair_attempts=0, forge_replan_attempts=0, updated_at=now()
+              where id=$1 and (forge_repair_attempts <> 0 or forge_replan_attempts <> 0)",
+        )
+        .bind(story_id)
+        .execute(self.db.pool())
+        .await
+        .map(|_| ())
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.reset_forge_attempts", &error))
+    }
+
     /// lives on `storyboard_story` (`forge_repair_attempts`, migration 114), never in a process.
     pub async fn increment_forge_repair_attempts(&self, story_id: &str) -> DbResult<()> {
         let result = sqlx::query(

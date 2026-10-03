@@ -29,6 +29,12 @@ pub trait CompletionLedger: Send + Sync {
     fn merge_evidence(&self, rec: &CompletionRecord) -> Result<()>;
     fn increment_repair(&self, story_id: &str) -> Result<()>;
     fn increment_replan(&self, story_id: &str) -> Result<()>;
+    /// Return the story's repair and replan budget to full: a fresh instance is a fresh attempt (a board rerun),
+    /// and the attempts an earlier instance spent are not this one's. The default (a ledger with no budget of its
+    /// own) does nothing.
+    fn reset_budget(&self, _story_id: &str) -> Result<()> {
+        Ok(())
+    }
     /// Newest finalized receipt time for `forge.completion:` — the reconcile watermark, in the same
     /// unit as `ProcessEvent::created_at` (epoch milliseconds).
     fn watermark(&self, prefix: &str) -> Result<Option<i64>> {
@@ -100,6 +106,11 @@ impl CompletionLedger for MemoryLedger {
             None => rec.evidence.clone(),
         };
         map.insert(rec.story_id.clone(), next);
+        Ok(())
+    }
+    fn reset_budget(&self, story_id: &str) -> Result<()> {
+        self.repairs.lock().unwrap().remove(story_id);
+        self.replans.lock().unwrap().remove(story_id);
         Ok(())
     }
     fn increment_repair(&self, story_id: &str) -> Result<()> {

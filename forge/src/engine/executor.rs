@@ -528,8 +528,7 @@ fn drive_forge_story_inner<S: TxStore>(
                                     let reason = format!(
                                         "Forge durable job {job_id} for task {} ({node}) was already {:?} by an \
                                          earlier run, so this run executed nothing. That run's error: {detail}. \
-                                         To run the story again, reset it (pnpm forge:story:reset {story_id} reset \
-                                         --force) instead of re-arming it.",
+                                         It is waiting for that turn's completion to be reconciled.",
                                         task.task_id, state.status
                                     );
                                     rt.writer()
