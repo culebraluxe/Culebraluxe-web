@@ -17,6 +17,12 @@ set -uo pipefail
 # launchd starts jobs with a minimal PATH that does not include Homebrew.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
+# rustup installs cargo here on macOS; launchd does not inherit the interactive shell PATH and no plist
+# passes it, so the intake below would die as `cargo-not-found` before the snapshot was ever written.
+# Same fix, same reason as `scripts/agent-worker-once.sh:62-64`.
+PATH="$HOME/.cargo/bin:$PATH"
+export PATH
+
 if [ -n "${CULEBRALUXE_REPO:-}" ]; then
   REPO_ROOT="$CULEBRALUXE_REPO"
 else
