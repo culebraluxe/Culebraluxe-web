@@ -218,3 +218,98 @@ Two findings that are the captain's to decide, not this lane's to act on:
 
 What §9 does **not** establish: nothing about the product build. No `cargo check`, no test ran, because no product file
 changed — the same gap §5 already states.
+
+## 10. THE CAPTAIN'S TWO QUESTIONS — BOTH YES (2026-10-03, later still)
+
+Captain: *"see if you can login to dev NEON and PROD, and do a build of the app."* Both answered, with output. This
+section supersedes the build gap §5 and §9 recorded ("nothing about the product build"): a build ran, and so did tests.
+
+### 10.1 Login: yes, to both — read-only
+
+`psql` is not installed on this machine, so the operative client is the Rust `db-tool` (`cli/src/db_tool.rs`), which
+prints the **target and host only, never credentials** (there is a unit test for that: `host_of_reports_only_the_host`).
+
+```
+$ pnpm db:migrations        # db-tool status — reads the ledger on DEV and PROD; exit 0
+database: target=dev host=ep-muddy-lab-axtgckj9-pooler.c-4.us-east-2.aws.neon.tech
+database: target=prod host=ep-flat-art-ax92tn7a-pooler.c-4.us-east-2.aws.neon.tech
+ledger: 156 rows   migrations on disk: 240
+  dev  recorded: 31
+  prod recorded: 125
+
+$ pnpm db:parity            # DEV vs PROD structure, both sides; exit 0
+tables only in DEV : (none)
+tables only in PROD: (none)
+column drift: 0    index drift: 0    fk drift: 0    check drift: 0
+PARITY OK
+```
+
+Both hosts match the playbook's §1 table, so this lane's `.env.local` points where it says it does. **The 31/125 ledger
+asymmetry is not drift**: DEV's ledger went with its branch reset, which is why most one-sided rows read `[prod only]`;
+the structure itself compares clean on all five axes. Writing the report also caught **stale prose**: the playbook's
+"Parity blind spot" said parity "NOT check constraints", which stopped being true on 2026-09-12
+(FORGE-PARITY-CHECK-01 added the fifth axis) — corrected in the same pass, and the *still*-open gap (functions/stored
+routines, view definitions) named precisely in its place. Nothing was written to either database: `status` and
+`parity` only read, and no `APP_ENV=production` command ran.
+
+### 10.2 Build: yes — after fixing what stopped it on the first try
+
+`pnpm build` — the command AGENTS.md, ORIENTATION.md and DEV-OPS-RELEASE.md all name as *the* build — **failed in five
+seconds**:
+
+```
+==> cargo build (ui, wasm32-unknown-unknown, release)
+error: Read-only file system (os error 30) at path "/targetnGolVo"
+ELIFECYCLE  Command failed with exit code 101.
+```
+
+Root cause: `scripts/rust-ui-build.sh` asked for `--target-dir /target`, the **container's** build root (writable there —
+`Dockerfile:14`, `devops/Dockerfile.build`) — while this Mac is read-only at `/` and already exports the shared
+`CARGO_TARGET_DIR=/Users/Shared/dev/build/rust`, which the script ignored. Fixed in **`6341055f`**: it honours
+`CARGO_TARGET_DIR` before falling back to `/target`, so the container value is untouched and no lane on this machine can
+hit this again. Verified: the fallback in three cases (`neither → /target`, `CARGO_TARGET_DIR → the shared dir`,
+`RUST_UI_TARGET_DIR → wins`), a real release build through the script with `RUST_UI_TARGET_DIR` unset (exit 0, artifacts
+still `public/rust-ui/`), `bash -n`, `arch_boundary__013` (the test that reads this script) PASS, T0 PASS, rustfmt PASS.
+
+Then the build ran clean, on this machine:
+
+```
+==> cargo build (ui, wasm32-unknown-unknown, release)   Finished `release` profile [optimized] target(s) in 38.45s
+    WASM:     public/rust-ui/ui_bg.wasm (9.0M)          JS glue: public/rust-ui/ui.js (60K)
+==> tailwind (web/ui/styles/app.css -> public/app.css)  (183K)
+    Finished `release` profile [optimized] target(s) in 1m 24s     # the server binary
+-rwxr-xr-x 33M  build/rust/release/web   Mach-O 64-bit executable arm64
+```
+
+So the wasm, the glue, the stylesheet and the server binary all build here — the honest gap §5 and §9 carried is closed
+by this run, and the artifacts are the ones the deploy copies (`public/rust-ui/`, `Dockerfile`).
+
+### 10.3 What the build found: a red on `main` that is already owned — do not "fix" it
+
+T1 (`pnpm slice:check`) went red, not for the script but for a product test,
+`test-harness --test forge_seam__001__story_to_complete`:
+
+```
+left:  ["architect", "architect", "lead_pre", "lead_pre", "lead_solo_implement", "lead_post", "qa_review", "qa_verify", "qa_verify"]
+right: ["architect", "lead_pre", "smith", "lead_post", "qa_review", "qa_verify"]
+```
+
+It is **deterministic** (3/3 runs of the built binary, ~0.03s each) and **not this diff**: the three inputs that decide
+it — `forge/definitions/FORGE_SDLC-v6.xml`, the test, `tests/tests/support/forge_seam.rs` — are byte-identical to
+`origin/main` (`git diff origin/main --` on those paths is empty), and this change is a shell script no Rust test reads.
+It is also **already a named, dated, owned row**, not new: `CURRENT.md:158-163` records exactly this drift for
+`forge_seam__001..004` with these same two lists and says *"Do not 'fix' them by editing the seam expectations to
+match"*, and `HANDOFF-machine-and-lane-2026-10-03.md` H1 holds it for **the workflow-lane owner**. This slice reached
+001 only — the harness loop stops at the first failing binary; the other three are recorded there as failing too.
+
+The mechanism, for whoever owns it: the FEATURE composition (`forge/definitions/FORGE_SDLC-v6.xml:33-43`) is
+`architect → lead_pre → execution_shape → {lead_solo_implement | smith} → split_dispatch/join → lead_post → qa_policy →
+qa_review → qa_verify`, and the observed run takes **both** sides of the `execution_shape` fork and re-enters
+`architect`, `lead_pre` and `qa_verify`. Nothing here changes: the expectation was not edited and the test was not
+excluded from any run.
+
+### 10.4 What §10 does not change
+
+§1's lane positions, §2's holds, §5's other gaps, §6's open items and §9's prose corrections all stand. The worktree is
+clean, `lane/deep` is level with `main`, and this pass wrote to neither database.
+
