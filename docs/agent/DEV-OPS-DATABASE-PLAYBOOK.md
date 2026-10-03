@@ -69,6 +69,42 @@ the view bodies agree on both sides.
 `.env.local` is local config only. **Vercel production env vars are separate** —
 never assume the URL in `.env.local` is what the live site uses.
 
+### Who the connections authenticate as — and why "read-only" is a discipline, not a limit
+
+All four URLs in `.env.local` (`DATABASE_URL`, `DATABASE_URL_DEV`, `DATABASE_URL_PROD`, `DATABASE_URL_UNPOOLED`)
+authenticate as **`neondb_owner`**, the database-owner role: row CRUD is granted to the operator, it is not something
+anyone has to ask for. Print the role without printing a secret:
+
+```sh
+grep -oE 'postgres(ql)?://[^:@/]+' .env.local | sort -u     # postgresql://neondb_owner
+```
+
+What is narrow is the **tool**, deliberately. `db-tool` has exactly three subcommands — `status`, `apply`, `parity`
+(`cli/src/db_tool.rs:41-44`) — so there is no ad-hoc SQL path to hand a stray statement to, and `psql`, `pgcli` and
+`usql` are all **not installed** on this Mac. A write goes through `apply`, and `apply` records a checksummed
+`schema_migration` row *after* running the file (`cli/src/db_tool.rs:408-411`) — which is why a throwaway probe file
+is the **wrong** way to test access: it leaves fake migration history behind. `apply` is for a real, reviewed
+migration file, and nothing else.
+
+So when a report says "reached read-only", read it as *"only reads were run"*, not as a permission ceiling. To prove
+the write path instead, use the ignored contract test, which inserts a story, its run and its artifacts, rules the run
+with an `UPDATE`, reads the artifacts back through `ForgeEngineDao`, and deletes the story (artifacts cascade) —
+insert, update, read and delete against DEV, leaving nothing:
+
+```sh
+set -a; . ./.env.local; set +a      # the CLI loads it with dotenvy; .env.local's values are QUOTED
+cargo test -p test-harness --test forge_tool_artifact_dev -- --ignored
+```
+
+Three things about running it that cost time on 2026-10-03: the crate is **`test-harness`** (the test's own header
+used to say `-p db` and did not run), the test is **target-typed** so it cannot be aimed at PROD by accident
+(`Database::connect_target(DbTarget::Dev)`, `tests/tests/forge_tool_artifact_dev.rs:29-31`), and the quoting trap is
+real — `dotenvy` strips the quotes around the URL while a shell `cut -d= -f2-` keeps them, and the result is
+`DatabaseUnavailable … "invalid database connection URL"` with a perfectly good database at the other end.
+`scripts/rust-live-check/README.md` still names three `.mjs` scripts that are not in the tree; the Rust replacement
+is a tracked port (`docs/agent/TS-TRIAGE.md:219`), while its "Verifying a write path" recipe (`BEGIN; … ROLLBACK;`)
+still stands as the way to check one statement without changing a row.
+
 ## 2. The one rule that changed
 
 > **"Pull PROD down to DEV" means reset the DEV Neon branch from PROD.**

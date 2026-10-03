@@ -4,6 +4,14 @@ Live checks against a **running** Rust API and the **DEV** database. Unit tests 
 port has produced three bugs only a real one could catch: a `uuid = text` bind, a statement cache that doubled every
 query, and a panic that killed a request without leaving a record. Run these before calling a change done.
 
+> **Status (2026-10-03): the three `.mjs` scripts below are not in the tree, so that block does not run.** The Node
+> runtime they ran on is retired and their Rust replacement is a tracked port (`docs/agent/TS-TRIAGE.md:219`). What
+> exists today for a live DEV check is the ignored contract test `tests/tests/forge_tool_artifact_dev.rs`
+> (`set -a; . ./.env.local; set +a` then
+> `cargo test -p test-harness --test forge_tool_artifact_dev -- --ignored`), which inserts, updates, reads back and
+> deletes its own rows on DEV — plus the recipe at the bottom of this file, which still stands. Operator-facing copy of
+> all of it: `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` §1.
+
 ```bash
 pnpm dev                              # or: cd rust && cargo run -p web --bin web
 node scripts/rust-live-check/engine-routes.mjs

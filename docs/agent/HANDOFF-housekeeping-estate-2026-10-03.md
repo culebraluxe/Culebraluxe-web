@@ -347,3 +347,60 @@ three commits, each one's patch-id is **identical** to the version that landed o
 `5a3a38d9…`, `623dccb0`≡`8ed218e9` `2d66227f…`, `76b1c6de`≡`672e04ab` `ad81d9ec…`), and the old base `c0db049c` is
 still an ancestor of the tip. Nothing was discarded and nothing was held back.
 
+## 11. The captain's follow-up, 2026-10-03: the CRUD question, measured
+
+### 11.1 The credential was never the limit — the tool is narrow on purpose
+
+The captain's word was *"you should have full access to CRUD in neon"*, and he is right: all four URLs in `.env.local`
+(`DATABASE_URL`, `DATABASE_URL_DEV`, `DATABASE_URL_PROD`, `DATABASE_URL_UNPOOLED`) authenticate as **`neondb_owner`**,
+Neon's database-owner role. §10's "read-only" was this pass's *discipline* — only reads were run — not a permission
+ceiling, and the playbook now carries that in §1 instead of leaving the next reader to re-derive it.
+
+The write path was then **proven** on DEV rather than asserted:
+
+```
+$ set -a; . ./.env.local; set +a
+$ cargo test -p test-harness --test forge_tool_artifact_dev -- --ignored
+test a_tool_artifact_carries_its_run_ruling_and_never_a_second_opinion ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.88s
+```
+
+That test is a real C-R-U-D pass against DEV tables — `insert into storyboard_story`, `insert into
+storyboard_story_run`, `update storyboard_story_run … result_status='Complete'`, artifact rows read back through
+`ForgeEngineDao`, then `delete from storyboard_story` with artifacts cascading (`tests/tests/forge_tool_artifact_dev.rs`)
+— so it answers both halves at once: the access is there, and the check leaves nothing behind. It is target-typed
+(`Database::connect_target(DbTarget::Dev)`), so it cannot be aimed at PROD by accident, and no control plane was left
+modified. `db-tool` itself stays narrow on purpose (`status`, `apply`, `parity`; `cli/src/db_tool.rs:41-44`) — a write
+goes through a reviewed migration file, and a throwaway probe file is the wrong instrument because `apply` records a
+checksummed `schema_migration` row for whatever it runs (`cli/src/db_tool.rs:408-411`).
+
+**The first attempt failed, and the cause is worth keeping.** `DatabaseUnavailable … "invalid database connection
+URL"` against a database that was fine: `.env.local` **quotes** its values (the DEV URL is 148 characters including the
+quotes), `dotenvy` strips them (`cli/src/apple_sync.rs:68-71`) and a shell `cut -d= -f2-` does not. Source the file or
+let dotenvy read it; never string-split it.
+
+Two doc defects came out of the same hunting, fixed here rather than left for the next reader.
+`tests/tests/forge_tool_artifact_dev.rs` told you to run `cargo test -p db --test forge_tool_artifact_dev`, which does
+not run at all — the crate is `test-harness`. And `scripts/rust-live-check/README.md` presented three `.mjs` scripts as
+the live-check commands though none of them is in the tree; its `BEGIN; … ROLLBACK;` recipe for verifying a single
+write still stands, and the Rust replacement for the scripts is a tracked port (`docs/agent/TS-TRIAGE.md:219`).
+
+### 11.2 `lane/gpt` was measured, and deliberately not destroyed
+
+The captain's word: *"gpt is not going to be set up for a while if you need to fix something there you can."* The
+measurement says the branch has no marginal value — but it was neither deleted nor pushed, because one is irreversible
+and the other only relocates a defect (a stale branch pushed to `origin` is what `recover:strand` exists to find), and
+neither is required today.
+
+- `refs/heads/lane/gpt` = `6ed57f61` is **local-only**: `git ls-remote --heads origin` lists no `lane/gpt`. It is a
+  rule-2 strand, and §10.2's "push it or say why not" is answered by that sentence.
+- Its base is `97785410`, 34 commits behind `main`. The replay moved the tree from **933 files / 5531+ / 3548-** away
+  from `main` to **140 files / 2213+ / 735-**, so it did the bulk of the layout move correctly; the residual 140 files
+  are what 34 commits of `main` look like. Its tree (`dc5dd2c5…`) is shared by **no** commit on `main`.
+- The move it replays is on `main` **and is scripted and guarded there**: `scripts/restructure-domain-layout.sh`,
+  `scripts/validate-move-script.sh`, and the contract test
+  `tests/tests/arch_boundary__013__the_tree_is_three_tiers_and_rust_is_gone.rs` (227 lines, `d81d0d5d`). A per-lane
+  replay is therefore reproducible from `main`, which is what makes keep-or-delete a cheap decision rather than a loss.
+- To take at will when `lane/gpt` is revived: delete the branch and create the lane from `origin/main`
+  (`docs/agent/LAYOUT.md` recipe). Until then it costs one ref and holds nothing unique.
+

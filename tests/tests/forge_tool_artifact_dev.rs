@@ -1,7 +1,13 @@
 //! The `forge_tool_artifact` funnel against DEV.
 //!
 //! Run explicitly with:
-//!   DATABASE_URL_DEV=... cargo test -p db --test forge_tool_artifact_dev -- --ignored
+//!   set -a; . ./.env.local; set +a
+//!   cargo test -p test-harness --test forge_tool_artifact_dev -- --ignored
+//!
+//! The crate is `test-harness`: this header said `-p db` until 2026-10-03, and that command does not run at all. Load
+//! `.env.local` the way the CLI does (`dotenvy`, `cli/src/apple_sync.rs:68-71`) — its values are QUOTED, dotenvy
+//! strips the quotes, and a shell `cut -d= -f2-` keeps them, which fails as
+//! `DatabaseUnavailable … "invalid database connection URL"` against a perfectly good database.
 //!
 //! Why this exists: migration 130 created `forge_tool_artifact` for "per-execution tool verdicts/outputs … that
 //! future Forge agents / operator / Cline should query, not re-derive", and the port wrote **no row ever** — no
