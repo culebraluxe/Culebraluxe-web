@@ -30,8 +30,12 @@ import sys
 from collections import defaultdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The legacy estate this script was written against was archived outside the tree on 2026-10-02
+# (`~/Documents/forge-legacy-ts-archive-2026-10-02`); point LEGACY at that archive to run it again.
 LEGACY = os.path.join(ROOT, "legacy")
-RUST = os.path.join(ROOT, "rust")
+# The Rust estate is the whole workspace now — the tiers, the entry points and the suite under `tests/` — so the walk
+# starts at the repository root rather than in a `rust/` directory that no longer exists.
+RUST = ROOT
 OUT = os.path.join(ROOT, "docs/agent/legacy-test-parity/already-covered.tsv")
 
 STOP = {

@@ -216,9 +216,10 @@ pub const TEMPLATES_DIR_ENV: &str = "FORMS_TEMPLATES_DIR";
 /// A path inside the repository, RESOLVED rather than assumed.
 ///
 /// WHY THIS EXISTS: the defaults below are repository-relative, and a repository-relative path is only correct when the
-/// process happens to be started from the repository root. The dev launcher starts the API with `rust/` as its working
-/// directory (`scripts/dev-start.mjs`), so every render failed with "Cannot read the template directory
-/// middle/model/forms/templates" — a launcher detail deciding whether documents could be composed at all. So: the working directory
+/// process happens to be started from the repository root. A launcher used to start the API with the old workspace
+/// directory (`rust/`) as its working directory (`scripts/dev-start.mjs`), so every render failed with "Cannot read the
+/// template directory middle/model/forms/templates" — a launcher detail deciding whether documents could be composed at
+/// all. So: the working directory
 /// and its ANCESTORS are searched, then the compile-time repository root, and only then the plain default, so a failure
 /// names the path that could not be found.
 pub fn resolve_repo_path(relative: &str) -> PathBuf {

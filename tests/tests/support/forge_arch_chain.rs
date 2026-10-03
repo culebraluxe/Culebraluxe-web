@@ -305,7 +305,7 @@ pub fn production_code(path: &Path) -> String {
         .join("\n")
 }
 
-/// `(relative path, production code)` for every `.rs` under `dir` (relative to `rust/`).
+/// `(relative path, production code)` for every `.rs` under `dir` (relative to the repository root).
 pub fn production_tree(dir: &str) -> Vec<(String, String)> {
     let root = workspace_root().join(dir);
     assert!(root.is_dir(), "{dir} must exist to be scanned");

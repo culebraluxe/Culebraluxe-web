@@ -621,10 +621,7 @@ mod tests {
             harness.crates.contains(&"test-harness"),
             "the test-harness crate must run in the harness section"
         );
-        assert_eq!(
-            section_for_file("tests/src/database.rs"),
-            Some("harness")
-        );
+        assert_eq!(section_for_file("tests/src/database.rs"), Some("harness"));
         assert_eq!(
             section_for_file("tests/tests/harness_self_test.rs"),
             Some("harness")
