@@ -1,5 +1,7 @@
 #!/bin/bash
-cd /Users/lisapenfieldicloud.com/Documents/Culebraluxe-web || exit 1
+# The repo root is derived from this script's own location, so it does not name a path that the
+# 2026-10-01 move invalidated (it said ~/Documents/Culebraluxe-web, which no longer holds the repo).
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 story="$1"
 # Persistent log dir: /tmp is periodically swept on macOS and took the run logs with
 # it (the DB is the source of truth, but the chain log is what makes a run debuggable).
