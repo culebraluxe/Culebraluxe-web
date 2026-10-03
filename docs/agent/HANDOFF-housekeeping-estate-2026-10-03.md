@@ -183,8 +183,8 @@ again the same way (§8 step 1). A non-zero count is therefore expected on a lat
 
 The next assignment was not a change: confirm the lane, then read the docs (`AGENTS.md`, `ORIENTATION.md`, `LAYOUT.md`,
 `CURRENT.md`, `MAP-engine.md`, `QUEUE-2026-10-02.md`, and the head of `MEMORY.md`). Reading them *against the machine*
-found claims a next reader would have re-done work to satisfy, so they were corrected where they were read: one file,
-two commits, no product code.
+found claims a next reader would have re-done work to satisfy, so they were corrected where they were read: two files
+(`LAYOUT.md` and this one), three commits, no product code.
 
 | Commit | What it changed | Why the old wording was wrong | The gate |
 | --- | --- | --- | --- |
@@ -214,7 +214,7 @@ Two findings that are the captain's to decide, not this lane's to act on:
    `calendar-sync` (`launchctl list` → PID `-`), while `apple-local-listener` runs (pid 78) and `wip-snapshot` exits 0.
    `launchctl` cannot tell "nothing due" from "broken" — its last-exit code is the same — so the only thing that
    separates them is `~/Library/Logs/CulebraLuxe/*.err.log`, which is a **log read and therefore the captain's go**.
-   Note this is *not* the 2026-10-01 failure: the jobs no longer point at a dead path (finding 1 in the table above).
+   Note this is *not* the 2026-10-01 failure: the jobs no longer point at a dead path (first row of the table above).
 
 What §9 does **not** establish: nothing about the product build. No `cargo check`, no test ran, because no product file
 changed — the same gap §5 already states.
