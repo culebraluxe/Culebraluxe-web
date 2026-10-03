@@ -144,8 +144,9 @@ gate refuses, read the ROWS for that `(task, node, attempt)` before believing th
 
 ## The tree is three tiers, and it is landed (2026-10-03, `main`)
 
-`rust/` is gone from `main`. The crates are `web/`, `middle/` and `db/`, the entry points `cli/`, `forge/` and
-`agents/`, the suite `tests/`, the container files `devops/`, the build output outside the source tree. The move was
+`rust/` is gone from `main`. The crates are `web/`, `middle/` and `db/`, the entry points `cli/` and `forge/` (the
+seven role services live inside the engine, `forge/src/roles/`), the suite `tests/`, the container files `devops/`, the
+build output outside the source tree. The move was
 mechanical — `git mv` throughout, no logic change — and it went in as a fast-forward, not a merge: the branch and
 `main` had the move in common, so nobody had to resolve anything.
 
