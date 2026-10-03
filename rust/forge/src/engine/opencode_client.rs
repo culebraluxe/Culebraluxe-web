@@ -12,6 +12,13 @@
 //!
 //! The session subcommands (`session list`, `session export`) are also spelled here, for the same reason: the
 //! vendor's argument surface is owned in one file so a V2 rename is one edit, not a hunt.
+//!
+//! A NAME IS NOT A CONTRACT (measured 2026-10-03). Two vendors install a binary called `opencode` on this machine,
+//! and only one of them is the v2 build this argument list is written against. The older one rejects
+//! `--standalone` outright, so a lane that resolved the wrong one died with the vendor's help text as its error —
+//! every option here was valid, against a CLI Forge never meant to run. `verify_vendor_contract` is part of the
+//! adapter for that reason: it asks the RESOLVED binary what its own `--help` accepts and refuses it by name when
+//! an option Forge emits is missing, so the mistake is reported as a mis-resolved binary instead of as a bad turn.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
@@ -57,6 +64,13 @@ pub struct OpenCodeStartOptions<'a> {
 /// `--agent` is part of the contract too (verified against the installed build's `run --help`: "Agent to use").
 /// Without it the turn would run as the vendor's default agent, whose permissions Forge did not author, so the
 /// authority model in `engine::opencode_agents` would be configuration nobody applied.
+///
+/// NONE OF THESE FLAGS IS A COMPATIBILITY KNOB. When a vendor build rejects this list the repair is a different
+/// binary, never a shorter list: on the v2 build `--standalone` is the only thing keeping a Forge turn off the
+/// operator's shared `serve --service` (and off every other turn's private server), and `--format json` is the only
+/// reason `engine::opencode_events` reads events instead of prose — a build whose `--format` defaults to `default`
+/// would have Forge parsing a human transcript and calling it an answer. `verify_vendor_contract` below is what
+/// makes that a named refusal instead of a silent, expensive one.
 pub fn build_opencode_run_args(
     model: &str,
     task: &str,
@@ -113,6 +127,134 @@ pub fn build_session_list_args() -> Vec<String> {
         "--format".into(),
         "json".into(),
     ]
+}
+
+/// Every long option in an argument list, in order, deduplicated — the surface a help page has to cover.
+pub fn emitted_long_options(args: &[String]) -> Vec<String> {
+    let mut options: Vec<String> = Vec::new();
+    for arg in args.iter().filter(|arg| arg.starts_with("--")) {
+        if !options.contains(arg) {
+            options.push(arg.clone());
+        }
+    }
+    options
+}
+
+/// The probes the contract check runs: the subcommand to ask, and the argument list Forge emits for it.
+///
+/// The option lists come from the builders ABOVE rather than a hand-written copy, so an option added to a turn or a
+/// spend read is checked against the vendor the moment it is spelled here — the drift that produced this defect
+/// cannot reopen through a forgotten second list.
+fn contract_probes() -> Vec<(Vec<&'static str>, Vec<String>)> {
+    vec![
+        (
+            vec!["run"],
+            build_opencode_run_args(
+                "provider/model",
+                "the task",
+                true,
+                Some("ses_probe"),
+                false,
+                Some("forge-probe"),
+            ),
+        ),
+        (
+            vec!["session", "export"],
+            build_session_export_args("ses_probe"),
+        ),
+        (vec!["session", "list"], build_session_list_args()),
+    ]
+}
+
+/// What the vendor says about a subcommand: its `--help`, stdout and stderr together. One vendor family prints help
+/// on stdout and another on stderr, and this check must not depend on which it met.
+fn vendor_help(cli_bin: &str, subcommand: &[&str]) -> Option<String> {
+    let output = Command::new(cli_bin)
+        .args(subcommand)
+        .arg("--help")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .ok()?;
+    let mut text = String::from_utf8_lossy(&output.stdout).to_string();
+    text.push_str(&String::from_utf8_lossy(&output.stderr));
+    Some(text)
+}
+
+/// The vendor's own version line, for the diagnostic. Never fatal on its own: a CLI that will not say what it is
+/// can still be asked what it accepts.
+fn vendor_version(cli_bin: &str) -> String {
+    Command::new(cli_bin)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .ok()
+        .map(|output| {
+            let mut text = String::from_utf8_lossy(&output.stdout).to_string();
+            text.push_str(&String::from_utf8_lossy(&output.stderr));
+            text.lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .unwrap_or("")
+                .to_string()
+        })
+        .filter(|version| !version.is_empty())
+        .unwrap_or_else(|| "unknown version".to_string())
+}
+
+/// THE COMPATIBILITY GATE: ask the resolved vendor binary what its own `--help` accepts, and refuse it when any
+/// option Forge emits is missing. `Ok` carries the version line the lane logs; `Err` is the diagnostic.
+///
+/// This is a REFUSAL, not a repair. An option list is Forge's half of the contract and a help page is the vendor's,
+/// so a mismatch is a fact about which CLI is on the end of `cli_bin` — the one thing the adapter must never guess
+/// at, because the vendor's own error for it (`unexpected option`, printed with its help page, exit 1) reads like a
+/// Forge defect and hides the real one: on 2026-10-03 the lane resolved the npm `opencode-ai` 1.18.26 instead of the
+/// vendor's v2.0.21 build, and `jobs.last_error` for job `b319bf40` was 1.18.26's help text.
+///
+/// Everything it needs is a `--help` page, so it costs four tiny subprocesses and no network, and it is called once
+/// at lane start — before a claim is opened and before a single token is spent.
+pub fn verify_vendor_contract(cli_bin: &str) -> Result<String, String> {
+    let version = vendor_version(cli_bin);
+    let mut rejected: Vec<(String, Vec<String>)> = Vec::new();
+    for (subcommand, args) in contract_probes() {
+        let label = subcommand.join(" ");
+        let Some(help) = vendor_help(cli_bin, &subcommand) else {
+            return Err(format!(
+                "opencode-harness: the vendor CLI at `{cli_bin}` ({version}) could not be run at all \
+                 (`{label} --help` failed to spawn). Check OPENCODE_BIN and PATH."
+            ));
+        };
+        for option in emitted_long_options(&args) {
+            if !help.contains(&option) {
+                match rejected.iter_mut().find(|(name, _)| name == &option) {
+                    Some((_, labels)) => labels.push(label.clone()),
+                    None => rejected.push((option, vec![label.clone()])),
+                }
+            }
+        }
+    }
+    if rejected.is_empty() {
+        return Ok(format!("{version} @ {cli_bin}"));
+    }
+    let missing = rejected
+        .iter()
+        .map(|(option, labels)| format!("{option} (rejected by `{}`)", labels.join("`, `")))
+        .collect::<Vec<_>>()
+        .join("; ");
+    Err(format!(
+        "opencode-harness: `{cli_bin}` is not the OpenCode build this adapter is written against.\n  \
+         resolved: {version}\n  \
+         options the vendor does not accept: {missing}\n  \
+         A binary named `opencode` on PATH is not the same CLI twice: the v2 build that accepts these options is \
+         the vendor's own install at {}, while the older npm `opencode-ai` rejects `--standalone` and even defaults \
+         `--format` to a human transcript. Point OPENCODE_BIN at the v2 binary (or fix PATH) and start the lane \
+         again — no model turn was attempted and no claim was spent.",
+        crate::engine::opencode::vendor_home_cli_bin()
+            .unwrap_or_else(|| "~/.opencode/bin/opencode".to_string())
+    ))
 }
 
 /// Apply the lane's environment to a vendor child, then pin the PROJECT it works on — in that order, which is

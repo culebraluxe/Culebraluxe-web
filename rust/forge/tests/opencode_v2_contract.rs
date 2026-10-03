@@ -7,6 +7,16 @@
 //! Nothing here mocks the thing being migrated. Argument lists are asserted literally, and the event/session
 //! fixtures are the shapes the installed build (opencode v2.0.21) actually emitted, captured live and then
 //! neutralised (ids and text replaced; every key, nesting and number kept).
+//!
+//! WHAT THE INSTALLED VENDOR SAYS, AND WHY THAT IS ASSERTED HERE (measured 2026-10-03). The v2.0.21 build at
+//! `$HOME/.opencode/bin/opencode` still accepts every option Forge emits, `--standalone` included — its
+//! `run --help`, `session export --help` and `session list --help` all list it. A second, older CLI installs
+//! under the same name: Homebrew's npm `opencode-ai` 1.18.26, whose `run` does not accept `--standalone` at all
+//! and whose `--format` defaults to a human transcript. A lane that resolved THAT binary died with its help page
+//! as the error (`ENG-FORGE-C1-BUILD-INFO-01`, durable job `b319bf40`). So the file holds two kinds of rail: the
+//! literal argument lists below, and `the_option_list_forge_emits_is_the_one_the_installed_vendor_accepts`, which
+//! asks the resolved binary itself rather than trusting a remembered contract — the failure mode this file was
+//! written to prevent, one layer out.
 
 use forge::engine::opencode;
 use forge::engine::opencode_agents;
@@ -309,6 +319,197 @@ fn a_second_turn_resumes_the_exact_id_the_first_turn_reported() {
         "the stored V2 id is resumed explicitly: {second:?}"
     );
     assert!(!second.iter().any(|a| a == "--continue"));
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// The vendor-truth rails (measured 2026-10-03). Forge's half of the contract is the argument list; the vendor's
+// half is what its own `--help` accepts, and the two are only equal if something asks. Two CLIs named `opencode`
+// prove the point: the option list was right and the binary behind the name was not, which cost
+// `ENG-FORGE-C1-BUILD-INFO-01` a claim, a story run and a Hold.
+// ---------------------------------------------------------------------------------------------------------
+
+/// A stand-in vendor: a script whose entire output is one blob, so it answers `--version` and every `--help` the
+/// same way. The contract check reads that text, so a blob is exactly what it needs — and it keeps the rail
+/// hermetic, which is the point: the real vendor may be absent, but the CHECK must still be exercised.
+fn fake_vendor(dir: &std::path::Path, name: &str, blob: &str) -> String {
+    let path = dir.join(name);
+    std::fs::write(
+        &path,
+        format!("#!/bin/sh\ncat <<'VENDOR_EOF'\n{blob}\nVENDOR_EOF\n"),
+    )
+    .expect("vendor script");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
+    path.to_string_lossy().to_string()
+}
+
+fn contract_temp_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("forge-contract-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    dir
+}
+
+/// The help of the v2 build, as the installed build prints it: every option Forge emits is named here.
+const V2_VENDOR_HELP: &str = "\
+opencode v2.0.21
+DESCRIPTION
+  Run OpenCode with a message
+USAGE
+  opencode run [flags] [<message...>]
+FLAGS
+  --standalone            Run with a private server instead of the background service
+  --format choice         Output format (choices: default, json)
+  --model, -m string      Model to use in the format provider/model#variant
+  --agent string          Agent to use
+  --session, -s string    Session ID to continue, or to create if it does not exist
+  --continue, -c          Continue the last session
+  --auto                  Auto-approve permissions that are not explicitly denied";
+
+/// The help of the OLDER npm `opencode-ai` 1.18.26, reproduced from its live output: the same name, a different
+/// contract, and no `--standalone` anywhere in it. This blob is the whole defect in one fixture.
+const V1_VENDOR_HELP: &str = "\
+1.18.26
+opencode run [message..]
+
+run opencode with a message
+
+Options:
+  -c, --continue     continue the last session                                             [boolean]
+  -s, --session      session id to continue                                                [string]
+  -m, --model        model to use in the format of provider/model                          [string]
+      --agent        agent to use                                                          [string]
+      --format       format: default (formatted) or json (raw JSON events)
+                               [string] [choices: \"default\", \"json\"] [default: \"default\"]
+      --auto         auto-approve permissions that are not explicitly denied (dangerous!)  [boolean]";
+
+/// The rail that would have caught the C1 failure: a CLI that rejects an option Forge emits is refused BY NAME,
+/// before any turn runs. Both directions are asserted, because a check that fails everything is not a check — the
+/// accurate v2 blob has to pass, and the 1.18.26 blob has to fail on `--standalone` specifically.
+#[test]
+fn a_vendor_that_rejects_the_v2_option_set_is_refused_by_name() {
+    let dir = contract_temp_dir("vendor-gate");
+    let v2 = fake_vendor(&dir, "opencode-v2", V2_VENDOR_HELP);
+    let v1 = fake_vendor(&dir, "opencode-ai", V1_VENDOR_HELP);
+
+    let accepted = opencode_client::verify_vendor_contract(&v2)
+        .unwrap_or_else(|e| panic!("the v2 help must satisfy the contract check: {e}"));
+    assert!(
+        accepted.contains("v2.0.21") && accepted.contains(&v2),
+        "the verdict names the version and the binary it read it from: {accepted}"
+    );
+
+    let refused = opencode_client::verify_vendor_contract(&v1)
+        .expect_err("a vendor that does not accept --standalone must be refused");
+    assert!(
+        refused.contains("--standalone"),
+        "the refusal names the option that is missing, not the turn that failed: {refused}"
+    );
+    assert!(
+        refused.contains("`run`")
+            && refused.contains("`session export`")
+            && refused.contains("`session list`"),
+        "it names every subcommand whose option list the vendor rejected: {refused}"
+    );
+    assert!(
+        refused.contains("1.18.26") && refused.contains("OPENCODE_BIN"),
+        "it reports what was resolved and what to do about it: {refused}"
+    );
+
+    let absent = opencode_client::verify_vendor_contract("/nonexistent/opencode")
+        .expect_err("a binary that cannot be run is refused too");
+    assert!(
+        absent.contains("/nonexistent/opencode") && absent.contains("OPENCODE_BIN"),
+        "an unrunnable binary is a different refusal, and still an actionable one: {absent}"
+    );
+}
+
+/// The vendor-truth rail. Unlike the rest of this file it is not hermetic — it asks the binary that IS installed,
+/// which is the only way to notice the vendor moved. A machine with no runnable OpenCode CLI skips (library tests
+/// must not require a vendor); a machine whose `opencode` is a DIFFERENT CLI fails, because that state is what
+/// broke C1.
+#[test]
+fn the_option_list_forge_emits_is_the_one_the_installed_vendor_accepts() {
+    let bin = opencode::default_cli_bin();
+    if std::process::Command::new(&bin)
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("skipped: no OpenCode CLI is runnable on this machine (resolved `{bin}`)");
+        return;
+    }
+    let vendor = opencode_client::verify_vendor_contract(&bin).unwrap_or_else(|e| {
+        panic!("the resolved vendor CLI must accept every option Forge emits: {e}")
+    });
+    eprintln!("vendor contract holds: {vendor}");
+
+    // The checked surface is the one Forge actually emits, not a second list that can drift from it.
+    let run_options =
+        opencode_client::emitted_long_options(&opencode_client::build_opencode_run_args(
+            opencode::OPENCODE_PINNED_MODEL,
+            "do the work",
+            true,
+            Some("ses_x"),
+            false,
+            Some(opencode_agents::AGENT_SMITH),
+        ));
+    for expected in [
+        "--standalone",
+        "--format",
+        "--model",
+        "--agent",
+        "--session",
+        "--auto",
+    ] {
+        assert!(
+            run_options.iter().any(|option| option == expected),
+            "the checked surface is the one Forge emits ({expected} missing): {run_options:?}"
+        );
+    }
+}
+
+/// Resolution by precedence, as a pure function of its inputs — no process environment is mutated to test it.
+///
+/// The order IS the repair: the vendor's own install outranks a `PATH` name two installers disagree about, and an
+/// attended `OPENCODE_BIN` outranks both. `PATH` stays the last resort, so a machine that installed the CLI some
+/// other way still resolves.
+#[test]
+fn the_vendor_cli_is_resolved_by_precedence_not_by_whichever_name_path_finds_first() {
+    let vendor_home = "/home/operator/.opencode/bin/opencode".to_string();
+    assert_eq!(
+        opencode::cli_candidates(None, Some(vendor_home.clone())),
+        vec![vendor_home.clone(), opencode::VENDOR_CLI_PATH_NAME.into()],
+        "the vendor's own install comes first, and PATH is still the fallback"
+    );
+    assert_eq!(
+        opencode::cli_candidates(Some("/opt/custom/opencode"), Some(vendor_home)),
+        vec!["/opt/custom/opencode".to_string()],
+        "an explicit override is the whole list: Forge runs what it was told to run, then verifies it"
+    );
+    assert_eq!(
+        opencode::cli_candidates(Some("   "), None),
+        vec![opencode::VENDOR_CLI_PATH_NAME.to_string()],
+        "a blank override is not an override"
+    );
+
+    if let Some(home) = opencode::vendor_home_cli_bin() {
+        assert!(
+            home.ends_with(opencode::VENDOR_CLI_HOME_RELATIVE),
+            "the vendor's install root is where its installer puts it: {home}"
+        );
+        if std::path::Path::new(&home).exists() && std::env::var("OPENCODE_BIN").is_err() {
+            assert_eq!(
+                opencode::default_cli_bin(),
+                home,
+                "on a machine that has the vendor's install, the name on PATH must not win"
+            );
+        }
+    }
+    assert!(!opencode::default_cli_bin().trim().is_empty());
 }
 
 // ---------------------------------------------------------------------------------------------------------

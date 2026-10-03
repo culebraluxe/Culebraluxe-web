@@ -45,12 +45,90 @@ pub const SESSION_CONTINUITY_ENV: &str = "FORGE_SESSION_CONTINUITY";
 /// up as if it were a V2 session, and nothing is deleted: the V1 rows simply stop being read (§4).
 pub const VENDOR_SESSION_LANE: &str = "opencode-v2";
 
-pub fn default_cli_bin() -> String {
-    std::env::var("OPENCODE_BIN")
+/// The attended override that names the vendor CLI explicitly. Honoured exactly as given — and then VERIFIED like
+/// any other candidate: an explicit path is not evidence that the binary behind it speaks the contract.
+pub const VENDOR_CLI_OVERRIDE_ENV: &str = "OPENCODE_BIN";
+
+/// Where the vendor's own installer keeps its CLI, relative to `$HOME`.
+pub const VENDOR_CLI_HOME_RELATIVE: &str = ".opencode/bin/opencode";
+
+/// The name Forge falls back to when nothing else resolves: whatever `PATH` happens to call `opencode`.
+pub const VENDOR_CLI_PATH_NAME: &str = "opencode";
+
+/// Which vendor binary Forge will run, as a PURE function of its two inputs, so the precedence is testable without
+/// mutating the process environment.
+///
+/// MEASURED 2026-10-03, and the reason this is not `"opencode"` alone: **two different vendors install a CLI named
+/// `opencode` on this machine.** `$HOME/.opencode/bin/opencode` is v2.0.21 — the build this adapter is written
+/// against, the one the operator's interactive shell finds, the one running here as `serve --service`. Homebrew's
+/// `/opt/homebrew/bin/opencode` is the older npm `opencode-ai` 1.18.26, whose `run` does **not** accept
+/// `--standalone` and whose `--format` defaults to `default` rather than `json`.
+///
+/// That `PATH` export lives in `~/.zshrc`, so only an INTERACTIVE shell sees it. A lane launched with the
+/// login/default PATH therefore resolved `opencode` to 1.18.26, and the role turn died on exit 1 with the vendor's
+/// own help text as the error — `ENG-FORGE-C1-BUILD-INFO-01`, durable job `b319bf40`, recorded verbatim in
+/// `jobs.last_error`. Forge's argument list was correct; the binary behind the name was not. So the vendor's own
+/// install root is preferred over a `PATH` name two installers disagree about, and `OPENCODE_BIN` still wins
+/// outright for an attended override.
+pub fn cli_candidates(explicit: Option<&str>, vendor_home_cli: Option<String>) -> Vec<String> {
+    if let Some(explicit) = explicit.map(str::trim).filter(|value| !value.is_empty()) {
+        return vec![explicit.to_string()];
+    }
+    let mut candidates = Vec::new();
+    if let Some(home) = vendor_home_cli
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+    {
+        candidates.push(home);
+    }
+    candidates.push(VENDOR_CLI_PATH_NAME.to_string());
+    candidates
+}
+
+/// `$HOME/.opencode/bin/opencode` — the vendor's own user-scoped install, and the one its installer upgrades.
+pub fn vendor_home_cli_bin() -> Option<String> {
+    std::env::var("HOME")
         .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "opencode".into())
+        .map(|home| home.trim().to_string())
+        .filter(|home| !home.is_empty())
+        .map(|home| {
+            PathBuf::from(home)
+                .join(VENDOR_CLI_HOME_RELATIVE)
+                .to_string_lossy()
+                .to_string()
+        })
+}
+
+/// A candidate only outranks `PATH` when a program is actually there: an absent path must not shadow a working
+/// binary, or the repair for one broken machine becomes the cause of the next.
+fn is_executable_file(path: &str) -> bool {
+    let Ok(meta) = fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+/// The vendor CLI this process will run, by precedence. What it deliberately does NOT do is decide whether that
+/// binary speaks the V2 contract — that is `engine::opencode_client::verify_vendor_contract`, asked once at lane
+/// start, before a token is spent and before a claim is burned on a binary that was never going to answer.
+pub fn default_cli_bin() -> String {
+    let explicit = std::env::var(VENDOR_CLI_OVERRIDE_ENV).ok();
+    let vendor_home = vendor_home_cli_bin().filter(|path| is_executable_file(path));
+    cli_candidates(explicit.as_deref(), vendor_home)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| VENDOR_CLI_PATH_NAME.into())
 }
 
 fn smith_writes_code(node_id: &str) -> bool {

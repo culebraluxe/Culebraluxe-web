@@ -155,6 +155,22 @@ fn main() {
             std::process::exit(2);
         }
     }
+    // THE VENDOR BINARY IS RESOLVED AND VERIFIED BEFORE ANY CLAIM IS OPENED — not in the middle of a turn.
+    // MEASURED 2026-10-03: `ENG-FORGE-C1-BUILD-INFO-01` opened its claim, dispatched `architect`, and died on the
+    // vendor's own help text (exit 1) because `opencode` on this process's PATH was the npm `opencode-ai` 1.18.26 —
+    // a different CLI from the v2 build Forge's argument list is written against (`jobs.last_error` for durable job
+    // `b319bf40` is that help page, verbatim). A lane that cannot run the vendor it was written for has nothing to
+    // dispatch, and learning that here costs one `--help` call instead of a claim, a run and a story's Hold.
+    match forge::engine::opencode_client::verify_vendor_contract(
+        &forge::engine::opencode::default_cli_bin(),
+    ) {
+        Ok(vendor) => eprintln!("vendor={vendor}"),
+        Err(e) => {
+            reject_configuration(work_item.as_deref(), &format!("{e}"));
+            eprintln!("{e}");
+            std::process::exit(2);
+        }
+    }
     // Only now is this run real, so only now does it go `Running`. If the claim cannot be opened the run must not
     // start at all: a story driven without a claim is exactly the unowned dispatch this seam exists to remove.
     //
