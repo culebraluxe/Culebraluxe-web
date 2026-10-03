@@ -923,13 +923,22 @@ impl ForgeEngineDao {
         story_id: &str,
     ) -> DbResult<Option<ForgeEvidencePatch>> {
         sqlx::query_as::<_, ForgeEvidencePatch>(
-            "select work_type, scout_required, lead_decision,
+            // THE LIVE RUN'S EVIDENCE. One row per process instance; "the story's latest row" was the PREVIOUS
+            // run's until the new instance wrote its first, so a reset story's opening turns read the old run's
+            // candidate and Lead decision. With a live instance only its row is read (none yet = a clean start);
+            // with none, the latest row, as before.
+            "with live as (
+               select p.id from process_instances p
+                where p.subject_type='story' and p.subject_id=$1 and p.status='active'
+                order by p.started_at desc limit 1)
+             select work_type, scout_required, lead_decision,
                     qa_review_required, qa_review_passed, qa_passed,
                     failure_class, failed_release_stage, last_failure,
                     publish_succeeded, candidate_sha, qa_verified_sha, published_sha
-               from forge_workflow_evidence
-              where story_id=$1
-              order by updated_at desc
+               from forge_workflow_evidence e
+              where e.story_id=$1
+                and (not exists (select 1 from live) or e.process_instance_id = (select id from live))
+              order by e.updated_at desc
               limit 1",
         )
         .bind(story_id)

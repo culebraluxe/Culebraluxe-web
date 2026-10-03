@@ -519,8 +519,17 @@ fn drive_forge_story_inner<S: TxStore>(
                                 .unwrap_or("no durable job error recorded");
                             match state.status {
                                 JobStatus::Failed | JobStatus::Cancelled | JobStatus::Completed => {
+                                    // This run executed NOTHING: the job was settled by an EARLIER run, and a
+                                    // terminal job is never re-run (it may already have been paid for). Its error
+                                    // is that earlier run's, so it is quoted as such — on 2026-10-03 a re-armed
+                                    // story reported last night's already-fixed hold bug as if it had just
+                                    // happened. The story resumes cleanly only from a reset (new instance, new
+                                    // tasks, new jobs).
                                     let reason = format!(
-                                        "Forge durable job {job_id} for task {} is {:?}: {detail}",
+                                        "Forge durable job {job_id} for task {} ({node}) was already {:?} by an \
+                                         earlier run, so this run executed nothing. That run's error: {detail}. \
+                                         To run the story again, reset it (pnpm forge:story:reset {story_id} reset \
+                                         --force) instead of re-arming it.",
                                         task.task_id, state.status
                                     );
                                     rt.writer()
