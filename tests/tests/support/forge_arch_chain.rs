@@ -98,7 +98,9 @@ pub fn feature_script() -> BTreeMap<&'static str, ForgeGateEvidence> {
         "qa_verify",
         ForgeGateEvidence {
             qa_passed: Some(true),
-            release_deferred: Some(true),
+            // `releaseDeferred` is derived from the batch deferral (facts.rs), so the generation ends QA-verified at
+            // `complete` with nothing published — no release executor is needed or reached.
+            deployment_deferred_to_batch: Some(1),
             ..Default::default()
         },
     );

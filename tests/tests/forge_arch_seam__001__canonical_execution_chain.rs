@@ -91,24 +91,28 @@ fn every_role_turn_is_one_durable_job_keyed_by_its_workflow_task() {
     );
 }
 
-/// RED — the durable receipt of the generation's LAST turn reads `Cancelled`, though its turn ran and succeeded.
+/// Every executed role turn leaves a `Completed` durable receipt, the generation's last one included.
 ///
-/// Mechanism (2026-10-03): the driver completes the Workflow task BEFORE the durable job (the paid-turn ordering).
-/// Completing the last task carries the instance to its end node, and the kernel's end-of-instance cleanup
-/// (`core/workflow/src/engine/execute_node_leave.rs`, "for mut job in tx.open_jobs_for_instance") cancels every open
-/// job — including the still-leased `forge.role` job of the turn that just finished, with a `job.cancelled` event. The
-/// driver's `jobs.complete` then finds a settled job and `complete_job` returns `Ok` without a word
-/// (`fire_timer_job.rs`, "if job.status.is_settled() { return Ok(()) }"). Nothing is paid twice; the record lies.
-/// Owner: the seam between Workflow instance termination and Forge's completion-before-receipt ordering.
+/// Kept because a RED was once reported here in error (2026-10-03): the fixture's generation was not reaching
+/// `complete` but a publish step with no release executor, and that TERMINATION cancelled the in-flight job. A
+/// generation that genuinely completes settles every receipt `Completed`; `cancelled by` names the kernel's own reason
+/// if that ever stops being true.
 #[test]
-#[ignore = "RED ARCH-SEAM-001: the final role job of a generation is Cancelled by instance termination, not Completed — run with --ignored"]
 fn every_executed_role_turn_leaves_a_completed_receipt() {
     let runners = Runners::new(feature_script());
     let services = Services::new(&runners);
     let registry = services.registry();
     let (fixture, memory) = fixture();
     let jobs = WorkflowJobService::new(fixture.rt.engine());
-    drive(&fixture, &jobs, &registry, 40).expect("the FEATURE generation drives");
+    let out = drive(&fixture, &jobs, &registry, 40).expect("the FEATURE generation drives");
+    // Who cancelled a role job, and why — the kernel's own event, so a RED names its site.
+    let cancellations: Vec<String> = memory
+        .with_tx(|tx| tx.history(&out.instance_id, 512))
+        .expect("history")
+        .into_iter()
+        .filter(|event| event.event_type == "job.cancelled")
+        .map(|event| format!("{} {:?}", event.actor, event.data))
+        .collect();
     let receipts: Vec<(String, JobStatus)> = runners
         .turns()
         .iter()
@@ -121,7 +125,8 @@ fn every_executed_role_turn_leaves_a_completed_receipt() {
         assert_eq!(
             *status,
             JobStatus::Completed,
-            "{node} ran and succeeded; its durable receipt must say so: {receipts:?}"
+            "{node} ran and succeeded; its durable receipt must say so: {receipts:?}; cancelled by: \
+             {cancellations:?}"
         );
     }
 }
