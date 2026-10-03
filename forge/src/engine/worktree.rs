@@ -280,6 +280,49 @@ mod tests {
     }
 }
 
+/// Run `f` in a disposable, DETACHED checkout of `commit`, then remove the checkout.
+///
+/// This is the shape AGENTS.md's NO TREES rule allows by name — "scratch that a command creates and consumes inside
+/// itself" — and it lives here because this file is the one place a worktree may be created (`repo_guards`). The
+/// publish path uses it to prove an integration commit nobody has built yet, before that commit is pushed. The
+/// checkout is removed whatever `f` returns; a removal git refuses is reported loudly, never left silent.
+pub fn with_detached_checkout<T>(
+    repo_root: &Path,
+    commit: &str,
+    f: impl FnOnce(&Path) -> T,
+) -> Result<T, String> {
+    let root = std::env::temp_dir().join(DEFAULT_WORKTREES_DIRNAME);
+    let label = &commit[..commit.len().min(12)];
+    // Unique per CALL, not per commit: two story slots in one worker can prove the same integration commit at once,
+    // and a shared path is two git checkouts fighting over one directory.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let call = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path = root.join(format!("integration-{label}-{}-{call}", std::process::id()));
+    if path.exists() {
+        return Err(format!(
+            "integration checkout path already exists unexpectedly: {}",
+            path.display()
+        ));
+    }
+    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    let path_arg = path.to_str().unwrap_or("");
+    git(
+        repo_root,
+        &["worktree", "add", "--detach", path_arg, commit],
+    )?;
+    let out = f(&path);
+    if let Err(error) = git(repo_root, &["worktree", "remove", "--force", path_arg]) {
+        eprintln!(
+            "forge: the integration checkout {} could not be removed ({error}); remove it with `git worktree remove --force`",
+            path.display()
+        );
+    }
+    if let Err(error) = git(repo_root, &["worktree", "prune"]) {
+        eprintln!("forge: git worktree prune failed after an integration proof: {error}");
+    }
+    Ok(out)
+}
+
 pub fn git_changed_files(repo: &std::path::Path, base: &str, sha: &str) -> Vec<String> {
     let out = std::process::Command::new("git")
         .current_dir(repo)

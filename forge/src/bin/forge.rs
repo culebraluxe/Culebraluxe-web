@@ -434,7 +434,10 @@ fn main() {
     }
     let repo = env::current_dir().unwrap_or_else(|_| ".".into());
     let release = Arc::new(HostReleaseExecutor {
-        ops: GitReleaseOps { repo_root: repo },
+        ops: GitReleaseOps {
+            repo_root: repo,
+            integration_proofs: contract_assay_commands.clone(),
+        },
     });
     eprintln!(
         "harness={} model={} bin={} cwd={} neon={}",

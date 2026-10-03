@@ -33,7 +33,19 @@ fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Publish with no integration proofs: a fast-forward lands, and an integration commit is refused as unverified.
 pub fn preview_publish(repo: &Path, candidate: &str) -> PublishOutcome {
+    publish_candidate(repo, candidate, &[])
+}
+
+/// Publish `candidate` to `origin/main`.
+///
+/// A fast-forward pushes the exact commit QA approved. When `origin/main` has moved, the publish builds an
+/// integration commit (latest main + the candidate) that NOBODY has built or tested — two candidates can each pass QA
+/// and still break main together — so that commit is proven first: every command in `proofs` (the story's QA
+/// commands) is run in a disposable checkout of it, and it is pushed only if all of them pass. No proofs, or a proof
+/// that fails, is `IntegrationUnverified`: the story holds with the reason, and main does not move.
+pub fn publish_candidate(repo: &Path, candidate: &str, proofs: &[String]) -> PublishOutcome {
     let candidate = candidate.trim();
     if candidate.is_empty() {
         return PublishOutcome::NoCandidate {
@@ -143,6 +155,14 @@ pub fn preview_publish(repo: &Path, candidate: &str) -> PublishOutcome {
             (commit, true)
         };
 
+        if integrated {
+            if let Err(reason) = prove_integration(repo, &publish_sha, proofs) {
+                return PublishOutcome::IntegrationUnverified {
+                    integrated_commit: publish_sha,
+                    reason,
+                };
+            }
+        }
         if publish_switch_off(std::env::var("FORGE_ALLOW_PUBLISH").ok().as_deref()) {
             return PublishOutcome::PublishDisabled {
                 reason: "publication disabled by FORGE_ALLOW_PUBLISH".into(),
@@ -176,6 +196,34 @@ pub fn preview_publish(repo: &Path, candidate: &str) -> PublishOutcome {
             "origin/main moved or refused the candidate after 4 publish attempts: {last_push_error}"
         ),
     }
+}
+
+/// Run every proof against `commit` in a disposable checkout of it. `Ok` only when there was something to run and all
+/// of it passed.
+fn prove_integration(repo: &Path, commit: &str, proofs: &[String]) -> Result<(), String> {
+    if proofs.is_empty() {
+        return Err(format!(
+            "origin/main moved after QA, so publishing needs integration commit {commit}, and there is no QA command \
+             to prove it with; refusing to publish an untested merge (rebase the candidate onto main and run QA again)"
+        ));
+    }
+    crate::engine::worktree::with_detached_checkout(repo, commit, |dir| {
+        for proof in proofs {
+            let status = Command::new("sh")
+                .arg("-c")
+                .arg(proof)
+                .current_dir(dir)
+                .status()
+                .map_err(|error| format!("proof `{proof}` could not start: {error}"))?;
+            if !status.success() {
+                return Err(format!(
+                    "proof `{proof}` failed on integration commit {commit} (exit {})",
+                    status.code().unwrap_or(-1)
+                ));
+            }
+        }
+        Ok(())
+    })?
 }
 
 /// Whether the publish kill switch is held open, as a pure predicate over the raw value.
@@ -266,6 +314,7 @@ impl crate::engine::writer::ForgeReleaseExecutor for HostReleaseExecutor {
         crate::engine::release::DbForgeReleaseExecutor {
             operations: GitReleaseOps {
                 repo_root: self.ops.repo_root.clone(),
+                integration_proofs: self.ops.integration_proofs.clone(),
             },
             evidence: DbReleaseEvidenceStore,
             pending: Some(evidence_from_value(input)),
@@ -281,6 +330,8 @@ impl crate::engine::writer::ForgeReleaseExecutor for HostReleaseExecutor {
 
 pub struct GitReleaseOps {
     pub repo_root: std::path::PathBuf,
+    /// The story's QA commands: what an integration commit must pass before it is pushed (`publish_candidate`).
+    pub integration_proofs: Vec<String>,
 }
 
 impl ForgeReleaseOperations for GitReleaseOps {
@@ -329,31 +380,13 @@ impl ForgeReleaseOperations for GitReleaseOps {
                 reason: "no candidate commit recorded".into(),
             };
         };
-        for cmd in frozen_proofs {
-            let out = Command::new("sh")
-                .arg("-c")
-                .arg(cmd)
-                .current_dir(&self.repo_root)
-                .output();
-            match out {
-                Ok(o) if o.status.success() => {}
-                Ok(o) => {
-                    return PublishOutcome::IntegrationUnverified {
-                        integrated_commit: sha.into(),
-                        reason: format!(
-                            "frozen proof `{cmd}` exit {}",
-                            o.status.code().unwrap_or(-1)
-                        ),
-                    };
-                }
-                Err(e) => {
-                    return PublishOutcome::IntegrationUnverified {
-                        integrated_commit: sha.into(),
-                        reason: e.to_string(),
-                    };
-                }
-            }
-        }
-        preview_publish(&self.repo_root, sha)
+        // The proofs run against the commit being published, in a checkout of it — never against whatever the
+        // engine's working tree happens to hold, which is where they used to run.
+        let proofs: Vec<String> = frozen_proofs
+            .iter()
+            .chain(self.integration_proofs.iter())
+            .cloned()
+            .collect();
+        publish_candidate(&self.repo_root, sha, &proofs)
     }
 }
