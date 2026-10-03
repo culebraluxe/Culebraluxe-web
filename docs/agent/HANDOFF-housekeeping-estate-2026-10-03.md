@@ -5,6 +5,13 @@ compile or test ran, and no other lane's working tree was written (the other wor
 `--no-optional-locks`). Read with `AGENTS.md` rules 1, 2, 6 and 9 open. Every row quotes the command behind it,
 because a fact with no command is §5.
 
+**Why the estate looks like this** (captain, 2026-10-03): every agent worked in the *same* working tree at the same time,
+and iCloud synced that tree underneath them; everything broke and the per-lane worktrees are the fix. That incident is the
+cause behind this document's shape — the 12 stashes, the 22 branches that are not `main`, the 4095 rescue pins, the 177
+unreachable commits, and the 83 worktrees that had to be deleted (`docs/agent/MEMORY.md`). Standing the lanes up is still
+in progress as this is written: `lane/claude` and `lane/gpt` are checked out on this Mac already, and only their `origin`
+branches are missing.
+
 ## 1. STATUS — what is true right now
 
 | # | Fact | How to check it |
@@ -16,7 +23,7 @@ because a fact with no command is §5.
 | S5 | Credential *names* appear in that dead surface; credential *values* do not | 11 of the 229 unreachable blobs match one of the six variable names listed in `docs/agent/PERIMETER.md`; `^[A-Z0-9_]+=` lines in each of the 11 → 0. The 6.8 MB one is a **WebAssembly module**, a stale `web/ui` build artifact |
 | S6 | 4095 `refs/recovery/*` refs pin 4184 commits `origin/main` cannot see | `git for-each-ref refs/recovery \| wc -l` → 4095; `git for-each-ref --format='%(objectname)' refs/recovery \| git rev-list --count --stdin ^origin/main` → 4184. Sampled subjects are `cline checkpoint session=…` and `index on main: …` — and 462 distinct *authored* subjects beside them (`ENG-FORGE-DOCTOR-01: forge:doctor`, `refactor(ts): port the two dead-TS ledger gates to Rust, delete them`, the `agent/TST-SALVAGE-001/run-20261001-1` line). **4344** of these commits are referenced by no other ref on this Mac |
 | S7 | 87 `refs/cline/checkpoints/*` refs remain — the namespace the 2026-09-18 exposure lived in | `git for-each-ref refs/cline/ \| wc -l` → 87; they span 2026-09-25 → 2026-10-01 |
-| S8 | Only `lane/deep` exists on the remote; `lane/claude` and `lane/gpt` exist on this Mac only | `git ls-remote --heads origin \| grep lane/` → `refs/heads/lane/deep` alone; the two local tips are `692d99c7` and `6ed57f61` |
+| S8 | Only `lane/deep` exists on the remote; `lane/claude` and `lane/gpt` exist on this Mac only | `git ls-remote --heads origin \| grep lane/` → `refs/heads/lane/deep` alone; both lanes are **already checked out** — `git worktree list` → `/Users/Shared/dev/src/lane-claude [lane/claude]` and `/Users/Shared/dev/src/lane-gpt [lane/gpt]` — so this is a *push* gap, not a missing lane, and it is mid-setup, not staleness |
 | S9 | Stranded work: 14 branches on origin carry commits main cannot see, 8 branches are local-only, 0 unpushed commits sit behind a pushed ref | `pnpm recover:strand` |
 | S10 | 12 stashes hold work that exists in exactly one place | `git stash list --date=short` → 2026-08-22 … 2026-09-26 |
 | S11 | A remote-tracking namespace outlives the remote it came from | `git remote` → `origin` only, yet `refs/remotes/codex/b4c2230` still resolves, and it is reachable from no local branch |
@@ -71,7 +78,7 @@ every other ref's tips to two files, then `{ sed 's/^/^/' others; cat pins; } | 
 1. The pins stay (H1): 4344 commits exist in no other ref and 462 distinct authored subjects sit among them. If they are
    ever to go, land what is wanted first, then
    `git for-each-ref refs/recovery refs/cline --format='delete %(refname)' | git update-ref --stdin`, then `git gc --prune=now` — that last step has no undo, and `git count-objects -vH` shows what it did.
-2. `lane/claude` (`692d99c7`) and `lane/gpt` (`6ed57f61`): **off limits to this lane** (captain, 2026-10-03). Their owners push them or nobody does — this pass did not.
+2. `lane/claude` (`692d99c7`) and `lane/gpt` (`6ed57f61`): **off limits to this lane** (captain, 2026-10-03). Their owners push them or nobody does — this pass did not. Both trees already exist (`/Users/Shared/dev/src/lane-claude`, `/Users/Shared/dev/src/lane-gpt`), so no `git worktree add` is owed and one would only fail with *already registered*; from inside the lane the whole job is `git push -u origin lane/<name>`.
 3. Resolve the two orphan snapshots: land the diff, or `git update-ref -d refs/wip/<name>`. Finished when `git for-each-ref refs/wip/` lists only live worktrees.
 4. Age the 12 stashes (H2). `preserve unrelated local work` (2026-08-24), `pre-opencode-dogfood local architect-contract` and `wip-not-mine` (both 2026-09-07) are the three nobody will ever revisit — the two that say "not mine" most of all.
 5. The stale `codex` namespace (H4) and the two `db/loads/*.sql` (H5) are one-line decisions each.
