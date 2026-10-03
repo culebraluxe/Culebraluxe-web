@@ -16,6 +16,7 @@
 //!   cargo run -p cli -- forge harness-lint [--strict] [--format json]
 //!   cargo run -p cli -- forge sync-agents [--check] [--format json]
 
+pub mod build_info;
 pub mod citations;
 pub mod dead_commands;
 pub mod decision;
@@ -100,6 +101,10 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         // not something to report-and-continue.
         "guard-lint" => guard_paths::run(&args[1..]),
         "sync-agents" => sync_agents::run(&args[1..]),
+        // The CLI's own build identity: every field is a compile-time constant, so it answers with no
+        // environment, database, network or provider access. Read-only, and the safe first question to
+        // ask a host whose secrets you do not trust yourself with.
+        "build-info" => build_info::run(&args[1..]),
         // The generated repo-root OpenCode config: one renderer shared with the runtime, so the file a human
         // reads with `opencode` and the document Forge injects through `OPENCODE_CONFIG_CONTENT` agree.
         "opencode-config" => opencode_config::run(&args[1..]),
@@ -137,7 +142,7 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         // does — a candidate recovered from the wrong control plane is worse than none.
         "salvage" => salvage::run(&args[1..]).await,
         other => Err(Failure::usage(format!(
-            "unknown forge command `{other}`; usage: forge <harness-lint|guard-lint|sync-agents|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|sql|salvage|reset|recover|clean> [options]"
+            "unknown forge command `{other}`; usage: forge <harness-lint|guard-lint|sync-agents|build-info|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|sql|salvage|reset|recover|clean> [options]"
         ))),
     }
 }
