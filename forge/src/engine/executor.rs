@@ -573,6 +573,10 @@ fn drive_forge_story_inner<S: TxStore>(
                         durable.registry,
                     ) {
                         Ok(outcome) => outcome,
+                        // An engine fault decided nothing about the story (captain, 2026-09-29): the job layer has
+                        // already settled it retryable, so it goes back to the caller unwrapped and the lane's exit
+                        // path clears the claim into the queue. Holding here parked plumbing failures for a human.
+                        Err(err) if is_engine_fault_error(&err) => return Err(err),
                         Err(err) => {
                             let reason = format!(
                                 "Forge role {node} failed for task {}: {err}",

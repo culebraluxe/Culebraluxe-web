@@ -527,7 +527,24 @@ fn main() {
     // back `Ok` and the board's Hold says so); `Err` means the run failed. Either way the claim is settled here, not
     // left for stale recovery to guess about.
     match result {
-        Ok(summary) => {
+        // A hold the engine took because the WORK failed (a role refused, its durable job is terminal) is that
+        // failure's verdict, not a finished run. Settled `Done`, the pair accepted it over the `Hold` board and closed
+        // the run `Complete` at 100% — every crashed role turn read as finished work. `Error` holds the board as it
+        // is and closes the run `Failed` with the reason.
+        Ok(DriveSummary {
+            line,
+            failure_hold: Some(reason),
+        }) => {
+            println!("{line}");
+            eprintln!("work_item ended on a failure hold: {reason}");
+            if settle_work_item(work_item.as_deref(), AgentWorkOutcome::Error, Some(&reason))
+                .is_err()
+            {
+                eprintln!("work_item could not be settled; the claim is left to recovery");
+            }
+            std::process::exit(1);
+        }
+        Ok(DriveSummary { line: summary, .. }) => {
             println!("{summary}");
             let settled = settle_work_item(work_item.as_deref(), AgentWorkOutcome::Done, None);
             match settled {
@@ -570,6 +587,19 @@ fn main() {
     }
 }
 
+/// What one drive reports to the exit path: the operator's summary line, and — when the engine held the story because
+/// the work failed — the reason, which the exit settles as `Error` rather than `Done`.
+struct DriveSummary {
+    line: String,
+    failure_hold: Option<String>,
+}
+
+/// A human GATE ends a turn with no blocked reason and settles `Done` (the pair accepts `Done` over `Hold`). A hold
+/// that carries a reason is the engine refusing to go on after a failure, and is not a finished run.
+fn failure_hold_reason(needs_human: bool, blocked_reason: Option<String>) -> Option<String> {
+    blocked_reason.filter(|reason| needs_human && !reason.trim().is_empty())
+}
+
 fn drive<S: TxStore>(
     store: S,
     release: Arc<dyn ForgeReleaseExecutor>,
@@ -584,7 +614,7 @@ fn drive<S: TxStore>(
     test_mode: Option<String>,
     contract_assay_commands: Vec<String>,
     contract_acceptance_mapped: bool,
-) -> Result<String, String> {
+) -> Result<DriveSummary, String> {
     let mut rt = match ForgeRuntime::from_store(
         store,
         writer.clone(),
@@ -648,18 +678,50 @@ fn drive<S: TxStore>(
             registry: &registry,
         },
     ) {
-        Ok(out) => Ok(format!(
-            "instance={} status={} steps={:?} human={} stopped={:?} reconciled={}",
-            out.instance_id,
-            out.status,
-            out.steps,
-            out.needs_human,
-            out.stopped_after,
-            out.reconciled
-        )),
+        Ok(out) => Ok(DriveSummary {
+            line: format!(
+                "instance={} status={} steps={:?} human={} stopped={:?} reconciled={}",
+                out.instance_id,
+                out.status,
+                out.steps,
+                out.needs_human,
+                out.stopped_after,
+                out.reconciled
+            ),
+            failure_hold: failure_hold_reason(out.needs_human, out.blocked_reason),
+        }),
         Err(e) => {
             eprintln!("{e}");
             Err(format!("{e}"))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::failure_hold_reason;
+
+    /// A human GATE (held, no reason) is a finished turn and settles `Done`; a hold that carries a reason is the
+    /// engine refusing to go on after a failure and must settle `Error`, or its run is closed `Complete` at 100%.
+    #[test]
+    fn only_a_hold_with_a_reason_is_a_failure_hold() {
+        assert_eq!(failure_hold_reason(true, None), None, "a human gate");
+        assert_eq!(
+            failure_hold_reason(
+                true,
+                Some("Forge role smith failed for task t: refused".into())
+            ),
+            Some("Forge role smith failed for task t: refused".into())
+        );
+        assert_eq!(
+            failure_hold_reason(true, Some("  ".into())),
+            None,
+            "a blank reason says nothing"
+        );
+        assert_eq!(
+            failure_hold_reason(false, Some("no ready task; active: smith=Reserved".into())),
+            None,
+            "an exhausted run is not a hold; the settlement pair already refuses its Done"
+        );
     }
 }
