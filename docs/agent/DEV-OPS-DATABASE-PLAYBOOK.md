@@ -39,13 +39,25 @@ point at its own evidence is worse than an empty one.
 **+11 stories, +137 runs, +142 work items**. Scope: those three tables only — the wider
 `forge_*`/`process_*` evidence tables are not carried yet.
 
-### Parity blind spot (found 2026-09-11, by that sync)
+### Parity: five axes, and the blind spot that is still open
 
-`pnpm db:parity` compares **tables, columns, indexes and FKs — but NOT check constraints**.
-On 2026-09-11 it reported **0 drift** while PROD enforced `agent_work_item_parallel_shape_check`
-and DEV had no such constraint at all. The direction is the dangerous one: **PROD is stricter,
-DEV is permissive**, so DEV accepts rows PROD rejects. Until parity compares constraints,
-treat a clean parity result as **incomplete evidence**, not proof of agreement.
+`pnpm db:parity` compares **five** axes — tables, columns, indexes, FKs and check constraints — and prints a line
+per axis (`column drift`, `index drift`, `fk drift`, `check drift`), so the fifth is visible in the output rather
+than implied.
+
+**The constraint axis is no longer blind (FORGE-PARITY-CHECK-01, 2026-09-12).** It exists because of what it
+missed: on **2026-09-11** parity reported **0 drift** while PROD enforced `agent_work_item_parallel_shape_check`
+and DEV had no such constraint at all. A CHECK constraint is enforcement, not decoration, and the dangerous
+direction is **PROD stricter than DEV** (a worker passes in DEV and fails in PROD). Validity is part of the
+compared value, so a `NOT VALID` constraint never reads as equal to a validated one
+(`db/src/schema_parity.rs:14-20`).
+
+**What the comparison still does not read** — the four catalogue queries in `read_snapshot`
+(`db/src/schema_parity.rs:218-296`): **functions and stored procedures** (no `pg_proc` read, so the whole
+stored-routine series, migrations 262–267, is outside it) and **view and materialized-view definitions** (the
+table axis is filtered to `table_type = 'BASE TABLE'`). A clean five-axis run therefore says the tables, their
+columns, their indexes, their foreign keys and their check constraints agree; it does **not** say the routines or
+the view bodies agree on both sides.
 
 ## 1. Environment topology
 
