@@ -93,6 +93,10 @@ impl fmt::Display for Failure {
 
 impl std::error::Error for Failure {}
 
+/// The command list the dispatcher prints when it is asked for something it does not know. Kept as one
+/// constant so the usage text a reader sees and the test that proves a command is advertised cannot drift.
+const FORGE_USAGE: &str = "forge <harness-lint|guard-lint|sync-agents|build-info|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|sql|salvage|reset|recover|clean> [options]";
+
 pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
     match args.first().map(String::as_str).unwrap_or_default() {
         "harness-lint" => lint::run(&args[1..]),
@@ -142,7 +146,7 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         // does — a candidate recovered from the wrong control plane is worse than none.
         "salvage" => salvage::run(&args[1..]).await,
         other => Err(Failure::usage(format!(
-            "unknown forge command `{other}`; usage: forge <harness-lint|guard-lint|sync-agents|build-info|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|sql|salvage|reset|recover|clean> [options]"
+            "unknown forge command `{other}`; usage: {FORGE_USAGE}"
         ))),
     }
 }
@@ -249,6 +253,16 @@ mod tests {
 
         assert!(message.contains("no further detail"), "{message}");
         assert!(message.contains("DATABASE_URL_DEV"), "{message}");
+    }
+
+    /// Criterion 5 of ENG-FORGE-C1-BUILD-INFO-01: a command is reachable only if the dispatcher advertises
+    /// it. `build-info` must be named in the usage text, not just registered in the match.
+    #[test]
+    fn the_usage_lists_build_info() {
+        assert!(
+            FORGE_USAGE.contains("build-info"),
+            "the dispatcher usage must name build-info: {FORGE_USAGE}"
+        );
     }
 
     fn args(list: &[&str]) -> Vec<String> {
