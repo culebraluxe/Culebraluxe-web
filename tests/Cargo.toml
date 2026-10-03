@@ -1,0 +1,46 @@
+[package]
+name = "test-harness"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# The dedicated, Rust-native contract-test harness (TST-HARNESS-FOUNDATION-001).
+#
+# DEPENDENCY DIRECTION IS ONE-WAY: test-harness depends on production crates; production crates never depend on
+# test-harness. The harness exists to make the production boundaries executable in a test, so every dependency below
+# is a boundary under test (database, service context, workflow engine, MVI screens), not a parallel implementation.
+#
+# The legacy TypeScript test estate is NOT a conversion target. There is no Node, no mjs and no shelling out to a
+# runner: `cargo test -p test-harness` is the whole entry point.
+[dependencies]
+async-trait.workspace = true
+axum.workspace = true
+chrono.workspace = true
+# `db` is named `database` inside this crate; the module path is `test_harness::database`.
+db = { path = "../db" }
+model = { path = "../middle/model" }
+serde.workspace = true
+serde_json.workspace = true
+services = { path = "../middle/services" }
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tower.workspace = true
+# The MVI boundary: the harness drives real `Screen` implementations (`ui::app::Screen`), so the contract it makes
+# executable is the one the browser runs, not a re-declared copy of it.
+ui = { path = "../web/ui" }
+uuid.workspace = true
+workflow = { path = "../middle/workflow" }
+
+[dev-dependencies]
+# The Forge definition boundary under test (TST-WF-DEFINITION-013): the production XML parser
+# (`forge::engine::xml`) and the pure definition policies it feeds (`version_policy`, `commands`, `topology`).
+# Test-only, so the harness's own modules never link the Forge runtime — the parse is the same one the deploy path
+# (`forge::engine::deploy::deploy_xml`) and the engine binary use, not a re-declared copy of it.
+forge = { path = "../forge" }
+# The web tier's public surface: `ServiceHarness`, `MqRuntime` and the transactional service tests used to live in
+# `web/tests/`, one directory above the crate they exercise. They are tests of `web` either way, so they moved here
+# with everything else rather than staying as the one suite that is not in `tests/`.
+web = { path = "../web" }
+# Used by one migrated test for `CancellationToken`-shaped shutdown, never by the harness's own modules.
+tokio-util.workspace = true

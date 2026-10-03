@@ -68,19 +68,19 @@ const TREE_FIELD_TOKENS: [&str; 4] = [
 /// (`H3` in `docs/agent/HANDOFF-ts-guards-to-rust-2026-09-29.md`), so this guard baselines it rather
 /// than editing it.
 ///
-/// `rust/test-harness/src/git.rs` is the contract-test harness's disposable-worktree helper. It is
+/// `tests/src/git.rs` is the contract-test suite's disposable-worktree helper. It is
 /// allowed because it is the one shape AGENTS.md:151 exempts by name — "Scratch that a command creates
 /// and consumes inside itself is fine". `DisposableWorktree` adds a worktree under the system temp
 /// directory and removes it in `Drop`, so it never outlives the test that made it, is never read by
 /// another lane, and is not a per-lane tree. It adds no workflow the database does not already own.
 const WORKTREE_CAPABILITY_FILES: [&str; 2] = [
     "forge/src/engine/worktree.rs",
-    "rust/test-harness/src/git.rs",
+    "tests/src/git.rs",
 ];
 
 /// The tracked roots the capability scan is allowed to read: the workspace's crate roots, which are the tiers
-/// (`web/`, `middle/`, `db/`) and the entry points (`cli/`, `forge/`), plus `rust/` for as long as the contract-test
-/// harness lives there. Scoped deliberately: `gsd-core/` is an unrelated vendored tool and `experiments/` is outside
+/// (`web/`, `middle/`, `db/`) and the entry points (`cli/`, `forge/`), plus `tests/`, where the contract suite
+/// lives. Scoped deliberately: `gsd-core/` is an unrelated vendored tool and `experiments/` is outside
 /// the workspace, so neither belongs to this rule's estate.
 const RESIDUE_ROOTS: [&str; 9] = [
     "web",
@@ -88,7 +88,7 @@ const RESIDUE_ROOTS: [&str; 9] = [
     "db",
     "cli",
     "forge",
-    "rust",
+    "tests",
     "scripts",
     ".githooks",
     "package.json",
@@ -312,7 +312,7 @@ fn dispatch_write_scan(root: &Path) -> DispatchWriteScan {
     let pattern = insert_re(DISPATCH_OWNED_TABLE);
     let mut scanned = 0usize;
     let mut writers = Vec::new();
-    for relative in tracked_files(root, &["rust"]) {
+    for relative in tracked_files(root, &["web", "middle", "db", "cli", "forge", "tests"]) {
         if is_guard_source(&relative) || is_test_path(&relative) {
             continue;
         }
@@ -372,17 +372,17 @@ fn is_test_path(path: &str) -> bool {
 /// A crate whose every module exists to run a test, so it is not production code even where it lives
 /// under `src/`.
 ///
-/// `rust/test-harness/` is the arch-boundary harness: its `tests/` hold the cases and its `src/` holds the
+/// `tests/` is the contract suite: its `tests/` hold the cases and its `src/` holds the
 /// fixture client (`Database`, `ForgeHarness`) that writes and cleans up canonical rows on purpose —
 /// asking the rows instead of a DAO is the whole method, so writing them is the harness's job, not a
-/// second owner of a fact. `rust/test-harness/src/git.rs` is already named in
+/// second owner of a fact. `tests/src/git.rs` is already named in
 /// `WORKTREE_CAPABILITY_FILES` for exactly this reason (a harness may create a disposable worktree).
 ///
 /// The production-writer scan lacked the same line, so on 2026-09-30 `rust/test-harness/src/forge.rs`
 /// joined the `storyboard_story` writer set through its fixture `delete from storyboard_story` and turned
 /// the one-writer guard red — for a crate that is linked into no binary and serves nobody.
 fn is_test_support_crate(path: &str) -> bool {
-    path.starts_with("rust/test-harness/")
+    path.starts_with("tests/")
 }
 
 /// The guard's own source names every token it hunts, so a scan that counted itself would report its
@@ -451,7 +451,7 @@ fn writer_scan(root: &Path) -> WriterScan {
         .collect();
     let files = tracked_files(
         root,
-        &["web", "middle", "db", "cli", "forge", "rust"],
+        &["web", "middle", "db", "cli", "forge", "tests"],
     );
     let mut scanned = 0usize;
     let mut writers: BTreeMap<&'static str, BTreeSet<String>> = AUDITED_TABLES

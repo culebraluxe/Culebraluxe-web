@@ -155,9 +155,9 @@ skills-lock.json
 !/lib/rust-ui/mount.ts
 /public/rust-ui/*
 
-# The Rust workspace build directory. 225M of compiler output, and `pnpm ui:build` creates it under rust/ because the
-# workspace root is Cargo.toml — one `git add -A` away from being committed.
-/rust/target/
+# The Rust workspace build directory. 225M of compiler output, and it sits AT the workspace root, because `Cargo.toml`
+# is the repository's own manifest now — one `git add -A` away from being committed.
+/target/
 
 # Built by scripts/site-build.sh (pnpm dev, the container dry run, the deploy) — never committed, so a build
 # never blocks a pull.
