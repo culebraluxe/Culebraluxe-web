@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::engine::assay::{is_rust_contract_production_path, CommandResult};
+use crate::engine::assay::CommandResult;
 use crate::engine::harness_usage::UsageBaseline;
 use crate::engine::opencode_agents;
 use crate::engine::opencode_client::{
@@ -129,18 +129,6 @@ pub fn default_cli_bin() -> String {
         .into_iter()
         .next()
         .unwrap_or_else(|| VENDOR_CLI_PATH_NAME.into())
-}
-
-fn smith_writes_code(node_id: &str) -> bool {
-    matches!(
-        node_id,
-        "smith"
-            | "smith_split_work"
-            | "repair_smith"
-            | "fast_smith"
-            | "fast_repair_smith"
-            | "lead_solo_implement"
-    )
 }
 
 fn blocked_model_env_key(key: &str) -> bool {
@@ -452,6 +440,16 @@ impl OpenCodeHarness {
     }
 }
 
+impl crate::engine::runner::CandidateProbe for OpenCodeHarness {
+    fn git(&self, args: &[&str]) -> Option<String> {
+        self.run_git(args)
+    }
+
+    fn declared_test_mode(&self) -> Option<&str> {
+        self.packet.test_mode.as_deref()
+    }
+}
+
 impl RoleHarness for OpenCodeHarness {
     fn run_role(
         &self,
@@ -677,89 +675,16 @@ impl RoleHarness for OpenCodeHarness {
             write_session_id(&cwd, Some(id));
         }
         // The role output is the assistant's text (§3), never the NDJSON transcript it arrived in.
-        let mut raw = turn.assistant_text;
-        let sha = self.run_git(&["rev-parse", "HEAD"]);
-        let mut candidate_sha = sha.clone();
-        let mut refusal = None;
-        let mut measured_base = None;
-        if smith_writes_code(node_id) {
-            let execution_base = self
-                .execution_workspace
-                .as_ref()
-                .map(|workspace| workspace.base_commit.as_str())
-                .or(before_sha.as_deref());
-            let rejection = match (execution_base, sha.as_deref()) {
-                (None, _) => Some(format!(
-                    "Smith candidate refused for {node_id}: execution base is unreadable"
-                )),
-                (_, None) => Some(format!(
-                    "Smith candidate refused for {node_id}: HEAD was unreadable after the role turn"
-                )),
-                (Some(base), Some(after)) if after == base => Some(format!(
-                    "Smith candidate refused for {node_id}: no new commit was created (HEAD stayed {after})"
-                )),
-                (Some(_), Some(after))
-                    if after.len() != 40
-                        || !after.bytes().all(|byte| byte.is_ascii_hexdigit()) =>
-                {
-                    Some(format!(
-                        "Smith candidate refused for {node_id}: {after:?} is not a full commit SHA"
-                    ))
-                }
-                (Some(base), Some(after))
-                    if self
-                        .run_git(&["merge-base", "--is-ancestor", base, after])
-                        .is_none() =>
-                {
-                    Some(format!(
-                        "Smith candidate refused for {node_id}: candidate {after} is not a descendant of execution base {base}"
-                    ))
-                }
-                (Some(_), Some(after)) => {
-                    match self.run_git(&["status", "--porcelain"]) {
-                        None => Some(format!(
-                            "Smith candidate refused for {node_id}: git status is unreadable"
-                        )),
-                        Some(dirty) if !dirty.trim().is_empty() => Some(format!(
-                            "Smith candidate refused for {node_id}: uncommitted work remains after candidate {after}: {}",
-                            dirty.lines().take(8).collect::<Vec<_>>().join(" | ")
-                        )),
-                        Some(_) => {
-                            let base = execution_base.unwrap_or(after);
-                            let range = format!("{base}..{after}");
-                            // `--no-renames`: with rename detection a file moved OUT of a production root lists
-                            // only its new path, and the move passes the RUST_CONTRACT check below.
-                            match self.run_git(&["diff", "--name-only", "--no-renames", &range]) {
-                                None => Some(format!(
-                                    "Smith candidate refused for {node_id}: changed paths are unreadable for {range}"
-                                )),
-                                Some(changed) if changed.trim().is_empty() => Some(format!(
-                                    "Smith candidate refused for {node_id}: candidate {after} changes no files from execution base {base}"
-                                )),
-                                Some(changed)
-                                    if self.packet.test_mode.as_deref() == Some("RUST_CONTRACT")
-                                        && changed
-                                            .lines()
-                                            .any(is_rust_contract_production_path) =>
-                                {
-                                    Some(format!(
-                                        "Smith candidate refused for {node_id}: RUST_CONTRACT candidate modified production code across {range}"
-                                    ))
-                                }
-                                Some(_) => None,
-                            }
-                        }
-                    }
-                }
-            };
-            if let Some(reason) = rejection.as_deref() {
-                candidate_sha = None;
-                raw.push_str("\nSMITH_CANDIDATE_REJECTED: ");
-                raw.push_str(reason);
-            }
-            refusal = rejection;
-            measured_base = execution_base.map(str::to_string);
-        }
+        let raw = turn.assistant_text;
+        // FACTS ONLY. What the turn left in the repository is reported here; whether it is an acceptable
+        // candidate is the delivering lane's judgement (`roles::smith::judge_delivered_candidate`), applied by
+        // the lane's hooks the moment this output reaches the lifecycle.
+        let candidate_sha = self.run_git(&["rev-parse", "HEAD"]);
+        let execution_base = self
+            .execution_workspace
+            .as_ref()
+            .map(|workspace| workspace.base_commit.clone())
+            .or(before_sha);
         let assay = if self.assay_commands.is_empty() {
             self.packet.assay_commands.clone()
         } else {
@@ -770,8 +695,8 @@ impl RoleHarness for OpenCodeHarness {
             candidate_sha,
             assay_commands: assay,
             acceptance_mapped: self.acceptance_mapped,
-            refusal,
-            execution_base: measured_base,
+            refusal: None,
+            execution_base,
             usage,
         })
     }
@@ -816,6 +741,10 @@ impl RoleHarness for OpenCodeHarness {
             return Path::new(&ws.worktree_path);
         }
         self.workspace.as_path()
+    }
+
+    fn candidate_probe(&self) -> Option<&dyn crate::engine::runner::CandidateProbe> {
+        Some(self)
     }
 
     fn execution_base_commit(&self) -> Option<&str> {

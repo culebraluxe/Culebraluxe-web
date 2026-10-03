@@ -11,6 +11,7 @@
 use crate::engine::executor::ForgeRoleOutcome;
 use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
 use crate::engine::phase::{lane_deliverable_kind, PhaseDeliverableKind, RoleEffectPorts};
+use crate::engine::runner::HarnessOutput;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleTurn};
 use workflow::Result;
@@ -42,6 +43,11 @@ pub trait ForgeRoleHooks: Send + Sync {
     fn adopts_candidate_sha(&self, _node_id: &str) -> bool {
         false
     }
+
+    /// The lane's judgement of what one attempt left behind, applied to the harness's facts BEFORE anything reads
+    /// them — a lane that delivers code refuses a candidate here (clearing it and naming the refusal), so the
+    /// evidence, the self-heal directive and the capture all see the judged output. The default judges nothing.
+    fn judge_output(&self, _ctx: &ForgeRoleContext<'_>, _node_id: &str, _out: &mut HarnessOutput) {}
 
     /// The lane's reading of the reply: the evidence, as the gate will act on it.
     ///

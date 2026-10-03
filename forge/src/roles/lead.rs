@@ -146,6 +146,16 @@ impl ForgeRoleHooks for LeadHooks {
         None
     }
 
+    /// The solo implement delivers code, so its candidate is judged by Smith's rules — one judgement, one owner.
+    fn judge_output(
+        &self,
+        ctx: &crate::roles::lifecycle::ForgeRoleContext<'_>,
+        node_id: &str,
+        out: &mut crate::engine::runner::HarnessOutput,
+    ) {
+        crate::roles::smith::judge_delivered_candidate(ctx.harness, node_id, out);
+    }
+
     fn interpret_turn(
         &self,
         ctx: &ForgeRoleContext<'_>,

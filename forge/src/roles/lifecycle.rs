@@ -183,7 +183,9 @@ pub fn run_forge_role_turn(
     // `ForgePhaseAgent::new` made at the top of every collect.
     lane_for_node(node_id).map_err(WorkflowError::generic)?;
     for attempt in 0..budget {
-        let out = ctx.harness.run_role(node_id, task, self_heal.as_deref())?;
+        let mut out = ctx.harness.run_role(node_id, task, self_heal.as_deref())?;
+        // The harness reported facts; the lane judges them before anything below reads them.
+        hooks.judge_output(ctx, node_id, &mut out);
         // Recorded per attempt, the moment it is known: a later attempt that errors out must not take the
         // spend of the earlier ones down with it.
         if let Some(usage) = out.usage.as_ref() {

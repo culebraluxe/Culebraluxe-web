@@ -26,6 +26,16 @@ pub struct HarnessOutput {
     pub usage: Option<HarnessUsage>,
 }
 
+/// What a code-delivering lane needs to JUDGE a candidate: git in the workspace the turn ran in, and the test mode
+/// the packet declared. The harness supplies these facts; the rules that read them are Smith's
+/// (`roles::smith::judge_delivered_candidate`), never the transport's.
+pub trait CandidateProbe {
+    /// `git <args>` in the turn's workspace: trimmed stdout, or `None` when git failed.
+    fn git(&self, args: &[&str]) -> Option<String>;
+    /// The test mode the packet the harness was started with declared (`RUST_CONTRACT`, …).
+    fn declared_test_mode(&self) -> Option<&str>;
+}
+
 pub trait RoleHarness: Send + Sync {
     /// `self_heal` is this attempt's corrective directive: `None` on the first attempt, and — when the runner
     /// retries a role that missed a required deliverable — the directive naming exactly what was missed.
@@ -63,6 +73,11 @@ pub trait RoleHarness: Send + Sync {
         None
     }
     fn run_command(&self, command: &str) -> CommandResult;
+    /// The repository facts a delivered candidate is judged against. `None` for a harness that runs no real
+    /// repository (every double), whose candidate is taken as given.
+    fn candidate_probe(&self) -> Option<&dyn CandidateProbe> {
+        None
+    }
 }
 
 /// Control-plane runner: harness produces raw output; collect + gates decide evidence.

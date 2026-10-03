@@ -5,9 +5,11 @@
 //! still gets its work written down. The execution lifecycle it runs under is inherited from
 //! [`crate::roles::service::AbstractForgeService`], not copied here — see `roles::lifecycle`.
 
+use crate::engine::assay::is_rust_contract_production_path;
 use crate::engine::executor::ForgeRoleRunner;
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::role_mapping::LaneId;
+use crate::engine::runner::{CandidateProbe, HarnessOutput, RoleHarness};
 use crate::engine::scope::candidate_own_changed_files;
 use crate::engine::worktree::git_changed_files;
 use crate::engine::writer::ForgeStateWriter;
@@ -48,6 +50,10 @@ impl ForgeRoleHooks for SmithHooks {
         delivers_code(node_id)
     }
 
+    fn judge_output(&self, ctx: &ForgeRoleContext<'_>, node_id: &str, out: &mut HarnessOutput) {
+        judge_delivered_candidate(ctx.harness, node_id, out);
+    }
+
     fn interpret_turn(
         &self,
         ctx: &ForgeRoleContext<'_>,
@@ -55,6 +61,98 @@ impl ForgeRoleHooks for SmithHooks {
         evidence: &mut ForgeGateEvidence,
     ) -> Result<()> {
         read_delivered_work(ctx, turn, evidence)
+    }
+}
+
+/// Judge the candidate one attempt of a code-delivering node left behind.
+///
+/// SMITH'S RULES, IN SMITH'S LANE. These lived inside the OpenCode transport (with a second copy of
+/// [`delivers_code`]), so the vendor adapter decided what counts as delivered code. The harness now reports facts —
+/// HEAD after the turn, the execution base, git in its workspace — and this function decides. A refused candidate is
+/// cleared, the refusal is recorded on the output, and the reply carries `SMITH_CANDIDATE_REJECTED` so the marker
+/// reading sees it exactly as before. A harness with no repository behind it (every double) is not judged.
+pub fn judge_delivered_candidate(
+    harness: &dyn RoleHarness,
+    node_id: &str,
+    out: &mut HarnessOutput,
+) {
+    if !delivers_code(node_id) {
+        return;
+    }
+    let Some(probe) = harness.candidate_probe() else {
+        return;
+    };
+    let rejection = candidate_rejection(
+        node_id,
+        out.execution_base.as_deref(),
+        out.candidate_sha.as_deref(),
+        probe,
+    );
+    if let Some(reason) = rejection.as_deref() {
+        out.candidate_sha = None;
+        out.raw.push_str("\nSMITH_CANDIDATE_REJECTED: ");
+        out.raw.push_str(reason);
+    }
+    out.refusal = rejection;
+}
+
+/// Why `after` is not an acceptable candidate on `base`, or `None` when it is: a new, full commit that descends from
+/// the execution base, leaves a clean tree, changes at least one file, and — under `RUST_CONTRACT` — touches no
+/// production code.
+fn candidate_rejection(
+    node_id: &str,
+    base: Option<&str>,
+    after: Option<&str>,
+    probe: &dyn CandidateProbe,
+) -> Option<String> {
+    let refuse = |why: String| Some(format!("Smith candidate refused for {node_id}: {why}"));
+    let Some(base) = base else {
+        return refuse("execution base is unreadable".into());
+    };
+    let Some(after) = after else {
+        return refuse("HEAD was unreadable after the role turn".into());
+    };
+    if after == base {
+        return refuse(format!("no new commit was created (HEAD stayed {after})"));
+    }
+    if !is_full_commit(after) {
+        return refuse(format!("{after:?} is not a full commit SHA"));
+    }
+    if probe
+        .git(&["merge-base", "--is-ancestor", base, after])
+        .is_none()
+    {
+        return refuse(format!(
+            "candidate {after} is not a descendant of execution base {base}"
+        ));
+    }
+    match probe.git(&["status", "--porcelain"]) {
+        None => return refuse("git status is unreadable".into()),
+        Some(dirty) if !dirty.trim().is_empty() => {
+            return refuse(format!(
+                "uncommitted work remains after candidate {after}: {}",
+                dirty.lines().take(8).collect::<Vec<_>>().join(" | ")
+            ))
+        }
+        Some(_) => {}
+    }
+    let range = format!("{base}..{after}");
+    // `--no-renames`: with rename detection a file moved OUT of a production root lists only its new path, and the
+    // move passes the RUST_CONTRACT check below.
+    match probe.git(&["diff", "--name-only", "--no-renames", &range]) {
+        None => refuse(format!("changed paths are unreadable for {range}")),
+        Some(changed) if changed.trim().is_empty() => refuse(format!(
+            "candidate {after} changes no files from execution base {base}"
+        )),
+        Some(changed)
+            if probe.declared_test_mode() == Some("RUST_CONTRACT")
+                && changed.lines().any(is_rust_contract_production_path) =>
+        {
+            refuse(format!(
+                "RUST_CONTRACT candidate modified production code across {range}"
+            ))
+        }
+        Some(_) => None,
     }
 }
 
@@ -706,5 +804,226 @@ mod tests {
             "an accepted candidate is not marked refused"
         );
         let _ = std::fs::remove_dir_all(&repo);
+    }
+}
+
+#[cfg(test)]
+mod candidate_judgement_tests {
+    use super::*;
+    use crate::engine::assay::CommandResult;
+    use crate::engine::runtime::ActiveForgeRoleTask;
+    use std::collections::HashMap;
+
+    const BASE: &str = "1111111111111111111111111111111111111111";
+    const AFTER: &str = "2222222222222222222222222222222222222222";
+
+    /// A repository described by its answers: each git invocation (args joined by spaces) maps to its stdout, and
+    /// an invocation with no answer is a git that failed.
+    struct Repo {
+        answers: HashMap<String, String>,
+        test_mode: Option<&'static str>,
+    }
+
+    impl Repo {
+        /// A clean, descending candidate that changes one test file.
+        fn healthy() -> Self {
+            let mut answers = HashMap::new();
+            answers.insert(
+                format!("merge-base --is-ancestor {BASE} {AFTER}"),
+                String::new(),
+            );
+            answers.insert("status --porcelain".into(), String::new());
+            answers.insert(
+                format!("diff --name-only --no-renames {BASE}..{AFTER}"),
+                "tests/tests/new_contract.rs".into(),
+            );
+            Self {
+                answers,
+                test_mode: None,
+            }
+        }
+
+        fn answer(mut self, args: &str, stdout: Option<&str>) -> Self {
+            match stdout {
+                Some(out) => self.answers.insert(args.into(), out.into()),
+                None => self.answers.remove(args),
+            };
+            self
+        }
+    }
+
+    impl CandidateProbe for Repo {
+        fn git(&self, args: &[&str]) -> Option<String> {
+            self.answers.get(&args.join(" ")).cloned()
+        }
+        fn declared_test_mode(&self) -> Option<&str> {
+            self.test_mode
+        }
+    }
+
+    impl RoleHarness for Repo {
+        fn run_role(
+            &self,
+            _: &str,
+            _: &ActiveForgeRoleTask,
+            _: Option<&str>,
+        ) -> Result<HarnessOutput> {
+            unreachable!("the judgement never runs a turn")
+        }
+        fn exists_on_base_ref(&self, _: &str, _: &str) -> bool {
+            true
+        }
+        fn assay_cwd(&self) -> &std::path::Path {
+            std::path::Path::new(".")
+        }
+        fn run_command(&self, _: &str) -> CommandResult {
+            unreachable!("the judgement never runs a command")
+        }
+        fn candidate_probe(&self) -> Option<&dyn CandidateProbe> {
+            Some(self)
+        }
+    }
+
+    fn reject(repo: &Repo, base: Option<&str>, after: Option<&str>) -> Option<String> {
+        candidate_rejection("smith", base, after, repo)
+    }
+
+    fn output(after: Option<&str>) -> HarnessOutput {
+        HarnessOutput {
+            raw: "smith answered".into(),
+            candidate_sha: after.map(str::to_string),
+            assay_commands: vec![],
+            acceptance_mapped: false,
+            refusal: None,
+            execution_base: Some(BASE.into()),
+            usage: None,
+        }
+    }
+
+    #[test]
+    fn a_clean_descending_commit_that_changes_files_is_accepted() {
+        assert_eq!(reject(&Repo::healthy(), Some(BASE), Some(AFTER)), None);
+    }
+
+    #[test]
+    fn every_refusal_names_its_reason() {
+        let healthy = Repo::healthy;
+        let cases: Vec<(Repo, Option<&str>, Option<&str>, &str)> = vec![
+            (healthy(), None, Some(AFTER), "execution base is unreadable"),
+            (healthy(), Some(BASE), None, "HEAD was unreadable"),
+            (
+                healthy(),
+                Some(BASE),
+                Some(BASE),
+                "no new commit was created",
+            ),
+            (
+                healthy(),
+                Some(BASE),
+                Some("abc123"),
+                "is not a full commit SHA",
+            ),
+            (
+                healthy().answer(&format!("merge-base --is-ancestor {BASE} {AFTER}"), None),
+                Some(BASE),
+                Some(AFTER),
+                "is not a descendant of execution base",
+            ),
+            (
+                healthy().answer("status --porcelain", None),
+                Some(BASE),
+                Some(AFTER),
+                "git status is unreadable",
+            ),
+            (
+                healthy().answer("status --porcelain", Some(" M web/src/lib.rs")),
+                Some(BASE),
+                Some(AFTER),
+                "uncommitted work remains",
+            ),
+            (
+                healthy().answer(
+                    &format!("diff --name-only --no-renames {BASE}..{AFTER}"),
+                    None,
+                ),
+                Some(BASE),
+                Some(AFTER),
+                "changed paths are unreadable",
+            ),
+            (
+                healthy().answer(
+                    &format!("diff --name-only --no-renames {BASE}..{AFTER}"),
+                    Some(""),
+                ),
+                Some(BASE),
+                Some(AFTER),
+                "changes no files",
+            ),
+        ];
+        for (repo, base, after, expected) in cases {
+            let reason = reject(&repo, base, after).unwrap_or_default();
+            assert!(
+                reason.contains(expected),
+                "expected {expected:?}, got {reason:?}"
+            );
+            assert!(
+                reason.starts_with("Smith candidate refused for smith: "),
+                "{reason}"
+            );
+        }
+    }
+
+    #[test]
+    fn rust_contract_refuses_a_production_touch_and_only_under_that_mode() {
+        let touches_web = || {
+            Repo::healthy().answer(
+                &format!("diff --name-only --no-renames {BASE}..{AFTER}"),
+                Some("tests/tests/new_contract.rs\nweb/src/api/error.rs"),
+            )
+        };
+        assert_eq!(
+            reject(&touches_web(), Some(BASE), Some(AFTER)),
+            None,
+            "no mode, no contract rule"
+        );
+        let mut contract = touches_web();
+        contract.test_mode = Some("RUST_CONTRACT");
+        let reason = reject(&contract, Some(BASE), Some(AFTER)).unwrap_or_default();
+        assert!(
+            reason.contains("RUST_CONTRACT candidate modified production code"),
+            "{reason}"
+        );
+    }
+
+    #[test]
+    fn a_refused_candidate_is_cleared_and_named_in_the_reply() {
+        let repo = Repo::healthy().answer("status --porcelain", Some("?? scratch.txt"));
+        let mut out = output(Some(AFTER));
+        judge_delivered_candidate(&repo, "fast_repair_smith", &mut out);
+        assert_eq!(
+            out.candidate_sha, None,
+            "a refused candidate is not the run's candidate"
+        );
+        let refusal = out.refusal.clone().expect("the refusal is recorded");
+        assert!(
+            out.raw
+                .contains(&format!("SMITH_CANDIDATE_REJECTED: {refusal}")),
+            "{}",
+            out.raw
+        );
+    }
+
+    #[test]
+    fn only_code_delivering_nodes_on_a_real_repository_are_judged() {
+        let dirty = Repo::healthy().answer("status --porcelain", Some(" M x.rs"));
+        let mut not_code = output(Some(AFTER));
+        judge_delivered_candidate(&dirty, "architect", &mut not_code);
+        assert_eq!(not_code.candidate_sha.as_deref(), Some(AFTER));
+        assert_eq!(not_code.refusal, None);
+
+        let mut accepted = output(Some(AFTER));
+        judge_delivered_candidate(&Repo::healthy(), "lead_solo_implement", &mut accepted);
+        assert_eq!(accepted.candidate_sha.as_deref(), Some(AFTER));
+        assert_eq!(accepted.refusal, None);
     }
 }
