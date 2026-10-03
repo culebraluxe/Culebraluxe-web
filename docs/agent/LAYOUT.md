@@ -85,10 +85,13 @@ Three of the four below closed on 2026-10-02/03. They are kept with the date rat
 
 ## The layout move (2026-10-01/02): what a lane does
 
-The three lane worktrees sit on `97785410`, which is before the tree moved to the three tiers. Do not merge `main`
-into a lane to catch up: the merge is a conflict in every file that moved, and the tree that comes out of it is
-neither layout. Replay it instead — the script is the move, written so it checks before it acts and running it twice
-does nothing.
+**This describes a base that no longer exists, and the recipe that was used to leave it.** When it was written the three
+lane worktrees sat on `97785410`, before the tree moved to the three tiers; that base is now an ancestor of `main`
+(`git merge-base --is-ancestor 97785410 origin/main` → true, checked 2026-10-03), and each lane was caught up by
+replaying the move, not by merging. The warning still holds for any lane on an old base, because the move landed once
+and a lane that merges instead will be re-running it: do not merge `main` into a lane to catch up — the merge is a
+conflict in every file that moved, and the tree that comes out of it is neither layout. Replay it instead — the script
+is the move, written so it checks before it acts and running it twice does nothing.
 
 ```sh
 cd /Users/Shared/dev/src/lane-<name>
