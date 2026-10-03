@@ -721,7 +721,7 @@ impl ForgeEngineDao {
             "insert into forge_hold_record(
                process_instance_id,task_id,story_id,reason,originating_node,
                failure_class,resume_target,resolver,resolution,resolution_note,resolved_at
-             ) values($1::uuid,$2,$3,$4,$5,$6,$7,null,null,null,null)
+             ) values($1::uuid,$2::uuid,$3,$4,$5,$6,$7,null,null,null,null)
              returning id::text",
         )
         .bind(process_instance_id)
