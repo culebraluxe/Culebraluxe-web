@@ -266,19 +266,20 @@ fix() { # fix <file> <perl-expression>
   say "fix     $file"
 }
 
-fix web/tests/signature_routes.rs 's{\.join\("\.\./\.\."\)}{.join("..")}'
-fix web/tests/release_gate_routes.rs 's{"\.\./\.\./scripts/deploy-prod\.sh"}{"../scripts/deploy-prod.sh"}'
-fix db/tests/forge_seam_hold_dev.rs 's{join\("\.\./\.\./\.\."\)}{join("..")}'
-fix db/tests/forge_work_claim_dev.rs 's{join\("\.\./\.\./\.\."\)}{join("..")}'
-fix cli/src/launchd/agent_worker.rs 's{\.parent\(\)\n(\s*)\.and_then\(Path::parent\)}{.parent()}'
-fix cli/src/launchd/agent_worker.rs 's{cli sits two levels below the repository root}{cli sits one level below the repository root}'
-fix cli/src/forge/manifest.rs 's{\.parent\(\)\n(\s*)\.and_then\(\|path\| path\.parent\(\)\)}{.parent()}'
-fix forge/tests/handbook_engine_guards.rs 's{\.parent\(\)\n(\s*)\.and_then\(Path::parent\)}{.parent()}'
-fix forge/tests/handbook_engine_guards.rs 's{forge sits under rust/ under the repository root}{forge sits at the repository root}'
-fix forge/tests/opencode_v2_agents.rs 's{\.parent\(\)\n(\s*)\.and_then\(Path::parent\)}{.parent()}'
-fix web/src/vault/forms_render.rs 's{\.\./\.\./public/brand/CLLOGO\.png}{../public/brand/CLLOGO.png}'
-fix web/src/vault/artifact.rs 's{\.\./\.\./middle/model/forms/templates}{../middle/model/forms/templates}'
-fix cli/src/forge/test_section.rs 's{path\.starts_with\("rust/core/"\)\n(\s*)\|\| path\.starts_with\("web/"\)}{path.starts_with("middle/model/")\n${1}|| path.starts_with("db/")\n${1}|| path.starts_with("web/")}'
+fix web/tests/signature_routes.rs 's{\.join\("\.\./\.\."\)}{.join("..")}g'
+fix web/tests/release_gate_routes.rs 's{"\.\./\.\./scripts/deploy-prod\.sh"}{"../scripts/deploy-prod.sh"}g'
+fix db/tests/forge_seam_hold_dev.rs 's{join\("\.\./\.\./\.\."\)}{join("..")}g'
+fix db/tests/forge_work_claim_dev.rs 's{join\("\.\./\.\./\.\."\)}{join("..")}g'
+fix cli/src/launchd/agent_worker.rs 's{\.parent\(\)\n(\s*)\.and_then\(Path::parent\)}{.parent()}g'
+fix cli/src/launchd/agent_worker.rs 's{cli sits two levels below the repository root}{cli sits one level below the repository root}g'
+fix cli/src/forge/manifest.rs 's{\.parent\(\)\n(\s*)\.and_then\(\|path\| path\.parent\(\)\)}{.parent()}g'
+fix forge/tests/handbook_engine_guards.rs 's{\.parent\(\)\n(\s*)\.and_then\(Path::parent\)}{.parent()}g'
+fix forge/tests/handbook_engine_guards.rs 's{forge sits under rust/ under the repository root}{forge sits at the repository root}g'
+fix forge/tests/opencode_v2_agents.rs 's{\.parent\(\)\n(\s*)\.and_then\(Path::parent\)}{.parent()}g'
+fix web/src/vault/forms_render.rs 's{\.\./\.\./public/brand/CLLOGO\.png}{../public/brand/CLLOGO.png}g'
+fix web/src/vault/artifact.rs 's{\.\./\.\./middle/model/forms/templates}{../middle/model/forms/templates}g'
+fix cli/src/forge/test_section.rs 's{"rust/Cargo\.lock"}{"Cargo.lock"}g'
+fix cli/src/forge/test_section.rs 's{path\.starts_with\("rust/core/"\)\n(\s*)\|\| path\.starts_with\("web/"\)}{path.starts_with("middle/model/")\n${1}|| path.starts_with("db/")\n${1}|| path.starts_with("web/")}g'
 fix cli/src/forge/repo_guards.rs 's{const RESIDUE_ROOTS: \[&str; 4\] = \["rust", "scripts", "\.githooks", "package\.json"\];}{const RESIDUE_ROOTS: [&str; 9] = [\n    "web",\n    "middle",\n    "db",\n    "cli",\n    "forge",\n    "rust",\n    "scripts",\n    ".githooks",\n    "package.json",\n];}'
 fix cli/src/forge/repo_guards.rs 's{let files = tracked_files\(root, &\["rust"\]\);}{let files = tracked_files(root, &["web", "middle", "db", "cli", "forge", "rust"]);}'
 fix cli/src/forge/citations.rs 's{const SOURCE_ROOTS: \[&str; 12\] = \[[\s\S]*?\];}{const SOURCE_ROOTS: [&str; 8] = [\n    "web",\n    "middle",\n    "db",\n    "cli",\n    "forge",\n    "rust",\n    "scripts",\n    "lib",\n];}'
@@ -295,6 +296,17 @@ fix rust/test-harness/tests/arch_boundary__002__no_mvi_screen_performs_direct_db
 fix rust/test-harness/tests/arch_boundary__003__ui_cannot_import_db_crate.rs 's{"server",}{"web",}g; s{"service",}{"services",}g; s{"integrations",}{"apis",}g; s{key == "domain"}{key == "model"}; s{it lists domain}{it lists model}'
 fix rust/test-harness/tests/arch_boundary__004__domain_cannot_depend_on_server_ui_integrations.rs 's{"server",}{"web",}g; s{"service",}{"services",}g; s{"integrations",}{"apis",}g; s{Some\("server"\.to_string\(\)\)}{Some("web".to_string())}'
 fix cli/src/forge/test_section.rs 's{"domain"}{"model"}g; s{"server"}{"web"}g; s{"service"}{"services"}g; s{"integrations"}{"apis"}g'
+
+# ---------------------------------------------------------------- the lockfile
+# `Cargo.lock` moved to the workspace root and still names the packages that were renamed. One metadata call rewrites it
+# in place: no build, and no re-resolution, because the crates.io entries are already there.
+if command -v cargo >/dev/null 2>&1; then
+  if cargo metadata --format-version 1 > /dev/null 2>&1; then
+    say "lock    Cargo.lock refreshed for the new crate names"
+  else
+    say "note    Cargo.lock was not refreshed (cargo missing or offline): run cargo check"
+  fi
+fi
 
 say ""
 say "the three-tier layout is in place. Verify with: cargo check --workspace --all-targets"
