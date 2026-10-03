@@ -16,7 +16,10 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 js_out="$root/public/rust-ui"
 wasm_out="$root/public/rust-ui"
-target_dir="${RUST_UI_TARGET_DIR:-/target}"
+# /target is the default because the container's build root is writable there (Dockerfile, devops/Dockerfile.build).
+# On a developer Mac `/target` is read-only, and `cargo build` honours CARGO_TARGET_DIR — the shared workspace target
+# every lane reuses — so honour it too before falling back. With neither set this is exactly `/target`, as before.
+target_dir="${RUST_UI_TARGET_DIR:-${CARGO_TARGET_DIR:-/target}}"
 
 if [ "${RUST_UI_PROFILE:-debug}" = "release" ]; then
   profile_dir="release"
