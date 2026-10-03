@@ -14,7 +14,8 @@ use axum::http::{header, StatusCode, Uri};
 use axum::response::{Html, IntoResponse, Response};
 use tower_http::services::ServeDir;
 
-/// Where the built site lives: `CULEBRA_SITE_DIR`, else `public/` from the repository root or from `rust/`.
+/// Where the built site lives: `CULEBRA_SITE_DIR`, else `public/` — looked for in the working directory and then one
+/// level above it, because the server is started either from the repository root or from the crate it lives in.
 pub fn site_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("CULEBRA_SITE_DIR") {
         return PathBuf::from(dir);

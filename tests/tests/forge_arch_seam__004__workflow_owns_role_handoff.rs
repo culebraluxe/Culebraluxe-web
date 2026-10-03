@@ -30,7 +30,7 @@ use forge::engine::writer::RecordingWriter;
 use forge::engine::xml::{definition_from_xml, FORGE_SDLC_V6_XML};
 use forge::roles::ForgeLaneServices;
 use support::*;
-use test_harness::source::{workspace_root, sources_under};
+use test_harness::source::{sources_under, workspace_root};
 use workflow::MemoryStore;
 
 const STORY: &str = "TST-ARCH-SEAM-004";

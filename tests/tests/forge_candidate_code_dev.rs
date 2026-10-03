@@ -93,10 +93,7 @@ async fn the_captured_candidate_comes_back_unchanged_and_newest_first() {
     );
     assert_eq!(read["candidateSha"], json!(first_sha));
     assert_eq!(read["base"], json!("b".repeat(40)));
-    assert_eq!(
-        read["changedFiles"][0],
-        json!("tests/tests/t.rs")
-    );
+    assert_eq!(read["changedFiles"][0], json!("tests/tests/t.rs"));
 
     // 3. A second run's capture is the one a recovery replays. The first row is backdated rather than relied on
     //    to be older: two inserts microseconds apart would otherwise make this an assertion about clock

@@ -46,7 +46,8 @@ mod tests {
 
     fn logo() -> Option<Logo> {
         // THE WORDMARK IS AT THE REPOSITORY ROOT's `public/`, which is ONE level up from `web` (the crate sits at the
-        // top of the web tier, so a single `..` is the root): the extra level this used to climb belonged to `rust/`.
+        // top of the web tier, so a single `..` is the root): the second `..` this used to climb belonged to the
+        // `rust/` the workspace lived in before the tiers moved to the root.
         let bytes = std::fs::read(repository_path("../public/brand/CLLOGO.png")).ok()?;
         Logo::from_png(&bytes)
     }

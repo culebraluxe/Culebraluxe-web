@@ -6,7 +6,7 @@
 #     `pnpm recover:strand` on 2026-10-02 (docs/agent/PROPOSALS.md). A hook that cannot be satisfied by the workers
 #     who read it is not a guardrail, it is a reason to work around the hook.
 #   Rule 5 — Cargo.lock travels with Cargo.toml: a lock that is out of date is refused (the deploy builds --locked).
-#   The artifact's own build — a push that touches rust/ui compiles it for wasm first, because
+#   The artifact's own build — a push that touches web/ui compiles it for wasm first, because
 #     `cargo check --workspace` does NOT compile the app (it lives behind `--features wasm`), and a green
 #     workspace can still fail the deploy. See AGENTS.md "Build and QA".
 #   The workspace compile is deliberately NOT here — it moved to CI on 2026-10-01 (House Rules rule 9): running it on
@@ -32,15 +32,15 @@ while read -r _local_ref _local_sha remote_ref _remote_sha; do
 done <<< "$push_input"
 
 # --- Rule 5: Cargo.lock travels with Cargo.toml --------------------------------
-if [ -f "$root/rust/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
-  if ! cargo metadata --manifest-path "$root/rust/Cargo.toml" --locked --offline --format-version 1 >/dev/null 2>&1; then
-    echo "House Rules: rust/Cargo.lock is out of date with a Cargo.toml. Run 'cargo metadata --manifest-path rust/Cargo.toml' and commit rust/Cargo.lock with it." >&2
+if [ -f "$root/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
+  if ! cargo metadata --manifest-path "$root/Cargo.toml" --locked --offline --format-version 1 >/dev/null 2>&1; then
+    echo "House Rules: Cargo.lock is out of date with a Cargo.toml. Run 'cargo metadata --manifest-path Cargo.toml' and commit Cargo.lock with it." >&2
     exit 1
   fi
 fi
 
 # --- the artifact's own build ---------------------------------------------------
-# What the pushed range changes decides how much has to be compiled. `rust/ui` is the one crate whose shipped
+# What the pushed range changes decides how much has to be compiled. `web/ui` is the one crate whose shipped
 # code is behind a feature flag, so a plain workspace check cannot see it.
 has_prefix() { # $1 = prefix, $2 = newline-separated paths. No pipes: grep -q would SIGPIPE git under pipefail.
   while IFS= read -r line; do
@@ -58,8 +58,12 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     ""|0000000000000000000000000000000000000000) all_new=1 ;;
     *)
       files="$(git -c core.quotepath=false diff --name-only "$remote_sha..$local_sha" 2>/dev/null || true)"
-      if has_prefix "rust/ui/" "$files"; then ui_changed=1; fi
-      if has_prefix "rust/" "$files"; then rust_changed=1; fi
+      if has_prefix "web/ui/" "$files"; then ui_changed=1; fi
+      # The Rust tree: the tiers, the entry points, the suite, and the two manifests the lock travels with. A
+      # change to any of them can move the compiled artifact, which is what this hook is about.
+      for prefix in "web/" "middle/" "db/" "cli/" "forge/" "tests/" "Cargo.toml" "Cargo.lock"; do
+        if has_prefix "$prefix" "$files"; then rust_changed=1; fi
+      done
       ;;
   esac
 done <<< "$push_input"
@@ -80,12 +84,12 @@ if [ "$ui_changed" = "1" ] || [ "$rust_changed" = "1" ]; then
       targets="$(rustup target list --installed 2>/dev/null || true)"
       case "$targets" in
         *wasm32-unknown-unknown*) ;;
-        *) echo "House Rules: rust/ui changed but the wasm target is not installed. Run: rustup target add wasm32-unknown-unknown" >&2
+        *) echo "House Rules: web/ui changed but the wasm target is not installed. Run: rustup target add wasm32-unknown-unknown" >&2
            rm -f "$out"; exit 1 ;;
       esac
-      echo "pre-push: checking rust/ui compiles for wasm (what the deploy builds)..." >&2
-      if ! cargo check --manifest-path "$root/rust/Cargo.toml" -p ui --features wasm --target wasm32-unknown-unknown --quiet >"$out" 2>&1; then
-        echo "House Rules: rust/ui does not compile for wasm — refusing the push. The deploy builds exactly this." >&2
+      echo "pre-push: checking web/ui compiles for wasm (what the deploy builds)..." >&2
+      if ! cargo check --manifest-path "$root/Cargo.toml" -p ui --features wasm --target wasm32-unknown-unknown --quiet >"$out" 2>&1; then
+        echo "House Rules: web/ui does not compile for wasm — refusing the push. The deploy builds exactly this." >&2
         echo "  Run it yourself with: pnpm ui:check" >&2
         cat "$out" >&2
         rm -f "$out"
@@ -99,7 +103,7 @@ if [ "$ui_changed" = "1" ] || [ "$rust_changed" = "1" ]; then
       # main, on the runner's clock. A worker that wants it locally asks for it here.
       if [ -n "${CULEBRALUXE_FULL_PUSH_CHECK:-}" ]; then
         echo "pre-push: checking the Rust workspace (CULEBRALUXE_FULL_PUSH_CHECK is set)..." >&2
-        if ! cargo check --manifest-path "$root/rust/Cargo.toml" --workspace --all-targets --quiet >"$out" 2>&1; then
+        if ! cargo check --manifest-path "$root/Cargo.toml" --workspace --all-targets --quiet >"$out" 2>&1; then
           echo "House Rules: the Rust workspace does not compile — refusing the push. CI would refuse it too." >&2
           cat "$out" >&2
           rm -f "$out"

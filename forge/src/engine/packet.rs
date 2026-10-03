@@ -141,10 +141,10 @@ pub fn build_task_text_with_context(
     if packet.test_mode.as_deref() == Some("RUST_CONTRACT") {
         parts.push(
             "TEST-AUTHORING STORY (RUST_CONTRACT). The deliverable is a TEST ARTIFACT, not a product fix. \
-             Author the canonical Rust test under rust/test-harness/ and commit it. You may NOT modify the \
-             production crates (rust/core/**, forge/**, web/**, middle/apis/**, cli/**, web/ui/**): a change there is an authoring defect, and the \
-             artifact is rejected for it. A \"test seam\" means code inside the test-harness crate (or behind \
-             #[cfg(test)]), never a change to production behaviour. If your test fails against the existing \
+             Author the canonical Rust test under tests/ and commit it. You may NOT modify the \
+             production crates (`web/**`, `middle/**`, `db/**`, `forge/**`, `cli/**`): a change there is an authoring defect, and the \
+             artifact is rejected for it. A \"test seam\" means code inside the contract suite (`tests/`) or behind \
+             #[cfg(test)], never a change to production behaviour. If your test fails against the existing \
              application code, that is a FINDING, not a failure: commit the failing test and report it. Product \
              debugging is separate work with its own story. The point of the test is to FIND the bug, not to \
              HIDE it: never move, relax, or silence production code, and never weaken an assertion, to make a \

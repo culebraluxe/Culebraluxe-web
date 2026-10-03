@@ -153,14 +153,11 @@ impl RoleHarness for SeamHarness {
         _task: &ActiveForgeRoleTask,
         self_heal: Option<&str>,
     ) -> WorkflowResult<HarnessOutput> {
-        self.calls
+        self.calls.lock().expect("calls").push(node_id.to_string());
+        self.self_heals
             .lock()
-            .expect("calls")
-            .push(node_id.to_string());
-        self.self_heals.lock().expect("self heals").push((
-            node_id.to_string(),
-            self_heal.map(str::to_string),
-        ));
+            .expect("self heals")
+            .push((node_id.to_string(), self_heal.map(str::to_string)));
 
         let (raw, candidate_sha, assay_commands, acceptance_mapped) = match node_id {
             "architect" | "repair_architect" => (
@@ -383,10 +380,7 @@ impl SeamFixture {
         self.writer.opened_holds.lock().expect("holds").clone()
     }
 
-    pub fn job_payloads_by_task(
-        &self,
-        instance_id: &str,
-    ) -> BTreeMap<String, Vec<Value>> {
+    pub fn job_payloads_by_task(&self, instance_id: &str) -> BTreeMap<String, Vec<Value>> {
         let mut out: BTreeMap<String, Vec<Value>> = BTreeMap::new();
         for job in self.jobs_for_instance(instance_id) {
             if let Some(task_id) = job.payload.get("taskId").and_then(Value::as_str) {
@@ -418,11 +412,7 @@ pub fn enqueue_ready_task(
     Ok((id, service_key))
 }
 
-pub fn count_jobs_for_task(
-    fixture: &SeamFixture,
-    instance_id: &str,
-    task_id: &str,
-) -> usize {
+pub fn count_jobs_for_task(fixture: &SeamFixture, instance_id: &str, task_id: &str) -> usize {
     fixture
         .jobs_for_instance(instance_id)
         .into_iter()

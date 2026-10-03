@@ -50,7 +50,7 @@ and they override anything later in this file that says otherwise (including "wo
 4. **Your own checkout.** When another agent works in the same folder, work in a separate `git worktree` checked out
    from `origin/main`, and still push to `main`. Never commit changes you did not make.
 5. **`Cargo.lock` travels with `Cargo.toml`.** A commit that changes any `Cargo.toml` includes the updated
-   `rust/Cargo.lock`. The deploy builds with `--locked` and fails without it.
+   `Cargo.lock`. The deploy builds with `--locked` and fails without it.
 6. **Never hold work back.** Running out of time, budget or context is not a reason to keep work on your side: push
    what builds first, then say what is unfinished — and when you cannot run the gate yourself, drop a proposal instead
    (`docs/agent/PROPOSALS.md`). A proposal is a hand-off, not a stash.
@@ -73,7 +73,7 @@ and they override anything later in this file that says otherwise (including "wo
    this reason.
 
 The pre-push hook in `.githooks/` enforces rule 5 and the deploy artifact on this machine: it refuses a push whose
-`rust/Cargo.lock` is out of date, and refuses one that leaves `web/ui` (wasm) not compiling. The workspace compile
+`Cargo.lock` is out of date, and refuses one that leaves `web/ui` (wasm) not compiling. The workspace compile
 (`cargo check --workspace --all-targets`) moved out of the hook on 2026-10-01: it ran on every push, and with rule 2
 ("push after every commit") that put a full workspace compile inside every worker's window. `gates.yml` runs it on
 `main`, on the runner's clock; a worker who wants it locally asks for it with `CULEBRALUXE_FULL_PUSH_CHECK=1`.
@@ -164,7 +164,7 @@ database, and this port has produced three bugs only a real one could catch.
 `pnpm slice:check` (T1). The old line here, "then `cargo test -p db -p web -p forge -p workflow`", was a T2-shaped
 habit written as if it were mandatory: it is four crates' worth of every test, and it is the reason a hand-off used to
 cost more than the slice. The full suite belongs to CI, the nightly run and a release — never to a slice (see "The gate
-is tiered" under House Rules). `rust/experiments/` is excluded from the workspace; it holds comparison benches, never
+is tiered" under House Rules). `experiments/` is excluded from the workspace; it holds comparison benches, never
 production code.
 
 ## Always / Ask / Never
@@ -257,7 +257,7 @@ Never
 
 ## Project
 
-- CulebraLuxe is a Rust application: the website is Yew/wasm in `web/ui` (served by `web/src/site.rs`), and the domain, database and HTTP API are Rust under `rust/`. The TypeScript engine is retired (`legacy/`, and the dead-TS rule above).
+- CulebraLuxe is a Rust application: the website is Yew/wasm in `web/ui` (served by `web/src/site.rs`), and the domain, database and HTTP API are Rust in the tiers (`web/`, `middle/`, `db/`) with the entry points (`cli/`, `forge/`) and the contract suite (`tests/`) beside them. The TypeScript engine is retired (`legacy/`, and the dead-TS rule above).
 - Neon/Postgres stores business and property data.
 - Mux provides video delivery.
 - Vercel hosts deployments.

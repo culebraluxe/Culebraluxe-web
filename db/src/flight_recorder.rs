@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
+use futures_util::future::try_join_all;
 use model::{
     FlightRecorderEvent, FlightRecorderInstanceWindow, FlightRecorderMappedNode,
     FlightRecorderNodeRuntime, FlightRecorderTransaction, FlightRecorderTransactionContext,
     FlightRecorderWorkflow,
 };
-use futures_util::future::try_join_all;
 use serde_json::{json, Value};
 use sqlx::FromRow;
 use uuid::Uuid;

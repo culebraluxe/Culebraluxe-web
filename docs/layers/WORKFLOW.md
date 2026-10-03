@@ -52,7 +52,7 @@ retryable, rather than spawning threads. The engine is **warmed at boot**, so no
 
 ## Read the code
 
-`middle/workflow/src/engine.rs` for the operations, `rust/workflow/../src/neon.rs` for the store and its one
+`middle/workflow/src/engine.rs` for the operations, `middle/workflow/src/neon.rs` for the store and its one
 transaction per step, `forge/src/engine/re_runtime.rs` for the verbs, and `web/src/api/engine.rs` for the
 bridge. Deep background on Forge's own workflow (roles, work items, publish path):
 [docs/agent/WORKFLOW-ARCHITECTURE.md](../agent/WORKFLOW-ARCHITECTURE.md).

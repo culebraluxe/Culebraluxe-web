@@ -2,8 +2,8 @@
 //! see exactly what arrives: the notice goes to the team inbox, and the visitor's confirmation to the address given.
 //! Both subjects start with [Preview]. Nothing is read from or written to the database.
 
-use model::WebsiteLead;
 use apis::mail::{MailConfig, SmtpMailer};
+use model::WebsiteLead;
 use web::website_leads::{team_notice, visitor_confirmation, LeadMailSettings};
 
 #[tokio::main]

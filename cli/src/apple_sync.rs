@@ -52,7 +52,7 @@ pub async fn dispatch(args: &[String]) -> Result<(), Box<dyn Error>> {
 /// The repository this process is operating on.
 ///
 /// The working directory was the old rule, and it was a trap: `repo_root()` answers "where is this repository",
-/// and a process started in `rust/` is in the repository too. Every `forge` command that needs a database calls
+/// and a process started at the repository root is in the repository too. Every `forge` command that needs a database calls
 /// `load_env()` below, so running one from a subdirectory searched `<subdir>/.env.local`, found nothing, and
 /// reported the database as unreachable — on 2026-09-28 that read as "DEV is down" for a night while the only
 /// fault was the directory the command was typed in. `git rev-parse --show-toplevel` is the answer that does not

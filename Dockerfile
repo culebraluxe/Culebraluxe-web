@@ -8,7 +8,8 @@ FROM rust:1-bookworm AS builder
 RUN rustup target add wasm32-unknown-unknown \
     && cargo install wasm-bindgen-cli --version 0.2.128 --locked
 WORKDIR /build
-COPY rust ./rust
+COPY Cargo.toml Cargo.lock ./
+COPY web middle db cli forge tests ./
 COPY scripts/rust-ui-build.sh ./scripts/rust-ui-build.sh
 RUN mkdir -p public/rust-ui && RUST_UI_PROFILE=release bash scripts/rust-ui-build.sh
 RUN cargo build --locked --release --manifest-path Cargo.toml -p web --bin web
@@ -19,7 +20,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 culebra
 WORKDIR /app
-COPY --from=builder /build/rust/target/release/http /usr/local/bin/culebraluxe
+COPY --from=builder /build/target/release/web /usr/local/bin/culebraluxe
 COPY public ./public
 COPY --from=builder /build/public/rust-ui/ui.js /build/public/rust-ui/ui_bg.wasm ./public/rust-ui/
 COPY middle/model/forms/templates ./templates

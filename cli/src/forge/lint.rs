@@ -659,8 +659,8 @@ mod tests {
     fn the_resolver_reads_a_doc_relative_citation_and_stays_quiet_on_an_ambiguous_one() {
         let root = fixture_root("resolve");
         write_file(&root, "docs/agent/packets/README.md", "# packets\n");
-        write_file(&root, "rust/a/thing.rs", "// a\n");
-        write_file(&root, "rust/b/thing.rs", "// b\n");
+        write_file(&root, "web/a/thing.rs", "// a\n");
+        write_file(&root, "web/b/thing.rs", "// b\n");
         let resolver = Resolver::new(root.clone());
 
         assert!(matches!(
@@ -668,13 +668,13 @@ mod tests {
             Resolution::File(path) if path == "docs/agent/packets/README.md"
         ));
         assert!(matches!(
-            resolver.resolve("rust/a/thing.rs"),
-            Resolution::File(path) if path == "rust/a/thing.rs"
+            resolver.resolve("web/a/thing.rs"),
+            Resolution::File(path) if path == "web/a/thing.rs"
         ));
         assert!(matches!(resolver.resolve("thing.rs"), Resolution::Ambiguous));
         assert!(matches!(resolver.resolve("nothing-here.rs"), Resolution::None));
-        assert!(resolver.path_exists("rust/a/*.rs"));
-        assert!(!resolver.path_exists("rust/a/*.ts"));
+        assert!(resolver.path_exists("web/a/*.rs"));
+        assert!(!resolver.path_exists("web/a/*.ts"));
         let _ = fs::remove_dir_all(&root);
     }
 }

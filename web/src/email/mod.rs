@@ -1,11 +1,11 @@
 use crate::mq_runtime::{MqSubscriber, MqSubscriberError};
 use crate::service_support::{audit_result, authorize, CoreServiceError};
+use apis::mail::{MailConfig, MailError, OutgoingMail, SmtpMailer};
 use async_trait::async_trait;
 use db::{DbResult, DbTransaction, EmailDao, OutboxDelivery};
 use model::{
     EmailMessage, EmailMessageKind, EmailMessageStatus, EmailQueueResult, QueueEmailRequest,
 };
-use apis::mail::{MailConfig, MailError, OutgoingMail, SmtpMailer};
 use services::{
     AbstractService, OperationKind, ServiceCapability, ServiceContext, ServiceDescriptor,
     ServiceDispatchError, ServiceEnvelope, ServiceExecutionPolicy, ServiceInfrastructure,

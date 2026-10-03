@@ -54,7 +54,7 @@
     "build:all": "bash scripts/build-all.sh",
     "container:dry-run": "bash scripts/site-container.sh",
     "deploy:prod": "bash scripts/deploy-prod.sh",
-    "start": "rust/target/release/http",
+    "start": "target/release/web",
     "lint": "eslint . --suppressions-location eslint-suppressions.json",
     "typecheck": "tsc --noEmit",
     "scan:secrets": "gitleaks git . --redact=100 --no-banner",

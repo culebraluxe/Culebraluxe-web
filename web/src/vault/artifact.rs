@@ -12,9 +12,7 @@
 
 use async_trait::async_trait;
 use model::forms_template::{templates_dir, TemplateLibrary};
-use model::{
-    VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact,
-};
+use model::{VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::PathBuf;

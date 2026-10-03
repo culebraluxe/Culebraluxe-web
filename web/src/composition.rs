@@ -38,6 +38,7 @@ use crate::{
     whatsapp::WhatsAppService,
     workflow_portal::WorkflowPortalService,
 };
+use apis::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use async_trait::async_trait;
 use db::{
     AccountingDao, CalendarDao, CatchUpDao, ClientDao, ClientRoomDao, CockpitDao, CommsDao,
@@ -48,7 +49,6 @@ use db::{
     WbsDao, WebsiteLeadDao, WhatsAppDao, WorkflowPortalDao,
 };
 use forge::ForgeService;
-use apis::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use services::{
     AbstractService, ServiceDescriptor, ServiceDispatchError, ServiceInfrastructure,
     SignatureProvider,

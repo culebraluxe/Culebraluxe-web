@@ -1,8 +1,16 @@
-# Only what the application image needs: the Rust sources, the UI build script, the site's static files, the form
-# templates. The wasm is built inside the image, so any local build of it is left out.
+# Only what the application image needs: the Rust workspace (the tiers, the entry points and the suite, because the
+# workspace manifest names them all as members), the UI build script, the site's static files, the form templates.
+# The wasm is built inside the image, so any local build of it is left out.
 *
-!rust
-rust/target
+!Cargo.toml
+!Cargo.lock
+!web
+!middle
+!db
+!cli
+!forge
+!tests
+target
 !scripts/rust-ui-build.sh
 !public
 public/rust-ui

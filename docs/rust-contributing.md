@@ -73,6 +73,6 @@ and never prints the secret.
   is part of the Forge control plane's design, and it is NOT a local cleanup command. Do not run it as routine
   hygiene, and never without the Captain's go.
 - **Two commands need a running API**: the live checks above. `pnpm dev` bounces the API on :8080 and clears `.next`.
-- **`rust/experiments/` is not production code** and is excluded from the workspace.
+- **`experiments/` is not production code** and is excluded from the workspace.
 - **Package scripts may set their own `APP_ENV`.** Read the script before trusting the target; and check the boot line
   (`target=dev`) or `GET /v1/diagnostics/db` whenever it matters.

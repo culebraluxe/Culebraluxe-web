@@ -38,7 +38,7 @@ mod tests {
     }
 
     /// THE PRODUCTION ENTRY POINT, not the test helper. Its default is repository-relative, and the dev launcher starts
-    /// the API with `rust/` as its working directory — so this assertion is what keeps a launcher detail from deciding
+    /// the API from the repository root — so this assertion is what keeps a launcher detail from deciding
     /// whether documents can be composed at all.
     #[test]
     fn the_template_directory_resolves_from_any_working_directory() {

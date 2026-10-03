@@ -2,12 +2,12 @@ use async_trait::async_trait;
 use db::{Database, ForgeReadDao};
 use model::ForgeLiveSnapshot;
 use serde_json::Value;
-use services as service_kernel;
 use service_kernel::{
     AbstractService, OperationKind, ServiceCapability, ServiceContext, ServiceDescriptor,
     ServiceDispatchError, ServiceEnvelope, ServiceExecutionPolicy, ServiceInfrastructure,
     ServiceOutcome, ServiceRuntime, ServiceRuntimeError,
 };
+use services as service_kernel;
 
 use crate::engine::worker;
 

@@ -73,10 +73,7 @@ const TREE_FIELD_TOKENS: [&str; 4] = [
 /// and consumes inside itself is fine". `DisposableWorktree` adds a worktree under the system temp
 /// directory and removes it in `Drop`, so it never outlives the test that made it, is never read by
 /// another lane, and is not a per-lane tree. It adds no workflow the database does not already own.
-const WORKTREE_CAPABILITY_FILES: [&str; 2] = [
-    "forge/src/engine/worktree.rs",
-    "tests/src/git.rs",
-];
+const WORKTREE_CAPABILITY_FILES: [&str; 2] = ["forge/src/engine/worktree.rs", "tests/src/git.rs"];
 
 /// The tracked roots the capability scan is allowed to read: the workspace's crate roots, which are the tiers
 /// (`web/`, `middle/`, `db/`) and the entry points (`cli/`, `forge/`), plus `tests/`, where the contract suite
@@ -181,15 +178,9 @@ const TABLE_WRITERS_BASELINE: [(&str, &[&str]); 3] = [
     ),
     (
         "storyboard_story_run",
-        &[
-            "db/src/forge_control.rs",
-            "db/src/forge_engine.rs",
-        ],
+        &["db/src/forge_control.rs", "db/src/forge_engine.rs"],
     ),
-    (
-        "forge_workflow_evidence",
-        &["db/src/forge_engine.rs"],
-    ),
+    ("forge_workflow_evidence", &["db/src/forge_engine.rs"]),
 ];
 
 /// The canonical audit the table list is anchored to. If the doc's audited tables change, the
@@ -378,7 +369,7 @@ fn is_test_path(path: &str) -> bool {
 /// second owner of a fact. `tests/src/git.rs` is already named in
 /// `WORKTREE_CAPABILITY_FILES` for exactly this reason (a harness may create a disposable worktree).
 ///
-/// The production-writer scan lacked the same line, so on 2026-09-30 `rust/test-harness/src/forge.rs`
+/// The production-writer scan lacked the same line, so on 2026-09-30 `tests/src/forge.rs`
 /// joined the `storyboard_story` writer set through its fixture `delete from storyboard_story` and turned
 /// the one-writer guard red — for a crate that is linked into no binary and serves nobody.
 fn is_test_support_crate(path: &str) -> bool {
@@ -449,10 +440,7 @@ fn writer_scan(root: &Path) -> WriterScan {
         .iter()
         .map(|table| (*table, update_re(table), insert_re(table)))
         .collect();
-    let files = tracked_files(
-        root,
-        &["web", "middle", "db", "cli", "forge", "tests"],
-    );
+    let files = tracked_files(root, &["web", "middle", "db", "cli", "forge", "tests"]);
     let mut scanned = 0usize;
     let mut writers: BTreeMap<&'static str, BTreeSet<String>> = AUDITED_TABLES
         .iter()

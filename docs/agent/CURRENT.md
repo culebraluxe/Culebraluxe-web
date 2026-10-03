@@ -36,7 +36,7 @@ are the accounting.
    (`forge/src/bin/`). The definition is `forge/definitions/FORGE_SDLC-v6.xml`, embedded in the
    binary (`forge/src/engine/xml.rs:482`, `include_str!`) and parsed by the production parser
    (`wf_definition__013`). The `legacy/` copy is in the archive and is read by nothing — measured
-   2026-10-02, no file under `rust/` names that path.
+   2026-10-02, and no file in the tree names that path.
 2. Roles are **seven** services in `forge/src/roles/`, each implementing `roles/service.rs`'s
    `AbstractForgeService` (descriptor, runner, hooks) and each answering `roles/hooks.rs`'s `ForgeRoleHooks` —
    one lane's reading of its own turn: `ScoutService` (`forge.scout`), `ArchitectService` (`forge.architect`),

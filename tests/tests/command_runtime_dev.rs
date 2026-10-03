@@ -1,7 +1,6 @@
 use chrono::Utc;
 use db::{Database, DbTarget};
 use serde_json::{json, Map, Value};
-use web::ServiceHarness;
 use services::{
     CapturingAuditPort, CapturingDomainEventPort, CommandOutcome, CommandRequest,
     DefaultAuthorizationPort, ServiceActor, ServiceActorKind, ServiceContext,
@@ -9,6 +8,7 @@ use services::{
 };
 use std::sync::Arc;
 use uuid::Uuid;
+use web::ServiceHarness;
 
 struct Fixture {
     db: Database,

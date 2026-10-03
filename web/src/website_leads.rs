@@ -11,10 +11,10 @@
 //! (security/entitlements.rs).
 
 use crate::service_support::{audit_result, authorize, CoreServiceError};
+use apis::mail::{MailConfig, MailError, OutgoingMail, SmtpMailer};
 use async_trait::async_trait;
 use db::{DbResult, WebsiteLeadDao};
 use model::{WebsiteLead, WebsiteLeadNotice};
-use apis::mail::{MailConfig, MailError, OutgoingMail, SmtpMailer};
 use services::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 use std::sync::Arc;
 

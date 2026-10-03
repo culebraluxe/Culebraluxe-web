@@ -83,10 +83,7 @@ const GUEST_DOCUMENT_GUARDS: [&str; 7] = [
 
 /// The only files in `web/src` allowed to name the Vault's DAO: the adapter and the composition root. A route
 /// or a service holding `VaultDao` is a second path to the bytes, past the Vault's own decision.
-const VAULT_DAO_FILES: [&str; 2] = [
-    "web/src/composition.rs",
-    "web/src/vault/mod.rs",
-];
+const VAULT_DAO_FILES: [&str; 2] = ["web/src/composition.rs", "web/src/vault/mod.rs"];
 
 /// The only files allowed to name the media DAO, for the same reason.
 const MEDIA_DAO_FILES: [&str; 3] = [

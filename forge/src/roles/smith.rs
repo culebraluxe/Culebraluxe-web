@@ -406,7 +406,7 @@ mod tests {
     fn the_candidate_is_stored_as_code_and_not_as_a_pointer_to_it() {
         let sha = "a".repeat(40);
         let base = "b".repeat(40);
-        let patch = "diff --git a/rust/test-harness/tests/t.rs b/rust/test-harness/tests/t.rs\n\
+        let patch = "diff --git a/tests/tests/t.rs b/tests/tests/t.rs\n\
                      +fn the_new_assertion() {}\n";
         let artifact = smith_candidate_artifact(
             "TST-RUNTIME-POOL-003",
@@ -414,7 +414,7 @@ mod tests {
             &sha,
             &base,
             patch,
-            &["rust/test-harness/tests/t.rs".to_string()],
+            &["tests/tests/t.rs".to_string()],
         );
 
         assert_eq!(artifact.tool, "smith");
@@ -436,7 +436,7 @@ mod tests {
         assert_eq!(detail["patchBytes"], serde_json::Value::from(patch.len()));
         assert_eq!(
             detail["changedFiles"][0],
-            serde_json::Value::from("rust/test-harness/tests/t.rs")
+            serde_json::Value::from("tests/tests/t.rs")
         );
         let summary = artifact.summary.expect("a summary an operator can read");
         assert!(summary.contains("1 file(s)"), "{summary}");

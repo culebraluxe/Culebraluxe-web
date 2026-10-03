@@ -1,12 +1,12 @@
 use db::{Database, DbTarget};
 use serde_json::json;
-use web::ServiceHarness;
 use services::{
     CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
     ServiceActorKind, ServiceContext, ServiceControlCommand, ServiceDispatchError, ServiceEnvelope,
     ServiceInfrastructure, ServicePrincipal, ServiceStatus,
 };
 use std::sync::Arc;
+use web::ServiceHarness;
 
 fn infrastructure() -> ServiceInfrastructure {
     ServiceInfrastructure::new(

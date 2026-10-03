@@ -1,5 +1,16 @@
 # Restructuring: where the code lives
 
+> **OUTCOME (2026-10-01/02): DONE, and not as written below.** The plan predicted a Next.js application at the root with
+> the Rust workspace inside it. Neither half held by the time it was executed: the TypeScript application was deleted
+> in `4cf98110` and archived on 2026-10-02, so there was no host to keep at the root — and the tree that resulted is
+> `web/`, `middle/` and `db/` (the tiers) with `cli/`, `forge/`, `tests/`, `scripts/`, `devops/`, `docs/` and
+> `experiments/` beside them, all of it one Cargo workspace at the repository root. The sections below are kept as the
+> reasoning that was recorded before the move, not as a description of the tree that landed. What did land, in order:
+> the crate-and-directory move (`80cfc9da`), the re-runnable script (the rehearsal in `/tmp/rehearsal2.log` found four
+> gaps in it), the suite at the root of the repository (`tests/`, one home for the arch-boundary cases and the three
+> crate test directories that were beside their crates), the container files under `devops/`, and the reference sweep
+> that re-spelled every path in the CI workflows, the scripts, the hooks and the maps.
+
 Not to be done before a production deploy. This is the plan for after, so the reasoning is recorded rather than
 re-derived.
 

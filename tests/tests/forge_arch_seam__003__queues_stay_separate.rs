@@ -160,7 +160,12 @@ fn the_role_job_stack_never_touches_the_story_queue() {
         "forge/src/engine/runtime.rs",
     ]
     .iter()
-    .map(|file| (file.to_string(), production_code(&workspace_root().join(file))))
+    .map(|file| {
+        (
+            file.to_string(),
+            production_code(&workspace_root().join(file)),
+        )
+    })
     .collect();
     tree.extend(production_tree("forge/src/roles"));
     tree.extend(production_tree("middle/workflow/src"));

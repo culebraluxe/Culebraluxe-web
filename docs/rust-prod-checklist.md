@@ -108,7 +108,7 @@ Two things this checklist cannot verify for you, because they live outside the r
 - **The Vercel environment variables and the domains** are project state, not files: check them with
   `vercel env ls --prod` in the `culebraluxe-web-fp` project, and treat a missing one as "the service will refuse to
   serve", not as a warning.
-- **`rust/Dockerfile.vercel`** is a leftover from the two-service deploy (a Next frontend plus a `rust_api` container)
+- **`devops/Dockerfile.vercel`** is a leftover from the two-service deploy (a Next frontend plus a `rust_api` container)
   that no longer exists — the file is still in the tree, and nothing deploys it. The image that ships is
   `deploy/Dockerfile.runtime`; if you find `Dockerfile.vercel` named as the deploy path anywhere, the reference is
   stale, not the deploy.

@@ -46,9 +46,9 @@ pub(super) use webhooks_support::*;
 #[allow(unused_imports)]
 pub(super) use work::*;
 
+use apis::mux::{MuxClient, MuxConfig};
 #[cfg(test)]
 use model::{VaultArtifactFailure, VaultCommandOutcome};
-use apis::mux::{MuxClient, MuxConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use services::{

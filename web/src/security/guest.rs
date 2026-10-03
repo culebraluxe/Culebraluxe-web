@@ -13,10 +13,10 @@
 
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use crate::website_leads::{LeadMailSettings, MailPort};
+use apis::mail::OutgoingMail;
 use async_trait::async_trait;
 use db::{DbResult, GuestDao};
 use model::security::{GuestClaim, GuestCodeAttempt, GuestCodeHistory, GUEST_PROVIDERS};
-use apis::mail::OutgoingMail;
 use services::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;

@@ -5,7 +5,7 @@ here, where a change goes, and how it is verified. Nothing else is needed to beg
 
 Three sentences, if that is all you read:
 
-1. **The domain is Rust.** Rules, validation, SQL and HTTP live under `rust/` and nowhere else.
+1. **The domain is Rust.** Rules, validation, SQL and HTTP live in the tiers (`web/`, `middle/`, `db/`) and the entry points (`cli/`, `forge/`), and nowhere else.
 2. **Two things decide whether your work is real**: a build (`pnpm build`, `cargo check`, `cargo test`) and the harness
    gates (`pnpm forge:harness`). Confidence is not evidence; a command's output is.
 3. **Work lands on `main`.** Small commits, pushed at once. "Done" means `git log origin/main` shows your commit.
@@ -13,8 +13,8 @@ Three sentences, if that is all you read:
 ## What the repository is
 
 One Rust application. The website and the portal are a single Yew/WebAssembly app (`web/ui`) that the Rust server hands
-to the browser (`web/src/site.rs`); the domain, the database and the HTTP API behind it are Rust crates under
-`rust/`. Neon/Postgres stores the business and property data, Mux delivers video, Google Maps shows locations, and
+to the browser (`web/src/site.rs`); the domain, the database and the HTTP API behind it are Rust crates in the tiers
+(`web/`, `middle/`, `db/`) with `cli/` and `forge/` beside them. Neon/Postgres stores the business and property data, Mux delivers video, Google Maps shows locations, and
 Vercel serves the deployment - compiled on this Mac rather than on Vercel (`scripts/deploy-prod.sh`). On top of all of
 it runs Forge, the workflow engine that delivers the work: also Rust (`forge`), with its state in Neon.
 
@@ -37,9 +37,9 @@ place (`docs/agent/BROKEN-TS-INVENTORY.md`).
 | Engine | `forge/src/` | Forge: the definition (`definitions/FORGE_SDLC-v6.xml`), phases, gates, roles, executor. |
 | CLI | `cli/src/` | `forge` gates (`cli/src/forge/`: harness lint, vendor-block sync), `db-tool`, Apple intake. |
 | Retired TypeScript | `legacy/`, dead files in `scripts/` and `agent-runtime/` | Read-only reference, out of scope, never imported. |
-| Build and ops | `scripts/`, `deploy/` | `dev.sh`, `site-build.sh`, `deploy-prod.sh`, `Dockerfile.build` and `Dockerfile.runtime`. |
+| Build and ops | `scripts/`, `devops/` | `dev.sh`, `site-build.sh`, `deploy-prod.sh`, and the container files (`Dockerfile.build`, `Dockerfile.runtime`, the runtime `Dockerfile`). |
 | Docs | `docs/agent/` | This map, `MEMORY.md`, packets, skills, releases. |
-| Tests | `#[cfg(test)]` beside the code, `web/tests/*_dev.rs`, `rust/**/tests/` | The live suites. |
+| Tests | `#[cfg(test)]` beside the code, and the contract suite in `tests/` (`tests/tests/*.rs`, one file per case, with `tests/src/` as the harness behind them) | The live suites. |
 
 ## One database, one repository, no third store
 
@@ -128,7 +128,7 @@ cascades** — deleting two demo deals once took 47 contract documents with them
 
 - `legacy/**`, the dead `scripts/**` and `agent-runtime/**` files are reference only. A live import from them is a lint
   failure, and the suppressed-import list may only shrink.
-- New UI capability goes in `web/ui/src/app/`; new backend capability goes in `web` plus `rust/core`.
+- New UI capability goes in `web/ui/src/app/`; new backend capability goes in `web` plus `middle/` (the domain, the kernel, the engine's own crate) and `db/`.
 - Anything crossing a process boundary - a webhook body, a route body, a provider response - is unknown until a runtime
   schema validates it. A hand-written type or an `as` cast is not validation.
 - `main` is production-sensitive. Never deploy, and never touch the production database, without the Captain's explicit

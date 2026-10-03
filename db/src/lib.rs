@@ -104,7 +104,6 @@ pub use comms::CommsDao;
 pub use contract::{ContractDao, ContractTxDao};
 pub use deal_portal::DealPortalDao;
 pub use document_sign::DocumentSignDao;
-pub use model;
 pub use email::EmailDao;
 pub use error::{DbFailure, DbFailureKind, DbResult};
 pub use firm::FirmDao;
@@ -138,6 +137,7 @@ pub use marketing::MarketingDao;
 pub use media::{
     BeginMediaUpload, MediaDao, MediaDerivativeInput, MediaUploadAssembly, MediaUploadStatus,
 };
+pub use model;
 pub use outbox::{DomainEventOutboxDao, OutboxDelivery, OutboxEventInput};
 pub use person::PersonDao;
 pub use pool::{

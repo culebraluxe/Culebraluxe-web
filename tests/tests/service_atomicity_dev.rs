@@ -2,13 +2,13 @@
 use async_trait::async_trait;
 use db::{Database, DbTarget, FirmDao};
 use model::{FieldPatch, UpsertFirmRequest};
-use web::{firms::FirmService, service_events::TransactionalDomainEventPort};
 use services::{
     CapturingAuditPort, DefaultAuthorizationPort, DomainEventPort, ServiceActor, ServiceActorKind,
     ServiceContext, ServiceDomainEvent, ServiceInfrastructure, ServicePortError, ServicePrincipal,
 };
 use std::sync::Arc;
 use uuid::Uuid;
+use web::{firms::FirmService, service_events::TransactionalDomainEventPort};
 
 struct FailAfterAppend(TransactionalDomainEventPort);
 #[async_trait]

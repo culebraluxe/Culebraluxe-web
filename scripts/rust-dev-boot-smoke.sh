@@ -68,7 +68,7 @@ trap cleanup EXIT
 
 echo "smoke:dev — booting the Rust server against DEV ($base)"
 cargo build --manifest-path Cargo.toml -p web --bin web
-rust/target/debug/http >"$log" 2>&1 &
+target/debug/web >"$log" 2>&1 &
 pid=$!
 
 ready=""

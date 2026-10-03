@@ -16,7 +16,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 js_out="$root/public/rust-ui"
 wasm_out="$root/public/rust-ui"
-target_dir="${RUST_UI_TARGET_DIR:-$root/rust/target}"
+target_dir="${RUST_UI_TARGET_DIR:-/target}"
 
 if [ "${RUST_UI_PROFILE:-debug}" = "release" ]; then
   profile_dir="release"

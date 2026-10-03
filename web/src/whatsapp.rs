@@ -1,9 +1,9 @@
+use apis::whatsapp::{
+    parse_webhook, verify_handshake, verify_signature, MetaWhatsAppConfig, WhatsAppDirection,
+};
 use async_trait::async_trait;
 use db::{
     DbResult, WhatsAppCanonicalInput, WhatsAppDao, WhatsAppLandingInput, WhatsAppProcessOutcome,
-};
-use apis::whatsapp::{
-    parse_webhook, verify_handshake, verify_signature, MetaWhatsAppConfig, WhatsAppDirection,
 };
 use serde::Serialize;
 use serde_json::Value;

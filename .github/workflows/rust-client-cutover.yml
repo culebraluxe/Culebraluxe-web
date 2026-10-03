@@ -27,7 +27,6 @@ jobs:
       # binary — were never compiled by any gate. The workspace held 39 compile errors behind a green check,
       # including 23 undefined-behaviour casts and two `include_str!` paths to files that did not exist.
       - name: Rust workspace compile (all targets)
-        working-directory: rust
         run: cargo check --workspace --all-targets
       # Yew's browser module is feature-gated. The host workspace check above never
       # compiled it, which let the production WASM build fail after the Rust API was live.
@@ -47,19 +46,25 @@ jobs:
       # direct pool access is the subject being measured; they are not linked into application/runtime crates.
       # If a new runtime path needs an exception,
       # it must become a repository/store first rather than expanding this list casually.
-      # TEST CODE IS OUT OF SCOPE, AND THE HARNESS IS TEST CODE (2026-09-30). `rust/test-harness/` is the
-      # fixture client the arch-boundary suite runs on: it reads and writes canonical rows directly, because
-      # asking the rows rather than a DAO is the method — and several of its cases carry SQL as a *planted
-      # sample string* inside an `assert!`, which a textual grep cannot tell from a real query. That is
-      # exactly how this step reddened: the "violations" it reported from `arch_boundary__008` were the
+      # TEST CODE IS OUT OF SCOPE, AND THE SUITE IS TEST CODE (2026-09-30, re-spelled 2026-10-01).
+      # `tests/` is the fixture client the arch-boundary suite runs on: it reads and writes canonical rows
+      # directly, because asking the rows rather than a DAO is the method — and several of its cases carry SQL
+      # as a *planted sample string* inside an `assert!`, which a textual grep cannot tell from a real query.
+      # That is exactly how this step reddened: the "violations" it reported from `arch_boundary__008` were the
       # samples that test asserts against, and from `forge_claim__00*` the fixture writes. The boundary this
-      # step protects is PRODUCTION code; `tests/` trees were already excluded for the same reason, and the
-      # harness crate — which is linked into no production binary — is excluded here.
+      # step protects is PRODUCTION code, so the whole suite — which is linked into no production binary — is
+      # excluded here. The paths below are spelled from the repository root, which is the workspace root.
       - name: Rust persistence boundary
         run: |
           set -euo pipefail
           violations="$(
-            grep -RInE 'sqlx::(query|query_as|query_scalar)|\.pool\(\)' rust --include='*.rs'               | grep -v '^db/'               | grep -v '^middle/workflow/src/neon.rs:'               | grep -v '^middle/workflow/src/neon/'               | grep -v '^middle/apis/src/boldsign/store.rs:'               | grep -v '^db/tests/'               | grep -v '^web/tests/'               | grep -v '^rust/experiments/'               | grep -v '^rust/test-harness/'               || true
+            grep -RInE 'sqlx::(query|query_as|query_scalar)|\.pool\(\)' web middle db cli forge tests --include='*.rs' \
+              | grep -v '^db/' \
+              | grep -v '^middle/workflow/src/neon.rs:' \
+              | grep -v '^middle/workflow/src/neon/' \
+              | grep -v '^middle/apis/src/boldsign/store.rs:' \
+              | grep -v '^tests/' \
+              || true
           )"
           if [ -n "$violations" ]; then
             echo "Raw database access escaped the approved Rust persistence boundaries:"
@@ -68,7 +73,6 @@ jobs:
           fi
 
       - name: Rust UI browser compile
-        working-directory: rust
         run: |
           rustup target add wasm32-unknown-unknown
           cargo check -p ui --features wasm --target wasm32-unknown-unknown
@@ -76,14 +80,15 @@ jobs:
       # it is exactly how a failing WhatsApp normalisation test stayed invisible: those three packages never ran it.
       # The check step above already compiled everything, so this run is cheap in CI.
       - name: Rust workspace tests
-        working-directory: rust
         run: cargo test --workspace
 
       # BOTTOM-UP CUTOVER GATE: Forge/workflow must not merely avoid importing legacy by convention.
-      # Remove the directory from the checkout and prove the scheduled runtime crates still compile/test.
+      # `legacy/` was archived outside the tree on 2026-10-02 (`~/Documents/forge-legacy-ts-archive-2026-10-02`,
+      # recorded in `docs/agent/DEAD-TS-DOWNSIZE.md` section 5, railed by `arch_boundary__012`), so the condition
+      # this step used to CREATE by moving the directory aside is now the tree's permanent state. The assertion
+      # stays: if `legacy/` comes back, this step fails here rather than in a review.
       - name: Forge and workflow run with legacy physically unavailable
         run: |
-          mv legacy /tmp/culebraluxe-legacy-disabled
           test ! -e legacy
           cargo test --manifest-path Cargo.toml -p workflow -p forge --all-targets
           bash -n scripts/agent-worker-once.sh

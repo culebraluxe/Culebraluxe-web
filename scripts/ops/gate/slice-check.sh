@@ -132,7 +132,7 @@ if [ -z "$failed" ]; then
     fmt="SKIPPED (no rustfmt on PATH)"
   else
     deferred='^Diff in .*/(cli/src/(apple_mail|forge/lint)|core/domain/src/(applemail|apple_messages))(\.rs|/)'
-    fmt_raw="$( (cd rust && cargo fmt --all -- --check 2>&1) || true )"
+    fmt_raw="$( cargo fmt --all -- --check 2>&1 || true )"
     # `cargo fmt --check` prints each offending file's whole diff, body and all: only the `Diff in <path> at line N:`
     # headers name files, so the body is context, not error output. Treating the body as "something I do not understand"
     # is exactly how the first run of this script reported UNKNOWN (2026-10-02).
@@ -154,7 +154,7 @@ if [ -z "$failed" ]; then
       fmt="FAIL ($((SECONDS - started))s)"
       failed="FMT — rustfmt is not clean in a file this slice changed"
       printf '%s\n' "$mine" >&2
-      echo "  fix: (cd rust && cargo fmt --all) — never by widening the deferral list" >&2
+      echo "  fix: cargo fmt --all — never by widening the deferral list" >&2
     elif printf '%s\n' "$fmt_raw" | grep -q '^error'; then
       fmt="UNKNOWN ($((SECONDS - started))s)"
       failed="FMT — rustfmt itself failed (that is not a formatting diff)"
@@ -197,7 +197,7 @@ if [ "$full" = "1" ]; then
   echo "slice-check: T2 — the whole harness (1062 tests; CI, the nightly run and releases own this)"
   started=$SECONDS
   if command -v cargo-nextest >/dev/null 2>&1; then
-    if (cd rust && cargo nextest run --workspace --profile ci) 2>&1 | tee "$log"; then
+    if cargo nextest run --workspace --profile ci 2>&1 | tee "$log"; then
       t2="PASS ($((SECONDS - started))s)"
     else
       t2="FAIL ($((SECONDS - started))s)"

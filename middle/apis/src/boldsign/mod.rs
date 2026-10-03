@@ -11,8 +11,8 @@ pub use client::BoldSignClient;
 pub use provider::BoldSignSignatureProvider;
 
 use db::{Database, DbFailure, DbResult};
-use model::{SignatureProviderEvent, SignatureRequestStatus, SignatureWebhookVerification};
 use hmac::{Hmac, Mac};
+use model::{SignatureProviderEvent, SignatureRequestStatus, SignatureWebhookVerification};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::Sha256;

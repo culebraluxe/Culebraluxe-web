@@ -349,8 +349,7 @@ mod rust_contract_tests {
     #[test]
     fn runtime_failure_is_product_evidence_not_test_authoring_failure() {
         let commands = vec![
-            "cargo test --manifest-path Cargo.toml -p test-harness --test contract"
-                .to_string(),
+            "cargo test --manifest-path Cargo.toml -p test-harness --test contract".to_string(),
             "cargo check --manifest-path Cargo.toml --workspace --all-targets".to_string(),
         ];
         let evidence = collect_rust_contract_assay_evidence(
@@ -378,9 +377,8 @@ mod rust_contract_tests {
 
     #[test]
     fn test_authoring_story_may_not_move_production_code() {
-        let commands = vec![
-            "cargo check --manifest-path Cargo.toml --workspace --all-targets".to_string(),
-        ];
+        let commands =
+            vec!["cargo check --manifest-path Cargo.toml --workspace --all-targets".to_string()];
         let gate = contract_gate();
         let evidence = collect_rust_contract_assay_evidence(
             gate,
@@ -393,7 +391,7 @@ mod rust_contract_tests {
                         passed: true,
                         excerpt: String::new(),
                         unmeasurable: false,
-                        output: "rust/test-harness/tests/wf_human_task__001__candidate_claim.rs\n\
+                        output: "tests/tests/wf_human_task__001__candidate_claim.rs\n\
                                  middle/workflow/src/engine/engine_options.rs\n"
                             .into(),
                     }
@@ -415,9 +413,8 @@ mod rust_contract_tests {
     fn production_edit_check_uses_the_whole_execution_range() {
         let gate = contract_gate();
         let observed = std::sync::Mutex::new(String::new());
-        let commands = vec![
-            "cargo check --manifest-path Cargo.toml --workspace --all-targets".to_string(),
-        ];
+        let commands =
+            vec!["cargo check --manifest-path Cargo.toml --workspace --all-targets".to_string()];
         let evidence = collect_rust_contract_assay_evidence(
             gate,
             Some(&|command| {
@@ -439,8 +436,7 @@ mod rust_contract_tests {
     #[test]
     fn authoring_check_failure_still_blocks_the_story() {
         let commands = vec![
-            "cargo test --manifest-path Cargo.toml -p test-harness --test contract"
-                .to_string(),
+            "cargo test --manifest-path Cargo.toml -p test-harness --test contract".to_string(),
             "cargo check --manifest-path Cargo.toml --workspace --all-targets".to_string(),
         ];
         let evidence = collect_rust_contract_assay_evidence(

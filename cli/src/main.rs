@@ -14,7 +14,6 @@ use db::{Database, DbTarget, ProjectDao, ProjectTxDao};
 use model::{CreateProjectRequest, ProjectStatus, UpdateProjectRequest, WbsCategory};
 use reqwest::Method;
 use serde_json::{json, Value};
-use web::projects::ProjectService;
 use services::{
     CapturingAuditPort, CapturingDomainEventPort, CommandRequest, DefaultAuthorizationPort,
     ServiceActor, ServiceActorKind, ServiceContext, ServiceInfrastructure, ServicePrincipal,
@@ -24,6 +23,7 @@ use std::io;
 use std::process::ExitCode;
 use std::sync::Arc;
 use uuid::Uuid;
+use web::projects::ProjectService;
 
 #[tokio::main]
 async fn main() -> ExitCode {

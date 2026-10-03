@@ -419,3 +419,22 @@ Short facts that are expensive to rediscover.
   items a queue is made of, so running it to "clear junk" kills the queued work), and a live run is only protected
   from a twin dispatch by consulting **both** authorities — a held item *and* an active instance — because a
   pre-fix unowned run holds no item at all.**
+
+- **2026-10-01/02 (THE TREE MOVED TO THREE TIERS, AND `rust/` IS GONE):** the workspace root is the repository root —
+  `Cargo.toml` and `Cargo.lock` at the top, the tiers `web/`, `middle/`, `db/`, the entry points `cli/` and `forge/`,
+  the contract suite in `tests/`, the container files in `devops/`, the build output in `target/` (which is what
+  `/rust/target/` in `.gitignore` used to mean). Four things worth remembering: **(1) a rename is a reference sweep,
+  not an `mv`** — the three crate test directories (`web/tests`, `db/tests`, `forge/tests`) and `rust/test-harness/`
+  became one `tests/` crate, but the *reasons* the tree had guardrails were re-spelled with them: `repo_guards`'
+  `WORKTREE_CAPABILITY_FILES` and both of its scan root lists, AGENTS.md's two `guard:` lines, `arch_boundary__010`'s
+  skip-prefix, `arch_boundary__011`'s own path, `files_mentioning`, and the guard paths the handbook cites; the web
+  fences (`signature_routes`, `release_gate_routes`) now read from the repository root instead of from the crate they
+  were written inside. **(2) a stale scan is indistinguishable from a clean tree unless it asserts a floor** — the
+  800-line step had been reading `rust/` alone, which by then held the suite and no crate, and `harness_self_test`'s
+  manifest walk was rooted one level too high; both passed while checking nothing, and both now assert a floor on what
+  they read. **(3) the ceiling had never run** — the `rust format` step above it was red from the day the job was
+  written, so every step below it was unreachable; the day it first ran for real it found 15 production files over the
+  ceiling, now listed by name in `gates.yml` as a baseline that may only shrink. **(4) `workflow_engine/` and `grok/`
+  are the captain's** (2026-09-11, below) and were NOT touched by the cleanup, however dead a static analysis calls
+  them; the foreign checkouts (`gsd-core/`, `praxis/`, `claude-orchestrate/`) moved to `/Users/Shared/dev/tools/`
+  instead, which is where the ripwire excludes always meant them to live.

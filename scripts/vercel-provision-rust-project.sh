@@ -270,10 +270,10 @@ vc project protection disable "$RUST_PROJECT_NAME" --password >/dev/null 2>&1 ||
 printf 'Configuring standalone Rust project with the Vercel Container preset...\n'
 vc project update "$RUST_PROJECT_NAME" --framework container --scope "$TEAM_SLUG" >/dev/null
 
-printf 'Validating Vercel sees rust/Dockerfile.vercel as a container deployment...\n'
+printf 'Validating Vercel sees devops/Dockerfile.vercel as a container deployment...\n'
 set +e
 RUST_DRY_RUN="$(
-  cd "$ROOT_DIR/rust"
+  cd "$ROOT_DIR"
   VERCEL_ORG_ID="$TEAM_ID" VERCEL_PROJECT_ID="$RUST_PROJECT_ID" vc deploy --dry 2>&1
 )"
 RUST_DRY_STATUS=$?
@@ -284,9 +284,9 @@ if ! printf '%s\n' "$RUST_DRY_RUN" | grep -Eiq 'container|Dockerfile\.vercel'; t
   fail "Vercel dry-run did not identify the Rust project as a container/Dockerfile deployment."
 fi
 
-printf 'Deploying Rust API from rust/Dockerfile.vercel...\n'
+printf 'Deploying Rust API from devops/Dockerfile.vercel...\n'
 RUST_DEPLOY_OUTPUT="$(
-  cd "$ROOT_DIR/rust"
+  cd "$ROOT_DIR"
   VERCEL_ORG_ID="$TEAM_ID" VERCEL_PROJECT_ID="$RUST_PROJECT_ID" vc deploy --prod --yes 2>&1
 )"
 printf '%s\n' "$RUST_DEPLOY_OUTPUT"

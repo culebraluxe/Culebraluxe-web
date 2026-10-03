@@ -2,7 +2,8 @@
 
 A residential real-estate transaction platform, and **one Rust application**: the website and the portal are a single
 Yew/WebAssembly app (`web/ui`) served by the Rust server (`web/src/site.rs`), and the domain, the database and
-the HTTP API are Rust crates under `rust/`. There is no Next.js application and no TypeScript in the product — even
+the HTTP API are Rust crates in three tiers — `web/`, `middle/`, `db/` — with the entry points (`cli/`, `forge/`) and
+the contract suite (`tests/`) beside them. There is no Next.js application and no TypeScript in the product — even
 Google sign-in is Rust. This file is the map; the rules live in [AGENTS.md](AGENTS.md) and the start-here guide is
 [docs/agent/ORIENTATION.md](docs/agent/ORIENTATION.md).
 
@@ -16,19 +17,23 @@ the environment and says which at boot (`target=dev` / `target=prod`, also `GET 
 `legacy/` and the files under `scripts/` and `agent-runtime/` marked `⚠ BROKEN ON PURPOSE` are the retired TypeScript:
 read them for intent, never import, never repair ([docs/agent/BROKEN-TS-INVENTORY.md](docs/agent/BROKEN-TS-INVENTORY.md)).
 
-## The Rust workspace (`rust/`)
+## The Rust workspace
+
+One Cargo workspace, three tiers and the entry points beside them:
 
 | crate | what it owns |
 | --- | --- |
-| `core/domain` | types and rules; no I/O |
-| `core/db` | the one connection pool, the DAOs, retry, the failure taxonomy, error capture |
-| `core/service` | the service kernel: `AbstractService`, runtime, authorization, audit, events, mailbox |
-| `core/workflow` | the process engine: tokens, tasks, timers, transactions, reclaim |
-| `server` | HTTP (Axum), identity, the domain services and their composition root, the site itself |
-| `ui` | the website and the portal: Yew screens on the `Screen` trait (MVI) |
-| `integrations` | provider adapters: Mux, Google, Apple, BoldSign, WhatsApp, mail |
+| `middle/model` | types and rules; no I/O |
+| `db` | the one connection pool, the DAOs, retry, the failure taxonomy, error capture; migrations, seeds and loads |
+| `middle/services` | the service kernel: `AbstractService`, runtime, authorization, audit, events, mailbox |
+| `middle/workflow` | the process engine: tokens, tasks, timers, transactions, reclaim |
+| `web` | HTTP (Axum), identity, the domain services and their composition root, the site itself |
+| `web/ui` | the website and the portal: Yew screens on the `Screen` trait (MVI) |
+| `web/auth` | the server-side authorization/authentication boundary |
+| `middle/apis` | provider adapters: Mux, Google, Apple, BoldSign, WhatsApp, mail |
 | `forge` | the Forge delivery engine and the RE transaction runtime the API calls |
 | `cli` | operator commands: `db-tool`, the `forge` gates, Apple intake, media backfills |
+| `tests` | the contract suite: the arch-boundary cases, the seam cases and the harness behind them |
 | `experiments/` | comparison benches — **excluded from the workspace, not production code** |
 
 ## Running it locally

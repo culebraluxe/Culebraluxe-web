@@ -10,9 +10,10 @@
 //!    the resolver exists instead of a stricter rule that people would switch off.
 //! 3. Two files sharing a basename is not this gate's call — it stays quiet rather than guessing.
 //!
-//! `SOURCE_ROOTS` includes `rust/`: the tree is Rust now, so a packet's shorthand for a Rust file has
-//! to be resolvable or the rule would fail every honest citation after the port. `target/` is skipped
-//! alongside `node_modules/`, or the walk would index build output.
+//! `SOURCE_ROOTS` names the whole tree the packets cite — the three tiers (`web/`, `middle/`, `db/`), the entry
+//! points (`cli/`, `forge/`), the contract suite (`tests/`) and the frontend's hand-written lib — because a
+//! packet's shorthand for a Rust file has to be resolvable or the rule would fail every honest citation after the
+//! port. `target/` is skipped alongside `node_modules/`, or the walk would index build output.
 
 use regex::Regex;
 use std::cell::OnceCell;
@@ -23,17 +24,10 @@ use std::sync::OnceLock;
 
 /// Source roots the basename resolver walks. Bounded on purpose: this is a lint, not an indexer. The list is the
 /// crate roots of the three-tier layout — the tiers themselves (`web/`, `middle/`, `db/`) and the entry points
-/// (`cli/`, `forge/`) — plus what a packet may still cite beside them: the contract-test harness under `rust/`, the
+/// (`cli/`, `forge/`) — plus what a packet may still cite beside them: the contract suite under `tests/`, the
 /// `scripts/`, and the two hand-written frontend files in `lib/`.
 const SOURCE_ROOTS: [&str; 8] = [
-    "web",
-    "middle",
-    "db",
-    "cli",
-    "forge",
-    "rust",
-    "scripts",
-    "lib",
+    "web", "middle", "db", "cli", "forge", "tests", "scripts", "lib",
 ];
 
 /// Directories never walked: build output, not source.
@@ -282,8 +276,7 @@ mod tests {
 
     #[test]
     fn only_tokens_that_look_like_paths_are_cited() {
-        let cited =
-            cited_repo_paths("`forge_decision` and `cli/src/main.rs` and `services/<d>/`");
+        let cited = cited_repo_paths("`forge_decision` and `cli/src/main.rs` and `services/<d>/`");
         assert_eq!(cited, vec!["cli/src/main.rs"]);
         assert_eq!(
             cited_repo_paths("`https://x.test/a.md` and `./rel/thing.md` and `docs/agent/`"),

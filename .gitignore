@@ -139,7 +139,7 @@ skills-lock.json
 # glue from lib/rust-ui and the browser fetches the binary from /rust-ui/, so both copies ship.
 #
 # WASM is platform-independent, so this carries none of the usual "built on someone's laptop" risk. That risk belongs to
-# the SERVER, which is built inside a Linux container (rust/Dockerfile.vercel) and never shipped from a Mac.
+# the SERVER, which is built inside a Linux container (devops/Dockerfile.vercel) and never shipped from a Mac.
 #
 # `node scripts/build.mjs` rebuilds these when a wasm32 target is present, and keeps the committed ones when it is not.
 #

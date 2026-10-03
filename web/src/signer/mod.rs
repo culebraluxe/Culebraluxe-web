@@ -3,12 +3,12 @@ use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, Duration, Utc};
 use db::{DbResult, DbTransaction, SignerAccessRecord, SignerDao};
+use hmac::{Hmac, Mac};
 use model::{
     AcceptSignerConsentRequest, CompleteSignatureFieldRequest, CompleteSignerRequest,
     DeclineSignerRequest, DocumentSignRecipient, OpenSignerRequest, SignatureField,
     SignerAccessGrant, SignerActionResult, SignerRecipientState, SignerSession, SignerState,
 };
-use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use services::{

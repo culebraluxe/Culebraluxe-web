@@ -74,7 +74,7 @@ fn guard_clause_offsets(line: &str) -> Vec<usize> {
 }
 
 /// The token after `guard:` as an author writes it, not as the path must literally be spelled. The handbook
-/// backticks every other path it names, so a reader writing `` guard: `rust/x.rs` `` is writing a path, not
+/// backticks every other path it names, so a reader writing `` guard: `web/src/x.rs` `` is writing a path, not
 /// four extra characters that happen to be missing from disk; and a guard clause that ends a sentence carries
 /// the sentence's period. Neither is drift, so neither may fail the gate (which must fail on a path the tree
 /// does not have, and on nothing else).
@@ -467,10 +467,7 @@ mod tests {
             "db/tests/real_case.rs",
             "#[tokio::test]\nasync fn guarded() {}\n",
         );
-        let findings = check(
-            &root,
-            &handbook("- A rule. guard: db/tests/real_case.rs\n"),
-        );
+        let findings = check(&root, &handbook("- A rule. guard: db/tests/real_case.rs\n"));
         assert!(findings.is_empty(), "{findings:?}");
         let _ = fs::remove_dir_all(&root);
     }

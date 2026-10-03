@@ -104,7 +104,7 @@ fn section_for_file(path: &str) -> Option<&'static str> {
     }
     // The Rust contract-test foundation is a guardrail, not app code: its self-tests belong to the `harness`
     // section so `pnpm test:changed` runs them and the taxonomy has no unclassified tree.
-    if path.starts_with("rust/test-harness/") {
+    if path.starts_with("tests/") {
         return Some("harness");
     }
     if path.starts_with("cli/src/forge/")
@@ -281,7 +281,7 @@ fn walk_tests(root: &Path, dir: &Path, found: &mut Vec<String>) {
 fn list_test_files(root: &Path) -> Vec<String> {
     let mut found = Vec::new();
     for tree in [
-        "rust",
+        "tests",
         "scripts",
         "legacy/workflow_app/tests",
         "testv2/engine_tests",
@@ -359,11 +359,7 @@ fn sections_for_paths(paths: &[String]) -> Vec<&'static str> {
         }
         if matches!(
             path.as_str(),
-            "package.json"
-                | "pnpm-lock.yaml"
-                | "tsconfig.json"
-                | "Cargo.toml"
-                | "Cargo.lock"
+            "package.json" | "pnpm-lock.yaml" | "tsconfig.json" | "Cargo.toml" | "Cargo.lock"
         ) || path.starts_with("eslint")
         {
             touched.insert("harness");
@@ -570,8 +566,8 @@ mod tests {
             ("web/src/api/engine.rs", "app-core"),
             ("web/ui/src/update.rs", "app-portal"),
             ("cli/src/main.rs", "harness"),
-            ("rust/test-harness/src/clock.rs", "harness"),
-            ("rust/test-harness/tests/harness_self_test.rs", "harness"),
+            ("tests/src/clock.rs", "harness"),
+            ("tests/tests/harness_self_test.rs", "harness"),
         ];
 
         for (path, expected) in cases {
@@ -626,11 +622,11 @@ mod tests {
             "the test-harness crate must run in the harness section"
         );
         assert_eq!(
-            section_for_file("rust/test-harness/src/database.rs"),
+            section_for_file("tests/src/database.rs"),
             Some("harness")
         );
         assert_eq!(
-            section_for_file("rust/test-harness/tests/harness_self_test.rs"),
+            section_for_file("tests/tests/harness_self_test.rs"),
             Some("harness")
         );
     }

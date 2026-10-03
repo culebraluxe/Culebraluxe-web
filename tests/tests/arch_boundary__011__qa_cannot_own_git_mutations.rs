@@ -251,10 +251,7 @@ const GUARD_TESTS: [(&str, &str); 3] = [
         "tests/tests/handbook_engine_guards.rs",
         "only_the_publish_path_may_push_merge_or_rebase",
     ),
-    (
-        "cli/src/forge/lint.rs",
-        "non-builder-commit-instruction",
-    ),
+    ("cli/src/forge/lint.rs", "non-builder-commit-instruction"),
 ];
 
 /// Floors. A walker that found nothing would report a clean tree and pass; these make that a failure.

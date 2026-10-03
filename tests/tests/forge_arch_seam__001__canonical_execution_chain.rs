@@ -321,7 +321,12 @@ fn the_workflow_launches_no_vendor_and_the_vendor_harness_routes_nothing() {
         "forge/src/engine/opencode_agents.rs",
     ]
     .iter()
-    .map(|file| (file.to_string(), production_code(&workspace_root().join(file))))
+    .map(|file| {
+        (
+            file.to_string(),
+            production_code(&workspace_root().join(file)),
+        )
+    })
     .collect();
     let routing = naming(
         &harness,

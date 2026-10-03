@@ -53,7 +53,7 @@ simultaneous `cargo` runs serialize on the target lock instead of running in par
 ## Why here
 
 `~/Documents` is both iCloud-synced and TCC-protected. Three things followed from that, all observed rather than
-theorised: every git command could raise a privacy prompt and stall a worker; dead `rust/target` directories were being
+theorised: every git command could raise a privacy prompt and stall a worker; dead `target` directories were being
 synced to iCloud (43 GB across the old worktrees); and half-deleted worktrees left records that pointed at nothing.
 `/Users/Shared` is outside TCC and outside iCloud, so none of it can happen again — the price is rule 3.
 
