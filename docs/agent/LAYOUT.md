@@ -71,3 +71,38 @@ a `q` no agent can press, which is what a "blocked" agent looks like from the ou
   `~/Documents/Culebraluxe-web-claude` (9.6 GB), is an orphan: its `.git` file points at
   `~/Documents/Culebraluxe-web/.git/worktrees/…`, which no longer exists.
 - `build/rust` is still empty, so the next `cargo` invocation pays the full cold compile. Warming it is optional.
+
+## The layout move (2026-10-01): what a lane does
+
+The three lane worktrees sit on `97785410`, which is before the tree moved to the three tiers. Do not merge `main`
+into a lane to catch up: the merge is a conflict in every file that moved, and the tree that comes out of it is
+neither layout. Replay it instead — the script is the move, written so it checks before it acts and running it twice
+does nothing.
+
+```sh
+cd /Users/Shared/dev/src/lane-<name>
+
+# 1. the two scripts, from main (the lane's own commit predates them)
+git checkout main -- scripts/restructure-domain-layout.sh scripts/validate-move-script.sh
+
+# 2. does every rule still apply to THIS tree? 0 stale rules, or the report names the ones that moved under you
+MOVE_BASE=97785410 bash scripts/validate-move-script.sh
+
+# 3. the move (git mv throughout, so history follows each file)
+bash scripts/restructure-domain-layout.sh
+
+# 4. it compiles, or it did not happen
+cargo check --workspace --all-targets
+cargo test --workspace
+```
+
+Measured on 2026-10-01 in a rehearsal worktree at `97785410`: **51 rules apply, 0 stale**, the script exits 0, the tree
+it produces holds 90 case files in `tests/tests/` with `rust/` and `deploy/` gone, and
+`cargo check --workspace --all-targets` finishes with **0 errors**.
+
+Two things the script deliberately does NOT do. It does not resolve the conflict between a lane's own work and the
+layout — it moves the crate directories and re-spells the paths, and a lane's edits inside a moved file travel with it
+because every step is a `git mv`. And it does not run `cargo fmt`: four module trees are deferred on purpose (a live
+agent owns them), and a sweep that formats everything would collide with that agent's edits. Format the files you
+touched, as always.
+
