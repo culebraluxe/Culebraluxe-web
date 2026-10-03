@@ -8,9 +8,9 @@ pushed to `origin/main`; the lane is `lane/claude` and holds nothing unpushed.
 | # | Fact | How to check it |
 | --- | --- | --- |
 | S1 | The trunk is `origin/main`; lanes rebase onto it and land by `git push origin lane/<name>:main` (fast-forward only). | `AGENTS.md` NO TREES → 2026-10-03 lane exception; `docs/agent/LAYOUT.md` § Lanes |
-| S2 | The role services follow the `AbstractForgeService` model: the trait owns the turn sequence, each lane supplies hooks, the registry resolves by the XML service binding. `ProductionRoleRunner` is ports only. | `forge/src/roles/service.rs`, `forge/src/roles/hooks.rs`, `forge/src/engine/runner.rs` |
+| S2 | All seven role services (Scout, Architect, Lead, Smith, Inspector, Assay, DevOps) reviewed 2026-10-03 and follow the `AbstractForgeService` model: the trait owns the turn sequence, each lane supplies hooks, the registry resolves by the XML service binding. `ProductionRoleRunner` is ports only. | `forge/src/roles/service.rs`, `forge/src/roles/hooks.rs`, `forge/src/engine/runner.rs` |
 | S3 | Smith's candidate-acceptance rules now live in Smith (`judge_delivered_candidate`), applied through the new `ForgeRoleHooks::judge_output`; the OpenCode harness reports facts only. | `forge/src/roles/smith.rs`, `forge/src/engine/opencode.rs` (`CandidateProbe`) |
-| S4 | `cargo test -p forge`: 213 pass. `cargo test -p test-harness`: 282 pass, 2 fail — `forge_seam__001` / `003`, both test-side (CURRENT.md). | the two commands |
+| S4 | `cargo test -p forge -p workflow -p cli`: 397 pass. `cargo test -p test-harness`: 284 pass, 0 fail. | the two commands |
 | S5 | `cargo clippy --workspace --all-targets` has zero errors (warnings remain) and now runs in CI. | `.github/workflows/gates.yml` → "rust clippy" |
 
 ## 2. HOLDS — do not act on these
@@ -43,6 +43,9 @@ pushed to `origin/main`; the lane is `lane/claude` and holds nothing unpushed.
 | `3a506f03` | Exit path classifies the typed error; bare `"timed out"` removed from engine-fault vocabulary | `engine_fault` rails; `forge_job__014`, `forge_arch_seam__007` |
 | `6d2e9d1d` | Small debts (dropped settle error reported, unused params, doc dup); clippy step in CI | forge 207/207; YAML parsed |
 | `ccffb289` | Migration/refresh refusals say HUMAN STEP instead of naming a dead TS host | forge 207/207; `forge_runtime` 41 |
+| `02e33036` | Workflow kernel: a decision with no matching condition takes its unguarded OTHERWISE (or refuses), never just its first transition — `qa_failure_route` now reaches `hold` when the repair budget is spent (prod: 48 unbounded repair trips) | workflow otherwise_tests (3); RE supermodel unchanged; test-harness 284/0 |
+| `e4720be9` | DevOps answers `deploy` / `production_smoke` from production's `/api/build-info` (no model turn; the agent is read-only and no receipt producer existed); mismatch or unreadable → HUMAN STEP hold | dev_ops production_check_tests (5); forge 219/219 |
+| `7ce14c54` | Seam fixture fixes; **test-harness 284 / 0 — the suite is green** | `cargo test -p test-harness` |
 | `fd08f5af` | The Lead decides again (lead_pre's decision was refused, so every FEATURE story went SOLO: prod 11 lead_pre → 11 solo → 0 smith); a missing routing decision takes `hold`; Architect and Assay no longer pay for a second model turn per story | lifecycle 3 new + lead 4; forge 213/213; test-harness 282 pass / 2 test-side |
 | `3c433a32` | Lead regression from `792396d1`: Lead turns erased the standing `leadDecision`/`splitCount`; restored to the port's semantics | `roles::lead::tests` (new, 2); test-harness 280 pass / 4 known |
 
@@ -55,7 +58,7 @@ pushed to `origin/main`; the lane is `lane/claude` and holds nothing unpushed.
 
 ## 6. OPEN — the next actions, in order
 
-1. **The two remaining seam failures** are test-side (the other two were real routing defects, fixed in `fd08f5af`): `forge_seam__001` counts jobs with `jobs_for_instance` (OPEN jobs only), `forge_seam__003` expects `lead_decision` where the text says `lead-decision`. Workflow-lane owner decides.
+1. **Watch the first real runs** after the worker is rebuilt from `main`: a FEATURE story should go `lead_pre → smith` (or the Lead's choice), one Architect and one Assay turn each, and a spent QA repair budget should land on `hold`.
 2. **Stale recovery can demote a `Complete` story.** `forge_hold_stale_work` (migration 266) sets the story `Hold` even when the item update changed no row. Needs a new migration (guard the story update on the item update's row count); a migration is a production change — Captain's go.
 3. **One dispatch path.** `ForgeServiceRouter` and the direct runner path (`drive_forge_story` with `runner: Some`) survive only for fixtures; production uses the registry. Moving the fixtures to the durable driver would let both be deleted.
 4. **Release evidence write.** `DbReleaseEvidenceStore::merge` reports a failed write only by `eprintln` (the DB failure itself is captured by `db::capture`); a lost `publishSucceeded` is re-derived on the next publish, which is idempotent. Make it return a result if that ever matters.
