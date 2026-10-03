@@ -108,7 +108,10 @@ struct BridgeEvent: Codable {
 let items = events.map { e -> BridgeEvent in
   let providerId = e.eventIdentifier ?? e.calendarItemIdentifier
   let seriesId = e.calendarItemIdentifier
-  let occurrence = e.occurrenceDate ?? e.startDate
+  // EKEvent.startDate is imported as `Date!`, so without the annotation the `??` overload resolves to
+  // `Date?` and `iso.string(from:)` refuses it (CalendarEventKit.swift:112, seen 2026-10-03 as
+  // `stage=calendar-eventkit result=failure` in the calendar-sync job).
+  let occurrence: Date = e.occurrenceDate ?? e.startDate
   let occurrenceText = iso.string(from: occurrence)
   let isRecurring = e.occurrenceDate != nil || !(e.recurrenceRules?.isEmpty ?? true)
   let sourceMessageId = isRecurring ? seriesId + "|" + occurrenceText : seriesId
