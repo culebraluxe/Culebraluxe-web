@@ -335,6 +335,12 @@ pub struct GitReleaseOps {
 }
 
 impl ForgeReleaseOperations for GitReleaseOps {
+    // MIGRATIONS AND DERIVED REFRESHES ARE A HUMAN'S, BY DESIGN — NOT A MISSING PORT. A migration on PROD is a
+    // production action, and AGENTS.md makes every production action the Captain's explicit go; Forge does not apply
+    // one unattended. Each of these therefore refuses with the instruction a person needs to finish the release,
+    // and the workflow holds the story on that stage (`failure_class` MIGRATION / ENVIRONMENT). These used to say
+    // "run through ForgeDB pool in the TS operations host", a host that no longer exists — a refusal that read like
+    // a bug to fix rather than a step to take.
     fn apply_migrations(
         &self,
         target: &str,
@@ -350,7 +356,8 @@ impl ForgeReleaseOperations for GitReleaseOps {
         ForgeOperationResult {
             success: false,
             detail: format!(
-                "apply {files:?} to {target} via existing Neon schema_migration ledger (command {command_id}); run through ForgeDB pool in the TS operations host or enable postgres feature"
+                "HUMAN STEP: Forge does not apply migrations unattended. Apply {files:?} to {target} \
+                 (`pnpm db:migrations` shows per-target state), then resume this hold (command {command_id})."
             ),
         }
     }
@@ -358,20 +365,26 @@ impl ForgeReleaseOperations for GitReleaseOps {
         ForgeOperationResult {
             success: false,
             detail: format!(
-                "verify {files:?} on {target} against forge_migration_execution + schema_migration"
+                "HUMAN STEP: confirm {files:?} are recorded in {target}'s schema_migration ledger \
+                 (`pnpm db:migrations`), then resume this hold."
             ),
         }
     }
     fn refresh_derived(&self, models: &[String], command_id: &str) -> ForgeOperationResult {
         ForgeOperationResult {
             success: false,
-            detail: format!("refresh {models:?} command {command_id}"),
+            detail: format!(
+                "HUMAN STEP: Forge does not refresh derived models unattended. Refresh {models:?}, then resume \
+                 this hold (command {command_id})."
+            ),
         }
     }
     fn verify_derived(&self, models: &[String], attempt: &str) -> ForgeOperationResult {
         ForgeOperationResult {
             success: false,
-            detail: format!("verify derived {models:?} attempt {attempt}"),
+            detail: format!(
+                "HUMAN STEP: confirm the refresh of {models:?} landed (attempt {attempt}), then resume this hold."
+            ),
         }
     }
     fn publish(&self, candidate_sha: Option<&str>, frozen_proofs: &[String]) -> PublishOutcome {
