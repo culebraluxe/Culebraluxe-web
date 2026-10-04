@@ -207,42 +207,67 @@ pub fn parse_template_xml(xml: &str) -> Result<TemplateDefinition, TemplateXmlEr
 
 // ---------------------------------------------------------------- the library
 
-/// Where templates live: the environment's directory when it names one, otherwise the repository-relative default.
+/// Where templates live: the environment's directory when it names one, otherwise the CRATE-relative default.
+///
+/// CRATE-RELATIVE, because the templates are authored in this crate (`middle/model/forms/templates`) — and that is the
+/// half of the story `resolve_repo_path` needs: a path that names the crate's own files stays true if the crate moves
+/// again, while turning it into a real directory is the one place allowed to know the repository's shape.
 pub const DEFAULT_TEMPLATES_DIR: &str = "forms/templates";
 
 /// The environment variable that points at the template directory, for a deployment that ships the files elsewhere.
 pub const TEMPLATES_DIR_ENV: &str = "FORMS_TEMPLATES_DIR";
 
+/// The nearest ancestor of `directory` that holds `relative`, nearest first.
+fn find_in_ancestors(directory: &Path, relative: &str) -> Option<PathBuf> {
+    let mut candidate: Option<&Path> = Some(directory);
+    while let Some(current) = candidate {
+        let path = current.join(relative);
+        if path.exists() {
+            return Some(path);
+        }
+        candidate = current.parent();
+    }
+    None
+}
+
 /// A path inside the repository, RESOLVED rather than assumed.
 ///
-/// WHY THIS EXISTS: the defaults below are repository-relative, and a repository-relative path is only correct when the
-/// process happens to be started from the repository root. A launcher used to start the API with the old workspace
-/// directory (`rust/`) as its working directory (`scripts/dev-start.mjs`), so every render failed with "Cannot read the
-/// template directory middle/model/forms/templates" — a launcher detail deciding whether documents could be composed at
-/// all. So: the working directory
-/// and its ANCESTORS are searched, then the compile-time repository root, and only then the plain default, so a failure
-/// names the path that could not be found.
+/// WHY THIS EXISTS: a repository-relative path is only correct when the process happens to be started from the
+/// repository root, and nothing guarantees that. A launcher used to start the API with the old workspace directory
+/// (`rust/`) as its working directory (`scripts/dev-start.mjs`), so every render failed with "Cannot read the template
+/// directory middle/model/forms/templates" — a launcher detail deciding whether documents could be composed at all.
+///
+/// WHY BOTH BASES ARE SEARCHED, RATHER THAN ONE: the callers do not agree on what `relative` is relative to, and each one
+/// is right about its own default. The templates default is CRATE-relative (`forms/templates`, inside `model`); the
+/// wordmark default is REPOSITORY-relative (`public/brand/CLLOGO.png`, `web/src/vault/artifact.rs`). A search that knows
+/// only one base breaks the other, and the shape that shipped did exactly that: from the repository root — where
+/// `scripts/dev.sh` starts the API — the crate-relative default was not found, and the forms screen answered "Cannot
+/// read the template directory forms/templates: No such file or directory (os error 2)" while every unit test passed,
+/// because `cargo test` starts in the crate directory where that same default happens to be right. So: the working
+/// directory and its ANCESTORS are searched, then the directory the BUILD knew and its ancestors, and only then the
+/// plain default, so a failure names the path that could not be found.
 pub fn resolve_repo_path(relative: &str) -> PathBuf {
-    let from_working_dir = std::env::current_dir().ok().and_then(|start| {
-        let mut candidate: Option<&std::path::Path> = Some(start.as_path());
-        while let Some(directory) = candidate {
-            let path = directory.join(relative);
-            if path.exists() {
-                return Some(path);
-            }
-            candidate = directory.parent();
-        }
-        None
-    });
-    if let Some(path) = from_working_dir {
+    let start = std::env::current_dir().unwrap_or_default();
+    resolve_repo_path_from(&start, relative)
+}
+
+/// The same search, started from a NAMED directory.
+///
+/// WHY IT IS PUBLIC, AND WHY NAMING THE STARTING DIRECTORY IS THE POINT: `cargo test` starts a test binary in the crate
+/// directory while `scripts/dev.sh` starts the API in the REPOSITORY ROOT, so a test that cannot name the launcher's
+/// directory cannot catch a break in it. That is exactly how the templates stayed unreadable in dev while every test
+/// passed (see `the_template_directory_resolves_from_the_repository_root_too`).
+pub fn resolve_repo_path_from(start: &Path, relative: &str) -> PathBuf {
+    if let Some(path) = find_in_ancestors(start, relative) {
         return path;
     }
-    // The build knows where its source was, and that outlives whoever launched it and from where.
-    let from_build = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join(relative);
-    if from_build.exists() {
-        return from_build;
+    // The build knows where its source was, and that outlives whoever launched it and from where. Its ANCESTORS are
+    // searched rather than one fixed depth: `../..` was the OLD workspace's depth (`rust/core/domain`, whose templates sat
+    // in `lib/` — a hardcoded `../../../lib/forms/templates`), and after the three-tier move the same fixed depth pointed
+    // at a repository root that holds no `forms/` at all. With the ancestors searched, a crate-relative default resolves
+    // at the crate, a repository-relative one at the repository root, and neither depends on the depth between them.
+    if let Some(path) = find_in_ancestors(Path::new(env!("CARGO_MANIFEST_DIR")), relative) {
+        return path;
     }
     PathBuf::from(relative)
 }

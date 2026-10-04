@@ -37,9 +37,9 @@ mod tests {
             .expect("the repository's templates load")
     }
 
-    /// THE PRODUCTION ENTRY POINT, not the test helper. Its default is repository-relative, and the dev launcher starts
-    /// the API from the repository root — so this assertion is what keeps a launcher detail from deciding
-    /// whether documents can be composed at all.
+    /// THE PRODUCTION ENTRY POINT, not the test helper. Its default is crate-relative, and the dev launcher starts the
+    /// API from the repository root — so this assertion is what keeps a launcher detail from deciding whether documents
+    /// can be composed at all.
     #[test]
     fn the_template_directory_resolves_from_any_working_directory() {
         let directory = templates_dir();
@@ -47,6 +47,59 @@ mod tests {
             directory.join("LISTING-01.v4.xml").exists(),
             "the templates did not resolve: {}",
             directory.display()
+        );
+    }
+
+    /// THE LAUNCHER'S WORKING DIRECTORY — the one this actually broke in, and the one the assertion above never reached.
+    /// `cargo test` starts a test binary in the CRATE directory, where the search finds `forms/templates` on the first
+    /// candidate and stays green; `scripts/dev.sh` starts the API in the REPOSITORY ROOT, where `forms/templates` is
+    /// nowhere, so the resolution fell through to that bare path and the forms screen reported "Cannot read the template
+    /// directory forms/templates: No such file or directory (os error 2)".
+    ///
+    /// Both directories are named here, so neither can be the only one tested again.
+    #[test]
+    fn the_template_directory_resolves_from_the_repository_root_too() {
+        let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        // CANONICALIZED, deliberately, and this is not cosmetic: `crate_dir.join("../..")` LOOKS like the repository root
+        // but still carries the crate inside it lexically, so a search that walks up from it reaches the crate's own
+        // `forms/templates` and reports a pass the launcher never gets. `scripts/dev.sh` `cd`s to the repository root and
+        // starts the API there, so the root this must survive is the one with no `..` left in it.
+        let repository_root = crate_dir
+            .join("../..")
+            .canonicalize()
+            .expect("the repository root exists");
+        assert!(
+            repository_root.join("Cargo.toml").exists(),
+            "this test's idea of the repository root is wrong: {}",
+            repository_root.display()
+        );
+        for start in [crate_dir, repository_root.as_path()] {
+            let directory = resolve_repo_path_from(start, DEFAULT_TEMPLATES_DIR);
+            // ABSOLUTE FIRST, and this is the assertion the broken version fails: the resolver's last resort is the
+            // bare `relative` path, which it returns for the ERROR MESSAGE to name — a relative path is then rescued or
+            // not by whatever working directory asks, which is how `cargo test` (crate directory) stayed green while the
+            // launcher (repository root) read nothing at all. A resolution that returns it has failed.
+            assert!(
+                directory.is_absolute(),
+                "the templates did not resolve from {}: got the bare path {} — nothing was found",
+                start.display(),
+                directory.display()
+            );
+            assert!(
+                directory.join("LISTING-01.v4.xml").exists(),
+                "the templates did not resolve from {}: {}",
+                start.display(),
+                directory.display()
+            );
+        }
+        // The resolver serves a SECOND base as well: the wordmark's default is REPOSITORY-relative
+        // (`public/brand/CLLOGO.png`, `web/src/vault/artifact.rs`), so from the crate directory it is two ancestors up.
+        // Asserted here because a search that knows one base fixes the templates by breaking the wordmark.
+        let wordmark = resolve_repo_path_from(crate_dir, "public/brand/CLLOGO.png");
+        assert!(
+            wordmark.is_absolute() && wordmark.exists(),
+            "a repository-relative default did not resolve: {}",
+            wordmark.display()
         );
     }
 
