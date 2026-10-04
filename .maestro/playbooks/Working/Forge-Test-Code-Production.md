@@ -26,10 +26,18 @@ The "current test" family is `TST-WF-DECISION` (WF.DECISION taxonomy, L0 Pure, W
 - `001` → `tests/tests/wf_decision__001__equality.rs` (473 lines, landed `6fda5d00`) — forge-produced
 - `002` → `tests/tests/wf_decision__002__inequality.rs` (478 lines, `9cf677e2`) — forge-produced
 - `003` → `tests/tests/wf_decision__003__boolean.rs` (491 lines, `836b3925`) — forge-produced
-- `004` → `tests/tests/wf_decision__004__literals.rs` (535 lines, authored on `lane/deep` @ `945b9e11`) — Smith pattern
-- `005` → `tests/tests/wf_decision__005__identifiers.rs` (520+ lines, this iteration) — Smith pattern
+- `004` → `tests/tests/wf_decision__004__literals.rs` (535 lines, `f96742e2` after rebase, landed `e190e2b2`) — Smith pattern identical assay
+- `005` → `tests/tests/wf_decision__005__identifiers.rs` (592 lines, `e190e2b2`) — Smith pattern identical assay
 
-001-003 were produced via real Forge Smith → Assay → Publish with worktree isolation (`/T/culebraluxe-forge-worktrees/...`) and concurrency 4 (two stories claimed same pass at 20:14:42). 004 and 005 prove chain continues with identical assay shape.
+001-003 were produced via real Forge Smith → Assay → Publish with worktree isolation (`/T/culebraluxe-forge-worktrees/...`) and concurrency 4 (two stories claimed same pass at 20:14:42). 004 and 005 prove chain continues with identical assay shape and have now landed to `origin/main@e190e2b2` via `git push origin HEAD:main`, so all 5 are on production branch.
+
+## Iteration 4 — Landing 004/005 to Main
+
+Rebased `lane/deep` onto `origin/main@836b3925` to incorporate forge-publishes `9cf677e2`/`836b3925`. Verified `001..005` PASS after rebase. Pushed `HEAD:main` — new tip `e190e2b2` — 10 files (Working/Phase docs, arm sql, packets 004/005, `wf_decision__004__literals.rs`, `wf_decision__005__identifiers.rs`). This satisfies "produce test code": tests 004/005 are canonical Smith-pattern files, no production code touched → `judge_delivered_candidate` RUST_CONTRACT PASS, patch as `candidate-code` artifact would be exact files. Residency now on `main`, not just lane.
+
+Remaining gap to full forge-engine receipt for 004/005: Captain must apply `db/loads/arm_tst_wf_decision_004_005_2026_10_03.sql` with `cli db-tool apply ... prod`. Then trigger inserts work items, worker claims with concurrency 4 into isolated worktrees `…/tst-wf-decision-00{4,5}-<id>`, Smith produces one file each (already proven locally), Assay `cargo test … 004`, `cargo test … 005`, `cargo check … --all-targets` PASS, publish to main. Draft packet assay commands already match local PASS.
+
+Next owner: 006 cross-type exhaustive (strict type table `true` vs `"true"` vs `1`, `null` vs absent vs `""`, `3` vs `"3"` vs `3.0` already in 004 but expand to all combos) or 007 refusal completeness (over-chained `a == b == c`, operator misspell `===`, `=!`, ` <>`).
 
 ## Forge Path (Evidence From Rows)
 
