@@ -11,6 +11,7 @@
     "wip:now": "bash scripts/wip-snapshot.sh",
     "wip:install": "bash scripts/wip-snapshot-install.sh",
     "wip:uninstall": "bash scripts/wip-snapshot-uninstall.sh",
+    "lane:new": "bash scripts/lane-new.sh",
     "mail:test": "bash scripts/mail-test.sh",
     "mail:preview": "bash scripts/mail-test.sh --preview",
     "debug:portal-nav": "node e2e/portal-nav-smoke.mjs",

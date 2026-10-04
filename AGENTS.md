@@ -16,7 +16,11 @@ stalling on privacy prompts:
 | `build/rust` | shared `CARGO_TARGET_DIR` for every worktree | — |
 | `build/logs` | launchd logs, including `wip-snapshot.log` | — |
 
-To add a lane: `git worktree add ../lane-<name> -b lane/<name> origin/main`, then `pnpm install`. Then never work in
+To add a lane: `pnpm lane:new <name>` (`scripts/lane-new.sh`: worktree, two env symlinks, `--unset-upstream`, modes —
+`docs/agent/LAYOUT.md` has the recipe it embodies). **A lane is code and nothing else: ~84 MB, no `node_modules`, no
+target of its own** — the cargo estate is the one shared `build/rust`, built from the main checkout with
+`cargo check --workspace --all-targets`, and a lane running the same command reuses those artifacts. `pnpm install` is
+the per-lane call of a lane that must build the website (`--with-website`). Then never work in
 `/tmp` or `~/Documents` again: macOS purges the first and iCloud resurrects deletions in the second, and both leave dead
 `git worktree` records that make `git worktree list` lie about what work exists (two such records — one in `/tmp`, one
 33 GB in `~/Documents` — were still registered on 2026-10-01). Full layout, lane recipe and reasoning:
@@ -247,7 +251,10 @@ Never
   checkout directly — it only follows the trunk (`git pull --ff-only`). A
   lane never reads, edits or builds in another lane's tree — work crosses between lanes only through `main`.
   No lane adds a second tree of its own: a new lane is the Captain's call and goes in `docs/agent/LAYOUT.md`
-  first. Lanes hold code, not workflow — Neon is still the only workflow and control-plane authority, and a
+  first. **A lane is code only: no `node_modules`, no target of its own — the cargo estate is the one shared
+  `build/rust` and the main checkout is the builder** (`cargo check --workspace --all-targets`; a lane running the
+  same command reuses those artifacts, a lane varying the flags pays for its own copies). Lanes hold code, not
+  workflow — Neon is still the only workflow and control-plane authority, and a
   lane's verdicts are about the code on its branch, never about the tree. Setup and rules: `docs/agent/LAYOUT.md`.
   guard: cli/src/forge/repo_guards.rs
 - Let git decide anything about work that exists. **PAID CODE > GIT SHA** — the work is the asset, the sha is
