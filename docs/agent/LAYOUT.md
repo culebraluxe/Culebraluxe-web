@@ -152,6 +152,19 @@ under an mtime-based fingerprint, which the clean removed. **So: when a compile 
 you are reading, run `cargo clean -p <crate>` before believing it, and never report a red T0 you have not reproduced
 after a clean.** A phantom red is as expensive as a phantom green.
 
+**The same trap has a second shape, hit on 2026-10-04: a missing FIELD, not a method.** `cargo test -p cli` in `lane-deep`
+died on `E0063: missing field \`signed_media_id\` in initializer of \`DocumentSignFinalizeResult\`` at
+`web/src/document_sign/mod.rs:1283` and `:1350` — while `middle/model/src/document_sign.rs` defines that struct with three
+fields and the string `signed_media_id` exists in no model source in either checkout. What forced the mismatch was a
+`web → forge` path dependency that had just changed (the adapter commit), so `web` recompiled while the `model` artifact
+beside it stayed "fresh" by mtime from another lane's build: the recompile answered about *that* lane's struct. `touch
+middle/model/src/document_sign.rs web/src/document_sign/mod.rs` — no `cargo clean` needed — and the identical command
+went green in 13.6s. So the rule generalizes to any symbol: **when a compile error names a method, field, type or variant
+that the file you are reading does not have, you are compiling another lane's artifact; bump the mtime of the files that
+define it, fall back to `cargo clean -p <crate>`, and never report the red.** That afternoon already read as "trunk is
+broken, and the other agent's commit did it" — worth a lane's window and a wrong accusation — one paragraph after the
+sentence that bans exactly that report, written the day before.
+
 ## Rules that keep this working
 
 1. **Never work in `/tmp` or `~/Documents`.** macOS purges `/tmp`, and iCloud resurrects deletions in `~/Documents`;
