@@ -9,11 +9,17 @@ Written 2026-10-01, when the tree moved out of `~/Documents`. This is the machin
 /Users/Shared/dev/
 ├── src/
 │   ├── Culebraluxe-web/     main checkout,   branch main        (the repo you are in)
-│   ├── lane-gpt/            git worktree,    branch lane/gpt
 │   ├── lane-claude/         git worktree,    branch lane/claude
 │   ├── lane-deep/           git worktree,    branch lane/deep
+│   ├── lane-gpt/            git worktree,    branch lane/gpt
 │   ├── lane-grok/           git worktree,    branch lane/grok
-│   └── lane-muse/           git worktree,    branch lane/muse
+│   ├── lane-muse/           git worktree,    branch lane/muse
+│   ├── lane-lightning/      git worktree,    branch lane/lightning
+│   ├── lane-ling/           git worktree,    branch lane/ling
+│   ├── lane-longcat/        git worktree,    branch lane/longcat
+│   ├── lane-mimo/           git worktree,    branch lane/mimo
+│   ├── lane-nemotron/       git worktree,    branch lane/nemotron
+│   └── lane-spacebunny/     git worktree,    branch lane/spacebunny
 └── build/
     ├── rust/                CARGO_TARGET_DIR, shared by every worktree
     └── logs/                launchd job logs (wip-snapshot.log, wip-snapshot.err.log)
@@ -21,15 +27,48 @@ Written 2026-10-01, when the tree moved out of `~/Documents`. This is the machin
 
 Nothing else belongs in `src/`: no exports, no caches, no second copies of the repo.
 
+**The lanes (11 worktrees on 2026-10-03).** The picture above is a picture: **`git worktree list` is the roster**, and a
+lane exists only while it is in that output. One lane per agent, named for the model that works in it, because a second
+directory for the same model is the first lane wearing a card.
+
+| lane | model (ranked for this repo, 2026-10-03) | what it is for |
+| --- | --- | --- |
+| `lane-claude`, `lane-deep`, `lane-gpt`, `lane-grok`, `lane-muse` | the first five, one per agent | the standing agent set |
+| `lane-nemotron` | Nemotron 3 Ultra — #1 | serious coding, architecture, debugging |
+| `lane-mimo` | MiMo V2.6 Flash — #2 | general Smith work, bug fixing, cheap execution |
+| `lane-spacebunny` | Space Bunny — #3 | experimental repo work, big context, second opinions |
+| `lane-ling` | Ling 3.1 Flash — #4 | agent work, codebase analysis, well-scoped implementation |
+| `lane-lightning` | Nemotron 3.5 Lightning — #5 | tests, repetitive implementation, subagent execution |
+| `lane-longcat` | LongCat 2.5 Preview — #6 | large-context experiments; not a first choice for Rust |
+
+The six model lanes were created 2026-10-03 as **light lanes** (see "A lane is 84 MB" below): checkout plus env links,
+no `node_modules` until a lane actually needs to build the website. `pnpm wip:now` covers them from their first minute,
+because the snapshot job walks `git worktree list` rather than a list of names.
+
 ## Lanes
 
 ```sh
 cd /Users/Shared/dev/src/Culebraluxe-web
 git worktree add ../lane-<name> -b lane/<name> origin/main
-cd ../lane-<name> && pnpm install
-ln -sfn /Users/Shared/dev/.env.local     .env.local
+cd ../lane-<name>
+ln -sfn /Users/Shared/dev/.env.local     .env.local        # a symlink, never a copy
 ln -sfn /Users/Shared/dev/.env.scheduler .env.scheduler
+git branch --unset-upstream                                # a bare `git push` must not aim at main
+chmod -R go-rwx .                                          # a fresh worktree lands 755 inside the 700 tree
+# pnpm install --frozen-lockfile   # ONLY in a lane that must build the website or run tailwind
 ```
+
+**A lane is 84 MB: the recipe is `git worktree add` plus two symlinks, and `pnpm install` is not part of it
+(2026-10-03).** Measured that day: a plain lane is 84 MB on disk, and creating six of them moved `df` by 0.56 GB
+(813.21 → 813.77 GB used) — 93 MB each, of which 74 MB is `public/images`, which every checkout materialises because
+it is tracked. A second lane's `pnpm install --frozen-lockfile` (3.9 s, rc=0) then cost **30 MB** while adding
+**847 MB** of `node_modules`, because pnpm imports by APFS clone and the blocks stay shared: `du` counts that 847 MB
+once per lane and reports a 931 MB lane, which is how a lane came to look like it cost a gigabyte. **`du` counts
+clones; `df` is the truth.** What the lane gives up without `node_modules` is the *website*, not the Rust:
+`node_modules`-free `lane-nemotron` ran `cargo check -p workflow --all-targets` → rc=0 in 15.0 s and
+`pnpm -s forge:sync-agents --check` → rc=0, and `.githooks/pre-push` runs `cargo` only, so a light lane can build,
+test, commit and land. `pnpm build`, tailwind and `pnpm dev` are what need it — run `pnpm install` in the lane that
+needs one, not in all eleven.
 
 **One env, symlinked, never copied (2026-10-03).** `.env.local` (53 keys, including `DATABASE_URL_PROD` and the
 production Mux credentials) and `.env.scheduler` (`FORGE_STORY_WORKERS`, `FORGE_PROVISION`, `FORGE_ALLOW_PUBLISH`) live
@@ -49,9 +88,40 @@ in; check in with `git push origin lane/<name>:main`, which is fast-forward-only
 refused instead of merged. Nobody commits on the main checkout; it follows the trunk with `git pull --ff-only`.
 No lane reads another lane's tree — work crosses lanes only through `main` (`AGENTS.md`,
 the 2026-10-03 lane exception to NO TREES). Lanes are worktrees, so they share history and one object store — that is the point.
-`CARGO_TARGET_DIR` is shared too, which is why the checkouts do not each cost a 34 GB target; the cost is that two
-simultaneous `cargo` runs serialize on the target lock instead of running in parallel. Lane checkout size on disk is
-~84 MB of source plus pnpm's hardlinked `node_modules`.
+`CARGO_TARGET_DIR` is shared too — `/Users/Shared/dev/build/rust`, set by `~/.cargo/config.toml` rather than by a shell
+export, so it holds for every invocation — which is why no checkout carries a target of its own; the cost is that two
+simultaneous `cargo` runs serialize on the target lock instead of running in parallel. **What the shared directory does
+NOT do is hold one copy of everything (measured 2026-10-03): cargo keys a path package's artifacts by the workspace root
+it was built from, so every lane that builds adds its own copies of the workspace's own crates — six 277 MB `libweb`
+rlibs, one per building root — and its own 104 test targets (`tests/tests/*.rs`); only the registry dependencies are
+genuinely shared.**
+The same day `build/rust` held **63 GB**: 40 GB `debug/deps`, 20-27 GB `debug/incremental`, 1.3 GB `release`, 0.5 GB
+`wasm32-unknown-unknown` (a lane's first `cargo check` alone added ~1 GB). That is the whole answer to "why does Rust eat
+so much disk": the code is cheap — the entire `src/` estate is 7.1 GB as `du` counts it, and 1.6 GB of that was added by
+six lanes — and the compile artifacts are 63 GB, moving with the number of lanes that *build*, not the number of lanes.
+Checked the same day, a 2000-file sample of `debug/deps/*.d` named only live roots, so that 63 GB is current and not
+residue from a deleted tree. Three levers, cheapest first, and none of them taken yet:
+
+1. `rm -rf build/rust/debug/incremental` — 20-27 GB back immediately; the only cost is incremental reuse. Nothing here
+   turns incremental on: the workspace `Cargo.toml` declares no `[profile]` section at all, so those 20-27 GB are
+   cargo's own default for `dev`.
+2. `[profile.dev] incremental = false` in `Cargo.toml` (plus trimmed `debug` for dependencies) — stops the 20-27 GB
+   growing back. It re-fingerprints the workspace once, so it is a full rebuild, and it is the Captain's call.
+3. `cargo clean` — 63 GB back, at the price of the cold compile this file once recorded as already paid.
+
+Retiring a lane is its own lever: `git worktree remove ../lane-<name>` and `git branch -d lane/<name>` take the 84 MB
+back, but that lane's artifacts stay in the shared target until one of the three above runs, because cargo keys them by
+a root path that no longer exists. Fewer building lanes, not fewer lanes, is what keeps `build/rust` small.
+
+A shared target has a second failure mode, and it costs more than the lock: **a lane can be handed a stale artifact and
+lose an hour to an impossible error (2026-10-03).** `cargo check --workspace --all-targets` in `lane-deep` reported
+`E0599` twice — `reset_forge_attempts` and `story_repair_counts` "not found" on `ForgeEngineDao`, both defined in
+`db/src/forge_engine.rs` at HEAD (`db_ledger.rs:98`, `db_writer.rs:17`) — reproducibly, while `cargo check -p forge
+--all-targets` passed and the same commit was green in the main checkout against the same target dir. `cargo clean -p db
+-p forge`, and the identical command went green; the mechanism is a `db` artifact from another lane's build being reused
+under an mtime-based fingerprint, which the clean removed. **So: when a compile error names a method that is in the file
+you are reading, run `cargo clean -p <crate>` before believing it, and never report a red T0 you have not reproduced
+after a clean.** A phantom red is as expensive as a phantom green.
 
 ## Rules that keep this working
 
@@ -114,8 +184,11 @@ Three of the four below closed on 2026-10-02/03. They are kept with the date rat
   plus the lanes, no estate: `/private/tmp/ocwt` is no longer registered (nor is its `refs/wip/ocwt`
   snapshot), and neither `~/Documents/Culebraluxe-web-roles` (33 GB, clean, HEAD `30b53b5d` — present in main) nor
   the orphan `~/Documents/Culebraluxe-web-claude` appears at all.
-- **`build/rust` is warm (2026-10-03).** 4.5 GB in the shared `CARGO_TARGET_DIR`, so the cold compile has already
-  been paid once and the next `cargo` invocation does not repeat it.
+- **`build/rust` is warm, and 63 GB (2026-10-03).** The cold compile has already been paid once, so the next `cargo`
+  invocation reuses the registry dependencies; but the workspace's own crates and its 104 test binaries are keyed by
+  workspace root, so this number grows with every lane that builds — it was 62 GB before `lane-nemotron`'s first check.
+  What is inside it, and the three levers to take it back, are in "Lanes" above. The `4.5 GB` this line claimed until
+  2026-10-03 was a guess, and a wrong one.
 
 ## The layout move (2026-10-01/02): what a lane does
 

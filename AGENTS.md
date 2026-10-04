@@ -12,7 +12,7 @@ stalling on privacy prompts:
 | path | what | branch |
 |---|---|---|
 | `src/Culebraluxe-web` | this checkout (the handbook you are reading) | `main` |
-| `src/lane-gpt`, `src/lane-claude`, `src/lane-deep` | per-agent worktrees (rule 4) | `lane/gpt`, `lane/claude`, `lane/deep` |
+| `src/lane-<name>` (11 on 2026-10-03) | per-agent worktrees (rule 4); the roster is `git worktree list` | `lane/<name>` |
 | `build/rust` | shared `CARGO_TARGET_DIR` for every worktree | — |
 | `build/logs` | launchd logs, including `wip-snapshot.log` | — |
 
@@ -233,9 +233,11 @@ Never
   retain its Git branch so paid code is not lost. This exception exists to preserve multi-story Smith concurrency,
   not to recreate the deleted tree-era workflow.**
   **Captain exception (2026-10-03): the agent lanes are the one standing set of trees.** `main` lives in
-  `/Users/Shared/dev/src/Culebraluxe-web`; each agent has exactly one lane beside it — `lane-claude`,
-  `lane-gpt`, `lane-deep`, `lane-grok`, `lane-muse`, a git worktree on branch `lane/<name>` — and works only in
-  its own. **Your lane is the directory you are standing in, and that is the only place its name is written.**
+  `/Users/Shared/dev/src/Culebraluxe-web`; each agent has exactly one lane beside it — `src/lane-<name>`, a git worktree
+  on branch `lane/<name>` — and works only in its own. **The lanes are not listed here: `git worktree list` is the
+  roster**, the names and what each lane is for live in `docs/agent/LAYOUT.md`, and a hand-kept list goes stale the day
+  a lane is added or retired. **Your lane is the directory you are standing in, and that is the only place its name is
+  written.**
   Derive it, never look it up and never keep it: `basename "$(git rev-parse --show-toplevel)"` is the identity,
   `git rev-parse --abbrev-ref HEAD` is `lane/<name>`, and `git worktree list` is the roster. No lane carries a
   card, a note or a config naming itself, and none is needed: a copy of a lane inherits the previous lane's
