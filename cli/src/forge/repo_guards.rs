@@ -83,8 +83,20 @@ const TREE_FIELD_TOKENS: [&str; 4] = [
 /// in another lane's tree, and Neon stays the only workflow and control-plane authority. Naming it
 /// here is the maintenance path this guard itself prescribes — the capability is sanctioned, so it is
 /// recorded with its reason rather than removed.
-const WORKTREE_CAPABILITY_FILES: [&str; 3] = [
+/// `forge/src/pianola/worker_lanes.rs` is the TST worker-lane provisioning wrapper (commit
+/// `93f46e74`). It resolves `<parent-of-repo>/Culebraluxe-worktrees` and creates one disposable
+/// worktree per story — the shape the Captain exempted on 2026-10-01: "parallel Forge execution may
+/// use one disposable Git worktree per story solely as an isolation sandbox. Neon remains the only
+/// workflow/control-plane authority; no lane may read another story's worktree; the worktree is
+/// removed when the child run ends" — and the module's own header cites that same exception. It is
+/// recorded here by the Captain's call (`bless`, 2026-10-04) rather than removed, which is the
+/// maintenance path this guard prescribes. On that date it had no live caller: `provision_tst_lane`
+/// is referenced by nothing outside its own tests and the module is reachable only through
+/// `pub mod worker_lanes;`. The baseline makes the capability visible instead of silent; retire the
+/// module when a story owns it.
+const WORKTREE_CAPABILITY_FILES: [&str; 4] = [
     "forge/src/engine/worktree.rs",
+    "forge/src/pianola/worker_lanes.rs",
     "scripts/lane-new.sh",
     "tests/src/git.rs",
 ];
