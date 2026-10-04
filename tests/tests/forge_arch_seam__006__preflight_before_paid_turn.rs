@@ -117,7 +117,7 @@ fn the_gate_refuses_the_wrong_contract_by_name_and_never_starts_a_turn() {
 /// What `main` does after the gate, in order: each is a step that spends something.
 const PAID_AFTER_THE_GATE: [&str; 4] = [
     "agent_work::begin_agent_work_run(",
-    "OpenCodeHarness::from_env_for_policy(",
+    "create_harness(",
     "ProductionRoleRunner::new(",
     "drive_forge_story_with_jobs(",
 ];

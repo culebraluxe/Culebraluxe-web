@@ -1,6 +1,15 @@
 //! Cutover host. Engine + Forge + OpenCode.
 //! NeonStore when APP_ENV / VERCEL_ENV is set. MemoryStore only for local dry-run.
 
+mod test_support {
+    /// A human GATE ends a turn with no blocked reason and settles `Done` (the pair accepts `Done` over `Hold`). A hold
+    /// that carries a reason is the engine refusing to go on after a failure, and must settle `Error`, or its run is
+    /// closed `Complete` at 100%.
+    pub fn failure_hold_reason(needs_human: bool, blocked_reason: Option<String>) -> Option<String> {
+        blocked_reason.filter(|reason| needs_human && !reason.trim().is_empty())
+    }
+}
+
 use db::{AgentWorkOutcome, AgentWorkSettlement};
 use forge::engine::agent_work;
 use forge::engine::db_writer::{DbForgeEvidenceReader, DbForgeStateWriter};
@@ -12,7 +21,8 @@ use forge::engine::executor::{
 use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::git_publish::{publish_switch_off, GitReleaseOps, HostReleaseExecutor};
 use forge::engine::job::WorkflowJobService;
-use forge::engine::opencode::OpenCodeHarness;
+use forge::engine::runner::RoleHarness;
+use forge::engine::spend_cap::{self, SPEND_CAP_ENV};
 use forge::engine::packet::{ExecutionWorkspace, StoryPacket};
 use forge::engine::re_runtime::shared_forge_runtime;
 use forge::engine::runner::ProductionRoleRunner;
@@ -26,6 +36,7 @@ use forge::engine::writer::{
 };
 use forge::roles::ForgeLaneServices;
 use std::env;
+use std::path::PathBuf;
 use std::sync::Arc;
 use workflow::{MemoryStore, TxStore, WorkflowError};
 
@@ -299,12 +310,44 @@ fn main() {
     // The model the lane bills is decided by the ROW (migration 179 `model_policy`), read at the claim together with
     // the execution policy. `OPENCODE_MODEL` still wins: that is an explicit, attended configuration. Before this,
     // the model was whatever the pin said and the policy column was decoration.
-    let mut harness = match OpenCodeHarness::from_env_for_policy(run_model_policy.as_deref()) {
+    let harness_backend = forge::engine::harness::HarnessBackend::from_env();
+    eprintln!("harness_backend={:?}", harness_backend);
+    let harness_context = forge::engine::harness::HarnessContext {
+        story_id: story.clone(),
+        packet: packet.clone().unwrap_or_else(|| forge::engine::packet::StoryPacket::default()),
+        workspace: std::env::var("FORGE_WORKTREE")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
+        execution_workspace: match (
+            std::env::var("FORGE_WORKTREE").ok(),
+            std::env::var("FORGE_BRANCH").ok(),
+            std::env::var("FORGE_BASE_REF").ok(),
+            std::env::var("FORGE_BASE_COMMIT").ok(),
+        ) {
+            (Some(path), Some(branch), Some(base_ref), Some(base_commit)) => {
+                Some(forge::engine::packet::ExecutionWorkspace {
+                    worktree_path: path,
+                    branch_name: branch,
+                    base_ref,
+                    base_commit,
+                })
+            }
+            _ => None,
+        },
+        model_policy: run_model_policy.clone(),
+        model_override: std::env::var("OPENCODE_MODEL").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        spend_cap_usd: spend_cap::parse_forge_spend_cap_usd(
+            std::env::var(SPEND_CAP_ENV).ok().as_deref(),
+        ),
+        assay_commands: contract_assay_commands.clone(),
+        acceptance_mapped: contract_acceptance_mapped,
+    };
+    let mut harness = match forge::engine::harness::create_harness(harness_backend, harness_context) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("{e}");
-            // An unusable harness is the engine's own plumbing, not the story's verdict: nothing was attempted, so
-            // the claim is cleared back into the queue (captain, 2026-09-29).
             if settle_work_item(
                 work_item.as_deref(),
                 AgentWorkOutcome::Abandoned,
@@ -318,15 +361,15 @@ fn main() {
         }
     };
     eprintln!(
-        "model={} model_policy={}",
-        harness.model,
+        "harness_backend={:?} model={} model_policy={}",
+        harness_backend,
+        harness.model(),
         run_model_policy.as_deref().unwrap_or("(default cheap)")
     );
     // The packet read before the claim becomes the packet the lane acts on. On the FORGE_PACKET_FROM_ENV fallback
     // there is no packet row, so the environment packet is what stands — an attended, deliberate act.
     if let Some(packet) = packet {
-        harness.packet = packet;
-        harness.story_id = Some(story.clone());
+        harness.set_packet_and_story_id(packet, story.clone());
     }
     if env::var("FORGE_PROVISION").ok().as_deref() == Some("1") {
         match provision_worker_workspace(
@@ -343,8 +386,8 @@ fn main() {
                     ws.branch_name,
                     ws.base_commit
                 );
-                harness.workspace = ws.worktree_path.clone();
-                harness.execution_workspace = Some(ExecutionWorkspace {
+                harness.set_workspace(ws.worktree_path.clone());
+                harness.set_execution_workspace(ExecutionWorkspace {
                     worktree_path: ws.worktree_path.display().to_string(),
                     branch_name: ws.branch_name,
                     base_ref: ws.base_ref,
@@ -443,9 +486,9 @@ fn main() {
     eprintln!(
         "harness={} model={} bin={} cwd={} neon={}",
         forge::engine::opencode::OPENCODE_HARNESS_ADAPTER_ID,
-        harness.model,
-        harness.cli_bin,
-        harness.workspace.display(),
+        harness.model(),
+        harness.cli_bin(),
+        harness.workspace().display(),
         database_url().is_some()
     );
     // Said before a token is spent, not discovered afterwards in an evidence row. Whether this run may publish
@@ -494,7 +537,7 @@ fn main() {
             release,
             writer.clone(),
             None,
-            &harness,
+            &*harness,
             &story,
             &work_type,
             stop_after.clone(),
@@ -510,7 +553,7 @@ fn main() {
             release,
             writer.clone(),
             Some(Arc::new(DbForgeEvidenceReader)),
-            &harness,
+            &*harness,
             &story,
             &work_type,
             stop_after.clone(),
@@ -596,18 +639,12 @@ struct DriveSummary {
     failure_hold: Option<String>,
 }
 
-/// A human GATE ends a turn with no blocked reason and settles `Done` (the pair accepts `Done` over `Hold`). A hold
-/// that carries a reason is the engine refusing to go on after a failure, and is not a finished run.
-fn failure_hold_reason(needs_human: bool, blocked_reason: Option<String>) -> Option<String> {
-    blocked_reason.filter(|reason| needs_human && !reason.trim().is_empty())
-}
-
 fn drive<S: TxStore>(
     store: S,
     release: Arc<dyn ForgeReleaseExecutor>,
     writer: Arc<dyn ForgeStateWriter>,
     evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
-    harness: &OpenCodeHarness,
+    harness: &dyn RoleHarness,
     story: &str,
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
@@ -656,7 +693,7 @@ fn drive_with_shared_runtime(
     release: Arc<dyn ForgeReleaseExecutor>,
     writer: Arc<dyn ForgeStateWriter>,
     evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
-    harness: &OpenCodeHarness,
+    harness: &dyn RoleHarness,
     story: &str,
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
@@ -695,7 +732,7 @@ fn drive_with_runtime<S: TxStore>(
     release: Arc<dyn ForgeReleaseExecutor>,
     writer: Arc<dyn ForgeStateWriter>,
     evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
-    harness: &OpenCodeHarness,
+    harness: &dyn RoleHarness,
     story: &str,
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
@@ -762,7 +799,7 @@ fn drive_with_runtime<S: TxStore>(
                 out.stopped_after,
                 out.reconciled
             ),
-            failure_hold: failure_hold_reason(out.needs_human, out.blocked_reason),
+            failure_hold: test_support::failure_hold_reason(out.needs_human, out.blocked_reason),
         }),
         Err(e) => {
             eprintln!("{e}");
@@ -773,7 +810,7 @@ fn drive_with_runtime<S: TxStore>(
 
 #[cfg(test)]
 mod tests {
-    use super::failure_hold_reason;
+    use super::test_support::failure_hold_reason;
 
     /// A human GATE (held, no reason) is a finished turn and settles `Done`; a hold that carries a reason is the
     /// engine refusing to go on after a failure and must settle `Error`, or its run is closed `Complete` at 100%.

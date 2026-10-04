@@ -4,7 +4,12 @@
 /// agent-execution harness (OpenCode, Maestro, etc.). They contain no
 /// vendor-specific logic — that lives in the adapter modules.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use crate::engine::assay::CommandResult;
+use crate::engine::runner::{CandidateProbe, HarnessOutput, ProductionProbe, RoleHarness};
+use crate::engine::runtime::ActiveForgeRoleTask;
+use workflow::Result;
 
 /// The execution backend to use for a Forge run.
 ///
@@ -128,5 +133,193 @@ pub fn usage_delta(after: &HarnessUsage, before: Option<&HarnessUsage>) -> Harne
         tokens_input: (after.tokens_input - before.tokens_input).max(0),
         tokens_output: (after.tokens_output - before.tokens_output).max(0),
         cost_usd: (after.cost_usd - before.cost_usd).max(0.0),
+    }
+}
+
+/// Enum that wraps either an OpenCode or Maestro harness, implementing RoleHarness.
+///
+/// This allows the binary to work with a concrete type during setup while still
+/// implementing the RoleHarness trait for the execution phase.
+pub enum ForgeHarness {
+    OpenCode(crate::engine::opencode::OpenCodeHarness),
+    Maestro(crate::engine::maestro::MaestroHarness),
+}
+
+impl RoleHarness for ForgeHarness {
+    fn run_role(
+        &self,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> Result<HarnessOutput> {
+        match self {
+            ForgeHarness::OpenCode(h) => h.run_role(node_id, task, self_heal),
+            ForgeHarness::Maestro(h) => h.run_role(node_id, task, self_heal),
+        }
+    }
+
+    fn interrupt_execution(&self, reason: &str) -> Result<Option<TurnTermination>> {
+        match self {
+            ForgeHarness::OpenCode(h) => h.interrupt_execution(reason),
+            ForgeHarness::Maestro(h) => h.interrupt_execution(reason),
+        }
+    }
+
+    fn exists_on_base_ref(&self, base_ref: &str, path: &str) -> bool {
+        match self {
+            ForgeHarness::OpenCode(h) => h.exists_on_base_ref(base_ref, path),
+            ForgeHarness::Maestro(h) => h.exists_on_base_ref(base_ref, path),
+        }
+    }
+
+    fn assay_cwd(&self) -> &std::path::Path {
+        match self {
+            ForgeHarness::OpenCode(h) => h.assay_cwd(),
+            ForgeHarness::Maestro(h) => h.assay_cwd(),
+        }
+    }
+
+    fn execution_base_commit(&self) -> Option<&str> {
+        match self {
+            ForgeHarness::OpenCode(h) => h.execution_base_commit(),
+            ForgeHarness::Maestro(h) => h.execution_base_commit(),
+        }
+    }
+
+    fn run_command(&self, command: &str) -> CommandResult {
+        match self {
+            ForgeHarness::OpenCode(h) => h.run_command(command),
+            ForgeHarness::Maestro(h) => h.run_command(command),
+        }
+    }
+
+    fn candidate_probe(&self) -> Option<&dyn CandidateProbe> {
+        match self {
+            ForgeHarness::OpenCode(h) => h.candidate_probe(),
+            ForgeHarness::Maestro(h) => h.candidate_probe(),
+        }
+    }
+
+    fn production_probe(&self) -> Option<&dyn ProductionProbe> {
+        match self {
+            ForgeHarness::OpenCode(h) => h.production_probe(),
+            ForgeHarness::Maestro(h) => h.production_probe(),
+        }
+    }
+}
+
+impl ForgeHarness {
+    /// Access the underlying OpenCode harness for setup.
+    pub fn as_opencode_mut(&mut self) -> Option<&mut crate::engine::opencode::OpenCodeHarness> {
+        match self {
+            ForgeHarness::OpenCode(h) => Some(h),
+            _ => None,
+        }
+    }
+
+    /// Access the underlying Maestro harness for setup.
+    pub fn as_maestro_mut(&mut self) -> Option<&mut crate::engine::maestro::MaestroHarness> {
+        match self {
+            ForgeHarness::Maestro(h) => Some(h),
+            _ => None,
+        }
+    }
+
+    /// Set the story packet and story ID.
+    pub fn set_packet_and_story_id(&mut self, packet: crate::engine::packet::StoryPacket, story_id: String) {
+        match self {
+            ForgeHarness::OpenCode(h) => {
+                h.packet = packet;
+                h.story_id = Some(story_id);
+            }
+            ForgeHarness::Maestro(h) => {
+                h.packet = packet;
+                h.story_id = Some(story_id);
+            }
+        }
+    }
+
+    /// Set the workspace path.
+    pub fn set_workspace(&mut self, workspace: PathBuf) {
+        match self {
+            ForgeHarness::OpenCode(h) => {
+                h.workspace = workspace;
+            }
+            ForgeHarness::Maestro(h) => {
+                h.workspace = workspace;
+            }
+        }
+    }
+
+    /// Set the execution workspace.
+    pub fn set_execution_workspace(&mut self, execution_workspace: crate::engine::packet::ExecutionWorkspace) {
+        match self {
+            ForgeHarness::OpenCode(h) => {
+                h.execution_workspace = Some(execution_workspace);
+            }
+            ForgeHarness::Maestro(h) => {
+                h.execution_workspace = Some(execution_workspace);
+            }
+        }
+    }
+}
+
+impl ForgeHarness {
+    /// Get the model name.
+    pub fn model(&self) -> &str {
+        match self {
+            ForgeHarness::OpenCode(h) => &h.model,
+            ForgeHarness::Maestro(h) => &h.model,
+        }
+    }
+
+    /// Get the CLI binary path.
+    pub fn cli_bin(&self) -> &str {
+        match self {
+            ForgeHarness::OpenCode(h) => &h.cli_bin,
+            ForgeHarness::Maestro(h) => &h.cli_bin,
+        }
+    }
+
+    /// Get the workspace path.
+    pub fn workspace(&self) -> &Path {
+        match self {
+            ForgeHarness::OpenCode(h) => &h.workspace,
+            ForgeHarness::Maestro(h) => &h.workspace,
+        }
+    }
+}
+
+/// Implement Deref so that `&*harness` yields `&dyn RoleHarness`.
+impl std::ops::Deref for ForgeHarness {
+    type Target = dyn RoleHarness + 'static;
+
+    fn deref(&self) -> &(dyn RoleHarness + 'static) {
+        match self {
+            ForgeHarness::OpenCode(h) => h,
+            ForgeHarness::Maestro(h) => h,
+        }
+    }
+}
+///
+/// This is the single point of harness construction, replacing the concrete
+/// `OpenCodeHarness::from_env_for_policy` calls in the binary.
+pub fn create_harness(
+    backend: HarnessBackend,
+    context: HarnessContext,
+) -> workflow::Result<ForgeHarness> {
+    match backend {
+        HarnessBackend::OpenCode => {
+            let harness = crate::engine::opencode::OpenCodeHarness::from_env_for_policy(
+                context.model_policy.as_deref(),
+            )?;
+            Ok(ForgeHarness::OpenCode(harness))
+        }
+        HarnessBackend::Maestro => {
+            let harness = crate::engine::maestro::MaestroHarness::from_env_for_policy(
+                context.model_policy.as_deref(),
+            )?;
+            Ok(ForgeHarness::Maestro(harness))
+        }
     }
 }

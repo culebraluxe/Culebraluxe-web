@@ -211,7 +211,7 @@ fn a_service_the_process_did_not_register_costs_no_turn_and_writes_no_job() {
 
 /// The composition root's wiring, in order. Each is the production call that adds one link of the chain.
 const COMPOSITION_ORDER: [&str; 6] = [
-    "OpenCodeHarness::from_env_for_policy",
+    "create_harness(",
     "ProductionRoleRunner::new",
     "ForgeLaneServices::new",
     ".registry()",
