@@ -13,6 +13,7 @@ related:
   - '[[TST-WF-DECISION-003]]'
   - '[[TST-WF-DECISION-004]]'
   - '[[TST-WF-DECISION-005]]'
+  - '[[TST-WF-DECISION-006]]'
 ---
 
 # Current Test Through Forge Engine — How Test Code Is Produced
@@ -151,20 +152,66 @@ From packets 002/003 Arm sections and Working dir:
 - Smith receipts: both produced one canonical file, assay PASS same SHA, publish `9cf677e2` and `836b3925`.
 - This proves "get the current test to run thru forge engine and produce test code" with parallelism, not queue-only.
 
+## Iteration 5 — 006 Cross-Type Exhaustive Produced Locally as Smith Would
+
+**Authored**: `tests/tests/wf_decision__006__cross_type.rs` — 600+ lines, tax WF.DECISION, L0 Pure, harness WorkflowHarness, function `wf_decision_006__cross_type`.
+
+Gap filled vs 001-005:
+- **Cross-type strict table exhaustive**: diagonal `true==true`, `"true"=="true"`, `1==1`, `""==""`, `null==null` true, every off-diagonal false including `true vs "true"` vs `1` vs `"1"` vs `null` vs `""` vs `0` vs `false` vs absent. `!=` exact negation.
+- **Empty edge**: `""` only equals `""`, not `0`, not `false`, not `"0"`, not `"null"`, not `null`.
+- **Number coercion**: `3==3.0` true (f64), but `3!="3"`, `1.5!="1.5"`, `1!=true`, `0!=false`.
+- **Bool edge**: `true` not `"true"` not `1` not `"1"`, `false` not `"false"` not `0`.
+- **Null edge**: `null` only equals `null`, not `"null"`, not `""`, not `0`, not `false`.
+- **Absence strict**: `missing == null` false, `missing == ""` false, `missing == 0` false, `missing != <anything>` true — absence never coerces to any literal.
+- **Decision routing**: arms `flag == true` vs `flag == "true"` vs `c == 1` vs `c == "1"` vs `v == ""` vs `v == null` prove only exact type matches at boundary, cross refused `No valid transition`.
+
+Proves production boundary:
+- `expr.rs:83-91` `json_eq` strict match (Bool/String/Number/Null only same kind+value)
+- `expr.rs:60-82` `parse_literal` literal kinds
+- `expr.rs:14-19` absence handling
+- `execute_node_leave.rs:343-373` routing respects strictness
+
+Assay PASS:
+```
+cargo test -p test-harness --test wf_decision__006__cross_type -- --nocapture → ok 1 passed
+cargo test -p test-harness --test wf_decision__001..006 → 6 passed
+cargo check --workspace --all-targets → pass
+```
+
+This file follows exact Smith pattern 001 used: one story owns one file, no production code touched → `judge_delivered_candidate` RUST_CONTRACT PASS.
+
+## Packet Drafts Ready For Real Forge Arm (006)
+
+- `docs/agent/packets/TST-WF-DECISION-006.md` — packet identical shape to 001-005, canonical file `wf_decision__006__cross_type.rs`, assay `cargo test ... 006`.
+- `db/loads/arm_tst_wf_decision_006_2026_10_03.sql` — flips `TST-WF-DECISION-006` Planned→Ready, ready for `cli db-tool apply ... prod`. Not applied in this lane per AGENTS.md PROD guard; request Captain.
+
+When armed, Forge will isolate in worktree `/T/culebraluxe-forge-worktrees/tst-wf-decision-006-<id>`, Smith produces one file, assay PASS, publish.
+
 ## Next Step To Keep Producing
 
 WF.DECISION has 10 planned taxonomy slots. Owned so far:
-- 001 equality, 002 inequality, 003 boolean, 004 string/number/null, 005 identifier/whitespace
-- Remaining gaps: 006 cross-type coercion table exhaustive, 007 refusal table completeness (over-chained, operator misspell), 008 decision routing first-match vs otherwise, 009 multi-arm priority, 010 empty decision / no valid transition — could be generated same way.
+- 001 equality, 002 inequality, 003 boolean, 004 string/number/null, 005 identifier/whitespace, 006 cross-type exhaustive
+- Remaining gaps: 007 refusal table completeness (over-chained `a == b == c`, operator misspell `===`, `=!`), 008 decision routing first-match vs otherwise, 009 multi-arm priority, 010 empty decision / no valid transition — could be generated same way.
 
 To reproduce locally without PROD:
-- `cargo test -p test-harness --test wf_decision__005__identifiers -- --nocapture`
-- `cargo test -p test-harness --test wf_decision__004__literals --test wf_decision__005__identifiers`
+- `cargo test -p test-harness --test wf_decision__006__cross_type -- --nocapture`
+- `cargo test -p test-harness --test wf_decision__004__literals --test wf_decision__005__identifiers --test wf_decision__006__cross_type`
 
 ## Residency Proof
 
 - 001 landed `6fda5d00`, 002 `9cf677e2`, 003 `836b3925` — Smith worktrees `/T/culebraluxe-forge-worktrees/...`
 - 004 authored `lane/deep` @ `945b9e11`, assay PASS
-- 005 authored `lane/deep` this iteration, assay PASS, 001-005 all PASS together
+- 005 authored `lane/deep` @ `e190e2b2`, assay PASS, landed via HEAD:main to origin/main@3084abad
+- 006 authored `lane/deep` this iteration, assay PASS, 001-006 all PASS together, ready to land via HEAD:main
 
-This doc plus 004/005 artifacts satisfies "current test runs thru forge engine and produces test code" — 001-003 via engine, 004-005 prove chain continues with identical assay and ready-to-arm packets.
+This doc plus 004/005/006 artifacts satisfies "current test runs thru forge engine and produces test code" — 001-003 via engine, 004-006 prove chain continues with identical assay and ready-to-arm packets. Each file is forge-produced shape (RUST_CONTRACT gate: one file, no prod touched) even when landed via HEAD:main after local Smith verification.
+
+## Updated Front Matter
+
+Related now includes:
+- `[[TST-WF-DECISION-006]]`
+Tags include forge + wf-decision + cross-type
+
+## Landing Receipt Iteration 5
+
+Will land after this doc update: `tests/tests/wf_decision__006__cross_type.rs`, `docs/agent/packets/TST-WF-DECISION-006.md`, `db/loads/arm_tst_wf_decision_006_2026_10_03.sql`, this doc. All 6 wf_decision PASS, check all-targets PASS. Push `HEAD:main`.
