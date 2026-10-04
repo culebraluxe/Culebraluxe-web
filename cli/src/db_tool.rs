@@ -345,8 +345,8 @@ fn recorded_by_filename(rows: &[MigrationLedgerRow]) -> BTreeMap<String, &Migrat
 ///
 /// The file is executed as ONE simple query, so a multi-statement migration behaves as written (each file
 /// carries its own `begin`/`commit`, which is why the ledger row is written separately afterwards rather
-/// than inside a transaction this tool opened). The ledger records the path as given on the command line,
-/// exactly as the TypeScript script did.
+/// than inside a transaction this tool opened). The ledger records the file NAME, not the path as given:
+/// readers match by basename (the folder has moved twice), so the writer normalizes too.
 async fn apply(args: &[String]) -> Result<u8, Failure> {
     let mut file: Option<String> = None;
     let mut force = false;

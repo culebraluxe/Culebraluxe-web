@@ -159,7 +159,10 @@ pub use signature::SignatureDao;
 pub use signer::{SignerAccessRecord, SignerDao};
 pub use support::SupportDiagnosticsDao;
 pub use task::TaskDao;
-pub use tech::TechCockpitDao;
+pub use tech::{
+    TechCockpitDao, LAUNCH_FLIGHT_FIRE_STORIES_SQL, LAUNCH_FLIGHT_QUEUE_ITEMS_SQL,
+    LAUNCH_FLIGHT_ROUTE_ITEMS_SQL,
+};
 pub use transaction::DbTransaction;
 pub use unit_of_work::{service_mutation, DbConnection};
 pub use vault::VaultDao;

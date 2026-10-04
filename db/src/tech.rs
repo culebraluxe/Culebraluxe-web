@@ -13,6 +13,22 @@ pub struct TechCockpitDao {
     db: Database,
 }
 
+/// The three set-based statements `launch_flight` runs, `pub` so the live
+/// `EXPLAIN` proof (`tests/tests/run_text_dev.rs`) plans exactly these
+/// against the real schema instead of a copy that can drift.
+pub const LAUNCH_FLIGHT_FIRE_STORIES_SQL: &str =
+    "update storyboard_story set status='Ready', updated_at=now() \
+     where id in (select story_id from forge_batch_item \
+                  where batch_id=$1::uuid and state='Staged')";
+pub const LAUNCH_FLIGHT_QUEUE_ITEMS_SQL: &str =
+    "update forge_batch_item set state='Queued', queued_at=now(), error_text=null \
+     where batch_id=$1::uuid and state='Staged'";
+pub const LAUNCH_FLIGHT_ROUTE_ITEMS_SQL: &str =
+    "update agent_work_item w set kind=i.kind, model_policy=$2, updated_at=now() \
+     from (select story_id, coalesce(kind, 'normal') as kind from forge_batch_item \
+           where batch_id=$1::uuid and state='Queued') i \
+     where w.story_id=i.story_id and w.state='Ready'";
+
 impl TechCockpitDao {
     pub fn new(db: Database) -> Self {
         Self { db }
@@ -462,18 +478,31 @@ impl TechCockpitDao {
         .await
         .map_err(|e| DbFailure::from_sqlx("tech.batch_policy", &e))?
         .unwrap_or_else(|| "cheap".into());
-        let members=sqlx::query_as::<_,(String,String)>("select story_id,coalesce(kind,'normal') from forge_batch_item where batch_id=$1::uuid and state='Staged' order by story_id")
-          .bind(&batch).fetch_all(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.batch_members",&e))?;
-        let mut queued = 0i64;
-        let mut stamped = 0i64;
-        for (story, kind) in members {
-            self.story_status(&story, "Ready").await?;
-            sqlx::query("update forge_batch_item set state='Queued',queued_at=now(),error_text=null where batch_id=$1::uuid and story_id=$2")
-            .bind(&batch).bind(&story).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.queue_batch_item",&e))?;
-            stamped += sqlx::query("update agent_work_item set kind=$2,model_policy=$3,updated_at=now() where story_id=$1 and state='Ready'")
-            .bind(&story).bind(kind).bind(&policy).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.route_batch_item",&e))?.rows_affected() as i64;
-            queued += 1;
-        }
+        // Set-based, not per-member: the old loop ran three round trips per
+        // story (story status, queue item, route item), so a 40-story flight
+        // held the batch half-fired for 120 statements and a crash mid-loop
+        // left it half-fired. Three statements move the whole batch; a failure
+        // in any one leaves the batch unfired rather than half-fired.
+        sqlx::query(LAUNCH_FLIGHT_FIRE_STORIES_SQL)
+            .bind(&batch)
+            .execute(self.db.pool())
+            .await
+            .map_err(|e| DbFailure::from_sqlx("tech.fire_stories", &e))?;
+        let queued = sqlx::query(LAUNCH_FLIGHT_QUEUE_ITEMS_SQL)
+            .bind(&batch)
+            .execute(self.db.pool())
+            .await
+            .map_err(|e| DbFailure::from_sqlx("tech.queue_batch_item", &e))?
+            .rows_affected() as i64;
+        // Per-member kind travels in the join, so stories with different kinds
+        // still route differently in the one statement.
+        let stamped = sqlx::query(LAUNCH_FLIGHT_ROUTE_ITEMS_SQL)
+            .bind(&batch)
+            .bind(&policy)
+            .execute(self.db.pool())
+            .await
+            .map_err(|e| DbFailure::from_sqlx("tech.route_batch_item", &e))?
+            .rows_affected() as i64;
         sqlx::query("update forge_batch set status='Fired',fired_at=now() where id=$1::uuid and status<>'Fired'")
           .bind(&batch).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.fire_batch",&e))?;
         Ok(Some((batch, queued, stamped)))

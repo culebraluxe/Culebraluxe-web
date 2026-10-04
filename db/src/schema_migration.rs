@@ -111,6 +111,11 @@ impl SchemaMigrationDao {
     ///
     /// The upsert mirrors the original script exactly, including `applied_at = now()`: a re-apply with
     /// `--force` is a new application and says so in the timestamp.
+    ///
+    /// Stored by FILE NAME, not path: the reader (`recorded_checksum`) already
+    /// matches `regexp_replace(filename, '^.*/', '')`, and the folder has moved
+    /// (db/ -> legacy/db/ -> db/), so writing the full path inserts a second
+    /// row for the same file that only latest-wins masks. Normalize on write.
     pub async fn record(
         &self,
         filename: &str,
@@ -118,13 +123,14 @@ impl SchemaMigrationDao {
         target: DbTarget,
         note: Option<&str>,
     ) -> DbResult<()> {
+        let name = filename.rsplit('/').next().unwrap_or(filename);
         sqlx::query(
             "insert into schema_migration (filename, checksum, target, note) \
              values ($1, $2, $3, $4) \
              on conflict (filename, target) \
              do update set checksum = excluded.checksum, applied_at = now(), note = excluded.note",
         )
-        .bind(filename)
+        .bind(name)
         .bind(checksum)
         .bind(target.as_str())
         .bind(note)

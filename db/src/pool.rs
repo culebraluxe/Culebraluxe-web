@@ -525,6 +525,7 @@ impl Database {
 }
 
 fn cell_as_text(row: &sqlx::postgres::PgRow, i: usize) -> String {
+    use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
     use sqlx::Row;
     if let Ok(v) = row.try_get::<Option<String>, _>(i) {
         return v.unwrap_or_default();
@@ -535,6 +536,15 @@ fn cell_as_text(row: &sqlx::postgres::PgRow, i: usize) -> String {
     if let Ok(v) = row.try_get::<Option<i32>, _>(i) {
         return v.map(|n| n.to_string()).unwrap_or_default();
     }
+    if let Ok(v) = row.try_get::<Option<i16>, _>(i) {
+        return v.map(|n| n.to_string()).unwrap_or_default();
+    }
+    if let Ok(v) = row.try_get::<Option<f64>, _>(i) {
+        return v.map(|n| n.to_string()).unwrap_or_default();
+    }
+    if let Ok(v) = row.try_get::<Option<f32>, _>(i) {
+        return v.map(|n| n.to_string()).unwrap_or_default();
+    }
     if let Ok(v) = row.try_get::<Option<bool>, _>(i) {
         return match v {
             Some(true) => "t".into(),
@@ -542,6 +552,23 @@ fn cell_as_text(row: &sqlx::postgres::PgRow, i: usize) -> String {
             None => String::new(),
         };
     }
+    if let Ok(v) = row.try_get::<Option<DateTime<Utc>>, _>(i) {
+        return v.map(|t| t.to_rfc3339()).unwrap_or_default();
+    }
+    if let Ok(v) = row.try_get::<Option<NaiveDateTime>, _>(i) {
+        return v.map(|t| t.to_string()).unwrap_or_default();
+    }
+    if let Ok(v) = row.try_get::<Option<NaiveDate>, _>(i) {
+        return v.map(|t| t.to_string()).unwrap_or_default();
+    }
+    if let Ok(v) = row.try_get::<Option<serde_json::Value>, _>(i) {
+        return v.map(|j| j.to_string()).unwrap_or_default();
+    }
+    // NUMERIC and UUID are intentionally absent, not forgotten: decoding them
+    // needs sqlx's `bigdecimal`/`uuid` cargo features, which are workspace-wide
+    // (one flag set, one full rebuild of every dependent crate) for an
+    // operator display tool. Until that trade is taken, cast in SQL
+    // (`id::text`, `price::text`) — the queries in `tech.rs` already do.
     String::new()
 }
 
