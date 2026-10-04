@@ -148,7 +148,8 @@ pub use property::PropertyDao;
 pub use public_listing::PublicListingDao;
 pub use publishing::PublishingDao;
 pub use relationship_evidence::{
-    EvidenceUpsert, PersonIdentityOwner, RelationshipEvidenceDao, SourcePersonLink,
+    EvidenceCoverage, EvidenceUpsert, PersonIdentityOwner, RelationshipEvidenceDao,
+    SourcePersonLink,
 };
 pub use retry::{retry, RetryPolicy};
 pub use schema_migration::{MigrationLedgerRow, SchemaMigrationDao};

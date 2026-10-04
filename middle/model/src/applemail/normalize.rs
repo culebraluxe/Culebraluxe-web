@@ -34,10 +34,7 @@ pub fn bounded_email_subject(value: Option<&str>) -> Option<String> {
             normalized.push(character);
         }
     }
-    let collapsed = normalized
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let collapsed = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
     if collapsed.is_empty() {
         return None;
     }

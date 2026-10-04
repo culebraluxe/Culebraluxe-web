@@ -48,6 +48,7 @@
     "apple:sync:stop": "node scripts/apple-sync-agent.mjs stop",
     "apple:sync:uninstall": "node scripts/apple-sync-agent.mjs uninstall",
     "gmail:sync": "bash scripts/gmail-sync.sh",
+    "gmail:census": "bash scripts/gmail-census-load.sh",
     "email:sync": "bash scripts/email-sync.sh",
     "mailbox:promote": "cargo run --manifest-path Cargo.toml -p cli -- apple-sync mail-promote prod",
     "whatsapp:webhook:test": "bash scripts/send-whatsapp-webhook-fixture.sh",

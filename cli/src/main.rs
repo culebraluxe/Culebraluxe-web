@@ -90,6 +90,9 @@ async fn dispatch_cli(args: &[String]) -> Result<(), Box<dyn Error>> {
         "apple-sync" => apple_sync::dispatch(&args[1..]).await,
         // Google mail: metadata-only latest-context. Not an Apple source, so it is its own command.
         "gmail-sync" => gmail::gmail_sync(&args[1..]).await,
+        // Google mail: the identity half of the same source — the approved census artifact into
+        // relationship evidence. `gmail-sync` reads the identities this load exact-links.
+        "gmail-census" => gmail::gmail_census(&args[1..]).await,
         // The post-deploy smoke, ported from `scripts/prod-smoke.ts` on 2026-09-28 (the last live TypeScript in
         // the release path). It exits non-zero when a check fails, which is how `pnpm release` notices.
         "smoke" => smoke::dispatch(&args[1..]).await,
@@ -170,6 +173,10 @@ fn print_usage() {
     eprintln!("  cargo run -p cli -- apple-sync calendar-intake <snapshot.json>");
     eprintln!("  cargo run -p cli -- apple-sync reminder-intake <snapshot.json>");
     eprintln!("  cargo run -p cli -- apple-sync messages-intake <export-dir> [--evidence-only] [--refresh]");
+    eprintln!("  cargo run -p cli -- gmail-sync [dev|prod] [--window=N] [--verify]");
+    eprintln!(
+        "  cargo run -p cli -- gmail-census [dev|prod] [--file <census.csv>] [--verify] [--refresh]"
+    );
     eprintln!("  cargo run -p cli -- forge harness-lint [--strict] [--format json]");
     eprintln!("  cargo run -p cli -- forge sync-agents [--check] [--format json]");
     eprintln!("  cargo run -p cli -- forge build-info [--format json]");

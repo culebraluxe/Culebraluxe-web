@@ -185,7 +185,9 @@ pub fn decide_apple_handle(
     evidence: &AppleHandleEvidence,
     lookup: &AppleHandleLookup,
 ) -> RelationshipDecision {
-    if evidence.is_automated_or_bulk == Some(true) || evidence.is_organization_or_service == Some(true) {
+    if evidence.is_automated_or_bulk == Some(true)
+        || evidence.is_organization_or_service == Some(true)
+    {
         return if evidence.is_organization_or_service == Some(true) {
             decision(
                 "non_person",

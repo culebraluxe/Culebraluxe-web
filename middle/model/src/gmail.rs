@@ -1,3 +1,16 @@
+//! Gmail, both capabilities of one source.
+//!
+//! * `census` parses the bounded relationship-census artifact into source-neutral evidence. It is
+//!   what makes a Gmail correspondent an identity at all.
+//! * the rules below turn the newest metadata of an exact-linked identity into latest context.
+//!
+//! The two are not independent: the census writes `GMAIL_CONTEXT_SOURCE` rows, and the metadata sync
+//! reads the ones that were exact-linked. That is why the source name lives here, once.
+
+pub mod census;
+
+pub use census::{parse_gmail_census, GmailCensusBatch};
+
 // ---------------------------------------------------------------------------
 // Gmail latest-context rules — the Rust replacement for
 // `lib/relationship-intel/gmail-latest-context.ts`, deleted with the TypeScript application.

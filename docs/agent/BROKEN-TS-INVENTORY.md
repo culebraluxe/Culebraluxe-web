@@ -92,6 +92,7 @@ capabilities are not "dead weight", they are **broken in production** (checked 2
 | `scripts/apple-calls-sync.sh:41` | **`cli` apple-sync calls-intake** (was `scripts/apple-calls-intake.ts`) | **fixed 2026-09-28**: the wrapper is repointed; chain ported to Rust (`cli/src/apple_calls.rs` + `model::apple_calls`), DEV-verified (5236 calls replayed, 864 evidence rows, 4 interactions written / 403 already current) |
 | `scripts/email-sync.sh` | **`cli` apple-sync mail-intake + mail-promote** (was `apple-mail-envelope-intake.ts` + `promote-applemail.ts`) | **fixed 2026-09-28**: the wrapper is repointed; intake needs macOS Full Disk Access (see `DEAD-TS-DOWNSIZE.md` §1) |
 | `scripts/gmail-sync.sh` | **`cli` gmail-sync** (was `scripts/gmail-metadata-sync.ts`) | **fixed 2026-09-28**: repointed; needs GOOGLE_CLIENT_ID / SECRET / REFRESH_TOKEN in `.env.local`, which this machine does not have |
+| `scripts/gmail-census-load.sh` | **`cli` gmail-census** (was `scripts/rel-intel-load-gmail.ts` + `lib/relationship-intel/gmail-census.ts`) | **fixed 2026-10-04**: both halves of the Gmail chain are Rust now — the approved census artifact lands as relationship evidence (the identities `gmail-sync` reads), and the metadata sync turns the newest of them into latest context. DEV-verified |
 
 **The promotion hop exists now, and it is not a script.** `warehouse_promote_apple_contacts(p_apply)`
 (`db/migrations/253_apple_contacts_promote.sql`) does the whole landing → warehouse transformation
@@ -366,9 +367,13 @@ The product is largely Rust already. What is stranded here is intake and proof t
    `apple_contacts_project`.
 5. `scripts/bank-transaction-load.ts` — statement load. Accounting exists in
    `middle/model/src/accounting.rs`; the loader may not. **PORT P1.**
-6. `scripts/gmail-metadata-sync.ts`, `scripts/rel-intel-load-gmail.ts` — bounded Gmail census and
-   metadata sync through the neutral ODS seam. **VERIFY** `middle/apis/src/mail/` +
-   `middle/model/src/comms.rs`, then **PORT P1** the missing half.
+6. ~~`scripts/gmail-metadata-sync.ts`, `scripts/rel-intel-load-gmail.ts`~~ — **DONE 2026-10-04**:
+   the metadata sync landed as `cli gmail-sync` (`middle/model/src/gmail.rs`), and the missing half —
+   the census loader with its parser — landed as `cli gmail-census` +
+   `middle/model/src/gmail/census.rs`, behind `scripts/gmail-census-load.sh`. The artifact is
+   operator-supplied and approval-gated, so it is a load and not a pull: rows are
+   `docs/marlowe-gmail-relationship-census-private-*.csv`, the default path is named once in the CLI
+   and once in the wrapper, and both files stay bannered as reference.
 7. `scripts/whatsapp-coexistence-completion.test.ts` — **PORT P1 as a Rust test.** This answers the
    "was WhatsApp lost?" question: the implementation is NOT lost —
    `middle/apis/src/whatsapp/`, `db/src/whatsapp.rs`, `web/src/whatsapp.rs`
@@ -521,7 +526,7 @@ APP (29 files)
     54 scripts/load-apple-contacts.ts                APP P1      → DONE 2026-09-28 (apple_contacts_load, SQL function)
     55 scripts/bank-transaction-load.ts              APP P1      → PORT
     56 scripts/gmail-metadata-sync.ts                APP P1      → VERIFY → PORT
-    57 scripts/rel-intel-load-gmail.ts               APP P1      → VERIFY → PORT
+    57 scripts/rel-intel-load-gmail.ts               APP P1      → DONE 2026-10-04 (cli gmail-census + model/src/gmail/census.rs)
     58 scripts/whatsapp-coexistence-completion.test.ts APP P1    → PORT as a Rust test
     59 scripts/calendar-eventkit-intake.ts           APP P2      → VERIFY → RETIRE
     60 scripts/eventkit-seam-proof.ts                APP P2      → VERIFY → PORT P2 (one seam proof)

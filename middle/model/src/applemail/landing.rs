@@ -11,13 +11,15 @@ fn to_iso(value: Option<&str>) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    let parsed = chrono::DateTime::parse_from_rfc3339(trimmed).ok().or_else(|| {
-        chrono::DateTime::parse_from_str(
-            &trimmed.replacen(' ', "T", 1),
-            "%Y-%m-%dT%H:%M:%S%.f%:z",
-        )
+    let parsed = chrono::DateTime::parse_from_rfc3339(trimmed)
         .ok()
-    })?;
+        .or_else(|| {
+            chrono::DateTime::parse_from_str(
+                &trimmed.replacen(' ', "T", 1),
+                "%Y-%m-%dT%H:%M:%S%.f%:z",
+            )
+            .ok()
+        })?;
     Some(
         parsed
             .with_timezone(&chrono::Utc)
@@ -40,11 +42,7 @@ fn external_recipients(
         .chain(row.cc_recipients.iter())
         .chain(row.bcc_recipients.iter())
     {
-        let Some(address) = recipient
-            .address
-            .as_deref()
-            .and_then(normalize_mailbox)
-        else {
+        let Some(address) = recipient.address.as_deref().and_then(normalize_mailbox) else {
             continue;
         };
         if internal.contains(&address) || external.iter().any(|(known, _)| known == &address) {

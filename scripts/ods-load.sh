@@ -7,14 +7,15 @@
 #                              export -> ODS staging -> l_person -> Person mastery
 #                              -> names -> clients read models      (~1 minute)
 #   imessage                   contacts + iMessage (~90k messages, ~3h)
-#   gmail                      Gmail metadata ONLY (its own pull, nothing else)
+#   gmail                      Gmail: approved census (identities) then metadata (latest context)
 #   calls                      contacts + Apple call history (incl. FaceTime)
 #   full | all                 contacts + iMessage + calls + email
 #
 # Each communication source is a SEPARATE pull: run only the one you want.
-# gmail is standalone — no contacts step, nothing implied. calls and imessage
-# prepend the fast contacts step because their evidence stage needs contact
-# identities resolved first; if you want contacts on its own, run ods:load.
+# gmail is standalone — no contacts step, nothing implied — but it is two steps of its own: the
+# approved census artifact supplies the identities and the metadata pull reads them, so the census
+# goes first. calls and imessage prepend the fast contacts step because their evidence stage needs
+# contact identities resolved first; if you want contacts on its own, run ods:load.
 #
 #   pnpm ods:load            # fast: contacts
 #   pnpm ods:load:imessage   # contacts + iMessage
@@ -27,6 +28,8 @@
 #   scripts/contacts-sync.sh       Apple Contacts -> PROD (export/ODS/projection/mastery/names)
 #   scripts/apple-sync.sh          iMessage -> PROD
 #   scripts/apple-calls-sync.sh    Apple call history -> PROD
+#   scripts/gmail-census-load.sh   approved Gmail census -> PROD relationship evidence
+#   scripts/gmail-sync.sh          Gmail metadata -> PROD latest context
 #   scripts/email-sync.sh          email metadata -> PROD
 # Every one of them is idempotent/replay-safe, so re-running a flavor is harmless.
 #
@@ -43,7 +46,7 @@ FLAVOR="contacts"
 PLAN_ONLY=0
 for arg in "$@"; do
   case "$arg" in
-    contacts|imessage|gmail|applemail|apple-mail|calls|full|all) FLAVOR="$arg" ;;
+    contacts|imessage|gmail|gmail-census|applemail|apple-mail|calls|full|all) FLAVOR="$arg" ;;
     --plan|--dry-run) PLAN_ONLY=1 ;;
     --help|-h) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "[ods-load] ERROR: unknown option '$arg' (try --help)" >&2; exit 2 ;;
@@ -71,10 +74,11 @@ STEPS=()
 case "$FLAVOR" in
   contacts) STEPS=("contacts") ;;
   imessage) STEPS=("contacts" "imessage") ;;
-  gmail)     STEPS=("gmail") ;;
+  gmail)     STEPS=("gmail-census" "gmail") ;;
+  gmail-census) STEPS=("gmail-census") ;;
   applemail) STEPS=("contacts" "applemail") ;;
   calls)     STEPS=("contacts" "calls") ;;
-  full)      STEPS=("contacts" "imessage" "calls" "gmail" "applemail") ;;
+  full)      STEPS=("contacts" "imessage" "calls" "gmail-census" "gmail" "applemail") ;;
 esac
 
 script_for() {
@@ -82,6 +86,7 @@ script_for() {
     contacts) echo "$SELF_DIR/contacts-sync.sh" ;;
     imessage) echo "$SELF_DIR/apple-sync.sh" ;;
     calls)    echo "$SELF_DIR/apple-calls-sync.sh" ;;
+    gmail-census) echo "$SELF_DIR/gmail-census-load.sh" ;;
     gmail)     echo "$SELF_DIR/gmail-sync.sh" ;;
     applemail) echo "$SELF_DIR/email-sync.sh" ;;
   esac

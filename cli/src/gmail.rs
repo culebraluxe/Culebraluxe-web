@@ -1,30 +1,39 @@
 // ---------------------------------------------------------------------------
-// Gmail latest-context sync — the Rust replacement for `scripts/gmail-metadata-sync.ts`, which
-// died with the TypeScript engine.
+// Gmail, both halves of one source.
 //
-// For every exact-linked Gmail identity, fetch a bounded window of the newest Gmail METADATA and
-// materialize the newest unambiguous direct email carrying a subject:
+// `gmail-census` is the identity half and `gmail-sync` is the context half. The first turns the
+// approved bounded census artifact into relationship evidence; the second reads the
+// exact-linked identities the first produced and materializes their newest metadata:
 //
-//   Gmail API (metadata only)  ->  l_email                       (landing, the golden rule)
-//     -> gmail_metadata_to_context  ->  interaction              (what the CRM pane reads)
-//     -> client read models
+//   approved census CSV (relationship-intel load)  ->  evidence + reconciliation   (gmail-census)
+//   Gmail API (metadata only)                      ->  l_email -> interaction      (gmail-sync)
 //
-// PRIVACY: headers only. No body, snippet, attachment or raw MIME is requested or stored, and
-// `format=metadata` is the only format this command ever asks for.
+// Neither half decides who anyone is on its own: both write the decision the crate's one
+// adjudicator returned, against the crate's one evidence source (`GMAIL_CONTEXT_SOURCE`).
 //
-// FAIL CLOSED. The credentials come from GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET /
-// GOOGLE_REFRESH_TOKEN and a missing one is a refusal naming the key — never a silent no-op that
-// reports success while syncing nothing.
+// PRIVACY: headers and aggregate counts only. No body, snippet, attachment or raw MIME is ever
+// requested or stored, and `format=metadata` is the only format `gmail-sync` asks for.
+//
+// FAIL CLOSED. `gmail-sync` refuses to run without GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET /
+// GOOGLE_REFRESH_TOKEN and names the missing key — never a silent no-op that reports success while
+// syncing nothing. `gmail-census` refuses an artifact it cannot read, a batch that does not balance,
+// and an artifact with no usable rows.
 // ---------------------------------------------------------------------------
 use crate::apple_mail;
-use db::{EmailLanding, InteractionDraft, LandingDao, RelationshipEvidenceDao};
+use db::{EmailLanding, EvidenceUpsert, InteractionDraft, LandingDao, RelationshipEvidenceDao};
+use model::decide_apple_handle;
 use model::gmail::{
-    gmail_metadata_to_context, GmailContextResult, GmailMetadataMessage, GMAIL_CONTEXT_SOURCE,
+    gmail_metadata_to_context, parse_gmail_census, GmailContextResult, GmailMetadataMessage,
+    GMAIL_CONTEXT_SOURCE,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
+use std::fs;
 use std::io;
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// How many messages one identity's window covers. Bounded on purpose: this is "latest context",
@@ -32,6 +41,12 @@ use std::time::Duration;
 const DEFAULT_WINDOW: usize = 25;
 /// The headers the metadata read asks for, and only these.
 const HEADER_NAMES: [&str; 5] = ["From", "To", "Cc", "Bcc", "Subject"];
+
+/// The approved bounded census artifact, at the path the deleted `scripts/rel-intel-load-gmail.ts`
+/// read it from: this is a load of the batch the Captain approved, not a location this command
+/// invents. The artifact carries aggregate correspondent evidence from a private mailbox, so it
+/// stays in the checkout and is never staged under `public/`, which is the deploy artifact tree.
+const DEFAULT_CENSUS_FILE: &str = "docs/marlowe-gmail-relationship-census-private-2026-08-24.csv";
 
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
@@ -378,4 +393,192 @@ pub async fn gmail_sync(args: &[String]) -> Result<(), Box<dyn Error>> {
         .into());
     }
     Ok(())
+}
+
+/// `gmail-census [dev|prod] [--file=PATH] [--verify] [--refresh]`
+///
+/// The Rust replacement for `scripts/rel-intel-load-gmail.ts` and the
+/// `lib/relationship-intel/gmail-census.ts` parser behind it, both deleted with the TypeScript engine
+/// (commit 4cf98110). This is the half of the Gmail chain that went missing with them: it is what
+/// makes a Gmail correspondent an identity at all, and `gmail-sync` reads the identities it
+/// exact-links — with no census load, the metadata sync has nothing to read.
+///
+///   approved census CSV -> neutral evidence -> the one adjudicator -> reconciliation
+///
+/// The artifact is bounded, operator-supplied and approval-gated, so this is a load and not a pull:
+/// it never touches the Gmail API, and it never invents a row the file does not carry. What the run
+/// reports about coverage is read back from the rows themselves, not from a tally it kept in memory.
+///
+/// Replay-safe: evidence upserts on `(source, source_account, source_identity_key)` and a decision
+/// preserves an established canonical link, so re-loading the same artifact is harmless.
+pub async fn gmail_census(args: &[String]) -> Result<(), Box<dyn Error>> {
+    crate::apple_sync::load_env();
+    let target = apple_mail::target_arg(args)?;
+    let verify_only = args.iter().any(|arg| arg == "--verify");
+    let refresh = args.iter().any(|arg| arg == "--refresh");
+    let file = census_file(args);
+
+    let raw = fs::read_to_string(&file).map_err(|error| {
+        io::Error::other(format!(
+            "census artifact unreadable at {}: {error} (this is a bounded, operator-supplied \
+             export; point --file at the approved copy)",
+            file.display()
+        ))
+    })?;
+    let batch = parse_gmail_census(&raw);
+
+    // The accounting is a refusal, not a warning: a batch that does not balance has lost a row, and a
+    // lost row reported as a successful load is what this accounting exists to catch.
+    if !batch.balances() {
+        return Err(io::Error::other(format!(
+            "{} does not balance: declared={} accepted={} rejected={} quarantined={} \
+             deduplicated={} — refusing to load",
+            file.display(),
+            batch.declared,
+            batch.accepted,
+            batch.rejected,
+            batch.quarantined,
+            batch.deduplicated
+        ))
+        .into());
+    }
+    if batch.accepted == 0 {
+        return Err(io::Error::other(format!(
+            "{} carries no readable correspondent rows — refusing to report an empty load as success",
+            file.display()
+        ))
+        .into());
+    }
+    for refusal in &batch.rejections {
+        eprintln!("refused line {}: {}", refusal.line, refusal.reason);
+    }
+    for held in &batch.quarantine {
+        eprintln!("quarantined line {}: {}", held.line, held.reason);
+    }
+
+    let file_sha256 = file_sha256(&raw);
+    println!(
+        "[census] {} -> target={} declared={} accepted={} rejected={} quarantined={} \
+         deduplicated={} sha256={}",
+        file.display(),
+        target.as_str(),
+        batch.declared,
+        batch.accepted,
+        batch.rejected,
+        batch.quarantined,
+        batch.deduplicated,
+        file_sha256
+    );
+
+    if verify_only {
+        println!(
+            "{}",
+            json!({
+                "source": GMAIL_CONTEXT_SOURCE,
+                "target": target.as_str(),
+                "file": file.display().to_string(),
+                "fileSha256": file_sha256,
+                "applied": false,
+                "declared": batch.declared,
+                "accepted": batch.accepted,
+                "rejected": batch.rejected,
+                "quarantined": batch.quarantined,
+                "deduplicated": batch.deduplicated,
+            })
+        );
+        println!("verify only — the artifact parses and balances; nothing written.");
+        return Ok(());
+    }
+
+    let database = apple_mail::connect(target).await?;
+    let evidence_dao = RelationshipEvidenceDao::new(database.clone());
+    let landing = LandingDao::new(database);
+    // The two reads adjudication needs, once each — the same two the Messages and Apple Mail intakes
+    // do, against the same shared rules, so this feed cannot drift from those.
+    let owners = crate::apple_messages::OwnerIndex::load(&evidence_dao).await?;
+    let links: HashMap<(String, String), String> = evidence_dao
+        .source_links(GMAIL_CONTEXT_SOURCE)
+        .await?
+        .into_iter()
+        .map(|link| {
+            (
+                (link.source_account, link.source_identity_key),
+                link.canonical_person_id,
+            )
+        })
+        .collect();
+
+    // A database failure fails the run. Nothing here is counted and swallowed: a load that reports
+    // success while writing nothing is the failure mode this command exists to end.
+    let mut reconcile_tally: BTreeMap<String, i64> = BTreeMap::new();
+    let mut exact_linked = 0i64;
+    for row in &batch.rows {
+        let lookup = crate::apple_messages::lookup_for(&row.evidence, &owners, &links);
+        let decision = decide_apple_handle(&row.evidence, &lookup);
+        *reconcile_tally
+            .entry(decision.review_state.clone())
+            .or_insert(0) += 1;
+        if decision.review_state == "exact_linked" && decision.canonical_person_id.is_some() {
+            exact_linked += 1;
+        }
+        let id = evidence_dao
+            .upsert_evidence(&EvidenceUpsert::from(&row.evidence))
+            .await?;
+        evidence_dao.record_decision(&id, &decision).await?;
+    }
+
+    // Evidence alone materializes no interaction, so the client read models are rebuilt when asked
+    // for rather than assumed — the rule `messages-intake --evidence-only` already follows.
+    if refresh {
+        landing.refresh_client_read_models().await?;
+    }
+
+    let coverage = evidence_dao.coverage(GMAIL_CONTEXT_SOURCE).await?;
+    println!(
+        "{}",
+        json!({
+            "source": GMAIL_CONTEXT_SOURCE,
+            "target": target.as_str(),
+            "file": file.display().to_string(),
+            "fileSha256": file_sha256,
+            "applied": true,
+            "declared": batch.declared,
+            "accepted": batch.accepted,
+            "rejected": batch.rejected,
+            "quarantined": batch.quarantined,
+            "deduplicated": batch.deduplicated,
+            "evidenceRowsWritten": batch.accepted,
+            "exactLinked": exact_linked,
+            "reconcileTally": reconcile_tally,
+            "persistedCoverage": {
+                "rows": coverage.row_count,
+                "firstObservedAt": coverage.first_observed_at,
+                "lastObservedAt": coverage.last_observed_at,
+            },
+            "refreshed": refresh,
+        })
+    );
+    println!(
+        "complete: {} evidence rows decided ({exact_linked} exact-linked), {} rows now held for \
+         {GMAIL_CONTEXT_SOURCE}",
+        batch.accepted, coverage.row_count
+    );
+    Ok(())
+}
+
+/// The artifact to read: `--file`, or the approved batch in this checkout.
+fn census_file(args: &[String]) -> PathBuf {
+    match apple_mail::option(args, "--file") {
+        Some(path) => PathBuf::from(path),
+        None => crate::apple_sync::repo_root().join(DEFAULT_CENSUS_FILE),
+    }
+}
+
+/// sha256 of the artifact's bytes, lowercase hex — the batch's own identity, reported so a load can
+/// be tied to the exact file it read.
+fn file_sha256(raw: &str) -> String {
+    Sha256::digest(raw.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }

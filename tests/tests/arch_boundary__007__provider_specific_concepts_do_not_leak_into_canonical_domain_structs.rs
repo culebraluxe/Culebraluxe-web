@@ -5,8 +5,8 @@
 //! owns the transports), not inside the struct every other layer reads.
 //!
 //! The honest state of the tree today is that this contract is **partly violated**, and this test says so instead of
-//! passing quietly. Reading every canonical module (`middle/model/src/*.rs` bar the six provider-named ones)
-//! finds **13** declarations that name a provider:
+//! passing quietly. Reading every canonical module (`middle/model/src/*.rs` bar the provider-named ones) finds
+//! **13** declarations that name a provider:
 //!
 //!   - `calendar.rs:47,59` — `CreateAppleCalendarEventRequest`, `UpdateAppleCalendarEventRequest`
 //!   - `media.rs:17,18,51,52,65,66` and `public_listing.rs:71` — `mux_asset_id` / `mux_playback_id`
@@ -63,17 +63,20 @@ const PROVIDER_TOKENS: [&str; 28] = [
     "xero",
 ];
 
-/// The provider-named modules the domain already keeps, as the *first* path component under `core/domain/src`.
+/// The provider-named modules the domain already keeps, as the *first* path component under `middle/model/src`.
 ///
 /// A module named after a provider is a provider adapter living inside the domain. The list is pinned so a seventh
 /// one cannot appear unnoticed, and so removing one is a deliberate edit here rather than a silent drift: a module
-/// that no longer exists fails the "every pin still exists" half of the test.
-const PROVIDER_MODULES: [&str; 6] = [
+/// that no longer exists fails the "every pin still exists" half of the test. A multi-file module is pinned in both
+/// halves — `apple_messages.rs` beside `apple_messages/`, `applemail.rs` beside `applemail/` — so a *new provider*
+/// is what adds rows, not a new file in a module that was already here (`gmail.rs` and `gmail/` are one module).
+const PROVIDER_MODULES: [&str; 7] = [
     "apple_calls.rs",
     "apple_messages",
     "apple_messages.rs",
     "applemail",
     "applemail.rs",
+    "gmail",
     "gmail.rs",
 ];
 

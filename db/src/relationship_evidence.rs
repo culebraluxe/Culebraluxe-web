@@ -542,6 +542,25 @@ impl RelationshipEvidenceDao {
             .await
             .map_err(|error| DbFailure::from_sqlx("relationship_evidence.source_links", &error))
     }
+
+    /// How many rows one source holds and the window they cover — read back from the rows
+    /// themselves, never from a tally the run kept in memory. A load reports what a later read sees,
+    /// or it reports nothing worth trusting.
+    pub async fn coverage(&self, source: &str) -> DbResult<EvidenceCoverage> {
+        sqlx::query_as::<_, EvidenceCoverage>(
+            r#"
+            select count(*)::bigint as row_count,
+                   min(first_observed_at)::text as first_observed_at,
+                   max(last_observed_at)::text as last_observed_at
+              from integration_relationship_evidence
+             where source = $1
+            "#,
+        )
+        .bind(source)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("relationship_evidence.coverage", &error))
+    }
 }
 
 /// One canonical identity owner (`person_identity` joined to a live person).
@@ -558,6 +577,14 @@ pub struct SourcePersonLink {
     pub source_account: String,
     pub source_identity_key: String,
     pub canonical_person_id: String,
+}
+
+/// Row count and observed window of one evidence source — the receipt a load reports.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct EvidenceCoverage {
+    pub row_count: i64,
+    pub first_observed_at: Option<String>,
+    pub last_observed_at: Option<String>,
 }
 
 /// Input for [`RelationshipEvidenceDao::upsert_evidence`]. Counts and windows only: this row never
