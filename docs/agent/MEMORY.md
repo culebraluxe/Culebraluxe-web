@@ -452,3 +452,49 @@ Short facts that are expensive to rediscover.
   are the captain's** (2026-09-11, below) and were NOT touched by the cleanup, however dead a static analysis calls
   them; the foreign checkouts (`gsd-core/`, `praxis/`, `claude-orchestrate/`) moved to `/Users/Shared/dev/tools/`
   instead, which is where the ripwire excludes always meant them to live.
+
+  - **2026-10-04 (the Gmail chain had two halves and only one of them survived the port):** `cli gmail-sync` turns the
+    newest metadata of an exact-linked identity into latest context — but nothing produced those identities. The half
+    that did, `scripts/rel-intel-load-gmail.ts` and the `lib/relationship-intel/gmail-census.ts` parser behind it, went
+    with the TypeScript engine (`4cf98110`), so the surviving half read a table nobody filled: a source that runs on
+    schedule and can find no correspondent at all, reported as success. The port is `cli gmail-census` +
+    `middle/model/src/gmail/census.rs` behind `scripts/gmail-census-load.sh`, and four things about it are worth
+    keeping. **(1) A bucket that cannot be reached is not a safeguard.** The TypeScript `quarantine` accounting was
+    structurally dead — every reachable reason was a rejection and `missing_email` was unreachable — so the balanced sum
+    only ever balanced by accident. Rust keeps the bucket as a fail-safe but pins the three real rejection names
+    (`empty`, `too_long`, `invalid_format`), so the vocabulary can no longer drift away from what the parser can
+    produce. **(2) A receipt read back from the rows beats a tally kept in memory.** `db::
+    RelationshipEvidenceDao::coverage(source)` reports the row count and observed window a *later read* sees; the first
+    DEV load reported 2017 rows held for `gmail_contacts` where the batch accepted 2016 — one row the artifact no
+    longer carries. A run-time counter would have said 2016 and hidden it. **(3) "Operator-supplied" is a privacy rule,
+    not a convenience.** The approved census is 2018 rows of the captain's real correspondents, it is *tracked in git*
+    at `docs/` (committed 2026-08-24, `72d72031`), and `public/` is the deploy artifact tree that the build ships — so
+    the artifact's path may never live under it. The default is named twice on purpose, once in the CLI and once in the
+    wrapper, and an unreadable artifact is a refusal that names the path it wanted rather than an empty run reported as
+    success. **(4) A parse that cannot be checked without a database is a parse nobody checks.** `--verify` reads,
+    parses, balances and prints the accounting — refusals included — with no connection at all, so the artifact is
+    reviewable before anything is written; the DEV load then reconciled 79 `exact_linked` / 1162 `non_person` / 505
+    `rejected` / 270 `unmatched` through the same shared `decide_apple_handle` the Messages and Apple Mail intakes use.
+
+- **2026-10-04 (a shared cargo estate can hand one lane another lane's crate — and a false red reads exactly like a
+  receipt).** Every cargo on this Mac writes to the one estate (`~/.cargo/config.toml` pins
+  `target-dir = "/Users/Shared/dev/build/rust"`, and `~/.zshrc` exports the same), which is what makes eleven lanes
+  cheap; the lanes also have byte-identical *relative* layouts, which is what makes the artifact name cargo derives for
+  a workspace crate identical in all of them. So two worktrees at different commits write the same file, and whichever
+  lane reads second can be handed the other lane's crate. Measured, not inferred:
+  `debug/deps/libmodel-98e07746b86fae0f.rmeta` held lane-muse's sources (118 `/Users/Shared/dev/src/lane-muse` paths, no
+  `parse_gmail_census`) and minutes later lane-deep's (120 lane-deep paths, the symbol present) — while
+  `cargo check -p cli -v` in lane-deep passed exactly that path to rustc as `--extern model=…`.
+  `pnpm slice:check --since 57662062` then reported `DO NOT HAND OVER — T0` with
+  `error[E0432]: unresolved import model::gmail::parse_gmail_census` for a tree that had not been edited since its DEV
+  load, and the same tree compiled clean once the artifact had been rebuilt. Three lessons. **(1) The name is
+  path-independent, so the collision is structural:** the same tree, checked with `CARGO_TARGET_DIR=/tmp/ld-verify`,
+  wrote `libmodel-98e07746b86fae0f.rmeta` *with its own content* — the hash is a property of the unit, not of the
+  worktree. **(2) A receipt must be taken where a peer cannot overwrite the inputs:** `CARGO_TARGET_DIR` in the
+  environment wins over `config.toml`, and a private-dir `cargo check --workspace --all-targets` finished in 39.59s
+  where the shared dir produced a phantom error; a *newer* foreign artifact would instead have reported PASS for code
+  nobody built, which is the expensive half of this. **(3) Do not reach for the fix inside a slice:** per-lane target
+  dirs would trade away the point of the estate (one warm `build/rust` shared by every lane), so that call is the
+  captain's; until it is made, a shared-estate failure is a report about the machine, and rule 9's
+  `CULEBRALUXE_SKIP_BUILD_CHECK=1` is legal only next to a private-dir green.
+
