@@ -498,3 +498,24 @@ Short facts that are expensive to rediscover.
   captain's; until it is made, a shared-estate failure is a report about the machine, and rule 9's
   `CULEBRALUXE_SKIP_BUILD_CHECK=1` is legal only next to a private-dir green.
 
+- **2026-10-04 (A WAITER FOR A DOM NODE IS A CONTRACT WITH THE VIEW — ISSUE IT FROM THE STATE THAT DRAWS THE NODE).**
+  The property page's Google map was dead on arrival in DEV ("Map could not be loaded / Please contact CulebraLuxe for
+  precise location information"), and it was not the key: `/api/rust-ui/maps-key` answers, Google's JS API serves, and
+  the `marker` library initializes — the headless probe that drove the real page found `google.maps.marker` populated
+  (`AdvancedMarkerElement`, `PinElement`) while `#property-map` was absent from the DOM. That absence was the whole
+  bug: `maybe_init_map` was called from the `Loaded` arm with no tab condition, the container is drawn by the Map tab
+  and nowhere else (`property_detail/sections.rs:29`), and `exec/maps.rs` waits two seconds for that container before
+  failing. So every page load mounted into a container that could not exist, `MapFailed` set `map_dead`, and the early
+  return on `map_dead` kept the map dead for the rest of the visit — the visitor's own click on the Map tab arrived
+  after the failure had already been recorded. The fix is one guard: only the tab that draws the container may mount
+  into it. The general shape is worth more than the fix: a bounded wait for a DOM node encodes an assumption about
+  which render the command runs under, and a reducer that fires it from a state where the view does not render that
+  node has written a guaranteed failure with a two-second delay — read the render condition, not the intent of the
+  message. A welcome side effect: nothing is fetched from Google on a property page until its Map tab is opened.
+  Verification: pre-fix, CDP drive of `/properties/casa-luar` then a click on Map gave `#property-map .gm-style` false
+  and the overlay text; post-fix the same drive gave `gm-style` true and `gmp-advanced-marker` present, no console
+  error; `cargo test -p ui` 157/0; `pnpm ui:check` (wasm32) clean; the lane's own server on `:3100` reported
+  `database_target=dev`. The lane that is not the :3000 checkout can prove a UI change end to end without touching a
+  peer's server: `RUST_UI_PROFILE=debug CARGO_TARGET_DIR=<private> bash scripts/rust-ui-build.sh`, then the server on
+  another port with `CULEBRA_SITE_DIR` pointed at the lane's own `public/`.
+
