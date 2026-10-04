@@ -16,10 +16,21 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 js_out="$root/public/rust-ui"
 wasm_out="$root/public/rust-ui"
-# /target is the default because the container's build root is writable there (Dockerfile, devops/Dockerfile.build).
-# On a developer Mac `/target` is read-only, and `cargo build` honours CARGO_TARGET_DIR — the shared workspace target
-# every lane reuses — so honour it too before falling back. With neither set this is exactly `/target`, as before.
-target_dir="${RUST_UI_TARGET_DIR:-${CARGO_TARGET_DIR:-/target}}"
+# Where cargo may write, in order: an explicit UI override, the shared workspace target every lane reuses, then cargo's
+# own answer — a `[build] target-dir` from a config file (this Mac: ~/.cargo/config.toml -> /Users/Shared/dev/build/rust),
+# else <root>/target. `/target` is the container's build root (Dockerfile, devops/Dockerfile.build) and stays the last
+# resort, which is the one place it applies: the container sets neither the override nor a config file.
+#
+# Cargo has to be asked rather than assumed because the `--target-dir` below is explicit, so it overrides cargo's config
+# file — and on a developer Mac the old `/target` default is read-only. A shell without CARGO_TARGET_DIR used to die with
+# `Read-only file system (os error 30) at path "/targetXXXXXX"` before compiling a line (2026-10-04).
+target_dir="${RUST_UI_TARGET_DIR:-${CARGO_TARGET_DIR:-}}"
+if [ -z "$target_dir" ]; then
+  resolved="$(cargo metadata --format-version 1 --no-deps --manifest-path "$root/Cargo.toml" 2>/dev/null \
+    | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
+  case "$resolved" in ""|"$root/target") ;; *) target_dir="$resolved" ;; esac
+fi
+[ -n "$target_dir" ] || target_dir=/target
 
 if [ "${RUST_UI_PROFILE:-debug}" = "release" ]; then
   profile_dir="release"
