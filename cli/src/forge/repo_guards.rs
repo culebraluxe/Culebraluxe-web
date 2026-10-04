@@ -73,7 +73,21 @@ const TREE_FIELD_TOKENS: [&str; 4] = [
 /// and consumes inside itself is fine". `DisposableWorktree` adds a worktree under the system temp
 /// directory and removes it in `Drop`, so it never outlives the test that made it, is never read by
 /// another lane, and is not a per-lane tree. It adds no workflow the database does not already own.
-const WORKTREE_CAPABILITY_FILES: [&str; 2] = ["forge/src/engine/worktree.rs", "tests/src/git.rs"];
+///
+/// `scripts/lane-new.sh` is the lane creator AGENTS.md names in its own words — "To add a lane:
+/// `pnpm lane:new <name>` (`scripts/lane-new.sh`: worktree, two env symlinks, `--unset-upstream`,
+/// modes)" — with the recipe it embodies in `docs/agent/LAYOUT.md`. It exists under the Captain's
+/// exception of 2026-10-03 ("the agent lanes are the one standing set of trees"), which supersedes
+/// "NO TREES, EVER" for exactly one tree per lane and nothing else: the script creates
+/// `src/lane-<name>` and nothing more, a lane adds no second tree of its own, no lane reads or builds
+/// in another lane's tree, and Neon stays the only workflow and control-plane authority. Naming it
+/// here is the maintenance path this guard itself prescribes — the capability is sanctioned, so it is
+/// recorded with its reason rather than removed.
+const WORKTREE_CAPABILITY_FILES: [&str; 3] = [
+    "forge/src/engine/worktree.rs",
+    "scripts/lane-new.sh",
+    "tests/src/git.rs",
+];
 
 /// The tracked roots the capability scan is allowed to read: the workspace's crate roots, which are the tiers
 /// (`web/`, `middle/`, `db/`) and the entry points (`cli/`, `forge/`), plus `tests/`, where the contract suite
