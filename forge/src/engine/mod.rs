@@ -130,6 +130,7 @@ pub use re_runtime::{
     complete_workflow_task, reconcile_closing_timer, shared_forge_runtime,
     start_residential_transaction,
 };
+pub use constants::{FORGE_DEFAULT_HEARTBEAT_SECONDS, FORGE_DEFAULT_STALE_MINUTES, FORGE_DEFAULT_STALE_MS};
 
 // No `pub use executor::…` here. Re-exporting the role-job driver at this level put a role-queue name in the
 // same file as this module's story-queue re-exports, which `forge_arch_seam__003` refuses — it caught exactly

@@ -19,7 +19,7 @@
 //!   cargo run -p cli -- forge clean [--stale-minutes N] [--force]
 
 use super::{connect, Failure};
-use crate::engine::constants::FORGE_DEFAULT_STALE_MINUTES;
+use forge::engine::constants::FORGE_DEFAULT_STALE_MINUTES;
 use db::{resolve_declared_target, DbTarget, ForgeResetDao, ResetReport};
 use std::env;
 
