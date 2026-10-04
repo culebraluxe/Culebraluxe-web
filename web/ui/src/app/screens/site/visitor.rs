@@ -551,6 +551,15 @@ fn maybe_init_map(model: &mut Model) -> Cmd<Msg> {
     if model.map_dead {
         return Cmd::none();
     }
+    // The container is drawn by the Map tab and nowhere else
+    // (`property_detail/sections.rs`), and a mount waits two seconds for it.
+    // Mounting while another tab is selected therefore waits for an element that
+    // will never exist, fails, and leaves `map_dead` set for the rest of the
+    // visit — the map never loads, even after the visitor opens its tab. Only
+    // the tab that draws the map may mount it.
+    if model.property_media.tab != PropertyTab::Map {
+        return Cmd::none();
+    }
     let Remote::Loaded(key) = &model.map_key else {
         return Cmd::none();
     };
@@ -645,6 +654,8 @@ mod tests {
     #[test]
     fn map_mounts_once_per_record_and_ignores_stale_answers() {
         let mut model = property_model();
+        // The Map tab is the one that draws the container the mount waits for.
+        model.property_media.tab = PropertyTab::Map;
         // No key yet: nothing mounts.
         let cmd = update(
             &mut model,
@@ -680,6 +691,7 @@ mod tests {
     #[test]
     fn map_failure_is_a_state_not_a_loop() {
         let mut model = property_model();
+        model.property_media.tab = PropertyTab::Map;
         update(
             &mut model,
             Msg::MapKeyLoaded(Ok(MapsKeyAnswer {
@@ -691,6 +703,34 @@ mod tests {
         // Tabbing back must not re-issue into the failure.
         let cmd = update(&mut model, Msg::PropertyTabSelected(PropertyTab::Map));
         assert!(init_map(&cmd).is_none());
+    }
+
+    #[test]
+    fn a_page_load_on_another_tab_does_not_burn_the_map() {
+        use crate::model::PropertyRecord;
+        let mut model = Model::default();
+        model.map_key = Remote::Loaded(Some("key".into()));
+        let mut page = PageContent::default();
+        page.property = Some(PropertyRecord {
+            id: "casa-luar".into(),
+            latitude: Some(18.315_573),
+            longitude: Some(-65.255_65),
+            ..PropertyRecord::default()
+        });
+        // The page arrives with Overview showing, so the container the mount
+        // waits for is not in the DOM: nothing may be mounted here, because a
+        // mount that finds no container fails and leaves the map dead for the
+        // rest of the visit.
+        let cmd = update(&mut model, Msg::Loaded(Ok(page)));
+        assert!(init_map(&cmd).is_none());
+        assert_eq!(model.map_mounted_for, None);
+        assert!(!model.map_dead);
+        assert_eq!(model.map_key, Remote::Loaded(Some("key".into())));
+
+        // The Map tab draws that container: that is where the mount goes out.
+        let cmd = update(&mut model, Msg::PropertyTabSelected(PropertyTab::Map));
+        assert_eq!(init_map(&cmd), Some((18.315_573, -65.255_65)));
+        assert_eq!(model.map_mounted_for.as_deref(), Some("casa-luar"));
     }
 
     #[test]
