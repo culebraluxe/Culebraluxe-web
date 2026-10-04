@@ -807,6 +807,46 @@ async fn import_builds_owned_fields_from_template_anchors() {
     // The fixture field plus the two imports; the replay added nothing.
     assert_eq!(count, 3);
 
+    // The desk path: no anchors supplied, so the template's own blocks
+    // are read from the issued document's snapshot.
+    sqlx::query(
+        "update transaction_document set source_snapshot = $2, issued_checksum_sha256 = 'proof', template_id = 'proof', template_version = 1, issued_version = 1 where title = $1",
+    )
+    .bind(format!("docsign proof {tag}"))
+    .bind(serde_json::json!({
+        "signatureAnchors": [{
+            "role": "seller", "slotId": "s1", "kind": "initials",
+            "pageIndex": 0, "pageWidth": 612.0, "pageHeight": 792.0,
+            "rect": { "x": 300.0, "y": 650.0, "width": 80.0, "height": 20.0 },
+        }],
+    }))
+    .execute(db.pool())
+    .await
+    .unwrap();
+    let service = document_sign(&db).await;
+    let mut tx = db.begin("docsign-proof-import").await.unwrap();
+    let from_template = service
+        .import_fields_transactional(
+            &mut tx,
+            &model::ImportAnchorFieldsRequest {
+                signature_request_id: env.request_id.clone(),
+                anchors: vec![],
+            },
+            &ctx,
+        )
+        .await
+        .expect("template import");
+    tx.commit().await.unwrap();
+    assert_eq!(from_template.created_field_ids.len(), 1);
+    let owner: String = sqlx::query_scalar(
+        "select recipient_id::text from signature_field where id = $1::uuid",
+    )
+    .bind(&from_template.created_field_ids[0])
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(owner, env.b);
+
     // An anchor no recipient claims fails loud instead of half-mapping.
     let mut tx = db.begin("docsign-proof-import").await.unwrap();
     let refused = service

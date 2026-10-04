@@ -102,6 +102,11 @@ pub trait DocumentSignRepository: Send + Sync {
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<Option<(String, String)>>;
+    async fn template_anchors_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<serde_json::Value>>;
 }
 
 #[async_trait]
@@ -224,6 +229,13 @@ impl DocumentSignRepository for DocumentSignDao {
         signature_request_id: &str,
     ) -> DbResult<Option<(String, String)>> {
         DocumentSignDao::canonical_status_tx(self, tx, signature_request_id).await
+    }
+    async fn template_anchors_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<serde_json::Value>> {
+        DocumentSignDao::template_anchors_tx(self, tx, signature_request_id).await
     }
 }
 
@@ -1096,11 +1108,34 @@ where
 
         let result = async {
             ensure_mutable_config(&self.repository, tx, &request.signature_request_id).await?;
+            let anchors = if request.anchors.is_empty() {
+                // No anchors supplied: read the issuing template's own
+                // blocks from Vault's snapshot, so the desk button sends no
+                // geometry at all — just the envelope.
+                let raw = self
+                    .repository
+                    .template_anchors_tx(tx, &request.signature_request_id)
+                    .await?
+                    .ok_or_else(|| {
+                        CoreServiceError::business(
+                            "DOCUMENT_SIGN_FIELD_INVALID",
+                            "The issued document carries no template anchor blocks.",
+                        )
+                    })?;
+                serde_json::from_value::<Vec<TemplateAnchor>>(raw).map_err(|_| {
+                    CoreServiceError::business(
+                        "DOCUMENT_SIGN_FIELD_INVALID",
+                        "The issued document's anchor blocks are unreadable.",
+                    )
+                })?
+            } else {
+                request.anchors.clone()
+            };
             let recipients = self
                 .repository
                 .recipients_tx(tx, &request.signature_request_id)
                 .await?;
-            let groups = group_anchor_sets(&request.anchors)?;
+            let groups = group_anchor_sets(&anchors)?;
             let known: std::collections::BTreeMap<String, String> = self
                 .repository
                 .fields_tx(tx, &request.signature_request_id)

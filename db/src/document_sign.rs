@@ -516,6 +516,30 @@ impl DocumentSignDao {
         .map_err(|error| DbFailure::from_sqlx("document_sign.overdue", &error))
     }
 
+    /// The template anchor blocks recorded on the issued document's
+    /// Vault snapshot, if the issuing template declared any. Raw JSON —
+    /// parsing and validation belong to the service, not the row read.
+    pub async fn template_anchors_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<serde_json::Value>> {
+        sqlx::query_scalar::<_, Option<serde_json::Value>>(
+            r#"
+            select d.source_snapshot -> 'signatureAnchors'
+              from transaction_document d
+              join signature_request sr on sr.transaction_document_id = d.id
+             where sr.id = $1::uuid
+             limit 1
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_optional(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.template_anchors", &error))
+        .map(|row| row.flatten())
+    }
+
     pub async fn canonical_status_tx(
         &self,
         tx: &mut DbTransaction,

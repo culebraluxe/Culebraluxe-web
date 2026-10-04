@@ -236,6 +236,9 @@ pub struct TemplateAnchor {
 #[serde(rename_all = "camelCase")]
 pub struct ImportAnchorFieldsRequest {
     pub signature_request_id: String,
+    /// Explicit anchors. Empty (the desk default) reads the issuing
+    /// template's own blocks from Vault's snapshot instead.
+    #[serde(default)]
     pub anchors: Vec<TemplateAnchor>,
 }
 

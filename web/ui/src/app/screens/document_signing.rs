@@ -104,6 +104,7 @@ pub enum Msg {
     Select(String),
     ResendRecipient(String),
     VoidEnvelope,
+    ImportFields,
     Acted(Result<serde_json::Value, ApiError>),
     ClearNotice,
 }
@@ -196,6 +197,23 @@ impl Screen for DocumentSigning {
                         signature_request_id: id,
                         requested_at: now_rfc3339(),
                         input: serde_json::json!({ "recipientId": recipient_id }),
+                    },
+                    Msg::Acted,
+                )
+            }
+            Msg::ImportFields => {
+                let Some(id) = model.selected_id.clone() else {
+                    return Cmd::none();
+                };
+                model.seq += 1;
+                let seq = model.seq;
+                Cmd::request(
+                    SigningDeskCommand {
+                        command_id: format!("desk-import-{seq}"),
+                        command_type: "documentSign.importFields",
+                        signature_request_id: id,
+                        requested_at: now_rfc3339(),
+                        input: serde_json::json!({}),
                     },
                     Msg::Acted,
                 )
@@ -423,8 +441,12 @@ fn detail_panel(detail: &EnvelopeDetail, link: &Link<Msg>) -> Html {
             </div>
 
             <div class="border-t border-[var(--portal-panel-border)] p-4">
+                <button type="button" onclick={link.callback(|_: MouseEvent| Msg::ImportFields)}
+                    class="flex w-full items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 py-2.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--portal-navy)] transition hover:bg-white/60">
+                    {"Import fields from template"}
+                </button>
                 <button type="button" onclick={link.callback(|_: MouseEvent| Msg::VoidEnvelope)}
-                    class="flex w-full items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-archive)]/25 px-3 py-2.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--portal-archive)]">
+                    class="mt-2 flex w-full items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-archive)]/25 px-3 py-2.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--portal-archive)]">
                     {"Void envelope"}
                 </button>
             </div>
@@ -471,6 +493,16 @@ mod tests {
             Msg::VoidEnvelope,
             &ScreenCtx::default(),
         );
+        let request = cmd.into_requests().remove(0);
+        assert_eq!(request.path, "/v1/commands/dispatch");
+    }
+
+    #[test]
+    fn import_sends_the_envelope_without_geometry() {
+        let (mut model, _) = DocumentSigning::init(&ScreenCtx::default());
+        model.selected_id = Some("req-9".into());
+        model.seq = 3;
+        let cmd = DocumentSigning::update(&mut model, Msg::ImportFields, &ScreenCtx::default());
         let request = cmd.into_requests().remove(0);
         assert_eq!(request.path, "/v1/commands/dispatch");
     }
