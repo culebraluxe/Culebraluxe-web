@@ -63,7 +63,7 @@ pub fn is_failure_classifier(node_id: &str) -> bool {
 fn may_not_set_decision(node_id: &str) -> bool {
     !is_failure_classifier(node_id)
         && node_id != LEAD_DECISION_NODE
-        && service_for_node(node_id) == Some(LEAD_SERVICE_ID)
+        && service_for_node(node_id).ok().flatten() == Some(LEAD_SERVICE_ID)
 }
 
 /// Lead's own reading, supplied to the shared lifecycle as this lane's hooks.

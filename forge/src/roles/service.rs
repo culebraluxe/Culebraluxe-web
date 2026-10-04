@@ -69,6 +69,8 @@ pub trait AbstractForgeService: Send + Sync {
 
     fn supports_node(&self, node_id: &str) -> bool {
         service_for_node(node_id)
+            .ok()
+            .flatten()
             .map(|service_key| service_key == self.descriptor().service_id)
             .unwrap_or(false)
     }

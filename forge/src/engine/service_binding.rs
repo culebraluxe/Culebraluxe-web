@@ -31,17 +31,24 @@ use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::xml::{human_task_nodes_from_xml, service_bindings_from_xml, FORGE_SDLC_V6_XML};
 
 /// `node_id → service key` for every executable task-node in `FORGE_SDLC-v6.xml`.
-pub fn forge_service_bindings() -> &'static BTreeMap<String, String> {
-    static BINDINGS: OnceLock<BTreeMap<String, String>> = OnceLock::new();
-    BINDINGS.get_or_init(|| {
+/// Returns an error if the XML cannot be parsed, instead of panicking.
+pub fn forge_service_bindings() -> Result<&'static BTreeMap<String, String>, String> {
+    static BINDINGS: OnceLock<Result<BTreeMap<String, String>, String>> = OnceLock::new();
+    let result = BINDINGS.get_or_init(|| {
         service_bindings_from_xml(FORGE_SDLC_V6_XML)
-            .expect("FORGE_SDLC-v6.xml is the definition and its service bindings must parse")
-    })
+            .map_err(|e| format!("FORGE_SDLC-v6.xml service bindings parse failed: {e}"))
+    });
+    match result {
+        Ok(map) => Ok(map),
+        Err(e) => Err(e.clone()),
+    }
 }
 
 /// The service the XML binds to `node_id`, or `None` for a human task-node or a node the definition lacks.
-pub fn service_for_node(node_id: &str) -> Option<&'static str> {
-    forge_service_bindings().get(node_id).map(String::as_str)
+/// Returns an error if the XML bindings have not been initialized or failed to parse.
+pub fn service_for_node(node_id: &str) -> Result<Option<&'static str>, String> {
+    let bindings = forge_service_bindings()?;
+    Ok(bindings.get(node_id).map(String::as_str))
 }
 
 /// The lane that owns `node_id`: the lane its XML service key names.
@@ -50,7 +57,8 @@ pub fn service_for_node(node_id: &str) -> Option<&'static str> {
 /// error, never a default lane. A node Forge cannot place is a node Forge must not run, because "run it as Smith
 /// anyway" would hand implement authority to a role nobody granted.
 pub fn lane_for_node(node_id: &str) -> Result<LaneId, String> {
-    service_for_node(node_id)
+    let service_key = service_for_node(node_id)?;
+    service_key
         .and_then(LaneId::for_service_key)
         .ok_or_else(|| format!("No Forge agent-runtime mapping for engine node '{node_id}'"))
 }
@@ -61,12 +69,17 @@ pub fn lane_for_node(node_id: &str) -> Result<LaneId, String> {
 /// definition that already declared them), which made the definition's header comment and the engine two places to
 /// keep in step. It is read from the XML now, through the same parse as [`forge_service_bindings`], so the gate
 /// question and the service question cannot disagree.
-pub fn forge_human_gate_nodes() -> &'static BTreeSet<String> {
-    static GATES: OnceLock<BTreeSet<String>> = OnceLock::new();
-    GATES.get_or_init(|| {
+/// Returns an error if the XML cannot be parsed.
+pub fn forge_human_gate_nodes() -> Result<&'static BTreeSet<String>, String> {
+    static GATES: OnceLock<Result<BTreeSet<String>, String>> = OnceLock::new();
+    let result = GATES.get_or_init(|| {
         human_task_nodes_from_xml(FORGE_SDLC_V6_XML)
-            .expect("FORGE_SDLC-v6.xml is the definition and its human gates must parse")
-    })
+            .map_err(|e| format!("FORGE_SDLC-v6.xml human gates parse failed: {e}"))
+    });
+    match result {
+        Ok(set) => Ok(set),
+        Err(e) => Err(e.clone()),
+    }
 }
 
 /// Is this node a human gate — a task a person decides rather than a turn an agent runs?
@@ -74,8 +87,11 @@ pub fn forge_human_gate_nodes() -> &'static BTreeSet<String> {
 /// A node the definition does not know answers `false`. The direction matters: a spurious `true` is a story put into
 /// a human HOLD nobody asked for (the failure class that cost hours on 2026-09-29), while a `false` on a node that
 /// is in fact a gate means the drive reports no gate rather than inventing one.
+/// Returns `false` if the gates could not be loaded (treats unknown as non-gate, failing closed).
 pub fn is_human_gate(node_id: &str) -> bool {
-    forge_human_gate_nodes().contains(node_id)
+    forge_human_gate_nodes()
+        .map(|gates| gates.contains(node_id))
+        .unwrap_or(false)
 }
 
 /// The task-nodes the definition binds to one service key — a lane's own nodes, as the XML declares them.
@@ -90,6 +106,7 @@ pub fn is_human_gate(node_id: &str) -> bool {
 /// XML prints for a human reading it.
 pub fn nodes_for_service(key: &str) -> BTreeSet<&'static str> {
     forge_service_bindings()
+        .expect("forge service bindings must be valid")
         .iter()
         .filter(|(_, service)| service.as_str() == key)
         .map(|(node, _)| node.as_str())
@@ -101,8 +118,11 @@ impl ActiveForgeRoleTask {
     ///
     /// `None` means no agent service owns it (a human task, or a task with no node) and the caller must refuse
     /// to make it a job rather than guess.
+    /// Returns `None` if the XML bindings could not be loaded (fail closed).
     pub fn service_key(&self) -> Option<&'static str> {
-        self.node_id.as_deref().and_then(service_for_node)
+        self.node_id
+            .as_deref()
+            .and_then(|node_id| service_for_node(node_id).ok().flatten())
     }
 }
 
@@ -162,7 +182,7 @@ mod tests {
     #[test]
     fn service_identity_is_read_from_the_workflow_definition() {
         let parsed = service_bindings_from_xml(FORGE_SDLC_V6_XML).expect("bindings parse");
-        assert_eq!(forge_service_bindings(), &parsed);
+        assert_eq!(forge_service_bindings(), Ok(&parsed));
         let graph = graph();
         for (node, service) in &parsed {
             let def = graph
@@ -211,7 +231,7 @@ mod tests {
             );
         }
         assert_eq!(
-            forge_service_bindings().len(),
+            forge_service_bindings().expect("bindings must be valid").len(),
             cases.len(),
             "no unlisted binding"
         );
@@ -221,9 +241,9 @@ mod tests {
     /// collapse them back into one generic QA.
     #[test]
     fn inspector_and_assay_stay_distinct() {
-        assert_eq!(service_for_node("qa_review"), Some(INSPECTOR_SERVICE_ID));
-        assert_eq!(service_for_node("qa_verify"), Some(ASSAY_SERVICE_ID));
-        assert_eq!(service_for_node("fast_qa_verify"), Some(ASSAY_SERVICE_ID));
+        assert_eq!(service_for_node("qa_review"), Ok(Some(INSPECTOR_SERVICE_ID)));
+        assert_eq!(service_for_node("qa_verify"), Ok(Some(ASSAY_SERVICE_ID)));
+        assert_eq!(service_for_node("fast_qa_verify"), Ok(Some(ASSAY_SERVICE_ID)));
         let graph = graph();
         assert_eq!(
             graph.nodes["qa_review"].responsibility.as_deref(),
@@ -267,11 +287,12 @@ mod tests {
     /// match, so it is checked in both directions.
     #[test]
     fn a_nodes_lane_is_the_lane_its_service_names() {
-        for (node, service) in forge_service_bindings() {
+        let bindings = forge_service_bindings().expect("bindings must be valid");
+        for (node, service) in bindings.iter() {
             let lane = lane_for_node(node).unwrap_or_else(|e| panic!("{node}: {e}"));
             assert_eq!(lane.service_key(), service, "{node}");
         }
-        let bound: BTreeSet<&str> = forge_service_bindings()
+        let bound: BTreeSet<&str> = bindings
             .values()
             .map(String::as_str)
             .collect();
@@ -333,7 +354,7 @@ mod tests {
         ] {
             registry.register(service).expect("register");
         }
-        for (node, key) in forge_service_bindings() {
+        for (node, key) in forge_service_bindings().expect("bindings must be valid") {
             let service = registry
                 .resolve(key)
                 .unwrap_or_else(|e| panic!("{node} → {key}: {e}"));
@@ -433,7 +454,7 @@ mod tests {
         assert!(reachable(&graph, "hold", &[]).contains("lead_post"));
         assert_eq!(
             service_for_node("fast_confirmation"),
-            None,
+            Ok(None),
             "legacy compatibility node remains human-owned for existing instances"
         );
     }
@@ -485,7 +506,7 @@ mod tests {
     /// it true for every node (a story held for no reason). Both are asserted below, not assumed.
     #[test]
     fn the_human_gates_are_the_definitions_own_no_service_task_nodes() {
-        let gates = forge_human_gate_nodes();
+        let gates = forge_human_gate_nodes().expect("gates must be valid");
         assert_eq!(
             gates.len(),
             3,
@@ -495,7 +516,7 @@ mod tests {
             assert!(is_human_gate(gate), "{gate} is a task-node with no service");
             assert_eq!(
                 service_for_node(gate),
-                None,
+                Ok(None),
                 "{gate} is a gate and a service-owned node at once"
             );
         }
