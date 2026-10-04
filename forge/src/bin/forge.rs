@@ -5,16 +5,16 @@ use db::{AgentWorkOutcome, AgentWorkSettlement};
 use forge::engine::agent_work;
 use forge::engine::db_writer::{DbForgeEvidenceReader, DbForgeStateWriter};
 use forge::engine::definition::forge_sdlc_definition;
-use forge::engine::{
+use forge::engine::executor::{
     drive_forge_story_with_jobs, parse_forge_stop_after, DriveForgeStoryOptions,
     DurableForgeExecution, ForgeStopTarget,
 };
-use forge::engine::re_runtime::shared_forge_runtime;
 use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::git_publish::{publish_switch_off, GitReleaseOps, HostReleaseExecutor};
 use forge::engine::job::WorkflowJobService;
 use forge::engine::opencode::OpenCodeHarness;
 use forge::engine::packet::{ExecutionWorkspace, StoryPacket};
+use forge::engine::re_runtime::shared_forge_runtime;
 use forge::engine::runner::ProductionRoleRunner;
 use forge::engine::runtime::ForgeRuntime;
 use forge::engine::vendor_session::database_url;
@@ -634,7 +634,21 @@ fn drive<S: TxStore>(
             return Err(e);
         }
     };
-    drive_with_runtime(&mut rt, release, writer, evidence_reader, harness, story, work_type, stop_after, story_run_id, bench_intent, test_mode, contract_assay_commands, contract_acceptance_mapped)
+    drive_with_runtime(
+        &mut rt,
+        release,
+        writer,
+        evidence_reader,
+        harness,
+        story,
+        work_type,
+        stop_after,
+        story_run_id,
+        bench_intent,
+        test_mode,
+        contract_assay_commands,
+        contract_acceptance_mapped,
+    )
 }
 
 /// Drive a story using a pre-built ForgeRuntime (production path with shared engine).
@@ -658,7 +672,21 @@ fn drive_with_shared_runtime(
         evidence_reader.clone(),
         forge::engine::durable_completion_ledger(),
     )?;
-    drive_with_runtime(&rt, release, writer, evidence_reader, harness, story, work_type, stop_after, story_run_id, bench_intent, test_mode, contract_assay_commands, contract_acceptance_mapped)
+    drive_with_runtime(
+        &rt,
+        release,
+        writer,
+        evidence_reader,
+        harness,
+        story,
+        work_type,
+        stop_after,
+        story_run_id,
+        bench_intent,
+        test_mode,
+        contract_assay_commands,
+        contract_acceptance_mapped,
+    )
 }
 
 /// Common drive logic shared by both memory and shared-engine paths.

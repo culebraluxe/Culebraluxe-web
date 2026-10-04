@@ -7,6 +7,7 @@ pub mod baseline;
 pub mod claim_blocker;
 pub mod commands;
 pub mod completion;
+pub mod config;
 pub mod db_budget;
 pub mod db_ledger;
 pub mod db_writer;
@@ -18,29 +19,7 @@ pub mod engine_fault;
 pub mod evidence_gate;
 pub mod evidence_store;
 pub mod execution_target;
-pub mod executor {
-    pub mod completion;
-    pub mod dispatch;
-    pub mod drive;
-    pub mod lane_failure;
-    pub mod wave;
-
-    // `executor.rs` was one file until 2026-10-04; the split into the submodules above moved every item into one of
-    // them and re-exported them only at the `engine` level, which changed a path callers already name. Splitting a
-    // module is an implementation detail, so the flat surface it had as one file is restored here — the contract
-    // suite names `forge::engine::executor::ForgeRoleRunner` and must not learn the file layout instead.
-    pub use self::dispatch::{parse_forge_stop_after, resolve_forge_stop_target, ForgeStopTarget};
-    pub use self::drive::{
-        drive_forge_story, drive_forge_story_with_jobs, DriveForgeStoryOptions,
-        DriveForgeStoryResult, DurableForgeExecution, ForgeRoleOutcome, ForgeRoleRunner,
-    };
-    pub use self::lane_failure::{
-        is_advance_conflict, is_completed_release_conflict, settle_forge_lane_failure,
-        LaneFailureSettlement,
-    };
-    pub use self::wave::{plan_wave, WaveLane, WavePlan, WaveRefusal};
-}
-pub mod config;
+pub mod executor;
 pub mod facts;
 pub mod failure;
 pub mod first_violation;
@@ -151,13 +130,6 @@ pub use re_runtime::{
     start_residential_transaction,
 };
 
-pub use executor::dispatch::{parse_forge_stop_after, resolve_forge_stop_target, ForgeStopTarget};
-pub use executor::drive::{
-    drive_forge_story, drive_forge_story_with_jobs, DriveForgeStoryOptions, DriveForgeStoryResult,
-    DurableForgeExecution,
-};
-pub use executor::lane_failure::{
-    is_advance_conflict, is_completed_release_conflict, settle_forge_lane_failure,
-    LaneFailureSettlement,
-};
-pub use executor::wave::{plan_wave, WaveLane, WavePlan, WaveRefusal};
+// No `pub use executor::…` here. Re-exporting the role-job driver at this level put a role-queue name in the
+// same file as this module's story-queue re-exports, which `forge_arch_seam__003` refuses — it caught exactly
+// that when the split first landed. The executor's flat surface is its module root, `executor.rs`.
