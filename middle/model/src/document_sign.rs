@@ -106,6 +106,10 @@ pub struct DocumentSignRecipient {
     pub signing_step: i32,
     pub execution_role: Option<String>,
     pub execution_slot_id: Option<String>,
+    /// Runtime state from `signature_recipient_state`, when the read joins
+    /// it. Absent on writes and on reads that do not need liveness.
+    #[serde(default)]
+    pub state: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -208,10 +212,32 @@ pub struct DocumentSignIssueResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DocumentSignSweepResult {
+    pub expired_recipients: Vec<String>,
+    pub expired_envelopes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentSignFinalizeResult {
     pub signature_request_id: String,
     pub audit_media_id: Option<String>,
     pub already_completed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSignEnvelopeSummary {
+    pub signature_request_id: String,
+    pub transaction_document_id: String,
+    pub subject: Option<String>,
+    pub client_name: Option<String>,
+    pub signing_mode: String,
+    pub status: String,
+    pub issued_at: Option<String>,
+    pub expires_at: Option<String>,
+    pub recipient_total: i64,
+    pub completed_total: i64,
 }
 
 pub fn validate_document_sign_recipients(recipients: &[DocumentSignRecipientInput]) -> Vec<String> {

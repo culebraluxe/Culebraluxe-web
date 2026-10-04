@@ -177,6 +177,10 @@ pub trait SignerRepository: Send + Sync {
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<FinalizeInputs>;
+    async fn expire_overdue_recipients_tx(
+        &self,
+        tx: &mut DbTransaction,
+    ) -> DbResult<Vec<(String, String)>>;
     async fn initialize_state_tx(&self, tx: &mut DbTransaction, recipient_id: &str)
         -> DbResult<()>;
     async fn mark_notified_tx(&self, tx: &mut DbTransaction, recipient_id: &str) -> DbResult<()>;
@@ -278,6 +282,13 @@ impl SignerRepository for SignerDao {
     ) -> DbResult<FinalizeInputs> {
         SignerDao::finalize_inputs_tx(self, tx, signature_request_id).await
     }
+    async fn expire_overdue_recipients_tx(
+        &self,
+        tx: &mut DbTransaction,
+    ) -> DbResult<Vec<(String, String)>> {
+        SignerDao::expire_overdue_recipients_tx(self, tx).await
+    }
+
     async fn initialize_state_tx(
         &self,
         tx: &mut DbTransaction,
@@ -516,6 +527,38 @@ impl<R: SignerRepository> SignerService<R> {
     /// Reminders reuse the link the recipient already holds; a resend rotates
     /// through `issue_access_transactional` instead. Internal to issuance and
     /// reminder flows, which carry their own authorization and audit.
+    /// Overdue recipients with their envelopes, for the sweep. Internal
+    /// to the sweep, which carries the durable command's own auth.
+    pub(crate) async fn expire_overdue_recipients_tx(
+        &self,
+        tx: &mut DbTransaction,
+    ) -> DbResult<Vec<(String, String)>> {
+        self.repository.expire_overdue_recipients_tx(tx).await
+    }
+
+    /// One evidence row for a swept recipient. Internal to the sweep, which
+    /// carries the durable command's own auth.
+    pub(crate) async fn append_sweep_evidence_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        recipient_id: &str,
+        context: &ServiceContext,
+    ) -> DbResult<()> {
+        self.repository
+            .append_evidence_tx(
+                tx,
+                signature_request_id,
+                Some(recipient_id),
+                "recipient_expired",
+                context.actor.id.as_deref(),
+                Some(&context.correlation_id),
+                context.causation_id.as_deref(),
+                &serde_json::json!({}),
+            )
+            .await
+    }
+
     pub(crate) async fn active_signing_url(
         &self,
         tx: &mut DbTransaction,

@@ -104,6 +104,7 @@ impl CommandDispatcher {
             DocumentSignCommandKind::Issue,
             DocumentSignCommandKind::Void,
             DocumentSignCommandKind::Resend,
+            DocumentSignCommandKind::SweepDue,
             DocumentSignCommandKind::Finalize,
         ] {
             registry.register(Arc::new(DocumentSignCommand {
@@ -443,6 +444,7 @@ enum DocumentSignCommandKind {
     Void,
     Resend,
     Finalize,
+    SweepDue,
 }
 
 impl DocumentSignCommandKind {
@@ -456,6 +458,7 @@ impl DocumentSignCommandKind {
             Self::Void => "documentSign.void",
             Self::Resend => "documentSign.resend",
             Self::Finalize => "documentSign.finalize",
+            Self::SweepDue => "documentSign.sweepDue",
         }
     }
 }
@@ -906,6 +909,32 @@ impl DurableCommandHandler for DocumentSignCommand {
                         "signatureRequestId": signature_request_id,
                         "auditMediaId": finalized.audit_media_id,
                         "alreadyCompleted": finalized.already_completed,
+                    }),
+                ));
+                Ok(result)
+            }
+            DocumentSignCommandKind::SweepDue => {
+                let swept = match self
+                    .service
+                    .sweep_due_transactional(tx, context)
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => return core_command_error(envelope, None, error),
+                };
+                let mut result = CommandResult::success(
+                    envelope.command_id.clone(),
+                    None,
+                    Some(serialize_value(&swept)?),
+                );
+                result.emitted_events.push(command_event(
+                    envelope,
+                    "DOCUMENT_SIGN_SWEPT",
+                    "signature_request",
+                    "",
+                    json!({
+                        "expiredRecipients": swept.expired_recipients,
+                        "expiredEnvelopes": swept.expired_envelopes,
                     }),
                 ));
                 Ok(result)

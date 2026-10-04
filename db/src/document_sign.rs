@@ -1,8 +1,8 @@
 use crate::{Database, DbFailure, DbResult, DbTransaction};
 use chrono::{DateTime, Utc};
 use model::{
-    DocumentSignConfig, DocumentSignRecipient, DocumentSigningMode, PutSignatureFieldRequest,
-    SignatureField, SignatureFieldType, SignatureRecipientRole,
+    DocumentSignConfig, DocumentSignEnvelopeSummary, DocumentSignRecipient, DocumentSigningMode,
+    PutSignatureFieldRequest, SignatureField, SignatureFieldType, SignatureRecipientRole,
 };
 use serde_json::Value;
 use sqlx::FromRow;
@@ -19,6 +19,20 @@ struct ConfigRow {
 }
 
 #[derive(Debug, FromRow)]
+struct EnvelopeSummaryRow {
+    signature_request_id: String,
+    transaction_document_id: String,
+    subject: Option<String>,
+    signing_mode: String,
+    status: String,
+    issued_at: Option<DateTime<Utc>>,
+    expires_at: Option<DateTime<Utc>>,
+    client_name: Option<String>,
+    recipient_total: i64,
+    completed_total: i64,
+}
+
+#[derive(Debug, FromRow)]
 struct RecipientRow {
     id: String,
     signature_request_id: String,
@@ -29,6 +43,7 @@ struct RecipientRow {
     signing_step: i32,
     execution_role: Option<String>,
     execution_slot_id: Option<String>,
+    state: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -87,11 +102,13 @@ impl DocumentSignDao {
     ) -> DbResult<Vec<DocumentSignRecipient>> {
         let rows = sqlx::query_as::<_, RecipientRow>(
             r#"
-            select id::text as id,
-                   signature_request_id::text as signature_request_id,
-                   recipient_role, recipient_name, recipient_email,
-                   signer_order, signing_step, execution_role, execution_slot_id
-              from signature_envelope_recipient
+            select r.id::text as id,
+                   r.signature_request_id::text as signature_request_id,
+                   r.recipient_role, r.recipient_name, r.recipient_email,
+                   r.signer_order, r.signing_step, r.execution_role, r.execution_slot_id,
+                   s.state as state
+              from signature_envelope_recipient r
+              left join signature_recipient_state s on s.recipient_id = r.id
              where signature_request_id = $1::uuid
              order by signer_order, id
             "#,
@@ -110,11 +127,13 @@ impl DocumentSignDao {
     ) -> DbResult<Vec<DocumentSignRecipient>> {
         let rows = sqlx::query_as::<_, RecipientRow>(
             r#"
-            select id::text as id,
-                   signature_request_id::text as signature_request_id,
-                   recipient_role, recipient_name, recipient_email,
-                   signer_order, signing_step, execution_role, execution_slot_id
-              from signature_envelope_recipient
+            select r.id::text as id,
+                   r.signature_request_id::text as signature_request_id,
+                   r.recipient_role, r.recipient_name, r.recipient_email,
+                   r.signer_order, r.signing_step, r.execution_role, r.execution_slot_id,
+                   s.state as state
+              from signature_envelope_recipient r
+              left join signature_recipient_state s on s.recipient_id = r.id
              where signature_request_id = $1::uuid
              order by signer_order, id
             "#,
@@ -475,6 +494,28 @@ impl DocumentSignDao {
         .map_err(|error| DbFailure::from_sqlx("document_sign.audit_media_read", &error))
     }
 
+    /// Envelopes past their clock with an open canonical status. The
+    /// sweep transitions each to Expired after expiring its recipients.
+    pub async fn overdue_envelopes_tx(
+        &self,
+        tx: &mut DbTransaction,
+    ) -> DbResult<Vec<String>> {
+        sqlx::query_scalar::<_, String>(
+            r#"
+            select ds.signature_request_id::text
+              from document_sign_request ds
+              join signature_request sr on sr.id = ds.signature_request_id
+             where ds.expires_at is not null
+               and ds.expires_at <= now()
+               and sr.status in ('sent', 'viewed', 'signed')
+             order by ds.expires_at
+            "#,
+        )
+        .fetch_all(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.overdue", &error))
+    }
+
     pub async fn canonical_status_tx(
         &self,
         tx: &mut DbTransaction,
@@ -488,6 +529,55 @@ impl DocumentSignDao {
         .fetch_optional(tx.connection())
         .await
         .map_err(|error| DbFailure::from_sqlx("document_sign.canonical_status", &error))
+    }
+
+    /// Recent native envelopes with recipient progress, newest first. The
+    /// ops desk list; detail still comes from `config` + `recipients`.
+    pub async fn list_envelopes(&self, limit: i64) -> DbResult<Vec<DocumentSignEnvelopeSummary>> {
+        let rows = sqlx::query_as::<_, EnvelopeSummaryRow>(
+            r#"
+            select ds.signature_request_id::text as signature_request_id,
+                   sr.transaction_document_id::text as transaction_document_id,
+                   ds.subject as subject,
+                   ds.signing_mode as signing_mode,
+                   sr.status as status,
+                   ds.issued_at as issued_at,
+                   ds.expires_at as expires_at,
+                   (select r2.recipient_name from signature_envelope_recipient r2
+                     where r2.signature_request_id = ds.signature_request_id
+                     order by r2.signer_order, r2.id limit 1) as client_name,
+                   count(r.id)::bigint as recipient_total,
+                   count(case when s.state = 'completed' then 1 end)::bigint as completed_total
+              from document_sign_request ds
+              join signature_request sr on sr.id = ds.signature_request_id
+              left join signature_envelope_recipient r on r.signature_request_id = ds.signature_request_id
+              left join signature_recipient_state s on s.recipient_id = r.id
+             group by ds.signature_request_id, sr.transaction_document_id, ds.subject,
+                      ds.signing_mode, sr.status, ds.issued_at, ds.expires_at, sr.updated_at
+             order by sr.updated_at desc
+             limit $1
+            "#,
+        )
+        .bind(limit.clamp(1, 100))
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.list", &error))?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(DocumentSignEnvelopeSummary {
+                    signature_request_id: row.signature_request_id,
+                    transaction_document_id: row.transaction_document_id,
+                    subject: row.subject,
+                    signing_mode: row.signing_mode,
+                    status: row.status,
+                    issued_at: row.issued_at.map(|value| value.to_rfc3339()),
+                    expires_at: row.expires_at.map(|value| value.to_rfc3339()),
+                    client_name: row.client_name,
+                    recipient_total: row.recipient_total,
+                    completed_total: row.completed_total,
+                })
+            })
+            .collect()
     }
 }
 
@@ -525,6 +615,7 @@ fn map_recipient(row: RecipientRow) -> DbResult<DocumentSignRecipient> {
         signing_step: row.signing_step,
         execution_role: row.execution_role,
         execution_slot_id: row.execution_slot_id,
+        state: row.state,
     })
 }
 

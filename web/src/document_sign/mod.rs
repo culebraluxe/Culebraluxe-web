@@ -7,7 +7,7 @@ use chrono::{DateTime, Duration, Utc};
 use db::{DbResult, DbTransaction, DocumentSignDao, EmailDao, FinalizeInputs, SignatureDao, SignerDao};
 use model::{
     validate_document_sign_recipients, DocumentSignConfig, DocumentSignFinalizeResult,
-    DocumentSignIssueResult, DocumentSignRecipient, DocumentSignSnapshot, EmailMessageKind,
+    DocumentSignIssueResult, DocumentSignRecipient, DocumentSignSnapshot, DocumentSignEnvelopeSummary, DocumentSignSweepResult, EmailMessageKind,
     IssueDocumentSignRequest, PrepareDocumentSignRequest, PrepareSignatureRequest,
     PreparedSignatureRecipient, PutSignatureFieldRequest, QueueEmailRequest,
     RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest, SignatureField,
@@ -27,6 +27,7 @@ const DEFAULT_EXPIRY_DAYS: i64 = 7;
 #[async_trait]
 pub trait DocumentSignRepository: Send + Sync {
     async fn config(&self, signature_request_id: &str) -> DbResult<Option<DocumentSignConfig>>;
+    async fn list_envelopes(&self, limit: i64) -> DbResult<Vec<DocumentSignEnvelopeSummary>>;
     async fn recipients(&self, signature_request_id: &str) -> DbResult<Vec<DocumentSignRecipient>>;
     async fn recipients_tx(
         &self,
@@ -87,6 +88,10 @@ pub trait DocumentSignRepository: Send + Sync {
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<Option<String>>;
+    async fn overdue_envelopes_tx(
+        &self,
+        tx: &mut DbTransaction,
+    ) -> DbResult<Vec<String>>;
     /// The canonical status and owning document, read inside the caller's
     /// transaction. Finalize uses this instead of `signature.get` because
     /// the internal context carries no principal and must not depend on
@@ -102,6 +107,9 @@ pub trait DocumentSignRepository: Send + Sync {
 impl DocumentSignRepository for DocumentSignDao {
     async fn config(&self, signature_request_id: &str) -> DbResult<Option<DocumentSignConfig>> {
         DocumentSignDao::config(self, signature_request_id).await
+    }
+    async fn list_envelopes(&self, limit: i64) -> DbResult<Vec<DocumentSignEnvelopeSummary>> {
+        DocumentSignDao::list_envelopes(self, limit).await
     }
     async fn recipients(&self, signature_request_id: &str) -> DbResult<Vec<DocumentSignRecipient>> {
         DocumentSignDao::recipients(self, signature_request_id).await
@@ -203,6 +211,12 @@ impl DocumentSignRepository for DocumentSignDao {
     ) -> DbResult<Option<String>> {
         DocumentSignDao::audit_media_for_request_tx(self, tx, signature_request_id).await
     }
+    async fn overdue_envelopes_tx(
+        &self,
+        tx: &mut DbTransaction,
+    ) -> DbResult<Vec<String>> {
+        DocumentSignDao::overdue_envelopes_tx(self, tx).await
+    }
     async fn canonical_status_tx(
         &self,
         tx: &mut DbTransaction,
@@ -284,6 +298,35 @@ where
         }
         .await;
 
+        audit_result(
+            &self.runtime,
+            "document-sign",
+            OP,
+            context,
+            decision,
+            &result,
+        )
+        .await?;
+        result
+    }
+
+    /// Recent native envelopes for the ops desk. Inline query: no mutation,
+    /// no command receipt, the desk re-reads after each action.
+    pub async fn list(
+        &self,
+        context: &ServiceContext,
+    ) -> Result<Vec<DocumentSignEnvelopeSummary>, CoreServiceError> {
+        const OP: &str = "documentSign.list";
+        let decision = authorize(
+            &self.runtime,
+            "document-sign",
+            "documentSign.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self.repository.list_envelopes(50).await.map_err(Into::into);
         audit_result(
             &self.runtime,
             "document-sign",
@@ -1120,9 +1163,58 @@ where
             already_completed: false,
         })
     }
+
+    /// Expire what the clock has passed: overdue recipients first, then
+    /// overdue envelopes (access revoked, canonical status to Expired).
+    /// Runs inside the durable dispatcher; auth comes from the command.
+    /// Terminal states never reopen, and envelopes without an expiry clock
+    /// are left alone no matter how old they are.
+    pub async fn sweep_due_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        context: &ServiceContext,
+    ) -> Result<DocumentSignSweepResult, CoreServiceError> {
+        let internal = internal_context(context);
+        let mut expired_recipients = Vec::new();
+        for (recipient_id, signature_request_id) in self
+            .signer
+            .expire_overdue_recipients_tx(tx)
+            .await
+            .map_err(CoreServiceError::from)?
+        {
+            self.signer
+                .append_sweep_evidence_tx(tx, &signature_request_id, &recipient_id, &internal)
+                .await
+                .map_err(CoreServiceError::from)?;
+            expired_recipients.push(recipient_id);
+        }
+        let mut expired_envelopes = Vec::new();
+        for signature_request_id in
+            self.repository.overdue_envelopes_tx(tx).await.map_err(CoreServiceError::from)?
+        {
+            self.signer
+                .revoke_request_access_transactional(tx, &signature_request_id, &internal)
+                .await
+                .map_err(CoreServiceError::from)?;
+            self.signature
+                .transition_transactional(
+                    tx,
+                    &signature_request_id,
+                    SignatureRequestStatus::Expired,
+                    &internal,
+                )
+                .await?;
+            expired_envelopes.push(signature_request_id);
+        }
+        Ok(DocumentSignSweepResult {
+            expired_recipients,
+            expired_envelopes,
+        })
+    }
 }
 
-fn internal_context(context: &ServiceContext) -> ServiceContext {    ServiceContext {
+fn internal_context(context: &ServiceContext) -> ServiceContext {
+    ServiceContext {
         actor: services::ServiceActor {
             id: Some(DOCUMENT_SIGN_SERVICE_ACTOR.into()),
             kind: services::ServiceActorKind::System,
@@ -1322,6 +1414,14 @@ where
                     ServiceExecutionPolicy::inline(),
                 ),
                 capability(
+                    "documentSign.list",
+                    OperationKind::Query,
+                    "List recent native envelopes with recipient progress.",
+                    "documentSign.read",
+                    true,
+                    ServiceExecutionPolicy::inline(),
+                ),
+                capability(
                     "documentSign.prepare",
                     OperationKind::Command,
                     "Prepare a native signing envelope without external-provider delivery.",
@@ -1378,6 +1478,14 @@ where
                     ServiceExecutionPolicy::ordered("signatureRequestId"),
                 ),
                 capability(
+                    "documentSign.sweepDue",
+                    OperationKind::Command,
+                    "Expire overdue recipients and envelopes.",
+                    "documentSign.write",
+                    true,
+                    ServiceExecutionPolicy::inline(),
+                ),
+                capability(
                     "documentSign.resend",
                     OperationKind::Command,
                     "Re-send an invitation (fresh link) or a reminder (live link) to one recipient.",
@@ -1420,6 +1528,10 @@ where
                 serde_json::to_value(self.fields(&id, context).await.map_err(service_error)?)
                     .map_err(serialization_error)
             }
+            "documentSign.list" => serde_json::to_value(
+                self.list(context).await.map_err(service_error)?,
+            )
+            .map_err(serialization_error),
             "documentSign.prepare"
             | "documentSign.setRecipients"
             | "documentSign.putField"
@@ -1427,7 +1539,8 @@ where
             | "documentSign.issue"
             | "documentSign.void"
             | "documentSign.resend"
-            | "documentSign.finalize" => Err(ServiceDispatchError::business(
+            | "documentSign.finalize"
+            | "documentSign.sweepDue" => Err(ServiceDispatchError::business(
                 "DURABLE_COMMAND_REQUIRED",
                 format!(
                     "{} must enter through the durable command dispatcher.",

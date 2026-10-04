@@ -634,3 +634,89 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
     assert_eq!(media_before, media_after);
     cleanup(&db, &env).await;
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL_DEV"]
+async fn sweep_expires_overdue_grants_and_envelopes() {
+    let db = Database::connect_target(DbTarget::Dev).await.unwrap();
+    let tag = "docsign-sweep";
+    let env = envelope(&db, tag).await;
+    let signing = signer(&db);
+    let ctx = context(tag);
+    let service = document_sign(&db).await;
+
+    // Grant already lapsed for A, envelope clock in the past. The grant
+    // is issued normally then aged back (keeping expires_at > created_at,
+    // which the table constrains); only time travel is faked, not the rows.
+    let mut tx = db.begin("docsign-proof-sweep").await.unwrap();
+    signing
+        .issue_access_transactional(&mut tx, &env.a, None, &ctx)
+        .await
+        .expect("grant");
+    tx.commit().await.unwrap();
+    sqlx::query(
+        "update signature_recipient_access          set created_at = now() - interval '10 days', expires_at = now() - interval '2 days'          where recipient_id = $1::uuid",
+    )
+    .bind(&env.a)
+    .execute(db.pool())
+    .await
+    .unwrap();
+    let past = chrono::Utc::now() - chrono::Duration::days(2);
+    sqlx::query(
+        "update document_sign_request          set created_at = now() - interval '10 days', expires_at = $2          where signature_request_id = $1::uuid",
+    )
+    .bind(&env.request_id)
+    .bind(past)
+    .execute(db.pool())
+    .await
+    .unwrap();
+    // Canonical must be past requested for the envelope to be sweepable.
+    let signature = web::signature::SignatureService::new_optional(
+        db::SignatureDao::new(db.clone()),
+        None,
+        infra(),
+    );
+    let mut tx = db.begin("docsign-proof-sweep").await.unwrap();
+    signature
+        .transition_transactional(&mut tx, &env.request_id, model::SignatureRequestStatus::Sent, &ctx)
+        .await
+        .expect("sent");
+    tx.commit().await.unwrap();
+
+    let mut tx = db.begin("docsign-proof-sweep").await.unwrap();
+    let swept = service
+        .sweep_due_transactional(&mut tx, &ctx)
+        .await
+        .expect("sweep");
+    tx.commit().await.unwrap();
+    assert!(swept.expired_recipients.contains(&env.a));
+    assert!(swept.expired_envelopes.contains(&env.request_id));
+
+    let state: String = sqlx::query_scalar(
+        "select state from signature_recipient_state where recipient_id = $1::uuid",
+    )
+    .bind(&env.a)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(state, "expired");
+    let status: String = sqlx::query_scalar(
+        "select status from signature_request where id = $1::uuid",
+    )
+    .bind(&env.request_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(status, "expired");
+
+    // Second sweep is a no-op: terminal states never reopen.
+    let mut tx = db.begin("docsign-proof-sweep").await.unwrap();
+    let swept = service
+        .sweep_due_transactional(&mut tx, &ctx)
+        .await
+        .expect("resweep");
+    tx.commit().await.unwrap();
+    assert!(swept.expired_recipients.is_empty());
+    assert!(swept.expired_envelopes.is_empty());
+    cleanup(&db, &env).await;
+}

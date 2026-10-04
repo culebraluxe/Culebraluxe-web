@@ -363,3 +363,76 @@ impl Endpoint for TechCommand {
         Some(self.body.clone())
     }
 }
+
+/// The ops signing desk: recent native envelopes through the generic service
+/// dispatch, so the desk needs no bespoke read route. Answers the summaries.
+pub struct SigningDeskList;
+
+impl Endpoint for SigningDeskList {
+    const METHOD: Method = Method::Post;
+    type Response = Vec<crate::model::SigningEnvelopeSummary>;
+    fn path(&self) -> String {
+        "/v1/services/dispatch".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(serde_json::json!({
+            "domain": "document-sign",
+            "operation": "documentSign.list",
+            "payload": {},
+        }))
+    }
+}
+
+/// One envelope's detail (config, recipients with live states, fields).
+/// Answers the snapshot value.
+pub struct SigningEnvelopeGet {
+    pub signature_request_id: String,
+}
+
+impl Endpoint for SigningEnvelopeGet {
+    const METHOD: Method = Method::Post;
+    type Response = serde_json::Value;
+    fn path(&self) -> String {
+        "/v1/services/dispatch".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(serde_json::json!({
+            "domain": "document-sign",
+            "operation": "documentSign.get",
+            "payload": { "signatureRequestId": self.signature_request_id },
+        }))
+    }
+}
+
+/// One durable signing command from the desk (resend, void): the envelope
+/// the generic command dispatcher executes. Answers the command result.
+pub struct SigningDeskCommand {
+    pub command_id: String,
+    pub command_type: &'static str,
+    pub signature_request_id: String,
+    pub requested_at: String,
+    pub input: serde_json::Value,
+}
+
+impl Endpoint for SigningDeskCommand {
+    const METHOD: Method = Method::Post;
+    type Response = serde_json::Value;
+    fn path(&self) -> String {
+        "/v1/commands/dispatch".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        let mut input = self.input.as_object().cloned().unwrap_or_default();
+        input.insert(
+            "signatureRequestId".into(),
+            serde_json::Value::String(self.signature_request_id.clone()),
+        );
+        Some(serde_json::json!({
+            "commandId": self.command_id,
+            "commandType": self.command_type,
+            "aggregateType": "signature_request",
+            "aggregateId": self.signature_request_id,
+            "requestedAt": self.requested_at,
+            "input": input,
+        }))
+    }
+}

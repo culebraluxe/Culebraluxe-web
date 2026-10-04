@@ -679,6 +679,38 @@ impl SignerDao {
         Ok(())
     }
 
+    /// Expire overdue recipients: non-terminal states whose access grant
+    /// lapsed, or whose envelope clock passed. Returns the expired ids so
+    /// the caller can record evidence per recipient. Terminal states
+    /// (completed, declined, expired, revoked) never reopen.
+    pub async fn expire_overdue_recipients_tx(
+        &self,
+        tx: &mut DbTransaction,
+    ) -> DbResult<Vec<(String, String)>> {
+        sqlx::query_as::<_, (String, String)>(
+            r#"
+            update signature_recipient_state s
+               set state = 'expired',
+                   expired_at = coalesce(s.expired_at, now()),
+                   last_activity_at = now(),
+                   revision = revision + 1
+              from signature_envelope_recipient r
+              left join signature_recipient_access a on a.recipient_id = r.id
+              left join document_sign_request ds on ds.signature_request_id = r.signature_request_id
+             where s.recipient_id = r.id
+               and s.state not in ('completed', 'declined', 'expired', 'revoked')
+               and (
+                    (a.recipient_id is not null and a.revoked_at is null and a.expires_at <= now())
+                 or (ds.expires_at is not null and ds.expires_at <= now())
+               )
+             returning s.recipient_id::text, r.signature_request_id::text
+            "#,
+        )
+        .fetch_all(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signer.expire_overdue", &error))
+    }
+
     /// Everything the completion audit artifact is built from, read in one
     /// place: recipients with runtime state and consent evidence, fields
     /// with their responses, and the append-only event ledger in order.
@@ -819,6 +851,8 @@ fn map_recipient(row: RecipientRow) -> DbResult<DocumentSignRecipient> {
         signing_step: row.signing_step,
         execution_role: row.execution_role,
         execution_slot_id: row.execution_slot_id,
+        // Session reads carry liveness separately; this snapshot stays state-free.
+        state: None,
     })
 }
 
