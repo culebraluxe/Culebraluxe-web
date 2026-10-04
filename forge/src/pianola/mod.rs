@@ -24,6 +24,7 @@ pub mod batch;
 pub mod escalation;
 pub mod status;
 pub mod supervisor;
+pub mod worker;
 pub mod worker_lanes;
 
 #[cfg(test)]
