@@ -170,6 +170,7 @@ pub mod screen {
         Upload,
         VideoUpload,
         PostForm,
+        InitMap,
     }
 
     /// Flatten a command tree into its kinds, depth-first. A `Batch` contributes itself and then its children.
@@ -195,6 +196,7 @@ pub mod screen {
                 Cmd::Upload(_) => out.push(CommandKind::Upload),
                 Cmd::VideoUpload(_) => out.push(CommandKind::VideoUpload),
                 Cmd::PostForm { .. } => out.push(CommandKind::PostForm),
+                Cmd::InitMap { .. } => out.push(CommandKind::InitMap),
             }
         }
         let mut kinds = Vec::new();
