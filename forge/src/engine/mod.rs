@@ -24,7 +24,23 @@ pub mod executor {
     pub mod drive;
     pub mod lane_failure;
     pub mod wave;
+
+    // `executor.rs` was one file until 2026-10-04; the split into the submodules above moved every item into one of
+    // them and re-exported them only at the `engine` level, which changed a path callers already name. Splitting a
+    // module is an implementation detail, so the flat surface it had as one file is restored here — the contract
+    // suite names `forge::engine::executor::ForgeRoleRunner` and must not learn the file layout instead.
+    pub use self::dispatch::{parse_forge_stop_after, resolve_forge_stop_target, ForgeStopTarget};
+    pub use self::drive::{
+        drive_forge_story, drive_forge_story_with_jobs, DriveForgeStoryOptions,
+        DriveForgeStoryResult, DurableForgeExecution, ForgeRoleOutcome, ForgeRoleRunner,
+    };
+    pub use self::lane_failure::{
+        is_advance_conflict, is_completed_release_conflict, settle_forge_lane_failure,
+        LaneFailureSettlement,
+    };
+    pub use self::wave::{plan_wave, WaveLane, WavePlan, WaveRefusal};
 }
+pub mod config;
 pub mod facts;
 pub mod failure;
 pub mod first_violation;
@@ -83,7 +99,6 @@ pub mod validate;
 pub mod vendor_session;
 pub mod verification;
 pub mod version_policy;
-pub mod config;
 pub mod worker;
 pub mod workspace_id;
 pub mod worktree;
@@ -132,15 +147,17 @@ pub use re_commands::{assert_command_nodes_routed, XML_COMMAND_NODE_TYPES};
 pub use re_port::{CompositeApplicationPort, ReApplicationPort};
 
 pub use re_runtime::{
-    complete_workflow_task, reconcile_closing_timer, start_residential_transaction, shared_forge_runtime,
+    complete_workflow_task, reconcile_closing_timer, shared_forge_runtime,
+    start_residential_transaction,
 };
 
+pub use executor::dispatch::{parse_forge_stop_after, resolve_forge_stop_target, ForgeStopTarget};
 pub use executor::drive::{
     drive_forge_story, drive_forge_story_with_jobs, DriveForgeStoryOptions, DriveForgeStoryResult,
     DurableForgeExecution,
 };
-pub use executor::dispatch::{parse_forge_stop_after, resolve_forge_stop_target, ForgeStopTarget};
 pub use executor::lane_failure::{
-    is_advance_conflict, is_completed_release_conflict, settle_forge_lane_failure, LaneFailureSettlement,
+    is_advance_conflict, is_completed_release_conflict, settle_forge_lane_failure,
+    LaneFailureSettlement,
 };
 pub use executor::wave::{plan_wave, WaveLane, WavePlan, WaveRefusal};
