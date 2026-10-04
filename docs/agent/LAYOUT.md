@@ -11,7 +11,9 @@ Written 2026-10-01, when the tree moved out of `~/Documents`. This is the machin
 │   ├── Culebraluxe-web/     main checkout,   branch main        (the repo you are in)
 │   ├── lane-gpt/            git worktree,    branch lane/gpt
 │   ├── lane-claude/         git worktree,    branch lane/claude
-│   └── lane-deep/           git worktree,    branch lane/deep
+│   ├── lane-deep/           git worktree,    branch lane/deep
+│   ├── lane-grok/           git worktree,    branch lane/grok
+│   └── lane-muse/           git worktree,    branch lane/muse
 └── build/
     ├── rust/                CARGO_TARGET_DIR, shared by every worktree
     └── logs/                launchd job logs (wip-snapshot.log, wip-snapshot.err.log)
