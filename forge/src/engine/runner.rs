@@ -4,8 +4,7 @@
 use crate::engine::assay::CommandResult;
 use crate::engine::executor::drive::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
-use crate::engine::harness_usage::HarnessUsage;
-use crate::engine::opencode_client::TurnTermination;
+use crate::engine::harness::{HarnessUsage, TurnTermination};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::writer::{ForgeEvidenceReader, ForgeStateWriter};
 use workflow::Result;

@@ -27,7 +27,7 @@
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
 use crate::engine::executor::drive::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
-use crate::engine::harness_usage::HarnessUsage;
+use crate::engine::harness::HarnessUsage;
 use crate::engine::hold::{
     deliverable_enforcement_enabled, parse_deliverable_reprompt_budget, OpenHold,
 };
@@ -192,6 +192,20 @@ pub fn run_forge_role_turn(
     // refusal belongs before a turn is paid for rather than after. This is the check the deleted
     // `ForgePhaseAgent::new` made at the top of every collect.
     lane_for_node(node_id).map_err(WorkflowError::generic)?;
+
+    // Reject empty story_id BEFORE any harness turn runs. The writes below are
+    // identity-bearing (forge_hold_record.story_id, forge_tool_artifact.story_id),
+    // and a task with no story id must not spend money on a turn. The same error
+    // string, just earlier — before the for attempt loop.
+    let story_id = task.story_id.as_str();
+    if story_id.trim().is_empty() {
+        return Err(WorkflowError::generic(format!(
+            "role task {} carries no story id; refusing to write identity-bearing Forge records against \
+             the process-instance id",
+            task.task_id
+        )));
+    }
+
     for attempt in 0..budget {
         let mut out = ctx.harness.run_role(node_id, task, self_heal.as_deref())?;
         // The harness reported facts; the lane judges them before anything below reads them.
@@ -274,14 +288,8 @@ pub fn run_forge_role_turn(
     // `forge_tool_artifact.story_id` are foreign keys to `storyboard_story(id)`, so a process-instance UUID
     // substituted here is a row the database refuses. `runtime::list_role_tasks` fills it from the story that
     // owns the instance; a task that carries none is refused rather than given one.
+    // Empty story_id was already rejected above, before any harness turn ran.
     let story_id = task.story_id.as_str();
-    if story_id.trim().is_empty() {
-        return Err(WorkflowError::generic(format!(
-            "role task {} carries no story id; refusing to write identity-bearing Forge records against \
-             the process-instance id",
-            task.task_id
-        )));
-    }
 
     // The lane's OWN reading of the turn — the only role-specific step in this function, and the only
     // one that may write a role's record. It runs before the gate below, so a refusal a role reads
@@ -696,9 +704,10 @@ mod tests {
             0,
             "no reading may run before identity is settled"
         );
-        assert!(
-            harness.turns() >= 1,
-            "the model turn already happened: the refusal is about identity-bearing writes"
+        assert_eq!(
+            harness.turns(),
+            0,
+            "identity is settled before any harness turn runs"
         );
         assert!(
             writer.holds.lock().unwrap().is_empty(),

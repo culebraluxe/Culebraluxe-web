@@ -7,11 +7,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::engine::assay::CommandResult;
+use crate::engine::harness::{HarnessUsage, TurnTermination};
 use crate::engine::harness_usage::UsageBaseline;
 use crate::engine::opencode_agents;
 use crate::engine::opencode_client::{
     live_turn_slot, start_opencode_run_streaming, LiveTurnSlot, OpenCodeStartOptions, StreamStop,
-    StreamedRunResult, TurnTermination,
+    StreamedRunResult,
 };
 use crate::engine::opencode_events;
 use crate::engine::packet::{build_task_text_with_context, ExecutionWorkspace, StoryPacket};
@@ -698,6 +699,12 @@ impl RoleHarness for OpenCodeHarness {
         // reading, and §7 requires that spend not to vanish with the turn.
         let usage = baseline
             .after_turn(reported_session.as_deref())
+            .map(|u| crate::engine::harness::HarnessUsage {
+                session_id: u.session_id,
+                tokens_input: u.tokens_input,
+                tokens_output: u.tokens_output,
+                cost_usd: u.cost_usd,
+            })
             .or_else(|| turn.as_ref().ok().and_then(|events| events.usage.clone()));
         let spent = usage
             .as_ref()

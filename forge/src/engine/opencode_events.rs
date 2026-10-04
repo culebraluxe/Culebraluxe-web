@@ -32,7 +32,7 @@
 
 use serde_json::Value;
 
-use crate::engine::harness_usage::HarnessUsage;
+use crate::engine::harness::HarnessUsage;
 use workflow::{Result, WorkflowError};
 
 /// V2's own key for a session id, at the top level of an event and again inside `part`.

@@ -492,7 +492,7 @@ pub fn read_delivered_work(
 mod tests {
     use super::*;
     use crate::engine::assay::CommandResult;
-    use crate::engine::harness_usage::HarnessUsage;
+    use crate::engine::harness::HarnessUsage;
     use crate::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};
     use crate::engine::runtime::ActiveForgeRoleTask;
 

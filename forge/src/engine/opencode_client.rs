@@ -26,6 +26,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
+use crate::engine::harness::TurnTermination;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OpenCodeRunStatus {
     Success,
@@ -438,19 +440,6 @@ pub type LiveTurnSlot = std::sync::Arc<std::sync::Mutex<LiveTurn>>;
 
 pub fn live_turn_slot() -> LiveTurnSlot {
     std::sync::Arc::new(std::sync::Mutex::new(LiveTurn::default()))
-}
-
-/// What a termination actually did, so a stop can be reported rather than assumed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TurnTermination {
-    pub pid: u32,
-    /// Group members and descendants Forge signalled, in the order it signalled them.
-    pub signalled: Vec<u32>,
-    /// True when TERM was not enough and KILL was sent.
-    pub killed: bool,
-    /// False when the pid was already gone. A stop that arrives after the turn ended is not a failure: reporting
-    /// it as one would make every fast turn look like a broken stop.
-    pub existed: bool,
 }
 
 /// Why the client stopped a turn mid-flight, in Forge's own vocabulary (`MODEL_TURN_CAP`, `BUDGET_EXHAUSTED`).

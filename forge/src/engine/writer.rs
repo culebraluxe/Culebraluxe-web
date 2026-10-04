@@ -26,7 +26,7 @@ pub trait ForgeStateWriter: Send + Sync {
     fn record_run_usage(
         &self,
         run_id: &str,
-        usage: &crate::engine::harness_usage::HarnessUsage,
+        usage: &crate::engine::harness::HarnessUsage,
     ) -> Result<(), String>;
 }
 
@@ -68,7 +68,7 @@ impl ForgeStateWriter for NullWriter {
     fn record_run_usage(
         &self,
         _r: &str,
-        _u: &crate::engine::harness_usage::HarnessUsage,
+        _u: &crate::engine::harness::HarnessUsage,
     ) -> Result<(), String> {
         Ok(())
     }
@@ -85,7 +85,7 @@ pub struct RecordingWriter {
     /// Every tool artifact the engine asked to record, in the order it asked.
     pub artifacts: std::sync::Mutex<Vec<db::NewToolArtifact>>,
     /// `(run_id, usage)` for every spend reading the engine asked to add to a run.
-    pub usage: std::sync::Mutex<Vec<(String, crate::engine::harness_usage::HarnessUsage)>>,
+    pub usage: std::sync::Mutex<Vec<(String, crate::engine::harness::HarnessUsage)>>,
 }
 
 impl Default for RecordingWriter {
@@ -150,7 +150,7 @@ impl ForgeStateWriter for RecordingWriter {
     fn record_run_usage(
         &self,
         run_id: &str,
-        usage: &crate::engine::harness_usage::HarnessUsage,
+        usage: &crate::engine::harness::HarnessUsage,
     ) -> Result<(), String> {
         self.usage
             .lock()

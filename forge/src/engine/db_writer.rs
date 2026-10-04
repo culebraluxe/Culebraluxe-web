@@ -138,7 +138,7 @@ impl ForgeStateWriter for DbForgeStateWriter {
     fn record_run_usage(
         &self,
         run_id: &str,
-        usage: &crate::engine::harness_usage::HarnessUsage,
+        usage: &crate::engine::harness::HarnessUsage,
     ) -> Result<(), String> {
         self.run(|dao, rt| {
             rt.block_on(async {
