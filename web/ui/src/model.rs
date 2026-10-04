@@ -18,6 +18,7 @@ mod deals;
 mod forms_projects;
 mod records;
 mod screen_state;
+mod signing;
 mod site;
 mod support;
 mod tech_ops;
@@ -32,6 +33,8 @@ pub use forms_projects::*;
 pub use records::*;
 #[allow(unused_imports)]
 pub use screen_state::*;
+#[allow(unused_imports)]
+pub use signing::*;
 #[allow(unused_imports)]
 pub use site::*;
 #[allow(unused_imports)]

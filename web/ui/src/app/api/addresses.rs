@@ -228,6 +228,41 @@ impl Endpoint for MapsKey {
     }
 }
 
+/// The public signer edge: the session behind one signing link, then the
+/// recipient's own actions. The token travels in the body, never the URL.
+pub struct SignerSessionPost {
+    pub token: String,
+}
+
+impl Endpoint for SignerSessionPost {
+    const METHOD: Method = Method::Post;
+    type Response = crate::model::SignerSession;
+    fn path(&self) -> String {
+        "/v1/signer/session".into()
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(serde_json::json!({ "accessToken": self.token }))
+    }
+}
+
+/// One signer command through the edge: open, consent, field, complete or
+/// decline. Answers the durable command result.
+pub struct SignerActPost {
+    pub action: &'static str,
+    pub body: serde_json::Value,
+}
+
+impl Endpoint for SignerActPost {
+    const METHOD: Method = Method::Post;
+    type Response = serde_json::Value;
+    fn path(&self) -> String {
+        format!("/v1/signer/{}", self.action)
+    }
+    fn body(&self) -> Option<serde_json::Value> {
+        Some(self.body.clone())
+    }
+}
+
 impl Endpoint for WebsiteIntake {
     const METHOD: Method = Method::Post;
     type Response = IntakeAnswer;

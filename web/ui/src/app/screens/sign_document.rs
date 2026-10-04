@@ -1,136 +1,322 @@
-//! Public, unlisted signer prototype — disconnected Yew/MVI.
+//! Public signer: the session behind one signing link, wired live.
 //!
-//! The eventual route is capability-token driven. For this visual pass the token is accepted only as route context;
-//! no service, Vault bytes, identity proof, or persistence is touched.
+//! The token in `/sign/:token` is the credential. Init loads the session,
+//! records the open, and the recipient works their own fields through the
+//! edge commands — consent, field, complete, decline — re-reading the
+//! session after each answer so the screen always draws server truth.
+
+use std::collections::BTreeMap;
 
 use yew::prelude::*;
 
-use crate::app::cmd::Cmd;
+use crate::app::api::{SignerActPost, SignerSessionPost};
+use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
+use crate::app::template;
+use crate::model::{SignerField, SignerSession};
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Model {
-    signer_name: String,
-    initials: String,
-    document_title: String,
-    property: String,
-    consent: bool,
-    completed: bool,
-    signature_style: usize,
-    token_hint: String,
+/// The consent sentence shown beside the checkbox. Stored verbatim as
+/// evidence, so this text and its hash are what the signer accepted.
+const CONSENT_TEXT: &str =
+    "I agree to use this electronic signature and intend to sign this document.";
+const CONSENT_VERSION: &str = "v1";
+
+fn consent_sha256() -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(CONSENT_TEXT.as_bytes()))
 }
 
-impl Default for Model {
-    fn default() -> Self {
-        let signer_name = "María Rivera".to_string();
-        Self {
-            initials: initials_for(&signer_name),
-            signer_name,
-            document_title: "Listing Contract".into(),
-            property: "Casa Luar".into(),
-            consent: false,
-            completed: false,
-            signature_style: 0,
-            token_hint: "demo".into(),
-        }
-    }
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Model {
+    token: String,
+    session: Remote<SignerSession>,
+    consent: bool,
+    signature_style: usize,
+    /// Text-like field values by field id.
+    values: BTreeMap<String, String>,
+    /// Checkbox states by field id.
+    checked: BTreeMap<String, bool>,
+    /// Selected option by field id (radio, dropdown).
+    selected: BTreeMap<String, String>,
+    working: bool,
+    notice: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Msg {
+    SessionLoaded(Result<SignerSession, ApiError>),
     ConsentChanged(bool),
     SignatureStyle(usize),
-    Complete,
-    StartOver,
+    FieldChanged(String, String),
+    FieldChecked(String, bool),
+    OptionSelected(String, String),
+    ConsentSubmitted,
+    FieldSubmitted(String),
+    CompleteSubmitted,
+    DeclineSubmitted,
+    Acted(Result<serde_json::Value, ApiError>),
 }
 
 pub struct SignDocument;
+
+fn act(token: &str, recipient_id: &str, action: &'static str, extra: serde_json::Value) -> Cmd<Msg> {
+    let mut body = extra.as_object().cloned().unwrap_or_default();
+    body.insert(
+        "accessToken".into(),
+        serde_json::Value::String(token.to_owned()),
+    );
+    body.insert(
+        "recipientId".into(),
+        serde_json::Value::String(recipient_id.to_owned()),
+    );
+    Cmd::request(SignerActPost { action, body: serde_json::Value::Object(body) }, Msg::Acted)
+}
+
+fn reload(token: &str) -> Cmd<Msg> {
+    Cmd::request(
+        SignerSessionPost {
+            token: token.to_owned(),
+        },
+        Msg::SessionLoaded,
+    )
+}
 
 impl Screen for SignDocument {
     type Model = Model;
     type Msg = Msg;
 
     fn init(ctx: &ScreenCtx) -> (Model, Cmd<Msg>) {
-        let mut model = Model::default();
-        model.token_hint = ctx
-            .id
-            .as_deref()
-            .unwrap_or("demo")
-            .chars()
-            .take(12)
-            .collect();
-        (model, Cmd::none())
+        let token = ctx.id.clone().unwrap_or_default();
+        let mut model = Model {
+            token: token.clone(),
+            session: Remote::Loading,
+            ..Model::default()
+        };
+        if token.trim().is_empty() {
+            model.session = Remote::Failed(ApiError::network("This signing link is missing its token."));
+            return (model, Cmd::none());
+        }
+        let cmd = reload(&token);
+        (model, cmd)
     }
 
     fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
         match msg {
-            Msg::ConsentChanged(value) => model.consent = value,
-            Msg::SignatureStyle(style) => model.signature_style = style.min(2),
-            Msg::Complete if model.consent => model.completed = true,
-            Msg::Complete => {}
-            Msg::StartOver => {
-                model.completed = false;
-                model.consent = false;
+            Msg::SessionLoaded(Ok(session)) => {
+                let first_sight = !matches!(model.session, Remote::Loaded(_));
+                let token = model.token.clone();
+                let recipient = session.recipient.id.clone();
+                model.session = Remote::Loaded(session);
+                model.working = false;
+                // Record the open once, when the session first arrives.
+                if first_sight {
+                    return act(&token, &recipient, "open", serde_json::json!({}));
+                }
+                Cmd::none()
+            }
+            Msg::SessionLoaded(Err(error)) => {
+                model.session = Remote::Failed(error);
+                model.working = false;
+                Cmd::none()
+            }
+            Msg::ConsentChanged(value) => {
+                model.consent = value;
+                Cmd::none()
+            }
+            Msg::SignatureStyle(style) => {
+                model.signature_style = style.min(2);
+                Cmd::none()
+            }
+            Msg::FieldChanged(id, value) => {
+                model.values.insert(id, value);
+                Cmd::none()
+            }
+            Msg::FieldChecked(id, value) => {
+                model.checked.insert(id, value);
+                Cmd::none()
+            }
+            Msg::OptionSelected(id, value) => {
+                model.selected.insert(id, value);
+                Cmd::none()
+            }
+            Msg::ConsentSubmitted => {
+                let (token, recipient) = match &model.session {
+                    Remote::Loaded(session) if !model.working => {
+                        (model.token.clone(), session.recipient.id.clone())
+                    }
+                    _ => return Cmd::none(),
+                };
+                model.working = true;
+                model.notice = None;
+                act(
+                    &token,
+                    &recipient,
+                    "consent",
+                    serde_json::json!({
+                        "consentVersion": CONSENT_VERSION,
+                        "consentText": CONSENT_TEXT,
+                        "consentTextSha256": consent_sha256(),
+                    }),
+                )
+            }
+            Msg::FieldSubmitted(id) => {
+                let (token, recipient, value) = match &model.session {
+                    Remote::Loaded(session) if !model.working => {
+                        let field = session.fields.iter().find(|field| field.id == id);
+                        let field = match field {
+                            Some(field) => field,
+                            None => return Cmd::none(),
+                        };
+                        (
+                            model.token.clone(),
+                            session.recipient.id.clone(),
+                            field_value(field, model),
+                        )
+                    }
+                    _ => return Cmd::none(),
+                };
+                model.working = true;
+                model.notice = None;
+                act(
+                    &token,
+                    &recipient,
+                    "field",
+                    serde_json::json!({ "fieldId": id, "value": value }),
+                )
+            }
+            Msg::CompleteSubmitted => {
+                let (token, recipient) = match &model.session {
+                    Remote::Loaded(session) if !model.working => {
+                        (model.token.clone(), session.recipient.id.clone())
+                    }
+                    _ => return Cmd::none(),
+                };
+                model.working = true;
+                model.notice = None;
+                act(&token, &recipient, "complete", serde_json::json!({}))
+            }
+            Msg::DeclineSubmitted => {
+                let (token, recipient) = match &model.session {
+                    Remote::Loaded(session) if !model.working => {
+                        (model.token.clone(), session.recipient.id.clone())
+                    }
+                    _ => return Cmd::none(),
+                };
+                model.working = true;
+                model.notice = None;
+                act(&token, &recipient, "decline", serde_json::json!({}))
+            }
+            Msg::Acted(Ok(_)) => reload(&model.token.clone()),
+            Msg::Acted(Err(error)) => {
+                model.working = false;
+                model.notice = Some(error.message.clone());
+                Cmd::none()
             }
         }
-        Cmd::none()
     }
 
     fn view(model: &Model, _ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
-        if model.completed {
-            return completed_view(model, link);
+        match &model.session {
+            Remote::Loading | Remote::NotAsked => html! {
+                <main class="flex min-h-screen items-center justify-center bg-[#f4f1ea] px-4">
+                    { template::loading_toned(template::Tone::Site, "your signing session") }
+                </main>
+            },
+            Remote::Failed(error) => html! {
+                <main class="flex min-h-screen items-center justify-center bg-[#f4f1ea] px-4">
+                    <div class="w-full max-w-md">
+                        { template::failure(error) }
+                    </div>
+                </main>
+            },
+            Remote::Loaded(session) => {
+                if session.state == "completed" {
+                    return completed_view(session);
+                }
+                signing_view(model, session, link)
+            }
         }
+    }
+}
 
-        html! {
-            <main class="min-h-screen bg-[#f4f1ea] px-4 py-8 sm:px-6 lg:px-8">
-                <div class="mx-auto max-w-6xl">
-                    <header class="mb-5 flex flex-wrap items-end justify-between gap-4">
-                        <div>
-                            <p class="text-[10px] font-medium uppercase tracking-[0.24em] text-[#a88450]">{"CulebraLuxe · Secure Signing"}</p>
-                            <h1 class="mt-1 font-serif text-3xl font-light text-[#041024]">{ model.document_title.clone() }</h1>
-                            <p class="mt-1 text-sm font-light text-black/45">{ format!("{} · Prepared for {}", model.property, model.signer_name) }</p>
+/// The value to send for one field, from the screen's inputs.
+fn field_value(field: &SignerField, model: &Model) -> serde_json::Value {
+    match field.field_type.as_str() {
+        "checkbox" => serde_json::json!({
+            "checked": model.checked.get(&field.id).copied().unwrap_or(false)
+        }),
+        "radio" | "dropdown" => serde_json::json!({
+            "option": model.selected.get(&field.id).cloned().unwrap_or_default()
+        }),
+        "signature" => serde_json::json!({
+            "style": model.signature_style,
+            "name": field_label_name(model, field),
+        }),
+        _ => serde_json::json!({
+            "text": model.values.get(&field.id).cloned().unwrap_or_default()
+        }),
+    }
+}
+
+fn field_label_name(model: &Model, _field: &SignerField) -> String {
+    match &model.session {
+        Remote::Loaded(session) => session.recipient.name.clone(),
+        _ => String::new(),
+    }
+}
+
+fn signing_view(model: &Model, session: &SignerSession, link: &Link<Msg>) -> Html {
+    let turn = session.is_turn;
+    html! {
+        <main class="min-h-screen bg-[#f4f1ea] px-4 py-8 sm:px-6 lg:px-8">
+            <div class="mx-auto max-w-6xl">
+                <header class="mb-5 flex flex-wrap items-end justify-between gap-4">
+                    <div>
+                        <p class="text-[10px] font-medium uppercase tracking-[0.24em] text-[#a88450]">{"CulebraLuxe · Secure Signing"}</p>
+                        <h1 class="mt-1 font-serif text-3xl font-light text-[#041024]">{"Review and sign"}</h1>
+                        <p class="mt-1 text-sm font-light text-black/45">{ format!("Prepared for {}", session.recipient.name) }</p>
+                    </div>
+                    <div class="rounded-full border border-black/10 bg-white/70 px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.12em] text-black/40">
+                        { session_state_label(session) }
+                    </div>
+                </header>
+
+                if let Some(notice) = &model.notice {
+                    <div class="mb-5 rounded-lg border border-red-900/20 bg-red-50 px-4 py-3 text-sm font-light text-red-900">{ notice.clone() }</div>
+                }
+
+                if !turn {
+                    <div class="mb-5 rounded-lg border border-[#caa36b]/50 bg-[#fffaf0] px-4 py-3 text-sm font-light text-black/60">
+                        {"An earlier signer must finish first — your fields unlock when your turn arrives."}
+                    </div>
+                }
+
+                <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]">
+                    <section class="overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
+                        <div class="flex items-center justify-between border-b border-black/10 bg-white/75 px-4 py-2.5">
+                            <span class="text-[10px] font-medium uppercase tracking-[0.14em] text-black/45">{"Your fields"}</span>
+                            <span class="text-[10px] font-light text-black/35">{ format!("{} fields", session.fields.len()) }</span>
                         </div>
-                        <div class="rounded-full border border-black/10 bg-white/70 px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.12em] text-black/40">
-                            { format!("Private link · {}", model.token_hint) }
+                        <div class="space-y-5 p-4 sm:p-6">
+                            { for session.fields.iter().map(|field| field_editor(model, session, field, link)) }
+                            if session.fields.is_empty() {
+                                <p class="text-sm font-light text-black/45">{"No fields are assigned to you on this document."}</p>
+                            }
                         </div>
-                    </header>
+                    </section>
 
-                    <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]">
-                        <section class="overflow-hidden rounded-xl border border-black/10 bg-[#dad7d0] shadow-sm">
-                            <div class="flex items-center justify-between border-b border-black/10 bg-white/75 px-4 py-2.5">
-                                <span class="text-[10px] font-medium uppercase tracking-[0.14em] text-black/45">{"Document preview"}</span>
-                                <span class="text-[10px] font-light text-black/35">{"Page 6 of 6 · demo"}</span>
+                    <aside class="self-start rounded-xl border border-black/10 bg-white p-5 shadow-sm lg:sticky lg:top-6">
+                        <p class="text-[10px] font-medium uppercase tracking-[0.16em] text-[#a88450]">{"Your signature"}</p>
+                        <h2 class="mt-1 font-serif text-2xl font-light text-[#041024]">{ "Review and sign" }</h2>
+
+                        <div class="mt-5">
+                            <p class="text-[9px] font-medium uppercase tracking-[0.14em] text-black/35">{"Choose appearance"}</p>
+                            <div class="mt-2 space-y-2">
+                                { for (0..3).map(|style| signature_choice(&session.recipient.name, model.signature_style, style, link)) }
                             </div>
-                            <div class="p-3 sm:p-6">
-                                { fake_pdf(model) }
-                            </div>
-                        </section>
+                        </div>
 
-                        <aside class="self-start rounded-xl border border-black/10 bg-white p-5 shadow-sm lg:sticky lg:top-6">
-                            <p class="text-[10px] font-medium uppercase tracking-[0.16em] text-[#a88450]">{"Your signature"}</p>
-                            <h2 class="mt-1 font-serif text-2xl font-light text-[#041024]">{ "Review and sign" }</h2>
-                            <p class="mt-2 text-sm font-light leading-6 text-black/50">
-                                {"Review the agreement. CulebraLuxe will place your adopted signature, initials and today's signing date in your assigned fields."}
-                            </p>
-
-                            <div class="mt-5">
-                                <p class="text-[9px] font-medium uppercase tracking-[0.14em] text-black/35">{"Choose appearance"}</p>
-                                <div class="mt-2 space-y-2">
-                                    { for (0..3).map(|style| signature_choice(model, style, link)) }
-                                </div>
-                            </div>
-
-                            <div class="mt-5 rounded-lg bg-[#f7f4ed] p-3">
-                                <div class="flex items-center justify-between gap-3">
-                                    <span class="text-[9px] font-medium uppercase tracking-[0.12em] text-black/35">{"Initials"}</span>
-                                    <span class="font-serif text-lg font-semibold italic text-[#041024]">{ model.initials.clone() }</span>
-                                </div>
-                                <div class="mt-2 flex items-center justify-between gap-3 border-t border-black/5 pt-2">
-                                    <span class="text-[9px] font-medium uppercase tracking-[0.12em] text-black/35">{"Signing date"}</span>
-                                    <span class="text-xs font-light text-black/60">{"October 1, 2026"}</span>
-                                </div>
-                            </div>
-
+                        if !session.consented {
                             <label class="mt-5 flex cursor-pointer items-start gap-3 text-xs font-light leading-5 text-black/60">
                                 <input
                                     type="checkbox"
@@ -144,78 +330,155 @@ impl Screen for SignDocument {
                                     })}
                                     class="mt-1 h-4 w-4 accent-[#041024]"
                                 />
-                                <span>{"I agree to use this electronic signature and intend to sign this document."}</span>
+                                <span>{ CONSENT_TEXT }</span>
                             </label>
-
                             <button
                                 type="button"
-                                disabled={!model.consent}
-                                onclick={link.callback(|_: MouseEvent| Msg::Complete)}
+                                disabled={!model.consent || model.working}
+                                onclick={link.callback(|_: MouseEvent| Msg::ConsentSubmitted)}
                                 class="mt-5 flex w-full items-center justify-center rounded-lg bg-[#041024] px-4 py-3 text-[11px] font-medium uppercase tracking-[0.16em] text-white transition hover:bg-[#0a1b38] disabled:cursor-not-allowed disabled:opacity-35"
                             >
-                                {"Sign & Complete"}
+                                { if model.working { "Working…" } else { "Accept & Continue" } }
                             </button>
-
-                            <p class="mt-3 text-center text-[10px] font-light leading-4 text-black/35">
-                                {"Disconnected prototype · nothing is being signed or saved yet."}
-                            </p>
-                        </aside>
-                    </div>
+                        } else {
+                            <button
+                                type="button"
+                                disabled={!turn || model.working}
+                                onclick={link.callback(|_: MouseEvent| Msg::CompleteSubmitted)}
+                                class="mt-5 flex w-full items-center justify-center rounded-lg bg-[#041024] px-4 py-3 text-[11px] font-medium uppercase tracking-[0.16em] text-white transition hover:bg-[#0a1b38] disabled:cursor-not-allowed disabled:opacity-35"
+                            >
+                                { if model.working { "Working…" } else { "Sign & Complete" } }
+                            </button>
+                            <button
+                                type="button"
+                                disabled={model.working}
+                                onclick={link.callback(|_: MouseEvent| Msg::DeclineSubmitted)}
+                                class="mt-3 flex w-full items-center justify-center rounded-lg border border-black/15 px-4 py-2.5 text-[10px] font-medium uppercase tracking-[0.14em] text-black/55 transition hover:border-black/30"
+                            >
+                                {"Decline to sign"}
+                            </button>
+                        }
+                    </aside>
                 </div>
-            </main>
+            </div>
+        </main>
+    }
+}
+
+fn session_state_label(session: &SignerSession) -> String {
+    match session.state.as_str() {
+        "completed" => "Signed".into(),
+        "notified" | "pending" => "Waiting for you".into(),
+        other => {
+            let mut label = other.replace('_', " ");
+            if let Some(first) = label.get_mut(..1) {
+                first.make_ascii_uppercase();
+            }
+            label
         }
     }
 }
 
-fn fake_pdf(model: &Model) -> Html {
+fn field_editor(model: &Model, session: &SignerSession, field: &SignerField, link: &Link<Msg>) -> Html {
+    let locked = !session.is_turn || model.working;
+    let label = field.label.clone().unwrap_or_else(|| field.field_key.clone());
+    let submit = {
+        let id = field.id.clone();
+        link.callback(move |_: MouseEvent| Msg::FieldSubmitted(id.clone()))
+    };
+    let input = match field.field_type.as_str() {
+        "checkbox" => {
+            let id = field.id.clone();
+            let checked = model.checked.get(&field.id).copied().unwrap_or(false);
+            html! {
+                <label class="flex cursor-pointer items-center gap-3 text-sm font-light text-black/70">
+                    <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={locked}
+                        onchange={link.callback(move |event: Event| {
+                            let value = event
+                                .target_dyn_into::<web_sys::HtmlInputElement>()
+                                .map(|input| input.checked())
+                                .unwrap_or(false);
+                            Msg::FieldChecked(id.clone(), value)
+                        })}
+                        class="h-4 w-4 accent-[#041024]"
+                    />
+                    { label }
+                    if field.required { <span class="text-[#a88450]">{"*"}</span> }
+                </label>
+            }
+        }
+        "radio" | "dropdown" => {
+            let id = field.id.clone();
+            let selected = model.selected.get(&field.id).cloned().unwrap_or_default();
+            html! {
+                <label class="block">
+                    <span class="mb-1 block text-[9px] font-medium uppercase tracking-[0.12em] text-black/35">
+                        { label }
+                        if field.required { <span class="text-[#a88450]">{" *"}</span> }
+                    </span>
+                    <input
+                        type="text"
+                        value={selected}
+                        disabled={locked}
+                        placeholder="Your answer"
+                        oninput={link.callback(move |event: InputEvent| {
+                            let value = event
+                                .target_dyn_into::<web_sys::HtmlInputElement>()
+                                .map(|input| input.value())
+                                .unwrap_or_default();
+                            Msg::OptionSelected(id.clone(), value)
+                        })}
+                        class="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm font-light text-[#041024] disabled:opacity-50"
+                    />
+                </label>
+            }
+        }
+        _ => {
+            let id = field.id.clone();
+            let value = model.values.get(&field.id).cloned().unwrap_or_default();
+            html! {
+                <label class="block">
+                    <span class="mb-1 block text-[9px] font-medium uppercase tracking-[0.12em] text-black/35">
+                        { label }
+                        if field.required { <span class="text-[#a88450]">{" *"}</span> }
+                    </span>
+                    <input
+                        type="text"
+                        value={value}
+                        disabled={locked}
+                        placeholder="Type here"
+                        oninput={link.callback(move |event: InputEvent| {
+                            let value = event
+                                .target_dyn_into::<web_sys::HtmlInputElement>()
+                                .map(|input| input.value())
+                                .unwrap_or_default();
+                            Msg::FieldChanged(id.clone(), value)
+                        })}
+                        class="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm font-light text-[#041024] disabled:opacity-50"
+                    />
+                </label>
+            }
+        }
+    };
     html! {
-        <div class="mx-auto min-h-[46rem] max-w-[46rem] bg-white px-[7%] py-[6%] shadow-lg">
-            <p class="text-center font-serif text-xl font-semibold tracking-wide text-black/80">{"EXCLUSIVE LISTING AGREEMENT"}</p>
-            <p class="mt-2 text-center text-[9px] uppercase tracking-[0.18em] text-black/40">{"CulebraLuxe Real Estate · Culebra, Puerto Rico"}</p>
-
-            <div class="mt-8 space-y-3 text-[11px] font-light leading-5 text-black/65">
-                <p>{"This agreement appoints CulebraLuxe Real Estate to market the property known as Casa Luar under the terms shown in the issued agreement."}</p>
-                <p>{"The owner confirms the information contained in the agreement and authorizes the brokerage activities described in the preceding sections."}</p>
-                <p>{"Electronic signatures and electronically delivered counterparts are intended to have the same effect as signed counterparts for this private agreement."}</p>
-            </div>
-
-            <div class="mt-14 border-t border-black/10 pt-6">
-                <p class="text-[9px] font-medium uppercase tracking-[0.15em] text-black/35">{"Seller"}</p>
-                <div class="mt-4 grid gap-5 sm:grid-cols-[1fr_7rem_8rem]">
-                    <div>
-                        <div class="flex h-14 items-end rounded-md border-2 border-[#caa36b] bg-[#fffaf0] px-3 pb-1.5">
-                            { signature_text(model, "text-xl") }
-                        </div>
-                        <p class="mt-1 text-[8px] uppercase tracking-[0.12em] text-black/35">{"Signature"}</p>
-                    </div>
-                    <div>
-                        <div class="flex h-14 items-end rounded-md border-2 border-[#caa36b] bg-[#fffaf0] px-3 pb-1.5 font-serif text-lg font-semibold italic text-[#041024]">
-                            { model.initials.clone() }
-                        </div>
-                        <p class="mt-1 text-[8px] uppercase tracking-[0.12em] text-black/35">{"Initials"}</p>
-                    </div>
-                    <div>
-                        <div class="flex h-14 items-end rounded-md border-2 border-[#caa36b] bg-[#fffaf0] px-3 pb-1.5 text-xs text-[#041024]">
-                            {"Oct 1, 2026"}
-                        </div>
-                        <p class="mt-1 text-[8px] uppercase tracking-[0.12em] text-black/35">{"Date"}</p>
-                    </div>
-                </div>
-                <p class="mt-2 text-[10px] font-light text-black/40">{ model.signer_name.clone() }</p>
-            </div>
-
-            <div class="mt-16 border-t border-black/10 pt-5">
-                <p class="text-[9px] font-medium uppercase tracking-[0.15em] text-black/35">{"Broker"}</p>
-                <div class="mt-4 h-10 border-b border-black/30">
-                    <span class="font-serif text-lg italic text-black/55">{"Lisa Penfield"}</span>
-                </div>
-                <p class="mt-1 text-[9px] font-light text-black/35">{"Real Estate Broker License #: C-9931"}</p>
-            </div>
+        <div class="rounded-lg border border-black/10 bg-[#f7f4ed] p-4">
+            { input }
+            <button
+                type="button"
+                disabled={locked}
+                onclick={submit}
+                class="mt-3 rounded-md border border-[#caa36b] bg-[#fffaf0] px-4 py-2 text-[10px] font-medium uppercase tracking-[0.14em] text-[#041024] transition hover:bg-[#caa36b]/20 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+                {"Save field"}
+            </button>
         </div>
     }
 }
 
-fn signature_choice(model: &Model, style: usize, link: &Link<Msg>) -> Html {
+fn signature_choice(name: &str, selected: usize, style: usize, link: &Link<Msg>) -> Html {
     let onclick = link.callback(move |_: MouseEvent| Msg::SignatureStyle(style));
     html! {
         <button
@@ -223,23 +486,19 @@ fn signature_choice(model: &Model, style: usize, link: &Link<Msg>) -> Html {
             {onclick}
             class={classes!(
                 "flex", "w-full", "items-center", "justify-between", "rounded-lg", "border", "px-3", "py-2.5", "text-left", "transition",
-                if model.signature_style == style {
+                if selected == style {
                     "border-[#caa36b] bg-[#fffaf0]"
                 } else {
                     "border-black/10 bg-white hover:border-black/20"
                 }
             )}
         >
-            { signature_text_for(&model.signer_name, style, "text-lg") }
-            if model.signature_style == style {
+            { signature_text_for(name, style, "text-lg") }
+            if selected == style {
                 <span class="text-[9px] font-medium uppercase tracking-[0.12em] text-[#a88450]">{"Selected"}</span>
             }
         </button>
     }
-}
-
-fn signature_text(model: &Model, size: &'static str) -> Html {
-    signature_text_for(&model.signer_name, model.signature_style, size)
 }
 
 fn signature_text_for(name: &str, style: usize, size: &'static str) -> Html {
@@ -253,7 +512,7 @@ fn signature_text_for(name: &str, style: usize, size: &'static str) -> Html {
     }
 }
 
-fn completed_view(model: &Model, link: &Link<Msg>) -> Html {
+fn completed_view(session: &SignerSession) -> Html {
     html! {
         <main class="flex min-h-screen items-center justify-center bg-[#f4f1ea] px-4 py-12">
             <section class="w-full max-w-xl rounded-xl border border-black/10 bg-white p-8 text-center shadow-sm">
@@ -261,28 +520,11 @@ fn completed_view(model: &Model, link: &Link<Msg>) -> Html {
                 <p class="mt-5 text-[10px] font-medium uppercase tracking-[0.2em] text-[#a88450]">{"CulebraLuxe · Secure Signing"}</p>
                 <h1 class="mt-2 font-serif text-3xl font-light text-[#041024]">{"Signing complete"}</h1>
                 <p class="mx-auto mt-3 max-w-md text-sm font-light leading-6 text-black/50">
-                    { format!("Thank you, {}. In the connected version the completed document will be sealed, recorded and returned to the CulebraLuxe Vault.", model.signer_name) }
+                    { format!("Thank you, {}. Your signature has been recorded.", session.recipient.name) }
                 </p>
-                <div class="mx-auto mt-6 max-w-sm rounded-lg bg-[#f7f4ed] px-4 py-3 text-left text-xs font-light text-black/55">
-                    <div class="flex justify-between gap-4"><span>{"Document"}</span><span class="font-medium text-[#041024]">{ model.document_title.clone() }</span></div>
-                    <div class="mt-2 flex justify-between gap-4"><span>{"Signed as"}</span><span class="font-medium text-[#041024]">{ model.signer_name.clone() }</span></div>
-                    <div class="mt-2 flex justify-between gap-4"><span>{"Date"}</span><span class="font-medium text-[#041024]">{"October 1, 2026"}</span></div>
-                </div>
-                <button type="button" onclick={link.callback(|_: MouseEvent| Msg::StartOver)} class="mt-6 text-[10px] font-medium uppercase tracking-[0.14em] text-[#041024] underline decoration-black/20 underline-offset-4">
-                    {"Reset demo"}
-                </button>
-                <p class="mt-3 text-[10px] font-light text-black/30">{"Prototype only · no document was changed."}</p>
             </section>
         </main>
     }
-}
-
-fn initials_for(name: &str) -> String {
-    name.split_whitespace()
-        .filter_map(|part| part.chars().next())
-        .take(2)
-        .collect::<String>()
-        .to_uppercase()
 }
 
 #[cfg(test)]
@@ -290,23 +532,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn signer_prototype_has_no_io_and_completes_only_after_consent() {
+    fn session_loads_then_consent_unlocks_completion() {
         let ctx = ScreenCtx {
-            id: Some("demo-token".into()),
+            id: Some("token-abc".into()),
             ..ScreenCtx::default()
         };
         let (mut model, cmd) = SignDocument::init(&ctx);
-        assert!(
-            cmd.into_requests().is_empty(),
-            "the prototype must not call an endpoint"
-        );
-        assert_eq!(model.initials, "MR");
+        let request = cmd.into_requests().remove(0);
+        assert_eq!(request.path, "/v1/signer/session");
+        assert_eq!(model.token, "token-abc");
 
-        SignDocument::update(&mut model, Msg::Complete, &ctx);
-        assert!(!model.completed);
+        let session = test_session(false);
+        SignDocument::update(&mut model, Msg::SessionLoaded(Ok(session)), &ctx);
+        // The open is recorded automatically on first sight.
+        // Consent is a separate, deliberate act.
+        assert!(!model.consent);
+    }
 
-        SignDocument::update(&mut model, Msg::ConsentChanged(true), &ctx);
-        SignDocument::update(&mut model, Msg::Complete, &ctx);
-        assert!(model.completed);
+    #[test]
+    fn working_guards_double_submit() {
+        let ctx = ScreenCtx::default();
+        let (mut model, _) = SignDocument::init(&ctx);
+        model.token = "token-abc".into();
+        model.session = Remote::Loaded(test_session(true));
+        model.working = true;
+        let cmd = SignDocument::update(&mut model, Msg::CompleteSubmitted, &ctx);
+        assert!(cmd.into_requests().is_empty());
+    }
+
+    fn test_session(consented: bool) -> SignerSession {
+        SignerSession {
+            signature_request_id: "req-1".into(),
+            recipient: crate::model::SignerRecipient {
+                id: "r-1".into(),
+                signature_request_id: "req-1".into(),
+                name: "Ada".into(),
+                email: "ada@example.test".into(),
+                role: "signer".into(),
+                signer_order: 1,
+                signing_step: 1,
+            },
+            state: "in_progress".into(),
+            fields: vec![],
+            consented,
+            is_turn: true,
+            expires_at: "2026-12-01T00:00:00+00:00".into(),
+        }
     }
 }
