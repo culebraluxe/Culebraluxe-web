@@ -31,6 +31,13 @@ pub trait AuthorizationPort: Send + Sync {
 /// kind-based default: ROOT always passes, queries are readable by default,
 /// GUEST/missing principals cannot command, and authenticated principals may
 /// command unless a more specific policy adapter replaces this port.
+///
+/// TEST AND OPERATOR-CLI ONLY. This port allows any authenticated principal to
+/// run any command, so it must never serve traffic: production wires
+/// `CasbinAuthorizationPort` (`web/src/service_bootstrap.rs`), unit tests use
+/// this port for its permissiveness, and the operator CLI (`cli/src/main.rs`)
+/// runs it locally under the operator's own credentials. A serving path
+/// constructed with this port is a defect, not a default.
 #[derive(Debug, Default)]
 pub struct DefaultAuthorizationPort;
 

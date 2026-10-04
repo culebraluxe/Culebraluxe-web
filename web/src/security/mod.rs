@@ -540,4 +540,52 @@ mod tests {
 
         assert!(matches!(result, Err(CoreServiceError::Database(_))));
     }
+
+    /// The pin that keeps `DefaultAuthorizationPort` out of serving paths: an
+    /// authenticated USER commanding an ungranted action is allowed by the
+    /// default and refused by the production port. If this test ever fails
+    /// because the two agree, the serving path must be re-checked, not the test.
+    #[tokio::test]
+    async fn production_port_is_not_the_open_default() {
+        use services::{AuthorizationPort, AuthorizationRequest, OperationKind, ServicePrincipal};
+
+        let request = || AuthorizationRequest {
+            domain: "email",
+            action: "email.queue",
+            operation: "email.queue",
+            kind: OperationKind::Command,
+            actor: ServiceActor {
+                id: Some("user-1".into()),
+                kind: ServiceActorKind::User,
+            },
+            principal: Some(ServicePrincipal {
+                app_user_id: "user-1".into(),
+                level: "USER".into(),
+                role_codes: Vec::new(),
+                account_type: "internal".into(),
+                entitlement_codes: Vec::new(),
+            }),
+        };
+
+        let default = DefaultAuthorizationPort
+            .authorize(request())
+            .await
+            .expect("default port answers");
+        assert!(
+            default.allowed,
+            "the default allows any authenticated command: that is why it never serves traffic"
+        );
+
+        let production = CasbinAuthorizationPort::new()
+            .await
+            .expect("production port builds");
+        let decision = production
+            .authorize(request())
+            .await
+            .expect("production port answers");
+        assert!(
+            !decision.allowed,
+            "production refuses the ungranted command"
+        );
+    }
 }

@@ -29,15 +29,14 @@ pub(super) async fn clients(
                 .map_err(|error| correlate(ApiError::from(error), &resolved))?,
         )
     } else {
-        let status = query
-            .status
-            .filter(|value| matches!(value.as_str(), "new" | "warm" | "active" | "referral"));
-        let role = query
-            .role
-            .filter(|value| matches!(value.as_str(), "buyer" | "seller" | "both"));
+        // Filter values pass through untouched: the service owns the
+        // allow-list and refuses unknown values, so a typo is a 400 rather
+        // than a silently unfiltered listing.
+        let status = query.status.clone();
+        let role = query.role.clone();
         let sort = query
             .sort
-            .filter(|value| matches!(value.as_str(), "name" | "created" | "recent"))
+            .clone()
             .unwrap_or_else(|| "name".into());
 
         ClientPageResponse::Directory(

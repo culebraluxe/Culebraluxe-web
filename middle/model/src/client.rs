@@ -19,6 +19,13 @@ pub struct ClientDirectoryPageRequest {
     pub page_size: i64,
 }
 
+/// The only directory filters the service accepts. The route passes query
+/// values through untouched and the service refuses anything else, so an
+/// unknown value is a 400 rather than a silently unfiltered listing.
+pub const CLIENT_DIRECTORY_STATUSES: &[&str] = &["new", "warm", "active", "referral"];
+pub const CLIENT_DIRECTORY_ROLES: &[&str] = &["buyer", "seller", "both"];
+pub const CLIENT_DIRECTORY_SORTS: &[&str] = &["name", "created", "recent"];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientAdminPageRequest {
     pub search: String,

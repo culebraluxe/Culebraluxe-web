@@ -745,4 +745,21 @@ mod tests {
         req.principal.as_mut().unwrap().account_type = "external".into();
         assert!(!auth.authorize(req).await.unwrap().allowed);
     }
+
+    /// The `media.bytes` door: internal media bytes are authorized as
+    /// `property.read`, so an external account must not be able to hold that
+    /// action even with a grant naming it — otherwise unpublished media bytes
+    /// would be one guessed UUID away. (Anonymous callers are already refused
+    /// by the "not published" assertion above; the public path gates
+    /// publication separately in `public_listing.media_bytes` SQL.)
+    #[tokio::test]
+    async fn external_account_cannot_hold_property_read() {
+        let auth = CasbinAuthorizationPort::new().await.unwrap();
+        let mut req = request("property.read", OperationKind::Query, &["property.read"]);
+        req.principal.as_mut().unwrap().account_type = "external".into();
+        assert!(
+            !auth.authorize(req).await.unwrap().allowed,
+            "external accounts cannot hold property.read, grant or not"
+        );
+    }
 }

@@ -6,6 +6,7 @@ use model::{
     ClientAdminPageResult, ClientAdminRow, ClientContactHistoryResult, ClientDetail,
     ClientDirectoryPageRequest, ClientDirectoryRecord, ClientHistoryEventRecord,
     ClientHistoryRequest, ClientSummary, ClientsPageResult, RelationshipEvidenceRecord,
+    CLIENT_DIRECTORY_ROLES, CLIENT_DIRECTORY_SORTS, CLIENT_DIRECTORY_STATUSES,
     CLIENT_MAX_PAGE_SIZE, CLIENT_RECENT_HISTORY_LIMIT,
 };
 use services::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
@@ -113,6 +114,28 @@ impl<R: ClientRepository> ClientService<R> {
         .await?;
 
         let result = async {
+            if let Some(status) = request.status.as_deref() {
+                if !CLIENT_DIRECTORY_STATUSES.contains(&status) {
+                    return Err(CoreServiceError::business(
+                        "CLIENT_STATUS_INVALID",
+                        format!("Unknown client status: {status}."),
+                    ));
+                }
+            }
+            if let Some(role) = request.role.as_deref() {
+                if !CLIENT_DIRECTORY_ROLES.contains(&role) {
+                    return Err(CoreServiceError::business(
+                        "CLIENT_ROLE_INVALID",
+                        format!("Unknown client role: {role}."),
+                    ));
+                }
+            }
+            if !CLIENT_DIRECTORY_SORTS.contains(&request.sort.as_str()) {
+                return Err(CoreServiceError::business(
+                    "CLIENT_SORT_INVALID",
+                    format!("Unknown client sort: {}.", request.sort),
+                ));
+            }
             let normalized = ClientDirectoryPageRequest {
                 search: request.search.clone(),
                 status: request.status.clone(),
@@ -344,4 +367,147 @@ fn group_evidence(
         grouped.entry(person_id).or_default().push(row);
     }
     grouped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use db::DbResult;
+    use services::{
+        CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
+        ServiceActorKind,
+    };
+    use std::sync::Arc;
+
+    struct StubRepo;
+
+    #[async_trait]
+    impl ClientRepository for StubRepo {
+        async fn directory_page(
+            &self,
+            _request: &ClientDirectoryPageRequest,
+        ) -> DbResult<(Vec<ClientDirectoryRecord>, i64)> {
+            Ok((Vec::new(), 0))
+        }
+
+        async fn admin_page(
+            &self,
+            _request: &ClientAdminPageRequest,
+        ) -> DbResult<(Vec<ClientAdminRow>, i64)> {
+            Ok((Vec::new(), 0))
+        }
+
+        async fn detail(&self, _person_id: &str) -> DbResult<Option<ClientDetail>> {
+            Ok(None)
+        }
+
+        async fn assignable_agents(&self) -> DbResult<Vec<AssignableAgent>> {
+            Ok(Vec::new())
+        }
+
+        async fn evidence_for_people(
+            &self,
+            _person_ids: &[String],
+        ) -> DbResult<Vec<(String, RelationshipEvidenceRecord)>> {
+            Ok(Vec::new())
+        }
+
+        async fn history_events(
+            &self,
+            _person_id: &str,
+            _limit: i64,
+            _offset: i64,
+        ) -> DbResult<(Vec<ClientHistoryEventRecord>, i64)> {
+            Ok((Vec::new(), 0))
+        }
+
+        async fn covered_sources(&self, _person_id: &str) -> DbResult<Vec<String>> {
+            Ok(Vec::new())
+        }
+    }
+
+    fn service() -> ClientService<StubRepo> {
+        ClientService::new(
+            StubRepo,
+            ServiceInfrastructure::new(
+                Arc::new(DefaultAuthorizationPort),
+                Arc::new(CapturingAuditPort::default()),
+                Arc::new(CapturingDomainEventPort::default()),
+            ),
+        )
+    }
+
+    fn context() -> ServiceContext {
+        ServiceContext {
+            actor: ServiceActor {
+                id: Some("test".into()),
+                kind: ServiceActorKind::User,
+            },
+            correlation_id: "clients-test".into(),
+            causation_id: None,
+            principal: None,
+        }
+    }
+
+    fn request(status: Option<&str>, role: Option<&str>, sort: &str) -> ClientDirectoryPageRequest {
+        ClientDirectoryPageRequest {
+            search: String::new(),
+            status: status.map(str::to_owned),
+            role: role.map(str::to_owned),
+            sort: sort.to_owned(),
+            page: 1,
+            page_size: 50,
+        }
+    }
+
+    fn code_of(error: &CoreServiceError) -> &str {
+        match error {
+            CoreServiceError::Business { code, .. } => code,
+            _ => "not-a-business-refusal",
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_directory_filters_are_refused_not_silently_dropped() {
+        let service = service();
+        let context = context();
+        assert_eq!(
+            code_of(
+                &service
+                    .directory(&request(Some("archived"), None, "name"), &context)
+                    .await
+                    .unwrap_err()
+            ),
+            "CLIENT_STATUS_INVALID"
+        );
+        assert_eq!(
+            code_of(
+                &service
+                    .directory(&request(None, Some("landlord"), "name"), &context)
+                    .await
+                    .unwrap_err()
+            ),
+            "CLIENT_ROLE_INVALID"
+        );
+        assert_eq!(
+            code_of(
+                &service
+                    .directory(&request(None, None, "recently"), &context)
+                    .await
+                    .unwrap_err()
+            ),
+            "CLIENT_SORT_INVALID"
+        );
+    }
+
+    #[tokio::test]
+    async fn known_directory_filters_pass_through() {
+        let service = service();
+        let page = service
+            .directory(&request(Some("active"), Some("buyer"), "recent"), &context())
+            .await
+            .expect("known filters must pass");
+        assert_eq!(page.total, 0);
+        assert!(page.rows.is_empty());
+    }
 }
