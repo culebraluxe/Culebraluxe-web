@@ -22,6 +22,7 @@ use db::{
 
 pub mod batch;
 pub mod escalation;
+pub mod status;
 pub mod supervisor;
 
 #[cfg(test)]
