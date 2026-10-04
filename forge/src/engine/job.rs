@@ -320,13 +320,27 @@ fn run_with_lease_heartbeat<T>(
     job_id: &str,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
-    run_with_lease_heartbeat_interval(
+    let turn_outcome = run_with_lease_heartbeat_interval(
         jobs,
         worker_id,
         job_id,
         Duration::from_secs(FORGE_JOB_HEARTBEAT_INTERVAL_SECS),
         work,
-    )
+    )?;
+    if turn_outcome.lease_lost {
+        Err(WorkflowError::generic(format!(
+            "Forge job {job_id} lost its lease after role completed; outcome preserved for reconciliation"
+        )))
+    } else {
+        Ok(turn_outcome.outcome)
+    }
+}
+
+/// Outcome of a role turn with its lease state.
+#[derive(Debug)]
+pub struct RoleTurnOutcome<T> {
+    pub outcome: T,
+    pub lease_lost: bool,
 }
 
 fn run_with_lease_heartbeat_interval<T>(
@@ -335,7 +349,7 @@ fn run_with_lease_heartbeat_interval<T>(
     job_id: &str,
     interval: Duration,
     work: impl FnOnce() -> Result<T>,
-) -> Result<T> {
+) -> Result<RoleTurnOutcome<T>> {
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
 
     std::thread::scope(|scope| {
@@ -368,17 +382,27 @@ fn run_with_lease_heartbeat_interval<T>(
             ))
         })?;
 
+        // If the heartbeat thread lost the lease, we still return the outcome
+        // but mark lease_lost = true. The caller must reconcile and not advance
+        // the Workflow task under a lease it no longer owns.
+        let lease_lost = heartbeat_error.is_some();
         if let Some(error) = heartbeat_error {
-            return Err(WorkflowError::generic(format!(
-                "Forge job {job_id} lost its lease while the role was running: {error}"
-            )));
+            eprintln!(
+                "forge-job: job {job_id} lost its lease after role completed; outcome preserved for reconciliation: {error}"
+            );
         }
 
         // Fence Workflow completion with one final ownership renewal after the
         // role returns. If recovery somehow won the race, the caller must not
         // advance the Workflow task under a lease it no longer owns.
-        jobs.heartbeat(job_id, worker_id)?;
-        result
+        // We still attempt the final heartbeat but don't fail if it fails;
+        // the lease_lost flag tells the caller the truth.
+        let _ = jobs.heartbeat(job_id, worker_id);
+
+        Ok(RoleTurnOutcome {
+            outcome: result?,
+            lease_lost,
+        })
     })
 }
 
@@ -756,7 +780,8 @@ mod tests {
                 ))
             },
         )
-        .expect("long-running work keeps its lease");
+        .expect("long-running work keeps its lease")
+        .outcome;
 
         assert!(
             during > before,
