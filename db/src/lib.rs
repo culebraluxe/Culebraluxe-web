@@ -157,7 +157,7 @@ pub use security::{IdentityPrincipal, SecurityDao};
 pub use security_audit::SecurityAuditDao;
 pub use showing::ShowingDao;
 pub use signature::SignatureDao;
-pub use signer::{SignerAccessRecord, SignerDao};
+pub use signer::{FinalizeEvent, FinalizeField, FinalizeInputs, FinalizeRecipient, SignerAccessRecord, SignerDao};
 pub use support::SupportDiagnosticsDao;
 pub use task::TaskDao;
 pub use tech::{

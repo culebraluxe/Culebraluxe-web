@@ -25,6 +25,7 @@ mod media;
 mod people_properties;
 mod public;
 mod security_service;
+mod signer_edge;
 mod webhooks_support;
 mod work;
 #[allow(unused_imports)]
@@ -41,6 +42,8 @@ pub(super) use people_properties::*;
 pub(super) use public::*;
 #[allow(unused_imports)]
 pub(super) use security_service::*;
+#[allow(unused_imports)]
+pub(super) use signer_edge::*;
 #[allow(unused_imports)]
 pub(super) use webhooks_support::*;
 #[allow(unused_imports)]
@@ -316,6 +319,15 @@ pub fn router(state: ApiState) -> Router {
             "/api/integrations/boldsign/webhook",
             post(signature_webhook),
         )
+        // Native signing edge: signing-link credentialed, identity-free.
+        // Session resolves the token; mutations run as durable commands
+        // under the verified recipient-bound actor.
+        .route("/v1/signer/session", post(signer_session))
+        .route("/v1/signer/open", post(signer_open))
+        .route("/v1/signer/consent", post(signer_consent))
+        .route("/v1/signer/field", post(signer_field))
+        .route("/v1/signer/complete", post(signer_complete))
+        .route("/v1/signer/decline", post(signer_decline))
         .merge(super::public_ui::router())
         .layer(middleware::from_fn_with_state(
             state.clone(),

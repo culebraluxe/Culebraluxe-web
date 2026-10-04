@@ -150,6 +150,22 @@ async fn cleanup(db: &Database, env: &Envelope) {
 /// consent), then the email and outbox rows keyed by correlation id.
 async fn sweep_tag(db: &Database, tag: &str) {
     let title = format!("docsign proof {tag}");
+    // Unlink first: the audit-media link is `on delete restrict`.
+    let media_ids: Vec<Option<String>> = sqlx::query_scalar(
+        "update transaction_document set signed_audit_media_id = null \
+         where title = $1 returning signed_audit_media_id::text",
+    )
+    .bind(&title)
+    .fetch_all(db.pool())
+    .await
+    .expect("audit unlink cleanup");
+    for media_id in media_ids.into_iter().flatten() {
+        sqlx::query("delete from media where id = $1::uuid")
+            .bind(&media_id)
+            .execute(db.pool())
+            .await
+            .expect("audit media cleanup");
+    }
     sqlx::query(
         "delete from signature_evidence_event where signature_request_id in ( \
            select sr.id from signature_request sr \
@@ -468,4 +484,145 @@ async fn email_dedupe_keeps_one_invitation_per_key() {
     assert!(second.existing);
     assert_eq!(first.message_id, second.message_id);
     sweep_tag(&db, tag).await;
+}
+
+async fn document_sign(db: &Database) -> web::document_sign::DocumentSignService<
+    db::DocumentSignDao,
+    db::SignatureDao,
+    SignerDao,
+    EmailDao,
+> {
+    use web::document_sign::DocumentSignService;
+    use web::security::CasbinAuthorizationPort;
+    use web::signature::SignatureService;
+    // The finalize path transitions the canonical request under the
+    // service-to-service actor, which the Default test port denies and the
+    // production Casbin port explicitly admits: use the real port here so
+    // the test proves the production rule, not the test double's.
+    let signature_infra = ServiceInfrastructure::new(
+        Arc::new(
+            CasbinAuthorizationPort::new()
+                .await
+                .expect("casbin port builds"),
+        ),
+        Arc::new(services::CapturingAuditPort::default()),
+        Arc::new(services::CapturingDomainEventPort::default()),
+    );
+    DocumentSignService::new(
+        db::DocumentSignDao::new(db.clone()),
+        Arc::new(SignatureService::new_optional(
+            db::SignatureDao::new(db.clone()),
+            None,
+            signature_infra,
+        )),
+        Arc::new(signer(db)),
+        Arc::new(EmailService::new(EmailDao::new(db.clone()), None, infra())),
+        infra(),
+    )
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL_DEV"]
+async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
+    use model::SignatureRequestStatus;
+    let db = Database::connect_target(DbTarget::Dev).await.unwrap();
+    let tag = "docsign-finalize";
+    let env = envelope(&db, tag).await;
+    let signing = signer(&db);
+    let ctx = context(tag);
+    for (recipient, field) in
+        [(&env.a, Some(env.field_a.as_str())), (&env.b, None), (&env.c, None)]
+    {
+        let token = grant(&signing, &db, recipient, &ctx).await;
+        consent(&signing, &db, recipient, &token, &ctx).await;
+        if let Some(field) = field {
+            complete_field(&signing, &db, recipient, &token, field, &ctx).await;
+        }
+        complete(&signing, &db, recipient, &token, &ctx).await;
+    }
+
+    let service = document_sign(&db).await;
+    // Finalize before Signed refuses: the envelope is still requested.
+    let mut tx = db.begin("docsign-proof-finalize").await.unwrap();
+    let refused = service
+        .finalize_transactional(&mut tx, &env.request_id, &ctx)
+        .await
+        .expect_err("requested envelopes cannot finalize");
+    tx.rollback().await.unwrap();
+    assert_eq!(refused.code(), "DOCUMENT_SIGN_NOT_MUTABLE");
+
+    // Drive the canonical machine to Signed, then finalize.
+    let signature = web::signature::SignatureService::new_optional(
+        db::SignatureDao::new(db.clone()),
+        None,
+        infra(),
+    );
+    let mut tx = db.begin("docsign-proof-finalize").await.unwrap();
+    for target in [SignatureRequestStatus::Sent, SignatureRequestStatus::Signed] {
+        signature
+            .transition_transactional(&mut tx, &env.request_id, target, &ctx)
+            .await
+            .expect("step the canonical machine");
+    }
+    tx.commit().await.unwrap();
+    let mut tx = db.begin("docsign-proof-finalize").await.unwrap();
+    let done = service
+        .finalize_transactional(&mut tx, &env.request_id, &ctx)
+        .await
+        .expect("finalize");
+    tx.commit().await.unwrap();
+    assert!(!done.already_completed);
+    let audit_media_id = done.audit_media_id.expect("audit artifact stored");
+
+    // The canonical request is Completed and the audit trail is linked.
+    let status: String = sqlx::query_scalar(
+        "select status from signature_request where id = $1::uuid",
+    )
+    .bind(&env.request_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(status, "completed");
+    let linked: Option<String> = sqlx::query_scalar(
+        "select td.signed_audit_media_id::text from transaction_document td \
+         join signature_request sr on sr.transaction_document_id = td.id \
+         where sr.id = $1::uuid",
+    )
+    .bind(&env.request_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(linked.as_deref(), Some(audit_media_id.as_str()));
+    let mime: String = sqlx::query_scalar("select mime_type from media where id = $1::uuid")
+        .bind(&audit_media_id)
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert_eq!(mime, "application/json");
+
+    // Replay answers with the existing artifact instead of storing another.
+    let media_before: i64 = sqlx::query_scalar(
+        "select count(*) from media where id = $1::uuid",
+    )
+    .bind(&audit_media_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    let mut tx = db.begin("docsign-proof-finalize").await.unwrap();
+    let replay = service
+        .finalize_transactional(&mut tx, &env.request_id, &ctx)
+        .await
+        .expect("replay answers");
+    tx.commit().await.unwrap();
+    assert!(replay.already_completed);
+    assert_eq!(replay.audit_media_id.as_deref(), Some(audit_media_id.as_str()));
+    let media_after: i64 = sqlx::query_scalar(
+        "select count(*) from media where id = $1::uuid",
+    )
+    .bind(&audit_media_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(media_before, media_after);
+    cleanup(&db, &env).await;
 }

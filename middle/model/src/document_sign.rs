@@ -206,6 +206,14 @@ pub struct DocumentSignIssueResult {
     pub expires_at: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSignFinalizeResult {
+    pub signature_request_id: String,
+    pub audit_media_id: Option<String>,
+    pub already_completed: bool,
+}
+
 pub fn validate_document_sign_recipients(recipients: &[DocumentSignRecipientInput]) -> Vec<String> {
     use std::collections::BTreeSet;
 

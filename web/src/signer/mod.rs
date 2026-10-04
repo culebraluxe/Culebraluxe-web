@@ -2,7 +2,7 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, Duration, Utc};
-use db::{DbResult, DbTransaction, SignerAccessRecord, SignerDao};
+use db::{DbResult, DbTransaction, FinalizeInputs, SignerAccessRecord, SignerDao};
 use hmac::{Hmac, Mac};
 use model::{
     AcceptSignerConsentRequest, CompleteSignatureFieldRequest, CompleteSignerRequest,
@@ -172,6 +172,11 @@ pub trait SignerRepository: Send + Sync {
         tx: &mut DbTransaction,
         recipient_id: &str,
     ) -> DbResult<Option<SignerAccessRecord>>;
+    async fn finalize_inputs_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<FinalizeInputs>;
     async fn initialize_state_tx(&self, tx: &mut DbTransaction, recipient_id: &str)
         -> DbResult<()>;
     async fn mark_notified_tx(&self, tx: &mut DbTransaction, recipient_id: &str) -> DbResult<()>;
@@ -265,6 +270,13 @@ impl SignerRepository for SignerDao {
         recipient_id: &str,
     ) -> DbResult<Option<SignerAccessRecord>> {
         SignerDao::active_access_for_recipient_tx(self, tx, recipient_id).await
+    }
+    async fn finalize_inputs_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<FinalizeInputs> {
+        SignerDao::finalize_inputs_tx(self, tx, signature_request_id).await
     }
     async fn initialize_state_tx(
         &self,
@@ -521,6 +533,55 @@ impl<R: SignerRepository> SignerService<R> {
             })?;
         let token = self.codec.mint(&access)?;
         Ok(self.codec.signing_url(&token))
+    }
+
+    /// Finalize reads for the orchestration layer: envelope readiness, the
+    /// audit inputs, and the completion evidence rows. Internal to finalize,
+    /// which carries the durable command's own auth.
+    pub(crate) async fn envelope_ready_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<bool> {
+        self.repository.envelope_ready_tx(tx, signature_request_id).await
+    }
+
+    pub(crate) async fn finalize_inputs_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<FinalizeInputs> {
+        self.repository.finalize_inputs_tx(tx, signature_request_id).await
+    }
+
+    pub(crate) async fn append_finalize_evidence_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        audit_media_id: &str,
+        context: &ServiceContext,
+    ) -> DbResult<()> {
+        for (event_type, evidence) in [
+            (
+                "audit_artifact_created",
+                json!({ "auditMediaId": audit_media_id }),
+            ),
+            ("document_completed", json!({})),
+        ] {
+            self.repository
+                .append_evidence_tx(
+                    tx,
+                    signature_request_id,
+                    None,
+                    event_type,
+                    context.actor.id.as_deref(),
+                    Some(&context.correlation_id),
+                    context.causation_id.as_deref(),
+                    &evidence,
+                )
+                .await?;
+        }
+        Ok(())
     }
 
     pub async fn mark_notified_transactional(

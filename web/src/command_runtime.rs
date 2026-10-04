@@ -104,6 +104,7 @@ impl CommandDispatcher {
             DocumentSignCommandKind::Issue,
             DocumentSignCommandKind::Void,
             DocumentSignCommandKind::Resend,
+            DocumentSignCommandKind::Finalize,
         ] {
             registry.register(Arc::new(DocumentSignCommand {
                 service: document_sign.clone(),
@@ -441,6 +442,7 @@ enum DocumentSignCommandKind {
     Issue,
     Void,
     Resend,
+    Finalize,
 }
 
 impl DocumentSignCommandKind {
@@ -453,6 +455,7 @@ impl DocumentSignCommandKind {
             Self::Issue => "documentSign.issue",
             Self::Void => "documentSign.void",
             Self::Resend => "documentSign.resend",
+            Self::Finalize => "documentSign.finalize",
         }
     }
 }
@@ -845,6 +848,64 @@ impl DurableCommandHandler for DocumentSignCommand {
                         "messageId": message_id,
                         "signatureRequestId": signature_request_id,
                         "recipientId": recipient_id,
+                    }),
+                ));
+                Ok(result)
+            }
+            DocumentSignCommandKind::Finalize => {
+                let signature_request_id = envelope
+                    .input
+                    .get("signatureRequestId")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .or_else(|| envelope.aggregate_id.clone());
+                let Some(signature_request_id) = signature_request_id else {
+                    return Ok(CommandResult::failure(
+                        envelope.command_id.clone(),
+                        CommandOutcome::ValidationFailure,
+                        envelope.aggregate_id.clone(),
+                        "DOCUMENT_SIGN_REQUEST_REQUIRED",
+                        "documentSign.finalize requires signatureRequestId.",
+                    ));
+                };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "signature_request",
+                    &signature_request_id,
+                    "DOCUMENT_SIGN_REQUEST_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                let finalized = match self
+                    .service
+                    .finalize_transactional(tx, &signature_request_id, context)
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return core_command_error(
+                            envelope,
+                            Some(signature_request_id.clone()),
+                            error,
+                        )
+                    }
+                };
+                let mut result = CommandResult::success(
+                    envelope.command_id.clone(),
+                    Some(signature_request_id.clone()),
+                    Some(serialize_value(&finalized)?),
+                );
+                result.emitted_events.push(command_event(
+                    envelope,
+                    "DOCUMENT_SIGN_FINALIZED",
+                    "signature_request",
+                    &signature_request_id,
+                    json!({
+                        "signatureRequestId": signature_request_id,
+                        "auditMediaId": finalized.audit_media_id,
+                        "alreadyCompleted": finalized.already_completed,
                     }),
                 ));
                 Ok(result)

@@ -40,6 +40,81 @@ struct RecipientRow {
     execution_slot_id: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct FinalizeRecipient {
+    pub id: String,
+    pub name: String,
+    pub email: String,
+    pub role: String,
+    pub signer_order: i32,
+    pub signing_step: i32,
+    pub state: String,
+    pub consent_version: Option<String>,
+    pub consent_sha256: Option<String>,
+    pub consent_accepted_at: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FinalizeField {
+    pub field_key: String,
+    pub field_type: String,
+    pub label: Option<String>,
+    pub page_number: i32,
+    pub recipient_id: String,
+    pub required: bool,
+    pub value: Option<Value>,
+    pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FinalizeEvent {
+    pub event_type: String,
+    pub occurred_at: String,
+    pub actor_id: Option<String>,
+    pub evidence: Value,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FinalizeInputs {
+    pub recipients: Vec<FinalizeRecipient>,
+    pub fields: Vec<FinalizeField>,
+    pub events: Vec<FinalizeEvent>,
+}
+
+#[derive(Debug, FromRow)]
+struct FinalizeRecipientRow {
+    id: String,
+    name: String,
+    email: String,
+    role: String,
+    signer_order: i32,
+    signing_step: i32,
+    state: String,
+    consent_version: Option<String>,
+    consent_sha256: Option<String>,
+    consent_accepted_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, FromRow)]
+struct FinalizeFieldRow {
+    field_key: String,
+    field_type: String,
+    label: Option<String>,
+    page_number: i32,
+    recipient_id: String,
+    required: bool,
+    value: Option<Value>,
+    completed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, FromRow)]
+struct FinalizeEventRow {
+    event_type: String,
+    occurred_at: DateTime<Utc>,
+    actor_id: Option<String>,
+    evidence: Value,
+}
+
 #[derive(Debug, FromRow)]
 struct StateRow {
     recipient_id: String,
@@ -602,6 +677,113 @@ impl SignerDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("signer.evidence", &error))?;
         Ok(())
+    }
+
+    /// Everything the completion audit artifact is built from, read in one
+    /// place: recipients with runtime state and consent evidence, fields
+    /// with their responses, and the append-only event ledger in order.
+    pub async fn finalize_inputs_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<FinalizeInputs> {
+        let recipients = sqlx::query_as::<_, FinalizeRecipientRow>(
+            r#"
+            select r.id::text as id,
+                   r.recipient_name as name,
+                   r.recipient_email as email,
+                   r.recipient_role as role,
+                   r.signer_order as signer_order,
+                   r.signing_step as signing_step,
+                   coalesce(s.state, 'pending') as state,
+                   c.consent_version as consent_version,
+                   c.consent_text_sha256 as consent_sha256,
+                   c.accepted_at as consent_accepted_at
+              from signature_envelope_recipient r
+              left join signature_recipient_state s on s.recipient_id = r.id
+              left join signature_recipient_consent c on c.recipient_id = r.id
+             where r.signature_request_id = $1::uuid
+             order by r.signer_order, r.id
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_all(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signer.finalize_recipients", &error))?;
+        let fields = sqlx::query_as::<_, FinalizeFieldRow>(
+            r#"
+            select f.field_key as field_key,
+                   f.field_type as field_type,
+                   f.label as label,
+                   f.page_number as page_number,
+                   f.recipient_id::text as recipient_id,
+                   f.required as required,
+                   resp.value as value,
+                   resp.completed_at as completed_at
+              from signature_field f
+              left join signature_field_response resp on resp.field_id = f.id
+             where f.signature_request_id = $1::uuid
+             order by f.page_number, f.position_y, f.position_x, f.id
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_all(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signer.finalize_fields", &error))?;
+        let events = sqlx::query_as::<_, FinalizeEventRow>(
+            r#"
+            select event_type,
+                   occurred_at,
+                   actor_id,
+                   evidence
+              from signature_evidence_event
+             where signature_request_id = $1::uuid
+             order by occurred_at, id
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_all(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signer.finalize_events", &error))?;
+        Ok(FinalizeInputs {
+            recipients: recipients
+                .into_iter()
+                .map(|row| FinalizeRecipient {
+                    id: row.id,
+                    name: row.name,
+                    email: row.email,
+                    role: row.role,
+                    signer_order: row.signer_order,
+                    signing_step: row.signing_step,
+                    state: row.state,
+                    consent_version: row.consent_version,
+                    consent_sha256: row.consent_sha256,
+                    consent_accepted_at: row.consent_accepted_at.map(|value| value.to_rfc3339()),
+                })
+                .collect(),
+            fields: fields
+                .into_iter()
+                .map(|row| FinalizeField {
+                    field_key: row.field_key,
+                    field_type: row.field_type,
+                    label: row.label,
+                    page_number: row.page_number,
+                    recipient_id: row.recipient_id,
+                    required: row.required,
+                    value: row.value,
+                    completed_at: row.completed_at.map(|value| value.to_rfc3339()),
+                })
+                .collect(),
+            events: events
+                .into_iter()
+                .map(|row| FinalizeEvent {
+                    event_type: row.event_type,
+                    occurred_at: row.occurred_at.to_rfc3339(),
+                    actor_id: row.actor_id,
+                    evidence: row.evidence,
+                })
+                .collect(),
+        })
     }
 }
 

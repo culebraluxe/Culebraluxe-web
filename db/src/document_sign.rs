@@ -411,6 +411,84 @@ impl DocumentSignDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("document_sign.required_fields", &error))
     }
+
+    /// Store the completion audit artifact as a Vault-readable document and
+    /// link it to the transaction document. The signed PDF itself is a
+    /// future renderer step; the audit trail is complete and queryable now.
+    /// Returns the new media id.
+    pub async fn store_audit_artifact_tx(
+        &self,
+        tx: &mut DbTransaction,
+        transaction_document_id: &str,
+        signature_request_id: &str,
+        artifact_json: &str,
+    ) -> DbResult<String> {
+        let filename = format!("signature-audit-{signature_request_id}.json");
+        let media_id: String = sqlx::query_scalar::<_, String>(
+            r#"
+            insert into media (file_data, filename, mime_type, file_size, media_type)
+            values ($1, $2, 'application/json', $3, 'document')
+            returning id::text
+            "#,
+        )
+        .bind(artifact_json.as_bytes())
+        .bind(&filename)
+        .bind(artifact_json.len() as i64)
+        .fetch_one(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.audit_media", &error))?;
+        sqlx::query(
+            r#"
+            update transaction_document
+               set signed_audit_media_id = $2::uuid,
+                   updated_at = now()
+             where id = $1::uuid
+            "#,
+        )
+        .bind(transaction_document_id)
+        .bind(&media_id)
+        .execute(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.audit_link", &error))?;
+        Ok(media_id)
+    }
+
+    /// The linked audit artifact, if a previous finalize already stored one.
+    /// Replay answers with the existing row instead of storing a duplicate.
+    pub async fn audit_media_for_request_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>> {
+        sqlx::query_scalar::<_, Option<String>>(
+            r#"
+            select td.signed_audit_media_id::text
+              from transaction_document td
+              join signature_request sr on sr.transaction_document_id = td.id
+             where sr.id = $1::uuid
+             limit 1
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_one(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.audit_media_read", &error))
+    }
+
+    pub async fn canonical_status_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<(String, String)>> {
+        sqlx::query_as::<_, (String, String)>(
+            "select status, transaction_document_id::text \
+             from signature_request where id = $1::uuid limit 1",
+        )
+        .bind(signature_request_id)
+        .fetch_optional(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.canonical_status", &error))
+    }
 }
 
 fn map_config(row: ConfigRow) -> DbResult<DocumentSignConfig> {
