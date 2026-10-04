@@ -213,7 +213,7 @@ pub fn claim_next_dispatch(worker_id: &str) -> Result<Option<WorkerDispatch>, St
         launch_intent: item.launch_intent,
     }))
 }
-    pub fn run_worker_pass() -> Result<i32, String> {
+pub fn run_worker_pass() -> Result<i32, String> {
     let worker_cfg = WorkerConfig::from_env();
     let brain = parse_forge_routing_brain(std::env::var("FORGE_ROUTING_BRAIN").ok().as_deref());
     if brain == ForgeRoutingBrain::Reducer {
@@ -379,10 +379,7 @@ fn run_claimed_dispatch(
     }
 
     // The claim is only worth holding if it stays fresh for as long as the run lasts.
-    let heartbeat = spawn_heartbeat(
-        dispatch.work_item_id.clone(),
-        worker_cfg.heartbeat_interval,
-    );
+    let heartbeat = spawn_heartbeat(dispatch.work_item_id.clone(), worker_cfg.heartbeat_interval);
 
     let mut command = Command::new("cargo");
     command.args([

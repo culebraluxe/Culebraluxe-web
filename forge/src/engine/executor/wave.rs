@@ -199,14 +199,21 @@ mod tests {
     }
 
     fn file_path() -> impl Strategy<Value = String> {
-        prop::collection::vec(path_component(), 1..5)
-            .prop_map(|parts| parts.join("/"))
+        prop::collection::vec(path_component(), 1..5).prop_map(|parts| parts.join("/"))
     }
 
     fn wave_lane<T: Clone + Debug + 'static>(value: T) -> impl Strategy<Value = WaveLane<T>> {
-        (prop::collection::vec(file_path(), 0..5), "[a-z]{1,10}", any::<bool>())
+        (
+            prop::collection::vec(file_path(), 0..5),
+            "[a-z]{1,10}",
+            any::<bool>(),
+        )
             .prop_map(move |(surface, lane, fanout)| WaveLane {
-                surface: if surface.is_empty() { None } else { Some(surface) },
+                surface: if surface.is_empty() {
+                    None
+                } else {
+                    Some(surface)
+                },
                 lane,
                 fanout,
                 task: value.clone(),

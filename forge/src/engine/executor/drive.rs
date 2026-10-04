@@ -4,12 +4,9 @@ use crate::engine::engine_fault::is_engine_fault_error;
 use crate::engine::executor::completion::{
     complete_role_task_with_transient_retry, completion_failure_reason,
 };
+use crate::engine::executor::dispatch::{resolve_forge_stop_target, ForgeStopTarget};
 use crate::engine::executor::lane_failure::{
-    is_advance_conflict, settle_forge_lane_failure,
-    LaneFailureSettlement,
-};
-use crate::engine::executor::dispatch::{
-    resolve_forge_stop_target, ForgeStopTarget,
+    is_advance_conflict, settle_forge_lane_failure, LaneFailureSettlement,
 };
 use crate::engine::executor::wave::{plan_wave, WaveLane};
 use crate::engine::facts::ForgeGateEvidence;

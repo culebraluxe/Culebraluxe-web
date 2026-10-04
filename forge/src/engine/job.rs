@@ -442,7 +442,10 @@ fn lease_from_job(job: &Job) -> Result<ForgeJobLease> {
         service_key: crate::engine::job_payload::required_string(&job.payload, "serviceKey")?,
         node_id: crate::engine::job_payload::required_string(&job.payload, "nodeId")?,
         task_id: crate::engine::job_payload::required_string(&job.payload, "taskId")?,
-        process_instance_id: crate::engine::job_payload::required_string(&job.payload, "processInstanceId")?,
+        process_instance_id: crate::engine::job_payload::required_string(
+            &job.payload,
+            "processInstanceId",
+        )?,
         story_id: crate::engine::job_payload::required_string(&job.payload, "storyId")?,
         token_id: crate::engine::job_payload::optional_string(&job.payload, "tokenId")?,
         attempts: job.attempts,

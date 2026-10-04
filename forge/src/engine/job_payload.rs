@@ -34,7 +34,10 @@ pub fn required_string(payload: &Value, key: &str) -> Result<String, workflow::W
 }
 
 /// Extract an optional string from the payload.
-pub fn optional_string(payload: &Value, key: &str) -> Result<Option<String>, workflow::WorkflowError> {
+pub fn optional_string(
+    payload: &Value,
+    key: &str,
+) -> Result<Option<String>, workflow::WorkflowError> {
     match payload.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(value)) if !value.trim().is_empty() => Ok(Some(value.clone())),
@@ -74,14 +77,23 @@ mod tests {
 
         let payload = request_payload(&request);
 
-        assert_eq!(payload.get("serviceKey").and_then(Value::as_str), Some("forge.smith"));
+        assert_eq!(
+            payload.get("serviceKey").and_then(Value::as_str),
+            Some("forge.smith")
+        );
         assert_eq!(payload.get("nodeId").and_then(Value::as_str), Some("smith"));
-        assert_eq!(payload.get("taskId").and_then(Value::as_str), Some("task-123"));
+        assert_eq!(
+            payload.get("taskId").and_then(Value::as_str),
+            Some("task-123")
+        );
         assert_eq!(
             payload.get("processInstanceId").and_then(Value::as_str),
             Some("proc-456")
         );
-        assert_eq!(payload.get("storyId").and_then(Value::as_str), Some("ENG-TEST-01"));
+        assert_eq!(
+            payload.get("storyId").and_then(Value::as_str),
+            Some("ENG-TEST-01")
+        );
         assert_eq!(
             payload.get("tokenId").and_then(Value::as_str),
             Some("token-789")
