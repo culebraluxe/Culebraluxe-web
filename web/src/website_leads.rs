@@ -137,7 +137,7 @@ impl<R: WebsiteLeadRepository> WebsiteLeadService<R> {
         };
         if let Err(error) = mailer.send(team_notice(&lead, &settings)).await {
             self.repository.release_notice(submission_id).await?;
-            return Err(CoreServiceError::business(
+            return Err(CoreServiceError::infrastructure(
                 "LEAD_NOTICE_NOT_SENT",
                 error.to_string(),
             ));
@@ -146,7 +146,7 @@ impl<R: WebsiteLeadRepository> WebsiteLeadService<R> {
             .send(visitor_confirmation(&lead, &settings))
             .await
             .map_err(|error| {
-                CoreServiceError::business("LEAD_CONFIRMATION_NOT_SENT", error.to_string())
+                CoreServiceError::infrastructure("LEAD_CONFIRMATION_NOT_SENT", error.to_string())
             })?;
         Ok(WebsiteLeadNotice::Sent)
     }

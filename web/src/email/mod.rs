@@ -185,7 +185,7 @@ impl<R: EmailRepository> EmailService<R> {
                 self.repository
                     .mark_failed(&message.id, &error.to_string(), false)
                     .await?;
-                return Err(CoreServiceError::business(
+                return Err(CoreServiceError::infrastructure(
                     "EMAIL_DELIVERY_FAILED",
                     error.to_string(),
                 ));

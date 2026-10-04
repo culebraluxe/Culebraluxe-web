@@ -22,6 +22,18 @@ impl CoreServiceError {
         }
     }
 
+    /// A provider or transport failure (Mux, SMTP, lead mail): the caller's
+    /// request was fine, the dependency failed. Maps to 5xx + capture via
+    /// `ServiceRuntimeError::Router` with `Infrastructure` class, retryable.
+    pub fn infrastructure(code: &'static str, message: impl Into<String>) -> Self {
+        Self::Runtime(services::ServiceRuntimeError::Router {
+            code: code.into(),
+            message: message.into(),
+            retryable: true,
+            class: services::ServiceFailureClass::Infrastructure,
+        })
+    }
+
     pub fn code(&self) -> &str {
         match self {
             Self::Business { code, .. } => code,

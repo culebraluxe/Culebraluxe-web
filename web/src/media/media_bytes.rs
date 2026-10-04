@@ -111,7 +111,7 @@ impl<R: MediaRepository> MediaService<R> {
             let upload = mux
                 .create_direct_upload(origin)
                 .await
-                .map_err(|error| CoreServiceError::business("MUX_API", error.message))?;
+                .map_err(|error| CoreServiceError::infrastructure("MUX_API", error.message))?;
             let upload_url = upload.url.ok_or_else(|| {
                 CoreServiceError::business(
                     "MUX_UPLOAD_URL_MISSING",
@@ -171,7 +171,7 @@ impl<R: MediaRepository> MediaService<R> {
             let upload = mux
                 .direct_upload(upload_id)
                 .await
-                .map_err(|error| CoreServiceError::business("MUX_API", error.message))?;
+                .map_err(|error| CoreServiceError::infrastructure("MUX_API", error.message))?;
 
             match upload.status.as_str() {
                 "waiting" => {
@@ -212,7 +212,7 @@ impl<R: MediaRepository> MediaService<R> {
             let asset = mux
                 .asset(&asset_id)
                 .await
-                .map_err(|error| CoreServiceError::business("MUX_API", error.message))?;
+                .map_err(|error| CoreServiceError::infrastructure("MUX_API", error.message))?;
 
             match asset.status.as_str() {
                 "preparing" => {

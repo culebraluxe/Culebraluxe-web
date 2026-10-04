@@ -267,22 +267,69 @@ impl ServiceCatalog {
             firm.clone(),
             property.clone(),
         ));
-        let signature_provider: Option<Arc<dyn SignatureProvider>> = BoldSignConfig::from_env()
+        let signature_provider: Option<Arc<dyn SignatureProvider>> = match BoldSignConfig::from_env()
             .and_then(|config| BoldSignSignatureProvider::new(db.clone(), config))
-            .ok()
-            .map(|provider| Arc::new(provider) as Arc<dyn SignatureProvider>);
+        {
+            Ok(provider) => Some(Arc::new(provider) as Arc<dyn SignatureProvider>),
+            Err(error) => {
+                // LOUD DEGRADED BOOT, not a silent `None`: document signing will
+                // refuse with SIGNATURE_PROVIDER_UNAVAILABLE until this is fixed.
+                eprintln!("composition: BoldSign provider unavailable, signing degraded: {error}");
+                crate::api::error_capture::record(
+                    "rust:boot",
+                    "composition.signature_provider",
+                    &format!("BoldSign provider unavailable, signing degraded: {error}"),
+                    "warn",
+                    None,
+                    serde_json::json!({"source": "rust"}),
+                );
+                None
+            }
+        };
         let signature = Arc::new(SignatureService::new_optional(
             SignatureDao::new(db.clone()),
             signature_provider,
             infrastructure.clone(),
         ));
+        let email_transport = email_transport_from_env();
+        if email_transport.is_none() {
+            // LOUD DEGRADED BOOT: transactional email will refuse with
+            // EMAIL_NOT_CONFIGURED until ICLOUD_MAIL_ADDRESS /
+            // ICLOUD_SMTP_APP_PASSWORD are set.
+            eprintln!(
+                "composition: email transport unavailable, mail degraded (set ICLOUD_MAIL_ADDRESS and ICLOUD_SMTP_APP_PASSWORD)"
+            );
+            crate::api::error_capture::record(
+                "rust:boot",
+                "composition.email_transport",
+                "email transport unavailable, mail degraded",
+                "warn",
+                None,
+                serde_json::json!({"source": "rust"}),
+            );
+        }
         let email = Arc::new(EmailService::new(
             EmailDao::new(db.clone()),
-            email_transport_from_env(),
+            email_transport,
             infrastructure.clone(),
         ));
-        let signer_codec =
-            SignerAccessTokenCodec::from_env().unwrap_or_else(SignerAccessTokenCodec::unavailable);
+        let signer_codec = match SignerAccessTokenCodec::from_env() {
+            Ok(codec) => codec,
+            Err(error) => {
+                // LOUD DEGRADED BOOT: signer links will refuse until the codec env is set.
+                let reason = error.to_string();
+                eprintln!("composition: signer codec unavailable, signer links degraded: {reason}");
+                crate::api::error_capture::record(
+                    "rust:boot",
+                    "composition.signer_codec",
+                    &format!("signer codec unavailable, signer links degraded: {reason}"),
+                    "warn",
+                    None,
+                    serde_json::json!({"source": "rust"}),
+                );
+                SignerAccessTokenCodec::unavailable(reason)
+            }
+        };
         let signer = Arc::new(SignerService::new(
             SignerDao::new(db.clone()),
             signer_codec,
@@ -357,7 +404,25 @@ impl ServiceCatalog {
             )),
             website_leads: Arc::new(WebsiteLeadService::new(
                 WebsiteLeadDao::new(db.clone()),
-                crate::website_leads::mail_from_env(),
+                match crate::website_leads::mail_from_env() {
+                    Some(mail) => Some(mail),
+                    None => {
+                        // LOUD DEGRADED BOOT: lead notices will refuse with
+                        // MAIL_NOT_CONFIGURED until mail env is set.
+                        eprintln!(
+                            "composition: lead mail unavailable, website leads degraded (set ICLOUD_MAIL_ADDRESS and ICLOUD_SMTP_APP_PASSWORD)"
+                        );
+                        crate::api::error_capture::record(
+                            "rust:boot",
+                            "composition.lead_mail",
+                            "lead mail unavailable, website leads degraded",
+                            "warn",
+                            None,
+                            serde_json::json!({"source": "rust"}),
+                        );
+                        None
+                    }
+                },
                 infrastructure.clone(),
             )),
             relationship_evidence: Arc::new(RelationshipEvidenceService::new(

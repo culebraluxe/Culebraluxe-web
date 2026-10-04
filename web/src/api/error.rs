@@ -192,7 +192,18 @@ impl From<ServiceDispatchError> for ApiError {
                     services::ServiceFailureClass::Infrastructure
                     | services::ServiceFailureClass::Panic => StatusCode::INTERNAL_SERVER_ERROR,
                 };
-                Self::new(status, code, message, retryable)
+                let mut out = Self::new(status, code.clone(), message.clone(), retryable);
+                // The envelope path (`service_gateway::core_error`, `email::service_error`,
+                // `document_sign`/`signer` equivalents) converts `DbFailure` into a plain
+                // `infrastructure("DATABASE", ...)` error, dropping the incident id the
+                // database layer already announced. Recover it from the message so the
+                // response carries the original incident and the choke point below does
+                // not write a second `rust:api` row for it. `DbFailure`'s `Display`
+                // always renders `(incident <uuid>)`.
+                if code == "DATABASE" {
+                    out.incident_id = database_incident(&message);
+                }
+                out
             }
             ServiceDispatchError::ServiceDraining(domain) => Self::new(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -252,7 +263,11 @@ impl From<CommandDispatchError> for ApiError {
                         services::ServiceFailureClass::Infrastructure
                         | services::ServiceFailureClass::Panic => StatusCode::INTERNAL_SERVER_ERROR,
                     };
-                    Self::new(status, code, message, retryable)
+                    let mut out = Self::new(status, code.clone(), message.clone(), retryable);
+                    if code == "DATABASE" {
+                        out.incident_id = database_incident(&message);
+                    }
+                    out
                 }
                 ServiceDispatchError::ServiceDraining(domain) => Self::new(
                     StatusCode::SERVICE_UNAVAILABLE,
@@ -308,6 +323,21 @@ impl From<ProjectServiceError> for ApiError {
     }
 }
 
+/// Recover the database incident id from an envelope-converted `DATABASE`
+/// message. `DbFailure`'s `Display` always renders `(incident <uuid>)`, and
+/// the envelope path stringifies it, so the uuid is in the text. Returns
+/// `None` when the marker is absent rather than failing the conversion.
+fn database_incident(message: &str) -> Option<String> {
+    let start = message.find("(incident ")? + "(incident ".len();
+    let rest = &message[start..];
+    let end = rest.find(')')?;
+    let id = &rest[..end];
+    if id.is_empty() {
+        return None;
+    }
+    Some(id.to_owned())
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         // THE ONE CHOKE POINT FOR RUST API FAILURES.
@@ -343,5 +373,36 @@ impl IntoResponse for ApiError {
             correlation_id: self.correlation_id,
         };
         (self.status, Json(body)).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn database_envelope_error_keeps_incident() {
+        let message =
+            "Unknown during db.run_text (incident 11111111-1111-4111-8111-111111111111): boom";
+        let error = ServiceDispatchError::infrastructure("DATABASE", message, true);
+        let api = ApiError::from(error);
+        assert_eq!(
+            api.incident_id.as_deref(),
+            Some("11111111-1111-4111-8111-111111111111")
+        );
+    }
+
+    #[test]
+    fn non_database_error_has_no_incident() {
+        let error = ServiceDispatchError::infrastructure("MUX_API", "mux down", true);
+        let api = ApiError::from(error);
+        assert_eq!(api.incident_id, None);
+    }
+
+    #[test]
+    fn database_message_without_marker_has_no_incident() {
+        let error = ServiceDispatchError::infrastructure("DATABASE", "plain", true);
+        let api = ApiError::from(error);
+        assert_eq!(api.incident_id, None);
     }
 }
