@@ -238,7 +238,7 @@ fn the_composition_root_wires_the_chain_in_order_and_nothing_drives_around_it() 
     let mut callers = Vec::new();
     for tree in ["forge/src", "cli/src", "web/src"] {
         for (path, code) in production_tree(tree) {
-            if path.ends_with("engine/executor.rs") {
+            if path.ends_with("engine/executor/drive.rs") {
                 continue;
             }
             if code.contains("drive_forge_story(") {
@@ -357,15 +357,21 @@ fn the_workflow_launches_no_vendor_and_the_vendor_harness_routes_nothing() {
 /// to be, so adding to this pin is a deliberate act.
 const KNOWN_NODE_LITERALS: [(&str, &str); 3] = [
     // `--stop-after architect`: the operator's cap word, resolved to the definition's own Architect nodes.
-    ("forge/src/engine/executor.rs", "architect"),
+    ("forge/src/engine/executor/dispatch.rs", "architect"),
     // `--stop-after lead`: the cap stops after the Lead's PRE turn.
-    ("forge/src/engine/executor.rs", "lead_pre"),
+    ("forge/src/engine/executor/dispatch.rs", "lead_pre"),
     // The split fan-out marker for wave planning.
-    ("forge/src/engine/executor.rs", "smith_split_work"),
+    ("forge/src/engine/executor/drive.rs", "smith_split_work"),
 ];
 
-const ROLE_MOVING_LAYERS: [&str; 8] = [
-    "forge/src/engine/executor.rs",
+/// The layers that move work between roles. `executor.rs` was one file until 2026-10-04; it is now the five files
+/// below, and every one of them is scanned because the layer is the executor, not a filename.
+const ROLE_MOVING_LAYERS: [&str; 12] = [
+    "forge/src/engine/executor/completion.rs",
+    "forge/src/engine/executor/dispatch.rs",
+    "forge/src/engine/executor/drive.rs",
+    "forge/src/engine/executor/lane_failure.rs",
+    "forge/src/engine/executor/wave.rs",
     "forge/src/engine/runtime.rs",
     "forge/src/engine/job.rs",
     "forge/src/roles/registry.rs",

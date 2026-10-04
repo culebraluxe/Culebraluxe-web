@@ -179,7 +179,12 @@ fn only_the_bridge_reads_the_binding_and_the_post_persistence_path_reads_only_th
 
     for file in [
         "forge/src/engine/job.rs",
-        "forge/src/engine/executor.rs",
+        // `executor.rs` became these five files on 2026-10-04; all of them are the layer this seam is about.
+        "forge/src/engine/executor/completion.rs",
+        "forge/src/engine/executor/dispatch.rs",
+        "forge/src/engine/executor/drive.rs",
+        "forge/src/engine/executor/lane_failure.rs",
+        "forge/src/engine/executor/wave.rs",
         "forge/src/engine/runtime.rs",
         "forge/src/roles/lifecycle.rs",
         "forge/src/bin/forge.rs",

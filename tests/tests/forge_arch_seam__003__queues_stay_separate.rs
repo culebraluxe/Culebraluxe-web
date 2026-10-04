@@ -155,7 +155,12 @@ const STORY_QUEUE_VOCABULARY: [&str; 8] = [
 #[test]
 fn the_role_job_stack_never_touches_the_story_queue() {
     let mut tree: Vec<(String, String)> = [
-        "forge/src/engine/executor.rs",
+        // `executor.rs` became these five files on 2026-10-04; the role-job stack is all five.
+        "forge/src/engine/executor/completion.rs",
+        "forge/src/engine/executor/dispatch.rs",
+        "forge/src/engine/executor/drive.rs",
+        "forge/src/engine/executor/lane_failure.rs",
+        "forge/src/engine/executor/wave.rs",
         "forge/src/engine/job.rs",
         "forge/src/engine/runtime.rs",
     ]
