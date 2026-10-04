@@ -85,7 +85,11 @@ fn transition(name: &str, to: &str) -> TransitionDefinition {
     }
 }
 
-fn definition_for(key: &str, arms: Vec<DecisionArm>, transitions: Vec<TransitionDefinition>) -> ProcessDefinition {
+fn definition_for(
+    key: &str,
+    arms: Vec<DecisionArm>,
+    transitions: Vec<TransitionDefinition>,
+) -> ProcessDefinition {
     let mut nodes = BTreeMap::new();
     nodes.insert(
         "start".to_string(),
@@ -107,13 +111,15 @@ fn definition_for(key: &str, arms: Vec<DecisionArm>, transitions: Vec<Transition
         },
     );
     for id in [GO_END, OTHER_END] {
-        nodes.entry(id.to_string()).or_insert_with(|| NodeDefinition {
-            id: id.to_string(),
-            node_type: "end".to_string(),
-            name: Some(id.to_string()),
-            outcome: Some(ProcessOutcome::Completed),
-            ..Default::default()
-        });
+        nodes
+            .entry(id.to_string())
+            .or_insert_with(|| NodeDefinition {
+                id: id.to_string(),
+                node_type: "end".to_string(),
+                name: Some(id.to_string()),
+                outcome: Some(ProcessOutcome::Completed),
+                ..Default::default()
+            });
     }
     ProcessDefinition {
         id: format!("{key}-def"),
@@ -131,7 +137,11 @@ fn definition_for(key: &str, arms: Vec<DecisionArm>, transitions: Vec<Transition
     }
 }
 
-fn start_with(harness: &EngineHarness, key: &str, vars: Value) -> workflow::Result<StartProcessResult> {
+fn start_with(
+    harness: &EngineHarness,
+    key: &str,
+    vars: Value,
+) -> workflow::Result<StartProcessResult> {
     harness.engine().start_process(StartProcessParams {
         definition_key: key.to_string(),
         version: Some(DEFINITION_VERSION),
@@ -153,7 +163,11 @@ fn resting_node(harness: &EngineHarness, instance_id: &str) -> Vec<String> {
         .collect()
 }
 
-fn seeded(key: &str, arms: Vec<DecisionArm>, transitions: Vec<TransitionDefinition>) -> EngineHarness {
+fn seeded(
+    key: &str,
+    arms: Vec<DecisionArm>,
+    transitions: Vec<TransitionDefinition>,
+) -> EngineHarness {
     let harness = EngineHarness::new(TestClock::at_unix_millis(1_700_000_100_000));
     harness
         .engine()
@@ -329,7 +343,7 @@ fn wf_decision_004__literals() {
     assert_eq!(err.code(), "EXPRESSION", "{HARNESS}: newline refusal code");
 
     for expr in [
-        "\"open\" == \"open\"",  // quoted lhs
+        "\"open\" == \"open\"", // quoted lhs
         "1 == 1",               // literal lhs
         "status == NULL",       // uppercase null
         "status == Null",       // capitalized null
@@ -356,14 +370,19 @@ fn wf_decision_004__literals() {
             "{HARNESS}: refusal code for {expr:?}"
         );
         assert!(
-            error.to_string().contains("Unsupported workflow expression"),
+            error
+                .to_string()
+                .contains("Unsupported workflow expression"),
             "{HARNESS}: refusal names unsupported: {expr:?} {error}"
         );
     }
 
     // 8. NON-VACUITY — variable name, variable value and literal each flip the answer.
     let other_status = obj([("status", Value::from("closed"))]);
-    assert!(condition("status == \"open\"", &vars), "{HARNESS}: fixture open");
+    assert!(
+        condition("status == \"open\"", &vars),
+        "{HARNESS}: fixture open"
+    );
     assert!(
         !condition("status == \"open\"", &other_status),
         "{HARNESS}: different value"
@@ -381,8 +400,14 @@ fn wf_decision_004__literals() {
     assert!(!condition("count == 3", &four), "{HARNESS}: count 4 not 3");
     let null_map = obj([("flag", Value::Null)]);
     let not_null = obj([("flag", Value::from("x"))]);
-    assert!(condition("flag == null", &null_map), "{HARNESS}: null equals null");
-    assert!(!condition("flag == null", &not_null), "{HARNESS}: string not null");
+    assert!(
+        condition("flag == null", &null_map),
+        "{HARNESS}: null equals null"
+    );
+    assert!(
+        !condition("flag == null", &not_null),
+        "{HARNESS}: string not null"
+    );
 
     // 9. DECISION BOUNDARY — STRING. start -> decide (two string arms) -> end_go | end_other, no otherwise.
     //    A fact equal to one literal takes that arm; equal to neither is refused.
@@ -402,15 +427,22 @@ fn wf_decision_004__literals() {
         vec![transition(GO_ARM, GO_END), transition(OTHER_ARM, OTHER_END)],
     );
 
-    let high = start_with(&str_harness, STR_KEY, obj([("status", Value::from("high"))]))
-        .expect("high selects go");
+    let high = start_with(
+        &str_harness,
+        STR_KEY,
+        obj([("status", Value::from("high"))]),
+    )
+    .expect("high selects go");
     let high_inst = str_harness
         .store()
         .with_tx(|tx| tx.get_instance(&high.process_instance_id))
         .expect("readable");
     assert_eq!(high_inst.status, ProcessStatus::Completed);
     let passed = resting_node(&str_harness, &high_inst.id);
-    assert!(passed.iter().any(|n| n == GO_END), "{HARNESS}: high routed to {GO_END}, got {passed:?}");
+    assert!(
+        passed.iter().any(|n| n == GO_END),
+        "{HARNESS}: high routed to {GO_END}, got {passed:?}"
+    );
     assert!(!passed.iter().any(|n| n == OTHER_END));
 
     let low = start_with(&str_harness, STR_KEY, obj([("status", Value::from("low"))]))
@@ -420,11 +452,20 @@ fn wf_decision_004__literals() {
         .with_tx(|tx| tx.get_instance(&low.process_instance_id))
         .expect("readable");
     let passed = resting_node(&str_harness, &low_inst.id);
-    assert!(passed.iter().any(|n| n == OTHER_END), "{HARNESS}: low routed");
+    assert!(
+        passed.iter().any(|n| n == OTHER_END),
+        "{HARNESS}: low routed"
+    );
 
-    let unmatched = start_with(&str_harness, STR_KEY, obj([("status", Value::from("medium"))]))
-        .expect_err("unmatched string must be refused");
-    assert!(unmatched.to_string().contains("No valid transition from decision node"));
+    let unmatched = start_with(
+        &str_harness,
+        STR_KEY,
+        obj([("status", Value::from("medium"))]),
+    )
+    .expect_err("unmatched string must be refused");
+    assert!(unmatched
+        .to_string()
+        .contains("No valid transition from decision node"));
 
     // type-strict at boundary: number not coerced into string arm.
     for not_str in [Value::from(5), Value::Bool(true), Value::Null] {
@@ -444,8 +485,8 @@ fn wf_decision_004__literals() {
         vec![transition(GO_ARM, GO_END)],
     );
 
-    let ok = start_with(&num_harness, NUM_KEY, obj([("count", Value::from(3))]))
-        .expect("3 takes go");
+    let ok =
+        start_with(&num_harness, NUM_KEY, obj([("count", Value::from(3))])).expect("3 takes go");
     let inst = num_harness
         .store()
         .with_tx(|tx| tx.get_instance(&ok.process_instance_id))
@@ -462,11 +503,16 @@ fn wf_decision_004__literals() {
         .with_tx(|tx| tx.get_instance(&ok_f.process_instance_id))
         .expect("readable");
     let passed_f = resting_node(&num_harness, &inst_f.id);
-    assert!(passed_f.iter().any(|n| n == GO_END), "{HARNESS}: 3.0 same as 3");
+    assert!(
+        passed_f.iter().any(|n| n == GO_END),
+        "{HARNESS}: 3.0 same as 3"
+    );
 
     let bad = start_with(&num_harness, NUM_KEY, obj([("count", Value::from(4))]))
         .expect_err("4 does not equal 3");
-    assert!(bad.to_string().contains("No valid transition from decision node"));
+    assert!(bad
+        .to_string()
+        .contains("No valid transition from decision node"));
 
     // string "3" not coerced into number arm.
     start_with(&num_harness, NUM_KEY, obj([("count", Value::from("3"))]))
@@ -483,8 +529,8 @@ fn wf_decision_004__literals() {
         vec![transition(GO_ARM, GO_END)],
     );
 
-    let ok_null = start_with(&null_harness, NULL_KEY, obj([("flag", Value::Null)]))
-        .expect("null takes go");
+    let ok_null =
+        start_with(&null_harness, NULL_KEY, obj([("flag", Value::Null)])).expect("null takes go");
     let inst_null = null_harness
         .store()
         .with_tx(|tx| tx.get_instance(&ok_null.process_instance_id))
@@ -502,13 +548,17 @@ fn wf_decision_004__literals() {
     ] {
         let refused = start_with(&null_harness, NULL_KEY, obj([("flag", not_null.clone())]))
             .expect_err(&format!("{HARNESS}: {not_null:?} not null"));
-        assert!(refused.to_string().contains("No valid transition from decision node"));
+        assert!(refused
+            .to_string()
+            .contains("No valid transition from decision node"));
     }
 
     // absence is not null at boundary either — missing flag refused.
     let missing = start_with(&null_harness, NULL_KEY, obj([]))
         .expect_err("missing flag is not null at boundary");
-    assert!(missing.to_string().contains("No valid transition from decision node"));
+    assert!(missing
+        .to_string()
+        .contains("No valid transition from decision node"));
 
     // 12. DECISION BOUNDARY — EMPTY STRING literal own arm.
     const EMPTY_KEY: &str = "TST-WF-DECISION-004-EMPTY";
@@ -527,9 +577,14 @@ fn wf_decision_004__literals() {
         .with_tx(|tx| tx.get_instance(&empty_ok.process_instance_id))
         .expect("readable");
     let passed_empty = resting_node(&empty_harness, &empty_inst.id);
-    assert!(passed_empty.iter().any(|n| n == GO_END), "{HARNESS}: empty literal arm");
+    assert!(
+        passed_empty.iter().any(|n| n == GO_END),
+        "{HARNESS}: empty literal arm"
+    );
 
     let nonempty = start_with(&empty_harness, EMPTY_KEY, obj([("name", Value::from("x"))]))
         .expect_err("non-empty does not equal empty literal");
-    assert!(nonempty.to_string().contains("No valid transition from decision node"));
+    assert!(nonempty
+        .to_string()
+        .contains("No valid transition from decision node"));
 }

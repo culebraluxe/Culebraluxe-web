@@ -63,8 +63,8 @@ const WRONG_END: &str = "end_wrong";
 /// are the two IEEE-754 specials the literal parser can also name.
 fn variables() -> Value {
     obj([
-        ("count", Value::from(3)),               // integer spelling of 3
-        ("count_f", Value::Number(3.0)),         // float spelling of 3
+        ("count", Value::from(3)),       // integer spelling of 3
+        ("count_f", Value::Number(3.0)), // float spelling of 3
         ("ratio", Value::from(1.5)),
         ("half", Value::Number(0.5)),
         ("five", Value::Number(5.0)),
@@ -77,7 +77,7 @@ fn variables() -> Value {
         ("big", Value::Number(9_007_199_254_740_992.0)),
         ("nan", Value::Number(f64::NAN)),
         ("inf", Value::Number(f64::INFINITY)),
-        ("status", Value::from("3")),            // the string spelling of a number
+        ("status", Value::from("3")), // the string spelling of a number
         ("approved", Value::Bool(true)),
         ("flag", Value::Null),
     ])
@@ -134,13 +134,15 @@ fn definition_for(
         },
     );
     for id in [GO_END, OTHER_END, WRONG_END] {
-        nodes.entry(id.to_string()).or_insert_with(|| NodeDefinition {
-            id: id.to_string(),
-            node_type: "end".to_string(),
-            name: Some(id.to_string()),
-            outcome: Some(ProcessOutcome::Completed),
-            ..Default::default()
-        });
+        nodes
+            .entry(id.to_string())
+            .or_insert_with(|| NodeDefinition {
+                id: id.to_string(),
+                node_type: "end".to_string(),
+                name: Some(id.to_string()),
+                outcome: Some(ProcessOutcome::Completed),
+                ..Default::default()
+            });
     }
     ProcessDefinition {
         id: format!("{key}-def"),
@@ -159,7 +161,11 @@ fn definition_for(
 }
 
 /// Start a routing graph with the supplied variables.
-fn start_with(harness: &EngineHarness, key: &str, vars: Value) -> workflow::Result<StartProcessResult> {
+fn start_with(
+    harness: &EngineHarness,
+    key: &str,
+    vars: Value,
+) -> workflow::Result<StartProcessResult> {
     harness.engine().start_process(StartProcessParams {
         definition_key: key.to_string(),
         version: Some(DEFINITION_VERSION),
@@ -216,9 +222,8 @@ fn route(harness: &EngineHarness, key: &str, vars: Value) -> Vec<String> {
 /// Start a graph with a fact no numeric arm matches and assert the decision REFUSED rather than routing it to
 /// an invented branch.
 fn refuse(harness: &EngineHarness, key: &str, vars: Value) -> workflow::WorkflowError {
-    let error = start_with(harness, key, vars).expect_err(
-        "an unmatched numeric fact must be refused, not routed to an invented branch",
-    );
+    let error = start_with(harness, key, vars)
+        .expect_err("an unmatched numeric fact must be refused, not routed to an invented branch");
     assert!(
         error
             .to_string()
@@ -337,18 +342,18 @@ fn wf_decision_005__numeric_comparisons() {
     //     that stripped separators, accepted a radix prefix, or read a word) would accept; the production parser
     //     refuses every one with the `EXPRESSION` error.
     for expression in [
-        "count == 1_000",  // digit separator
-        "count == 0x3",    // radix prefix
-        "count == 1,000",  // thousands comma
-        "count == 1.2.3",  // two decimal points
-        "count == 3 0",    // space inside the number
-        "count == 3e",     // exponent with no digits
-        "count == 3+",     // trailing operator
-        "count == +",      // sign with no digits
-        "count == -",      // sign with no digits
-        "count == .",      // dot with no digits
-        "count == 1f",     // typed suffix
-        "count == 3px",    // unit suffix
+        "count == 1_000", // digit separator
+        "count == 0x3",   // radix prefix
+        "count == 1,000", // thousands comma
+        "count == 1.2.3", // two decimal points
+        "count == 3 0",   // space inside the number
+        "count == 3e",    // exponent with no digits
+        "count == 3+",    // trailing operator
+        "count == +",     // sign with no digits
+        "count == -",     // sign with no digits
+        "count == .",     // dot with no digits
+        "count == 1f",    // typed suffix
+        "count == 3px",   // unit suffix
     ] {
         assert!(
             !is_supported_expression(expression),
@@ -429,9 +434,9 @@ fn wf_decision_005__numeric_comparisons() {
         "count == \"3px\"", // number vs a string that merely starts numeric
         "status == 3",      // string variable vs number literal
         "status == 3.0",
-        "approved == 1",    // boolean vs the number a truthy reading would use
+        "approved == 1", // boolean vs the number a truthy reading would use
         "approved == 0",
-        "flag == 0",        // null vs zero
+        "flag == 0", // null vs zero
     ] {
         assert!(
             is_supported_expression(expression),
@@ -578,7 +583,11 @@ fn wf_decision_005__numeric_comparisons() {
         passed.iter().any(|node| node == GO_END),
         "{HARNESS}: -7 takes the negative arm, got {passed:?}"
     );
-    let passed = route(&neg_harness, NEG_KEY, obj([("balance", Value::Number(-7.0))]));
+    let passed = route(
+        &neg_harness,
+        NEG_KEY,
+        obj([("balance", Value::Number(-7.0))]),
+    );
     assert!(
         passed.iter().any(|node| node == GO_END),
         "{HARNESS}: -7.0 is the same number as -7, got {passed:?}"
@@ -601,7 +610,11 @@ fn wf_decision_005__numeric_comparisons() {
         passed.iter().any(|node| node == GO_END),
         "{HARNESS}: 1000 takes the `total == 1e3` arm, got {passed:?}"
     );
-    let passed = route(&exp_harness, EXP_KEY, obj([("total", Value::Number(1000.0))]));
+    let passed = route(
+        &exp_harness,
+        EXP_KEY,
+        obj([("total", Value::Number(1000.0))]),
+    );
     assert!(
         passed.iter().any(|node| node == GO_END),
         "{HARNESS}: 1000.0 is the same number as 1e3, got {passed:?}"
@@ -659,8 +672,16 @@ fn wf_decision_005__numeric_comparisons() {
         }],
         vec![transition(WRONG_ARM, WRONG_END)],
     );
-    refuse(&only_order, ONLY_ORDER_KEY, obj([("count", Value::from(99))]));
-    refuse(&only_order, ONLY_ORDER_KEY, obj([("count", Value::from(3))]));
+    refuse(
+        &only_order,
+        ONLY_ORDER_KEY,
+        obj([("count", Value::from(99))]),
+    );
+    refuse(
+        &only_order,
+        ONLY_ORDER_KEY,
+        obj([("count", Value::from(3))]),
+    );
 
     // 8. NON-VACUITY. The variable name, the variable value and the literal are each load-bearing: changing any
     //    one flips the numeric comparison. If `condition` were a constant, one of these would not move. The last

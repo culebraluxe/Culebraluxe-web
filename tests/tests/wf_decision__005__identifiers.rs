@@ -72,9 +72,8 @@ fn condition(expression: &str, vars: &Value) -> bool {
 }
 
 fn refusal(expression: &str, vars: &Value) -> workflow::WorkflowError {
-    evaluate_condition(expression, vars).expect_err(&format!(
-        "{HARNESS}: {expression:?} must be refused"
-    ))
+    evaluate_condition(expression, vars)
+        .expect_err(&format!("{HARNESS}: {expression:?} must be refused"))
 }
 
 fn transition(name: &str, to: &str) -> TransitionDefinition {
@@ -86,7 +85,11 @@ fn transition(name: &str, to: &str) -> TransitionDefinition {
     }
 }
 
-fn definition_for(key: &str, arms: Vec<DecisionArm>, transitions: Vec<TransitionDefinition>) -> ProcessDefinition {
+fn definition_for(
+    key: &str,
+    arms: Vec<DecisionArm>,
+    transitions: Vec<TransitionDefinition>,
+) -> ProcessDefinition {
     let mut nodes = BTreeMap::new();
     nodes.insert(
         "start".to_string(),
@@ -108,13 +111,15 @@ fn definition_for(key: &str, arms: Vec<DecisionArm>, transitions: Vec<Transition
         },
     );
     for id in [GO_END, OTHER_END] {
-        nodes.entry(id.to_string()).or_insert_with(|| NodeDefinition {
-            id: id.to_string(),
-            node_type: "end".to_string(),
-            name: Some(id.to_string()),
-            outcome: Some(ProcessOutcome::Completed),
-            ..Default::default()
-        });
+        nodes
+            .entry(id.to_string())
+            .or_insert_with(|| NodeDefinition {
+                id: id.to_string(),
+                node_type: "end".to_string(),
+                name: Some(id.to_string()),
+                outcome: Some(ProcessOutcome::Completed),
+                ..Default::default()
+            });
     }
     ProcessDefinition {
         id: format!("{key}-def"),
@@ -132,7 +137,11 @@ fn definition_for(key: &str, arms: Vec<DecisionArm>, transitions: Vec<Transition
     }
 }
 
-fn start_with(harness: &EngineHarness, key: &str, vars: Value) -> workflow::Result<StartProcessResult> {
+fn start_with(
+    harness: &EngineHarness,
+    key: &str,
+    vars: Value,
+) -> workflow::Result<StartProcessResult> {
     harness.engine().start_process(StartProcessParams {
         definition_key: key.to_string(),
         version: Some(DEFINITION_VERSION),
@@ -154,7 +163,11 @@ fn resting_node(harness: &EngineHarness, instance_id: &str) -> Vec<String> {
         .collect()
 }
 
-fn seeded(key: &str, arms: Vec<DecisionArm>, transitions: Vec<TransitionDefinition>) -> EngineHarness {
+fn seeded(
+    key: &str,
+    arms: Vec<DecisionArm>,
+    transitions: Vec<TransitionDefinition>,
+) -> EngineHarness {
     let harness = EngineHarness::new(TestClock::at_unix_millis(1_700_000_100_000));
     harness
         .engine()
@@ -229,24 +242,24 @@ fn wf_decision_005__identifiers() {
 
     // 3. INVALID IDENTIFIER FORMS — must be REFUSED with EXPRESSION.
     for expr in [
-        "",                              // empty
-        "   ",                           // only WS
-        "1status == \"open\"",           // digit start
-        "1 == 1",                        // digit start literal lhs
-        "0 == true",                     // digit only
-        "1a == \"a1\"",                  // digit start with letter
-        "-flag == true",                 // hyphen start
-        "a-b == \"x\"",                  // hyphen inside
-        "a.b == \"x\"",                  // dot inside
-        "a$ == \"x\"",                   // dollar inside
-        "$var == \"x\"",                 // dollar start
-        "@ == \"x\"",                    // at sign
-        "sta tus == \"open\"",           // space inside identifier
-        "foo bar == \"x\"",              // space inside
-        "a! == \"x\"",                   // bang inside
-        "a? == \"x\"",                   // question inside
-        "\"status\" == \"open\"",        // quoted lhs
-        "null == null",                  // literal lhs, not identifier (parse expects identifier first, literal lhs is not identifier start? Actually 'n' is identifier start, so null as name would be parsed as name, but rhs null valid — this would be treated as variable named null; should still be supported? Let's assert it's supported but false, so skip refusal. We'll test separately)
+        "",                       // empty
+        "   ",                    // only WS
+        "1status == \"open\"",    // digit start
+        "1 == 1",                 // digit start literal lhs
+        "0 == true",              // digit only
+        "1a == \"a1\"",           // digit start with letter
+        "-flag == true",          // hyphen start
+        "a-b == \"x\"",           // hyphen inside
+        "a.b == \"x\"",           // dot inside
+        "a$ == \"x\"",            // dollar inside
+        "$var == \"x\"",          // dollar start
+        "@ == \"x\"",             // at sign
+        "sta tus == \"open\"",    // space inside identifier
+        "foo bar == \"x\"",       // space inside
+        "a! == \"x\"",            // bang inside
+        "a? == \"x\"",            // question inside
+        "\"status\" == \"open\"", // quoted lhs
+        "null == null", // literal lhs, not identifier (parse expects identifier first, literal lhs is not identifier start? Actually 'n' is identifier start, so null as name would be parsed as name, but rhs null valid — this would be treated as variable named null; should still be supported? Let's assert it's supported but false, so skip refusal. We'll test separately)
     ] {
         if expr == "null == null" {
             continue;
@@ -282,19 +295,19 @@ fn wf_decision_005__identifiers() {
     let base = "status == \"open\"";
     assert!(condition(base, &vars), "{HARNESS}: base");
     for expr in [
-        "status==\"open\"",               // no WS at all
-        "status ==\"open\"",              // no WS after ==
-        "status== \"open\"",              // no WS before ==
-        "status == \"open\"",             // single spaces
-        "status   ==   \"open\"",         // multiple spaces
-        "status\t==\t\"open\"",           // tabs
-        "status \t == \t \"open\"",       // mixed
-        "  status == \"open\"  ",         // outer trim
-        "\tstatus == \"open\"\t",         // outer tab trim
-        "  status   ==   \"open\"  ",     // outer + inner
-        "status == \"open\"   ",          // trailing WS outer trimmed
-        "   status == \"open\"",          // leading WS
-        "status\t\t==\t\t\"open\"",       // double tab
+        "status==\"open\"",           // no WS at all
+        "status ==\"open\"",          // no WS after ==
+        "status== \"open\"",          // no WS before ==
+        "status == \"open\"",         // single spaces
+        "status   ==   \"open\"",     // multiple spaces
+        "status\t==\t\"open\"",       // tabs
+        "status \t == \t \"open\"",   // mixed
+        "  status == \"open\"  ",     // outer trim
+        "\tstatus == \"open\"\t",     // outer tab trim
+        "  status   ==   \"open\"  ", // outer + inner
+        "status == \"open\"   ",      // trailing WS outer trimmed
+        "   status == \"open\"",      // leading WS
+        "status\t\t==\t\t\"open\"",   // double tab
     ] {
         assert!(
             is_supported_expression(expr),
@@ -360,7 +373,11 @@ fn wf_decision_005__identifiers() {
             "{HARNESS}: WS inside operator unsupported: {expr:?}"
         );
         let err = refusal(expr, &vars);
-        assert_eq!(err.code(), "EXPRESSION", "{HARNESS}: WS op refusal code {expr:?}");
+        assert_eq!(
+            err.code(),
+            "EXPRESSION",
+            "{HARNESS}: WS op refusal code {expr:?}"
+        );
     }
 
     // WS inside identifier splits, also refused.
@@ -486,10 +503,7 @@ fn wf_decision_005__identifiers() {
                 transition: OTHER_ARM.to_string(),
             },
         ],
-        vec![
-            transition(GO_ARM, GO_END),
-            transition(OTHER_ARM, OTHER_END),
-        ],
+        vec![transition(GO_ARM, GO_END), transition(OTHER_ARM, OTHER_END)],
     );
     let up = start_with(
         &case_harness,
@@ -529,8 +543,8 @@ fn wf_decision_005__identifiers() {
         }],
         vec![transition(GO_ARM, GO_END)],
     );
-    let dig_go = start_with(&dig_harness, DIG_KEY, obj([("a1", Value::from("a1"))]))
-        .expect("a1 go");
+    let dig_go =
+        start_with(&dig_harness, DIG_KEY, obj([("a1", Value::from("a1"))])).expect("a1 go");
     let dig_inst = dig_harness
         .store()
         .with_tx(|tx| tx.get_instance(&dig_go.process_instance_id))
@@ -560,8 +574,12 @@ fn wf_decision_005__identifiers() {
         .iter()
         .any(|n| n == GO_END));
 
-    let ws_refused = start_with(&ws_harness, WS_KEY, obj([("status", Value::from("closed"))]))
-        .expect_err("closed does not match ws arm");
+    let ws_refused = start_with(
+        &ws_harness,
+        WS_KEY,
+        obj([("status", Value::from("closed"))]),
+    )
+    .expect_err("closed does not match ws arm");
     assert!(ws_refused
         .to_string()
         .contains("No valid transition from decision node"));

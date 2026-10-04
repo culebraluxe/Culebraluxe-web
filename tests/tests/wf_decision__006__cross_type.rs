@@ -92,7 +92,11 @@ fn transition(name: &str, to: &str) -> TransitionDefinition {
     }
 }
 
-fn definition_for(key: &str, arms: Vec<DecisionArm>, transitions: Vec<TransitionDefinition>) -> ProcessDefinition {
+fn definition_for(
+    key: &str,
+    arms: Vec<DecisionArm>,
+    transitions: Vec<TransitionDefinition>,
+) -> ProcessDefinition {
     let mut nodes = BTreeMap::new();
     nodes.insert(
         "start".to_string(),
@@ -114,13 +118,15 @@ fn definition_for(key: &str, arms: Vec<DecisionArm>, transitions: Vec<Transition
         },
     );
     for id in [GO_END, OTHER_END] {
-        nodes.entry(id.to_string()).or_insert_with(|| NodeDefinition {
-            id: id.to_string(),
-            node_type: "end".to_string(),
-            name: Some(id.to_string()),
-            outcome: Some(ProcessOutcome::Completed),
-            ..Default::default()
-        });
+        nodes
+            .entry(id.to_string())
+            .or_insert_with(|| NodeDefinition {
+                id: id.to_string(),
+                node_type: "end".to_string(),
+                name: Some(id.to_string()),
+                outcome: Some(ProcessOutcome::Completed),
+                ..Default::default()
+            });
     }
     ProcessDefinition {
         id: format!("{key}-def"),
@@ -138,7 +144,11 @@ fn definition_for(key: &str, arms: Vec<DecisionArm>, transitions: Vec<Transition
     }
 }
 
-fn start_with(harness: &EngineHarness, key: &str, vars: Value) -> workflow::Result<StartProcessResult> {
+fn start_with(
+    harness: &EngineHarness,
+    key: &str,
+    vars: Value,
+) -> workflow::Result<StartProcessResult> {
     harness.engine().start_process(StartProcessParams {
         definition_key: key.to_string(),
         version: Some(DEFINITION_VERSION),
@@ -160,7 +170,11 @@ fn resting_node(harness: &EngineHarness, instance_id: &str) -> Vec<String> {
         .collect()
 }
 
-fn seeded(key: &str, arms: Vec<DecisionArm>, transitions: Vec<TransitionDefinition>) -> EngineHarness {
+fn seeded(
+    key: &str,
+    arms: Vec<DecisionArm>,
+    transitions: Vec<TransitionDefinition>,
+) -> EngineHarness {
     let harness = EngineHarness::new(TestClock::at_unix_millis(1_700_000_100_100));
     harness
         .engine()
@@ -419,10 +433,21 @@ fn wf_decision_006__cross_type() {
 
     // 8. PARSER AGREEMENT — every cross still supported syntactically, evaluates Ok (false), not Refused.
     // Invalid forms would be bareword literal etc, tested in 004. Here just prove agreement.
-    let valid_cross = ["b_true == \"true\"", "n_1 == \"1\"", "s_empty == null", "null_var == \"\""];
+    let valid_cross = [
+        "b_true == \"true\"",
+        "n_1 == \"1\"",
+        "s_empty == null",
+        "null_var == \"\"",
+    ];
     for expr in valid_cross {
-        assert!(is_supported_expression(expr), "{HARNESS}: cross supported {expr:?}");
-        assert!(evaluate_condition(expr, &vars).is_ok(), "{HARNESS}: cross eval ok {expr:?}");
+        assert!(
+            is_supported_expression(expr),
+            "{HARNESS}: cross supported {expr:?}"
+        );
+        assert!(
+            evaluate_condition(expr, &vars).is_ok(),
+            "{HARNESS}: cross eval ok {expr:?}"
+        );
     }
 
     // 9. REFUSAL REMAINS — ensure bareword rhs still refused (not confused with absent).
@@ -437,16 +462,28 @@ fn wf_decision_006__cross_type() {
 
     // 10. NON-VACUITY — name, value, literal each flip; type change flips.
     assert!(condition("b_true == true", &vars), "{HARNESS}: fixture");
-    assert!(!condition("b_true == false", &vars), "{HARNESS}: literal flip");
+    assert!(
+        !condition("b_true == false", &vars),
+        "{HARNESS}: literal flip"
+    );
     assert!(
         !condition("b_false == true", &vars),
         "{HARNESS}: name flip: b_true vs b_false map"
     );
     let other = obj([("b_true", Value::Bool(false))]);
-    assert!(!condition("b_true == true", &other), "{HARNESS}: value flip");
+    assert!(
+        !condition("b_true == true", &other),
+        "{HARNESS}: value flip"
+    );
     // type flip
-    assert!(!condition("b_true == \"true\"", &vars), "{HARNESS}: type flip bool->string");
-    assert!(!condition("n_1 == \"1\"", &vars), "{HARNESS}: type flip number->string");
+    assert!(
+        !condition("b_true == \"true\"", &vars),
+        "{HARNESS}: type flip bool->string"
+    );
+    assert!(
+        !condition("n_1 == \"1\"", &vars),
+        "{HARNESS}: type flip number->string"
+    );
 
     // 11. DECISION BOUNDARY — cross-type arms never match out-of-kind fact.
     // a decision has go = "b_true == true", other = "s_true == \"true\"" — Bool(true) takes go, String("true") takes other, cross not.
@@ -467,8 +504,12 @@ fn wf_decision_006__cross_type() {
     );
 
     // bool true -> go
-    let go = start_with(&cross_harness, CROSS_KEY, obj([("flag", Value::Bool(true))]))
-        .expect("bool true go");
+    let go = start_with(
+        &cross_harness,
+        CROSS_KEY,
+        obj([("flag", Value::Bool(true))]),
+    )
+    .expect("bool true go");
     let go_inst = cross_harness
         .store()
         .with_tx(|tx| tx.get_instance(&go.process_instance_id))
@@ -479,8 +520,12 @@ fn wf_decision_006__cross_type() {
         .any(|n| n == GO_END));
 
     // string true -> other
-    let other = start_with(&cross_harness, CROSS_KEY, obj([("flag", Value::from("true"))]))
-        .expect("string true other");
+    let other = start_with(
+        &cross_harness,
+        CROSS_KEY,
+        obj([("flag", Value::from("true"))]),
+    )
+    .expect("string true other");
     let other_inst = cross_harness
         .store()
         .with_tx(|tx| tx.get_instance(&other.process_instance_id))
@@ -492,17 +537,23 @@ fn wf_decision_006__cross_type() {
     // number 1 -> neither (refused)
     let not_match = start_with(&cross_harness, CROSS_KEY, obj([("flag", Value::from(1))]))
         .expect_err("number 1 neither bool nor string true");
-    assert!(not_match.to_string().contains("No valid transition from decision node"));
+    assert!(not_match
+        .to_string()
+        .contains("No valid transition from decision node"));
 
     // null -> neither
     let null_no = start_with(&cross_harness, CROSS_KEY, obj([("flag", Value::Null)]))
         .expect_err("null neither");
-    assert!(null_no.to_string().contains("No valid transition from decision node"));
+    assert!(null_no
+        .to_string()
+        .contains("No valid transition from decision node"));
 
     // absent -> neither (since absence false for both ==)
-    let absent_no = start_with(&cross_harness, CROSS_KEY, obj([]))
-        .expect_err("absent neither bool nor string");
-    assert!(absent_no.to_string().contains("No valid transition from decision node"));
+    let absent_no =
+        start_with(&cross_harness, CROSS_KEY, obj([])).expect_err("absent neither bool nor string");
+    assert!(absent_no
+        .to_string()
+        .contains("No valid transition from decision node"));
 
     // 12. DECISION BOUNDARY — empty vs null vs 0 vs false distinct arms.
     const EMPTY_NULL_KEY: &str = "TST-WF-DECISION-006-EMPTYNULL";
@@ -521,16 +572,18 @@ fn wf_decision_006__cross_type() {
         vec![transition(GO_ARM, GO_END), transition(OTHER_ARM, OTHER_END)],
     );
 
-    let empty_go = start_with(&en_harness, EMPTY_NULL_KEY, obj([("v", Value::from(""))]))
-        .expect("empty go");
+    let empty_go =
+        start_with(&en_harness, EMPTY_NULL_KEY, obj([("v", Value::from(""))])).expect("empty go");
     let ei = en_harness
         .store()
         .with_tx(|tx| tx.get_instance(&empty_go.process_instance_id))
         .unwrap();
-    assert!(resting_node(&en_harness, &ei.id).iter().any(|n| n == GO_END));
+    assert!(resting_node(&en_harness, &ei.id)
+        .iter()
+        .any(|n| n == GO_END));
 
-    let null_other = start_with(&en_harness, EMPTY_NULL_KEY, obj([("v", Value::Null)]))
-        .expect("null other");
+    let null_other =
+        start_with(&en_harness, EMPTY_NULL_KEY, obj([("v", Value::Null)])).expect("null other");
     let ni = en_harness
         .store()
         .with_tx(|tx| tx.get_instance(&null_other.process_instance_id))
@@ -542,7 +595,9 @@ fn wf_decision_006__cross_type() {
     // 0 should not match empty nor null
     let zero_no = start_with(&en_harness, EMPTY_NULL_KEY, obj([("v", Value::from(0))]))
         .expect_err("0 neither empty nor null");
-    assert!(zero_no.to_string().contains("No valid transition from decision node"));
+    assert!(zero_no
+        .to_string()
+        .contains("No valid transition from decision node"));
 
     // 13. DECISION BOUNDARY — number vs stringified number.
     const NUM_STR_KEY: &str = "TST-WF-DECISION-006-NUMSTR";
@@ -561,13 +616,15 @@ fn wf_decision_006__cross_type() {
         vec![transition(GO_ARM, GO_END), transition(OTHER_ARM, OTHER_END)],
     );
 
-    let num_go = start_with(&ns_harness, NUM_STR_KEY, obj([("c", Value::from(1))]))
-        .expect("number 1 go");
+    let num_go =
+        start_with(&ns_harness, NUM_STR_KEY, obj([("c", Value::from(1))])).expect("number 1 go");
     let ni = ns_harness
         .store()
         .with_tx(|tx| tx.get_instance(&num_go.process_instance_id))
         .unwrap();
-    assert!(resting_node(&ns_harness, &ni.id).iter().any(|n| n == GO_END));
+    assert!(resting_node(&ns_harness, &ni.id)
+        .iter()
+        .any(|n| n == GO_END));
 
     let str_other = start_with(&ns_harness, NUM_STR_KEY, obj([("c", Value::from("1"))]))
         .expect("string 1 other");
@@ -582,5 +639,7 @@ fn wf_decision_006__cross_type() {
     // bool true should not match either numeric/string 1
     let bool_no = start_with(&ns_harness, NUM_STR_KEY, obj([("c", Value::Bool(true))]))
         .expect_err("bool true neither 1 nor \"1\"");
-    assert!(bool_no.to_string().contains("No valid transition from decision node"));
+    assert!(bool_no
+        .to_string()
+        .contains("No valid transition from decision node"));
 }
