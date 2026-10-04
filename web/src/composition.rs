@@ -493,7 +493,10 @@ impl ServiceCatalog {
                 TechCockpitDao::new(db.clone()),
                 infrastructure.clone(),
             )),
-            whatsapp: Arc::new(WhatsAppService::new(WhatsAppDao::new(db.clone()))),
+            whatsapp: Arc::new(WhatsAppService::new(
+                WhatsAppDao::new(db.clone()),
+                infrastructure.clone(),
+            )),
             accounting: Arc::new(AccountingService::new(
                 AccountingDao::new(db),
                 infrastructure,

@@ -317,9 +317,11 @@ impl<R: MediaRepository> MediaService<R> {
 
     /// Stages one piece of the file.
     ///
-    /// Authorized like any other media write, but deliberately NOT audited: bytes arriving is transport, not a
-    /// business event. Auditing each of them would bury the events that are. The `init` and the `complete` are the
-    /// two moments worth recording.
+    /// Authorized like any other media write. Successes are deliberately NOT
+    /// audited: bytes arriving is transport, not a business event, and auditing
+    /// each of them would bury the events that are. The `init` and the
+    /// `complete` are the two moments worth recording — but a FAILED chunk is
+    /// worth one row, so failures are audited below.
     pub async fn stage_media_chunk(
         &self,
         upload_id: &str,
@@ -328,7 +330,7 @@ impl<R: MediaRepository> MediaService<R> {
         context: &ServiceContext,
     ) -> Result<MediaUploadProgress, CoreServiceError> {
         const OP: &str = "media.stageMediaChunk";
-        let _decision = authorize(
+        let decision = authorize(
             &self.runtime,
             "media",
             "property.write",
@@ -339,15 +341,19 @@ impl<R: MediaRepository> MediaService<R> {
         .await?;
 
         let repository = &self.repository;
-        let progress = repository
+        let result = repository
             .stage_media_chunk(upload_id, chunk_index, &bytes)
             .await
-            .map_err(CoreServiceError::from)?;
+            .map(|progress| MediaUploadProgress {
+                received_chunks: progress.received_chunks,
+                chunk_count: progress.chunk_count,
+            })
+            .map_err(CoreServiceError::from);
+        if result.is_err() {
+            audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
+        }
 
-        Ok(MediaUploadProgress {
-            received_chunks: progress.received_chunks,
-            chunk_count: progress.chunk_count,
-        })
+        result
     }
 
     /// Completes a chunked upload: assembles it, makes the copies that make it servable, and writes the photograph.

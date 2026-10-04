@@ -97,6 +97,14 @@ impl ServiceRuntime {
         Self { infrastructure }
     }
 
+    /// The process's error sink: for failures that must be recorded without
+    /// changing the caller's outcome (best-effort ingress writes, refresh
+    /// failures that must not trigger a provider replay). Recording is still
+    /// best effort — callers ignore the result.
+    pub fn error_sink(&self) -> Arc<dyn ServiceErrorSink> {
+        self.infrastructure.errors.clone()
+    }
+
     pub async fn authorize(
         &self,
         domain: &'static str,

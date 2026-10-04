@@ -66,10 +66,10 @@ pub(super) async fn whatsapp_handshake(
                     false,
                 )
             }),
-        Err(_) => Err(ApiError::new(
+        Err(error) => Err(ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             "WHATSAPP_NOT_CONFIGURED",
-            "WhatsApp webhook is not configured.",
+            error.to_string(),
             false,
         )),
     }
@@ -88,31 +88,34 @@ pub(super) async fn whatsapp_webhook(
     let result = service
         .handle_webhook(&body, signature)
         .await
-        .map_err(|error| {
-            if error == "WHATSAPP_SIGNATURE_INVALID" {
-                ApiError::unauthorized("WHATSAPP_SIGNATURE_INVALID", "Invalid WhatsApp signature.")
-            } else if error == "WHATSAPP_PAYLOAD_INVALID" {
-                ApiError::new(
+        .map_err(|error| match error {
+            CoreServiceError::Business { code, message } => match code {
+                "WHATSAPP_SIGNATURE_INVALID" => {
+                    ApiError::unauthorized(code, message)
+                }
+                "WHATSAPP_PAYLOAD_INVALID" => ApiError::new(
                     StatusCode::BAD_REQUEST,
-                    "WHATSAPP_PAYLOAD_INVALID",
-                    "Invalid WhatsApp payload.",
+                    code,
+                    message,
                     false,
-                )
-            } else if error.contains("not configured") {
-                ApiError::new(
+                ),
+                "WHATSAPP_NOT_CONFIGURED" => ApiError::new(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "WHATSAPP_NOT_CONFIGURED",
+                    code,
                     "WhatsApp webhook is not configured.",
                     false,
-                )
-            } else {
-                ApiError::new(
+                ),
+                _ => ApiError::new(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "WHATSAPP_PROCESSING_FAILED",
-                    "Webhook processing failed.",
-                    true,
-                )
-            }
+                    code,
+                    message,
+                    false,
+                ),
+            },
+            // A `DbFailure` keeps its incident id and retryability through
+            // `ApiError::from_db`; the response carries the original incident
+            // instead of minting a second `rust:api` row for it.
+            error => ApiError::from(error),
         })?;
 
     if result.retryable_failure {
