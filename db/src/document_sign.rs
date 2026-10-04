@@ -412,28 +412,28 @@ impl DocumentSignDao {
         .map_err(|error| DbFailure::from_sqlx("document_sign.required_fields", &error))
     }
 
-    /// Store the completion audit artifact as a Vault-readable document and
-    /// link it to the transaction document. The signed PDF itself is a
-    /// future renderer step; the audit trail is complete and queryable now.
-    /// Returns the new media id.
+    /// Store a derived audit document and link it to the transaction
+    /// document. The completion certificate PDF and any future signed-PDF
+    /// renderer both land here; the bytes decide the mime type.
     pub async fn store_audit_artifact_tx(
         &self,
         tx: &mut DbTransaction,
         transaction_document_id: &str,
-        signature_request_id: &str,
-        artifact_json: &str,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
     ) -> DbResult<String> {
-        let filename = format!("signature-audit-{signature_request_id}.json");
         let media_id: String = sqlx::query_scalar::<_, String>(
             r#"
             insert into media (file_data, filename, mime_type, file_size, media_type)
-            values ($1, $2, 'application/json', $3, 'document')
+            values ($1, $2, $3, $4, 'document')
             returning id::text
             "#,
         )
-        .bind(artifact_json.as_bytes())
-        .bind(&filename)
-        .bind(artifact_json.len() as i64)
+        .bind(bytes)
+        .bind(filename)
+        .bind(mime_type)
+        .bind(bytes.len() as i64)
         .fetch_one(tx.connection())
         .await
         .map_err(|error| DbFailure::from_sqlx("document_sign.audit_media", &error))?;

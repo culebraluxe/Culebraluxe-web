@@ -78,8 +78,9 @@ pub trait DocumentSignRepository: Send + Sync {
         &self,
         tx: &mut DbTransaction,
         transaction_document_id: &str,
-        signature_request_id: &str,
-        artifact_json: &str,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
     ) -> DbResult<String>;
     async fn audit_media_for_request_tx(
         &self,
@@ -181,15 +182,17 @@ impl DocumentSignRepository for DocumentSignDao {
         &self,
         tx: &mut DbTransaction,
         transaction_document_id: &str,
-        signature_request_id: &str,
-        artifact_json: &str,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
     ) -> DbResult<String> {
         DocumentSignDao::store_audit_artifact_tx(
             self,
             tx,
             transaction_document_id,
-            signature_request_id,
-            artifact_json,
+            filename,
+            mime_type,
+            bytes,
         )
         .await
     }
@@ -1070,15 +1073,19 @@ where
             .signer
             .finalize_inputs_tx(tx, signature_request_id)
             .await?;
-        let artifact = build_audit_artifact(
+        let finalized_at = Utc::now().to_rfc3339();
+        let certificate = crate::vault::signing_certificate::render_completion_certificate(
             signature_request_id,
             &transaction_document_id,
-            &inputs,
-        );
-        let artifact_json = serde_json::to_string_pretty(&artifact).map_err(|error| {
+            &inputs.recipients,
+            &inputs.fields,
+            &inputs.events,
+            &finalized_at,
+        )
+        .map_err(|error| {
             CoreServiceError::business(
                 "DOCUMENT_SIGN_FINALIZE_FAILED",
-                format!("Audit artifact could not be serialized: {error}"),
+                format!("Completion certificate could not be rendered: {error}"),
             )
         })?;
         let audit_media_id = self
@@ -1086,8 +1093,9 @@ where
             .store_audit_artifact_tx(
                 tx,
                 &transaction_document_id,
-                signature_request_id,
-                &artifact_json,
+                &format!("signature-completion-{signature_request_id}.pdf"),
+                "application/pdf",
+                &certificate,
             )
             .await?;
         self.signer
@@ -1112,57 +1120,6 @@ where
             already_completed: false,
         })
     }
-}
-
-/// The deterministic completion audit artifact: document and request
-/// identity, every recipient with role, step, state and consent evidence,
-/// every field with its response, and the full event ledger in order. Pure:
-/// the same inputs always render the same bytes, so a future cryptography
-/// layer can seal exactly this representation without changing the model.
-fn build_audit_artifact(
-    signature_request_id: &str,
-    transaction_document_id: &str,
-    inputs: &FinalizeInputs,
-) -> Value {
-    json!({
-        "artifact": "signature-audit-trail-v1",
-        "signatureRequestId": signature_request_id,
-        "transactionDocumentId": transaction_document_id,
-        "recipients": inputs.recipients.iter().map(|recipient| {
-            json!({
-                "recipientId": recipient.id,
-                "name": recipient.name,
-                "email": recipient.email,
-                "role": recipient.role,
-                "signerOrder": recipient.signer_order,
-                "signingStep": recipient.signing_step,
-                "state": recipient.state,
-                "consentVersion": recipient.consent_version,
-                "consentTextSha256": recipient.consent_sha256,
-                "consentAcceptedAt": recipient.consent_accepted_at,
-            })
-        }).collect::<Vec<_>>(),
-        "fields": inputs.fields.iter().map(|field| {
-            json!({
-                "fieldKey": field.field_key,
-                "fieldType": field.field_type,
-                "label": field.label,
-                "pageNumber": field.page_number,
-                "recipientId": field.recipient_id,
-                "required": field.required,
-                "value": field.value,
-                "completedAt": field.completed_at,
-            })
-        }).collect::<Vec<_>>(),
-        "events": inputs.events.iter().map(|event| {
-            json!({
-                "eventType": event.event_type,
-                "occurredAt": event.occurred_at,
-                "actorId": event.actor_id,
-                "evidence": event.evidence,
-            })
-        }).collect::<Vec<_>>(),
-    })
 }
 
 fn internal_context(context: &ServiceContext) -> ServiceContext {    ServiceContext {
@@ -1568,49 +1525,5 @@ mod tests {
         assert!(parse_future_expiry(Some("not-a-date")).is_err());
         assert!(parse_future_expiry(Some("2000-01-01T00:00:00Z")).is_err());
         assert!(parse_future_expiry(None).unwrap().is_none());
-    }
-
-    #[test]
-    fn audit_artifact_is_deterministic_and_complete() {
-        use db::{FinalizeEvent, FinalizeField, FinalizeInputs, FinalizeRecipient};
-        let inputs = FinalizeInputs {
-            recipients: vec![FinalizeRecipient {
-                id: "r1".into(),
-                name: "Ada".into(),
-                email: "ada@example.test".into(),
-                role: "signer".into(),
-                signer_order: 1,
-                signing_step: 1,
-                state: "completed".into(),
-                consent_version: Some("v1".into()),
-                consent_sha256: Some("abc".into()),
-                consent_accepted_at: Some("2026-01-01T00:00:00+00:00".into()),
-            }],
-            fields: vec![FinalizeField {
-                field_key: "sig-a".into(),
-                field_type: "signature".into(),
-                label: None,
-                page_number: 1,
-                recipient_id: "r1".into(),
-                required: true,
-                value: Some(serde_json::json!({"signature": "x"})),
-                completed_at: Some("2026-01-02T00:00:00+00:00".into()),
-            }],
-            events: vec![FinalizeEvent {
-                event_type: "recipient_completed".into(),
-                occurred_at: "2026-01-02T00:00:00+00:00".into(),
-                actor_id: Some("document-sign-edge".into()),
-                evidence: serde_json::json!({}),
-            }],
-        };
-        let first = build_audit_artifact("req-1", "doc-1", &inputs);
-        let second = build_audit_artifact("req-1", "doc-1", &inputs);
-        assert_eq!(first, second, "same inputs render the same bytes");
-        assert_eq!(first["artifact"], "signature-audit-trail-v1");
-        assert_eq!(first["signatureRequestId"], "req-1");
-        assert_eq!(first["transactionDocumentId"], "doc-1");
-        assert_eq!(first["recipients"][0]["consentTextSha256"], "abc");
-        assert_eq!(first["fields"][0]["value"]["signature"], "x");
-        assert_eq!(first["events"][0]["eventType"], "recipient_completed");
     }
 }

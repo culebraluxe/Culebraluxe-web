@@ -598,7 +598,15 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
         .fetch_one(db.pool())
         .await
         .unwrap();
-    assert_eq!(mime, "application/json");
+    assert_eq!(mime, "application/pdf");
+    let magic: Vec<u8> = sqlx::query_scalar(
+        "select substring(file_data from 1 for 8) from media where id = $1::uuid",
+    )
+    .bind(&audit_media_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(&magic, b"%PDF-1.4");
 
     // Replay answers with the existing artifact instead of storing another.
     let media_before: i64 = sqlx::query_scalar(

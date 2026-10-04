@@ -1,6 +1,7 @@
 pub mod artifact;
 pub mod forms_render;
 pub mod pdf;
+pub mod signing_certificate;
 
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
