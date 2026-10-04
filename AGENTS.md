@@ -234,7 +234,12 @@ Never
   not to recreate the deleted tree-era workflow.**
   **Captain exception (2026-10-03): the agent lanes are the one standing set of trees.** `main` lives in
   `/Users/Shared/dev/src/Culebraluxe-web`; each agent has exactly one lane beside it — `lane-claude`,
-  `lane-gpt`, `lane-deep`, a git worktree on branch `lane/<name>` — and works only in its own. The trunk is
+  `lane-gpt`, `lane-deep`, `lane-grok`, `lane-muse`, a git worktree on branch `lane/<name>` — and works only in
+  its own. **Your lane is the directory you are standing in, and that is the only place its name is written.**
+  Derive it, never look it up and never keep it: `basename "$(git rev-parse --show-toplevel)"` is the identity,
+  `git rev-parse --abbrev-ref HEAD` is `lane/<name>`, and `git worktree list` is the roster. No lane carries a
+  card, a note or a config naming itself, and none is needed: a copy of a lane inherits the previous lane's
+  card, which is how a tree got glued to another lane's `HEAD` on 2026-10-03. The trunk is
   `origin/main` (Forge publishes there directly). A lane syncs by rebasing onto `origin/main`, never by merging
   `main` in; it lands by fast-forward push (`git push origin lane/<name>:main`), and nobody commits in the main
   checkout directly — it only follows the trunk (`git pull --ff-only`). A

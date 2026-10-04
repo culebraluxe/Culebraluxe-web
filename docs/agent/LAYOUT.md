@@ -49,7 +49,7 @@ in; check in with `git push origin lane/<name>:main`, which is fast-forward-only
 refused instead of merged. Nobody commits on the main checkout; it follows the trunk with `git pull --ff-only`.
 No lane reads another lane's tree — work crosses lanes only through `main` (`AGENTS.md`,
 the 2026-10-03 lane exception to NO TREES). Lanes are worktrees, so they share history and one object store — that is the point.
-`CARGO_TARGET_DIR` is shared too, which is why four checkouts do not cost four 34 GB targets; the cost is that two
+`CARGO_TARGET_DIR` is shared too, which is why the checkouts do not each cost a 34 GB target; the cost is that two
 simultaneous `cargo` runs serialize on the target lock instead of running in parallel. Lane checkout size on disk is
 ~84 MB of source plus pnpm's hardlinked `node_modules`.
 
@@ -108,10 +108,10 @@ Three of the four below closed on 2026-10-02/03. They are kept with the date rat
   repointed; the bodies they invoke were not. Fix: `pnpm agent:scheduler:install` from the main checkout (it
   rewrites the wrapper *and* the plist's `AGENT_WORKER_LOG_DIR`); the Apple jobs need their own `install` for the
   same reason.
-- **No Time Machine destination.** The repo, four branches and the exports live on one internal disk; iCloud is not a
+- **No Time Machine destination.** The repo, its lane branches and the exports live on one internal disk; iCloud is not a
   backup, and it is currently holding ~43 GB of dead targets (see next line). This is the biggest open risk.
-- **The dead worktree records are gone (2026-10-03).** `git worktree list` shows only the four live trees
-  (`Culebraluxe-web` and the three lanes): `/private/tmp/ocwt` is no longer registered (nor is its `refs/wip/ocwt`
+- **The dead worktree records are gone (2026-10-03).** `git worktree list` shows only live trees — `Culebraluxe-web`
+  plus the lanes, no estate: `/private/tmp/ocwt` is no longer registered (nor is its `refs/wip/ocwt`
   snapshot), and neither `~/Documents/Culebraluxe-web-roles` (33 GB, clean, HEAD `30b53b5d` — present in main) nor
   the orphan `~/Documents/Culebraluxe-web-claude` appears at all.
 - **`build/rust` is warm (2026-10-03).** 4.5 GB in the shared `CARGO_TARGET_DIR`, so the cold compile has already
