@@ -6,6 +6,7 @@
 pub mod engine;
 pub mod evidence;
 pub mod execution;
+pub mod pianola;
 pub mod release;
 pub mod roles;
 pub mod routing;

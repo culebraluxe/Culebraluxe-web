@@ -706,6 +706,7 @@ dependencies = [
  "services",
  "sqlx",
  "tokio",
+ "tracing",
  "uuid",
  "workflow",
 ]
