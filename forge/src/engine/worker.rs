@@ -10,6 +10,7 @@ use crate::engine::routing_brain::{parse_forge_routing_brain, ForgeRoutingBrain}
 use crate::engine::vendor_session::with_shared;
 use crate::engine::worktree::cleanup_worker_workspace;
 use db::{AgentWorkOutcome, ForgeControlDao};
+use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -468,6 +469,7 @@ fn run_claimed_dispatch(
         std::env::current_dir().ok().as_deref(),
         &dispatch.story_id,
         &dispatch.work_item_id,
+        std::env::var("FORGE_WORKTREES_ROOT").ok().as_deref().map(Path::new),
     ) {
         eprintln!(
             "forge-worker: worktree cleanup failed story={} item={}: {error}",

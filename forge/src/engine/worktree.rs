@@ -213,11 +213,14 @@ pub fn cleanup_worker_workspace(
     repo_root: Option<&Path>,
     story_id: &str,
     run_id: &str,
+    worktrees_root: Option<&Path>,
 ) -> Result<(), String> {
     let repo_root = resolve_repo_root(repo_root)?;
     let run = derive_run_id(Some(run_id));
     let branch_name = derive_branch_name(story_id, &run);
-    let root = std::env::temp_dir().join(DEFAULT_WORKTREES_DIRNAME);
+    let root = worktrees_root
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join(DEFAULT_WORKTREES_DIRNAME));
     let worktree_path = derive_worktree_path(&root, story_id, &run);
 
     if worktree_path.exists() {
