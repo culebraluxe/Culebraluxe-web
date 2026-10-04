@@ -156,9 +156,12 @@ pub(super) fn overview(record: &PropertyRecord) -> Html {
                         <div class="grid gap-x-10 gap-y-6 sm:grid-cols-2">
                             if !record.amenities.is_empty() {
                                 <section>
-                                    <h3 class="mb-3 font-serif text-base font-semibold text-brand-navy">{"Amenities"}</h3>
-                                    <ul class="space-y-2 pl-5">{ for compact_amenities.iter().map(|item| html! {
-                                        <li class="list-disc text-sm leading-snug text-brand-navy/90 marker:text-brand-gold">{(**item).clone()}</li>
+                                    <div class="mb-3 flex items-center gap-2.5">
+                                        { icon_html("sparkles", "h-4 w-4 flex-none text-brand-gold", "2").unwrap_or_default() }
+                                        <h3 class="font-serif text-base font-semibold text-brand-navy">{"Amenities"}</h3>
+                                    </div>
+                                    <ul class="space-y-2 pl-6">{ for compact_amenities.iter().map(|item| html! {
+                                        <li class="relative text-sm font-normal leading-snug text-brand-navy/90 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-brand-gold/70">{(**item).clone()}</li>
                                     }) }</ul>
                                     { for amenity_notes.iter().map(|note| html! {
                                         <p class="mt-4 border-l border-brand-gold/50 pl-4 text-sm leading-relaxed text-brand-navy/82">{(**note).clone()}</p>
@@ -167,8 +170,11 @@ pub(super) fn overview(record: &PropertyRecord) -> Html {
                             }
                             if let Some(architecture) = &record.architecture {
                                 <section>
-                                    <h3 class="mb-3 font-serif text-base font-semibold text-brand-navy">{"Architecture"}</h3>
-                                    <p class="border-l border-brand-gold/50 pl-4 text-sm leading-relaxed text-brand-navy/82">{architecture.clone()}</p>
+                                    <div class="mb-3 flex items-center gap-2.5">
+                                        { icon_html("landmark", "h-4 w-4 flex-none text-brand-gold", "2").unwrap_or_default() }
+                                        <h3 class="font-serif text-base font-semibold text-brand-navy">{"Architecture"}</h3>
+                                    </div>
+                                    <p class="border-l border-brand-gold/50 pl-4 text-sm font-normal leading-relaxed text-brand-navy/82">{architecture.clone()}</p>
                                 </section>
                             }
                         </div>
@@ -200,14 +206,20 @@ pub(super) fn overview(record: &PropertyRecord) -> Html {
                     }
                     if !views.is_empty() {
                         <section class="border-t border-brand-navy/40 bg-card/50 px-5 py-5 ring-1 ring-inset ring-brand-navy/20">
-                            <h3 class="mb-3 font-serif text-base font-semibold text-brand-navy">{"Views"}</h3>
-                            <ul class="grid grid-cols-2 gap-2 pl-5">{ for views.iter().map(|view| html! { <li class="list-disc text-sm text-brand-navy/90 marker:text-brand-gold">{view.clone()}</li> }) }</ul>
+                            <div class="mb-3 flex items-center gap-2.5">
+                                { icon_html("eye", "h-4 w-4 flex-none text-brand-gold", "2").unwrap_or_default() }
+                                <h3 class="font-serif text-base font-semibold text-brand-navy">{"Views"}</h3>
+                            </div>
+                            <ul class="grid grid-cols-2 gap-x-5 gap-y-2 pl-6">{ for views.iter().map(|view| html! { <li class="relative text-sm font-normal leading-snug text-brand-navy/90 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-brand-gold/70">{view.clone()}</li> }) }</ul>
                         </section>
                     }
                     if !lifestyle.is_empty() {
                         <section class="border-t border-brand-navy/40 bg-card/50 px-5 py-5 ring-1 ring-inset ring-brand-navy/20">
-                            <h3 class="mb-3 font-serif text-base font-semibold text-brand-navy">{"Lifestyle"}</h3>
-                            <ul class="grid grid-cols-2 gap-2 pl-5">{ for lifestyle.iter().map(|tag| html! { <li class="list-disc text-sm text-brand-navy/90 marker:text-brand-gold">{(**tag).clone()}</li> }) }</ul>
+                            <div class="mb-3 flex items-center gap-2.5">
+                                { icon_html("compass", "h-4 w-4 flex-none text-brand-gold", "2").unwrap_or_default() }
+                                <h3 class="font-serif text-base font-semibold text-brand-navy">{"Lifestyle"}</h3>
+                            </div>
+                            <ul class="grid grid-cols-2 gap-x-5 gap-y-2 pl-6">{ for lifestyle.iter().map(|tag| html! { <li class="relative text-sm font-normal leading-snug text-brand-navy/90 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-brand-gold/70">{(**tag).clone()}</li> }) }</ul>
                         </section>
                     }
                 </aside>
@@ -263,22 +275,25 @@ pub(super) fn location(record: &PropertyRecord) -> Html {
     .join(", ");
     let map = record.latitude.zip(record.longitude);
     html! {
-        <div class="grid items-start gap-7 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+        <div class={if context.is_empty() { "max-w-4xl" } else { "grid items-start gap-7 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)] lg:gap-9" }}>
             if let Some((lat, lng)) = map {
-                <div class="h-[320px] w-full overflow-hidden border border-brand-navy/45 sm:h-[360px] lg:h-[450px]">
+                <div class="h-[320px] w-full overflow-hidden rounded-sm border border-brand-navy/45 shadow-[0_10px_28px_rgba(3,15,35,0.06)] sm:h-[360px] lg:h-[450px]">
                     <iframe title={format!("Map of {}", record.title)} loading="lazy" referrerpolicy="no-referrer-when-downgrade"
                         src={format!("https://www.google.com/maps?q={lat},{lng}&z=14&output=embed")}
                         class="h-full w-full border-0"></iframe>
                 </div>
             } else {
-                <div class="flex h-[300px] items-center justify-center border border-brand-navy/45 bg-brand-navy/[0.05] px-8 text-center lg:h-[450px]">
-                    <p class="font-serif text-xl font-semibold text-brand-navy">{"Private Location — precise location information is available through CulebraLuxe."}</p>
+                <div class="flex h-[300px] items-center justify-center rounded-sm border border-brand-navy/45 bg-brand-navy/[0.05] px-8 text-center sm:h-[340px] lg:h-[450px]">
+                    <div class="max-w-sm">
+                        <p class="font-serif text-xl font-semibold text-brand-navy">{"Private Location"}</p>
+                        <p class="mt-3 text-sm font-normal leading-relaxed text-brand-navy/82">{"Precise location information is available through CulebraLuxe."}</p>
+                    </div>
                 </div>
             }
             if !context.is_empty() {
-                <aside class="border border-brand-navy/40 bg-brand-navy/[0.05] px-5 py-6">
+                <aside class="border border-brand-navy/40 bg-brand-navy/[0.05] px-5 py-5 sm:px-6 sm:py-6">
                     <p class="text-xs font-medium uppercase tracking-[0.24em] text-brand-gold">{"Location"}</p>
-                    <h2 class="mt-4 font-serif text-2xl font-semibold text-brand-navy">{record.neighborhood.clone().or_else(|| record.city.clone()).unwrap_or_default()}</h2>
+                    <h2 class="mt-4 font-serif text-2xl font-semibold leading-tight text-brand-navy">{record.neighborhood.clone().or_else(|| record.city.clone()).unwrap_or_default()}</h2>
                     <p class="mt-5 border-t border-brand-navy/30 pt-5 text-sm text-brand-navy/90">{format!("This property is located in {context}.")}</p>
                     <dl class="mt-6">
                         { editorial_fact("Neighborhood", record.neighborhood.clone()) }

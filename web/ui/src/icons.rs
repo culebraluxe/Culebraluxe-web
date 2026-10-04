@@ -77,6 +77,29 @@ pub fn icon(name: &str, class: &str, stroke_width: &str) -> Option<String> {
             "<circle cx=\"12\" cy=\"12\" r=\"10\"></circle>\
              <path d=\"m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z\"></path>"
         }
+        // The property detail's section headers, from the same lucide the
+        // TypeScript original rendered (`lucide-react ^1.16.0`): Sparkles
+        // (Amenities), Eye (Views), Landmark (Architecture). Paths copied
+        // from `lucide-static@1.16.0` (the published build of that version),
+        // not remembered — see the module note above.
+        "sparkles" => {
+            "<path d=\"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z\"></path>\
+             <path d=\"M20 2v4\"></path>\
+             <path d=\"M22 4h-4\"></path>\
+             <circle cx=\"4\" cy=\"20\" r=\"2\"></circle>"
+        }
+        "eye" => {
+            "<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"></path>\
+             <circle cx=\"12\" cy=\"12\" r=\"3\"></circle>"
+        }
+        "landmark" => {
+            "<path d=\"M10 18v-7\"></path>\
+             <path d=\"M11.119 2.205a2 2 0 0 1 1.762 0l7.84 3.846A.5.5 0 0 1 20.5 7h-17a.5.5 0 0 1-.22-.949z\"></path>\
+             <path d=\"M14 18v-7\"></path>\
+             <path d=\"M18 18v-7\"></path>\
+             <path d=\"M3 22h18\"></path>\
+             <path d=\"M6 18v-7\"></path>"
+        }
         "user-round" => {
             "<circle cx=\"12\" cy=\"8\" r=\"5\"></circle>\
              <path d=\"M20 21a8 8 0 0 0-16 0\"></path>"

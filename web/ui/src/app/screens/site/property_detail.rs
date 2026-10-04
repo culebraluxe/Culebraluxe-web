@@ -214,9 +214,9 @@ fn cockpit(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg>) -> Ht
                     <p class="mt-1.5 text-lg font-medium text-foreground/90">
                         { record.price.clone().unwrap_or_else(|| "Price Upon Request".into()) }
                     </p>
-                    <div class="mt-2.5 flex flex-wrap gap-3 text-[10px] font-medium uppercase tracking-[0.16em] text-brand-navy/70">
-                        if let Some(kind) = &record.kind { <span>{kind.clone()}</span> }
-                        if let Some(status) = &record.status { <span class="text-brand-gold">{status.clone()}</span> }
+                    <div class="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-medium uppercase tracking-[0.16em]">
+                        if let Some(kind) = &record.kind { <span class="text-brand-navy/70">{kind.clone()}</span> }
+                        if let Some(status) = &record.status { <span class="border-l border-brand-gold/40 pl-3 text-brand-gold">{status.clone()}</span> }
                     </div>
                 </div>
 
@@ -268,10 +268,10 @@ fn similar_properties(record: &PropertyRecord) -> Html {
         <section class="mt-24 md:mt-32">
             <div class="mb-12 flex items-end justify-between gap-6 border-b border-border pb-10">
                 <div>
-                    <p class="mb-4 text-xs uppercase tracking-[0.34em] text-brand-gold">{"Continue Exploring"}</p>
-                    <h2 class="font-serif text-3xl font-light text-foreground md:text-5xl">{"Similar Residences"}</h2>
+                    <p class="mb-4 text-xs font-light uppercase tracking-[0.34em] text-brand-gold">{"Continue Exploring"}</p>
+                    <h2 class="text-balance font-serif text-3xl font-light leading-[1.08] text-foreground md:text-5xl">{"Similar Residences"}</h2>
                 </div>
-                <a href="/buyers" class="text-xs uppercase tracking-[0.2em] text-foreground">{"View all properties"}</a>
+                <a href="/buyers" class="inline-flex shrink-0 items-center gap-2 text-xs font-light uppercase tracking-[0.2em] text-foreground transition-colors hover:text-brand-gold">{"View all properties"}</a>
             </div>
             <div class="grid gap-8 md:grid-cols-3">{ for record.similar.iter().map(|listing| {
                 let href = format!("/properties/{}", listing.slug);
@@ -281,9 +281,9 @@ fn similar_properties(record: &PropertyRecord) -> Html {
                             if let Some(src) = &listing.image_path { <img src={src.clone()} alt={listing.image_alt.clone().unwrap_or_else(|| listing.name.clone())} class="absolute inset-0 h-full w-full object-cover" /> }
                         </a>
                         <div class="mt-5 border-t border-border pt-4">
-                            <h3 class="font-serif text-xl text-foreground"><a href={href}>{listing.name.clone()}</a></h3>
-                            if let Some(location) = &listing.location { <p class="mt-2 text-[10px] uppercase tracking-[0.24em] text-muted-foreground">{location.clone()}</p> }
-                            if let Some(price) = &listing.price { <p class="mt-4 text-sm text-foreground">{price.clone()}</p> }
+                            <h3 class="font-serif text-xl font-light leading-tight text-foreground md:text-2xl"><a href={href}>{listing.name.clone()}</a></h3>
+                            if let Some(location) = &listing.location { <p class="mt-2 text-[10px] font-light uppercase tracking-[0.24em] text-muted-foreground">{location.clone()}</p> }
+                            if let Some(price) = &listing.price { <p class="mt-4 text-sm font-light text-foreground">{price.clone()}</p> }
                         </div>
                     </article>
                 }
