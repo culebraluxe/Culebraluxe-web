@@ -14,11 +14,13 @@ Written 2026-10-01, when the tree moved out of `~/Documents`. This is the machin
 │   ├── lane-gpt/            git worktree,    branch lane/gpt
 │   ├── lane-grok/           git worktree,    branch lane/grok
 │   ├── lane-muse/           git worktree,    branch lane/muse
+│   ├── lane-muse-2/         git worktree,    branch lane/muse-2
 │   ├── lane-lightning/      git worktree,    branch lane/lightning
 │   ├── lane-ling/           git worktree,    branch lane/ling
 │   ├── lane-longcat/        git worktree,    branch lane/longcat
 │   ├── lane-mimo/           git worktree,    branch lane/mimo
 │   ├── lane-nemotron/       git worktree,    branch lane/nemotron
+│   ├── lane-nemotron-2/     git worktree,    branch lane/nemotron-2
 │   └── lane-spacebunny/     git worktree,    branch lane/spacebunny
 └── build/
     ├── rust/                CARGO_TARGET_DIR, shared by every worktree
@@ -27,9 +29,12 @@ Written 2026-10-01, when the tree moved out of `~/Documents`. This is the machin
 
 Nothing else belongs in `src/`: no exports, no caches, no second copies of the repo.
 
-**The lanes (11 worktrees on 2026-10-03).** The picture above is a picture: **`git worktree list` is the roster**, and a
+**The lanes (13 worktrees on 2026-10-04).** The picture above is a picture: **`git worktree list` is the roster**, and a
 lane exists only while it is in that output. One lane per agent, named for the model that works in it, because a second
-directory for the same model is the first lane wearing a card.
+directory for the same model is the first lane wearing a card. Two deliberate exceptions stand beside that rule —
+`lane-muse-2` and `lane-nemotron-2`, second seats for two models, created on the Captain's call 2026-10-04 — and they are
+seats, not identities: each is named for the same model as its sibling, holds no work of its own until a session is run in
+it, and takes its place in `git worktree list` like any other lane.
 
 | lane | model (ranked for this repo, 2026-10-03) | what it is for |
 | --- | --- | --- |
@@ -40,10 +45,14 @@ directory for the same model is the first lane wearing a card.
 | `lane-ling` | Ling 3.1 Flash — #4 | agent work, codebase analysis, well-scoped implementation |
 | `lane-lightning` | Nemotron 3.5 Lightning — #5 | tests, repetitive implementation, subagent execution |
 | `lane-longcat` | LongCat 2.5 Preview — #6 | large-context experiments; not a first choice for Rust |
+| `lane-muse-2` | Muse — second seat | a second session of `lane-muse`'s model, run beside it (Captain, 2026-10-04) |
+| `lane-nemotron-2` | Nemotron 3 Ultra — second seat | a second session of `lane-nemotron`'s model, run beside it (Captain, 2026-10-04) |
 
 The six model lanes were created 2026-10-03 as **light lanes** (see "A lane is 84 MB" below): checkout plus env links,
 no `node_modules` until a lane actually needs to build the website. `pnpm wip:now` covers them from their first minute,
-because the snapshot job walks `git worktree list` rather than a list of names.
+because the snapshot job walks `git worktree list` rather than a list of names. The two second seats followed the same
+recipe on 2026-10-04 through `pnpm lane:new` — 85 MB each by `du -sh`, no `node_modules`, upstream unset — so the snapshot
+job covers them from their first minute too.
 
 ## Lanes
 

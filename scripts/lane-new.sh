@@ -69,7 +69,7 @@ case "$name" in
 esac
 
 # The lane lives beside the MAIN checkout, not beside whatever worktree you are
-# standing in — all eleven lanes are siblings of src/Culebraluxe-web. The common
+# standing in — every lane is a sibling of src/Culebraluxe-web. The common
 # git dir is the main checkout's .git (worktrees share one object store), so it
 # gives the parent directory no matter which lane invoked this.
 common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
