@@ -134,6 +134,19 @@ pub enum Cmd<Msg> {
         file: web_sys::File,
         reply: Box<dyn FnOnce(Result<serde_json::Value, ApiError>) -> Msg>,
     },
+    /// Render the Google property map into the container with this id: load
+    /// the Maps JS once, then mount a styled map with the CL pin. The
+    /// container is looked up when the command runs (the host executes
+    /// commands before the re-render commits), so the executor waits for it
+    /// briefly rather than failing a race it created.
+    InitMap {
+        key: String,
+        lat: f64,
+        lng: f64,
+        title: String,
+        container_id: String,
+        reply: Box<dyn FnOnce(Result<(), ApiError>) -> Msg>,
+    },
 }
 
 /// A file sent in pieces, so no single request reaches the gateway's body limit: `init` declares it (the executor adds
@@ -298,6 +311,24 @@ impl<Msg: 'static> Cmd<Msg> {
         }
     }
 
+    pub fn init_map(
+        key: impl Into<String>,
+        lat: f64,
+        lng: f64,
+        title: impl Into<String>,
+        container_id: impl Into<String>,
+        to_msg: impl FnOnce(Result<(), ApiError>) -> Msg + 'static,
+    ) -> Self {
+        Cmd::InitMap {
+            key: key.into(),
+            lat,
+            lng,
+            title: title.into(),
+            container_id: container_id.into(),
+            reply: Box::new(to_msg),
+        }
+    }
+
     /// Re-address every message this command will produce. How a composed piece (a list inside a screen) hands its
     /// commands up to the screen that owns it.
     pub fn map<B: 'static>(self, f: impl Fn(Msg) -> B + Clone + 'static) -> Cmd<B> {
@@ -338,6 +369,21 @@ impl<Msg: 'static> Cmd<Msg> {
                 path,
                 fields,
                 file,
+                reply: Box::new(move |answer| f(reply(answer))),
+            },
+            Cmd::InitMap {
+                key,
+                lat,
+                lng,
+                title,
+                container_id,
+                reply,
+            } => Cmd::InitMap {
+                key,
+                lat,
+                lng,
+                title,
+                container_id,
                 reply: Box::new(move |answer| f(reply(answer))),
             },
             Cmd::Listen { reply } => Cmd::Listen {
@@ -401,6 +447,7 @@ impl<Msg> std::fmt::Debug for Cmd<Msg> {
             Cmd::SharePdf { filename, .. } => write!(f, "SharePdf({filename})"),
             Cmd::Listen { .. } => write!(f, "Listen"),
             Cmd::PostForm { path, .. } => write!(f, "PostForm({path})"),
+            Cmd::InitMap { lat, lng, .. } => write!(f, "InitMap({lat},{lng})"),
             Cmd::StorageRead { key, .. } => write!(f, "StorageRead({key})"),
             Cmd::StorageWrite { key, value } => write!(f, "StorageWrite({key}, {value:?})"),
             Cmd::After { millis, .. } => write!(f, "After({millis}ms)"),

@@ -19,10 +19,38 @@ pub fn router() -> Router<ApiState> {
         .route("/api/media/{id}", get(media))
         .route("/api/rust-ui/public-page", get(public_page))
         .route("/api/rust-ui/client-room", get(client_room))
+        .route("/api/rust-ui/maps-key", get(maps_key))
         .route(
             "/api/rust-ui/website-intake",
             axum::routing::post(website_intake),
         )
+}
+
+/// The Google Maps browser key for the JS-API property map. Browser keys are
+/// public by design (restricted by HTTP referrer in Cloud Console), so this
+/// answers the key itself, not a boolean. Selection mirrors
+/// `environment_readiness` (`portal_bridge/workspaces.rs`): production serves
+/// `GOOGLE_MAPS_API_KEY`; elsewhere the demo key wins when set, else the API
+/// key. `null` means unconfigured — the page shows its waiting state.
+async fn maps_key() -> axum::Json<Value> {
+    axum::Json(json!({ "key": select_maps_key() }))
+}
+
+fn select_maps_key() -> Option<String> {
+    let value = |key: &str| {
+        std::env::var(key)
+            .ok()
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty())
+    };
+    let production = ["APP_ENV", "VERCEL_ENV"]
+        .iter()
+        .any(|key| value(key).is_some_and(|v| v.eq_ignore_ascii_case("production")));
+    if production {
+        value("GOOGLE_MAPS_API_KEY")
+    } else {
+        value("GOOGLE_MAPS_DEMO_KEY").or_else(|| value("GOOGLE_MAPS_API_KEY"))
+    }
 }
 
 /// The signed-in external client's own transaction room. The subject comes from the session's resolved
@@ -735,4 +763,43 @@ async fn website_intake(
         StatusCode::UNPROCESSABLE_ENTITY
     };
     Ok((status, axum::Json(to_json(result))).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::select_maps_key;
+
+    fn clear() {
+        for key in [
+            "APP_ENV",
+            "VERCEL_ENV",
+            "GOOGLE_MAPS_API_KEY",
+            "GOOGLE_MAPS_DEMO_KEY",
+        ] {
+            std::env::remove_var(key);
+        }
+    }
+
+    #[test]
+    fn maps_key_follows_the_same_selection_as_readiness() {
+        clear();
+        // Nothing configured anywhere: the page draws its waiting state.
+        assert_eq!(select_maps_key(), None);
+
+        std::env::set_var("GOOGLE_MAPS_API_KEY", "api-key");
+        assert_eq!(select_maps_key().as_deref(), Some("api-key"));
+
+        // Outside production the demo key wins when set.
+        std::env::set_var("GOOGLE_MAPS_DEMO_KEY", "demo-key");
+        assert_eq!(select_maps_key().as_deref(), Some("demo-key"));
+
+        // In production the API key is the only answer, and the demo key
+        // must be absent there (the readiness gate asserts the same).
+        std::env::set_var("APP_ENV", "production");
+        assert_eq!(select_maps_key().as_deref(), Some("api-key"));
+
+        std::env::remove_var("GOOGLE_MAPS_API_KEY");
+        assert_eq!(select_maps_key(), None);
+        clear();
+    }
 }

@@ -7,8 +7,8 @@
 //! saved on the old site is still here. Storage is read and written only through `Cmd`: nothing here touches the
 //! browser, which is what lets every rule below be tested with `cargo test`.
 
-use crate::app::api::{IntakeAnswer, PublicPage, WebsiteIntake};
-use crate::app::cmd::{ApiError, Cmd};
+use crate::app::api::{IntakeAnswer, MapsKey, MapsKeyAnswer, PublicPage, WebsiteIntake};
+use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::model::{
     ContactFormState, ContactStatus, ContactSubmission, Controls, PageContent, PropertyMediaState,
     PropertyRecent, PropertyTab,
@@ -43,6 +43,17 @@ pub struct Model {
     pub controls: Controls,
     pub contact_form: ContactFormState,
     pub property_media: PropertyMediaState,
+    /// The Google Maps browser key: `Loaded(Some)` mounts the JS-API map,
+    /// `Loaded(None)` is the waiting state, `Failed` the error state.
+    pub map_key: Remote<Option<String>>,
+    /// The record id a map mount was issued for. Tab switches unmount the
+    /// container, so returning to the Map tab mounts again.
+    pub map_mounted_for: Option<String>,
+    /// The record id whose map reported ready: the loading overlay lifts.
+    pub map_live_for: Option<String>,
+    /// The map failed after mounting was attempted: drawn once, never retried
+    /// on its own (a failure here is a state, as in the TypeScript original).
+    pub map_dead: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -89,6 +100,9 @@ pub enum Msg {
     PropertyLightboxClosed,
     PropertyLightboxMoved(i8),
     PropertyTabSelected(PropertyTab),
+    MapKeyLoaded(Result<MapsKeyAnswer, ApiError>),
+    MapReady(String),
+    MapFailed(String),
 }
 
 /// What a page needs from the device.
@@ -118,6 +132,11 @@ pub fn init(
     if needs.buyer_tools {
         cmds.push(Cmd::storage_read(COMPARE_KEY, Msg::CompareRead));
         cmds.push(Cmd::storage_read(SAVED_SEARCHES_KEY, Msg::SearchesRead));
+    }
+    if screen == "site-property-detail" {
+        // The map key rides with the property page only: no other visitor
+        // screen draws a map, so no other screen pays for the read.
+        cmds.push(Cmd::request(MapsKey, Msg::MapKeyLoaded));
     }
     (
         Model {
@@ -215,6 +234,13 @@ pub fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
             match answer {
                 Ok(page) => {
                     let record = page.property.as_ref().map(|record| record.id.clone());
+                    if record.as_deref() != model.map_mounted_for.as_deref() {
+                        // Another record (or the first): a previous mount or
+                        // failure belongs to the old one, not this one.
+                        model.map_mounted_for = None;
+                        model.map_live_for = None;
+                        model.map_dead = false;
+                    }
                     model.page = Some(page);
                     model.contact_form = ContactFormState::default();
                     let mut cmds = vec![prune(model)];
@@ -228,6 +254,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
                             now: now_ms(),
                         }));
                     }
+                    cmds.push(maybe_init_map(model));
                     Cmd::batch(cmds)
                 }
                 Err(_) => {
@@ -485,9 +512,68 @@ pub fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
         }
         Msg::PropertyTabSelected(tab) => {
             model.property_media.tab = tab;
+            if tab == PropertyTab::Map {
+                // The tab switch unmounted the map container: mount again.
+                model.map_mounted_for = None;
+                maybe_init_map(model)
+            } else {
+                Cmd::none()
+            }
+        }
+        Msg::MapKeyLoaded(answer) => {
+            model.map_key = Remote::from_result(answer.map(|answer| answer.key));
+            maybe_init_map(model)
+        }
+        Msg::MapReady(slug) => {
+            // A superseded mount (the tab moved on mid-load) reports for a
+            // record that is no longer mounted: it owns no overlay.
+            if model.map_mounted_for.as_deref() == Some(slug.as_str()) {
+                model.map_live_for = Some(slug);
+                model.map_dead = false;
+            }
+            Cmd::none()
+        }
+        Msg::MapFailed(slug) => {
+            if model.map_mounted_for.as_deref() == Some(slug.as_str()) {
+                model.map_dead = true;
+                model.map_mounted_for = None;
+                model.map_live_for = None;
+            }
             Cmd::none()
         }
     }
+}
+
+/// Mount the JS-API map when everything it needs has arrived: a configured
+/// key, coordinates on the record, and no mount issued for this record yet. A
+/// mount already attempted and failed stays failed — see `map_dead`.
+fn maybe_init_map(model: &mut Model) -> Cmd<Msg> {
+    if model.map_dead {
+        return Cmd::none();
+    }
+    let Remote::Loaded(key) = &model.map_key else {
+        return Cmd::none();
+    };
+    let Some(key) = key.as_deref().filter(|key| !key.is_empty()) else {
+        return Cmd::none();
+    };
+    let Some(record) = model.page.as_ref().and_then(|page| page.property.as_ref()) else {
+        return Cmd::none();
+    };
+    let Some((lat, lng)) = record.latitude.zip(record.longitude) else {
+        return Cmd::none();
+    };
+    if model.map_mounted_for.as_deref() == Some(record.id.as_str()) {
+        return Cmd::none();
+    }
+    model.map_mounted_for = Some(record.id.clone());
+    let slug = record.id.clone();
+    Cmd::init_map(key, lat, lng, record.title.clone(), "property-map", move |result| {
+        match result {
+            Ok(()) => Msg::MapReady(slug),
+            Err(_) => Msg::MapFailed(slug),
+        }
+    })
 }
 
 /// The clock, for the recently-viewed record. Zero off the browser, where only tests run this.
@@ -530,6 +616,81 @@ mod tests {
             Cmd::Batch(cmds) => cmds.into_iter().find_map(written),
             _ => None,
         }
+    }
+
+    fn property_model() -> Model {
+        use crate::model::{PageContent, PropertyRecord};
+        let record = PropertyRecord {
+            id: "casa-luar".into(),
+            title: "Casa Luar".into(),
+            latitude: Some(18.315_573),
+            longitude: Some(-65.255_65),
+            ..PropertyRecord::default()
+        };
+        let mut model = Model::default();
+        let mut page = PageContent::default();
+        page.property = Some(record);
+        model.page = Some(page);
+        model
+    }
+
+    fn init_map(cmd: &Cmd<Msg>) -> Option<(f64, f64)> {
+        match cmd {
+            Cmd::InitMap { lat, lng, .. } => Some((*lat, *lng)),
+            Cmd::Batch(cmds) => cmds.iter().find_map(init_map),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn map_mounts_once_per_record_and_ignores_stale_answers() {
+        let mut model = property_model();
+        // No key yet: nothing mounts.
+        let cmd = update(
+            &mut model,
+            Msg::MapKeyLoaded(Ok(MapsKeyAnswer { key: None })),
+            );
+        assert!(init_map(&cmd).is_none());
+        assert_eq!(model.map_mounted_for, None);
+
+        // Key arrives: mounts Casa Luar.
+        let cmd = update(
+            &mut model,
+            Msg::MapKeyLoaded(Ok(MapsKeyAnswer {
+                key: Some("key".into()),
+            })),
+        );
+        assert_eq!(init_map(&cmd), Some((18.315_573, -65.255_65)));
+        assert_eq!(model.map_mounted_for.as_deref(), Some("casa-luar"));
+
+        // Ready for another record is stale: owns no overlay.
+        update(&mut model, Msg::MapReady("other".into()));
+        assert_eq!(model.map_live_for, None);
+
+        // Ready for Casa Luar lifts the overlay.
+        update(&mut model, Msg::MapReady("casa-luar".into()));
+        assert_eq!(model.map_live_for.as_deref(), Some("casa-luar"));
+
+        // A stale failure must not kill the live map.
+        update(&mut model, Msg::MapFailed("other".into()));
+        assert!(!model.map_dead);
+        assert_eq!(model.map_live_for.as_deref(), Some("casa-luar"));
+    }
+
+    #[test]
+    fn map_failure_is_a_state_not_a_loop() {
+        let mut model = property_model();
+        update(
+            &mut model,
+            Msg::MapKeyLoaded(Ok(MapsKeyAnswer {
+                key: Some("key".into()),
+            })),
+        );
+        update(&mut model, Msg::MapFailed("casa-luar".into()));
+        assert!(model.map_dead);
+        // Tabbing back must not re-issue into the failure.
+        let cmd = update(&mut model, Msg::PropertyTabSelected(PropertyTab::Map));
+        assert!(init_map(&cmd).is_none());
     }
 
     #[test]

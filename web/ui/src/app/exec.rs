@@ -15,6 +15,7 @@ use wasm_bindgen::JsCast;
 use crate::app::cmd::{ApiError, Cmd, Method, Request};
 mod browser;
 mod gesture;
+mod maps;
 mod uploads;
 #[allow(unused_imports)]
 pub use browser::*;
@@ -152,6 +153,16 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
                     );
                 }
             }
+        }
+        Cmd::InitMap {
+            key,
+            lat,
+            lng,
+            title,
+            container_id,
+            reply,
+        } => {
+            maps::init_map(key, lat, lng, title, container_id, reply, deliver.clone());
         }
     }
 }

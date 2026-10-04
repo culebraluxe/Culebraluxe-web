@@ -209,6 +209,25 @@ pub struct IntakeAnswer {
     pub accepted: bool,
 }
 
+/// The Google Maps browser key for the JS-API property map. Answers
+/// `{ key }`, with `key` null when unconfigured — the page shows its waiting
+/// state instead of a map.
+pub struct MapsKey;
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct MapsKeyAnswer {
+    pub key: Option<String>,
+}
+
+impl Endpoint for MapsKey {
+    const METHOD: Method = Method::Get;
+    type Response = MapsKeyAnswer;
+    fn path(&self) -> String {
+        "/api/rust-ui/maps-key".into()
+    }
+}
+
 impl Endpoint for WebsiteIntake {
     const METHOD: Method = Method::Post;
     type Response = IntakeAnswer;

@@ -2,6 +2,7 @@
 
 #[allow(unused_imports)]
 use super::*;
+use crate::app::cmd::Remote;
 
 pub(super) fn detail_sections(
     record: &PropertyRecord,
@@ -25,7 +26,7 @@ pub(super) fn detail_sections(
         PropertyTab::Details => details(record),
         PropertyTab::Video => videos(record),
         PropertyTab::Documents => documents(record),
-        PropertyTab::Map => location(record),
+        PropertyTab::Map => location(record, model),
     };
     html! {
         <section class="w-full border-x border-b border-brand-navy/35 bg-card">
@@ -263,7 +264,7 @@ pub(super) fn details(record: &PropertyRecord) -> Html {
     }
 }
 
-pub(super) fn location(record: &PropertyRecord) -> Html {
+pub(super) fn location(record: &PropertyRecord, model: &Model) -> Html {
     let context = [
         &record.neighborhood,
         &record.city,
@@ -276,12 +277,8 @@ pub(super) fn location(record: &PropertyRecord) -> Html {
     let map = record.latitude.zip(record.longitude);
     html! {
         <div class={if context.is_empty() { "max-w-4xl" } else { "grid items-start gap-7 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)] lg:gap-9" }}>
-            if let Some((lat, lng)) = map {
-                <div class="h-[320px] w-full overflow-hidden rounded-sm border border-brand-navy/45 shadow-[0_10px_28px_rgba(3,15,35,0.06)] sm:h-[360px] lg:h-[450px]">
-                    <iframe title={format!("Map of {}", record.title)} loading="lazy" referrerpolicy="no-referrer-when-downgrade"
-                        src={format!("https://www.google.com/maps?q={lat},{lng}&z=14&output=embed")}
-                        class="h-full w-full border-0"></iframe>
-                </div>
+            if map.is_some() {
+                { map_panel(record, model) }
             } else {
                 <div class="flex h-[300px] items-center justify-center rounded-sm border border-brand-navy/45 bg-brand-navy/[0.05] px-8 text-center sm:h-[340px] lg:h-[450px]">
                     <div class="max-w-sm">
@@ -301,6 +298,41 @@ pub(super) fn location(record: &PropertyRecord) -> Html {
                         { editorial_fact("Region", record.state_or_province.clone()) }
                     </dl>
                 </aside>
+            }
+        </div>
+    }
+}
+
+/// The JS-API property map with the CL pin, in the original frame. The map
+/// mounts into `#property-map` when the browser key arrives (see visitor
+/// `maybe_init_map`); until it reports ready — and when unconfigured or
+/// failed — the panel draws the matching state on the same ground, in the
+/// TypeScript original's words.
+fn map_panel(record: &PropertyRecord, model: &Model) -> Html {
+    let live =
+        model.map_live_for.as_deref() == Some(record.id.as_str()) && !model.map_dead;
+    let (title, body) = match &model.map_key {
+        Remote::Loaded(None) => (
+            "Map temporarily unavailable",
+            "Precise location information is available through CulebraLuxe.",
+        ),
+        _ if model.map_dead => (
+            "Map could not be loaded",
+            "Please contact CulebraLuxe for precise location information.",
+        ),
+        _ => ("Loading map", "Loading the property location."),
+    };
+    html! {
+        <div class="relative h-[320px] w-full overflow-hidden rounded-sm border border-brand-navy/45 shadow-[0_10px_28px_rgba(3,15,35,0.06)] sm:h-[360px] lg:h-[450px]">
+            <div id="property-map" class="h-full w-full bg-brand-navy/[0.04]" role="application"
+                aria-label={format!("Google map of {}", record.title)}></div>
+            if !live {
+                <div class="absolute inset-0 flex items-center justify-center bg-[#f5f2ec] px-8 text-center">
+                    <div class="max-w-sm">
+                        <p class="font-serif text-xl font-semibold text-brand-navy">{title}</p>
+                        <p class="mt-3 text-sm font-normal leading-relaxed text-brand-navy/82">{body}</p>
+                    </div>
+                </div>
             }
         </div>
     }
