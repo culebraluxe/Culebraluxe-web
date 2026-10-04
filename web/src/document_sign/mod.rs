@@ -4,14 +4,15 @@ use crate::signature::{SignatureRepository, SignatureService};
 use crate::signer::{SignerRepository, SignerService};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use db::{DbResult, DbTransaction, DocumentSignDao, EmailDao, FinalizeInputs, SignatureDao, SignerDao};
+use db::{DbResult, DbTransaction, DocumentSignDao, EmailDao, SignatureDao, SignerDao};
 use model::{
     validate_document_sign_recipients, DocumentSignConfig, DocumentSignFinalizeResult,
     DocumentSignIssueResult, DocumentSignRecipient, DocumentSignSnapshot, DocumentSignEnvelopeSummary, DocumentSignSweepResult, EmailMessageKind,
+    ImportAnchorFieldsRequest, ImportAnchorFieldsResult,
     IssueDocumentSignRequest, PrepareDocumentSignRequest, PrepareSignatureRequest,
     PreparedSignatureRecipient, PutSignatureFieldRequest, QueueEmailRequest,
-    RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest, SignatureField,
-    SignatureRequestStatus,
+    RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest, SignatureField, SignatureFieldType,
+    SignatureRequestStatus, TemplateAnchor,
 };
 use serde_json::{json, Value};
 use services::{
@@ -1068,6 +1069,160 @@ where
     /// this runs only inside the durable dispatcher, which owns auth.
     /// The signed PDF overlay itself is a future renderer step behind the
     /// same seam; this ships the complete, queryable audit trail now.
+    /// Import template anchor blocks as recipient-owned native fields.
+    /// Mirrors the retired BoldSign matcher: anchors group by (role, slot),
+    /// each recipient claims the group named by its execution role and slot,
+    /// and initials/date anchors ride with their signature group. A recipient
+    /// with no group, or a group with no recipient, fails loud — a half-mapped
+    /// envelope is a broken envelope. Geometry converts from PDF points
+    /// (bottom-left) to field percentages (top-left); re-importing reuses
+    /// existing keys, so geometry moves only through putField.
+    pub async fn import_fields_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        request: &ImportAnchorFieldsRequest,
+        context: &ServiceContext,
+    ) -> Result<ImportAnchorFieldsResult, CoreServiceError> {
+        const OP: &str = "documentSign.importFields";
+        let decision = authorize(
+            &self.runtime,
+            "document-sign",
+            "documentSign.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            ensure_mutable_config(&self.repository, tx, &request.signature_request_id).await?;
+            let recipients = self
+                .repository
+                .recipients_tx(tx, &request.signature_request_id)
+                .await?;
+            let groups = group_anchor_sets(&request.anchors)?;
+            let known: std::collections::BTreeMap<String, String> = self
+                .repository
+                .fields_tx(tx, &request.signature_request_id)
+                .await?
+                .into_iter()
+                .map(|field| (field.field_key, field.id))
+                .collect();
+            // Pass one maps every anchor to at most one recipient; pass two
+            // inserts. Nothing is written before every group is claimed, so
+            // an unmapped template fails before touching the envelope.
+            let mut claimed = vec![false; groups.len()];
+            let mut plan: Vec<(&model::DocumentSignRecipient, Vec<GroupedAnchor>)> = Vec::new();
+            for (index, recipient) in recipients.iter().enumerate() {
+                let role = recipient.execution_role.as_deref();
+                let slot = recipient.execution_slot_id.as_deref();
+                // An explicit claim needs a named role or slot: a recipient
+                // naming neither cannot take a slotted group by default, or
+                // one group would land on every slotless recipient in turn.
+                // Slotless recipients map positionally only when the counts
+                // align; otherwise they simply claim nothing here.
+                let explicit: Vec<usize> = groups
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, group)| {
+                        (role.is_some() || slot.is_some())
+                            && role.is_none_or(|role| role == group.role)
+                            && slot.is_none_or(|slot| group.slot.as_deref() == Some(slot))
+                    })
+                    .map(|(position, _)| position)
+                    .collect();
+                let positions = if explicit.len() == 1 {
+                    explicit
+                } else if !explicit.is_empty() {
+                    return Err(CoreServiceError::business(
+                        "DOCUMENT_SIGN_FIELD_INVALID",
+                        format!(
+                            "Ambiguous template blocks for recipient {} (execution role + slot must name one block).",
+                            recipient.email
+                        ),
+                    ));
+                } else if role.is_none() && slot.is_none() && groups.len() == recipients.len() {
+                    vec![index]
+                } else {
+                    Vec::new()
+                };
+                let mut selected = Vec::new();
+                for position in positions {
+                    claimed[position] = true;
+                    selected.extend(groups[position].anchors.clone());
+                }
+                plan.push((recipient, selected));
+            }
+            let unclaimed: Vec<String> = groups
+                .iter()
+                .enumerate()
+                .filter(|(position, _)| !claimed[*position])
+                .map(|(_, group)| match &group.slot {
+                    Some(slot) => format!("{}:{slot}", group.role),
+                    None => group.role.clone(),
+                })
+                .collect();
+            if !unclaimed.is_empty() {
+                return Err(CoreServiceError::business(
+                    "DOCUMENT_SIGN_FIELD_INVALID",
+                    format!(
+                        "Template blocks no recipient claims: {}. Give a recipient the matching execution role + slot.",
+                        unclaimed.join(", ")
+                    ),
+                ));
+            }
+            let mut created_field_ids = Vec::new();
+            for (recipient, selected) in plan {
+                for anchor in selected {
+                    if let Some(id) = known.get(&anchor_key(&anchor)) {
+                        // Re-importing a template reuses its fields: geometry
+                        // moves through putField, never as an import side effect.
+                        created_field_ids.push(id.clone());
+                        continue;
+                    }
+                    let field = self
+                        .put_field_transactional(
+                            tx,
+                            &PutSignatureFieldRequest {
+                                signature_request_id: request.signature_request_id.clone(),
+                                field_id: None,
+                                recipient_id: recipient.id.clone(),
+                                field_key: anchor_key(&anchor),
+                                field_type: anchor.field_type(),
+                                page_number: anchor.page_number(),
+                                position_x: anchor.x_percent(),
+                                position_y: anchor.y_percent(),
+                                width: anchor.width_percent(),
+                                height: anchor.height_percent(),
+                                required: true,
+                                label: None,
+                                configuration: json!({}),
+                            },
+                            context,
+                        )
+                        .await?;
+                    created_field_ids.push(field.id);
+                }
+            }
+            Ok(ImportAnchorFieldsResult {
+                signature_request_id: request.signature_request_id.clone(),
+                created_field_ids,
+            })
+        }
+        .await;
+
+        audit_result(
+            &self.runtime,
+            "document-sign",
+            OP,
+            context,
+            decision,
+            &result,
+        )
+        .await?;
+        result
+    }
+
     pub async fn finalize_transactional(
         &self,
         tx: &mut DbTransaction,
@@ -1189,13 +1344,10 @@ where
             expired_recipients.push(recipient_id);
         }
         let mut expired_envelopes = Vec::new();
-        for signature_request_id in
-            self.repository.overdue_envelopes_tx(tx).await.map_err(CoreServiceError::from)?
-        {
+        for signature_request_id in self.repository.overdue_envelopes_tx(tx).await? {
             self.signer
                 .revoke_request_access_transactional(tx, &signature_request_id, &internal)
-                .await
-                .map_err(CoreServiceError::from)?;
+                .await?;
             self.signature
                 .transition_transactional(
                     tx,
@@ -1319,6 +1471,147 @@ fn parse_future_expiry(value: Option<&str>) -> Result<Option<DateTime<Utc>>, Cor
         ));
     }
     Ok(Some(parsed))
+}
+
+/// One parsed template anchor with its owning group key.
+#[derive(Debug, Clone)]
+struct GroupedAnchor {
+    role: String,
+    slot: Option<String>,
+    kind: SignatureFieldType,
+    page_number: i32,
+    key: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+impl GroupedAnchor {
+    fn field_type(&self) -> SignatureFieldType {
+        self.kind
+    }
+    fn page_number(&self) -> i32 {
+        self.page_number
+    }
+    fn x_percent(&self) -> f64 {
+        self.x
+    }
+    fn y_percent(&self) -> f64 {
+        self.y
+    }
+    fn width_percent(&self) -> f64 {
+        self.width
+    }
+    fn height_percent(&self) -> f64 {
+        self.height
+    }
+}
+
+fn slug(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn parse_anchor(anchor: &TemplateAnchor, index: usize) -> Result<GroupedAnchor, CoreServiceError> {
+    let invalid = |detail: &str| {
+        CoreServiceError::business(
+            "DOCUMENT_SIGN_FIELD_INVALID",
+            format!("Template anchor {index} is unusable: {detail}."),
+        )
+    };
+    if anchor.role.trim().is_empty() {
+        return Err(invalid("missing role"));
+    }
+    let kind = match anchor.kind.as_str() {
+        "signature" => SignatureFieldType::Signature,
+        "initials" => SignatureFieldType::Initials,
+        "date" => SignatureFieldType::Date,
+        other => return Err(invalid(&format!("unknown kind {other}"))),
+    };
+    if anchor.page_index < 0
+        || !anchor.page_width.is_finite()
+        || anchor.page_width <= 0.0
+        || !anchor.page_height.is_finite()
+        || anchor.page_height <= 0.0
+    {
+        return Err(invalid("bad page"));
+    }
+    let rect = &anchor.rect;
+    for value in [rect.x, rect.y, rect.width, rect.height] {
+        if !value.is_finite() {
+            return Err(invalid("bad rectangle"));
+        }
+    }
+    if rect.x < 0.0 || rect.y < 0.0 || rect.width <= 0.0 || rect.height <= 0.0 {
+        return Err(invalid("bad rectangle"));
+    }
+    if rect.y + rect.height > anchor.page_height {
+        return Err(invalid("rectangle leaves the page"));
+    }
+    // PDF points run bottom-left; field percentages run top-left.
+    let clamp = |value: f64| value.clamp(0.0, 100.0);
+    let slot = anchor.slot_id.clone().map(|slot| slot.trim().to_owned()).filter(|slot| !slot.is_empty());
+    let key = format!(
+        "{}-{}-{}-{}-{}",
+        slug(&anchor.role),
+        slot.as_deref().unwrap_or("open"),
+        anchor.kind,
+        anchor.page_index,
+        index,
+    );
+    Ok(GroupedAnchor {
+        role: anchor.role.trim().to_owned(),
+        slot,
+        kind,
+        page_number: anchor.page_index + 1,
+        key,
+        x: clamp(rect.x / anchor.page_width * 100.0),
+        y: clamp((1.0 - (rect.y + rect.height) / anchor.page_height) * 100.0),
+        width: clamp(rect.width / anchor.page_width * 100.0),
+        height: clamp(rect.height / anchor.page_height * 100.0),
+    })
+}
+
+/// Group anchors by (role, slot) in first-seen order — the retired
+/// BoldSign matcher's grouping, minus the provider.
+fn group_anchor_sets(anchors: &[TemplateAnchor]) -> Result<Vec<GroupedAnchorSet>, CoreServiceError> {
+    let mut order: Vec<(String, Option<String>)> = Vec::new();
+    let mut parsed = Vec::with_capacity(anchors.len());
+    for (index, anchor) in anchors.iter().enumerate() {
+        let entry = parse_anchor(anchor, index)?;
+        if !order.contains(&(entry.role.clone(), entry.slot.clone())) {
+            order.push((entry.role.clone(), entry.slot.clone()));
+        }
+        parsed.push(entry);
+    }
+    Ok(order
+        .into_iter()
+        .map(|(role, slot)| {
+            let members = parsed
+                .iter()
+                .filter(|entry| entry.role == role && entry.slot == slot)
+                .cloned()
+                .collect();
+            GroupedAnchorSet { role, slot, anchors: members }
+        })
+        .collect())
+}
+
+struct GroupedAnchorSet {
+    role: String,
+    slot: Option<String>,
+    anchors: Vec<GroupedAnchor>,
+}
+
+fn anchor_key(anchor: &GroupedAnchor) -> String {
+    anchor.key.clone()
 }
 
 fn validate_field(request: &PutSignatureFieldRequest) -> Result<(), CoreServiceError> {
@@ -1493,6 +1786,14 @@ where
                     true,
                     ServiceExecutionPolicy::ordered("signatureRequestId"),
                 ),
+                capability(
+                    "documentSign.importFields",
+                    OperationKind::Command,
+                    "Build recipient-owned fields from template anchor blocks.",
+                    "documentSign.write",
+                    true,
+                    ServiceExecutionPolicy::ordered("signatureRequestId"),
+                ),
             ],
             dependencies: vec![
                 "signature".into(),
@@ -1540,7 +1841,8 @@ where
             | "documentSign.void"
             | "documentSign.resend"
             | "documentSign.finalize"
-            | "documentSign.sweepDue" => Err(ServiceDispatchError::business(
+            | "documentSign.sweepDue"
+            | "documentSign.importFields" => Err(ServiceDispatchError::business(
                 "DURABLE_COMMAND_REQUIRED",
                 format!(
                     "{} must enter through the durable command dispatcher.",
@@ -1638,5 +1940,50 @@ mod tests {
         assert!(parse_future_expiry(Some("not-a-date")).is_err());
         assert!(parse_future_expiry(Some("2000-01-01T00:00:00Z")).is_err());
         assert!(parse_future_expiry(None).unwrap().is_none());
+    }
+}
+
+#[cfg(test)]
+mod anchor_import_tests {
+    use super::*;
+    use model::{TemplateAnchor, TemplateAnchorRect};
+
+    fn anchor(role: &str, slot: Option<&str>, kind: &str) -> TemplateAnchor {
+        TemplateAnchor {
+            role: role.into(),
+            slot_id: slot.map(str::to_owned),
+            kind: kind.into(),
+            page_index: 0,
+            page_width: 612.0,
+            page_height: 792.0,
+            rect: TemplateAnchorRect { x: 72.0, y: 650.0, width: 180.0, height: 20.0 },
+        }
+    }
+
+    #[test]
+    fn groups_form_by_role_and_slot_with_percentage_geometry() {
+        let groups = group_anchor_sets(&[
+            anchor("seller", Some("s1"), "signature"),
+            anchor("seller", Some("s1"), "date"),
+            anchor("buyer", None, "signature"),
+        ])
+        .expect("valid anchors group");
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].anchors.len(), 2);
+        let first = &groups[0].anchors[0];
+        assert_eq!(first.page_number(), 1);
+        assert!((first.x_percent() - 11.76).abs() < 0.01);
+        // PDF bottom-left to percentage top-left.
+        assert!((first.y_percent() - 15.40).abs() < 0.01);
+        assert!(first.key.starts_with("seller-s1-signature-0-"));
+    }
+
+    #[test]
+    fn bad_anchors_fail_loud() {
+        assert!(group_anchor_sets(&[anchor("", Some("s1"), "signature")]).is_err());
+        assert!(group_anchor_sets(&[anchor("seller", Some("s1"), "seal")]).is_err());
+        let mut off_page = anchor("seller", Some("s1"), "signature");
+        off_page.rect.y = 780.0;
+        assert!(group_anchor_sets(&[off_page]).is_err());
     }
 }

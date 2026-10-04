@@ -210,6 +210,42 @@ pub struct DocumentSignIssueResult {
     pub expires_at: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateAnchorRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateAnchor {
+    pub role: String,
+    pub slot_id: Option<String>,
+    /// `signature`, `initials` or `date` — the Vault anchor vocabulary.
+    pub kind: String,
+    pub page_index: i32,
+    pub page_width: f64,
+    pub page_height: f64,
+    pub rect: TemplateAnchorRect,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportAnchorFieldsRequest {
+    pub signature_request_id: String,
+    pub anchors: Vec<TemplateAnchor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportAnchorFieldsResult {
+    pub signature_request_id: String,
+    pub created_field_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentSignSweepResult {

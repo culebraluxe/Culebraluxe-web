@@ -11,7 +11,7 @@ use db::{
 };
 use model::{
     AcceptSignerConsentRequest, CompleteSignatureFieldRequest, CompleteSignerRequest,
-    DeclineSignerRequest, ExecuteContractRequest, IssueDocumentSignRequest, OpenSignerRequest,
+    DeclineSignerRequest, ExecuteContractRequest, ImportAnchorFieldsRequest, IssueDocumentSignRequest, OpenSignerRequest,
     PrepareDocumentSignRequest, PutSignatureFieldRequest, QueueEmailRequest,
     RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest,
 };
@@ -105,6 +105,7 @@ impl CommandDispatcher {
             DocumentSignCommandKind::Void,
             DocumentSignCommandKind::Resend,
             DocumentSignCommandKind::SweepDue,
+            DocumentSignCommandKind::ImportFields,
             DocumentSignCommandKind::Finalize,
         ] {
             registry.register(Arc::new(DocumentSignCommand {
@@ -445,6 +446,7 @@ enum DocumentSignCommandKind {
     Resend,
     Finalize,
     SweepDue,
+    ImportFields,
 }
 
 impl DocumentSignCommandKind {
@@ -459,6 +461,7 @@ impl DocumentSignCommandKind {
             Self::Resend => "documentSign.resend",
             Self::Finalize => "documentSign.finalize",
             Self::SweepDue => "documentSign.sweepDue",
+            Self::ImportFields => "documentSign.importFields",
         }
     }
 }
@@ -935,6 +938,50 @@ impl DurableCommandHandler for DocumentSignCommand {
                     json!({
                         "expiredRecipients": swept.expired_recipients,
                         "expiredEnvelopes": swept.expired_envelopes,
+                    }),
+                ));
+                Ok(result)
+            }
+            DocumentSignCommandKind::ImportFields => {
+                let request: ImportAnchorFieldsRequest = match decode_command_input(envelope) {
+                    Ok(value) => value,
+                    Err(result) => return Ok(result),
+                };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "signature_request",
+                    &request.signature_request_id,
+                    "DOCUMENT_SIGN_REQUEST_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                let imported = match self
+                    .service
+                    .import_fields_transactional(tx, &request, context)
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return core_command_error(
+                            envelope,
+                            Some(request.signature_request_id.clone()),
+                            error,
+                        )
+                    }
+                };
+                let mut result = CommandResult::success(
+                    envelope.command_id.clone(),
+                    Some(request.signature_request_id.clone()),
+                    Some(serialize_value(&imported)?),
+                );
+                result.emitted_events.push(command_event(
+                    envelope,
+                    "DOCUMENT_SIGN_FIELDS_IMPORTED",
+                    "signature_request",
+                    &request.signature_request_id,
+                    json!({
+                        "signatureRequestId": request.signature_request_id,
+                        "fieldCount": imported.created_field_ids.len(),
                     }),
                 ));
                 Ok(result)

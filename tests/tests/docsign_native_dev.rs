@@ -720,3 +720,110 @@ async fn sweep_expires_overdue_grants_and_envelopes() {
     assert!(swept.expired_envelopes.is_empty());
     cleanup(&db, &env).await;
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL_DEV"]
+async fn import_builds_owned_fields_from_template_anchors() {
+    use model::{ImportAnchorFieldsRequest, TemplateAnchor, TemplateAnchorRect};
+    let db = Database::connect_target(DbTarget::Dev).await.unwrap();
+    let tag = "docsign-import";
+    let env = envelope(&db, tag).await;
+    // B claims the seller slot; A and C stay slotless.
+    sqlx::query(
+        "update signature_envelope_recipient          set execution_role = 'seller', execution_slot_id = 's1' where id = $1::uuid",
+    )
+    .bind(&env.b)
+    .execute(db.pool())
+    .await
+    .unwrap();
+    let anchor = |kind: &str| TemplateAnchor {
+        role: "seller".into(),
+        slot_id: Some("s1".into()),
+        kind: kind.into(),
+        page_index: 0,
+        page_width: 612.0,
+        page_height: 792.0,
+        rect: TemplateAnchorRect { x: 72.0, y: 650.0, width: 180.0, height: 20.0 },
+    };
+    let service = document_sign(&db).await;
+    let ctx = context(tag);
+    let pre: Vec<(String, String)> = sqlx::query_as(
+        "select f.field_key, f.recipient_id::text from signature_field f          join transaction_document td on td.title = 'docsign proof docsign-import'          join signature_request sr on sr.transaction_document_id = td.id          where f.signature_request_id = sr.id",
+    )
+    .fetch_all(db.pool())
+    .await
+    .unwrap();
+    eprintln!("PRE-IMPORT fields: {pre:?}");
+    let mut tx = db.begin("docsign-proof-import").await.unwrap();
+    let imported = service
+        .import_fields_transactional(
+            &mut tx,
+            &ImportAnchorFieldsRequest {
+                signature_request_id: env.request_id.clone(),
+                anchors: vec![anchor("signature"), anchor("date")],
+            },
+            &ctx,
+        )
+        .await
+        .expect("import");
+    tx.commit().await.unwrap();
+    assert_eq!(imported.created_field_ids.len(), 2);
+
+    // The imported fields belong to B; the fixture field stays with A.
+    let mut owners: Vec<String> = sqlx::query_scalar(
+        "select distinct recipient_id::text from signature_field where signature_request_id = $1::uuid",
+    )
+    .bind(&env.request_id)
+    .fetch_all(db.pool())
+    .await
+    .unwrap();
+    owners.sort();
+    let mut expected = vec![env.a.clone(), env.b.clone()];
+    expected.sort();
+    assert_eq!(owners, expected);
+
+    // Re-import upserts by key: no duplicates.
+    let mut tx = db.begin("docsign-proof-import").await.unwrap();
+    let replay = service
+        .import_fields_transactional(
+            &mut tx,
+            &ImportAnchorFieldsRequest {
+                signature_request_id: env.request_id.clone(),
+                anchors: vec![anchor("signature")],
+            },
+            &ctx,
+        )
+        .await
+        .expect("re-import");
+    tx.commit().await.unwrap();
+    assert_eq!(replay.created_field_ids.len(), 1);
+    let count: i64 = sqlx::query_scalar(
+        "select count(*) from signature_field where signature_request_id = $1::uuid",
+    )
+    .bind(&env.request_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    // The fixture field plus the two imports; the replay added nothing.
+    assert_eq!(count, 3);
+
+    // An anchor no recipient claims fails loud instead of half-mapping.
+    let mut tx = db.begin("docsign-proof-import").await.unwrap();
+    let refused = service
+        .import_fields_transactional(
+            &mut tx,
+            &ImportAnchorFieldsRequest {
+                signature_request_id: env.request_id.clone(),
+                anchors: vec![TemplateAnchor {
+                    role: "ghost".into(),
+                    ..anchor("signature")
+                }],
+            },
+            &ctx,
+        )
+        .await
+        .expect_err("unclaimed anchor refuses");
+    tx.rollback().await.unwrap();
+    assert_eq!(refused.code(), "DOCUMENT_SIGN_FIELD_INVALID");
+    cleanup(&db, &env).await;
+}
