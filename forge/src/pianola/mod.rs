@@ -20,6 +20,11 @@ use db::{
     ForgeStoryReceiptRow, ForgeStoryStatusRow, StoryPacketRow,
 };
 
+pub mod supervisor;
+
+#[cfg(test)]
+mod tests;
+
 /// Hard-coded experiment caps. These prevent auto-scaling by construction:
 /// the supervisor never dispatches beyond the first 4 stories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -215,7 +220,9 @@ fn check_overlapping_packet_targets(packets: &[StoryPacketRow]) -> Result<(), St
 
 /// Pull file-ish tokens (`forge/...`, `docs/...`, `*.rs`, `*.md`, absolute
 /// paths) out of free text so overlap can be compared without a new table.
-fn extract_path_tokens(text: &str) -> HashSet<String> {
+/// Shared with `supervisor`: scope/operating_surface text folded into
+/// `architect_brief` flows through here unchanged.
+pub(crate) fn extract_path_tokens(text: &str) -> HashSet<String> {
     let mut out = HashSet::new();
     for raw in text.split(|c: char| {
         c.is_whitespace() || c == '"' || c == '\'' || c == '`' || c == '(' || c == ')' || c == ','
@@ -237,7 +244,7 @@ fn extract_path_tokens(text: &str) -> HashSet<String> {
     out
 }
 
-fn normalize_path_token(token: &str) -> String {
+pub(crate) fn normalize_path_token(token: &str) -> String {
     token
         .trim_start_matches("./")
         .trim_end_matches(|c| c == '.' || c == ',' || c == ':')
@@ -270,63 +277,4 @@ pub fn log_decision(target: &str, decision: &PianolaDecision) {
         decision = ?decision,
         "pianola supervisor decision"
     );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn packet(id: &str, text: &str) -> StoryPacketRow {
-        StoryPacketRow {
-            id: id.to_string(),
-            title: format!("story {id}"),
-            goal: Some(text.to_string()),
-            architect_brief: None,
-            acceptance_criteria: None,
-            test_mode: None,
-            assay_commands: Some(text.to_string()),
-        }
-    }
-
-    #[test]
-    fn rejects_wrong_batch_size() {
-        let ids = vec!["TST-1".to_string()];
-        let packets = vec![packet("TST-1", "forge/src/a.rs")];
-        assert!(load_batch_for_experiment(&ids, &packets).is_err());
-    }
-
-    #[test]
-    fn rejects_duplicate_story_ids() {
-        let ids = vec![
-            "TST-1".to_string(),
-            "TST-1".to_string(),
-            "TST-2".to_string(),
-            "TST-3".to_string(),
-        ];
-        let packets = vec![
-            packet("TST-1", "forge/src/a.rs"),
-            packet("TST-1", "forge/src/a.rs"),
-            packet("TST-2", "forge/src/b.rs"),
-            packet("TST-3", "forge/src/c.rs"),
-        ];
-        let err = load_batch_for_experiment(&ids, &packets).unwrap_err();
-        assert!(err.contains("duplicate"), "unexpected: {err}");
-    }
-
-    #[test]
-    fn accepts_four_disjoint_stories() {
-        let ids = vec![
-            "TST-1".to_string(),
-            "TST-2".to_string(),
-            "TST-3".to_string(),
-            "TST-4".to_string(),
-        ];
-        let packets = vec![
-            packet("TST-1", "cargo test -p forge --lib a"),
-            packet("TST-2", "cargo test -p forge --lib b"),
-            packet("TST-3", "cargo test -p forge --lib c"),
-            packet("TST-4", "cargo test -p forge --lib d"),
-        ];
-        assert!(load_batch_for_experiment(&ids, &packets).is_ok());
-    }
 }
