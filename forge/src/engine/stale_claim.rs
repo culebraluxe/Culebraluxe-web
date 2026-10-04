@@ -1,5 +1,7 @@
 //! Port of forge-stale-claim.ts.
 
+use crate::engine::constants::{FORGE_DEFAULT_STALE_MS, FORGE_DEFAULT_STALE_MINUTES};
+
 pub fn is_forge_claim_stale(
     status: &str,
     claimed_at_ms: Option<i64>,
@@ -22,6 +24,6 @@ pub fn stale_after_ms_from_env(raw: Option<&str>) -> i64 {
     let minutes: i64 = raw
         .and_then(|s| s.parse().ok())
         .filter(|n| *n > 0)
-        .unwrap_or(60);
+        .unwrap_or(FORGE_DEFAULT_STALE_MINUTES);
     minutes * 60_000
 }

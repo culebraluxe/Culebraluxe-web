@@ -8,6 +8,7 @@ pub mod claim_blocker;
 pub mod commands;
 pub mod completion;
 pub mod config;
+pub mod constants;
 pub mod db_budget;
 pub mod db_ledger;
 pub mod db_writer;

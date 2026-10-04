@@ -19,11 +19,12 @@
 //!   cargo run -p cli -- forge clean [--stale-minutes N] [--force]
 
 use super::{connect, Failure};
+use crate::engine::constants::FORGE_DEFAULT_STALE_MINUTES;
 use db::{resolve_declared_target, DbTarget, ForgeResetDao, ResetReport};
 use std::env;
 
 /// A claim younger than this is treated as LIVE: `clean` must never cancel a running peer.
-pub const DEFAULT_CLEAN_STALE_MINUTES: i64 = 15;
+pub const DEFAULT_CLEAN_STALE_MINUTES: i64 = FORGE_DEFAULT_STALE_MINUTES;
 
 pub const USAGE: &str = "usage: forge reset <story-id> [--force] | forge recover <story-id> [--force] | \
 forge clean [--stale-minutes N] [--force] (the database target is PROD and is decided by the pool; PROD \

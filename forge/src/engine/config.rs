@@ -1,9 +1,7 @@
 //! Centralized Forge environment configuration.
-//!
-//! All environment variable reads for Forge execution live here so the
-//! operator's intent and the code's interpretation are in one place.
-
 use std::time::Duration;
+
+use crate::engine::constants::{FORGE_DEFAULT_HEARTBEAT_SECONDS, FORGE_DEFAULT_STALE_MINUTES};
 
 /// Configuration for the Forge worker pass (the scheduler entry point).
 #[derive(Debug, Clone)]
@@ -99,21 +97,21 @@ fn story_worker_concurrency() -> usize {
         .clamp(1, 8)
 }
 
-/// Pure: parse stale window in minutes, default 10.
+/// Pure: parse stale window in minutes, default from constants.
 fn stale_after_minutes() -> i64 {
     std::env::var("AGENT_WORKER_STALE_AFTER_MINUTES")
         .ok()
         .as_deref()
         .and_then(|v| v.parse::<i64>().ok())
-        .unwrap_or(10)
+        .unwrap_or(FORGE_DEFAULT_STALE_MINUTES)
         .max(1)
 }
 
 /// Pure: heartbeat interval in seconds, always strictly inside the stale window.
-/// Default = window / 4, minimum 15s.
+/// Default = window / 4, minimum 15s (but also bounded by FORGE_DEFAULT_HEARTBEAT_SECONDS).
 fn heartbeat_seconds() -> u64 {
     let window = stale_after_minutes().max(1) as u64 * 60;
-    let default = (window / 4).max(15);
+    let default = (window / 4).max(15).min(FORGE_DEFAULT_HEARTBEAT_SECONDS);
     std::env::var("AGENT_WORKER_HEARTBEAT_SECONDS")
         .ok()
         .as_deref()
@@ -228,8 +226,8 @@ mod tests {
 
         let cfg = WorkerConfig::from_env();
         assert_eq!(cfg.story_worker_concurrency, 4);
-        assert_eq!(cfg.stale_after_minutes, 10);
-        assert_eq!(cfg.heartbeat_interval, Duration::from_secs(150));
+        assert_eq!(cfg.stale_after_minutes, FORGE_DEFAULT_STALE_MINUTES);
+        assert_eq!(cfg.heartbeat_interval, Duration::from_secs(FORGE_DEFAULT_HEARTBEAT_SECONDS));
         assert!(!cfg.attended_override);
     }
 }
