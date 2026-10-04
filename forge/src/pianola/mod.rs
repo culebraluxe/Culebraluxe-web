@@ -20,6 +20,7 @@ use db::{
     ForgeStoryReceiptRow, ForgeStoryStatusRow, StoryPacketRow,
 };
 
+pub mod escalation;
 pub mod supervisor;
 
 #[cfg(test)]
