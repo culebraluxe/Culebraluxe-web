@@ -784,7 +784,7 @@ fn a_hold_that_cannot_be_recorded_fails_the_lane() {
         fn record_run_usage(
             &self,
             _r: &str,
-            _u: &forge::engine::harness_usage::HarnessUsage,
+            _u: &forge::engine::HarnessUsage,
         ) -> Result<(), String> {
             Ok(())
         }
@@ -940,7 +940,7 @@ fn an_artifact_that_cannot_be_recorded_fails_the_lane() {
         fn record_run_usage(
             &self,
             _r: &str,
-            _u: &forge::engine::harness_usage::HarnessUsage,
+            _u: &forge::engine::HarnessUsage,
         ) -> Result<(), String> {
             Ok(())
         }

@@ -116,7 +116,7 @@ impl ForgeStateWriter for SeamWriter {
     fn record_run_usage(
         &self,
         _run_id: &str,
-        _usage: &forge::engine::harness_usage::HarnessUsage,
+        _usage: &forge::engine::HarnessUsage,
     ) -> Result<(), String> {
         Ok(())
     }
