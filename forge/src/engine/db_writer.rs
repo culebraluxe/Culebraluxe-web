@@ -5,19 +5,16 @@ use crate::engine::vendor_session::with_shared;
 use crate::engine::writer::{ForgeEvidenceReader, ForgeStateWriter};
 use db::ForgeEngineDao;
 
+/// Read evidence for a story. Database errors propagate as `DbFailure` which
+/// announces through `db::capture::notify` and lands in `app_error` if a sink
+/// is installed. On error, returns a default evidence with the error logged.
 pub fn read_story_evidence(story_id: &str) -> ForgeGateEvidence {
     let result = with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
-            let row = dao
-                .workflow_evidence_for_story(story_id)
-                .await
-                .map_err(|error| error.to_string())?;
-            let counts = dao
-                .story_repair_counts(story_id)
-                .await
-                .map_err(|error| error.to_string())?;
-            Ok::<_, String>((row, counts))
+            let row = dao.workflow_evidence_for_story(story_id).await?;
+            let counts = dao.story_repair_counts(story_id).await?;
+            Ok::<_, db::DbFailure>((row, counts))
         })
     });
     match result {
@@ -30,8 +27,15 @@ pub fn read_story_evidence(story_id: &str) -> ForgeGateEvidence {
             }
             evidence
         }
-        Ok(Err(error)) | Err(error) => {
-            eprintln!("forge evidence read failed for {story_id}: {error}");
+        Ok(Err(db_failure)) => {
+            // The DbFailure has already announced itself through db::capture::notify
+            // when it was constructed in the DAO. We log and return default.
+            eprintln!("forge evidence read failed for {story_id}: {db_failure}");
+            ForgeGateEvidence::default()
+        }
+        Err(string_error) => {
+            // with_shared error (e.g., connection failed)
+            eprintln!("forge evidence read failed for {story_id}: {string_error}");
             ForgeGateEvidence::default()
         }
     }
