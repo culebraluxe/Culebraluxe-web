@@ -578,7 +578,7 @@ fn v2_role_nodes_resolve_to_the_intended_agent() {
 fn v2_every_known_forge_node_resolves_to_a_real_primary_profile() {
     // Every node the workflow definition binds to an agent service. A node added there is covered here without an
     // edit, because the list is read from the same binding the resolver reads: there is no second, staler role table.
-    let nodes = forge_service_bindings();
+    let nodes = forge_service_bindings().expect("the definition's service bindings parse");
     assert!(
         nodes.len() >= 20,
         "the definition binds only {} nodes",

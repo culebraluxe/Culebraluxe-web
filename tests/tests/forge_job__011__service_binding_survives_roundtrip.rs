@@ -25,7 +25,7 @@ fn service_name(key: &str) -> &str {
 
 #[test]
 fn every_xml_binding_survives_enqueue_persistence_and_claim_and_runs_that_service() {
-    let bindings = forge_service_bindings();
+    let bindings = forge_service_bindings().expect("the definition's service bindings parse");
     assert!(bindings.len() >= 20, "the XML binds every agent node");
     for (index, (node, key)) in bindings.iter().enumerate() {
         let harness = harness();

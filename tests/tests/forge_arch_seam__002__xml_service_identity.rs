@@ -35,7 +35,7 @@ use workflow::{JobStatus, Value};
 
 #[test]
 fn every_bound_node_runs_on_the_concrete_service_its_xml_key_names() {
-    let bindings = forge_service_bindings();
+    let bindings = forge_service_bindings().expect("the definition's service bindings parse");
     assert!(bindings.len() >= 20, "the XML binds every agent node");
     for (index, (node, key)) in bindings.iter().enumerate() {
         let harness = harness();
@@ -108,10 +108,10 @@ fn every_bound_node_runs_on_the_concrete_service_its_xml_key_names() {
 
 #[test]
 fn a_lease_that_disagrees_with_the_xml_is_refused_for_every_node_and_every_other_key() {
-    let bindings = forge_service_bindings();
+    let bindings = forge_service_bindings().expect("the definition's service bindings parse");
     let keys: Vec<&'static str> = LaneId::ALL.iter().map(|lane| lane.service_key()).collect();
     let mut refused = 0usize;
-    for (node, own_key) in bindings {
+    for (node, own_key) in bindings.iter() {
         for key in keys.iter().copied().filter(|key| *key != own_key) {
             let harness = harness();
             let engine = harness.engine();

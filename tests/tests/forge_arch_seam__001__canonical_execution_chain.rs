@@ -383,10 +383,8 @@ const ROLE_MOVING_LAYERS: [&str; 12] = [
 
 #[test]
 fn no_layer_that_moves_work_between_roles_names_a_next_node() {
-    let nodes: BTreeSet<&str> = forge_service_bindings()
-        .keys()
-        .map(String::as_str)
-        .collect();
+    let bindings = forge_service_bindings().expect("the definition's service bindings parse");
+    let nodes: BTreeSet<&str> = bindings.keys().map(String::as_str).collect();
     let mut found = BTreeSet::new();
     for file in ROLE_MOVING_LAYERS {
         let code = production_code(&workspace_root().join(file));

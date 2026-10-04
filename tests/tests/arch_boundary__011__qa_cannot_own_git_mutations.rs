@@ -461,7 +461,7 @@ fn lanes_named_by(code: &str) -> BTreeSet<&'static str> {
     let production = code.split("#[cfg(test)]").next().unwrap_or("");
     literals(production)
         .iter()
-        .filter_map(|literal| service_for_node(literal))
+        .filter_map(|literal| service_for_node(literal).expect("the bindings parse"))
         .collect()
 }
 
@@ -678,7 +678,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
     let graph = definition_from_xml(FORGE_SDLC_V6_XML)
         .expect("the definition parses")
         .definition;
-    let bindings = forge_service_bindings();
+    let bindings = forge_service_bindings().expect("the definition's service bindings parse");
     assert!(
         bindings.len() >= ENGINE_NODE_FLOOR,
         "the definition binds only {} nodes (floor {ENGINE_NODE_FLOOR})",
@@ -693,9 +693,11 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
             );
             continue;
         }
-        let Some(key) = service_for_node(id) else {
+        let Some(key) = service_for_node(id).expect("the definition's bindings parse") else {
             assert!(
-                forge_human_gate_nodes().contains(id),
+                forge_human_gate_nodes()
+                    .expect("the definition's human gates parse")
+                    .contains(id),
                 "{id} is a task-node with no service that is not a human gate"
             );
             continue;
@@ -711,6 +713,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
     // Human gates bind no service, so no lane, no registered owner, and no job.
     assert_eq!(
         forge_human_gate_nodes()
+            .expect("the definition's human gates parse")
             .iter()
             .map(String::as_str)
             .collect::<BTreeSet<&str>>(),
@@ -718,7 +721,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
         "the human gates the definition declares changed"
     );
     for gate in HUMAN_GATES {
-        assert_eq!(service_for_node(gate), None, "{gate} is a human gate");
+        assert_eq!(service_for_node(gate), Ok(None), "{gate} is a human gate");
         assert!(
             lane_for_node(gate).is_err(),
             "{gate} is a human gate and has no lane"
@@ -733,11 +736,11 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
     assert_ne!(LaneId::Inspector.service_key(), LaneId::Assay.service_key());
     assert_eq!(
         service_for_node("qa_review"),
-        Some(LaneId::Inspector.service_key())
+        Ok(Some(LaneId::Inspector.service_key()))
     );
     assert_eq!(
         service_for_node("qa_verify"),
-        Some(LaneId::Assay.service_key())
+        Ok(Some(LaneId::Assay.service_key()))
     );
     assert_eq!(
         graph.nodes["qa_review"].responsibility,
