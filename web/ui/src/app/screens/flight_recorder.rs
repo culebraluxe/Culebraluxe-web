@@ -327,7 +327,7 @@ fn loading() -> Html {
     html! {
         <div class="grid min-h-[42rem] place-items-center rounded-xl border border-white/10 bg-[#0b1220] text-sm text-slate-400" data-screen-state="loading">
             <div class="text-center">
-                <div class="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-white/10 border-t-[#c6a15b]" />
+                <div class="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-white/10 border-t-brand-gold" />
                 <p class="mt-3">{ "Loading trace…" }</p>
             </div>
         </div>
@@ -343,7 +343,7 @@ fn load_failure(error: &ApiError, link: &Link<Msg>) -> Html {
                 </p>
                 <p class="mt-2 text-sm leading-6 text-slate-300">{ error.message.clone() }</p>
                 <button type="button" onclick={link.callback(|_: MouseEvent| Msg::RefreshRequested)}
-                    class="mt-4 rounded-md border border-white/15 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white hover:border-[#c6a15b]/50 hover:text-[#e0c489]">
+                    class="mt-4 rounded-md border border-white/15 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white hover:border-brand-gold/50 hover:text-[#e0c489]">
                     { "Retry" }
                 </button>
             </div>

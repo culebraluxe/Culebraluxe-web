@@ -43,7 +43,7 @@ fn header(tech: &PortalTechPage, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html
     html! {
         <header class="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div>
-                <p class="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#c6a15b]">{"TECH / ENGINEERING"}</p>
+                <p class="text-[11px] font-semibold uppercase tracking-[0.22em] text-brand-gold">{"TECH / ENGINEERING"}</p>
                 <h1 class="mt-1 font-serif text-2xl font-semibold text-white">{"Forge Cockpit"}</h1>
                 <p class="mt-1 max-w-3xl text-sm font-light text-slate-400">
                     {"One assembly line: raw stories, today's Workbench, the next Flight, what Forge is running, and what just came out."}
@@ -52,12 +52,12 @@ fn header(tech: &PortalTechPage, model: &Vm<'_>, on_msg: &Callback<Msg>) -> Html
             </div>
             <div class="flex items-center gap-2">
                 if model.loading {
-                    <span class="text-[10px] uppercase tracking-[0.12em] text-[#c6a15b]">{"refreshing…"}</span>
+                    <span class="text-[10px] uppercase tracking-[0.12em] text-brand-gold">{"refreshing…"}</span>
                 }
                 <button
                     type="button"
                     onclick={refresh}
-                    class="rounded-md border border-white/15 bg-white/[0.04] px-3 py-2 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-300 hover:border-[#c6a15b]/50 hover:text-[#e0c489]"
+                    class="rounded-md border border-white/15 bg-white/[0.04] px-3 py-2 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-300 hover:border-brand-gold/50 hover:text-[#e0c489]"
                 >
                     {"Refresh"}
                 </button>
@@ -127,7 +127,7 @@ fn sorter(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html
         <section class="mb-4 overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
             <div class="flex flex-wrap items-baseline justify-between gap-2 border-b border-white/10 px-4 py-3">
                 <div>
-                    <p class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#c6a15b]">{"STORY SUPPLY → FLIGHT → ENGINE"}</p>
+                    <p class="text-[9px] font-semibold uppercase tracking-[0.16em] text-brand-gold">{"STORY SUPPLY → FLIGHT → ENGINE"}</p>
                     <h2 class="mt-0.5 font-serif text-lg font-semibold text-white">{"Story sorter"}</h2>
                 </div>
                 <p class="text-[10px] text-slate-400">
@@ -154,7 +154,7 @@ fn sorter(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -> Html
                                     let open = on_msg.reform(move |_: MouseEvent| Msg::TechStorySelected(story.clone()));
                                     html! {
                                         <div draggable={(!busy).to_string()} ondragstart={start} onclick={open}
-                                            class="cursor-grab rounded border border-white/10 bg-white/[0.04] px-2 py-1.5 hover:border-[#c6a15b]/50">
+                                            class="cursor-grab rounded border border-white/10 bg-white/[0.04] px-2 py-1.5 hover:border-brand-gold/50">
                                             <div class="flex items-center justify-between gap-1">
                                                 <span class="truncate font-mono text-[9px] text-[#e0c489]">{card.id.split('#').next().unwrap_or(&card.id)}</span>
                                                 <span class="shrink-0 text-[8px] uppercase text-slate-500">{&card.priority}</span>
@@ -202,10 +202,10 @@ fn flight_strip(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -
 
     html! {
         <section class="mb-4 grid gap-3 lg:grid-cols-[1.15fr_1.85fr]">
-            <article class="rounded-lg border border-[#c6a15b]/25 bg-[#c6a15b]/[0.06] p-4">
+            <article class="rounded-lg border border-brand-gold/25 bg-brand-gold/[0.06] p-4">
                 <div class="flex items-start justify-between gap-3">
                     <div>
-                        <p class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#c6a15b]">{"NEXT FLIGHT"}</p>
+                        <p class="text-[9px] font-semibold uppercase tracking-[0.16em] text-brand-gold">{"NEXT FLIGHT"}</p>
                         if let Some(flight) = tech.staging_flight.as_ref() {
                             <p class="mt-1 font-serif text-2xl font-light text-white">{ format!("{} stories", flight.story_count) }</p>
                             <p class="mt-1 text-[10px] text-slate-400">
@@ -216,7 +216,7 @@ fn flight_strip(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -
                         }
                     </div>
                     if let Some(flight) = tech.staging_flight.as_ref() {
-                        <span class="rounded-full border border-[#c6a15b]/30 px-2 py-1 text-[9px] uppercase tracking-[0.12em] text-[#e0c489]">
+                        <span class="rounded-full border border-brand-gold/30 px-2 py-1 text-[9px] uppercase tracking-[0.12em] text-[#e0c489]">
                             { flight.status.clone() }
                         </span>
                     }
@@ -227,7 +227,7 @@ fn flight_strip(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -
                         onclick={launch}
                         disabled={busy || flight_count == 0}
                         title="Dispatch every persisted story in this Flight to Forge now."
-                        class="rounded border border-[#c6a15b]/50 bg-[#c6a15b]/15 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[#e0c489] transition hover:bg-[#c6a15b]/25 disabled:cursor-not-allowed disabled:opacity-35"
+                        class="rounded border border-brand-gold/50 bg-brand-gold/15 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[#e0c489] transition hover:bg-brand-gold/25 disabled:cursor-not-allowed disabled:opacity-35"
                     >
                         { if model.tech.busy_action.as_deref() == Some("launchFlight") { "Launching…" } else { "Launch Flight →" } }
                     </button>
@@ -244,7 +244,7 @@ fn flight_strip(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<Msg>) -
                         onclick={schedule}
                         disabled={busy || flight_count == 0 || model.tech.schedule_at.trim().is_empty()}
                         title="Persist this same Flight for the chosen browser-local time. Nothing dispatches now."
-                        class="rounded border border-white/20 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-300 transition hover:border-[#c6a15b]/50 hover:text-[#e0c489] disabled:cursor-not-allowed disabled:opacity-35"
+                        class="rounded border border-white/20 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-300 transition hover:border-brand-gold/50 hover:text-[#e0c489] disabled:cursor-not-allowed disabled:opacity-35"
                     >
                         { if model.tech.busy_action.as_deref() == Some("scheduleFlight") { "Scheduling…" } else { "Schedule" } }
                     </button>
@@ -275,7 +275,7 @@ fn flight_card(flight: &PortalTechFlight, busy: bool, on_msg: &Callback<Msg>) ->
         <div class="rounded-md border border-white/10 bg-white/[0.03] p-2.5">
             <div class="flex items-center justify-between gap-2">
                 <span class="truncate font-mono text-[9px] text-slate-400">{ compact_id(&flight.id) }</span>
-                <span class="text-[9px] uppercase tracking-[0.08em] text-[#c6a15b]">{ flight.status.clone() }</span>
+                <span class="text-[9px] uppercase tracking-[0.08em] text-brand-gold">{ flight.status.clone() }</span>
             </div>
             <p class="mt-1 text-sm text-white">{ format!("{} stories", flight.story_count) }</p>
             <p class="mt-1 text-[9px] text-slate-500">

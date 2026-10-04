@@ -30,7 +30,7 @@ pub(super) fn workbench(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback
                 <button type="button" onclick={toggle} class="flex items-baseline gap-2 text-left">
                     <span class="text-[11px] font-semibold uppercase tracking-[0.16em] text-white">
                         {"WORKBENCH "}
-                        <span class="font-normal text-[#c6a15b]">{ format!("({})", tech.active_work.len()) }</span>
+                        <span class="font-normal text-brand-gold">{ format!("({})", tech.active_work.len()) }</span>
                     </span>
                     <span class="text-[10px] font-normal text-slate-400">{"today's inspection tray"}</span>
                     <span class="text-[10px] text-slate-500">{ if open { "▲" } else { "▼" } }</span>
@@ -44,7 +44,7 @@ pub(super) fn workbench(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback
                             type="button"
                             onclick={clear}
                             disabled={busy}
-                            class="rounded border border-white/15 px-2 py-1 text-[9px] uppercase tracking-[0.1em] text-slate-400 transition hover:border-[#c6a15b]/40 hover:text-[#e0c489] disabled:opacity-35"
+                            class="rounded border border-white/15 px-2 py-1 text-[9px] uppercase tracking-[0.1em] text-slate-400 transition hover:border-brand-gold/40 hover:text-[#e0c489] disabled:opacity-35"
                         >
                             { if model.tech.busy_action.as_deref() == Some("clearWorkbench") { "Clearing…" } else { "Clear Workbench" } }
                         </button>
@@ -105,7 +105,7 @@ pub(super) fn workbench_row(
             {onclick}
             class={classes!(
                 "grid","w-full","grid-cols-[8rem_minmax(0,1fr)_3rem]","items-center","gap-2","rounded-md","border","px-2.5","py-2","text-left","transition",
-                if selected { "border-[#c6a15b]/60 bg-[#c6a15b]/10" } else { "border-white/10 bg-white/[0.025] hover:border-[#c6a15b]/30" }
+                if selected { "border-brand-gold/60 bg-brand-gold/10" } else { "border-white/10 bg-white/[0.025] hover:border-brand-gold/30" }
             )}
         >
             <span class="truncate font-mono text-[10px] text-slate-300">{ story.id.clone() }</span>
@@ -176,7 +176,7 @@ pub(super) fn selected_story(
                         <button
                             type="button"
                             onclick={on_msg.reform(|_: MouseEvent| Msg::TabSelected(TechTab::FlightRecorder))}
-                            class="rounded-md border border-[#c6a15b]/40 px-2.5 py-1.5 text-[9px] font-medium uppercase tracking-[0.11em] text-[#e0c489] hover:bg-[#c6a15b]/10"
+                            class="rounded-md border border-brand-gold/40 px-2.5 py-1.5 text-[9px] font-medium uppercase tracking-[0.11em] text-[#e0c489] hover:bg-brand-gold/10"
                         >
                             {"Flight Recorder →"}
                         </button>
@@ -189,7 +189,7 @@ pub(super) fn selected_story(
                     <span>{ story.workstream.clone() }</span>
                 </div>
 
-                <div class="mt-3 rounded-md border border-[#c6a15b]/25 bg-[#c6a15b]/[0.045] p-2.5">
+                <div class="mt-3 rounded-md border border-brand-gold/25 bg-brand-gold/[0.045] p-2.5">
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div>
                             <p class="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#e0c489]">{"INVESTIGATE"}</p>
@@ -205,7 +205,7 @@ pub(super) fn selected_story(
                                         type="button"
                                         onclick={action}
                                         disabled={busy || !on_bench || engine_live}
-                                        class="rounded border border-white/15 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-slate-300 transition hover:border-[#c6a15b]/40 hover:text-[#e0c489] disabled:cursor-not-allowed disabled:opacity-35"
+                                        class="rounded border border-white/15 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-slate-300 transition hover:border-brand-gold/40 hover:text-[#e0c489] disabled:cursor-not-allowed disabled:opacity-35"
                                     >
                                         { if active { "Queueing…" } else { label } }
                                     </button>
@@ -216,16 +216,16 @@ pub(super) fn selected_story(
                     <div class="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-2">
                         <div class="flex flex-wrap items-center gap-1.5">
                             <span class="mr-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">{"MOVE TO"}</span>
-                            <button type="button" onclick={move_to("backlog")} disabled={busy || !on_bench} class="rounded border border-white/10 px-2 py-0.5 text-[9px] text-slate-400 hover:border-[#c6a15b]/30 hover:text-white disabled:opacity-35">{"Backlog"}</button>
-                            <button type="button" onclick={move_to("closed")} disabled={busy || !on_bench} class="rounded border border-white/10 px-2 py-0.5 text-[9px] text-slate-400 hover:border-[#c6a15b]/30 hover:text-white disabled:opacity-35">{"Closed"}</button>
-                            <button type="button" onclick={move_to("next")} disabled={busy || !on_bench} class="rounded border border-white/10 px-2 py-0.5 text-[9px] text-slate-400 hover:border-[#c6a15b]/30 hover:text-white disabled:opacity-35">{"Next Version"}</button>
+                            <button type="button" onclick={move_to("backlog")} disabled={busy || !on_bench} class="rounded border border-white/10 px-2 py-0.5 text-[9px] text-slate-400 hover:border-brand-gold/30 hover:text-white disabled:opacity-35">{"Backlog"}</button>
+                            <button type="button" onclick={move_to("closed")} disabled={busy || !on_bench} class="rounded border border-white/10 px-2 py-0.5 text-[9px] text-slate-400 hover:border-brand-gold/30 hover:text-white disabled:opacity-35">{"Closed"}</button>
+                            <button type="button" onclick={move_to("next")} disabled={busy || !on_bench} class="rounded border border-white/10 px-2 py-0.5 text-[9px] text-slate-400 hover:border-brand-gold/30 hover:text-white disabled:opacity-35">{"Next Version"}</button>
                         </div>
                         <button
                             type="button"
                             onclick={good_to_go}
                             disabled={busy || !on_bench || engine_owned}
                             title="Remove from the Workbench and hand the full story to Forge. Ready queues real work."
-                            class="rounded border border-[#c6a15b]/50 bg-[#c6a15b]/15 px-3 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[#e0c489] transition hover:bg-[#c6a15b]/25 disabled:cursor-not-allowed disabled:opacity-35"
+                            class="rounded border border-brand-gold/50 bg-brand-gold/15 px-3 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[#e0c489] transition hover:bg-brand-gold/25 disabled:cursor-not-allowed disabled:opacity-35"
                         >
                             { if engine_owned { "Already with Forge" } else if model.tech.busy_action.as_deref() == Some("goodToGo") { "Queueing…" } else { "Good to Go →" } }
                         </button>
@@ -247,7 +247,7 @@ pub(super) fn selected_story(
             <div class="max-h-80 space-y-2 overflow-y-auto p-4">
                 { for specs.into_iter().map(|(label, value)| html! {
                     <details open={matches!(label, "Goal" | "Architecture Brief" | "Acceptance Criteria")}>
-                        <summary class="cursor-pointer list-none text-[9px] font-semibold uppercase tracking-[0.14em] text-[#c6a15b]/80">{ label }</summary>
+                        <summary class="cursor-pointer list-none text-[9px] font-semibold uppercase tracking-[0.14em] text-brand-gold/80">{ label }</summary>
                         <p class="mt-1 whitespace-pre-wrap text-[12px] font-light leading-5 text-white/70">
                             { value.unwrap_or("Not specified.") }
                         </p>

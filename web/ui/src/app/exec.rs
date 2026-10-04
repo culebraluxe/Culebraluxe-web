@@ -136,11 +136,21 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
             });
         }
         Cmd::StorageWrite { key, value } => {
+            // A failed write must not vanish: private-mode and full storage
+            // refuse silently, and the screen already moved on believing its
+            // favorites were saved. There is no reply channel by design
+            // (fire-and-forget persistence), so this warns in the console
+            // where a Safari diagnosis can find it.
             if let Some(storage) = storage() {
-                let _ = match value {
+                let result = match value {
                     Some(value) => storage.set_item(&key, &value),
                     None => storage.remove_item(&key),
                 };
+                if let Err(error) = result {
+                    web_sys::console::warn_1(
+                        &format!("storage write failed for {key}: {error:?}").into(),
+                    );
+                }
             }
         }
     }

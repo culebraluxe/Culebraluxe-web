@@ -203,7 +203,7 @@ pub fn PnlTrendChart(props: &PnlTrendChartProps) -> Html {
             </svg>
             <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] font-light uppercase tracking-[0.16em] text-white/50">
                 <span class="flex items-center gap-1.5">
-                    <span class="h-1.5 w-3 rounded-full bg-[#c6a15b]"></span>{"Income"}
+                    <span class="h-1.5 w-3 rounded-full bg-brand-gold"></span>{"Income"}
                 </span>
                 <span class="flex items-center gap-1.5">
                     <span class="h-1.5 w-3 rounded-full bg-sky-300"></span>{"Expenses"}

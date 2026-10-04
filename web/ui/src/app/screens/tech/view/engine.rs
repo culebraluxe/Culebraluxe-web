@@ -24,7 +24,7 @@ pub(super) fn engine_line(tech: &PortalTechPage) -> Html {
         <section class="mb-4 overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
             <div class="flex flex-wrap items-end justify-between gap-3 border-b border-white/10 px-4 py-3">
                 <div>
-                    <p class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#c6a15b]">{"FORGE ENGINE"}</p>
+                    <p class="text-[9px] font-semibold uppercase tracking-[0.16em] text-brand-gold">{"FORGE ENGINE"}</p>
                     <h2 class="mt-0.5 font-serif text-lg font-semibold text-white">{"Engine Work Status"}</h2>
                     <p class="mt-1 text-[10px] text-slate-500">{"Work the engine already owned — successful, failed, or cleared back for retry."}</p>
                 </div>

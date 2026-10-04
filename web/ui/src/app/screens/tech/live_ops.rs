@@ -49,7 +49,7 @@ pub(super) fn view(model: &Model, live: &ForgeLiveSnapshot, on_msg: &Callback<Ms
             <header class="flex flex-wrap items-end justify-between gap-3">
                 <div>
                     <div class="flex items-center gap-2">
-                        <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#c6a15b]">{"TECH / FORGE WORK IN FLIGHT"}</p>
+                        <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-brand-gold">{"TECH / FORGE WORK IN FLIGHT"}</p>
                         <span class="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] text-emerald-300">{"live service"}</span>
                     </div>
                     <h2 class="mt-1 font-serif text-2xl font-semibold text-white">{"Work in Flight"}</h2>
@@ -103,7 +103,7 @@ fn work_list(
                             <button type="button" {onclick}
                                 class={classes!(
                                     "w-full","rounded-lg","border","px-3","py-3","text-left","transition",
-                                    if active { "border-[#c6a15b]/55 bg-[#c6a15b]/10" } else { "border-white/10 bg-black/10 hover:border-white/20" }
+                                    if active { "border-brand-gold/55 bg-brand-gold/10" } else { "border-white/10 bg-black/10 hover:border-white/20" }
                                 )}>
                                 <div class="flex items-start justify-between gap-3">
                                     <div class="min-w-0">
@@ -157,7 +157,7 @@ fn run_panel(item: Option<&ForgeLiveWorkItem>, run: Option<&ForgeLiveRun>) -> Ht
     html! {
         <section class="overflow-hidden rounded-xl border border-white/10 bg-white/[0.025]">
             <div class="border-b border-white/10 px-4 py-3">
-                <p class="font-mono text-[9px] uppercase tracking-[0.13em] text-[#c6a15b]">{ item.story_id.clone() }</p>
+                <p class="font-mono text-[9px] uppercase tracking-[0.13em] text-brand-gold">{ item.story_id.clone() }</p>
                 <h3 class="mt-1 font-serif text-lg font-semibold text-white">{ item.title.clone() }</h3>
             </div>
             if let Some(run) = run {

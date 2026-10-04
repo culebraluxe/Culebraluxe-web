@@ -35,6 +35,7 @@ pub struct Model {
 #[derive(Debug, PartialEq)]
 pub enum Msg {
     Loaded(Result<Vec<Row>, ApiError>),
+    Reload,
 }
 
 impl<T: RowsSpec> Screen for RowsScreen<T> {
@@ -51,17 +52,25 @@ impl<T: RowsSpec> Screen for RowsScreen<T> {
     }
 
     fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
-        let Msg::Loaded(answer) = msg;
-        model.rows = Remote::from_result(answer);
-        Cmd::none()
+        match msg {
+            Msg::Reload => {
+                model.rows = Remote::Loading;
+                Cmd::request(T::read(), Msg::Loaded)
+            }
+            Msg::Loaded(answer) => {
+                model.rows = Remote::from_result(answer);
+                Cmd::none()
+            }
+        }
     }
 
-    fn view(model: &Model, ctx: &ScreenCtx, _link: &Link<Msg>) -> Html {
+    fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
+        let retry = link.callback(|_: MouseEvent| Msg::Reload);
         html! {
             <div class="space-y-6">
                 <div>{ template::back_link(ctx) }</div>
                 { template::portal_heading(T::EYEBROW, T::TITLE, T::PURPOSE) }
-                { template::remote(&model.rows, "the records", |rows| table::<T>(rows)) }
+                { template::remote_retry(&model.rows, "the records", retry, |rows| table::<T>(rows)) }
             </div>
         }
     }
@@ -94,5 +103,48 @@ fn table<T: RowsSpec>(rows: &[Row]) -> Html {
                 </table>
             </div>
         </section>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Spec;
+
+    impl RowsSpec for Spec {
+        const EYEBROW: &'static str = "Test";
+        const TITLE: &'static str = "Test rows";
+        const PURPOSE: &'static str = "Proves reload re-issues the read.";
+        const COLUMNS: &'static [&'static str] = &["Name"];
+        const EMPTY: &'static str = "No rows.";
+        fn read() -> RowsRead {
+            RowsRead::portal("test-rows")
+        }
+    }
+
+    #[test]
+    fn reload_reissues_the_read_after_a_failure() {
+        let ctx = ScreenCtx::default();
+        let (mut model, _) = RowsScreen::<Spec>::init(&ctx);
+        RowsScreen::<Spec>::update(
+            &mut model,
+            Msg::Loaded(Err(ApiError::network("down"))),
+            &ctx,
+        );
+        assert!(
+            matches!(model.rows, Remote::Failed(_)),
+            "the failure must be the state reload recovers from"
+        );
+        let cmd = RowsScreen::<Spec>::update(&mut model, Msg::Reload, &ctx);
+        assert!(
+            matches!(model.rows, Remote::Loading),
+            "reload returns to loading"
+        );
+        assert_eq!(
+            cmd.into_requests().len(),
+            1,
+            "reload re-issues the one read"
+        );
     }
 }

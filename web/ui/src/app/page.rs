@@ -47,6 +47,7 @@ impl<D> Default for Model<D> {
 #[derive(Debug, PartialEq)]
 pub enum Msg {
     Loaded(Result<PortalPage, ApiError>),
+    Reload,
 }
 
 /// The read a spec asks for, given where the screen was opened.
@@ -70,22 +71,30 @@ impl<T: PageSpec> Screen for PageScreen<T> {
         )
     }
 
-    fn update(model: &mut Self::Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> {
-        let Msg::Loaded(answer) = msg;
-        model.read = Remote::from_result(answer.and_then(|page| {
-            T::pick(page)
-                .ok_or_else(|| ApiError::decode(format!("The answer had no {} in it.", T::NOUN)))
-        }));
-        Cmd::none()
+    fn update(model: &mut Self::Model, msg: Msg, ctx: &ScreenCtx) -> Cmd<Msg> {
+        match msg {
+            Msg::Reload => {
+                model.read = Remote::Loading;
+                Cmd::request(read::<T>(ctx), Msg::Loaded)
+            }
+            Msg::Loaded(answer) => {
+                model.read = Remote::from_result(answer.and_then(|page| {
+                    T::pick(page)
+                        .ok_or_else(|| ApiError::decode(format!("The answer had no {} in it.", T::NOUN)))
+                }));
+                Cmd::none()
+            }
+        }
     }
 
-    fn view(model: &Self::Model, ctx: &ScreenCtx, _link: &Link<Msg>) -> Html {
+    fn view(model: &Self::Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
+        let retry = link.callback(|_: MouseEvent| Msg::Reload);
         html! {
             <div class="space-y-6">
                 if T::SCOPED {
                     <div>{ template::back_link(ctx) }</div>
                 }
-                { template::remote(&model.read, T::NOUN, |data| T::view(data, ctx)) }
+                { template::remote_retry(&model.read, T::NOUN, retry, |data| T::view(data, ctx)) }
             </div>
         }
     }

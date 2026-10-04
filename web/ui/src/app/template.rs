@@ -94,6 +94,41 @@ pub fn failure(error: &ApiError) -> Html {
     }
 }
 
+/// `failure` with a way back: when the read never got an answer or the
+/// server failed (not a refusal), offer to run it again. The caller re-issues
+/// its own read on retry — this only draws the button.
+pub fn failure_retry(error: &ApiError, retry: Callback<MouseEvent>) -> Html {
+    let transient = error.status == 0 || error.status >= 500;
+    html! {
+        <div class="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm" role="alert" data-screen-state="failed">
+            <p>{ error.message.clone() }</p>
+            <p class="mt-1 text-[11px] uppercase tracking-[0.14em] text-black/40">{ error.code.clone() }</p>
+            if transient {
+                <button
+                    type="button"
+                    onclick={retry}
+                    class="mt-3 min-h-12 rounded-md border border-[var(--portal-border)] px-4 text-xs font-medium uppercase tracking-[0.14em]">
+                    { "Try again" }
+                </button>
+            }
+        </div>
+    }
+}
+
+/// `remote` with a way back from failure: the retry callback re-issues the
+/// caller's read. Screens with their own failure handling keep `remote`.
+pub fn remote_retry<T>(
+    remote: &Remote<T>,
+    loading: &str,
+    retry: Callback<MouseEvent>,
+    loaded: impl FnOnce(&T) -> Html,
+) -> Html {
+    match remote {
+        Remote::Failed(error) => failure_retry(error, retry),
+        _ => self::remote(remote, loading, loaded),
+    }
+}
+
 /// An answered read with nothing in it. Different from loading, and said so.
 pub fn empty_panel(message: &str) -> Html {
     html! {

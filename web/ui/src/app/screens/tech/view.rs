@@ -41,7 +41,7 @@ fn tab_bar(model: &Model, link: &Link<Msg>) -> Html {
         <div class="sticky top-0 z-40 mb-1 border-b border-white/10 bg-[#07101d]/95 px-4 pt-4 backdrop-blur sm:px-5 sm:pt-5">
             <div class="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                    <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#c6a15b]">
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-brand-gold">
                         {"TECH / FORGE"}
                     </p>
                     <h1 class="mt-0.5 font-serif text-2xl font-semibold text-white">{"Engineering Cockpit"}</h1>
@@ -62,7 +62,7 @@ fn tab_bar(model: &Model, link: &Link<Msg>) -> Html {
                                 class={classes!(
                                     "rounded-md","px-3","py-2","text-[10px]","font-semibold","uppercase","tracking-[0.11em]","transition",
                                     if selected {
-                                        "bg-[#c6a15b]/15 text-[#e0c489] shadow-sm"
+                                        "bg-brand-gold/15 text-[#e0c489] shadow-sm"
                                     } else {
                                         "text-slate-500 hover:bg-white/[0.04] hover:text-slate-200"
                                     }
@@ -74,7 +74,7 @@ fn tab_bar(model: &Model, link: &Link<Msg>) -> Html {
                     }) }
                 </div>
             </div>
-            <div class="mt-4 h-px bg-gradient-to-r from-[#c6a15b]/40 via-white/10 to-transparent" />
+            <div class="mt-4 h-px bg-gradient-to-r from-brand-gold/40 via-white/10 to-transparent" />
         </div>
     }
 }
@@ -106,7 +106,7 @@ fn flight_tab(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
         return html! {
             <section class="grid min-h-[34rem] place-items-center rounded-xl border border-white/10 bg-[#0b1220] p-8 text-center">
                 <div class="max-w-lg">
-                    <div class="mx-auto grid h-12 w-12 place-items-center rounded-xl border border-[#c6a15b]/25 bg-[#c6a15b]/10 font-serif text-lg text-[#e0c489]">
+                    <div class="mx-auto grid h-12 w-12 place-items-center rounded-xl border border-brand-gold/25 bg-brand-gold/10 font-serif text-lg text-[#e0c489]">
                         {"FR"}
                     </div>
                     <h2 class="mt-4 font-serif text-xl font-semibold text-white">{"Select a recorded story first"}</h2>
@@ -116,7 +116,7 @@ fn flight_tab(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                     <button
                         type="button"
                         onclick={link.callback(|_: MouseEvent| Msg::TabSelected(TechTab::AssemblyLine))}
-                        class="mt-5 rounded-md border border-[#c6a15b]/35 bg-[#c6a15b]/10 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#e0c489] hover:bg-[#c6a15b]/15"
+                        class="mt-5 rounded-md border border-brand-gold/35 bg-brand-gold/10 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#e0c489] hover:bg-brand-gold/15"
                     >
                         {"Open Engine Queue"}
                     </button>
