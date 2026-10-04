@@ -26,6 +26,7 @@ pub mod status;
 pub mod supervisor;
 pub mod worker;
 pub mod worker_authoring;
+pub mod worker_exec;
 pub mod worker_lanes;
 
 #[cfg(test)]

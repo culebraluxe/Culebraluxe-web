@@ -238,7 +238,7 @@ pub fn would_rewrite_prod_to_green(
 /// True when a path is a test artifact (integration/contract test file, or a
 /// module file edited only inside its `#[cfg(test)]` region — the latter is
 /// decided by the writer, which appends only test modules).
-fn is_test_artifact_path(relative: &str) -> bool {
+pub(crate) fn is_test_artifact_path(relative: &str) -> bool {
     let lower = relative.to_lowercase().replace('\\', "/");
     if lower.contains("/tests/") || lower.starts_with("tests/") {
         return true;
