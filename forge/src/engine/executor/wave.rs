@@ -220,10 +220,26 @@ mod tests {
             })
     }
 
+    /// Lane names are unique in production (`lane/<name>`), so the strategy must not hand two lanes one name: a
+    /// refusal names its conflicting lanes by name, and with duplicates that lookup picks the *first* lane of that
+    /// name — which may be a lane that holds no such path at all (found by proptest on 2026-10-04: lanes e/p,
+    /// d/none, d/p_a made `refusals_are_symmetric` fail on a refusal that was correct). The same ambiguity made
+    /// `all_lanes_placed` pass for the wrong reason. Every property below takes its lanes through here.
+    fn unique_lanes<T: Clone + Debug + 'static>(lanes: Vec<WaveLane<T>>) -> Vec<WaveLane<T>> {
+        lanes
+            .into_iter()
+            .enumerate()
+            .map(|(index, mut lane)| {
+                lane.lane = format!("{}{index}", lane.lane);
+                lane
+            })
+            .collect()
+    }
+
     proptest! {
         #[test]
         fn no_conflicts_in_batches(
-            lanes in prop::collection::vec(wave_lane(0u32), 1..20),
+            lanes in prop::collection::vec(wave_lane(0u32), 1..20).prop_map(|lanes| unique_lanes(lanes)),
             cap in 1..5usize,
         ) {
             let plan = plan_wave(&lanes, cap);
@@ -251,7 +267,7 @@ mod tests {
 
         #[test]
         fn all_lanes_placed(
-            lanes in prop::collection::vec(wave_lane(0u32), 1..20),
+            lanes in prop::collection::vec(wave_lane(0u32), 1..20).prop_map(|lanes| unique_lanes(lanes)),
             cap in 1..5usize,
         ) {
             let plan = plan_wave(&lanes, cap);
@@ -270,7 +286,7 @@ mod tests {
 
         #[test]
         fn batch_size_respects_cap(
-            lanes in prop::collection::vec(wave_lane(0u32), 1..20),
+            lanes in prop::collection::vec(wave_lane(0u32), 1..20).prop_map(|lanes| unique_lanes(lanes)),
             cap in 1..5usize,
         ) {
             let plan = plan_wave(&lanes, cap);
@@ -281,7 +297,7 @@ mod tests {
 
         #[test]
         fn refusals_are_symmetric(
-            lanes in prop::collection::vec(wave_lane(0u32), 1..20),
+            lanes in prop::collection::vec(wave_lane(0u32), 1..20).prop_map(|lanes| unique_lanes(lanes)),
             cap in 2..5usize,
         ) {
             let plan = plan_wave(&lanes, cap);
