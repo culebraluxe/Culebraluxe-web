@@ -280,7 +280,7 @@ pub fn collect_assay_evidence(
     assay_commands: &[String],
     acceptance_mapped: bool,
 ) -> AssayEvidence {
-    if run_command.is_none() {
+    let Some(run) = run_command else {
         evidence.qa_passed = Some(false);
         evidence.deliverable_rejection =
             Some("QA FAIL: the lane was handed assay commands but no way to run them.".into());
@@ -288,8 +288,7 @@ pub fn collect_assay_evidence(
             evidence,
             verdict: AssayVerdict::Fail,
         };
-    }
-    let run = run_command.unwrap();
+    };
     let results: Vec<CommandResult> = assay_commands.iter().map(|c| run(c)).collect();
     let report = adjudicate_assay(assay_commands, &results, acceptance_mapped);
     if report.verdict != AssayVerdict::Pass {
