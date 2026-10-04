@@ -107,6 +107,36 @@ impl SignerDao {
         Ok(row.map(map_access))
     }
 
+    /// The live grant for one recipient, if it has neither expired nor been
+    /// revoked. Reminders reuse this link; a resend rotates it instead.
+    pub async fn active_access_for_recipient_tx(
+        &self,
+        tx: &mut DbTransaction,
+        recipient_id: &str,
+    ) -> DbResult<Option<SignerAccessRecord>> {
+        let row = sqlx::query_as::<_, AccessRow>(
+            r#"
+            select a.id::text as id,
+                   a.recipient_id::text as recipient_id,
+                   a.token_version,
+                   a.expires_at,
+                   a.revoked_at,
+                   r.signature_request_id::text as signature_request_id
+              from signature_recipient_access a
+              join signature_envelope_recipient r on r.id = a.recipient_id
+             where a.recipient_id = $1::uuid
+               and a.revoked_at is null
+               and a.expires_at > now()
+             limit 1
+            "#,
+        )
+        .bind(recipient_id)
+        .fetch_optional(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signer.active_access", &error))?;
+        Ok(row.map(map_access))
+    }
+
     pub async fn recipient(&self, recipient_id: &str) -> DbResult<Option<DocumentSignRecipient>> {
         let row = sqlx::query_as::<_, RecipientRow>(
             r#"

@@ -103,6 +103,7 @@ impl CommandDispatcher {
             DocumentSignCommandKind::RemoveField,
             DocumentSignCommandKind::Issue,
             DocumentSignCommandKind::Void,
+            DocumentSignCommandKind::Resend,
         ] {
             registry.register(Arc::new(DocumentSignCommand {
                 service: document_sign.clone(),
@@ -439,6 +440,7 @@ enum DocumentSignCommandKind {
     RemoveField,
     Issue,
     Void,
+    Resend,
 }
 
 impl DocumentSignCommandKind {
@@ -450,6 +452,7 @@ impl DocumentSignCommandKind {
             Self::RemoveField => "documentSign.removeField",
             Self::Issue => "documentSign.issue",
             Self::Void => "documentSign.void",
+            Self::Resend => "documentSign.resend",
         }
     }
 }
@@ -768,6 +771,84 @@ impl DurableCommandHandler for DocumentSignCommand {
                 ));
                 Ok(result)
             }
+            DocumentSignCommandKind::Resend => {
+                let signature_request_id = envelope
+                    .input
+                    .get("signatureRequestId")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .or_else(|| envelope.aggregate_id.clone());
+                let recipient_id = envelope
+                    .input
+                    .get("recipientId")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned);
+                let (Some(signature_request_id), Some(recipient_id)) =
+                    (signature_request_id, recipient_id)
+                else {
+                    return Ok(CommandResult::failure(
+                        envelope.command_id.clone(),
+                        CommandOutcome::ValidationFailure,
+                        envelope.aggregate_id.clone(),
+                        "DOCUMENT_SIGN_RESEND_REQUIRED",
+                        "documentSign.resend requires signatureRequestId and recipientId.",
+                    ));
+                };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "signature_request",
+                    &signature_request_id,
+                    "DOCUMENT_SIGN_REQUEST_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                let as_reminder = envelope
+                    .input
+                    .get("reminder")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let message_id = match self
+                    .service
+                    .resend_invitation_transactional(
+                        tx,
+                        &signature_request_id,
+                        &recipient_id,
+                        as_reminder,
+                        context,
+                    )
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return core_command_error(
+                            envelope,
+                            Some(signature_request_id.clone()),
+                            error,
+                        )
+                    }
+                };
+                let mut result = CommandResult::success(
+                    envelope.command_id.clone(),
+                    Some(signature_request_id.clone()),
+                    None,
+                );
+                result.emitted_events.push(command_event(
+                    envelope,
+                    "DOCUMENT_SIGN_INVITATION_RESENT",
+                    "email_message",
+                    &message_id,
+                    json!({
+                        "messageId": message_id,
+                        "signatureRequestId": signature_request_id,
+                        "recipientId": recipient_id,
+                    }),
+                ));
+                Ok(result)
+            }
         }
     }
 }
@@ -1001,7 +1082,12 @@ impl DurableCommandHandler for SignerCommand {
                 };
                 if let Err(error) = self
                     .document_sign
-                    .signer_declined_transactional(tx, &action.signature_request_id, context)
+                    .signer_declined_transactional(
+                        tx,
+                        &action.signature_request_id,
+                        &action.recipient_id,
+                        context,
+                    )
                     .await
                 {
                     return core_command_error(envelope, Some(request.recipient_id.clone()), error);

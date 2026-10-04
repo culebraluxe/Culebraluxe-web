@@ -1,0 +1,471 @@
+//! Native signing boundary proofs against DEV (DocuSign clone).
+//!
+//! Run explicitly with:
+//!   DATABASE_URL_DEV=... cargo test -p test-harness --test docsign_native_dev -- --ignored
+//!
+//! WHY THESE EXIST. The three signing services carry only pure-logic unit
+//! tests (validation, codec, renderer). The properties that make this a
+//! signing system rather than a form Mailer — turn order, consent gating,
+//! field ownership, consent immutability, queue dedupe — only exist against
+//! a real database, and a green unit suite says nothing about them.
+//!
+//! ISOLATION. Every fixture is tagged and removed afterwards: the envelope
+//! (transaction_document, cascade-deleting the request, recipients, fields,
+//! states, access and consent rows), the evidence rows (recipient FK is
+//! `on delete restrict`, so they go first), and the email/outbox rows by
+//! correlation id. Reads of ambient DEV rows are limited to borrowing one
+//! existing deal id as the envelope anchor.
+
+use db::{Database, DbTarget, SignerDao};
+use model::{
+    AcceptSignerConsentRequest, CompleteSignatureFieldRequest, CompleteSignerRequest,
+    EmailMessageKind, QueueEmailRequest,
+};
+use services::{
+    CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
+    ServiceActorKind, ServiceContext, ServiceInfrastructure, ServicePrincipal,
+};
+use std::sync::Arc;
+use web::email::EmailService;
+use web::service_support::CoreServiceError;
+use web::signer::{SignerAccessTokenCodec, SignerService, DOCSIGN_EDGE_ACTOR};
+use db::EmailDao;
+
+fn context(tag: &str) -> ServiceContext {
+    ServiceContext {
+        actor: ServiceActor {
+            id: Some(DOCSIGN_EDGE_ACTOR.into()),
+            kind: ServiceActorKind::System,
+        },
+        correlation_id: tag.into(),
+        causation_id: None,
+        principal: Some(ServicePrincipal {
+            app_user_id: "docsign-proof".into(),
+            level: "USER".into(),
+            role_codes: vec![],
+            account_type: "internal".into(),
+            entitlement_codes: vec![],
+        }),
+    }
+}
+
+fn infra() -> ServiceInfrastructure {
+    ServiceInfrastructure::new(
+        Arc::new(DefaultAuthorizationPort),
+        Arc::new(CapturingAuditPort::default()),
+        Arc::new(CapturingDomainEventPort::default()),
+    )
+}
+
+struct Envelope {
+    tag: String,
+    request_id: String,
+    a: String,
+    b: String,
+    c: String,
+    field_a: String,
+}
+
+async fn recipient(db: &Database, request_id: &str, order: i32, step: i32, email: &str) -> String {
+    sqlx::query_scalar::<_, String>(
+        "insert into signature_envelope_recipient \
+         (signature_request_id, recipient_name, recipient_email, signer_order, signing_step) \
+         values ($1::uuid, $2, $3, $4, $5) returning id::text",
+    )
+    .bind(request_id)
+    .bind(format!("Proof {email}"))
+    .bind(format!("{email}@example.test"))
+    .bind(order)
+    .bind(step)
+    .fetch_one(db.pool())
+    .await
+    .expect("recipient fixture")
+}
+
+/// Draft envelope on DEV: deal-anchored document, requested neutral status,
+/// sequential mode, A+B in step 1, C in step 2, one required field for A.
+/// Tags are fixed per test (not random) with a leading sweep, so a previous
+/// failed run's leftovers are removed rather than accumulated: cleanup on the
+/// happy path is not enough, because a panic skips it.
+async fn envelope(db: &Database, tag: &str) -> Envelope {
+    sweep_tag(db, tag).await;
+    let deal: String = sqlx::query_scalar("select id::text from deal limit 1")
+        .fetch_one(db.pool())
+        .await
+        .expect("DEV must hold at least one deal to anchor the envelope");
+    let txdoc: String = sqlx::query_scalar(
+        "insert into transaction_document (deal_id, document_type, title, state, source) \
+         values ($1::uuid, 'agreement', $2, 'draft', 'generated') returning id::text",
+    )
+    .bind(&deal)
+    .bind(format!("docsign proof {tag}"))
+    .fetch_one(db.pool())
+    .await
+    .expect("transaction_document fixture");
+    let request_id: String = sqlx::query_scalar(
+        "insert into signature_request (transaction_document_id, status) \
+         values ($1::uuid, 'requested') returning id::text",
+    )
+    .bind(&txdoc)
+    .fetch_one(db.pool())
+    .await
+    .expect("signature_request fixture");
+    sqlx::query("insert into document_sign_request (signature_request_id) values ($1::uuid)")
+        .bind(&request_id)
+        .execute(db.pool())
+        .await
+        .expect("document_sign_request fixture");
+    let a = recipient(db, &request_id, 1, 1, &format!("{tag}-a")).await;
+    let b = recipient(db, &request_id, 2, 1, &format!("{tag}-b")).await;
+    let c = recipient(db, &request_id, 3, 2, &format!("{tag}-c")).await;
+    let field_a: String = sqlx::query_scalar(
+        "insert into signature_field \
+         (signature_request_id, recipient_id, field_key, field_type, page_number, \
+          position_x, position_y, width, height, required) \
+         values ($1::uuid, $2::uuid, 'sig-a', 'signature', 1, 10, 10, 30, 10, true) \
+         returning id::text",
+    )
+    .bind(&request_id)
+    .bind(&a)
+    .fetch_one(db.pool())
+    .await
+    .expect("field fixture");
+    Envelope {
+        tag: tag.to_owned(),
+        request_id,
+        a,
+        b,
+        c,
+        field_a,
+    }
+}
+
+async fn cleanup(db: &Database, env: &Envelope) {
+    sweep_tag(db, &env.tag).await;
+}
+
+/// Best-effort removal of one tag's fixture rows, in FK-safe order: evidence
+/// first (its recipient link is `on delete restrict`), then the envelope
+/// document (cascading the request, recipients, fields, states, access and
+/// consent), then the email and outbox rows keyed by correlation id.
+async fn sweep_tag(db: &Database, tag: &str) {
+    let title = format!("docsign proof {tag}");
+    sqlx::query(
+        "delete from signature_evidence_event where signature_request_id in ( \
+           select sr.id from signature_request sr \
+           join transaction_document td on td.id = sr.transaction_document_id \
+           where td.title = $1)",
+    )
+    .bind(&title)
+    .execute(db.pool())
+    .await
+    .expect("evidence cleanup");
+    sqlx::query("delete from email_message where correlation_id = $1")
+        .bind(tag)
+        .execute(db.pool())
+        .await
+        .expect("email cleanup");
+    sqlx::query("delete from outbox_message where correlation_id = $1")
+        .bind(tag)
+        .execute(db.pool())
+        .await
+        .expect("outbox cleanup");
+    sqlx::query("delete from transaction_document where title = $1")
+        .bind(title)
+        .execute(db.pool())
+        .await
+        .expect("envelope cascade cleanup");
+}
+
+fn signer(db: &Database) -> SignerService<SignerDao> {
+    SignerService::new(
+        SignerDao::new(db.clone()),
+        SignerAccessTokenCodec::for_test("docsign-proof-secret", "https://example.test"),
+        infra(),
+    )
+}
+
+async fn grant(
+    service: &SignerService<SignerDao>,
+    db: &Database,
+    recipient: &str,
+    ctx: &ServiceContext,
+) -> String {
+    let mut tx = db.begin("docsign-proof-grant").await.unwrap();
+    let grant = service
+        .issue_access_transactional(&mut tx, recipient, None, ctx)
+        .await
+        .expect("access grant");
+    tx.commit().await.unwrap();
+    grant.token
+}
+
+async fn complete_field(
+    service: &SignerService<SignerDao>,
+    db: &Database,
+    recipient: &str,
+    token: &str,
+    field: &str,
+    ctx: &ServiceContext,
+) {
+    let mut tx = db.begin("docsign-proof-field").await.unwrap();
+    service
+        .complete_field_transactional(
+            &mut tx,
+            &model::CompleteSignatureFieldRequest {
+                recipient_id: recipient.into(),
+                access_token: token.into(),
+                field_id: field.into(),
+                value: serde_json::json!({"signature": "proof-strokes"}),
+            },
+            ctx,
+        )
+        .await
+        .expect("field completes");
+    tx.commit().await.unwrap();
+}
+
+async fn complete(
+    service: &SignerService<SignerDao>,
+    db: &Database,
+    recipient: &str,
+    token: &str,
+    ctx: &ServiceContext,
+) -> model::SignerActionResult {
+    let mut tx = db.begin("docsign-proof-complete").await.unwrap();
+    let action = service
+        .complete_transactional(
+            &mut tx,
+            &CompleteSignerRequest {
+                recipient_id: recipient.into(),
+                access_token: token.into(),
+            },
+            ctx,
+        )
+        .await
+        .expect("recipient completes");
+    tx.commit().await.unwrap();
+    action
+}
+
+async fn consent(
+    service: &SignerService<SignerDao>,
+    db: &Database,
+    recipient: &str,
+    token: &str,
+    ctx: &ServiceContext,
+) {
+    // 64 lowercase hex chars: the service requires the exact-evidence shape.
+    let sha = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+    let mut tx = db.begin("docsign-proof-consent").await.unwrap();
+    service
+        .accept_consent_transactional(
+            &mut tx,
+            &AcceptSignerConsentRequest {
+                recipient_id: recipient.into(),
+                access_token: token.into(),
+                consent_version: "v1".into(),
+                consent_text: "I agree.".into(),
+                consent_text_sha256: sha.into(),
+                ip_address: None,
+                user_agent: None,
+            },
+            ctx,
+        )
+        .await
+        .expect("consent");
+    tx.commit().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL_DEV"]
+async fn parallel_group_acts_together_and_later_step_waits() {
+    let db = Database::connect_target(DbTarget::Dev).await.unwrap();
+    let tag = "docsign-turn";
+    let env = envelope(&db, &tag).await;
+    let dao = SignerDao::new(db.clone());
+    // A and B share step 1: both may act. C in step 2 waits.
+    assert!(dao.is_turn(&env.a).await.unwrap());
+    assert!(dao.is_turn(&env.b).await.unwrap());
+    assert!(!dao.is_turn(&env.c).await.unwrap());
+
+    // Completing A alone does not open step 2.
+    let service = signer(&db);
+    let ctx = context(&tag);
+    let token_a = grant(&service, &db, &env.a, &ctx).await;
+    consent(&service, &db, &env.a, &token_a, &ctx).await;
+    complete_field(&service, &db, &env.a, &token_a, &env.field_a, &ctx).await;
+    complete(&service, &db, &env.a, &token_a, &ctx).await;
+    assert!(!dao.is_turn(&env.c).await.unwrap());
+
+    // Completing B opens step 2 but the envelope is not ready: C waits.
+    let token_b = grant(&service, &db, &env.b, &ctx).await;
+    consent(&service, &db, &env.b, &token_b, &ctx).await;
+    let action = complete(&service, &db, &env.b, &token_b, &ctx).await;
+    assert!(!action.envelope_ready_to_finalize);
+    assert!(dao.is_turn(&env.c).await.unwrap());
+
+    // Completing C finishes the envelope.
+    let token_c = grant(&service, &db, &env.c, &ctx).await;
+    consent(&service, &db, &env.c, &token_c, &ctx).await;
+    let action = complete(&service, &db, &env.c, &token_c, &ctx).await;
+    assert!(action.envelope_ready_to_finalize);
+    cleanup(&db, &env).await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL_DEV"]
+async fn consent_gates_completion_and_field_ownership_holds() {
+    let db = Database::connect_target(DbTarget::Dev).await.unwrap();
+    let tag = "docsign-gates";
+    let env = envelope(&db, &tag).await;
+    let service = signer(&db);
+    let ctx = context(&tag);
+    let token_a = grant(&service, &db, &env.a, &ctx).await;
+
+    // No consent yet: completion refuses.
+    let mut tx = db.begin("docsign-proof-gate").await.unwrap();
+    let refused = service
+        .complete_transactional(
+            &mut tx,
+            &CompleteSignerRequest {
+                recipient_id: env.a.clone(),
+                access_token: token_a.clone(),
+            },
+            &ctx,
+        )
+        .await
+        .expect_err("consent is required");
+    tx.rollback().await.unwrap();
+    assert_eq!(refused.code(), "SIGNER_CONSENT_REQUIRED");
+
+    consent(&service, &db, &env.a, &token_a, &ctx).await;
+
+    // A cannot touch a field it does not own (use C's... C has no field, so
+    // mint the refusal with a foreign id: the SQL owner-scope rejects it).
+    let mut tx = db.begin("docsign-proof-gate").await.unwrap();
+    let foreign = service
+        .complete_field_transactional(
+            &mut tx,
+            &model::CompleteSignatureFieldRequest {
+                recipient_id: env.b.clone(),
+                access_token: token_a.clone(),
+                field_id: env.field_a.clone(),
+                value: serde_json::json!({"signature": "x"}),
+            },
+            &ctx,
+        )
+        .await
+        .expect_err("B cannot complete A's field with A's token");
+    tx.rollback().await.unwrap();
+    // B's token names B while the field belongs to A: recipient binding fails
+    // before ownership is even reached.
+    assert_eq!(foreign.code(), "SIGNER_ACCESS_INVALID");
+
+    // Same-recipient wrong-field: B's own token against A's field id.
+    let token_b = grant(&service, &db, &env.b, &ctx).await;
+    consent(&service, &db, &env.b, &token_b, &ctx).await;
+    let mut tx = db.begin("docsign-proof-gate").await.unwrap();
+    let refused = service
+        .complete_field_transactional(
+            &mut tx,
+            &model::CompleteSignatureFieldRequest {
+                recipient_id: env.b.clone(),
+                access_token: token_b,
+                field_id: env.field_a.clone(),
+                value: serde_json::json!({"signature": "x"}),
+            },
+            &ctx,
+        )
+        .await
+        .expect_err("B cannot complete A's field");
+    tx.rollback().await.unwrap();
+    assert_eq!(refused.code(), "SIGNER_FIELD_NOT_OWNED");
+    cleanup(&db, &env).await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL_DEV"]
+async fn consent_is_immutable_and_completion_replays_safely() {
+    let db = Database::connect_target(DbTarget::Dev).await.unwrap();
+    let tag = "docsign-replay";
+    let env = envelope(&db, &tag).await;
+    let service = signer(&db);
+    let ctx = context(&tag);
+    let token_a = grant(&service, &db, &env.a, &ctx).await;
+    consent(&service, &db, &env.a, &token_a, &ctx).await;
+    // A second acceptance with different text returns the existing evidence.
+    let other_sha =
+        "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35";
+    let mut tx = db.begin("docsign-proof-consent").await.unwrap();
+    service
+        .accept_consent_transactional(
+            &mut tx,
+            &AcceptSignerConsentRequest {
+                recipient_id: env.a.clone(),
+                access_token: token_a.clone(),
+                consent_version: "v2".into(),
+                consent_text: "Different words.".into(),
+                consent_text_sha256: other_sha.into(),
+                ip_address: None,
+                user_agent: None,
+            },
+            &ctx,
+        )
+        .await
+        .expect("second acceptance returns existing evidence");
+    tx.commit().await.unwrap();
+    let kept: String = sqlx::query_scalar(
+        "select consent_text from signature_recipient_consent where recipient_id = $1::uuid",
+    )
+    .bind(&env.a)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(kept, "I agree.");
+
+    // Complete twice: the second is the same Completed answer, not an error.
+    complete_field(&service, &db, &env.a, &token_a, &env.field_a, &ctx).await;
+    for _ in 0..2 {
+        let action = complete(&service, &db, &env.a, &token_a, &ctx).await;
+        assert_eq!(action.state, model::SignerState::Completed);
+    }
+    cleanup(&db, &env).await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL_DEV"]
+async fn email_dedupe_keeps_one_invitation_per_key() {
+    let db = Database::connect_target(DbTarget::Dev).await.unwrap();
+    let tag = "docsign-dedupe";
+    let service = EmailService::new(EmailDao::new(db.clone()), None, infra());
+    let ctx = context(&tag);
+    let request = QueueEmailRequest {
+        message_kind: EmailMessageKind::SignatureInvitation,
+        recipient_email: format!("{tag}@example.test"),
+        template_key: "document-sign.invitation".into(),
+        template_payload: serde_json::json!({
+            "recipientName": "Proof",
+            "signingUrl": "https://example.test/sign/x",
+        }),
+        dedupe_key: format!("signature-invite:{tag}"),
+        correlation_id: Some(tag.to_owned()),
+        causation_id: None,
+    };
+    let mut tx = db.begin("docsign-proof-email").await.unwrap();
+    let first = service
+        .queue_transactional(&mut tx, &request, &ctx)
+        .await
+        .expect("first queue");
+    tx.commit().await.unwrap();
+    assert!(!first.existing);
+    let mut tx = db.begin("docsign-proof-email").await.unwrap();
+    let second = service
+        .queue_transactional(&mut tx, &request, &ctx)
+        .await
+        .expect("replay returns existing");
+    tx.commit().await.unwrap();
+    assert!(second.existing);
+    assert_eq!(first.message_id, second.message_id);
+    sweep_tag(&db, tag).await;
+}

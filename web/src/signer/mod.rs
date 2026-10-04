@@ -167,6 +167,11 @@ pub trait SignerRepository: Send + Sync {
         recipient_id: &str,
         expires_at: DateTime<Utc>,
     ) -> DbResult<SignerAccessRecord>;
+    async fn active_access_for_recipient_tx(
+        &self,
+        tx: &mut DbTransaction,
+        recipient_id: &str,
+    ) -> DbResult<Option<SignerAccessRecord>>;
     async fn initialize_state_tx(&self, tx: &mut DbTransaction, recipient_id: &str)
         -> DbResult<()>;
     async fn mark_notified_tx(&self, tx: &mut DbTransaction, recipient_id: &str) -> DbResult<()>;
@@ -253,6 +258,13 @@ impl SignerRepository for SignerDao {
         expires_at: DateTime<Utc>,
     ) -> DbResult<SignerAccessRecord> {
         SignerDao::issue_access_tx(self, tx, recipient_id, expires_at).await
+    }
+    async fn active_access_for_recipient_tx(
+        &self,
+        tx: &mut DbTransaction,
+        recipient_id: &str,
+    ) -> DbResult<Option<SignerAccessRecord>> {
+        SignerDao::active_access_for_recipient_tx(self, tx, recipient_id).await
     }
     async fn initialize_state_tx(
         &self,
@@ -486,6 +498,29 @@ impl<R: SignerRepository> SignerService<R> {
         .await;
         audit_result(&self.runtime, "signer", OP, context, decision, &result).await?;
         result
+    }
+
+    /// The signing URL for a recipient's live grant, without rotating it.
+    /// Reminders reuse the link the recipient already holds; a resend rotates
+    /// through `issue_access_transactional` instead. Internal to issuance and
+    /// reminder flows, which carry their own authorization and audit.
+    pub(crate) async fn active_signing_url(
+        &self,
+        tx: &mut DbTransaction,
+        recipient_id: &str,
+    ) -> Result<String, CoreServiceError> {
+        let access = self
+            .repository
+            .active_access_for_recipient_tx(tx, recipient_id)
+            .await?
+            .ok_or_else(|| {
+                CoreServiceError::business(
+                    "SIGNER_ACCESS_EXPIRED",
+                    "This signing link is no longer active; issue a fresh invitation.",
+                )
+            })?;
+        let token = self.codec.mint(&access)?;
+        Ok(self.codec.signing_url(&token))
     }
 
     pub async fn mark_notified_transactional(
@@ -936,11 +971,10 @@ impl<R: SignerRepository> SignerService<R> {
         Ok(access)
     }
 
-    async fn current_state(
+    pub(crate) async fn current_state(
         &self,
         recipient_id: &str,
-    ) -> Result<SignerRecipientState, CoreServiceError> {
-        self.repository.state(recipient_id).await?.ok_or_else(|| {
+    ) -> Result<SignerRecipientState, CoreServiceError> {        self.repository.state(recipient_id).await?.ok_or_else(|| {
             CoreServiceError::business("SIGNER_ACCESS_INVALID", "Signer state not found.")
         })
     }

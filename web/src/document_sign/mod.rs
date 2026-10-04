@@ -700,6 +700,33 @@ where
                 &internal,
             )
             .await?;
+        // Completion is announced to every recipient in the same transaction
+        // that flips the envelope: SMTP still happens asynchronously through
+        // the outbox, so a mail outage cannot undo the signature.
+        let recipients = self.repository.recipients_tx(tx, signature_request_id).await?;
+        for recipient in &recipients {
+            self.email
+                .queue_transactional(
+                    tx,
+                    &QueueEmailRequest {
+                        message_kind: EmailMessageKind::SignatureCompleted,
+                        recipient_email: recipient.email.clone(),
+                        template_key: "document-sign.completed".into(),
+                        template_payload: json!({
+                            "recipientName": recipient.name,
+                            "signatureRequestId": signature_request_id,
+                        }),
+                        dedupe_key: format!(
+                            "signature-completed:{signature_request_id}:{}",
+                            recipient.id
+                        ),
+                        correlation_id: Some(context.correlation_id.clone()),
+                        causation_id: context.causation_id.clone(),
+                    },
+                    &internal,
+                )
+                .await?;
+        }
         Ok(())
     }
 
@@ -707,6 +734,7 @@ where
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
+        decliner_recipient_id: &str,
         context: &ServiceContext,
     ) -> Result<(), CoreServiceError> {
         let internal = internal_context(context);
@@ -721,6 +749,36 @@ where
                 &internal,
             )
             .await?;
+        // Everyone except the decliner learns the envelope died; the decliner
+        // already knows. Queued here so invitations and outcome share one
+        // transaction with the status flip.
+        let recipients = self.repository.recipients_tx(tx, signature_request_id).await?;
+        for recipient in recipients
+            .iter()
+            .filter(|recipient| recipient.id != decliner_recipient_id)
+        {
+            self.email
+                .queue_transactional(
+                    tx,
+                    &QueueEmailRequest {
+                        message_kind: EmailMessageKind::SignatureDeclined,
+                        recipient_email: recipient.email.clone(),
+                        template_key: "document-sign.declined".into(),
+                        template_payload: json!({
+                            "recipientName": recipient.name,
+                            "signatureRequestId": signature_request_id,
+                        }),
+                        dedupe_key: format!(
+                            "signature-declined:{signature_request_id}:{}",
+                            recipient.id
+                        ),
+                        correlation_id: Some(context.correlation_id.clone()),
+                        causation_id: context.causation_id.clone(),
+                    },
+                    &internal,
+                )
+                .await?;
+        }
         Ok(())
     }
 
@@ -764,6 +822,132 @@ where
                 )
                 .await?;
             Ok(())
+        }
+        .await;
+
+        audit_result(
+            &self.runtime,
+            "document-sign",
+            OP,
+            context,
+            decision,
+            &result,
+        )
+        .await?;
+        result
+    }
+
+    /// Re-send an invitation to one recipient of an issued envelope.
+    /// A reminder reuses the live link; a resend rotates access (the old link
+    /// dies with evidence) and sends a fresh invitation. Either way only the
+    /// queue insert happens here — SMTP stays asynchronous.
+    pub async fn resend_invitation_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        recipient_id: &str,
+        as_reminder: bool,
+        context: &ServiceContext,
+    ) -> Result<String, CoreServiceError> {
+        const OP: &str = "documentSign.resend";
+        let decision = authorize(
+            &self.runtime,
+            "document-sign",
+            "documentSign.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            let config = self
+                .repository
+                .lock_config_tx(tx, signature_request_id)
+                .await?
+                .ok_or_else(|| {
+                    CoreServiceError::business(
+                        "DOCUMENT_SIGN_NOT_FOUND",
+                        "Native document-sign request not found.",
+                    )
+                })?;
+            if config.issued_at.is_none() {
+                return Err(CoreServiceError::business(
+                    "DOCUMENT_SIGN_NOT_MUTABLE",
+                    "There is nothing to resend before issue.",
+                ));
+            }
+            let recipient = self
+                .repository
+                .recipients_tx(tx, signature_request_id)
+                .await?
+                .into_iter()
+                .find(|recipient| recipient.id == recipient_id)
+                .ok_or_else(|| {
+                    CoreServiceError::business(
+                        "DOCUMENT_SIGN_RECIPIENT_INVALID",
+                        "Recipient does not belong to this signing request.",
+                    )
+                })?;
+            let internal = internal_context(context);
+            let state = self.signer.current_state(recipient_id).await?;
+            if state.state.is_terminal() {
+                return Err(CoreServiceError::business(
+                    "SIGNER_ALREADY_TERMINAL",
+                    "This signer can no longer be invited.",
+                ));
+            }
+            let (signing_url, kind, template_key, dedupe_kind) = if as_reminder {
+                (
+                    self.signer.active_signing_url(tx, recipient_id).await?,
+                    EmailMessageKind::SignatureReminder,
+                    "document-sign.reminder",
+                    "signature-reminder",
+                )
+            } else {
+                let grant = self
+                    .signer
+                    .issue_access_transactional(tx, recipient_id, None, &internal)
+                    .await?;
+                (
+                    grant.signing_url,
+                    EmailMessageKind::SignatureInvitation,
+                    "document-sign.invitation",
+                    "signature-resend",
+                )
+            };
+            let queued = self
+                .email
+                .queue_transactional(
+                    tx,
+                    &QueueEmailRequest {
+                        message_kind: kind,
+                        recipient_email: recipient.email.clone(),
+                        template_key: template_key.into(),
+                        template_payload: json!({
+                            "recipientName": recipient.name,
+                            "signingUrl": signing_url,
+                            "subject": config.subject,
+                        }),
+                        dedupe_key: format!(
+                            "{dedupe_kind}:{signature_request_id}:{recipient_id}:{}",
+                            Utc::now().timestamp_millis()
+                        ),
+                        correlation_id: Some(context.correlation_id.clone()),
+                        causation_id: context.causation_id.clone(),
+                    },
+                    &internal,
+                )
+                .await?;
+            self.signer
+                .mark_notified_transactional(
+                    tx,
+                    recipient_id,
+                    signature_request_id,
+                    &internal,
+                )
+                .await?;
+            Ok(queued.message_id)
         }
         .await;
 
@@ -1028,6 +1212,14 @@ where
                     true,
                     ServiceExecutionPolicy::ordered("signatureRequestId"),
                 ),
+                capability(
+                    "documentSign.resend",
+                    OperationKind::Command,
+                    "Re-send an invitation (fresh link) or a reminder (live link) to one recipient.",
+                    "documentSign.write",
+                    true,
+                    ServiceExecutionPolicy::ordered("signatureRequestId"),
+                ),
             ],
             dependencies: vec![
                 "signature".into(),
@@ -1068,7 +1260,8 @@ where
             | "documentSign.putField"
             | "documentSign.removeField"
             | "documentSign.issue"
-            | "documentSign.void" => Err(ServiceDispatchError::business(
+            | "documentSign.void"
+            | "documentSign.resend" => Err(ServiceDispatchError::business(
                 "DURABLE_COMMAND_REQUIRED",
                 format!(
                     "{} must enter through the durable command dispatcher.",
