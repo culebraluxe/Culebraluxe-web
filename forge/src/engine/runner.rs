@@ -2,7 +2,7 @@
 //! Model/worktree execution is injected via `RoleHarness` — same door as the TS runner.
 
 use crate::engine::assay::CommandResult;
-use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
+use crate::engine::executor::drive::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::harness_usage::HarnessUsage;
 use crate::engine::opencode_client::TurnTermination;

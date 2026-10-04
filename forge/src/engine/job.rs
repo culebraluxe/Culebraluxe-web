@@ -6,7 +6,8 @@
 //! role service. Role semantics never live in this module.
 
 use crate::engine::engine_fault::is_engine_fault_error;
-use crate::engine::executor::ForgeRoleOutcome;
+use crate::engine::executor::drive::ForgeRoleOutcome;
+use crate::engine::job_payload::request_payload;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::registry::ForgeServiceRegistry;
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -422,39 +423,6 @@ fn assert_task_matches_lease(lease: &ForgeJobLease, task: &ActiveForgeRoleTask) 
     Ok(())
 }
 
-fn request_payload(request: &ForgeJobRequest) -> Value {
-    let mut payload = Value::object();
-    payload.insert("serviceKey", Value::from(request.service_key.as_str()));
-    payload.insert("nodeId", Value::from(request.node_id.as_str()));
-    payload.insert("taskId", Value::from(request.task.task_id.as_str()));
-    payload.insert(
-        "processInstanceId",
-        Value::from(request.task.process_instance_id.as_str()),
-    );
-    payload.insert("storyId", Value::from(request.task.story_id.as_str()));
-    payload.insert("tokenId", Value::from(request.task.token_id.clone()));
-    payload
-}
-
-fn required_string(payload: &Value, key: &str) -> Result<String> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| WorkflowError::generic(format!("Forge job payload missing {key}")))
-}
-
-fn optional_string(payload: &Value, key: &str) -> Result<Option<String>> {
-    match payload.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(value)) if !value.trim().is_empty() => Ok(Some(value.clone())),
-        _ => Err(WorkflowError::generic(format!(
-            "Forge job payload has invalid {key}"
-        ))),
-    }
-}
-
 fn lease_from_job(job: &Job) -> Result<ForgeJobLease> {
     if job.job_type != FORGE_ROLE_JOB_TYPE {
         return Err(WorkflowError::generic(format!(
@@ -471,12 +439,12 @@ fn lease_from_job(job: &Job) -> Result<ForgeJobLease> {
 
     Ok(ForgeJobLease {
         job_id: job.id.clone(),
-        service_key: required_string(&job.payload, "serviceKey")?,
-        node_id: required_string(&job.payload, "nodeId")?,
-        task_id: required_string(&job.payload, "taskId")?,
-        process_instance_id: required_string(&job.payload, "processInstanceId")?,
-        story_id: required_string(&job.payload, "storyId")?,
-        token_id: optional_string(&job.payload, "tokenId")?,
+        service_key: crate::engine::job_payload::required_string(&job.payload, "serviceKey")?,
+        node_id: crate::engine::job_payload::required_string(&job.payload, "nodeId")?,
+        task_id: crate::engine::job_payload::required_string(&job.payload, "taskId")?,
+        process_instance_id: crate::engine::job_payload::required_string(&job.payload, "processInstanceId")?,
+        story_id: crate::engine::job_payload::required_string(&job.payload, "storyId")?,
+        token_id: crate::engine::job_payload::optional_string(&job.payload, "tokenId")?,
         attempts: job.attempts,
         max_attempts: job.max_attempts,
         locked_until: job.locked_until,
@@ -486,7 +454,7 @@ fn lease_from_job(job: &Job) -> Result<ForgeJobLease> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::executor::ForgeRoleRunner;
+    use crate::engine::executor::drive::ForgeRoleRunner;
     use crate::engine::facts::ForgeGateEvidence;
     use crate::roles::architect::ArchitectService;
     use crate::roles::dev_ops::DevOpsService;

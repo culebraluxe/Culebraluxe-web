@@ -54,6 +54,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"]
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+proptest = "1.4"
 unicode-normalization = "0.1"
 
 # ONE shared target directory, held down. Every worktree builds into /Users/Shared/dev/build/rust (set by

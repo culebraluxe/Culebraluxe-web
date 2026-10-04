@@ -19,6 +19,10 @@ services = { path = "../middle/services" }
 tokio.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+proptest = { workspace = true }
 
 [[bin]]
 name = "re-workflow"

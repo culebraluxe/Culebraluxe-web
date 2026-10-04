@@ -6,7 +6,7 @@
 //! why it is Assay and not Inspector. The execution lifecycle is inherited, not copied (see `roles::lifecycle`).
 
 use crate::engine::assay::{collect_rust_contract_assay_evidence, AssayEvidence, AssayVerdict};
-use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
+use crate::engine::executor::drive::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
 use crate::engine::phase::{lane_deliverable_kind, PhaseDeliverableKind, RoleEffectPorts};
 use crate::engine::role_mapping::LaneId;

@@ -8,7 +8,7 @@
 //! `ForgeServiceRouter` is the strangler adapter from the established
 //! `ProductionRoleRunner` seam into concrete `AbstractForgeService` implementations.
 
-use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
+use crate::engine::executor::drive::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::role_mapping::LaneId;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::service_binding::service_for_node;

@@ -43,10 +43,10 @@ pub struct OpenForgeTask {
 }
 
 pub struct ForgeRuntime<S: TxStore = MemoryStore> {
-    engine: WorkflowEngine<S>,
-    port: Arc<ForgeApplicationPort>,
-    writer: Arc<dyn ForgeStateWriter>,
-    ledger: Arc<dyn CompletionLedger>,
+    pub(crate) engine: Arc<WorkflowEngine<S>>,
+    pub(crate) port: Arc<ForgeApplicationPort>,
+    pub(crate) writer: Arc<dyn ForgeStateWriter>,
+    pub(crate) ledger: Arc<dyn CompletionLedger>,
 }
 
 impl ForgeRuntime<MemoryStore> {
@@ -134,13 +134,13 @@ impl<S: TxStore> ForgeRuntime<S> {
         ensure_topology(&top).map_err(WorkflowError::generic)?;
         let port = Arc::new(ForgeApplicationPort::new(writer.clone(), release, evidence));
         let port_for_engine: Arc<ForgeApplicationPort> = port.clone();
-        let engine = WorkflowEngine::new(
+        let engine = Arc::new(WorkflowEngine::new(
             store,
             EngineOptions {
                 app: Some(Box::new(PortClone(port_for_engine))),
                 now: Box::new(wall_clock_ms),
             },
-        );
+        ));
         engine.seed_definition(def)?;
         Ok(Self {
             engine,

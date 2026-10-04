@@ -5,7 +5,7 @@
 //! So this service owns the lane boundary and supplies no reading: there is nothing a Scout turn needs read
 //! out of it that the marker does not already say.
 
-use crate::engine::executor::ForgeRoleRunner;
+use crate::engine::executor::drive::ForgeRoleRunner;
 use crate::engine::role_mapping::LaneId;
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
 

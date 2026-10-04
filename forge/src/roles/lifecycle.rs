@@ -25,7 +25,7 @@
 //! file, so a test can run a Smith-family node through the default hooks and prove no Smith behavior.
 
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
-use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
+use crate::engine::executor::drive::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::harness_usage::HarnessUsage;
 use crate::engine::hold::{

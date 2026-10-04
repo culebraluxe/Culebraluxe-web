@@ -109,7 +109,7 @@ impl ActiveForgeRoleTask {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
+    use crate::engine::executor::drive::{ForgeRoleOutcome, ForgeRoleRunner};
     use crate::engine::facts::ForgeGateEvidence;
     use crate::engine::xml::definition_from_xml;
     use crate::roles::architect::{ArchitectService, ARCHITECT_SERVICE_ID};
@@ -538,16 +538,19 @@ mod tests {
     /// to be its only home.
     #[test]
     fn the_drive_spells_no_node_group_of_its_own() {
-        let source = include_str!("executor.rs");
-        let drive = source
+        // Check the dispatch module for resolve_forge_stop_target (moved from drive.rs)
+        let dispatch_source = include_str!("executor/dispatch.rs");
+        assert!(
+            dispatch_source.contains("fn resolve_forge_stop_target"),
+            "the dispatch module contains resolve_forge_stop_target; a scan that saw nothing would pass this contract by accident"
+        );
+
+        // Check the drive module doesn't redefine the gate list
+        let drive_source = include_str!("executor/drive.rs");
+        let drive = drive_source
             .split("#[cfg(test)]")
             .next()
             .expect("the file opens with its production half");
-        assert!(
-            drive.contains("fn resolve_forge_stop_target"),
-            "the scan has the drive's own source; a scan that saw nothing would pass this contract by accident"
-        );
-
         assert!(
             !drive.contains("FORGE_HUMAN_GATE_NODES"),
             "the drive names the gate list again; the definition owns it (`service_binding::forge_human_gate_nodes`)"
@@ -574,14 +577,19 @@ mod tests {
                 "the drive spells the node {typed_out:?}; the scout and architect caps are the definition's groups"
             );
         }
+        // The LEAD_PRE_NODE constant moved to dispatch.rs
+        let dispatch_source = include_str!("executor/dispatch.rs");
         assert!(
-            drive.contains("const LEAD_PRE_NODE: &str = \"lead_pre\";")
-                && drive.matches("LEAD_PRE_NODE").count() >= 2,
+            dispatch_source.contains("const LEAD_PRE_NODE: &str = \"lead_pre\";")
+                && dispatch_source.matches("LEAD_PRE_NODE").count() >= 2,
             "the one node name left is the lead cap, and it is read through the const rather than inlined"
         );
         for cap in ["forge.scout", "forge.architect"] {
+            // These caps are derived from the definition's service bindings
+            // Check they're in the dispatch module (via service_binding) not hardcoded in drive
+            let dispatch_source = include_str!("executor/dispatch.rs");
             assert!(
-                drive.contains(&format!("\"{cap}\"")),
+                dispatch_source.contains(&format!("\"{cap}\"")),
                 "the {cap} cap is derived from the definition's own binding"
             );
         }

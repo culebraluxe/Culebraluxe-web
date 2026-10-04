@@ -6,7 +6,7 @@
 //! lane inherits the shared execution lifecycle (see `roles::lifecycle`) instead of copying it.
 
 use crate::engine::architect::ArchitectAssessment;
-use crate::engine::executor::ForgeRoleRunner;
+use crate::engine::executor::drive::ForgeRoleRunner;
 use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
 use crate::engine::phase::RoleEffectPorts;
 use crate::engine::role_mapping::LaneId;

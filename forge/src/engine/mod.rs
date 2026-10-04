@@ -18,7 +18,13 @@ pub mod engine_fault;
 pub mod evidence_gate;
 pub mod evidence_store;
 pub mod execution_target;
-pub mod executor;
+pub mod executor {
+    pub mod completion;
+    pub mod dispatch;
+    pub mod drive;
+    pub mod lane_failure;
+    pub mod wave;
+}
 pub mod facts;
 pub mod failure;
 pub mod first_violation;
@@ -29,6 +35,7 @@ pub mod hold;
 pub mod hold_resolve;
 pub mod integration;
 pub mod job;
+pub mod job_payload;
 pub mod learn;
 pub mod migration_guard;
 pub mod neon_sql;
@@ -76,6 +83,7 @@ pub mod validate;
 pub mod vendor_session;
 pub mod verification;
 pub mod version_policy;
+pub mod config;
 pub mod worker;
 pub mod workspace_id;
 pub mod worktree;
@@ -124,5 +132,15 @@ pub use re_commands::{assert_command_nodes_routed, XML_COMMAND_NODE_TYPES};
 pub use re_port::{CompositeApplicationPort, ReApplicationPort};
 
 pub use re_runtime::{
-    complete_workflow_task, reconcile_closing_timer, start_residential_transaction,
+    complete_workflow_task, reconcile_closing_timer, start_residential_transaction, shared_forge_runtime,
 };
+
+pub use executor::drive::{
+    drive_forge_story, drive_forge_story_with_jobs, DriveForgeStoryOptions, DriveForgeStoryResult,
+    DurableForgeExecution,
+};
+pub use executor::dispatch::{parse_forge_stop_after, resolve_forge_stop_target, ForgeStopTarget};
+pub use executor::lane_failure::{
+    is_advance_conflict, is_completed_release_conflict, settle_forge_lane_failure, LaneFailureSettlement,
+};
+pub use executor::wave::{plan_wave, WaveLane, WavePlan, WaveRefusal};

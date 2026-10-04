@@ -1,5 +1,7 @@
 //! RE_supermodel host: start, deadline timers, task complete. Replaces workflow_app/runtime.ts.
 
+use std::sync::Arc;
+
 use workflow::{
     CompleteTaskParams, EngineOptions, NeonStore, ProcessStatus, Result, StartProcessParams, Value,
     WorkflowEngine, WorkflowError, WorkflowSubject,
@@ -8,9 +10,12 @@ use workflow::{
 use crate::engine::re_commands::{assert_command_nodes_routed, XML_COMMAND_NODE_TYPES};
 use crate::engine::re_facts::{contract_workflow_facts, deal_workflow_facts};
 use crate::engine::re_port::ReApplicationPort;
-
 use crate::engine::vendor_session::with_shared;
 use crate::engine::xml::{parse_re_supermodel, RE_SUPERMODEL_KEY, RE_SUPERMODEL_VERSION};
+use crate::engine::runtime::ForgeRuntime;
+use crate::engine::writer::{ForgeEvidenceReader, ForgeReleaseExecutor, ForgeStateWriter};
+use crate::engine::completion::CompletionLedger;
+use crate::engine::port::ForgeApplicationPort;
 use db::WorkflowOpsDao;
 
 pub const RESIDENTIAL_TRANSACTION_KEY: &str = RE_SUPERMODEL_KEY;
@@ -54,20 +59,30 @@ pub fn assert_re_definition_ready() -> Result<()> {
 /// A FAILED BUILD IS NOT CACHED. The build reads and writes the database, so it can fail for transient reasons, and a
 /// process that cached that failure would be wedged until someone restarted it. Successes are cached forever; failures
 /// are retried on the next call.
-static ENGINE: std::sync::OnceLock<WorkflowEngine<NeonStore>> = std::sync::OnceLock::new();
+///
+/// The engine uses the shared process Database pool (`db::shared`) via `NeonStore::from_database`,
+/// enforcing the one-pool-per-process rule. The engine is wrapped in an `Arc` so it can be shared
+/// across multiple `ForgeRuntime` instances.
+static ENGINE: std::sync::OnceLock<Arc<WorkflowEngine<NeonStore>>> = std::sync::OnceLock::new();
 
-pub fn re_engine() -> Result<&'static WorkflowEngine<NeonStore>> {
+/// Get the cached engine, building it with the shared database pool if needed.
+pub fn re_engine() -> Result<Arc<WorkflowEngine<NeonStore>>> {
     if let Some(engine) = ENGINE.get() {
-        return Ok(engine);
+        return Ok(engine.clone());
     }
-    let engine = build_re_engine()?;
-    let _ = ENGINE.set(engine);
-    Ok(ENGINE.get().expect("engine was just installed"))
+    let engine = Arc::new(build_re_engine()?);
+    let _ = ENGINE.set(engine.clone());
+    Ok(engine)
 }
 
 fn build_re_engine() -> Result<WorkflowEngine<NeonStore>> {
     assert_re_definition_ready()?;
-    let store = NeonStore::connect_from_env()?;
+    let store = {
+        let result = with_shared(|db, _rt| NeonStore::from_database(db.clone()));
+        result
+            .map_err(|e| WorkflowError::generic(e))?
+            .map_err(|e| WorkflowError::generic(e.to_string()))?
+    };
     let engine = WorkflowEngine::new(
         store,
         EngineOptions {
@@ -344,4 +359,25 @@ pub fn reset_dev_workflows() -> Result<Vec<(String, u64)>> {
         })
     })
     .map_err(WorkflowError::generic)?
+}
+
+/// Create a ForgeRuntime using the shared cached engine (production path).
+/// This enforces the one-pool-per-process rule by reusing the engine from `re_engine()`.
+pub fn shared_forge_runtime(
+    writer: Arc<dyn ForgeStateWriter>,
+    release: Option<Arc<dyn ForgeReleaseExecutor>>,
+    evidence: Option<Arc<dyn ForgeEvidenceReader>>,
+    ledger: Arc<dyn CompletionLedger>,
+) -> Result<ForgeRuntime<NeonStore>> {
+    let engine = re_engine()?;
+    let port = Arc::new(ForgeApplicationPort::new(writer.clone(), release, evidence));
+    // Re-seed the definition in case the shared engine was built with a different port
+    let def = parse_re_supermodel().map_err(|e| WorkflowError::generic(e.0))?;
+    engine.seed_definition(def)?;
+    Ok(ForgeRuntime {
+        engine,
+        port,
+        writer,
+        ledger,
+    })
 }

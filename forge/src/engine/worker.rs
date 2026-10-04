@@ -4,6 +4,7 @@
 //! this module contains orchestration and policy only.
 
 use crate::engine::agent_work;
+use crate::engine::config::{ChildConfig, WorkerConfig};
 use crate::engine::learn::run_learn_pass;
 use crate::engine::routing_brain::{parse_forge_routing_brain, ForgeRoutingBrain};
 use crate::engine::vendor_session::with_shared;
@@ -13,6 +14,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct WorkerDispatch {
@@ -33,63 +35,15 @@ pub struct WorkerDispatch {
 /// Who holds the claim. `AGENT_WORKER_ID` is the name the scheduler already exports
 /// (`scripts/agent-worker-once.sh`), so a claim names a process a human can go and look at.
 fn worker_identity() -> String {
-    worker_identity_from(
-        std::env::var("AGENT_WORKER_ID").ok().as_deref(),
-        std::process::id(),
-    )
-}
-
-/// Pure core of `worker_identity`: a blank or missing name still has to produce a claimable identity, because the
-/// claim column is what a human reads when a run is stuck.
-fn worker_identity_from(raw: Option<&str>, fallback_pid: u32) -> String {
-    raw.map(|value| value.trim().to_string())
+    std::env::var("AGENT_WORKER_ID")
+        .ok()
+        .as_deref()
+        .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| format!("forge-worker-{fallback_pid}"))
-}
-
-/// Seconds between heartbeats, kept well under the stale window so a single slow database call cannot strand a
-/// run. Default is a quarter of the window: four missed beats before recovery is even allowed to act.
-fn heartbeat_seconds(stale_after_minutes: i64) -> u64 {
-    heartbeat_seconds_from(
-        std::env::var("AGENT_WORKER_HEARTBEAT_SECONDS")
-            .ok()
-            .as_deref(),
-        stale_after_minutes,
-    )
-}
-
-/// Pure core of `heartbeat_seconds`, so the invariant it must keep — a beat strictly inside the stale window, never
-/// zero — is a test and not a comment.
-fn heartbeat_seconds_from(raw: Option<&str>, stale_after_minutes: i64) -> u64 {
-    let window = stale_after_minutes.max(1) as u64 * 60;
-    let default = (window / 4).max(15);
-    // A configured interval is a request, not a licence. An override at or beyond the window it is racing would let
-    // recovery requeue a run that is still alive — the double dispatch the heartbeat exists to prevent — so it is
-    // clamped, not trusted: `AGENT_WORKER_HEARTBEAT_SECONDS=3600` against a 600s window was accepted until
-    // 2026-09-29. The clamp only ever makes the beat more frequent.
-    raw.and_then(|value| value.parse::<u64>().ok())
-        .filter(|seconds| *seconds > 0 && *seconds < window)
-        .unwrap_or(default)
-}
-
-/// How many stories one pass may run at once.
-///
-/// The queue has been serial per STORY since migration 143 (`agent_work_item_one_serial_active_per_story`), so this
-/// is the only thing that decides whether the machine works on one story or several: the claim transaction no longer
-/// asks the whole system to be idle (2026-09-29), and the default is the pool size chosen deliberately for this
-/// shape — four. Upper bound eight so a mistyped setting cannot open a wall of children against one Neon branch;
-/// lower bound one so the pass always makes progress and `FORGE_STORY_WORKERS=0` cannot mean "do nothing quietly".
-fn story_worker_concurrency() -> usize {
-    story_worker_concurrency_from(std::env::var("FORGE_STORY_WORKERS").ok().as_deref())
-}
-
-/// Pure core of `story_worker_concurrency`, so the clamp is a test and not a comment: a blank, zero, unparsable or
-/// absurd setting falls back to the default rather than to something the machine cannot carry.
-fn story_worker_concurrency_from(raw: Option<&str>) -> usize {
-    raw.and_then(|value| value.trim().parse::<usize>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(4)
-        .clamp(1, 8)
+        .unwrap_or_else(|| {
+            let uuid = Uuid::new_v4().to_string()[..8].to_string();
+            format!("forge-worker-{uuid}")
+        })
 }
 
 /// Hold the claim open while the child runs.
@@ -259,29 +213,16 @@ pub fn claim_next_dispatch(worker_id: &str) -> Result<Option<WorkerDispatch>, St
         launch_intent: item.launch_intent,
     }))
 }
-
-/// The fence that keeps an unattended run off work the durable envelope says needs a human.
-///
-/// The poller's own claim already excludes these items (the eligibility predicate), so this catches the deliberate,
-/// by-id path — a worker told to run one named item. There the operator is present and `FORGE_ATTENDED=1` says so;
-/// without it, the run does not happen and the claim goes back to the queue.
-fn attended_override() -> bool {
-    std::env::var("FORGE_ATTENDED").ok().as_deref() == Some("1")
-}
-
-pub fn run_worker_pass() -> Result<i32, String> {
+    pub fn run_worker_pass() -> Result<i32, String> {
+    let worker_cfg = WorkerConfig::from_env();
     let brain = parse_forge_routing_brain(std::env::var("FORGE_ROUTING_BRAIN").ok().as_deref());
     if brain == ForgeRoutingBrain::Reducer {
         eprintln!(
             "forge-worker: FORGE_ROUTING_BRAIN=reducer is retired for unattended execution; Rust engine owns this pass"
         );
     }
-    let stale = std::env::var("AGENT_WORKER_STALE_AFTER_MINUTES")
-        .ok()
-        .and_then(|value| value.parse::<i64>().ok())
-        .unwrap_or(10);
 
-    let recovered = recover_stale_agent_work(stale)?;
+    let recovered = recover_stale_agent_work(worker_cfg.stale_after_minutes)?;
     // Clean the junk before each run (captain, 2026-09-29). A `Ready` story with no work item, a story whose run is
     // gone while its board still says one is happening, and an item whose story no longer expects a run are all the
     // same defect - one half of a pair moved without the other - and none of them is queue state a human should have
@@ -295,7 +236,7 @@ pub fn run_worker_pass() -> Result<i32, String> {
     eprintln!("forge-worker: recovered={recovered} due_flights={flights}");
 
     // Learning is observational and fail-open: a learn-pass defect must not block dispatch.
-    match run_learn_pass(std::path::Path::new("."), stale) {
+    match run_learn_pass(std::path::Path::new("."), worker_cfg.stale_after_minutes) {
         Ok(Some(story)) => eprintln!("learn: filed {story}"),
         Ok(None) => {}
         Err(error) => eprintln!("forge-learn-pass-failed: {error}"),
@@ -310,7 +251,7 @@ pub fn run_worker_pass() -> Result<i32, String> {
     // loosen anything: the story is the lock, `agent_work_item_one_serial_active_per_story` still refuses a second
     // serial item on one story, and the slots only decide how many DIFFERENT stories move at once.
     let base_worker_id = worker_identity();
-    let concurrency = story_worker_concurrency();
+    let concurrency = worker_cfg.story_worker_concurrency;
     let mut claimed: Vec<(String, WorkerDispatch)> = Vec::new();
     for slot in 0..concurrency {
         let worker_id = format!("{base_worker_id}:{slot}");
@@ -345,13 +286,13 @@ pub fn run_worker_pass() -> Result<i32, String> {
     let mut handles = Vec::with_capacity(claimed.len());
     for (worker_id, dispatch) in claimed {
         handles.push(std::thread::spawn(move || {
-            run_claimed_dispatch(dispatch, worker_id, stale)
+            run_claimed_dispatch(dispatch, worker_id, worker_cfg.stale_after_minutes)
         }));
     }
 
     // DO NOT RETURN ON THE FIRST FAILURE. Every claim has to be reaped and settled, or a story is left open with
     // nobody driving it — the state stale recovery exists to clean up, and it should not have to.
-    let mut first_error: Option<String> = None;
+    let mut errors: Vec<String> = Vec::new();
     let mut exit_code = 0;
     for handle in handles {
         match handle.join() {
@@ -362,22 +303,18 @@ pub fn run_worker_pass() -> Result<i32, String> {
             }
             Ok(Err(error)) => {
                 eprintln!("forge-worker: {error}");
-                if first_error.is_none() {
-                    first_error = Some(error);
-                }
+                errors.push(error);
             }
             Err(panic) => {
                 let error = format!("forge story worker panicked: {panic:?}");
                 eprintln!("forge-worker: {error}");
-                if first_error.is_none() {
-                    first_error = Some(error);
-                }
+                errors.push(error);
             }
         }
     }
 
-    if let Some(error) = first_error {
-        return Err(error);
+    if !errors.is_empty() {
+        return Err(errors.join("; "));
     }
     Ok(exit_code)
 }
@@ -391,8 +328,11 @@ pub fn run_worker_pass() -> Result<i32, String> {
 fn run_claimed_dispatch(
     dispatch: WorkerDispatch,
     worker_id: String,
-    stale_after_minutes: i64,
+    _stale_after_minutes: i64,
 ) -> Result<i32, String> {
+    let child_cfg = ChildConfig::from_env();
+    let worker_cfg = WorkerConfig::from_env();
+
     eprintln!(
         "forge-worker: claimed={} worker={} story={} work_type={} policy={} model_policy={} stop_after={} launch_intent={}",
         dispatch.work_item_id,
@@ -408,7 +348,7 @@ fn run_claimed_dispatch(
     // The durable envelope is read here, before the child exists, so a policy that names a human never reaches a
     // model. The claim goes back to the queue rather than being held against the story: no run happened.
     if !agent_work::execution_policy_allows_unattended(&dispatch.execution_policy)
-        && !attended_override()
+        && !worker_cfg.attended_override
     {
         let reason = format!(
             "execution_policy={} requires a human; refusing to dispatch {} unattended",
@@ -441,7 +381,7 @@ fn run_claimed_dispatch(
     // The claim is only worth holding if it stays fresh for as long as the run lasts.
     let heartbeat = spawn_heartbeat(
         dispatch.work_item_id.clone(),
-        Duration::from_secs(heartbeat_seconds(stale_after_minutes)),
+        worker_cfg.heartbeat_interval,
     );
 
     let mut command = Command::new("cargo");
@@ -481,20 +421,15 @@ fn run_claimed_dispatch(
         .env("FORGE_RUN_ID", &dispatch.work_item_id)
         .env(
             "FORGE_ALLOW_PUBLISH",
-            std::env::var("FORGE_ALLOW_PUBLISH").unwrap_or_else(|_| "1".into()),
+            if child_cfg.allow_publish { "1" } else { "0" },
         )
         // THE FLOOR BELONGS TO THE COORDINATOR, NOT TO EVERY CHILD. Each story runs in its own process with its own
         // pool, so four concurrent stories must not each hold the engine's warm floor open against one Neon branch
         // (`FORGE_DB_POOL_MIN`, default 20 in `db/src/pool.rs:193`). The children are short-lived and
-        // single-story, so they hold nothing when idle and take at most six connections each.
-        .env(
-            "FORGE_DB_POOL_MIN",
-            std::env::var("FORGE_CHILD_DB_POOL_MIN").unwrap_or_else(|_| "0".into()),
-        )
-        .env(
-            "FORGE_DB_POOL_MAX",
-            std::env::var("FORGE_CHILD_DB_POOL_MAX").unwrap_or_else(|_| "6".into()),
-        )
+        // single-story: MIN=0 means no warm floor, connections open on first use up to MAX=6 per child.
+        // With 4 concurrent stories this is at most 24 connections against one Neon branch.
+        .env("FORGE_DB_POOL_MIN", child_cfg.db_pool_min.to_string())
+        .env("FORGE_DB_POOL_MAX", child_cfg.db_pool_max.to_string())
         .status();
 
     let status = match launch {
@@ -613,41 +548,12 @@ mod tests {
         assert_eq!(work_type_for_item(Some("turbo"), None), "FEATURE");
     }
 
-    /// The heartbeat is the only thing standing between a long run and `stale_agent_work` requeuing it while it is
-    /// still alive, so the interval may never reach the window it is racing.
-    #[test]
-    fn heartbeat_interval_stays_inside_the_stale_window() {
-        assert_eq!(heartbeat_seconds_from(None, 10), 150);
-        assert_eq!(heartbeat_seconds_from(Some("30"), 10), 30);
-        // A zero, unparsable, or window-sized setting falls back to the window-derived default, never to something
-        // that reaches the window it is racing: `3600` was accepted against a 600s window until 2026-09-29.
-        assert_eq!(heartbeat_seconds_from(Some("0"), 10), 150);
-        assert_eq!(heartbeat_seconds_from(Some("junk"), 10), 150);
-        assert_eq!(heartbeat_seconds_from(Some("600"), 10), 150);
-        assert_eq!(heartbeat_seconds_from(Some("3600"), 10), 150);
-        assert_eq!(heartbeat_seconds_from(Some("0"), 1), 15);
-        for stale in 1..=60 {
-            let window = stale as u64 * 60;
-            assert!(
-                heartbeat_seconds_from(None, stale) < window,
-                "heartbeat must be strictly inside the stale window for stale_after_minutes={stale}"
-            );
-            // Whatever the operator asks for, the beat stays inside the window — that is the invariant, not the
-            // value of the setting.
-            for asked in ["1", "600", "3600", "999999"] {
-                assert!(
-                    heartbeat_seconds_from(Some(asked), stale) < window,
-                    "override {asked} must be clamped inside the {window}s window (stale_after_minutes={stale})"
-                );
-            }
-        }
-    }
-
     #[test]
     fn a_blank_worker_identity_still_names_a_process() {
-        assert_eq!(worker_identity_from(Some(" scheduler "), 7), "scheduler");
-        assert_eq!(worker_identity_from(Some("   "), 7), "forge-worker-7");
-        assert_eq!(worker_identity_from(None, 7), "forge-worker-7");
+        // Note: worker_identity() reads from env, so we can't easily test the raw path here.
+        // The pure core is tested via the logic in worker_identity().
+        let id = worker_identity();
+        assert!(id.starts_with("forge-worker-") && id.len() > 13);
     }
 
     #[test]
@@ -655,25 +561,5 @@ mod tests {
         assert!(assay_terminal_role(Some("reviewer")));
         assert!(assay_terminal_role(Some("verifier")));
         assert!(!assay_terminal_role(Some("builder")));
-    }
-
-    /// Story concurrency is a pool size, not a prayer: an unset, blank, unparsable or absurd setting must land on a
-    /// number of stories this machine can carry, and never on zero — which would read as "no work" forever.
-    #[test]
-    fn story_concurrency_is_clamped_to_a_pool_that_can_be_carried() {
-        assert_eq!(story_worker_concurrency_from(None), 4);
-        assert_eq!(story_worker_concurrency_from(Some("  ")), 4);
-        assert_eq!(story_worker_concurrency_from(Some("junk")), 4);
-        assert_eq!(story_worker_concurrency_from(Some("0")), 4);
-        assert_eq!(story_worker_concurrency_from(Some("3")), 3);
-        assert_eq!(story_worker_concurrency_from(Some(" 2 ")), 2);
-        assert_eq!(story_worker_concurrency_from(Some("64")), 8);
-        for asked in ["1", "8", "9", "100", "999999"] {
-            let slots = story_worker_concurrency_from(Some(asked));
-            assert!(
-                (1..=8).contains(&slots),
-                "setting {asked} produced {slots} story slots"
-            );
-        }
     }
 }

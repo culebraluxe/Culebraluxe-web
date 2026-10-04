@@ -5,10 +5,11 @@ use db::{AgentWorkOutcome, AgentWorkSettlement};
 use forge::engine::agent_work;
 use forge::engine::db_writer::{DbForgeEvidenceReader, DbForgeStateWriter};
 use forge::engine::definition::forge_sdlc_definition;
-use forge::engine::executor::{
+use forge::engine::{
     drive_forge_story_with_jobs, parse_forge_stop_after, DriveForgeStoryOptions,
     DurableForgeExecution, ForgeStopTarget,
 };
+use forge::engine::re_runtime::shared_forge_runtime;
 use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::git_publish::{publish_switch_off, GitReleaseOps, HostReleaseExecutor};
 use forge::engine::job::WorkflowJobService;
@@ -26,7 +27,7 @@ use forge::engine::writer::{
 use forge::roles::ForgeLaneServices;
 use std::env;
 use std::sync::Arc;
-use workflow::{MemoryStore, NeonStore, TxStore, WorkflowError};
+use workflow::{MemoryStore, TxStore, WorkflowError};
 
 fn flag(args: &[String], name: &str) -> Option<String> {
     args.windows(2).find(|w| w[0] == name).map(|w| w[1].clone())
@@ -504,30 +505,21 @@ fn main() {
             contract_acceptance_mapped,
         )
     } else {
-        match NeonStore::connect_from_env() {
-            Ok(store) => {
-                eprintln!("workflow store=neon");
-                drive(
-                    store,
-                    release,
-                    writer.clone(),
-                    Some(Arc::new(DbForgeEvidenceReader)),
-                    &harness,
-                    &story,
-                    &work_type,
-                    stop_after.clone(),
-                    story_run_id.clone(),
-                    run_launch_intent.clone(),
-                    test_mode.clone(),
-                    contract_assay_commands.clone(),
-                    contract_acceptance_mapped,
-                )
-            }
-            Err(e) => {
-                eprintln!("neon store: {e}");
-                Err(e)
-            }
-        }
+        eprintln!("workflow store=neon (shared engine)");
+        drive_with_shared_runtime(
+            release,
+            writer.clone(),
+            Some(Arc::new(DbForgeEvidenceReader)),
+            &harness,
+            &story,
+            &work_type,
+            stop_after.clone(),
+            story_run_id.clone(),
+            run_launch_intent.clone(),
+            test_mode.clone(),
+            contract_assay_commands.clone(),
+            contract_acceptance_mapped,
+        )
     };
     // One exit, one verdict. `Ok` means the story was driven through its turn (a story that stopped for a human comes
     // back `Ok` and the board's Hold says so); `Err` means the run failed. Either way the claim is settled here, not
@@ -628,7 +620,7 @@ fn drive<S: TxStore>(
     let mut rt = match ForgeRuntime::from_store(
         store,
         writer.clone(),
-        Some(release),
+        Some(release.clone()),
         evidence_reader.clone(),
         // The receipt row, not a process-local set: this binary IS a child process per dispatch, so a
         // memory ledger would let every new process re-apply each completion in the instance history
@@ -642,6 +634,49 @@ fn drive<S: TxStore>(
             return Err(e);
         }
     };
+    drive_with_runtime(&mut rt, release, writer, evidence_reader, harness, story, work_type, stop_after, story_run_id, bench_intent, test_mode, contract_assay_commands, contract_acceptance_mapped)
+}
+
+/// Drive a story using a pre-built ForgeRuntime (production path with shared engine).
+fn drive_with_shared_runtime(
+    release: Arc<dyn ForgeReleaseExecutor>,
+    writer: Arc<dyn ForgeStateWriter>,
+    evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
+    harness: &OpenCodeHarness,
+    story: &str,
+    work_type: &str,
+    stop_after: Option<ForgeStopTarget>,
+    story_run_id: Option<String>,
+    bench_intent: Option<String>,
+    test_mode: Option<String>,
+    contract_assay_commands: Vec<String>,
+    contract_acceptance_mapped: bool,
+) -> Result<DriveSummary, WorkflowError> {
+    let rt = shared_forge_runtime(
+        writer.clone(),
+        Some(release.clone()),
+        evidence_reader.clone(),
+        forge::engine::durable_completion_ledger(),
+    )?;
+    drive_with_runtime(&rt, release, writer, evidence_reader, harness, story, work_type, stop_after, story_run_id, bench_intent, test_mode, contract_assay_commands, contract_acceptance_mapped)
+}
+
+/// Common drive logic shared by both memory and shared-engine paths.
+fn drive_with_runtime<S: TxStore>(
+    rt: &ForgeRuntime<S>,
+    release: Arc<dyn ForgeReleaseExecutor>,
+    writer: Arc<dyn ForgeStateWriter>,
+    evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
+    harness: &OpenCodeHarness,
+    story: &str,
+    work_type: &str,
+    stop_after: Option<ForgeStopTarget>,
+    story_run_id: Option<String>,
+    bench_intent: Option<String>,
+    test_mode: Option<String>,
+    contract_assay_commands: Vec<String>,
+    contract_acceptance_mapped: bool,
+) -> Result<DriveSummary, WorkflowError> {
     let evidence = ForgeGateEvidence {
         work_type: Some(work_type.to_string()),
         scout_required: Some(false),
@@ -667,7 +702,7 @@ fn drive<S: TxStore>(
     let registry = services.registry()?;
     let jobs = WorkflowJobService::new(rt.engine());
     match drive_forge_story_with_jobs(
-        &rt,
+        rt,
         story,
         DriveForgeStoryOptions {
             work_type,
