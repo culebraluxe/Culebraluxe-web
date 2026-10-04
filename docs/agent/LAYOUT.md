@@ -25,7 +25,19 @@ Nothing else belongs in `src/`: no exports, no caches, no second copies of the r
 cd /Users/Shared/dev/src/Culebraluxe-web
 git worktree add ../lane-<name> -b lane/<name> origin/main
 cd ../lane-<name> && pnpm install
+ln -sfn /Users/Shared/dev/.env.local     .env.local
+ln -sfn /Users/Shared/dev/.env.scheduler .env.scheduler
 ```
+
+**One env, symlinked, never copied (2026-10-03).** `.env.local` (53 keys, including `DATABASE_URL_PROD` and the
+production Mux credentials) and `.env.scheduler` (`FORGE_STORY_WORKERS`, `FORGE_PROVISION`, `FORGE_ALLOW_PUBLISH`) live
+once, at `/Users/Shared/dev/.env.local` and `/Users/Shared/dev/.env.scheduler`, mode `600`, **outside every checkout**;
+each checkout root holds a symlink to them. Before this, four byte-identical copies sat in four worktree roots — four
+rotation points for one set of secrets, and a rotated key left stale copies alive in lanes nobody looked at. Both loaders
+resolve the link: `scripts/dev.sh` reads `.env.local` from `$root` (`[ -f ]` and `done <` follow symlinks) and the Rust
+CLI opens `repo_root()/.env.local` through `dotenvy::from_path` → `File::open`. `.gitignore:16` (`.env*`) and `:23`
+(`.env.scheduler`) keep the link itself invisible to git, so every lane's `git status` stays clean, and because the real
+file is outside every worktree it can no longer be committed from one. A new lane runs `ln -sfn`, never `cp`.
 
 One lane, one branch, one agent: commit on the lane branch, land it on `origin/main`, and mind house rule 1
 (`lane/*` is short-lived). **`origin/main` is the trunk, not the main checkout's local `main`:** Forge's publish path
@@ -46,7 +58,12 @@ simultaneous `cargo` runs serialize on the target lock instead of running in par
 2. **No stores inside a checkout.** pnpm's store is `~/Library/pnpm/store/v10`; a `.pnpm-store` inside the repo is a
    leftover from an older config (one was removed on 2026-10-01, 936 MB, referenced by no `.npmrc`).
 3. **`700`, on purpose.** A second account (`cecochran`) exists on this Mac and `/Users/Shared` is world-readable, so
-   the tree, the lanes and every `.env*` file are owner-only. Do not loosen the modes.
+   the tree, the lanes and every `.env*` file are owner-only. Do not loosen the modes. Unix does not inherit modes —
+   a new lane or build directory is created as `mode & ~umask`, which is how a fresh `git worktree add` under a default
+   `022` shell lands at `755` inside the `700` tree: `chmod -R go-rwx /Users/Shared/dev` puts it back (never `-R 700`
+   or `-R 600` — the first adds an execute bit to every file, the second strips it from every script and binary in
+   `node_modules` and `build/rust`), and `umask 077` stops it recurring. The `700` on `dev/` is what actually gates
+   access — nothing inside is reachable by the other account while it holds — so this is defence in depth, not the door.
 4. **Never run a command that pages or waits for an editor.** `core.pager` is `cat` machine-wide for a reason — see below.
 5. **Uncommitted work is snapshotted, not lost.** `scripts/wip-snapshot.sh` writes every dirty worktree to
    `refs/wip/<name>` every 5 minutes (launchd, `pnpm wip:install` / `wip:now` / `wip:uninstall`):
