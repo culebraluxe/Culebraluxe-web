@@ -150,6 +150,46 @@ pub struct MaestroHarness {
 }
 
 impl MaestroHarness {
+    /// Create a Maestro harness from the run's context.
+    ///
+    /// This is the construction boundary §16 asks for: `forge.rs` builds the `HarnessContext` once per run
+    /// and the adapter consumes it, instead of the adapter re-reading the same environment globals the
+    /// binary already resolved. What stays environmental is vendor configuration itself (`MAESTRO_BIN`,
+    /// `MAESTRO_AGENT` and friends) — resolved here, once, fail closed — because no context field names it.
+    pub fn from_context(context: &crate::engine::harness::HarnessContext) -> Result<Self> {
+        if !context.workspace.exists() {
+            return Err(WorkflowError::generic(format!(
+                "Maestro harness workspace does not exist: {}",
+                context.workspace.display()
+            )));
+        }
+        let selection = crate::engine::harness::ModelSelection::from_parts(
+            context.model_policy.as_deref(),
+            None,
+        );
+        let agent = resolve_maestro_agent(
+            &selection,
+            std::env::var(MAESTRO_AGENT_ENV).ok().as_deref(),
+            std::env::var(MAESTRO_CHEAP_AGENT_ENV).ok().as_deref(),
+            std::env::var(MAESTRO_JUDGMENT_AGENT_ENV).ok().as_deref(),
+            std::env::var(MAESTRO_DEFAULT_AGENT_ENV).ok().as_deref(),
+        )?;
+        Ok(Self {
+            cli_bin: Self::default_cli_bin()?,
+            workspace: context.workspace.clone(),
+            model: agent.clone(),
+            agent,
+            env: Some(sanitized_model_env()),
+            model_policy: context.model_policy.clone(),
+            spend_cap_usd: context.spend_cap_usd,
+            assay_commands: context.assay_commands.clone(),
+            acceptance_mapped: context.acceptance_mapped,
+            packet: context.packet.clone(),
+            execution_workspace: context.execution_workspace.clone(),
+            story_id: Some(context.story_id.clone()),
+        })
+    }
+
     /// Create a Maestro harness from environment variables.
     ///
     /// The agent comes from Forge's vendor-neutral intent, never from the OpenCode resolver: `MAESTRO_AGENT`
@@ -864,48 +904,278 @@ fn parse_maestro_output(stdout: &str) -> Result<ParsedMaestroOutput> {
 /// This is the Maestro half of vendor preflight — run when (and only when) the Maestro backend is selected,
 /// so a Maestro turn never depends on the OpenCode harness passing. A Maestro turn that cannot prove its
 /// transport never starts: the failure names the binary, not the story.
-fn maestro_preflight(cli_bin: &str) -> Result<()> {
+///
+/// `Ok` carries the version line the lane logs; `Err` is the diagnostic. Same shape as OpenCode's
+/// `verify_vendor_contract`, so the binary can verify either backend through one call shape.
+pub fn verify_vendor_contract(cli_bin: &str) -> std::result::Result<String, String> {
     let mut cmd = Command::new(cli_bin);
     cmd.arg("--version");
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
-
-    let output = cmd.output().map_err(|e| WorkflowError::generic(format!("maestro preflight failed to spawn: {e}")))?;
-
+    let output = cmd.output().map_err(|error| {
+        format!("maestro preflight failed to spawn `{cli_bin}`: {error}. Check MAESTRO_BIN and PATH.")
+    })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(WorkflowError::generic(format!(
+        return Err(format!(
             "maestro preflight failed (exit={}): {}",
             output.status.code().unwrap_or(-1),
             stderr.trim()
-        )));
+        ));
     }
-
     let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    eprintln!("maestro preflight: version={}", version);
-    Ok(())
+    Ok(format!("{version} @ {cli_bin}"))
+}
+
+fn maestro_preflight(cli_bin: &str) -> Result<()> {
+    verify_vendor_contract(cli_bin)
+        .map(|vendor| eprintln!("maestro preflight: version={vendor}"))
+        .map_err(WorkflowError::generic)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
+
+    /// Environment-mutating tests serialize here: Rust runs tests on threads sharing one process
+    /// environment, so two tests setting `FORGE_HARNESS` at once would read each other's values.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    use crate::engine::harness::{HarnessBackend, ModelSelection};
 
     #[test]
     fn maestro_harness_construction() {
-        // Test that the harness can be constructed from env
+        let _guard = lock_env();
         std::env::set_var("FORGE_WORKTREE", ".");
         std::env::set_var("FORGE_STORY_ID", "TEST-STORY");
         let harness = MaestroHarness::from_env().expect("harness construction");
-        assert_eq!(harness.cli_bin, "maestro");
+        assert_eq!(harness.cli_bin, "maestro-cli");
         assert!(harness.workspace.exists());
+        assert!(harness.agent.is_empty(), "from_env builds transport without intent");
     }
 
     #[test]
-    fn maestro_model_resolution() {
-        std::env::set_var("MAESTRO_MODEL", "test-model");
-        let model = resolve_model_for_policy(Some("judgment")).unwrap();
-        assert_eq!(model, "test-model");
+    fn backend_selection_opencode_maestro_fail_closed() {
+        let _guard = lock_env();
+        std::env::remove_var("FORGE_HARNESS");
+        assert_eq!(
+            HarnessBackend::from_env().expect("unset is opencode"),
+            HarnessBackend::OpenCode
+        );
+        std::env::set_var("FORGE_HARNESS", "opencode");
+        assert_eq!(
+            HarnessBackend::from_env().expect("opencode is opencode"),
+            HarnessBackend::OpenCode
+        );
+        std::env::set_var("FORGE_HARNESS", "maestro");
+        assert_eq!(
+            HarnessBackend::from_env().expect("maestro is maestro"),
+            HarnessBackend::Maestro
+        );
+        // A misspelled vendor must fail configuration, never silently run OpenCode.
+        std::env::set_var("FORGE_HARNESS", "maetsro");
+        assert!(
+            HarnessBackend::from_env().is_err(),
+            "unknown FORGE_HARNESS must fail closed"
+        );
+        std::env::remove_var("FORGE_HARNESS");
+    }
+
+    #[test]
+    fn model_intent_cheap_judgment_explicit() {
+        assert_eq!(ModelSelection::from_parts(None, None), ModelSelection::Cheap);
+        assert_eq!(ModelSelection::from_parts(Some("cheap"), None), ModelSelection::Cheap);
+        assert_eq!(
+            ModelSelection::from_parts(Some("judgment"), None),
+            ModelSelection::Judgment
+        );
+        assert_eq!(
+            ModelSelection::from_parts(Some("nonsense"), None),
+            ModelSelection::Cheap,
+            "an unknown policy reads as cheap, the tier that bills least"
+        );
+        assert_eq!(
+            ModelSelection::from_parts(Some("judgment"), Some("agent-x")),
+            ModelSelection::Explicit("agent-x".to_string()),
+            "an explicit override wins over the policy"
+        );
+        assert_eq!(
+            ModelSelection::from_parts(None, Some("  ")),
+            ModelSelection::Cheap,
+            "a blank override is no override"
+        );
+    }
+
+    #[test]
+    fn maestro_agent_explicit_wins() {
+        let judgment = ModelSelection::Judgment;
+        assert_eq!(
+            resolve_maestro_agent(&judgment, Some("forge-muse"), Some("cheap-a"), Some("judge-a"), Some("def-a"))
+                .expect("explicit wins"),
+            "forge-muse"
+        );
+    }
+
+    #[test]
+    fn maestro_agent_tier_routing() {
+        assert_eq!(
+            resolve_maestro_agent(&ModelSelection::Judgment, None, Some("cheap-a"), Some("judge-a"), Some("def-a"))
+                .expect("judgment tier"),
+            "judge-a",
+            "MAESTRO_JUDGMENT_AGENT serves judgment"
+        );
+        assert_eq!(
+            resolve_maestro_agent(&ModelSelection::Cheap, None, Some("cheap-a"), Some("judge-a"), Some("def-a"))
+                .expect("cheap tier"),
+            "cheap-a",
+            "MAESTRO_CHEAP_AGENT serves cheap"
+        );
+        assert_eq!(
+            resolve_maestro_agent(&ModelSelection::Cheap, None, None, None, Some("def-a"))
+                .expect("default"),
+            "def-a"
+        );
+    }
+
+    #[test]
+    fn maestro_agent_missing_fails_closed() {
+        assert!(
+            resolve_maestro_agent(&ModelSelection::Cheap, None, None, None, None).is_err(),
+            "no agent anywhere must fail before model execution"
+        );
+        assert!(
+            resolve_maestro_agent(&ModelSelection::Judgment, Some("  "), None, None, None).is_err(),
+            "a blank MAESTRO_AGENT is no agent"
+        );
+    }
+
+    #[test]
+    fn maestro_send_args_contract() {
+        // No session: exactly `send <agent> <message>`, and none of OpenCode's flags.
+        let args = build_maestro_send_args("forge-nemotron", "hello", None);
+        assert_eq!(args, vec!["send", "forge-nemotron", "hello"]);
+        for forbidden in ["--model", "--auto", "--continue", "--agent", "run"] {
+            assert!(
+                !args.iter().any(|arg| arg == forbidden),
+                "the send contract must not carry {forbidden}"
+            );
+        }
+        // Resuming: exactly one `--session` with the id, appended once.
+        let args = build_maestro_send_args("forge-nemotron", "hello", Some("abc123"));
+        assert_eq!(args, vec!["send", "forge-nemotron", "hello", "--session", "abc123"]);
+        assert_eq!(
+            args.iter().filter(|arg| arg.as_str() == "--session").count(),
+            1,
+            "the session argument appears exactly once"
+        );
+        // Blank session is no session.
+        let args = build_maestro_send_args("forge-nemotron", "hello", Some("  "));
+        assert_eq!(args.len(), 3);
+    }
+
+    #[test]
+    fn maestro_response_envelope_parsing() {
+        let stdout = r#"{"agentId":"x","agentName":"forge-nemotron","sessionId":"session-123","response":"done","success":true,"error":null,"usage":{"inputTokens":100,"outputTokens":25,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"totalCostUsd":0.012,"contextWindow":131072,"contextUsagePercent":1}}"#;
+        let parsed = parse_maestro_output(stdout).expect("the documented envelope parses");
+        assert_eq!(parsed.assistant_text, "done");
+        assert_eq!(parsed.session_id.as_deref(), Some("session-123"));
+        let usage = parsed.usage.expect("usage is recorded when cost is authoritative");
+        assert_eq!(usage.tokens_input, 100);
+        assert_eq!(usage.tokens_output, 25);
+        assert!((usage.cost_usd - 0.012).abs() < 1e-12);
+    }
+
+    #[test]
+    fn maestro_response_failure_is_failure() {
+        let stdout = r#"{"agentId":"x","sessionId":"s-1","response":"","success":false,"error":"agent is busy"}"#;
+        let error = parse_maestro_output(stdout).expect_err("success:false must fail");
+        assert!(error.to_string().contains("agent is busy"), "{error}");
+    }
+
+    #[test]
+    fn maestro_response_malformed_is_failure() {
+        assert!(
+            parse_maestro_output("not json at all\n").is_err(),
+            "garbage must never read as a successful turn"
+        );
+        let no_text = r#"{"success":true,"sessionId":"s-1"}"#;
+        assert!(
+            parse_maestro_output(no_text).is_err(),
+            "an envelope with no response text is not a turn"
+        );
+    }
+
+    #[test]
+    fn maestro_response_usage_without_cost_is_unmeasured() {
+        // Tokens without an authoritative cost: usage stays None (unmeasured), never a fake $0.
+        let stdout = r#"{"success":true,"sessionId":"s-1","response":"done","usage":{"inputTokens":10,"outputTokens":5}}"#;
+        let parsed = parse_maestro_output(stdout).expect("parses");
+        assert!(parsed.usage.is_none(), "costless usage must not become $0");
+    }
+
+    #[test]
+    fn maestro_preflight_pass_and_fail() {
+        // `/usr/bin/true` answers --version with exit 0; `/usr/bin/false` refuses; a missing binary
+        // never spawns. No network, no tokens, no agent touched.
+        assert!(verify_vendor_contract("/usr/bin/true").is_ok());
+        assert!(verify_vendor_contract("/usr/bin/false").is_err());
+        assert!(verify_vendor_contract("/nonexistent/maestro-cli-xyz").is_err());
+    }
+
+    #[test]
+    fn maestro_session_resume_precedence() {
+        // The pure rule, shared with OpenCode's: marker wins, then a lane session proven local, else fresh.
+        assert_eq!(
+            resume_session(Some("marker".into()), Some("lane".into()), true),
+            Some("marker".to_string())
+        );
+        assert_eq!(
+            resume_session(None, Some("lane".into()), true),
+            Some("lane".to_string())
+        );
+        assert_eq!(resume_session(None, Some("lane".into()), false), None);
+        assert_eq!(resume_session(None, None, false), None);
+    }
+
+    /// Opt-in integration: the real `maestro-cli` against a cheap test agent. NEVER runs by default —
+    /// it spends model tokens. Enable with `FORGE_MAESTRO_INTEGRATION=1` and name the agent explicitly:
+    /// `MAESTRO_TEST_AGENT=<cheap test agent>`.
+    #[test]
+    #[ignore = "spends model tokens: FORGE_MAESTRO_INTEGRATION=1 with MAESTRO_TEST_AGENT set"]
+    fn maestro_live_send_integration() {
+        if std::env::var("FORGE_MAESTRO_INTEGRATION").ok().as_deref() != Some("1") {
+            eprintln!("skipped: FORGE_MAESTRO_INTEGRATION != 1");
+            return;
+        }
+        let agent = std::env::var("MAESTRO_TEST_AGENT").expect(
+            "FORGE_MAESTRO_INTEGRATION=1 requires MAESTRO_TEST_AGENT naming a cheap test agent",
+        );
+        let bin = MaestroHarness::default_cli_bin().expect("maestro-cli resolves");
+        let args = build_maestro_send_args(&agent, "Reply with exactly: integration-ok", None);
+        let output = std::process::Command::new(&bin)
+            .args(&args)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("maestro-cli runs");
+        assert!(output.status.success(), "send failed: {}", String::from_utf8_lossy(&output.stderr));
+        let parsed = parse_maestro_output(&String::from_utf8_lossy(&output.stdout))
+            .expect("the live response parses");
+        assert!(!parsed.assistant_text.trim().is_empty(), "the live turn answered");
+        assert!(parsed.session_id.is_some(), "the live turn minted a session");
+    }
+
+    #[test]
+    fn maestro_cli_default_is_maestro_cli() {
+        let _guard = lock_env();
+        std::env::remove_var("MAESTRO_BIN");
+        assert_eq!(
+            MaestroHarness::default_cli_bin().expect("default resolves"),
+            "maestro-cli"
+        );
     }
 }

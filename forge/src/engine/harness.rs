@@ -345,9 +345,7 @@ pub fn create_harness(
             Ok(ForgeHarness::OpenCode(harness))
         }
         HarnessBackend::Maestro => {
-            let harness = crate::engine::maestro::MaestroHarness::from_env_for_policy(
-                context.model_policy.as_deref(),
-            )?;
+            let harness = crate::engine::maestro::MaestroHarness::from_context(&context)?;
             Ok(ForgeHarness::Maestro(harness))
         }
     }
