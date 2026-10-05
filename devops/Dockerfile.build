@@ -15,7 +15,21 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
     AR_x86_64_unknown_linux_gnu=x86_64-linux-gnu-ar
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
-COPY web middle db cli forge tests ./
+# ONE COPY PER DIRECTORY. A multi-source COPY copies each source's CONTENTS into the destination and MERGES them:
+# `COPY web middle db cli forge tests ./` collapsed web/src, db/src, cli/src and forge/src into a single /build/src,
+# put middle/{model,services,workflow,apis} at /build/*, and made the LAST source's manifest the workspace root —
+# /build/Cargo.toml was tests/Cargo.toml (`name = "test-harness"`), so `cargo metadata` answered "failed to find a
+# workspace root" and exited 101 before compiling a line. Verified with two directories: `COPY a b ./` gives /w/afile,
+# /w/bfile and one merged /w/sub; `COPY a ./a` + `COPY b ./b` gives /w/a/afile, /w/a/sub, /w/b/bfile, /w/b/sub.
+# (2026-10-05: the Oct-03 layout refactor introduced the multi-source form, and the deploy died on it with NO output
+# at all — see scripts/deploy-prod.sh, step 2/5, and `rust-ui-build.sh`, whose target-dir resolution folds a cargo
+# failure into `2>/dev/null` under `set -euo pipefail`.)
+COPY web ./web
+COPY middle ./middle
+COPY db ./db
+COPY cli ./cli
+COPY forge ./forge
+COPY tests ./tests
 COPY scripts/rust-ui-build.sh ./scripts/rust-ui-build.sh
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
