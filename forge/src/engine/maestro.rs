@@ -54,7 +54,7 @@ fn turn_ceiling(raw: Option<&str>) -> Option<Duration> {
                 || word.eq_ignore_ascii_case("off")
                 || word.eq_ignore_ascii_case("none") =>
         {
-            return None
+            return None;
         }
         Some(word) => word.parse::<u64>().unwrap_or(DEFAULT_TURN_CEILING_MINUTES),
     };
@@ -1319,5 +1319,59 @@ mod tests {
             opencode_arm < opencode_verify,
             "the OpenCode preflight lives inside the OpenCode backend arm only"
         );
+    }
+
+    #[test]
+    fn maestro_target_selection_never_calls_opencode_resolver() {
+        // Maestro must translate Forge's vendor-neutral intent on its own: no OpenCode model-resolution
+        // helper (or OpenCode agent map) may appear in Maestro's selection path. comments are allowed
+        // to NAME the rule, so scan code with `//` line comments stripped.
+        let source = include_str!("maestro.rs");
+        let code: String = source
+            .lines()
+            .map(|line| match line.split_once("//") {
+                Some((code, _)) => code,
+                None => line,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        // The guard below names the forbidden symbols; exclude the guard itself from the scan.
+        let code = code
+            .split("fn maestro_target_selection_never_calls_opencode_resolver")
+            .next()
+            .unwrap_or(&code);
+        for forbidden in [
+            "resolve_model_for_policy",
+            "resolve_opencode_model",
+            "v2_agent_env",
+            "opencode_agents::v2_agent_for_node",
+        ] {
+            assert!(
+                !code.contains(forbidden),
+                "Maestro target selection must not use OpenCode's {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn maestro_agent_selection_ignores_forge_role_ids() {
+        // Forge roles (architect/lead/smith/qa/scout/devops) are owned by Forge's lifecycle; the Maestro
+        // agent is a transport choice. The resolver's signature must not accept a role/node at all, so no
+        // role can silently steer agent selection.
+        let source = include_str!("maestro.rs");
+        let start = source
+            .find("pub fn resolve_maestro_agent")
+            .expect("resolver exists");
+        let end = source[start..]
+            .find(") -> Result<String>")
+            .map(|offset| start + offset)
+            .expect("signature closes");
+        let signature = &source[start..end];
+        for forbidden in ["node", "role", "architect", "smith", "scout", "devops"] {
+            assert!(
+                !signature.contains(forbidden),
+                "role id {forbidden} must not steer Maestro agent selection"
+            );
+        }
     }
 }
