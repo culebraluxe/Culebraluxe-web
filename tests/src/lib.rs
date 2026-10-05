@@ -47,6 +47,7 @@ pub mod git;
 pub mod http;
 pub mod ids;
 pub mod level;
+pub mod migration_probe;
 pub mod mvi;
 pub mod pool;
 pub mod providers;
