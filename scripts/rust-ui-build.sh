@@ -26,8 +26,13 @@ wasm_out="$root/public/rust-ui"
 # `Read-only file system (os error 30) at path "/targetXXXXXX"` before compiling a line (2026-10-04).
 target_dir="${RUST_UI_TARGET_DIR:-${CARGO_TARGET_DIR:-}}"
 if [ -z "$target_dir" ]; then
+  # `|| resolved=""` is load-bearing, and it is what made the 2026-10-05 deploy failure invisible: under
+  # `set -euo pipefail` a failing `cargo metadata` killed the whole script HERE — exit 101, stderr discarded by
+  # `2>/dev/null`, nothing printed at all, so BuildKit could only report a bare exit code. The fallback below is
+  # the intent (an unanswerable cargo becomes /target); a tree that is really broken now fails loudly in the
+  # `cargo build` on the next line, where the real error text survives.
   resolved="$(cargo metadata --format-version 1 --no-deps --manifest-path "$root/Cargo.toml" 2>/dev/null \
-    | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
+    | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')" || resolved=""
   case "$resolved" in ""|"$root/target") ;; *) target_dir="$resolved" ;; esac
 fi
 [ -n "$target_dir" ] || target_dir=/target
