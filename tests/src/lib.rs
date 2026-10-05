@@ -56,7 +56,7 @@ pub mod source;
 
 pub use accounting::AccountingHarness;
 pub use clock::TestClock;
-pub use crm::CrmHarness;
+pub use crm::{ClientHarness, CrmHarness, IntakeHarness};
 pub use database::{
     guard_target, resolve_test_target, HarnessDbError, TestDatabase, TestTransaction,
 };

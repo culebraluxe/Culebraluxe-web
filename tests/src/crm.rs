@@ -19,9 +19,15 @@
 //! Level: L2 Persistence — the database contract against an isolated, disposable DEV/Neon target. The wrapped
 //! [`TestDatabase`] refuses PRODUCTION before any socket is opened.
 
-use db::{DbFailure, PersonDao};
-use model::{AttachPersonIdentityRequest, Person, PersonIdentity};
+use db::{ClientDao, DbFailure, IntakeDao, PersonDao};
+use model::{
+    AssignableAgent, AttachPersonIdentityRequest, CatchupLeadRequest, CatchupLeadResult,
+    ClientAdminPageRequest, ClientContactHistoryResult, ClientDetail, ClientDirectoryPageRequest,
+    ClientDirectoryRecord, ClientHistoryRequest, Person, PersonIdentity,
+};
+use services::{CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceContext, ServiceInfrastructure};
 use sqlx::PgPool;
+use std::sync::Arc;
 
 use crate::database::{HarnessDbError, TestDatabase};
 
@@ -191,6 +197,194 @@ impl CrmHarness {
             .map_err(|error| {
                 HarnessDbError::from(DbFailure::from_sqlx(
                     "test-harness.crm.leftover_count",
+                    &error,
+                ))
+            })?;
+        Ok(count)
+    }
+}
+
+/// The production CRM catchup lead DAO on an isolated, disposable DEV database.
+#[derive(Clone)]
+pub struct IntakeHarness {
+    database: TestDatabase,
+    dao: IntakeDao,
+}
+
+impl IntakeHarness {
+    /// Read the declared environment, refuse PRODUCTION, connect, and wrap the production intake DAO.
+    pub async fn connect_from_env() -> Result<Self, HarnessDbError> {
+        let database = TestDatabase::connect_from_env().await?;
+        Ok(Self::wrap(database))
+    }
+
+    /// Like [`connect_from_env`](Self::connect_from_env), with the environment declaration supplied by the caller.
+    pub async fn connect_declared(
+        vercel_env: Option<&str>,
+        app_env: Option<&str>,
+    ) -> Result<Self, HarnessDbError> {
+        let database = TestDatabase::connect_declared(vercel_env, app_env).await?;
+        Ok(Self::wrap(database))
+    }
+
+    fn wrap(database: TestDatabase) -> Self {
+        let dao = IntakeDao::new(database.database().clone());
+        Self { database, dao }
+    }
+
+    /// The disposable database every statement in this harness runs against.
+    pub fn database(&self) -> &TestDatabase {
+        &self.database
+    }
+
+    /// The production intake DAO under test.
+    pub fn dao(&self) -> &IntakeDao {
+        &self.dao
+    }
+
+    /// The pool the DAO wrote to, for reading the committed truth back on a connection the DAO does not own.
+    pub fn pool(&self) -> &PgPool {
+        self.database.database().pool()
+    }
+
+    /// This test database's unique namespace, safe to use as a marker prefix for disposable rows.
+    pub fn namespace(&self) -> &str {
+        self.database.namespace()
+    }
+
+    /// Submit a catchup lead through the production DAO.
+    pub async fn submit_catchup(
+        &self,
+        request: &CatchupLeadRequest,
+    ) -> Result<CatchupLeadResult, HarnessDbError> {
+        self.dao
+            .catchup_lead(request)
+            .await
+            .map_err(HarnessDbError::from)
+    }
+
+    /// Delete every canonical person this run seeded under `marker`; identities cascade with the person.
+    pub async fn cleanup(&self, marker: &str) -> Result<u64, HarnessDbError> {
+        let pattern = format!("{marker}%");
+        let removed = sqlx::query("delete from person where display_name like $1")
+            .bind(&pattern)
+            .execute(self.pool())
+            .await
+            .map_err(|error| {
+                HarnessDbError::from(DbFailure::from_sqlx("test-harness.intake.cleanup", &error))
+            })?
+            .rows_affected();
+        Ok(removed)
+    }
+
+    /// How many persons this run seeded under `marker` still remain.
+    pub async fn leftover_count(&self, marker: &str) -> Result<i64, HarnessDbError> {
+        let pattern = format!("{marker}%");
+        let count = sqlx::query_scalar("select count(*) from person where display_name like $1")
+            .bind(&pattern)
+            .fetch_one(self.pool())
+            .await
+            .map_err(|error| {
+                HarnessDbError::from(DbFailure::from_sqlx(
+                    "test-harness.intake.leftover_count",
+                    &error,
+                ))
+            })?;
+        Ok(count)
+    }
+}
+
+/// The production CRM client service on an isolated, disposable DEV database.
+#[derive(Clone)]
+pub struct ClientHarness {
+    database: TestDatabase,
+    service: web::clients::ClientService<ClientDao>,
+}
+
+impl ClientHarness {
+    /// Read the declared environment, refuse PRODUCTION, connect, and wrap the production client service.
+    pub async fn connect_from_env() -> Result<Self, HarnessDbError> {
+        let database = TestDatabase::connect_from_env().await?;
+        Ok(Self::wrap(database))
+    }
+
+    /// Like [`connect_from_env`](Self::connect_from_env), with the environment declaration supplied by the caller.
+    pub async fn connect_declared(
+        vercel_env: Option<&str>,
+        app_env: Option<&str>,
+    ) -> Result<Self, HarnessDbError> {
+        let database = TestDatabase::connect_declared(vercel_env, app_env).await?;
+        Ok(Self::wrap(database))
+    }
+
+    fn wrap(database: TestDatabase) -> Self {
+        let dao = ClientDao::new(database.database().clone());
+        let infrastructure = ServiceInfrastructure::new(
+            Arc::new(DefaultAuthorizationPort),
+            Arc::new(CapturingAuditPort::default()),
+            Arc::new(CapturingDomainEventPort::default()),
+        );
+        let service = web::clients::ClientService::new(dao, infrastructure);
+        Self { database, service }
+    }
+
+    /// The disposable database every statement in this harness runs against.
+    pub fn database(&self) -> &TestDatabase {
+        &self.database
+    }
+
+    /// The production client service under test.
+    pub fn service(&self) -> &web::clients::ClientService<ClientDao> {
+        &self.service
+    }
+
+    /// The pool the DAO wrote to, for reading the committed truth back on a connection the DAO does not own.
+    pub fn pool(&self) -> &PgPool {
+        self.database.database().pool()
+    }
+
+    /// This test database's unique namespace, safe to use as a marker prefix for disposable rows.
+    pub fn namespace(&self) -> &str {
+        self.database.namespace()
+    }
+
+    /// A test service context with a minimal actor.
+    pub fn test_context(&self) -> ServiceContext {
+        ServiceContext {
+            actor: services::ServiceActor {
+                id: Some("test".into()),
+                kind: services::ServiceActorKind::User,
+            },
+            correlation_id: "client-harness".into(),
+            causation_id: None,
+            principal: None,
+        }
+    }
+
+    /// Delete every canonical person this run seeded under `marker`; identities cascade with the person.
+    pub async fn cleanup(&self, marker: &str) -> Result<u64, HarnessDbError> {
+        let pattern = format!("{marker}%");
+        let removed = sqlx::query("delete from person where display_name like $1")
+            .bind(&pattern)
+            .execute(self.pool())
+            .await
+            .map_err(|error| {
+                HarnessDbError::from(DbFailure::from_sqlx("test-harness.client.cleanup", &error))
+            })?
+            .rows_affected();
+        Ok(removed)
+    }
+
+    /// How many persons this run seeded under `marker` still remain.
+    pub async fn leftover_count(&self, marker: &str) -> Result<i64, HarnessDbError> {
+        let pattern = format!("{marker}%");
+        let count = sqlx::query_scalar("select count(*) from person where display_name like $1")
+            .bind(&pattern)
+            .fetch_one(self.pool())
+            .await
+            .map_err(|error| {
+                HarnessDbError::from(DbFailure::from_sqlx(
+                    "test-harness.client.leftover_count",
                     &error,
                 ))
             })?;
