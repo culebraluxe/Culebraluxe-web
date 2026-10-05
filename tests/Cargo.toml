@@ -31,6 +31,9 @@ tower.workspace = true
 ui = { path = "../web/ui" }
 uuid.workspace = true
 workflow = { path = "../middle/workflow" }
+# The CRM harness module in `src/crm.rs` drives `web::clients::ClientService`, so `web` must be a real
+# dependency of the lib target, not only a dev-dependency of the integration tests.
+web = { path = "../web" }
 
 [dev-dependencies]
 # The Forge definition boundary under test (TST-WF-DEFINITION-013): the production XML parser
@@ -38,9 +41,5 @@ workflow = { path = "../middle/workflow" }
 # Test-only, so the harness's own modules never link the Forge runtime — the parse is the same one the deploy path
 # (`forge::engine::deploy::deploy_xml`) and the engine binary use, not a re-declared copy of it.
 forge = { path = "../forge" }
-# The web tier's public surface: `ServiceHarness`, `MqRuntime` and the transactional service tests used to live in
-# `web/tests/`, one directory above the crate they exercise. They are tests of `web` either way, so they moved here
-# with everything else rather than staying as the one suite that is not in `tests/`.
-web = { path = "../web" }
 # Used by one migrated test for `CancellationToken`-shaped shutdown, never by the harness's own modules.
 tokio-util.workspace = true

@@ -107,68 +107,6 @@ async fn crm_comms_005__ordering() {
         .expect("the fixture person seeds");
 
     // Insertion order is deliberately NOT time order: two rows share one instant to exercise the
-    // tie-break, and the oldest row is written LAST, so a reader that returned write order would
-    // put the morning email at the head of an evening timeline.
-    let tied_first = insert_interaction(
-        harness.pool(),
-        &person,
-        "imessage",
-        "2026-10-01T12:00:00+00:00",
-        "first of the tie",
-    )
-    .await
-    .expect("the first tied interaction commits");
-    let tied_second = insert_interaction(
-        harness.pool(),
-        &person,
-        "imessage",
-        "2026-10-01T12:00:00+00:00",
-        "second of the tie",
-    )
-    .await
-    .expect("the second tied interaction commits");
-    let newest = insert_interaction(
-        harness.pool(),
-        &person,
-        "call",
-        "2026-10-01T13:00:00+00:00",
-        "afternoon call",
-    )
-    .await
-    .expect("the newest interaction commits");
-    let oldest = insert_interaction(
-        harness.pool(),
-        &person,
-        "email",
-        "2026-10-01T09:00:00+00:00",
-        "morning email",
-    )
-    .await
-    .expect("the oldest interaction commits — written last on purpose");
-
-    // -----------------------------------------------------------------------------------------------------------
-    // 1. THE POSITIVE CONTRACT — newest first, oldest last, times never increasing down the page.
-    // -----------------------------------------------------------------------------------------------------------
-#[tokio::test]
-#[ignore = "needs DATABASE_URL_DEV (a disposable DEV branch); CrmHarness refuses PROD before any socket"]
-#[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-CRM-COMMS-005); the file and the assay use it.
-async fn crm_comms_005__ordering() {
-    // 0. L2 boundary: an isolated disposable DEV/Neon target, never PRODUCTION.
-    let harness = connect_dev().await;
-    assert_eq!(
-        harness.database().target(),
-        DbTarget::Dev,
-        "{HARNESS}: the ordering proof runs only on an isolated DEV target"
-    );
-    let dao = CommsDao::new(harness.database().database().clone());
-    let ns = harness.namespace().to_string();
-    let marker = format!("TST-CRMCOMMS005-{ns}");
-    let person = harness
-        .seed_person(&format!("{marker}-person"))
-        .await
-        .expect("the fixture person seeds");
-
-    // Insertion order is deliberately NOT time order: two rows share one instant to exercise the
     // tie-break, and the oldest row is written LAST, so a reader returning write order would head
     // an evening timeline with the morning email.
     let tied_first = insert_interaction(
