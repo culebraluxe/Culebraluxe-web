@@ -728,7 +728,21 @@ fn delivery_probe(bin: &str, dir: &std::path::Path, payload: Option<&str>, agent
         "hi",
     ])
     .current_dir(dir)
-    .env("PWD", dir);
+    .env("PWD", dir)
+    // STATE ISOLATION (measured 2026-10-05). Pinning `PWD` keeps the probe out of the HOST repository's config,
+    // but it does nothing about the vendor's STATE, and the vendor honours all three XDG dirs: with them unset
+    // the probe writes into the OPERATOR'S `~/.local/state/opencode/` (where `model.json` remembers a human's
+    // model selection) and `~/.local/share/opencode/` (`log/`, `opencode.db`). A probe whose `--model` is
+    // deliberately unresolvable still records that selection, so a PASSING probe can silently reselect the
+    // operator's model and contaminate every later turn. Measured before this line existed: a probe with the
+    // XDG dirs pinned wrote its run into its own `data/opencode/log/opencode.log` (2 lines) and NOT ONE line
+    // into the operator's log (0 lines), with the operator's `state/` directory untouched.
+    //
+    // Applied to PROBES ONLY. A real Forge turn must keep `XDG_DATA_HOME`: `auth.json` — the credential store
+    // — lives there, so isolating a real turn would strip the credentials it needs to run.
+    .env("XDG_STATE_HOME", dir.join("state"))
+    .env("XDG_DATA_HOME", dir.join("data"))
+    .env("XDG_CACHE_HOME", dir.join("cache"));
     match payload {
         Some(content) => {
             cmd.env("OPENCODE_CONFIG_CONTENT", content);
