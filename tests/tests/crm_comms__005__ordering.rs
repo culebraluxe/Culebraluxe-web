@@ -174,12 +174,15 @@ async fn crm_comms_005__ordering() {
         .moments
         .iter()
         .map(|moment| {
-            moment.occurred_at.parse::<DateTime<Utc>>().unwrap_or_else(|error| {
-                panic!(
-                    "{HARNESS}: occurred_at {} is not an rfc3339 timestamp ({error})",
-                    moment.occurred_at
-                )
-            })
+            moment
+                .occurred_at
+                .parse::<DateTime<Utc>>()
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "{HARNESS}: occurred_at {} is not an rfc3339 timestamp ({error})",
+                        moment.occurred_at
+                    )
+                })
         })
         .collect();
     for pair in times.windows(2) {
@@ -259,3 +262,4 @@ async fn crm_comms_005__ordering() {
         "{HARNESS}: limit=1 takes the NEWEST entry — the limit truncates the ordered sequence"
     );
     assert_eq!(head.len(), 1, "{HARNESS}: limit=1 returns exactly one row");
+}

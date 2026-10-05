@@ -10,6 +10,7 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test crm_client__001__directory -- --ignored
 
+use db::DbTarget;
 use model::{ClientDirectoryPageRequest, ClientSummary};
 use test_harness::ClientHarness;
 
@@ -52,7 +53,7 @@ async fn crm_client_001__directory() {
     let harness = connect_dev().await;
     assert_eq!(
         harness.database().target(),
-        test_harness::DbTarget::Dev,
+        DbTarget::Dev,
         "{HARNESS}: the directory search proof runs only on an isolated DEV target"
     );
     let ctx = harness.test_context();
@@ -60,12 +61,11 @@ async fn crm_client_001__directory() {
     let marker = format!("TST-CRMCLIENT001-{ns}");
 
     // Seed three test clients with distinct names.
-    let alice = harness.service().repository.detail(&harness.namespace().to_string()).await;
     // We need to seed persons directly since there's no seed method on ClientHarness.
     // Use the pool to insert test persons.
     let pool = harness.pool();
 
-    let alice_id = sqlx::query_scalar(
+    let alice_id = sqlx::query_scalar::<_, String>(
         "insert into person (display_name, role, status) values ($1, 'buyer', 'new') returning id::text"
     )
     .bind(format!("{marker}-alice-smith"))
@@ -73,7 +73,7 @@ async fn crm_client_001__directory() {
     .await
     .expect("alice seeds");
 
-    let bob_id = sqlx::query_scalar(
+    let bob_id = sqlx::query_scalar::<_, String>(
         "insert into person (display_name, role, status) values ($1, 'buyer', 'new') returning id::text"
     )
     .bind(format!("{marker}-bob-jones"))
@@ -81,7 +81,7 @@ async fn crm_client_001__directory() {
     .await
     .expect("bob seeds");
 
-    let charlie_id = sqlx::query_scalar(
+    let charlie_id = sqlx::query_scalar::<_, String>(
         "insert into person (display_name, role, status) values ($1, 'seller', 'active') returning id::text"
     )
     .bind(format!("{marker}-charlie-brown"))
@@ -126,73 +126,133 @@ async fn crm_client_001__directory() {
     // -----------------------------------------------------------------------------------------------------------
     // 1. Search for "alice" - should find only Alice.
     // -----------------------------------------------------------------------------------------------------------
-    let result = harness.service().directory(&dir_request("alice", 1, 50), &ctx).await
+    let result = harness
+        .service()
+        .directory(&dir_request("alice", 1, 50), &ctx)
+        .await
         .expect("directory search runs");
-    assert_eq!(result.total, 1, "{HARNESS}: search 'alice' returns exactly one");
+    assert_eq!(
+        result.total, 1,
+        "{HARNESS}: search 'alice' returns exactly one"
+    );
     assert_eq!(result.rows.len(), 1, "{HARNESS}: one row returned");
     let row: &ClientSummary = &result.rows[0];
-    assert!(row.display_name.to_lowercase().contains("alice"), "{HARNESS}: row contains alice");
+    assert!(
+        row.display_name.to_lowercase().contains("alice"),
+        "{HARNESS}: row contains alice"
+    );
     assert_eq!(row.id, alice_id, "{HARNESS}: correct person id");
 
     // -----------------------------------------------------------------------------------------------------------
     // 2. Search for "bob" - should find only Bob.
     // -----------------------------------------------------------------------------------------------------------
-    let result = harness.service().directory(&dir_request("bob", 1, 50), &ctx).await
+    let result = harness
+        .service()
+        .directory(&dir_request("bob", 1, 50), &ctx)
+        .await
         .expect("directory search runs");
-    assert_eq!(result.total, 1, "{HARNESS}: search 'bob' returns exactly one");
+    assert_eq!(
+        result.total, 1,
+        "{HARNESS}: search 'bob' returns exactly one"
+    );
     assert_eq!(result.rows.len(), 1, "{HARNESS}: one row returned");
     let row: &ClientSummary = &result.rows[0];
-    assert!(row.display_name.to_lowercase().contains("bob"), "{HARNESS}: row contains bob");
+    assert!(
+        row.display_name.to_lowercase().contains("bob"),
+        "{HARNESS}: row contains bob"
+    );
     assert_eq!(row.id, bob_id, "{HARNESS}: correct person id");
 
     // -----------------------------------------------------------------------------------------------------------
     // 3. Search for "charlie" - should find only Charlie.
     // -----------------------------------------------------------------------------------------------------------
-    let result = harness.service().directory(&dir_request("charlie", 1, 50), &ctx).await
+    let result = harness
+        .service()
+        .directory(&dir_request("charlie", 1, 50), &ctx)
+        .await
         .expect("directory search runs");
-    assert_eq!(result.total, 1, "{HARNESS}: search 'charlie' returns exactly one");
+    assert_eq!(
+        result.total, 1,
+        "{HARNESS}: search 'charlie' returns exactly one"
+    );
     assert_eq!(result.rows.len(), 1, "{HARNESS}: one row returned");
     let row: &ClientSummary = &result.rows[0];
-    assert!(row.display_name.to_lowercase().contains("charlie"), "{HARNESS}: row contains charlie");
+    assert!(
+        row.display_name.to_lowercase().contains("charlie"),
+        "{HARNESS}: row contains charlie"
+    );
     assert_eq!(row.id, charlie_id, "{HARNESS}: correct person id");
 
     // -----------------------------------------------------------------------------------------------------------
     // 4. Search for "smith" - should find Alice (case insensitive).
     // -----------------------------------------------------------------------------------------------------------
-    let result = harness.service().directory(&dir_request("SMITH", 1, 50), &ctx).await
+    let result = harness
+        .service()
+        .directory(&dir_request("SMITH", 1, 50), &ctx)
+        .await
         .expect("directory search runs");
-    assert_eq!(result.total, 1, "{HARNESS}: search 'SMITH' (uppercase) returns exactly one");
-    assert_eq!(result.rows[0].id, alice_id, "{HARNESS}: case-insensitive match works");
+    assert_eq!(
+        result.total, 1,
+        "{HARNESS}: search 'SMITH' (uppercase) returns exactly one"
+    );
+    assert_eq!(
+        result.rows[0].id, alice_id,
+        "{HARNESS}: case-insensitive match works"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 5. Search for partial "char" - should find Charlie.
     // -----------------------------------------------------------------------------------------------------------
-    let result = harness.service().directory(&dir_request("char", 1, 50), &ctx).await
+    let result = harness
+        .service()
+        .directory(&dir_request("char", 1, 50), &ctx)
+        .await
         .expect("directory search runs");
-    assert_eq!(result.total, 1, "{HARNESS}: partial search 'char' returns exactly one");
-    assert_eq!(result.rows[0].id, charlie_id, "{HARNESS}: partial match works");
+    assert_eq!(
+        result.total, 1,
+        "{HARNESS}: partial search 'char' returns exactly one"
+    );
+    assert_eq!(
+        result.rows[0].id, charlie_id,
+        "{HARNESS}: partial match works"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 6. Search for "xyz" - should find nothing (negative case).
     // -----------------------------------------------------------------------------------------------------------
-    let result = harness.service().directory(&dir_request("xyz", 1, 50), &ctx).await
+    let result = harness
+        .service()
+        .directory(&dir_request("xyz", 1, 50), &ctx)
+        .await
         .expect("directory search runs");
     assert_eq!(result.total, 0, "{HARNESS}: search 'xyz' returns zero");
-    assert!(result.rows.is_empty(), "{HARNESS}: no rows for non-matching search");
+    assert!(
+        result.rows.is_empty(),
+        "{HARNESS}: no rows for non-matching search"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 7. Empty search - should return all three (paginated).
     // -----------------------------------------------------------------------------------------------------------
-    let result = harness.service().directory(&dir_request("", 1, 2), &ctx).await
+    let result = harness
+        .service()
+        .directory(&dir_request("", 1, 2), &ctx)
+        .await
         .expect("directory search runs");
     assert_eq!(result.total, 3, "{HARNESS}: empty search returns all three");
     assert_eq!(result.rows.len(), 2, "{HARNESS}: page size 2 respected");
     assert_eq!(result.page, 1, "{HARNESS}: page 1");
     assert_eq!(result.page_size, 2, "{HARNESS}: page size 2");
 
-    let result2 = harness.service().directory(&dir_request("", 2, 2), &ctx).await
+    let result2 = harness
+        .service()
+        .directory(&dir_request("", 2, 2), &ctx)
+        .await
         .expect("directory search page 2 runs");
-    assert_eq!(result2.total, 3, "{HARNESS}: empty search page 2 total is 3");
+    assert_eq!(
+        result2.total, 3,
+        "{HARNESS}: empty search page 2 total is 3"
+    );
     assert_eq!(result2.rows.len(), 1, "{HARNESS}: page 2 has 1 row");
     assert_eq!(result2.page, 2, "{HARNESS}: page 2");
 
@@ -201,30 +261,60 @@ async fn crm_client_001__directory() {
     // -----------------------------------------------------------------------------------------------------------
     let mut bad_request = dir_request("", 1, 50);
     bad_request.status = Some("invalid_status".to_string());
-    let err = harness.service().directory(&bad_request, &ctx).await
+    let err = harness
+        .service()
+        .directory(&bad_request, &ctx)
+        .await
         .expect_err("invalid status must be refused");
-    assert_eq!(err.code(), "CLIENT_STATUS_INVALID", "{HARNESS}: invalid status refused with correct code");
+    assert_eq!(
+        err.code(),
+        "CLIENT_STATUS_INVALID",
+        "{HARNESS}: invalid status refused with correct code"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 9. Negative: invalid role filter is refused.
     // -----------------------------------------------------------------------------------------------------------
     let mut bad_request = dir_request("", 1, 50);
     bad_request.role = Some("landlord".to_string());
-    let err = harness.service().directory(&bad_request, &ctx).await
+    let err = harness
+        .service()
+        .directory(&bad_request, &ctx)
+        .await
         .expect_err("invalid role must be refused");
-    assert_eq!(err.code(), "CLIENT_ROLE_INVALID", "{HARNESS}: invalid role refused with correct code");
+    assert_eq!(
+        err.code(),
+        "CLIENT_ROLE_INVALID",
+        "{HARNESS}: invalid role refused with correct code"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 10. Negative: invalid sort is refused.
     // -----------------------------------------------------------------------------------------------------------
     let mut bad_request = dir_request("", 1, 50);
     bad_request.sort = "invalid_sort".to_string();
-    let err = harness.service().directory(&bad_request, &ctx).await
+    let err = harness
+        .service()
+        .directory(&bad_request, &ctx)
+        .await
         .expect_err("invalid sort must be refused");
-    assert_eq!(err.code(), "CLIENT_SORT_INVALID", "{HARNESS}: invalid sort refused with correct code");
+    assert_eq!(
+        err.code(),
+        "CLIENT_SORT_INVALID",
+        "{HARNESS}: invalid sort refused with correct code"
+    );
 
     // Clean up.
     let removed = harness.cleanup(&marker).await.expect("cleanup persons");
-    assert_eq!(removed, 3, "{HARNESS}: exactly three seeded persons removed");
-    assert_eq!(harness.leftover_count(&marker).await.expect("leftover count"), 0);
+    assert_eq!(
+        removed, 3,
+        "{HARNESS}: exactly three seeded persons removed"
+    );
+    assert_eq!(
+        harness
+            .leftover_count(&marker)
+            .await
+            .expect("leftover count"),
+        0
+    );
 }

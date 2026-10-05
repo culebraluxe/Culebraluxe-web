@@ -189,7 +189,12 @@ async fn crm_comms_002__conversation_burst_grouping() {
     // -----------------------------------------------------------------------------------------------------------
     let history = build_contact_history(events.clone(), &[], &[], total, 1, 50, false);
     assert_eq!(
-        (history.total, history.page, history.page_size, history.recent),
+        (
+            history.total,
+            history.page,
+            history.page_size,
+            history.recent
+        ),
         (4, 1, 50, false),
         "{HARNESS}: the history result carries the request's paging through untouched"
     );
@@ -250,11 +255,8 @@ async fn crm_comms_002__conversation_burst_grouping() {
         "{HARNESS}: the burst's latest direction is the last committed message's direction"
     );
     assert_eq!(
-        (first.started_at.as_deref(), first.ended_at.as_deref()),
-        (
-            Some("2026-10-01T12:00:00+00:00"),
-            Some("2026-10-01T12:10:00+00:00")
-        ),
+        (first.started_at.as_str(), first.ended_at.as_str()),
+        ("2026-10-01T12:00:00+00:00", "2026-10-01T12:10:00+00:00"),
         "{HARNESS}: the burst spans exactly the events it grouped"
     );
     assert_eq!(
@@ -320,7 +322,10 @@ async fn crm_comms_002__conversation_burst_grouping() {
             .map(|row| match row {
                 ContactHistoryRow::Detail(detail) => format!(
                     "{}|{}|{}|{}|{}",
-                    detail.id, detail.count, detail.inbound_count, detail.outbound_count,
+                    detail.id,
+                    detail.count,
+                    detail.inbound_count,
+                    detail.outbound_count,
                     detail.direction.clone().unwrap_or_default()
                 ),
                 ContactHistoryRow::Aggregate(aggregate) => format!("aggregate:{}", aggregate.id),
@@ -365,7 +370,9 @@ async fn crm_comms_002__conversation_burst_grouping() {
             .bind(&person)
             .fetch_one(harness.pool())
             .await
-            .map_err(|error| DbFailure::from_sqlx("test-harness.crm_comms002.probe_leftover", &error))
+            .map_err(|error| {
+                DbFailure::from_sqlx("test-harness.crm_comms002.probe_leftover", &error)
+            })
             .expect("the post-rollback count reads");
     assert_eq!(
         after_probe, 4,
@@ -380,7 +387,10 @@ async fn crm_comms_002__conversation_burst_grouping() {
         .cleanup(&marker)
         .await
         .expect("the fixture person is removed");
-    assert_eq!(removed, 1, "{HARNESS}: exactly this run's person is removed");
+    assert_eq!(
+        removed, 1,
+        "{HARNESS}: exactly this run's person is removed"
+    );
     landing
         .refresh_client_read_models()
         .await

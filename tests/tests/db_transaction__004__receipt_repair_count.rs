@@ -23,7 +23,7 @@ async fn db_transaction_004__receipt_repair_count() {
         .expect("a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)");
 
     // 1. Begin a transaction to keep state isolated.
-    let tx = test_db.begin().await.expect("begin transaction");
+    let mut tx = test_db.begin().await.expect("begin transaction");
 
     // 2. Insert a receipt row with an initial repair count.
     sqlx::query(
@@ -31,9 +31,9 @@ async fn db_transaction_004__receipt_repair_count() {
          VALUES ('repair-count-001', 'info', 'transaction',
                  'Repair count test for TST-DB-TRANSACTION-004',
                  'corr-004',
-                 '{\"repair_count\": 0}'::jsonb)"
+                 '{\"repair_count\": 0}'::jsonb)",
     )
-    .execute(&*tx.connection())
+    .execute(&mut *tx.connection())
     .await
     .expect("insert app_error receipt with repair count");
 
@@ -51,7 +51,7 @@ async fn db_transaction_004__receipt_repair_count() {
     sqlx::query(
         "UPDATE app_error SET metadata = '{\"repair_count\": 1}'::jsonb WHERE incident_id = 'repair-count-001'"
     )
-    .execute(&*tx.connection())
+    .execute(&mut *tx.connection())
     .await
     .expect("update repair count to 1");
 
@@ -69,7 +69,7 @@ async fn db_transaction_004__receipt_repair_count() {
     sqlx::query(
         "UPDATE app_error SET metadata = '{\"repair_count\": 2}'::jsonb WHERE incident_id = 'repair-count-001'"
     )
-    .execute(&*tx.connection())
+    .execute(&mut *tx.connection())
     .await
     .expect("increment repair count to 2");
 
@@ -81,19 +81,22 @@ async fn db_transaction_004__receipt_repair_count() {
     .await
     .expect("get final repair count");
 
-    assert_eq!(final_count.0, 2, "repair count must be 2 after two increments");
+    assert_eq!(
+        final_count.0, 2,
+        "repair count must be 2 after two increments"
+    );
 
-    // 8. Roll back to leave no residual state.
-    let _ = tx.rollback().await;
-
-    // 9. Negative case: updating the repair count to a non-numeric value
+    // 8. Negative case: updating the repair count
     //    must be handled gracefully.  We verify the contract by checking that
     //    the metadata field stores a valid JSON number.
     let result = sqlx::query(
         "UPDATE app_error SET metadata = '{\"repair_count\": \"bad\"}'::jsonb WHERE incident_id = 'repair-count-001'"
     )
-    .execute(&*tx.connection())
+    .execute(&mut *tx.connection())
     .await;
 
     eprintln!("Update repair count to bad string result: {:?}", result);
+
+    // Roll back last: every statement that used the transaction has been consumed.
+    let _ = tx.rollback().await;
 }

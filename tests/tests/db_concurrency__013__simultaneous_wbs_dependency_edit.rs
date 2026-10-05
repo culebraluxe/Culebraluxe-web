@@ -11,7 +11,8 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test db_concurrency__013__simultaneous_wbs_dependency_edit -- --ignored
 
-use db::{Database, DbTarget, WbsDao, WbsDependency};
+use db::{Database, DbTarget, WbsDao};
+use model::WbsDependency;
 use std::sync::Arc;
 use test_harness::barrier::ConcurrencyBarrier;
 use test_harness::fault::{Fault, FaultInjector};
@@ -90,7 +91,11 @@ async fn db_concurrency_013__simultaneous_wbs_dependency_edit() {
     }
     // Exactly one insert succeeds (the other may get a unique constraint error or the advisory lock serializes them)
     assert_eq!(inserted, 1, "exactly one dependency insert succeeds");
-    assert_eq!(count_dependencies(&db, &project_id_1).await, 1, "exactly one dependency exists");
+    assert_eq!(
+        count_dependencies(&db, &project_id_1).await,
+        1,
+        "exactly one dependency exists"
+    );
 
     // Test 2: Concurrent insert of different edges (should both succeed if no cycle)
     let project_id_2 = Uuid::new_v4().to_string();
@@ -112,15 +117,15 @@ async fn db_concurrency_013__simultaneous_wbs_dependency_edit() {
 
     let barrier = Arc::new(ConcurrencyBarrier::new(2));
     let mut handles = Vec::new();
+    let (dao_a, barrier_a, edge_a_owned) = (dao.clone(), barrier.clone(), edge_a.clone());
     handles.push(tokio::spawn(async move {
-        let (dao, barrier, edge) = (dao.clone(), barrier.clone(), edge_a.clone());
-        barrier.arrive_and_wait().await;
-        dao.insert_dependency(&edge).await
+        barrier_a.arrive_and_wait().await;
+        dao_a.insert_dependency(&edge_a_owned).await
     }));
+    let (dao_b, barrier_b, edge_b_owned) = (dao.clone(), barrier.clone(), edge_b.clone());
     handles.push(tokio::spawn(async move {
-        let (dao, barrier, edge) = (dao.clone(), barrier.clone(), edge_b.clone());
-        barrier.arrive_and_wait().await;
-        dao.insert_dependency(&edge).await
+        barrier_b.arrive_and_wait().await;
+        dao_b.insert_dependency(&edge_b_owned).await
     }));
 
     let mut inserted = 0;
@@ -129,8 +134,15 @@ async fn db_concurrency_013__simultaneous_wbs_dependency_edit() {
             inserted += 1;
         }
     }
-    assert_eq!(inserted, 2, "two different edges can be inserted concurrently");
-    assert_eq!(count_dependencies(&db, &project_id_2).await, 2, "both dependencies exist");
+    assert_eq!(
+        inserted, 2,
+        "two different edges can be inserted concurrently"
+    );
+    assert_eq!(
+        count_dependencies(&db, &project_id_2).await,
+        2,
+        "both dependencies exist"
+    );
 
     // Test 3: Fault injection - one worker crashes during insert
     let project_id_3 = Uuid::new_v4().to_string();
@@ -152,14 +164,19 @@ async fn db_concurrency_013__simultaneous_wbs_dependency_edit() {
     let mut handles = Vec::new();
     for _ in 0..2 {
         let (dao, barrier, injector, edge) = (
-            dao.clone(), barrier.clone(), injector.clone(), edge_3.clone()
+            dao.clone(),
+            barrier.clone(),
+            injector.clone(),
+            edge_3.clone(),
         );
         handles.push(tokio::spawn(async move {
             barrier.arrive_and_wait().await;
             if injector.next_fault().is_failure() {
                 return Err("crashed".to_string());
             }
-            dao.insert_dependency(&edge).await.map_err(|e| e.to_string())
+            dao.insert_dependency(&edge)
+                .await
+                .map_err(|e| e.to_string())
         }));
     }
 
@@ -170,7 +187,11 @@ async fn db_concurrency_013__simultaneous_wbs_dependency_edit() {
         }
     }
     assert_eq!(success, 1, "the survivor still inserts the dependency");
-    assert_eq!(count_dependencies(&db, &project_id_3).await, 1, "exactly one dependency exists");
+    assert_eq!(
+        count_dependencies(&db, &project_id_3).await,
+        1,
+        "exactly one dependency exists"
+    );
 
     // Cleanup
     sweep(&db, &project_id_1).await;
