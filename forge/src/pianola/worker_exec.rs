@@ -37,7 +37,65 @@ use db::{DbResult, ForgeEngineDao, NewToolArtifact};
 
 use super::worker::TstStoryView;
 use super::worker_authoring::is_test_artifact_path;
-use crate::engine::assay::{adjudicate_assay, AssayReport, CommandResult};
+use crate::engine::assay::{
+    adjudicate_assay, is_rust_contract_runtime_test, AssayReport, CommandResult,
+};
+
+/// Whether a `cargo test` / `cargo nextest` invocation actually RAN a test.
+///
+/// WHY THIS EXISTS. libtest exits **0** when every test in the selected target is `#[ignore]`d:
+/// `test result: ok. 0 passed; 0 failed; 1 ignored`. So a test file that is committed, compiles, and is
+/// entirely skipped reports SUCCESS to anything that reads the exit code. On 2026-10-05 five
+/// `API.ROUTE_CONTRACT` stories were adjudicated `Complete` on exactly that: their prescribed assay
+/// command ran zero assertions and still exited 0, which `adjudicate_assay` reads as `Pass`. A green that
+/// ran nothing is not a green — it is an unmeasured command wearing one.
+///
+/// The reading is deliberately conservative and returns `false` unless libtest printed a summary line it can
+/// parse, because the cost of a false "ran nothing" (refusing a real pass) is lower than the cost of a false
+/// "ran something" (banking an empty run as evidence). Only the `passed`/`failed` counts decide it: a target
+/// with failing tests already fails on its exit code, and one with passing tests is unaffected.
+///
+/// Only applies to rust test runners. `cargo check`, a shell pipeline and a non-zero exit are untouched.
+fn ran_no_tests(command: &str, output: &str) -> bool {
+    if !is_rust_contract_runtime_test(command) {
+        return false;
+    }
+    // The LAST summary line is the one that counts: a workspace run prints one per target, and the final
+    // line is the aggregate verdict.
+    let Some(summary) = output
+        .lines()
+        .rev()
+        .find(|line| line.trim_start().starts_with("test result:"))
+    else {
+        return false; // No summary we can read: assume it ran, do not invent a failure.
+    };
+    match (
+        count_before(summary, "passed"),
+        count_before(summary, "failed"),
+    ) {
+        (Some(passed), Some(failed)) => passed == 0 && failed == 0,
+        _ => false,
+    }
+}
+
+/// The integer libtest prints immediately BEFORE `label` — its summary reads `ok. 3 passed; 0 failed`, so
+/// the count leads the word. `None` when the label is absent or carries no count beside it.
+fn count_before(line: &str, label: &str) -> Option<u64> {
+    let at = line.find(label)?;
+    let before = line[..at].trim_end();
+    let digits: String = before
+        .chars()
+        .rev()
+        .take_while(char::is_ascii_digit)
+        .collect::<Vec<char>>()
+        .into_iter()
+        .rev()
+        .collect();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse().ok()
+}
 use crate::engine::packet::{extract_tests_summary, TESTS_SUMMARY_MARKER};
 use crate::engine::worktree::git_binary;
 
@@ -140,12 +198,23 @@ pub fn execute_command_scoped_with_timeout(
                 }
                 combined.push_str(&stderr);
             }
+            let ran_nothing = ran_no_tests(command, &combined);
+            let mut excerpt = excerpt_lines(&combined, ASSAY_EXCERPT_LINES);
+            if ran_nothing {
+                // Say why in the receipt, because the exit code says the opposite and the excerpt is what a
+                // reader adjudicating this story will actually see.
+                excerpt = format!(
+                    "ASSAY RAN NO TESTS (exit {code}, every test in the target is #[ignore]d or the target is \
+                     empty): this is NOT a pass.\n{excerpt}"
+                );
+            }
             CommandResult {
                 command: command.to_string(),
                 exit_code: code,
-                passed: code == 0,
-                excerpt: excerpt_lines(&combined, ASSAY_EXCERPT_LINES),
-                unmeasurable: false,
+                // A run that executed nothing has not passed, whatever the process says.
+                passed: code == 0 && !ran_nothing,
+                excerpt,
+                unmeasurable: ran_nothing,
                 output: combined,
             }
         }
@@ -312,7 +381,11 @@ pub async fn record_evidence(
 /// the subject so `git log` in any lane reads without a database lookup.
 pub fn commit_message(story_id: &str, title: &str, run_id: &str) -> String {
     let title = title.trim();
-    let title = if title.is_empty() { "(untitled)" } else { title };
+    let title = if title.is_empty() {
+        "(untitled)"
+    } else {
+        title
+    };
     format!("TST {story_id}: {title} - test authored in lane {run_id}")
 }
 
@@ -363,10 +436,7 @@ pub fn changed_files_in_lane(worktree_path: &Path) -> Result<Vec<String>, String
 /// This is the CrateLocalMod shape (`worker_authoring` appends an inline
 /// test module to the target file): the file is a production path, but the
 /// change is test-only.
-pub fn diff_confined_to_test_module(
-    worktree_path: &Path,
-    relative: &str,
-) -> Result<bool, String> {
+pub fn diff_confined_to_test_module(worktree_path: &Path, relative: &str) -> Result<bool, String> {
     let diff = git_in(worktree_path, &["diff", "--", relative])?;
     if diff.trim().is_empty() {
         return Ok(true);
@@ -392,10 +462,7 @@ pub fn diff_confined_to_test_module(
 /// Split lane changes into `(prod_edits, test_edits)` using the same test
 /// taxonomy the authoring guards use, extended with the appended-test-module
 /// shape. Pure over an already-computed file list so tests need no git.
-pub fn partition_changed(
-    worktree_path: &Path,
-    changed: &[String],
-) -> (Vec<String>, Vec<String>) {
+pub fn partition_changed(worktree_path: &Path, changed: &[String]) -> (Vec<String>, Vec<String>) {
     let mut prod = Vec::new();
     let mut test = Vec::new();
     for path in changed {
@@ -415,10 +482,7 @@ pub fn partition_changed(
 /// lane's changed-file list; `other_lanes` holds one changed-file list per
 /// sibling lane. Returns the first conflicting path, which the caller
 /// escalates as `OverlappingTarget`. Pure: no git, no I/O.
-pub fn check_lane_overlap(
-    changed_here: &[String],
-    other_lanes: &[Vec<String>],
-) -> Option<String> {
+pub fn check_lane_overlap(changed_here: &[String], other_lanes: &[Vec<String>]) -> Option<String> {
     for path in changed_here {
         for other in other_lanes {
             if other.iter().any(|p| p == path) {
@@ -492,11 +556,7 @@ pub fn commit_in_lane(
 /// Lane worktree path for tests that must not touch the real checkout.
 #[cfg(test)]
 fn tmp_lane(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "pianola-exec-{}-{}",
-        name,
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(format!("pianola-exec-{}-{}", name, std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("fixture lane");
     dir
@@ -505,6 +565,109 @@ fn tmp_lane(name: &str) -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- the empty-green detector -------------------------------------------------
+    //
+    // These are the self-checks for `ran_no_tests`. A guard that cannot fail guards nothing, and the
+    // defect being guarded against is precisely a guard that could not fail.
+
+    const ALL_IGNORED: &str = "running 1 test\ntest api_route_contract_008__x ... ignored\n\
+        test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s";
+
+    #[test]
+    fn a_fully_ignored_target_is_not_a_pass() {
+        assert!(
+            ran_no_tests("cargo test -p test-harness --test some_target", ALL_IGNORED),
+            "a target whose only test is #[ignore]d ran nothing and must not read as a pass"
+        );
+    }
+
+    #[test]
+    fn a_real_pass_is_still_a_pass() {
+        let ran = "test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.06s";
+        assert!(!ran_no_tests(
+            "cargo test -p test-harness --test some_target",
+            ran
+        ));
+    }
+
+    #[test]
+    fn a_failing_run_is_not_reported_as_ran_nothing() {
+        // Failures already fail on exit code; calling this "ran nothing" would blame the wrong thing.
+        let failed =
+            "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out";
+        assert!(!ran_no_tests(
+            "cargo test -p test-harness --test some_target",
+            failed
+        ));
+    }
+
+    #[test]
+    fn only_the_last_summary_line_decides() {
+        // A workspace run prints one summary per target. An early empty target must not condemn a run whose
+        // aggregate actually executed tests, nor excuse one that did not.
+        let mixed = format!("test result: ok. 0 passed; 0 failed; 0 ignored\n{ALL_IGNORED}");
+        assert!(ran_no_tests("cargo test --workspace", &mixed));
+        let mixed_ok = format!("{ALL_IGNORED}\ntest result: ok. 7 passed; 0 failed; 0 ignored");
+        assert!(!ran_no_tests("cargo test --workspace", &mixed_ok));
+    }
+
+    #[test]
+    fn an_unreadable_summary_is_not_guessed_at() {
+        assert!(!ran_no_tests(
+            "cargo test -p test-harness --test x",
+            "error: could not compile"
+        ));
+        assert!(!ran_no_tests("cargo test -p test-harness --test x", ""));
+        assert!(!ran_no_tests(
+            "cargo test -p test-harness --test x",
+            "test result: ok. passed; failed"
+        ));
+    }
+
+    #[test]
+    fn non_test_commands_are_untouched() {
+        // `cargo check` prints no summary, and a build command must never be reclassified by this rule.
+        assert!(!ran_no_tests(
+            "cargo check --workspace --all-targets",
+            ALL_IGNORED
+        ));
+        assert!(!ran_no_tests("sh -c true", ALL_IGNORED));
+    }
+
+    #[test]
+    fn count_before_reads_only_digits() {
+        assert_eq!(count_before("ok. 12 passed; 0 failed", "passed"), Some(12));
+        assert_eq!(count_before("ok. 0 passed; 3 failed", "failed"), Some(3));
+        assert_eq!(count_before("nothing here", "passed"), None);
+        assert_eq!(count_before("passed; failed", "passed"), None);
+    }
+
+    #[test]
+    fn an_empty_run_is_refused_by_adjudication_not_banked_as_a_pass() {
+        // The end-to-end outcome, which is the whole point: the CommandResult the executor now builds for an
+        // all-ignored target must come out `Fail`/`COMMAND_UNMEASURABLE`. Before this change the same run was
+        // `passed: true` on exit 0 and adjudicated `Pass`, which is how five stories were closed on nothing.
+        let result = CommandResult {
+            command: "cargo test --manifest-path Cargo.toml -p test-harness --test some_target"
+                .to_string(),
+            exit_code: 0,
+            passed: false,
+            excerpt: "ASSAY RAN NO TESTS".to_string(),
+            unmeasurable: ran_no_tests(
+                "cargo test --manifest-path Cargo.toml -p test-harness --test some_target",
+                ALL_IGNORED,
+            ),
+            output: ALL_IGNORED.to_string(),
+        };
+        assert!(
+            result.unmeasurable,
+            "the detector must classify it unmeasurable"
+        );
+        let report = adjudicate_assay(&[result.command.clone()], &[result], true);
+        assert_eq!(report.verdict, crate::engine::assay::AssayVerdict::Fail);
+        assert!(report.blockers.contains(&"COMMAND_UNMEASURABLE"));
+    }
 
     fn view_with(commands: &[&str], goal: &str, criteria: &str) -> TstStoryView {
         TstStoryView {
@@ -534,11 +697,8 @@ mod tests {
     #[test]
     fn passing_command_maps_to_passed_with_excerpt() {
         let lane = tmp_lane("pass");
-        let res = execute_command_scoped_with_timeout(
-            &lane,
-            "echo hello-assay",
-            Duration::from_secs(30),
-        );
+        let res =
+            execute_command_scoped_with_timeout(&lane, "echo hello-assay", Duration::from_secs(30));
         assert!(res.passed, "unexpected: {res:?}");
         assert_eq!(res.exit_code, 0);
         assert!(!res.unmeasurable);
@@ -550,8 +710,7 @@ mod tests {
     #[test]
     fn failing_command_maps_to_failed_not_unmeasurable() {
         let lane = tmp_lane("fail");
-        let res =
-            execute_command_scoped_with_timeout(&lane, "false", Duration::from_secs(30));
+        let res = execute_command_scoped_with_timeout(&lane, "false", Duration::from_secs(30));
         assert!(!res.passed);
         assert!(!res.unmeasurable);
         assert_ne!(res.exit_code, 0);
@@ -585,8 +744,7 @@ mod tests {
         let no_cmds = adjudicate_for_view(&empty, &[]);
         assert!(no_cmds.blockers.contains(&"NO_ASSAY_COMMANDS"));
         let no_criteria = view_with(&["cargo test -p probe"], "author a test", "   ");
-        let unproven =
-            adjudicate_for_view(&no_criteria, &[result("cargo test -p probe", true)]);
+        let unproven = adjudicate_for_view(&no_criteria, &[result("cargo test -p probe", true)]);
         assert!(unproven.blockers.contains(&"ACCEPTANCE_MAP_MISSING"));
     }
 
@@ -664,13 +822,9 @@ mod tests {
     fn commit_path_refuses_production_edit() {
         let lane = tmp_lane("commit-prod");
         init_repo(&lane);
-        std::fs::write(lane.join("README.md"), "# lane fixture\nmore prod\n")
-            .expect("prod edit");
+        std::fs::write(lane.join("README.md"), "# lane fixture\nmore prod\n").expect("prod edit");
         let err = commit_in_lane(&lane, "TST-12", "Probe story", "run-2").unwrap_err();
-        assert!(
-            err.contains("production"),
-            "unexpected refusal text: {err}"
-        );
+        assert!(err.contains("production"), "unexpected refusal text: {err}");
         let _ = std::fs::remove_dir_all(&lane);
     }
 
@@ -704,7 +858,9 @@ mod tests {
             Some("forge/tests/contract_probe.rs"),
             "same target file in two lanes must escalate"
         );
-        assert!(check_lane_overlap(&changed_b, &[vec!["forge/tests/other.rs".to_string()]]).is_none());
+        assert!(
+            check_lane_overlap(&changed_b, &[vec!["forge/tests/other.rs".to_string()]]).is_none()
+        );
         let _ = std::fs::remove_dir_all(&lane_a);
         let _ = std::fs::remove_dir_all(&lane_b);
     }

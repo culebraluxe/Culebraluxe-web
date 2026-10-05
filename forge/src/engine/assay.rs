@@ -60,7 +60,7 @@ pub fn adjudicate_assay(
     }
 }
 
-fn is_rust_contract_runtime_test(command: &str) -> bool {
+pub(crate) fn is_rust_contract_runtime_test(command: &str) -> bool {
     let command = command.trim_start();
     command == "cargo test"
         || command.starts_with("cargo test ")
