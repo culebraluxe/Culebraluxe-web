@@ -43,7 +43,18 @@ cp devops/Dockerfile.runtime "$STAGE/Dockerfile"
 printf 'ENV CULEBRALUXE_BUILD_SHA=%s\nENV CULEBRALUXE_BUILT_AT=%s\n' \
   "$(git rev-parse HEAD)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$STAGE/Dockerfile"
 gzip -9 -c "$WORK/build/culebraluxe" > "$STAGE/culebraluxe.gz"
-rsync -a --exclude rust-ui --exclude '* 2.*' --exclude '* 2' public/ "$STAGE/public/"
+# PRIVATE LOCAL DATA MUST NOT SHIP. `public/` is the webroot AND an rsync source, and rsync does not read
+# `.gitignore` — so `public/upload/data/`, which `.gitignore:42` calls private ("private export data (never
+# commit)"), was copied into the image byte for byte. It stayed harmless only for as long as mode-600 files
+# were unreadable to the container's non-root user; the day the stage started normalizing modes the whole Apple
+# Messages export became a public 64 MB download (2026-10-05, found by the post-deploy sweep). The sibling
+# artifact path already refuses exactly this and fails its build when the export is traced in
+# (scripts/vercel-build-prod.sh:143-154, "Private local data was traced into the prebuilt artifact"); the
+# container path lost that check in the layout refactor. It gets both halves back here: the exclusion below, and
+# the fail-closed probe after the stage is filled. Excluding `upload/data` closes the class, not the one file —
+# it is the staging root the exporters write to, and the only other thing in it is `macdatabridge.swift`, a
+# helper source, plus empty placeholders, so nothing the site serves is lost.
+rsync -a --exclude rust-ui --exclude 'upload/data' --exclude '* 2.*' --exclude '* 2' public/ "$STAGE/public/"
 cp "$WORK/build/ui.js" "$STAGE/public/rust-ui/ui.js"
 gzip -9 -c "$WORK/build/ui_bg.wasm" > "$STAGE/public/rust-ui/ui_bg.wasm.gz"
 rsync -a middle/model/forms/templates/ "$STAGE/templates/"
@@ -55,6 +66,14 @@ rsync -a middle/model/forms/templates/ "$STAGE/templates/"
 # made by iCloud, is not a release decision, and `rsync -a` deliberately preserves what it finds — so the STAGE is
 # normalized instead, after everything has been copied into it and before any of it is packed.
 chmod -R a+rX "$STAGE/public" "$STAGE/templates"
+# FAIL CLOSED, never warn: an artifact carrying private local data is not deployed — the same posture the sibling
+# path takes. The paths are the sibling's list, widened to the whole staging root so a future export cannot slip
+# through under a new filename.
+PRIVATE_MATCH="$(find "$STAGE" \( -path '*/upload/data/*' -o -path '*/apple-messages-export/*' \
+  -o -path '*/contact-export/*' -o -path '*/apple-messages-output/*' -o -name 'culebraluxe-calendar*.json' \) \
+  -print -quit 2>/dev/null || true)"
+[ -z "$PRIVATE_MATCH" ] || fail "Private local data reached the deploy stage: $PRIVATE_MATCH — do not deploy this artifact."
+printf '  private-data probe: clean\n'
 printf '  upload size: %s\n' "$(du -sh "$STAGE" | cut -f1)"
 
 printf '\n4/5 Making sure the project runs the application container...\n'
