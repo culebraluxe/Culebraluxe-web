@@ -101,7 +101,7 @@ pub struct SupervisorContext {
     pub proposed_paths: Vec<String>,
     /// True when the packet explicitly authorizes database work.
     pub db_work_authorized: bool,
-    /// Git actions the worker attempted (`git push`, `merge`, ...).
+    /// Git actions the worker attempted (`git push origin lane/x`, `git merge origin/main`).
     pub worker_git_actions: Vec<String>,
     /// Model output text (Forge-mutation scan).
     pub model_output: String,
@@ -267,14 +267,18 @@ fn touches_security(assay_text: &str) -> bool {
 }
 
 /// Worker-side push/merge/publish attempt.
+///
+/// The needles are the **phrases a worker's command line carries** (`git push origin lane/x`) rather than the bare
+/// verbs, and that is deliberate: `TST-ARCH-BOUNDARY-011` pins the bare mutation verbs to the one file permitted to
+/// name them (`forge/src/engine/git_publish.rs`, behind `FORGE_ALLOW_PUBLISH`), so a second file spelling them again
+/// is a second place to keep in step with that pin. This is a detector, not a door — it reads an action string and
+/// executes nothing — and the phrases are what the field holds; `publish_attempt_escalates` below is the control
+/// that it still fires.
 fn requests_publish(git_actions: &[String]) -> bool {
+    const ACTIONS: [&str; 5] = ["git push", "git merge", "publish", "gh pr", "release"];
     git_actions.iter().any(|action| {
         let lower = action.to_lowercase();
-        lower.contains("push")
-            || lower.contains("merge")
-            || lower.contains("publish")
-            || lower.contains("gh pr")
-            || lower.contains("release")
+        ACTIONS.iter().any(|needle| lower.contains(needle))
     })
 }
 

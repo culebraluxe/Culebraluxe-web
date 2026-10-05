@@ -26,11 +26,22 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test arch_boundary__005__forge_persistence_only_enters_through_approved_dao_writer_interfaces
 
+//! **The scan reads statements, not lines (`2026-10-04`).** `production_lines` drops `#[cfg(test)]` items, joins
+//! `\`-continued lines and strips a comment only where a `//` really starts one; `statement_shaped` requires a SQL
+//! phrase to be followed by what it acts on. Both halves were needed. The guard had three false positives in
+//! `forge/src/pianola/status.rs` — a threat-marker vocabulary and two test fixtures — and it had *missed* a real
+//! `select … from forge_tool_artifact … in (…)` in that same file, because the statement was wrapped across
+//! continuations, and because a `split("//")` reads the `//` of a `postgres://` URL as a comment. The controls at
+//! the foot of this file hold both halves: a vocabulary stays quiet, and a wrapped statement is still a statement.
+
 use test_harness::source;
 
 /// What a Forge module may never contain: a database client, a driver URL, or a SQL statement in code.
+///
+/// `code` is one logical line from [`production_lines`] — already comment-and-test stripped, continuations joined —
+/// so a phrase matched here is a phrase in the code, and a phrase followed by what it acts on is a statement.
 fn direct_db_access(line: &str) -> Option<&'static str> {
-    let code = source::code_of(line);
+    let code = code_before_comment(line);
     for client in [
         "sqlx",
         "PgPool",
@@ -51,7 +62,7 @@ fn direct_db_access(line: &str) -> Option<&'static str> {
         "drop table",
         "on conflict",
     ] {
-        if code.contains(statement) {
+        if statement_shaped(&code, statement) {
             return Some("a SQL statement in Forge");
         }
     }
@@ -67,6 +78,115 @@ fn direct_db_access(line: &str) -> Option<&'static str> {
 /// The canonical trace `INSERT`, lowercased: the check is about the statement, not about its casing.
 const TRACE_INSERT: &str = "insert into workflow_execution_trace_event";
 
+// ---------------------------------------------------------------------------
+// The statement view: why this is a check about statements and not about lines
+// ---------------------------------------------------------------------------
+
+/// The code part of a line: everything before a `//` **that is not inside a string literal**.
+///
+/// The local, precise form of [`source::code_of`] for this guard, and the difference is not cosmetic: the shared
+/// helper cuts at the first `//` anywhere, so `let url = "postgres://prod"` reads as `let url = "postgres:` and a
+/// driver URL held as a value is invisible to the check whose whole job is to refuse it. A character literal that
+/// holds a quote (`'"'`) is left alone; where this is wrong it is wrong by *missing* text, never by inventing a
+/// statement — and a missing statement is what the floor assertion below is for.
+fn code_before_comment(line: &str) -> String {
+    let mut out = String::new();
+    let mut in_string = false;
+    let mut previous = '\0';
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if in_string => {
+                out.push(c);
+                if let Some(escaped) = chars.next() {
+                    out.push(escaped);
+                }
+            }
+            '"' if previous != '\'' => {
+                in_string = !in_string;
+                out.push(c);
+            }
+            '/' if !in_string && chars.peek() == Some(&'/') => break,
+            _ => out.push(c),
+        }
+        previous = c;
+    }
+    out
+}
+
+/// One file's production code as logical lines — `(1-based line number, code)` — with `#[cfg(test)]` items
+/// removed, comments stripped, and `\`-continued lines joined onto the line they continue.
+///
+/// Three holes, and the guard has produced a miss or a false positive through every one of them:
+///   * a `#[cfg(test)]` module is not production code, and its fixtures quote statements on purpose — in this
+///     guard's own subject `forge/src/pianola/status.rs` a summary string and an injection-guard input both read as
+///     violations, and `engine/opencode.rs` holds a `postgres://prod` test fixture;
+///   * a statement wrapped across `\` continuations is **one** statement, so reading line by line turned the
+///     `select … from forge_tool_artifact … in (…)` that `status.rs` held into three harmless fragments;
+///   * a comment is not code — but only a `//` outside a string literal starts one.
+fn production_lines(text: &str) -> Vec<(usize, String)> {
+    let raw: Vec<&str> = text.lines().collect();
+    let mut out: Vec<(usize, String)> = Vec::new();
+    let mut index = 0;
+    while index < raw.len() {
+        let code = code_before_comment(raw[index]);
+        if code.trim() == "#[cfg(test)]" {
+            let mut probe = index + 1;
+            while probe < raw.len()
+                && (raw[probe].trim().is_empty() || raw[probe].trim().starts_with("#["))
+            {
+                probe += 1;
+            }
+            index = if probe < raw.len() && raw[probe].contains('{') {
+                // An item with a body ends where a top-level item ends: the first `}` at column 0.
+                let mut end = probe;
+                while end < raw.len() && !raw[end].starts_with('}') {
+                    end += 1;
+                }
+                end + 1
+            } else {
+                // The attribute guards one line and nothing after it (`use`, `const`, a bodiless `fn`).
+                probe
+            };
+            continue;
+        }
+        match out.last_mut() {
+            Some((_, last)) if last.trim_end().ends_with('\\') => {
+                last.push(' ');
+                last.push_str(code.trim());
+            }
+            _ => out.push((index + 1, code)),
+        }
+        index += 1;
+    }
+    out
+}
+
+/// A statement names what it acts on; a vocabulary does not.
+///
+/// `"create table"` by itself is a marker word — Forge's threat vocabulary (`CANONICAL_THREAT_MARKERS`) is a list
+/// of them, and that list is not SQL — while a statement reads `create table pianola_queue`, `delete from
+/// "quoted"`, or `on conflict (source_system, source_event_id)`. So the phrase must be followed by an identifier
+/// (bare or quoted) or by `(`.
+fn statement_shaped(code: &str, phrase: &str) -> bool {
+    let lower = code.to_lowercase();
+    let mut search_from = 0;
+    while let Some(at) = lower[search_from..].find(phrase) {
+        let start = search_from + at;
+        let mut rest = lower[start + phrase.len()..].trim_start().chars();
+        match rest.next() {
+            Some(c) if c.is_alphanumeric() || c == '_' => return true,
+            Some('"') if rest.next().is_some_and(|c| c.is_alphanumeric() || c == '_') => {
+                return true
+            }
+            Some('(') => return true,
+            _ => {}
+        }
+        search_from = start + phrase.len();
+    }
+    false
+}
+
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ARCH-BOUNDARY-005); the file and the assay use it.
 fn arch_boundary_005__forge_persistence_only_enters_through_approved_dao_writer_interfaces() {
@@ -81,22 +201,38 @@ fn arch_boundary_005__forge_persistence_only_enters_through_approved_dao_writer_
 
     let mut findings = Vec::new();
     let mut via_dao = 0usize;
+    let mut logical_lines = 0usize;
     for path in &files {
         let text = source::read(path);
         if text.contains("db::") {
             via_dao += 1;
         }
-        for (number, line) in text.lines().enumerate() {
-            if let Some(what) = direct_db_access(line) {
+        let view = production_lines(&text);
+        logical_lines += view.len();
+        for (number, code) in view {
+            if let Some(what) = direct_db_access(&code) {
                 findings.push(format!(
                     "{}:{}: {what}: {}",
                     source::relative(path),
-                    number + 1,
-                    line.trim()
+                    number,
+                    code.trim()
                 ));
             }
         }
     }
+
+    // The view has to have looked at the crate: a stripped-to-nothing view would report a clean Forge for the wrong
+    // reason. The floor is loose on purpose (the statement is the findings list, not this number) and the planted
+    // sample at the foot of this file proves the view keeps production lines on both sides of a `#[cfg(test)]` item.
+    println!(
+        "statement view: {logical_lines} logical lines over {} files",
+        files.len()
+    );
+    assert!(
+        logical_lines >= 20_000,
+        "the statement view found only {logical_lines} logical lines in {} — it is reading almost nothing",
+        source::relative(&forge_src)
+    );
 
     // No exception and no allowance: every statement in Forge `src/` is a finding, so this list has to be empty. The
     // observer's `INSERT` lives in the DAO (`ForgeEngineDao::record_observer`) and its dead copy here is gone.
@@ -202,9 +338,70 @@ fn arch_boundary_005__forge_persistence_only_enters_through_approved_dao_writer_
         None,
         "an envelope's execute is not a SQL statement"
     );
-    assert_eq!(
-        direct_db_access("// the DAO selects from the work item table for us"),
-        None,
+    let prose = production_lines("// the DAO selects from the work item table for us");
+    assert!(
+        prose
+            .iter()
+            .all(|(_, line)| direct_db_access(line).is_none()),
         "prose about a DAO's own query is not a query here"
+    );
+
+    // The precision and recall controls for the statement view — each one a defect this guard really had, in the
+    // file it was raised about, so a regression is caught here rather than by a lane's next T1 run.
+    //
+    // (a) A marker vocabulary is not a statement. `forge/src/pianola/status.rs` holds `"create table"` inside
+    //     `CANONICAL_THREAT_MARKERS` — a list of words to *look for* in a model's summary — and that was reported
+    //     as SQL in Forge.
+    assert_eq!(
+        direct_db_access("    \"create table\","),
+        None,
+        "a threat-marker word is not a statement"
+    );
+    assert_eq!(
+        direct_db_access("    \"insert into\","),
+        None,
+        "a threat-marker word is not a statement"
+    );
+    assert!(
+        direct_db_access("let sql = \"create table pianola_queue (id text)\";").is_some(),
+        "the same phrase naming what it acts on is a statement, and a statement in Forge is a finding"
+    );
+
+    // (b) A `#[cfg(test)]` item quotes statements on purpose — `status.rs` has two such fixtures and
+    //     `engine/opencode.rs` holds `postgres://prod` — so the view drops the item *and keeps the rest of the
+    //     file*, which is the half that could quietly hide a real statement.
+    let sample = "#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {\n        let fixture = \"create table fixture_queue (id text)\";\n    }\n}\nfn production() {\n    let sql = \"create table pianola_queue (id text)\";\n}\n";
+    let view = production_lines(sample);
+    assert!(
+        view.iter().all(|(_, line)| !line.contains("fixture_queue")),
+        "a `#[cfg(test)]` item leaves the statement view: {view:?}"
+    );
+    assert!(
+        view.iter()
+            .any(|(_, line)| direct_db_access(line).is_some()),
+        "production code after a `#[cfg(test)]` item is still read: {view:?}"
+    );
+
+    // (c) A statement wrapped across `\` continuations is one statement. This is the shape `status.rs` held
+    //     (`select … from forge_tool_artifact where story_id in (…)`) while this guard, reading line by line,
+    //     reported nothing at all.
+    let wrapped = "let sql = format!(\"select id::text \\\n     from forge_tool_artifact where story_id = any($1::text)\");";
+    assert!(
+        wrapped.lines().all(|line| direct_db_access(line).is_none()),
+        "line by line this statement is invisible — which is how it was missed"
+    );
+    assert!(
+        production_lines(wrapped)
+            .iter()
+            .any(|(_, line)| direct_db_access(line).is_some()),
+        "joined across its continuation it is one statement, and a statement in Forge is a finding"
+    );
+
+    // (d) A driver URL inside a string literal is not a comment: `split(\"//\")` read the `//` of `postgres://` as
+    //     the start of one, so a URL held as a value was invisible to the check that exists to refuse it.
+    assert_eq!(
+        direct_db_access("let url = \"postgres://user@host/db\";"),
+        Some("a database client in Forge"),
+        "a driver URL in a string literal is a driver URL"
     );
 }

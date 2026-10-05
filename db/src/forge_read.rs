@@ -24,7 +24,7 @@
 //! the output shape does not depend on the session's TimeZone setting — the guarantee the retired TypeScript
 //! got for free from `Date.toISOString()`.
 
-use crate::{Database, DbFailure, DbResult};
+use crate::{Database, DbFailure, DbResult, ToolArtifactRow};
 use model::{ForgeLiveNodeActivity, ForgeLiveRun, ForgeLiveSnapshot, ForgeLiveWorkItem};
 use serde_json::Value;
 use sqlx::FromRow;
@@ -607,6 +607,39 @@ impl ForgeReadDao {
         .fetch_all(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_read.story_statuses", &error))
+    }
+
+    /// The tool artifacts a set of stories recorded, newest first — one experiment's evidence in one read.
+    ///
+    /// The read lives here because the statement does: a caller that built its own `select … from
+    /// forge_tool_artifact where story_id in (…)` was Forge holding a statement of its own, which
+    /// `ARCH.BOUNDARY-005` refuses (the same reason `engine/observer.rs` lost its dead `INSERT` copy). The ids are
+    /// **bound** (`= any($1::text[])`) rather than interpolated, so the `in` list cannot become a second spelling of
+    /// an escaping rule either.
+    ///
+    /// READ ONLY. `ForgeEngineDao::record_tool_artifact` stays the one write of `forge_tool_artifact`.
+    pub async fn tool_artifacts_for_stories(
+        &self,
+        story_ids: &[String],
+        limit: i64,
+    ) -> DbResult<Vec<ToolArtifactRow>> {
+        if story_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sql = format!(
+            "select id::text as id, story_id, story_run_id::text as story_run_id, tool, kind, verdict, summary, sha,
+                    to_char(created_at at time zone 'UTC', '{ISO_UTC}') as created_at
+             from forge_tool_artifact
+             where story_id = any($1::text[])
+             order by created_at desc, id desc
+             limit $2"
+        );
+        sqlx::query_as::<_, ToolArtifactRow>(sqlx::AssertSqlSafe(sql))
+            .bind(story_ids)
+            .bind(limit.clamp(1, 500))
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_read.tool_artifacts_for_stories", &error))
     }
 
     /// One ad-hoc read-only query, answered as JSON objects: the query a tool does not exist for yet.

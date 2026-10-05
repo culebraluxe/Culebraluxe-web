@@ -10,15 +10,17 @@
 //! no table, no trigger, and no queue, and it invents no canonical progress
 //! state. The pure summarizer ([`summarize_from_receipts`]) reads only the
 //! rows it is given; the loader ([`load_experiment_report`]) reads those rows
-//! through [`ForgeReadDao::read_only_rows`] (a read-only transaction Postgres
-//! itself enforces) or the existing `story_receipt` / `story_holds` view
-//! readers. There is no second door onto any table.
+//! through the read DAO's own readers — `story_receipt`, `story_holds` and
+//! [`ForgeReadDao::tool_artifacts_for_stories`] — so no statement lives in
+//! Forge. (The earlier version built its own `select … from forge_tool_artifact
+//! … in (…)` and handed it to `read_only_rows`: Forge holding a statement of
+//! its own, which `ARCH.BOUNDARY-005` refuses, and the reason the schema
+//! change behind this read had two spellings to keep in step.)
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use db::{DbResult, ForgeReadDao, ForgeStoryHoldRow, ForgeStoryReceiptRow, ToolArtifactRow};
-use serde_json::Value;
 
 // ---------------------------------------------------------------------------
 // Report shape: exactly the fields the experiment owes
@@ -463,15 +465,16 @@ fn parse_cost_samples(text: &str) -> Vec<f64> {
 ///
 /// * Receipts and holds come from the `forge_story_run_receipt` /
 ///   `forge_open_holds` view readers (`story_receipt`, `story_holds`).
-/// * Artifacts come from `ForgeReadDao::read_only_rows` selecting
-///   `forge_tool_artifact` inside a read-only transaction Postgres enforces,
-///   because the read DAO offers no dedicated artifact reader and this module
-///   may not add a writer or a table to get one.
+/// * Artifacts come from `ForgeReadDao::tool_artifacts_for_stories`, which binds
+///   the story ids (`= any($1::text[])`) and holds the statement where every
+///   other statement in this workspace is held: in `db`, with callers naming a
+///   reader instead of spelling SQL. (This module used to assemble that `select`
+///   itself and pass it to `read_only_rows`; the statement is unchanged, its
+///   owner is not.)
 ///
-/// Story ids are allow-listed to `[A-Za-z0-9_-]` before they reach SQL; the
-/// wrapped `read_only_rows` query additionally runs inside `begin read only`
-/// and rolls back either way, so a wrong guard here is refused by the
-/// database rather than obeyed.
+/// Story ids are still allow-listed to `[A-Za-z0-9_-]` before the read, now as
+/// defence in depth rather than as escaping: the ids are bound, so no value here
+/// is ever concatenated into a statement.
 pub async fn load_experiment_report(
     read: &ForgeReadDao,
     story_ids: &[String],
@@ -495,7 +498,8 @@ pub async fn load_experiment_report(
     for story_id in &clean {
         holds.extend(read.story_holds(story_id).await?);
     }
-    let artifacts = load_artifacts_read_only(read, &clean).await?;
+    // The cap the old Forge-side statement carried; the DAO clamps it to 1..=500.
+    let artifacts = read.tool_artifacts_for_stories(&clean, 200).await?;
 
     tracing::info!(
         target: "pianola::supervisor",
@@ -513,50 +517,6 @@ fn sanitize_story_id(raw: &str) -> String {
     raw.chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
         .collect()
-}
-
-fn sql_string_list(ids: &[String]) -> String {
-    ids.iter()
-        .map(|id| format!("'{}'", id.replace('\'', "''")))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-async fn load_artifacts_read_only(
-    read: &ForgeReadDao,
-    story_ids: &[String],
-) -> DbResult<Vec<ToolArtifactRow>> {
-    let list = sql_string_list(story_ids);
-    let sql = format!(
-        "select id::text as id, story_id, story_run_id::text as story_run_id, \
-         tool, kind, verdict, summary, sha, \
-         to_char(created_at at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at \
-         from forge_tool_artifact where story_id in ({list}) \
-         order by created_at desc"
-    );
-    let rows = read.read_only_rows(&sql, 200).await?;
-    Ok(rows.iter().filter_map(value_to_artifact).collect())
-}
-
-fn str_field(value: &Value, key: &str) -> Option<String> {
-    value
-        .get(key)
-        .and_then(|field| field.as_str())
-        .map(str::to_string)
-}
-
-fn value_to_artifact(value: &Value) -> Option<ToolArtifactRow> {
-    Some(ToolArtifactRow {
-        id: value.get("id")?.as_str()?.to_string(),
-        story_id: value.get("story_id")?.as_str()?.to_string(),
-        story_run_id: str_field(value, "story_run_id"),
-        tool: value.get("tool")?.as_str()?.to_string(),
-        kind: value.get("kind")?.as_str()?.to_string(),
-        verdict: str_field(value, "verdict"),
-        summary: str_field(value, "summary"),
-        sha: str_field(value, "sha"),
-        created_at: str_field(value, "created_at"),
-    })
 }
 
 // ---------------------------------------------------------------------------
@@ -881,11 +841,5 @@ mod tests {
             "TST-1DROPTABLEx--"
         );
         assert_eq!(sanitize_story_id("   "), "");
-    }
-
-    #[test]
-    fn sql_string_list_quotes_ids() {
-        let list = sql_string_list(&["TST-1".to_string(), "TST-2".to_string()]);
-        assert_eq!(list, "'TST-1', 'TST-2'");
     }
 }
