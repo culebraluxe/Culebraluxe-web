@@ -310,7 +310,14 @@ fn main() {
     // The model the lane bills is decided by the ROW (migration 179 `model_policy`), read at the claim together with
     // the execution policy. `OPENCODE_MODEL` still wins: that is an explicit, attended configuration. Before this,
     // the model was whatever the pin said and the policy column was decoration.
-    let harness_backend = forge::engine::harness::HarnessBackend::from_env();
+    let harness_backend = match forge::engine::harness::HarnessBackend::from_env() {
+        Ok(backend) => backend,
+        Err(e) => {
+            reject_configuration(work_item.as_deref(), &format!("{e}"));
+            eprintln!("{e}");
+            std::process::exit(2);
+        }
+    };
     eprintln!("harness_backend={:?}", harness_backend);
     let harness_context = forge::engine::harness::HarnessContext {
         story_id: story.clone(),

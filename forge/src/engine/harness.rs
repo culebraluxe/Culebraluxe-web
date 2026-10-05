@@ -22,18 +22,47 @@ pub enum HarnessBackend {
 }
 
 impl HarnessBackend {
-    /// Parse from environment variable, defaulting to OpenCode.
-    pub fn from_env() -> Self {
+    /// Parse from environment variable.
+    ///
+    /// Unset or `opencode` is the direct OpenCode harness (the historical default, and acceptance criterion A).
+    /// `maestro` selects the Maestro transport. Anything else FAILS CLOSED: silently running OpenCode because
+    /// `FORGE_HARNESS` was misspelled would spend model tokens on a vendor nobody chose.
+    pub fn from_env() -> workflow::Result<Self> {
         match std::env::var("FORGE_HARNESS").ok().as_deref() {
-            Some("maestro") => HarnessBackend::Maestro,
-            Some("opencode") | None => HarnessBackend::OpenCode,
-            Some(other) => {
-                eprintln!(
-                    "unknown FORGE_HARNESS={}; defaulting to opencode",
-                    other
-                );
-                HarnessBackend::OpenCode
-            }
+            None | Some("opencode") => Ok(HarnessBackend::OpenCode),
+            Some("maestro") => Ok(HarnessBackend::Maestro),
+            Some(other) => Err(workflow::WorkflowError::generic(format!(
+                "unknown FORGE_HARNESS={other:?}: expected \"opencode\" or \"maestro\". Refusing to guess a vendor."
+            ))),
+        }
+    }
+}
+
+/// Forge's vendor-neutral model intent: what KIND of turn this is, not which vendor string bills it.
+///
+/// Forge chooses the intent (from the row's `model_policy` plus an explicit override); each harness translates
+/// it into its own vendor contract. An OpenCode resolver must never decide for Maestro, and a Maestro agent
+/// name must never leak into OpenCode — the translation lives behind `dyn RoleHarness`, one side each.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelSelection {
+    /// The cheap/default tier (`model_policy` absent, unknown, or `cheap`).
+    Cheap,
+    /// The judgment tier (`model_policy = judgment`).
+    Judgment,
+    /// An explicit, attended override naming the vendor's own selection.
+    Explicit(String),
+}
+
+impl ModelSelection {
+    /// From the dispatch policy plus an explicit override. The override wins when it is non-empty; `judgment`
+    /// selects judgment; everything else (absent, unknown, `cheap`) reads as cheap — the default bills least.
+    pub fn from_parts(model_policy: Option<&str>, explicit_override: Option<&str>) -> Self {
+        if let Some(explicit) = explicit_override.map(str::trim).filter(|value| !value.is_empty()) {
+            return ModelSelection::Explicit(explicit.to_string());
+        }
+        match model_policy.map(str::trim) {
+            Some("judgment") => ModelSelection::Judgment,
+            _ => ModelSelection::Cheap,
         }
     }
 }
