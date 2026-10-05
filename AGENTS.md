@@ -194,7 +194,8 @@ Always
 Ask first
 
 - FULL regression.
-- Destructive PROD data changes.
+- A destructive PROD data change you found on your own route to the goal. One the Captain directed is authorized:
+  execute it and report what it destroyed. A directed write is not a question; an extra one you decided was needed is.
 - A second coding queue, a vendor-shaped rules file as source of truth, or two writers on one story.
 - Relaxing the system-wide single-active lock.
 - Driving the engine or editing between Forge runs while the SCHEDULER is live. It ticks every 180s, so a check
@@ -213,16 +214,29 @@ Ask first
 Never
 
 - Commit secrets or `.env.local`. guard: cli/src/forge/secret_shapes.rs
-- **Deploy to production, or run anything at all against `DATABASE_URL_PROD`.** Not a migration, not a
-  script, not "just a quick query". This is the Captain's call every time, even when the change looks
-  harmless, and it has been said twice.
-  Know the mechanism, because it is automatic and silent: the Rust API picks its database from the
-  environment (`db/src/pool.rs`, `resolve_declared_target`). `VERCEL_ENV=production`, or
-  `APP_ENV=production`/`prod`, resolves to the production database with no confirmation step. So **a
-  production deploy is a production database connection** — there is no dry run and no separate switch.
-  Anything else is dev and is free to use. Both the boot line and `GET /v1/diagnostics/db` report which
-  database the process is actually on (`target=dev` / `target=prod`): check that before assuming.
-  guard: NONE — a production deploy is a human authorization; no test stands between the operator and his own console.
+- **Act on PROD on your own initiative.** The Captain directs production work; when he does, his direction **is**
+  the authorization and it is full CRUD — read and write, migrate, repair a row, run the engine, run a test that
+  touches PROD. What is never allowed is *deciding for him*: no production write nobody asked for, and no
+  production work whose only reason is that the environment happened to resolve that way. A production **deploy**
+  follows the same rule — it happens when he directs it or when a story's release obligation requires it
+  ("Working Style", "Database Delivery Rule"), never as a side effect of something else.
+  This bullet used to forbid PROD outright ("Deploy to production, or run anything at all against
+  `DATABASE_URL_PROD`. Not a migration, not a script, not 'just a quick query'"), which read as his decision and
+  was not one: he never authorized it, and it contradicted the delivery rules *above* that put PROD migrations in
+  the implementing agent's hands ("Database Delivery Rule", "Production Guardrails", and *Production Release
+  State* below, which already said not to assume a default production prohibition). Rewritten on his ruling,
+  2026-10-04, in his words: *"i need my agents to access prod NEON Database to do forge work and write test code …
+  if i tell them to go do something in prod they need full CRUD."* The ruling and the history: `docs/agent/MEMORY.md`.
+  The mechanism is unchanged, and it is why naming the target still matters: the Rust API picks its database from
+  the environment (`db/src/pool.rs`, `resolve_declared_target`), and `VERCEL_ENV=production` or
+  `APP_ENV=production`/`prod` resolves to the production database with no confirmation step — **a production
+  deploy is a production database connection**, there is no dry run and no separate switch. Both the boot line and
+  `GET /v1/diagnostics/db` report which database the process is actually on (`target=dev` / `target=prod`). So pass
+  the target explicitly, read the `database: target=…` line a command prints before believing its output, and hand
+  back the command with the receipt. If the resolved target is not the one you meant, that is a REFUSAL (HOLD)
+  naming both, never a guess.
+  guard: NONE — an authorization is a human decision: no test stands between the operator and his own console, and
+  no test can tell a write the Captain directed from one an agent invented.
 - Create a worktree, a per-lane tree, or any file-based parallel to the database workflow.
   **NO TREES. EVER.** There is ONE workflow and it is the rows (`forge_tool_artifact`,
   `storyboard_story_run`, `forge_engine_task_execution`, `app_error`). A tree is not scratch a lane may
@@ -268,7 +282,7 @@ Never
   guard: tests/tests/handbook_engine_guards.rs
 - Push, merge, or rebase from a worker. guard: tests/tests/handbook_engine_guards.rs
 - Run Forge against DEV. Forge runs (engine lanes, dogfoods, splits, role attempts) execute against PROD only — the environment is not something a run may flip (see `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` §0). guard: db/src/pool.rs
-- Reset PROD, copy DEV over PROD, or truncate canonical history. guard: NONE — no automated check; a destructive database action is a human decision the operator makes himself, and no test can stand between him and his own console.
+- Reset PROD, copy DEV over PROD, or truncate canonical history. guard: NONE — no automated check; a destructive database action is a human decision the operator makes himself, and no test can stand between him and his own console. When he directs one it is authorized — name the target he named, run it, and report what it destroyed.
 - Keep a git commit as Scout, Assay, or Inspector. guard: cli/src/forge/lint.rs
 - Special-case Casa Luar or any one listing in application code. guard: NONE — no automated check; would need a consumer-specific scan, and inventing one is a story, not a line.
 - Treat WhatsApp as a new identity type. guard: cli/src/forge/repo_guards.rs
