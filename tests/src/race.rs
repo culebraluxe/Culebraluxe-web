@@ -179,16 +179,71 @@ impl RaceHarness {
         Ok(())
     }
 
-    /// Insert one `agent_work_item` in `Ready` for `story_id`, committed; returns its id.
+    /// Put one `Ready` work item behind `story_id` through the DATABASE'S OWN DOOR, committed; returns its id.
+    ///
+    /// WHY THIS IS NOT AN INSERT. Creating an `agent_work_item` is owned by `agent_work_item_dispatch()`
+    /// (`db/migrations/025_agent_work_queue.sql:101`, restated in 146 and 259), which the
+    /// `storyboard_story_ready_dispatch` trigger fires on a change *into* `Ready`. That rule has already drifted
+    /// once — migration 146 exists only because the arbiter was not restated — so it has ONE owner and a fence:
+    /// `cli/src/forge/repo_guards.rs` reads `tests/src/` too (`the_database_owns_dispatch…`; `AGENTS.md` — "one fact
+    /// has ONE writer"). A fixture that writes the row itself is a second spelling of a rule the database owns, and
+    /// the row it writes is one that dispatches to nothing.
+    ///
+    /// So the fixture reaches the queue the way the board does: `forge_dispatch_story($1)` (migration 265) restores
+    /// the status CHANGE the trigger fires on and hands back the row the trigger wrote — never an id this harness
+    /// invented. `Queued` is the only outcome a fresh fixture can see: `Missing` means
+    /// [`seed_story`](Self::seed_story) was not called for this id, `AlreadyQueued` that the story already held an
+    /// open item, and both fail here rather than silently hand back a row this seed did not cause. A deployment whose
+    /// trigger is missing raises SQLSTATE `42704` from the database itself, and that error carries to the caller.
+    ///
+    /// WHY THE STORY IS BACK IN `Planned` BEFORE THE COMMIT. [`seed_story`](Self::seed_story) proves a `Planned`
+    /// fixture on purpose: `forge_claim_next_agent_work` (migration 262) claims only items whose story is still
+    /// `Ready` on the board, so the unattended poller cannot take the item a test is racing its own workers over by
+    /// id. Dispatch's end state is `Ready`, and the board status is restored to the fixture's `Planned` in the SAME
+    /// transaction, so no other session ever observes a committed `Ready` story. A refused outcome returns before the
+    /// restore and drops the transaction, which sqlx rolls back: a fixture error changes nothing.
     ///
     /// `agent_work_item_one_serial_active_per_story` admits one open item per story, so a test that needs two
     /// racing items must use two stories.
     pub async fn seed_ready_item(&self, story_id: &str) -> Result<String, HarnessDbError> {
-        let id = sqlx::query_scalar(
-            "insert into agent_work_item (story_id, state) values ($1, 'Ready') returning id::text",
+        let mut tx = self
+            .database_handle()
+            .begin("test-harness.race.seed_ready_item")
+            .await
+            .map_err(HarnessDbError::Db)?;
+
+        let (outcome, item): (String, Option<String>) =
+            sqlx::query_as("select outcome, item from forge_dispatch_story($1)")
+                .bind(story_id)
+                .fetch_one(tx.connection())
+                .await
+                .map_err(|error| {
+                    HarnessDbError::from(DbFailure::from_sqlx(
+                        "test-harness.race.seed_ready_item",
+                        &error,
+                    ))
+                })?;
+
+        let item = match (outcome.as_str(), item) {
+            ("Queued", Some(item)) => item,
+            (other, item) => {
+                return Err(HarnessDbError::from(DbFailure::schema_mismatch(
+                    "test-harness.race.seed_ready_item",
+                    format!(
+                        "`forge_dispatch_story({story_id})` answered {other:?} with item {item:?} instead of \
+                         queueing one: this fixture needs a story seeded by `seed_story` that holds no open work \
+                         item, and a database whose `storyboard_story_ready_dispatch` trigger fires on a change \
+                         into `Ready`"
+                    ),
+                )))
+            }
+        };
+
+        sqlx::query(
+            "update storyboard_story set status = 'Planned', updated_at = now() where id = $1",
         )
         .bind(story_id)
-        .fetch_one(self.pool())
+        .execute(tx.connection())
         .await
         .map_err(|error| {
             HarnessDbError::from(DbFailure::from_sqlx(
@@ -196,7 +251,9 @@ impl RaceHarness {
                 &error,
             ))
         })?;
-        Ok(id)
+
+        tx.commit().await.map_err(HarnessDbError::Db)?;
+        Ok(item)
     }
 
     /// Insert one `task` in `open` state, committed; returns its id.
