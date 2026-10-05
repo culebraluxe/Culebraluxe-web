@@ -2,6 +2,7 @@ pub mod artifact;
 pub mod forms_render;
 pub mod pdf;
 pub mod signing_certificate;
+pub mod signing_overlay;
 
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
@@ -27,7 +28,7 @@ pub trait VaultArtifactPort: Send + Sync {
 }
 
 #[async_trait]
-pub trait VaultRepository: Send {
+pub trait VaultRepository: Send + Sync {
     fn database(&self) -> Option<Database> {
         None
     }

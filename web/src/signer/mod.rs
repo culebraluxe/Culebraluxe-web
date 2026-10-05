@@ -602,15 +602,23 @@ impl<R: SignerRepository> SignerService<R> {
         tx: &mut DbTransaction,
         signature_request_id: &str,
         audit_media_id: &str,
+        signed_media_id: Option<&str>,
         context: &ServiceContext,
     ) -> DbResult<()> {
-        for (event_type, evidence) in [
+        let mut rows = vec![
             (
                 "audit_artifact_created",
                 json!({ "auditMediaId": audit_media_id }),
             ),
             ("document_completed", json!({})),
-        ] {
+        ];
+        if let Some(signed) = signed_media_id {
+            rows.push((
+                "signed_artifact_created",
+                json!({ "signedMediaId": signed }),
+            ));
+        }
+        for (event_type, evidence) in rows {
             self.repository
                 .append_evidence_tx(
                     tx,

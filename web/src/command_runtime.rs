@@ -911,6 +911,7 @@ impl DurableCommandHandler for DocumentSignCommand {
                     json!({
                         "signatureRequestId": signature_request_id,
                         "auditMediaId": finalized.audit_media_id,
+                        "signedMediaId": finalized.signed_media_id,
                         "alreadyCompleted": finalized.already_completed,
                     }),
                 ));

@@ -26,6 +26,7 @@ use services::{
     ServiceActorKind, ServiceContext, ServiceInfrastructure, ServicePrincipal,
 };
 use std::sync::Arc;
+use uuid::Uuid;
 use web::email::EmailService;
 use web::service_support::CoreServiceError;
 use web::signer::{SignerAccessTokenCodec, SignerService, DOCSIGN_EDGE_ACTOR};
@@ -84,9 +85,11 @@ async fn recipient(db: &Database, request_id: &str, order: i32, step: i32, email
 
 /// Draft envelope on DEV: deal-anchored document, requested neutral status,
 /// sequential mode, A+B in step 1, C in step 2, one required field for A.
-/// Tags are fixed per test (not random) with a leading sweep, so a previous
-/// failed run's leftovers are removed rather than accumulated: cleanup on the
-/// happy path is not enough, because a panic skips it.
+/// Tags are unique per run because parallel lanes share DEV: a fixed tag
+/// would let another runner's fixtures collide mid-test (seen live as a
+/// link column changing between two sequential calls). Each test sweeps
+/// its own tag on the way in and out; residue from crashed runs is swept
+/// by hand, not by other runners.
 async fn envelope(db: &Database, tag: &str) -> Envelope {
     sweep_tag(db, tag).await;
     let deal: String = sqlx::query_scalar("select id::text from deal limit 1")
@@ -150,21 +153,33 @@ async fn cleanup(db: &Database, env: &Envelope) {
 /// consent), then the email and outbox rows keyed by correlation id.
 async fn sweep_tag(db: &Database, tag: &str) {
     let title = format!("docsign proof {tag}");
-    // Unlink first: the audit-media link is `on delete restrict`.
-    let media_ids: Vec<Option<String>> = sqlx::query_scalar(
-        "update transaction_document set signed_audit_media_id = null \
-         where title = $1 returning signed_audit_media_id::text",
+    // Unlink first: both media links are `on delete restrict`. The
+    // returning clause hands back every linked id (audit, sealed, and
+    // the fixture original) so no proof bytes survive the sweep.
+    let media_ids: Vec<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        "select signed_audit_media_id::text, signed_media_id::text, media_id::text \
+         from transaction_document where title = $1",
     )
     .bind(&title)
     .fetch_all(db.pool())
     .await
-    .expect("audit unlink cleanup");
-    for media_id in media_ids.into_iter().flatten() {
-        sqlx::query("delete from media where id = $1::uuid")
-            .bind(&media_id)
-            .execute(db.pool())
-            .await
-            .expect("audit media cleanup");
+    .expect("media list cleanup");
+    sqlx::query(
+        "update transaction_document set signed_audit_media_id = null, signed_media_id = null, media_id = null, signed_at = null \
+         where title = $1",
+    )
+    .bind(&title)
+    .execute(db.pool())
+    .await
+    .expect("media unlink cleanup");
+    for (audit, sealed, original) in media_ids {
+        for media_id in [audit, sealed, original].into_iter().flatten() {
+            sqlx::query("delete from media where id = $1::uuid")
+                .bind(&media_id)
+                .execute(db.pool())
+                .await
+                .expect("media cleanup");
+        }
     }
     sqlx::query(
         "delete from signature_evidence_event where signature_request_id in ( \
@@ -297,7 +312,7 @@ async fn consent(
 #[ignore = "requires DATABASE_URL_DEV"]
 async fn parallel_group_acts_together_and_later_step_waits() {
     let db = Database::connect_target(DbTarget::Dev).await.unwrap();
-    let tag = "docsign-turn";
+    let tag = format!("turn-{}", Uuid::new_v4());
     let env = envelope(&db, &tag).await;
     let dao = SignerDao::new(db.clone());
     // A and B share step 1: both may act. C in step 2 waits.
@@ -333,7 +348,7 @@ async fn parallel_group_acts_together_and_later_step_waits() {
 #[ignore = "requires DATABASE_URL_DEV"]
 async fn consent_gates_completion_and_field_ownership_holds() {
     let db = Database::connect_target(DbTarget::Dev).await.unwrap();
-    let tag = "docsign-gates";
+    let tag = format!("gates-{}", Uuid::new_v4());
     let env = envelope(&db, &tag).await;
     let service = signer(&db);
     let ctx = context(&tag);
@@ -404,7 +419,7 @@ async fn consent_gates_completion_and_field_ownership_holds() {
 #[ignore = "requires DATABASE_URL_DEV"]
 async fn consent_is_immutable_and_completion_replays_safely() {
     let db = Database::connect_target(DbTarget::Dev).await.unwrap();
-    let tag = "docsign-replay";
+    let tag = format!("replay-{}", Uuid::new_v4());
     let env = envelope(&db, &tag).await;
     let service = signer(&db);
     let ctx = context(&tag);
@@ -453,7 +468,7 @@ async fn consent_is_immutable_and_completion_replays_safely() {
 #[ignore = "requires DATABASE_URL_DEV"]
 async fn email_dedupe_keeps_one_invitation_per_key() {
     let db = Database::connect_target(DbTarget::Dev).await.unwrap();
-    let tag = "docsign-dedupe";
+    let tag = format!("dedupe-{}", Uuid::new_v4());
     let service = EmailService::new(EmailDao::new(db.clone()), None, infra());
     let ctx = context(&tag);
     let request = QueueEmailRequest {
@@ -483,7 +498,7 @@ async fn email_dedupe_keeps_one_invitation_per_key() {
     tx.commit().await.unwrap();
     assert!(second.existing);
     assert_eq!(first.message_id, second.message_id);
-    sweep_tag(&db, tag).await;
+    sweep_tag(&db, &tag).await;
 }
 
 async fn document_sign(db: &Database) -> web::document_sign::DocumentSignService<
@@ -491,6 +506,7 @@ async fn document_sign(db: &Database) -> web::document_sign::DocumentSignService
     db::SignatureDao,
     SignerDao,
     EmailDao,
+    db::VaultDao,
 > {
     use web::document_sign::DocumentSignService;
     use web::security::CasbinAuthorizationPort;
@@ -517,6 +533,11 @@ async fn document_sign(db: &Database) -> web::document_sign::DocumentSignService
         )),
         Arc::new(signer(db)),
         Arc::new(EmailService::new(EmailDao::new(db.clone()), None, infra())),
+        Arc::new(web::vault::VaultService::new(
+            db::VaultDao::new(db.clone()),
+            web::vault::artifact::shared(),
+            infra(),
+        )),
         infra(),
     )
 }
@@ -526,10 +547,10 @@ async fn document_sign(db: &Database) -> web::document_sign::DocumentSignService
 async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
     use model::SignatureRequestStatus;
     let db = Database::connect_target(DbTarget::Dev).await.unwrap();
-    let tag = "docsign-finalize";
-    let env = envelope(&db, tag).await;
+    let tag = format!("finalize-{}", Uuid::new_v4());
+    let env = envelope(&db, &tag).await;
     let signing = signer(&db);
-    let ctx = context(tag);
+    let ctx = context(&tag);
     for (recipient, field) in
         [(&env.a, Some(env.field_a.as_str())), (&env.b, None), (&env.c, None)]
     {
@@ -550,6 +571,39 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
         .expect_err("requested envelopes cannot finalize");
     tx.rollback().await.unwrap();
     assert_eq!(refused.code(), "DOCUMENT_SIGN_NOT_MUTABLE");
+
+    // The envelope's original: a one-page PDF stored the Vault way, so
+    // finalize has bytes to seal.
+    let original: Vec<u8> = {
+        use web::vault::pdf::{Content, Pdf, Rgb};
+        use model::forms_font::encode;
+        let mut pdf = Pdf::new();
+        let font = pdf.font("Helvetica");
+        let tree = pdf.reserve();
+        let resources = pdf.dictionary(&web::vault::pdf::resources(&[("F1", font)], &[]));
+        let mut content = Content::new();
+        content.text("F1", 12.0, 54.0, 700.0, Rgb::from_bytes(3, 15, 35), &encode("Original").unwrap());
+        let page = pdf
+            .page(612.0, 792.0, tree, resources, &content.into_bytes())
+            .unwrap();
+        let info = pdf.info("T", "A", "S", "C", "P", "D:20260101000000");
+        pdf.finish(tree, &[page], Some(info)).unwrap()
+    };
+    let original_id: String = sqlx::query_scalar(
+        "insert into media (file_data, filename, mime_type, file_size, media_type) \
+         values ($1, 'original.pdf', 'application/pdf', $2, 'document') returning id::text",
+    )
+    .bind(&original)
+    .bind(original.len() as i64)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    sqlx::query("update transaction_document set media_id = $2::uuid where title = $1")
+        .bind(format!("docsign proof {tag}"))
+        .bind(&original_id)
+        .execute(db.pool())
+        .await
+        .unwrap();
 
     // Drive the canonical machine to Signed, then finalize.
     let signature = web::signature::SignatureService::new_optional(
@@ -599,6 +653,39 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
         .await
         .unwrap();
     assert_eq!(mime, "application/pdf");
+    let sealed_len: i64 = sqlx::query_scalar("select file_size from media where id = $1::uuid")
+        .bind(&audit_media_id)
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    let _ = sealed_len;
+    let signed_id: Option<String> = sqlx::query_scalar(
+        "select td.signed_media_id::text from transaction_document td \
+         join signature_request sr on sr.transaction_document_id = td.id \
+         where sr.id = $1::uuid",
+    )
+    .bind(&env.request_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    let signed_id = signed_id.expect("sealed PDF linked");
+    let signed_magic: Vec<u8> = sqlx::query_scalar(
+        "select substring(file_data from 1 for 8) from media where id = $1::uuid",
+    )
+    .bind(&signed_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(&signed_magic, b"%PDF-1.4");
+    let signed_len: i64 = sqlx::query_scalar("select file_size from media where id = $1::uuid")
+        .bind(&signed_id)
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert!(
+        signed_len > original.len() as i64,
+        "the sealed document carries the overlay"
+    );
     let magic: Vec<u8> = sqlx::query_scalar(
         "select substring(file_data from 1 for 8) from media where id = $1::uuid",
     )
@@ -639,10 +726,10 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
 #[ignore = "requires DATABASE_URL_DEV"]
 async fn sweep_expires_overdue_grants_and_envelopes() {
     let db = Database::connect_target(DbTarget::Dev).await.unwrap();
-    let tag = "docsign-sweep";
-    let env = envelope(&db, tag).await;
+    let tag = format!("sweep-{}", Uuid::new_v4());
+    let env = envelope(&db, &tag).await;
     let signing = signer(&db);
-    let ctx = context(tag);
+    let ctx = context(&tag);
     let service = document_sign(&db).await;
 
     // Grant already lapsed for A, envelope clock in the past. The grant
@@ -726,8 +813,8 @@ async fn sweep_expires_overdue_grants_and_envelopes() {
 async fn import_builds_owned_fields_from_template_anchors() {
     use model::{ImportAnchorFieldsRequest, TemplateAnchor, TemplateAnchorRect};
     let db = Database::connect_target(DbTarget::Dev).await.unwrap();
-    let tag = "docsign-import";
-    let env = envelope(&db, tag).await;
+    let tag = format!("import-{}", Uuid::new_v4());
+    let env = envelope(&db, &tag).await;
     // B claims the seller slot; A and C stay slotless.
     sqlx::query(
         "update signature_envelope_recipient          set execution_role = 'seller', execution_slot_id = 's1' where id = $1::uuid",
@@ -746,14 +833,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
         rect: TemplateAnchorRect { x: 72.0, y: 650.0, width: 180.0, height: 20.0 },
     };
     let service = document_sign(&db).await;
-    let ctx = context(tag);
-    let pre: Vec<(String, String)> = sqlx::query_as(
-        "select f.field_key, f.recipient_id::text from signature_field f          join transaction_document td on td.title = 'docsign proof docsign-import'          join signature_request sr on sr.transaction_document_id = td.id          where f.signature_request_id = sr.id",
-    )
-    .fetch_all(db.pool())
-    .await
-    .unwrap();
-    eprintln!("PRE-IMPORT fields: {pre:?}");
+    let ctx = context(&tag);
     let mut tx = db.begin("docsign-proof-import").await.unwrap();
     let imported = service
         .import_fields_transactional(

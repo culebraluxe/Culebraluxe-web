@@ -2,9 +2,10 @@ use crate::email::{EmailRepository, EmailService, EMAIL_DELIVERY_ROUTING_KEY};
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use crate::signature::{SignatureRepository, SignatureService};
 use crate::signer::{SignerRepository, SignerService};
+use crate::vault::{VaultRepository, VaultService};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use db::{DbResult, DbTransaction, DocumentSignDao, EmailDao, SignatureDao, SignerDao};
+use db::{DbResult, DbTransaction, DocumentSignDao, EmailDao, FinalizeInputs, SignatureDao, SignerDao, VaultDao};
 use model::{
     validate_document_sign_recipients, DocumentSignConfig, DocumentSignFinalizeResult,
     DocumentSignIssueResult, DocumentSignRecipient, DocumentSignSnapshot, DocumentSignEnvelopeSummary, DocumentSignSweepResult, EmailMessageKind,
@@ -89,6 +90,19 @@ pub trait DocumentSignRepository: Send + Sync {
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<Option<String>>;
+    async fn link_signed_media_tx(
+        &self,
+        tx: &mut DbTransaction,
+        transaction_document_id: &str,
+        media_id: &str,
+    ) -> DbResult<()>;
+    async fn store_signed_artifact_tx(
+        &self,
+        tx: &mut DbTransaction,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
+    ) -> DbResult<String>;
     async fn overdue_envelopes_tx(
         &self,
         tx: &mut DbTransaction,
@@ -102,6 +116,11 @@ pub trait DocumentSignRepository: Send + Sync {
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<Option<(String, String)>>;
+    async fn signed_media_for_request_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>>;
     async fn template_anchors_tx(
         &self,
         tx: &mut DbTransaction,
@@ -217,6 +236,23 @@ impl DocumentSignRepository for DocumentSignDao {
     ) -> DbResult<Option<String>> {
         DocumentSignDao::audit_media_for_request_tx(self, tx, signature_request_id).await
     }
+    async fn link_signed_media_tx(
+        &self,
+        tx: &mut DbTransaction,
+        transaction_document_id: &str,
+        media_id: &str,
+    ) -> DbResult<()> {
+        DocumentSignDao::link_signed_media_tx(self, tx, transaction_document_id, media_id).await
+    }
+    async fn store_signed_artifact_tx(
+        &self,
+        tx: &mut DbTransaction,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
+    ) -> DbResult<String> {
+        DocumentSignDao::store_signed_artifact_tx(self, tx, filename, mime_type, bytes).await
+    }
     async fn overdue_envelopes_tx(
         &self,
         tx: &mut DbTransaction,
@@ -230,6 +266,13 @@ impl DocumentSignRepository for DocumentSignDao {
     ) -> DbResult<Option<(String, String)>> {
         DocumentSignDao::canonical_status_tx(self, tx, signature_request_id).await
     }
+    async fn signed_media_for_request_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>> {
+        DocumentSignDao::signed_media_for_request_tx(self, tx, signature_request_id).await
+    }
     async fn template_anchors_tx(
         &self,
         tx: &mut DbTransaction,
@@ -239,26 +282,29 @@ impl DocumentSignRepository for DocumentSignDao {
     }
 }
 
-pub struct DocumentSignService<R, SR, SGR, ER> {
+pub struct DocumentSignService<R, SR, SGR, ER, VR> {
     repository: R,
     signature: Arc<SignatureService<SR>>,
     signer: Arc<SignerService<SGR>>,
     email: Arc<EmailService<ER>>,
+    vault: Arc<VaultService<VR>>,
     runtime: ServiceRuntime,
 }
 
-impl<R, SR, SGR, ER> DocumentSignService<R, SR, SGR, ER>
+impl<R, SR, SGR, ER, VR> DocumentSignService<R, SR, SGR, ER, VR>
 where
     R: DocumentSignRepository,
     SR: SignatureRepository,
     SGR: SignerRepository,
     ER: EmailRepository,
+    VR: VaultRepository,
 {
     pub fn new(
         repository: R,
         signature: Arc<SignatureService<SR>>,
         signer: Arc<SignerService<SGR>>,
         email: Arc<EmailService<ER>>,
+        vault: Arc<VaultService<VR>>,
         infrastructure: ServiceInfrastructure,
     ) -> Self {
         Self {
@@ -266,6 +312,7 @@ where
             signature,
             signer,
             email,
+            vault,
             runtime: ServiceRuntime::new(infrastructure),
         }
     }
@@ -1280,9 +1327,14 @@ where
                 .repository
                 .audit_media_for_request_tx(tx, signature_request_id)
                 .await?;
+            let signed_media_id = self
+                .repository
+                .signed_media_for_request_tx(tx, signature_request_id)
+                .await?;
             return Ok(DocumentSignFinalizeResult {
                 signature_request_id: signature_request_id.to_owned(),
                 audit_media_id,
+                signed_media_id,
                 already_completed: true,
             });
         }
@@ -1331,11 +1383,50 @@ where
                 &certificate,
             )
             .await?;
+        // The original bytes travel through Vault under the CALLER's
+        // authority, never the internal service actor: sealing another
+        // party's document is the operator's own grant or it does not happen.
+        let original: Option<Vec<u8>> = match self
+            .vault
+            .get_document(&transaction_document_id, context)
+            .await
+            .map_err(CoreServiceError::from)?
+            .and_then(|document| document.media_id)
+        {
+            Some(media_id) => {
+                self.vault
+                    .media_bytes(&media_id, context)
+                    .await
+                    .map_err(CoreServiceError::from)?
+                    .map(|media| media.bytes)
+            }
+            None => None,
+        };
+        let signed_media_id = match original {
+            Some(bytes) => {
+                let overlay = seal_overlay(&inputs, &bytes)?;
+                let media_id = self
+                    .repository
+                    .store_signed_artifact_tx(
+                        tx,
+                        &format!("signature-signed-{signature_request_id}.pdf"),
+                        "application/pdf",
+                        &overlay,
+                    )
+                    .await?;
+                self.repository
+                    .link_signed_media_tx(tx, &transaction_document_id, &media_id)
+                    .await?;
+                Some(media_id)
+            }
+            _ => None,
+        };
         self.signer
             .append_finalize_evidence_tx(
                 tx,
                 signature_request_id,
                 &audit_media_id,
+                signed_media_id.as_deref(),
                 &internal,
             )
             .await?;
@@ -1350,6 +1441,7 @@ where
         Ok(DocumentSignFinalizeResult {
             signature_request_id: signature_request_id.to_owned(),
             audit_media_id: Some(audit_media_id),
+            signed_media_id,
             already_completed: false,
         })
     }
@@ -1398,6 +1490,98 @@ where
             expired_envelopes,
         })
     }
+}
+
+/// Printable text for one answered field. Signature and initials draw
+/// the recipient's name in their adopted form; dates draw the completion
+/// day; everything else draws its stored scalar. Unanswered or
+/// non-scalar values draw nothing rather than a placeholder.
+fn overlay_text(
+    field_type: &str,
+    value: &Option<serde_json::Value>,
+    recipient_name: &str,
+    completed_at: &Option<String>,
+) -> Option<String> {
+    match field_type {
+        "signature" => Some(recipient_name.to_owned()),
+        "initials" => {
+            let marks: String = recipient_name
+                .split_whitespace()
+                .filter_map(|part| part.chars().next())
+                .take(2)
+                .collect::<String>()
+                .to_uppercase();
+            if marks.is_empty() {
+                None
+            } else {
+                Some(marks)
+            }
+        }
+        "date" => completed_at
+            .as_deref()
+            .and_then(|at| at.get(..10))
+            .map(str::to_owned)
+            .or_else(|| {
+                value.as_ref().and_then(|value| {
+                    value.as_str().map(str::to_owned)
+                })
+            }),
+        "checkbox" => match value {
+            Some(serde_json::Value::Bool(true)) => Some("X".into()),
+            _ => None,
+        },
+        _ => value.as_ref().and_then(|value| match value {
+            serde_json::Value::String(text) => {
+                let trimmed = text.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_owned())
+                }
+            }
+            serde_json::Value::Number(number) => Some(number.to_string()),
+            serde_json::Value::Bool(flag) => Some(flag.to_string()),
+            _ => None,
+        }),
+    }
+}
+
+/// Seal the original bytes with every answered field, positioned by the
+/// field geometry the template import recorded. Pure apart from parsing.
+fn seal_overlay(
+    inputs: &FinalizeInputs,
+    original: &[u8],
+) -> Result<Vec<u8>, CoreServiceError> {
+    use crate::vault::signing_overlay::{overlay_fields, OverlayField};
+    let names: std::collections::BTreeMap<&str, &str> = inputs
+        .recipients
+        .iter()
+        .map(|recipient| (recipient.id.as_str(), recipient.name.as_str()))
+        .collect();
+    let mut fields = Vec::new();
+    for field in &inputs.fields {
+        let name = names.get(field.recipient_id.as_str()).copied().unwrap_or("");
+        let Some(text) = overlay_text(
+            &field.field_type,
+            &field.value,
+            name,
+            &field.completed_at,
+        ) else {
+            continue;
+        };
+        fields.push(OverlayField {
+            page_number: field.page_number,
+            x_percent: field.position_x,
+            y_percent: field.position_y,
+            text,
+        });
+    }
+    overlay_fields(original, &fields).map_err(|error| {
+        CoreServiceError::business(
+            "DOCUMENT_SIGN_FINALIZE_FAILED",
+            format!("Signed PDF could not be sealed: {error}"),
+        )
+    })
 }
 
 fn internal_context(context: &ServiceContext) -> ServiceContext {
@@ -1712,12 +1896,13 @@ fn capability(
 }
 
 #[async_trait]
-impl<R, SR, SGR, ER> AbstractService for DocumentSignService<R, SR, SGR, ER>
+impl<R, SR, SGR, ER, VR> AbstractService for DocumentSignService<R, SR, SGR, ER, VR>
 where
     R: DocumentSignRepository + 'static,
     SR: SignatureRepository + 'static,
     SGR: SignerRepository + 'static,
     ER: EmailRepository + 'static,
+    VR: VaultRepository + 'static,
 {
     fn descriptor(&self) -> ServiceDescriptor {
         ServiceDescriptor {
@@ -1930,7 +2115,7 @@ fn serialization_error(error: serde_json::Error) -> ServiceDispatchError {
 }
 
 pub type ProductionDocumentSignService =
-    DocumentSignService<DocumentSignDao, SignatureDao, SignerDao, EmailDao>;
+    DocumentSignService<DocumentSignDao, SignatureDao, SignerDao, EmailDao, VaultDao>;
 
 #[cfg(test)]
 mod tests {

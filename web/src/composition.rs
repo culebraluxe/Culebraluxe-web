@@ -335,11 +335,17 @@ impl ServiceCatalog {
             signer_codec,
             infrastructure.clone(),
         ));
+        let vault = Arc::new(VaultService::new(
+            VaultDao::new(db.clone()),
+            crate::vault::artifact::shared(),
+            infrastructure.clone(),
+        ));
         let document_sign = Arc::new(DocumentSignService::new(
             DocumentSignDao::new(db.clone()),
             signature.clone(),
             signer.clone(),
             email.clone(),
+            vault.clone(),
             infrastructure.clone(),
         ));
         let forge = Arc::new(ForgeService::for_application(
@@ -464,11 +470,7 @@ impl ServiceCatalog {
                 SecurityDao::new(db.clone()),
                 infrastructure.clone(),
             )),
-            vault: Arc::new(VaultService::new(
-                VaultDao::new(db.clone()),
-                crate::vault::artifact::shared(),
-                infrastructure.clone(),
-            )),
+            vault: vault.clone(),
             task: Arc::new(TaskService::new(
                 TaskDao::new(db.clone()),
                 infrastructure.clone(),
