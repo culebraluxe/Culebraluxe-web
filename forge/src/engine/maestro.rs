@@ -411,9 +411,9 @@ impl RoleHarness for MaestroHarness {
         // before an id from a deleted worktree is re-sent. Fail-closed toward fresh: when the vendor
         // cannot be asked, the turn opens a new session and re-reads the packet.
         let lane_session_lives_here = workspace_session.is_none()
-            && lane_session.as_deref().is_some_and(|id| {
-                maestro_session_lists(&self.cli_bin, &self.agent, id)
-            });
+            && lane_session
+                .as_deref()
+                .is_some_and(|id| maestro_session_lists(&self.cli_bin, &self.agent, id));
         let session = resume_session(workspace_session, lane_session, lane_session_lives_here);
 
         // The send contract, exactly as the vendor documents it (`maestro-cli send --help`): `send`
@@ -483,7 +483,10 @@ impl RoleHarness for MaestroHarness {
         })
     }
 
-    fn interrupt_execution(&self, _reason: &str) -> Result<Option<crate::engine::harness::TurnTermination>> {
+    fn interrupt_execution(
+        &self,
+        _reason: &str,
+    ) -> Result<Option<crate::engine::harness::TurnTermination>> {
         // V1: no process interruption support
         Ok(None)
     }
@@ -581,7 +584,10 @@ pub fn resolve_maestro_agent(
 ) -> Result<String> {
     use crate::engine::harness::ModelSelection;
     let clean = |value: Option<&str>| {
-        value.map(str::trim).filter(|value| !value.is_empty()).map(str::to_string)
+        value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
     };
     if let Some(agent) = clean(explicit) {
         return Ok(agent);
@@ -653,9 +659,14 @@ fn maestro_session_lists(cli_bin: &str, agent: &str, session_id: &str) -> bool {
         .is_some_and(|sessions| {
             sessions.iter().any(|entry| {
                 entry.get("sessionId").and_then(|id| id.as_str()) == Some(session_id)
-                    && entry.get("agentId").and_then(|id| id.as_str()).is_some_and(|id| {
-                        id == agent || entry.get("agentName").and_then(|name| name.as_str()) == Some(agent)
-                    })
+                    && entry
+                        .get("agentId")
+                        .and_then(|id| id.as_str())
+                        .is_some_and(|id| {
+                            id == agent
+                                || entry.get("agentName").and_then(|name| name.as_str())
+                                    == Some(agent)
+                        })
             })
         })
 }
@@ -679,7 +690,9 @@ fn run_maestro_streaming(
     cmd.stderr(std::process::Stdio::piped());
     cmd.stdin(std::process::Stdio::null());
 
-    let mut child = cmd.spawn().map_err(|e| WorkflowError::generic(format!("failed to spawn maestro: {e}")))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| WorkflowError::generic(format!("failed to spawn maestro: {e}")))?;
 
     let mut stdout = String::new();
     let mut stderr = String::new();
@@ -745,13 +758,17 @@ fn run_maestro_streaming(
                 }
             }
             Err(e) => {
-                return Err(WorkflowError::generic(format!("failed to read maestro stdout: {e}")));
+                return Err(WorkflowError::generic(format!(
+                    "failed to read maestro stdout: {e}"
+                )));
             }
         }
     }
 
     // Wait for process to finish
-    let status = child.wait().map_err(|e| WorkflowError::generic(e.to_string()))?;
+    let status = child
+        .wait()
+        .map_err(|e| WorkflowError::generic(e.to_string()))?;
     let stderr = stderr_handle.join().unwrap_or_default();
 
     Ok(MaestroRunResult {
@@ -771,9 +788,18 @@ fn parse_usage_from_line(line: &str) -> Option<HarnessUsage> {
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
         if let Some(usage_obj) = json.get("usage").or_else(|| json.get("usage_info")) {
             if let (Some(input), Some(output), Some(cost)) = (
-                usage_obj.get("input_tokens").or_else(|| usage_obj.get("tokens_input")).and_then(|v| v.as_i64()),
-                usage_obj.get("output_tokens").or_else(|| usage_obj.get("tokens_output")).and_then(|v| v.as_i64()),
-                usage_obj.get("cost_usd").or_else(|| usage_obj.get("cost")).and_then(|v| v.as_f64()),
+                usage_obj
+                    .get("input_tokens")
+                    .or_else(|| usage_obj.get("tokens_input"))
+                    .and_then(|v| v.as_i64()),
+                usage_obj
+                    .get("output_tokens")
+                    .or_else(|| usage_obj.get("tokens_output"))
+                    .and_then(|v| v.as_i64()),
+                usage_obj
+                    .get("cost_usd")
+                    .or_else(|| usage_obj.get("cost"))
+                    .and_then(|v| v.as_f64()),
             ) {
                 return Some(HarnessUsage {
                     session_id: String::new(), // Will be filled by parse_maestro_output
@@ -848,11 +874,16 @@ fn parse_maestro_output(stdout: &str) -> Result<ParsedMaestroOutput> {
         let error = json
             .get("error")
             .map(|value| {
-                value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string())
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| value.to_string())
             })
             .filter(|text| !text.trim().is_empty() && text != "null")
             .unwrap_or_else(|| "unknown Maestro failure".to_string());
-        return Err(WorkflowError::generic(format!("maestro-harness: turn failed: {error}")));
+        return Err(WorkflowError::generic(format!(
+            "maestro-harness: turn failed: {error}"
+        )));
     }
 
     let mut result = ParsedMaestroOutput::default();
@@ -876,7 +907,10 @@ fn parse_maestro_output(stdout: &str) -> Result<ParsedMaestroOutput> {
         // Cost is authoritative-or-nothing: without `totalCostUsd` the turn's spend is unmeasured and
         // `usage` stays `None` (the field's documented meaning — "unmeasured, never zero"). Recording
         // tokens beside a fake $0 would let a spend cap believe an expensive turn was free.
-        if let Some(cost) = usage_obj.get("totalCostUsd").and_then(|value| value.as_f64()) {
+        if let Some(cost) = usage_obj
+            .get("totalCostUsd")
+            .and_then(|value| value.as_f64())
+        {
             result.usage = Some(HarnessUsage {
                 session_id: result.session_id.clone().unwrap_or_default(),
                 tokens_input: usage_obj
@@ -914,7 +948,9 @@ pub fn verify_vendor_contract(cli_bin: &str) -> std::result::Result<String, Stri
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
     let output = cmd.output().map_err(|error| {
-        format!("maestro preflight failed to spawn `{cli_bin}`: {error}. Check MAESTRO_BIN and PATH.")
+        format!(
+            "maestro preflight failed to spawn `{cli_bin}`: {error}. Check MAESTRO_BIN and PATH."
+        )
     })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -943,7 +979,9 @@ mod tests {
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn lock_env() -> std::sync::MutexGuard<'static, ()> {
-        ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     use crate::engine::harness::{HarnessBackend, ModelSelection};
@@ -956,7 +994,10 @@ mod tests {
         let harness = MaestroHarness::from_env().expect("harness construction");
         assert_eq!(harness.cli_bin, "maestro-cli");
         assert!(harness.workspace.exists());
-        assert!(harness.agent.is_empty(), "from_env builds transport without intent");
+        assert!(
+            harness.agent.is_empty(),
+            "from_env builds transport without intent"
+        );
     }
 
     #[test]
@@ -988,8 +1029,14 @@ mod tests {
 
     #[test]
     fn model_intent_cheap_judgment_explicit() {
-        assert_eq!(ModelSelection::from_parts(None, None), ModelSelection::Cheap);
-        assert_eq!(ModelSelection::from_parts(Some("cheap"), None), ModelSelection::Cheap);
+        assert_eq!(
+            ModelSelection::from_parts(None, None),
+            ModelSelection::Cheap
+        );
+        assert_eq!(
+            ModelSelection::from_parts(Some("cheap"), None),
+            ModelSelection::Cheap
+        );
         assert_eq!(
             ModelSelection::from_parts(Some("judgment"), None),
             ModelSelection::Judgment
@@ -1015,8 +1062,14 @@ mod tests {
     fn maestro_agent_explicit_wins() {
         let judgment = ModelSelection::Judgment;
         assert_eq!(
-            resolve_maestro_agent(&judgment, Some("forge-muse"), Some("cheap-a"), Some("judge-a"), Some("def-a"))
-                .expect("explicit wins"),
+            resolve_maestro_agent(
+                &judgment,
+                Some("forge-muse"),
+                Some("cheap-a"),
+                Some("judge-a"),
+                Some("def-a")
+            )
+            .expect("explicit wins"),
             "forge-muse"
         );
     }
@@ -1024,14 +1077,26 @@ mod tests {
     #[test]
     fn maestro_agent_tier_routing() {
         assert_eq!(
-            resolve_maestro_agent(&ModelSelection::Judgment, None, Some("cheap-a"), Some("judge-a"), Some("def-a"))
-                .expect("judgment tier"),
+            resolve_maestro_agent(
+                &ModelSelection::Judgment,
+                None,
+                Some("cheap-a"),
+                Some("judge-a"),
+                Some("def-a")
+            )
+            .expect("judgment tier"),
             "judge-a",
             "MAESTRO_JUDGMENT_AGENT serves judgment"
         );
         assert_eq!(
-            resolve_maestro_agent(&ModelSelection::Cheap, None, Some("cheap-a"), Some("judge-a"), Some("def-a"))
-                .expect("cheap tier"),
+            resolve_maestro_agent(
+                &ModelSelection::Cheap,
+                None,
+                Some("cheap-a"),
+                Some("judge-a"),
+                Some("def-a")
+            )
+            .expect("cheap tier"),
             "cheap-a",
             "MAESTRO_CHEAP_AGENT serves cheap"
         );
@@ -1067,9 +1132,14 @@ mod tests {
         }
         // Resuming: exactly one `--session` with the id, appended once.
         let args = build_maestro_send_args("forge-nemotron", "hello", Some("abc123"));
-        assert_eq!(args, vec!["send", "forge-nemotron", "hello", "--session", "abc123"]);
         assert_eq!(
-            args.iter().filter(|arg| arg.as_str() == "--session").count(),
+            args,
+            vec!["send", "forge-nemotron", "hello", "--session", "abc123"]
+        );
+        assert_eq!(
+            args.iter()
+                .filter(|arg| arg.as_str() == "--session")
+                .count(),
             1,
             "the session argument appears exactly once"
         );
@@ -1084,7 +1154,9 @@ mod tests {
         let parsed = parse_maestro_output(stdout).expect("the documented envelope parses");
         assert_eq!(parsed.assistant_text, "done");
         assert_eq!(parsed.session_id.as_deref(), Some("session-123"));
-        let usage = parsed.usage.expect("usage is recorded when cost is authoritative");
+        let usage = parsed
+            .usage
+            .expect("usage is recorded when cost is authoritative");
         assert_eq!(usage.tokens_input, 100);
         assert_eq!(usage.tokens_output, 25);
         assert!((usage.cost_usd - 0.012).abs() < 1e-12);
@@ -1162,11 +1234,21 @@ mod tests {
             .stdin(std::process::Stdio::null())
             .output()
             .expect("maestro-cli runs");
-        assert!(output.status.success(), "send failed: {}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "send failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         let parsed = parse_maestro_output(&String::from_utf8_lossy(&output.stdout))
             .expect("the live response parses");
-        assert!(!parsed.assistant_text.trim().is_empty(), "the live turn answered");
-        assert!(parsed.session_id.is_some(), "the live turn minted a session");
+        assert!(
+            !parsed.assistant_text.trim().is_empty(),
+            "the live turn answered"
+        );
+        assert!(
+            parsed.session_id.is_some(),
+            "the live turn minted a session"
+        );
     }
 
     #[test]

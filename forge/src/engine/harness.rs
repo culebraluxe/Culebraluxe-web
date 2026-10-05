@@ -3,7 +3,6 @@
 //! These types define the boundary between Forge's role lifecycle and any
 /// agent-execution harness (OpenCode, Maestro, etc.). They contain no
 /// vendor-specific logic — that lives in the adapter modules.
-
 use std::path::{Path, PathBuf};
 
 use crate::engine::assay::CommandResult;
@@ -57,7 +56,10 @@ impl ModelSelection {
     /// From the dispatch policy plus an explicit override. The override wins when it is non-empty; `judgment`
     /// selects judgment; everything else (absent, unknown, `cheap`) reads as cheap — the default bills least.
     pub fn from_parts(model_policy: Option<&str>, explicit_override: Option<&str>) -> Self {
-        if let Some(explicit) = explicit_override.map(str::trim).filter(|value| !value.is_empty()) {
+        if let Some(explicit) = explicit_override
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             return ModelSelection::Explicit(explicit.to_string());
         }
         match model_policy.map(str::trim) {
@@ -255,7 +257,11 @@ impl ForgeHarness {
     }
 
     /// Set the story packet and story ID.
-    pub fn set_packet_and_story_id(&mut self, packet: crate::engine::packet::StoryPacket, story_id: String) {
+    pub fn set_packet_and_story_id(
+        &mut self,
+        packet: crate::engine::packet::StoryPacket,
+        story_id: String,
+    ) {
         match self {
             ForgeHarness::OpenCode(h) => {
                 h.packet = packet;
@@ -281,7 +287,10 @@ impl ForgeHarness {
     }
 
     /// Set the execution workspace.
-    pub fn set_execution_workspace(&mut self, execution_workspace: crate::engine::packet::ExecutionWorkspace) {
+    pub fn set_execution_workspace(
+        &mut self,
+        execution_workspace: crate::engine::packet::ExecutionWorkspace,
+    ) {
         match self {
             ForgeHarness::OpenCode(h) => {
                 h.execution_workspace = Some(execution_workspace);
