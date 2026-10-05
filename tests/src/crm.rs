@@ -295,7 +295,6 @@ impl IntakeHarness {
 }
 
 /// The production CRM client service on an isolated, disposable DEV database.
-#[derive(Clone)]
 pub struct ClientHarness {
     database: TestDatabase,
     service: web::clients::ClientService<ClientDao>,

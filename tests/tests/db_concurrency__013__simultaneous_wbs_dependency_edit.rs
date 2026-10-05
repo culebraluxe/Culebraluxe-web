@@ -134,7 +134,7 @@ async fn db_concurrency_013__simultaneous_wbs_dependency_edit() {
 
     // Test 3: Fault injection - one worker crashes during insert
     let project_id_3 = Uuid::new_v4().to_string();
-    sweep(&db, &project_id_3).await
+    sweep(&db, &project_id_3).await;
     create_project(&db, &project_id_3).await;
 
     let edge_3 = WbsDependency {
