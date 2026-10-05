@@ -45,6 +45,47 @@ pub const TURN_CEILING_ENV: &str = "FORGE_TURN_TIMEOUT_MINUTES";
 /// Default turn ceiling in minutes.
 pub const DEFAULT_TURN_CEILING_MINUTES: u64 = 120;
 
+/// Shorthand → registered Maestro agent name (the roster from `maestro-cli list agents`).
+/// The same fail-closed posture as the OpenCode model aliases: a shorthand typed on the command line
+/// resolves to the one real agent, and an unknown name is passed through to the vendor's own refusal.
+pub fn agent_alias(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "muse" => Some("Meta Muse"),
+        "muse-2" | "muse2" => Some("Meta Muse2"),
+        "nemotron" => Some("Numetron"),
+        "nemotron-2" | "nemotron2" => Some("Numetron2"),
+        "lightning" | "nemotron-lightning" => Some("numetronlightning"),
+        "mino" => Some("Mino"),
+        "ling" => Some("Ling"),
+        "longcat" => Some("LongCat"),
+        "spacebunny" | "space-bunny" | "space bunny" => Some("Space Bunny"),
+        "grok" => Some("Grok"),
+        "deepseek" => Some("DeepSeek Flash"),
+        "claude" => Some("Claude"),
+        "codex" | "gpt" => Some("ChatGPT codex"),
+        "pianola" => Some("Pianola"),
+        "fledge" | "fledgealpha" => Some("FledgeAlpha"),
+        _ => None,
+    }
+}
+
+/// Whether `maestro-cli list agents` knows this agent (by exact name or a name containing the query).
+fn maestro_agent_listed(cli_bin: &str, agent: &str) -> bool {
+    let output = std::process::Command::new(cli_bin)
+        .args(["list", "agents"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output();
+    match output {
+        Ok(out) => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            text.lines().map(str::trim).any(|line| line == agent)
+        }
+        Err(_) => false,
+    }
+}
+
 /// Parse turn ceiling from environment (same logic as OpenCode).
 fn turn_ceiling(raw: Option<&str>) -> Option<Duration> {
     let minutes = match raw.map(str::trim) {
@@ -366,6 +407,15 @@ impl RoleHarness for MaestroHarness {
         // depend on the direct OpenCode harness passing.
         maestro_preflight(&self.cli_bin)?;
 
+        // And the configured agent must exist in the roster: discovering a typo'd agent after a claim
+        // is a wasted run, and `MAESTRO_AGENT=forge-mino` fails here, not in a model turn.
+        if !self.agent.trim().is_empty() && !maestro_agent_listed(&self.cli_bin, &self.agent) {
+            return Err(WorkflowError::generic(format!(
+                "Maestro agent {:?} is not in the roster (`maestro-cli list agents`). Check MAESTRO_AGENT.",
+                self.agent
+            )));
+        }
+
         let cwd = self.workspace.to_string_lossy().to_string();
         let task_text = self.task_text(node_id, task, self_heal);
         let before_sha = self.run_git(&["rev-parse", "HEAD"]);
@@ -587,7 +637,10 @@ pub fn resolve_maestro_agent(
         value
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(str::to_string)
+            .map(|value| match agent_alias(value) {
+                Some(real) => real.to_string(),
+                None => value.to_string(),
+            })
     };
     if let Some(agent) = clean(explicit) {
         return Ok(agent);
@@ -595,7 +648,7 @@ pub fn resolve_maestro_agent(
     if let ModelSelection::Explicit(agent) = selection {
         let agent = agent.trim();
         if !agent.is_empty() {
-            return Ok(agent.to_string());
+            return Ok(agent_alias(agent).unwrap_or(agent).to_string());
         }
     }
     let tiered = match selection {
