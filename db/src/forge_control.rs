@@ -145,41 +145,66 @@ impl ForgeControlDao {
                 DbFailure::schema_mismatch("forge_control.flight_member.story", error.to_string())
             })?;
             let kind: String = row.try_get("kind").unwrap_or_else(|_| "normal".into());
+            // ONE TRANSACTION PER MEMBER, AND THE ORDER INSIDE IT IS LOAD-BEARING (migration 268).
+            //
+            // The item is queued BEFORE the story leaves `Batched`. The obvious order -- the story moves, then its
+            // item follows -- commits a state in which the story is `Ready` while the item this method just selected
+            // is still `Staged`, and that is precisely the state 268's deferred constraint trigger reads as "the story
+            // left the bench, withdraw its staged membership": the member would be deleted here, the following update
+            // would match nothing, and this method would still count it as queued. So the item moves first (`Staged`
+            // -> `Queued` writes `forge_batch_item`, and no trigger watches that table) and the story follows inside
+            // the same commit, which is the state the rule is judged on. Both writes commit together or not at all, so
+            // the intermediate order is invisible to every other reader and a crash cannot leave a member queued but
+            // not ready -- nor the reverse, which is what the old autocommit sequence allowed.
             let member = async {
-                sqlx::query(
-                    "update storyboard_story set status='Ready', updated_at=now() where id=$1",
-                )
-                .bind(&story)
-                .execute(self.db.pool())
-                .await
-                .map_err(|error| {
-                    DbFailure::from_sqlx("forge_control.flight_member.story_ready", &error)
-                })?;
-                sqlx::query(
-                    "update forge_batch_item set state='Queued', queued_at=now(), error_text=null
-                     where batch_id=$1::uuid and story_id=$2",
-                )
-                .bind(batch_id)
-                .bind(&story)
-                .execute(self.db.pool())
-                .await
-                .map_err(|error| {
-                    DbFailure::from_sqlx("forge_control.flight_member.queued", &error)
-                })?;
-                let affected = sqlx::query(
-                    "update agent_work_item set kind=$2, model_policy=$3, updated_at=now()
-                     where story_id=$1 and state='Ready'",
-                )
-                .bind(&story)
-                .bind(&kind)
-                .bind(&policy)
-                .execute(self.db.pool())
-                .await
-                .map_err(|error| {
-                    DbFailure::from_sqlx("forge_control.flight_member.routing", &error)
-                })?
-                .rows_affected();
-                Ok::<u64, DbFailure>(affected)
+                let mut tx = self.db.begin("forge_control.fire_flight_member").await?;
+                let result = async {
+                    sqlx::query(
+                        "update forge_batch_item set state='Queued', queued_at=now(), error_text=null
+                         where batch_id=$1::uuid and story_id=$2",
+                    )
+                    .bind(batch_id)
+                    .bind(&story)
+                    .execute(tx.connection())
+                    .await
+                    .map_err(|error| {
+                        DbFailure::from_sqlx("forge_control.flight_member.queued", &error)
+                    })?;
+                    sqlx::query(
+                        "update storyboard_story set status='Ready', updated_at=now() where id=$1",
+                    )
+                    .bind(&story)
+                    .execute(tx.connection())
+                    .await
+                    .map_err(|error| {
+                        DbFailure::from_sqlx("forge_control.flight_member.story_ready", &error)
+                    })?;
+                    let affected = sqlx::query(
+                        "update agent_work_item set kind=$2, model_policy=$3, updated_at=now()
+                         where story_id=$1 and state='Ready'",
+                    )
+                    .bind(&story)
+                    .bind(&kind)
+                    .bind(&policy)
+                    .execute(tx.connection())
+                    .await
+                    .map_err(|error| {
+                        DbFailure::from_sqlx("forge_control.flight_member.routing", &error)
+                    })?
+                    .rows_affected();
+                    Ok::<u64, DbFailure>(affected)
+                }
+                .await;
+                match result {
+                    Ok(affected) => {
+                        tx.commit().await?;
+                        Ok(affected)
+                    }
+                    Err(error) => {
+                        let _ = tx.rollback().await;
+                        Err(error)
+                    }
+                }
             }
             .await;
 

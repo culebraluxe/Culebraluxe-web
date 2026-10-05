@@ -481,30 +481,58 @@ impl TechCockpitDao {
         // Set-based, not per-member: the old loop ran three round trips per
         // story (story status, queue item, route item), so a 40-story flight
         // held the batch half-fired for 120 statements and a crash mid-loop
-        // left it half-fired. Three statements move the whole batch; a failure
-        // in any one leaves the batch unfired rather than half-fired.
-        sqlx::query(LAUNCH_FLIGHT_FIRE_STORIES_SQL)
-            .bind(&batch)
-            .execute(self.db.pool())
-            .await
-            .map_err(|e| DbFailure::from_sqlx("tech.fire_stories", &e))?;
-        let queued = sqlx::query(LAUNCH_FLIGHT_QUEUE_ITEMS_SQL)
-            .bind(&batch)
-            .execute(self.db.pool())
-            .await
-            .map_err(|e| DbFailure::from_sqlx("tech.queue_batch_item", &e))?
-            .rows_affected() as i64;
-        // Per-member kind travels in the join, so stories with different kinds
-        // still route differently in the one statement.
-        let stamped = sqlx::query(LAUNCH_FLIGHT_ROUTE_ITEMS_SQL)
-            .bind(&batch)
-            .bind(&policy)
-            .execute(self.db.pool())
-            .await
-            .map_err(|e| DbFailure::from_sqlx("tech.route_batch_item", &e))?
-            .rows_affected() as i64;
-        sqlx::query("update forge_batch set status='Fired',fired_at=now() where id=$1::uuid and status<>'Fired'")
-          .bind(&batch).execute(self.db.pool()).await.map_err(|e|DbFailure::from_sqlx("tech.fire_batch",&e))?;
-        Ok(Some((batch, queued, stamped)))
+        // left it half-fired. Three statements move the whole batch.
+        //
+        // ONE TRANSACTION, because the flight's own intermediate state is not a
+        // fact anyone may read. The status write must still come first -- it
+        // selects its members from the very items that are still `Staged`, and
+        // the routing statement stamps work items that only exist once the
+        // story is `Ready` -- so for the length of these statements a member is
+        // `Ready` while its item is still `Staged`. Migration 268's rule ("a
+        // story that leaves `Batched` withdraws its staged membership") is a
+        // deferred constraint trigger judged at commit, so the interval is
+        // invisible to it; committing the four writes together is what makes
+        // that true, and it is also what removes the half-fired outcome the
+        // per-member loop used to leave behind.
+        let mut tx = self.db.begin("tech.launch_flight").await?;
+        let result = async {
+            sqlx::query(LAUNCH_FLIGHT_FIRE_STORIES_SQL)
+                .bind(&batch)
+                .execute(tx.connection())
+                .await
+                .map_err(|e| DbFailure::from_sqlx("tech.fire_stories", &e))?;
+            let queued = sqlx::query(LAUNCH_FLIGHT_QUEUE_ITEMS_SQL)
+                .bind(&batch)
+                .execute(tx.connection())
+                .await
+                .map_err(|e| DbFailure::from_sqlx("tech.queue_batch_item", &e))?
+                .rows_affected() as i64;
+            // Per-member kind travels in the join, so stories with different kinds
+            // still route differently in the one statement.
+            let stamped = sqlx::query(LAUNCH_FLIGHT_ROUTE_ITEMS_SQL)
+                .bind(&batch)
+                .bind(&policy)
+                .execute(tx.connection())
+                .await
+                .map_err(|e| DbFailure::from_sqlx("tech.route_batch_item", &e))?
+                .rows_affected() as i64;
+            sqlx::query("update forge_batch set status='Fired',fired_at=now() where id=$1::uuid and status<>'Fired'")
+                .bind(&batch)
+                .execute(tx.connection())
+                .await
+                .map_err(|e| DbFailure::from_sqlx("tech.fire_batch", &e))?;
+            Ok::<(i64, i64), DbFailure>((queued, stamped))
+        }
+        .await;
+        match result {
+            Ok((queued, stamped)) => {
+                tx.commit().await?;
+                Ok(Some((batch, queued, stamped)))
+            }
+            Err(error) => {
+                let _ = tx.rollback().await;
+                Err(error)
+            }
+        }
     }
 }
