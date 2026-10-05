@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 63ba45997320ffcf0d9ac9c737f4934acff2c6ea3ea3f3056c1cf2e7384bb034 # shrinks to lanes = [WaveLane { lane: "a", surface: Some(["q/a"]), fanout: false, task: 0 }, WaveLane { lane: "b", surface: Some(["q/b"]), fanout: false, task: 0 }], cap = 2
