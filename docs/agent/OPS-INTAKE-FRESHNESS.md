@@ -54,7 +54,8 @@ layout refactor (`80cfc9da`, `da16f5ea`, 2026-10-03) nor the Phase 2 capture cha
    code — but a chain that has not run since the refactor has produced no evidence about the refactor. One run is the
    proof, and the export step needs the Mac's TCC grant (`pnpm apple:sync:verify-tcc`).
 4. **`forge sql` cannot read a query that aliases a column `t`.** The row builder wraps your statement as
-   `select row_to_json(t)::text as row from (<sql>) t limit $1` (`db/src/forge_read.rs:659`), so the alias shadows the
+   `select row_to_json(t)::text as row from (<sql>) t limit $1` (`db/src/forge_read.rs:626` on `main`; line 659 in a
+   working tree carrying another lane's in-flight edits), so the alias shadows the
    wrapper's table alias and the tool dies with `function row_to_json(text) does not exist`. Alias it something else
    (or fix the wrapper to use a namespaced alias) — a legitimate SELECT that fails looks like a database problem and is
    not one.
