@@ -21,7 +21,7 @@
 //! - **L1 Component** — one crate's boundary with deterministic collaborators. [`fault`], [`providers`], [`mvi`].
 //! - **L2 Persistence** — the database contract against an isolated, disposable database. [`database`].
 //! - **L3 Composition** — the composed application across seams. [`http`], [`actors`], [`barrier`].
-//! - **L4 Adversarial** — concurrency, faults and hostile input under load. [`barrier`], [`fault`].
+//! - **L4 Adversarial** — concurrency, faults and hostile input under load. [`barrier`], [`fault`], [`race`].
 //!
 //! # What the harness will not do
 //!
@@ -50,6 +50,7 @@ pub mod level;
 pub mod mvi;
 pub mod pool;
 pub mod providers;
+pub mod race;
 pub mod runtime;
 pub mod snapshot;
 pub mod source;
@@ -66,4 +67,5 @@ pub use forge::ForgeHarness;
 pub use ids::DeterministicIds;
 pub use level::TestLevel;
 pub use pool::{DbPoolFaultHarness, PoolFault};
+pub use race::RaceHarness;
 pub use runtime::RuntimeHarness;
