@@ -4,12 +4,17 @@
 #
 # One operator command for the complete Contacts lifecycle:
 #   Apple Contacts (CNContactStore, local Mac)
-#     -> contact-export/contacts-export.json
-#     -> historical PROD ODS            (load: still scripts/load-apple-contacts.ts        — PORT PENDING)
+#     -> contact-export/contacts-export.json     (swift run contact-export — needs the Mac's TCC grant)
+#     -> historical PROD ODS        (apple-sync contacts-load -> apple_contacts_load(), migration 254)
 #     -> landing tables (l_person, l_property)  <- current source state
-#     -> projection of the current state (project: still scripts/project-apple-contacts.ts — PORT PENDING)
+#     -> projection of the current state (apple-sync contacts-project -> apple_contacts_project())
 #     -> THE promotion (apple-sync warehouse-promote -> warehouse_promote_apple_contacts)
 #     -> warehouse (person, property) + Clients materialized read models
+#
+# The two `PORT PENDING` notes that used to sit on the load and project lines are gone: the port landed, the
+# TypeScript scripts they named (`scripts/load-apple-contacts.ts`, `scripts/project-apple-contacts.ts`) no longer
+# exist in the tree, and every step below runs the Rust CLI. The last step is `warehouse-promote prod --apply`,
+# a PROD write by design — that is what this script is for.
 #
 # The promotion runs IN THE DATABASE: it is a set-based function in Neon, not a script that pulls every
 # landing row into an application to mutate it. Nothing else reads the landing tables. Historical ODS
