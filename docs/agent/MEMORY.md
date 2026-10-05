@@ -2,6 +2,17 @@
 
 # Decision log
 
+- **2026-10-04 (the same production prohibition had a second home - `ORIENTATION.md`, the second file every agent reads -
+  where it read as a literal do-not-touch and one bot obeyed it).** `AGENTS.md` was the copy that got rewritten (entry
+  above); the restatement at `docs/agent/ORIENTATION.md:134` led with *"Never deploy, and never touch the production
+  database"* and put the condition ("without the Captain's explicit go") in a trailing clause, so a reader that stops at
+  the first clause obeys a prohibition nobody wrote. It now leads with the permission ("the production database is
+  workable when the Captain directs it: his go is the authorization and it is full CRUD") and points at `AGENTS.md` for
+  the rule, keeping only the mechanism (silent `APP_ENV=production` resolution, so the target is passed explicitly and
+  the `database: target=…` line is read). Two lessons: one prohibition stated in two files is two sources for one fact -
+  a pointer doc must point, not restate - and the *order of the clauses* is what a reader obeys.
+
+
 - **2026-10-04 (a production prohibition sat in the handbook's `Never` list that the Captain never authorized, and it
   contradicted the delivery rules three sections above it).** The rule read *"Deploy to production, or run anything at
   all against `DATABASE_URL_PROD`. Not a migration, not a script, not 'just a quick query'"*, and it closed by calling a

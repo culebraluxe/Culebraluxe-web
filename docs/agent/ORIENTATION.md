@@ -131,8 +131,11 @@ cascades** — deleting two demo deals once took 47 contract documents with them
 - New UI capability goes in `web/ui/src/app/`; new backend capability goes in `web` plus `middle/` (the domain, the kernel, the engine's own crate) and `db/`.
 - Anything crossing a process boundary - a webhook body, a route body, a provider response - is unknown until a runtime
   schema validates it. A hand-written type or an `as` cast is not validation.
-- `main` is production-sensitive. Never deploy, and never touch the production database, without the Captain's explicit
-  go - and know that `APP_ENV=production` (or `VERCEL_ENV=production`) silently resolves to the production database.
+- `main` is production-sensitive, and the production database is workable when the Captain directs it: his go is the
+  authorization and it is full CRUD (`AGENTS.md`, `Never` — "Act on PROD on your own initiative"). What is never allowed
+  is deciding for him - no production write nobody asked for. Know the mechanism before you touch anything:
+  `APP_ENV=production` (or `VERCEL_ENV=production`) silently resolves to the production database, so pass the target
+  explicitly and read the `database: target=…` line a command prints.
 
 ## Reading order for a new session
 
