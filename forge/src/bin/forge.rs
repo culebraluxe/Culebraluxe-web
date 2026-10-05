@@ -5,7 +5,10 @@ mod test_support {
     /// A human GATE ends a turn with no blocked reason and settles `Done` (the pair accepts `Done` over `Hold`). A hold
     /// that carries a reason is the engine refusing to go on after a failure, and must settle `Error`, or its run is
     /// closed `Complete` at 100%.
-    pub fn failure_hold_reason(needs_human: bool, blocked_reason: Option<String>) -> Option<String> {
+    pub fn failure_hold_reason(
+        needs_human: bool,
+        blocked_reason: Option<String>,
+    ) -> Option<String> {
         blocked_reason.filter(|reason| needs_human && !reason.trim().is_empty())
     }
 }
@@ -21,12 +24,12 @@ use forge::engine::executor::{
 use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::git_publish::{publish_switch_off, GitReleaseOps, HostReleaseExecutor};
 use forge::engine::job::WorkflowJobService;
-use forge::engine::runner::RoleHarness;
-use forge::engine::spend_cap::{self, SPEND_CAP_ENV};
 use forge::engine::packet::{ExecutionWorkspace, StoryPacket};
 use forge::engine::re_runtime::shared_forge_runtime;
 use forge::engine::runner::ProductionRoleRunner;
+use forge::engine::runner::RoleHarness;
 use forge::engine::runtime::ForgeRuntime;
+use forge::engine::spend_cap::{self, SPEND_CAP_ENV};
 use forge::engine::vendor_session::database_url;
 use forge::engine::worktree::{
     provision_worker_workspace, resolve_approved_base_ref, resolve_base_commit, resolve_repo_root,
@@ -338,7 +341,9 @@ fn main() {
     eprintln!("harness_backend={:?}", harness_backend);
     let harness_context = forge::engine::harness::HarnessContext {
         story_id: story.clone(),
-        packet: packet.clone().unwrap_or_else(|| forge::engine::packet::StoryPacket::default()),
+        packet: packet
+            .clone()
+            .unwrap_or_else(|| forge::engine::packet::StoryPacket::default()),
         workspace: std::env::var("FORGE_WORKTREE")
             .ok()
             .filter(|s| !s.trim().is_empty())
@@ -361,14 +366,18 @@ fn main() {
             _ => None,
         },
         model_policy: run_model_policy.clone(),
-        model_override: std::env::var("OPENCODE_MODEL").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        model_override: std::env::var("OPENCODE_MODEL")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
         spend_cap_usd: spend_cap::parse_forge_spend_cap_usd(
             std::env::var(SPEND_CAP_ENV).ok().as_deref(),
         ),
         assay_commands: contract_assay_commands.clone(),
         acceptance_mapped: contract_acceptance_mapped,
     };
-    let mut harness = match forge::engine::harness::create_harness(harness_backend, harness_context) {
+    let mut harness = match forge::engine::harness::create_harness(harness_backend, harness_context)
+    {
         Ok(h) => h,
         Err(e) => {
             eprintln!("{e}");
