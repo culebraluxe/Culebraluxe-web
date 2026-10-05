@@ -47,6 +47,14 @@ rsync -a --exclude rust-ui --exclude '* 2.*' --exclude '* 2' public/ "$STAGE/pub
 cp "$WORK/build/ui.js" "$STAGE/public/rust-ui/ui.js"
 gzip -9 -c "$WORK/build/ui_bg.wasm" > "$STAGE/public/rust-ui/ui_bg.wasm.gz"
 rsync -a middle/model/forms/templates/ "$STAGE/templates/"
+# THE IMAGE RUNS AS A NON-ROOT USER — devops/Dockerfile.runtime adds `culebra` as uid 10001 and ends with
+# `USER culebra` — and a Docker `COPY` hands the container exactly the modes it is given. So a 600 file or a 700
+# directory in the working tree ships as an asset the server cannot open: every image under /images is unreadable and
+# every form template fails to load, while this script's own checks (all of which are HTML, wasm or API paths) stay
+# green and report a clean deploy. The working tree is not the right place to fix it — a developer's umask, or a copy
+# made by iCloud, is not a release decision, and `rsync -a` deliberately preserves what it finds — so the STAGE is
+# normalized instead, after everything has been copied into it and before any of it is packed.
+chmod -R a+rX "$STAGE/public" "$STAGE/templates"
 printf '  upload size: %s\n' "$(du -sh "$STAGE" | cut -f1)"
 
 printf '\n4/5 Making sure the project runs the application container...\n'
