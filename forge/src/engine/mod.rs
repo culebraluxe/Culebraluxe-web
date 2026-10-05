@@ -32,6 +32,7 @@ pub mod hold;
 pub mod hold_resolve;
 pub mod integration;
 pub mod maestro;
+pub mod model_aliases;
 pub mod job;
 pub mod job_payload;
 pub mod learn;
