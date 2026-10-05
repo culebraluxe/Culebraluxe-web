@@ -25,6 +25,7 @@ apis = { path = "../middle/apis" }
 # and becomes a route that shares this server's pool, retry policy, error capture and identity resolution.
 forge = { path = "../forge" }
 image.workspace = true
+lopdf.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true

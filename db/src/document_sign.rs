@@ -472,6 +472,59 @@ impl DocumentSignDao {
         Ok(media_id)
     }
 
+    /// Store the sealed signed PDF without touching the audit link.
+    /// The caller links it via [`Self::link_signed_media_tx`]; reusing
+    /// [`Self::store_audit_artifact_tx`] here would overwrite
+    /// `signed_audit_media_id` and make replay answer with the sealed
+    /// artifact instead of the audit certificate.
+    pub async fn store_signed_artifact_tx(
+        &self,
+        tx: &mut DbTransaction,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
+    ) -> DbResult<String> {
+        sqlx::query_scalar::<_, String>(
+            r#"
+            insert into media (file_data, filename, mime_type, file_size, media_type)
+            values ($1, $2, $3, $4, 'document')
+            returning id::text
+            "#,
+        )
+        .bind(bytes)
+        .bind(filename)
+        .bind(mime_type)
+        .bind(bytes.len() as i64)
+        .fetch_one(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.signed_media", &error))
+    }
+
+    /// Link the sealed signed PDF. The renderer step owns the bytes;
+    /// this only records where the sealed artifact lives.
+    pub async fn link_signed_media_tx(
+        &self,
+        tx: &mut DbTransaction,
+        transaction_document_id: &str,
+        media_id: &str,
+    ) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            update transaction_document
+               set signed_media_id = $2::uuid,
+                   signed_at = now(),
+                   updated_at = now()
+             where id = $1::uuid
+            "#,
+        )
+        .bind(transaction_document_id)
+        .bind(media_id)
+        .execute(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.signed_link", &error))?;
+        Ok(())
+    }
+
     /// The linked audit artifact, if a previous finalize already stored one.
     /// Replay answers with the existing row instead of storing a duplicate.
     pub async fn audit_media_for_request_tx(
@@ -538,6 +591,26 @@ impl DocumentSignDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("document_sign.template_anchors", &error))
         .map(|row| row.flatten())
+    }
+
+    pub async fn signed_media_for_request_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>> {
+        sqlx::query_scalar::<_, String>(
+            r#"
+            select td.signed_media_id::text
+              from transaction_document td
+              join signature_request sr on sr.transaction_document_id = td.id
+             where sr.id = $1::uuid
+             limit 1
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_optional(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.signed_media_read", &error))
     }
 
     pub async fn canonical_status_tx(

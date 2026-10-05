@@ -62,6 +62,10 @@ pub struct FinalizeField {
     pub page_number: i32,
     pub recipient_id: String,
     pub required: bool,
+    pub position_x: f64,
+    pub position_y: f64,
+    pub width: f64,
+    pub height: f64,
     pub value: Option<Value>,
     pub completed_at: Option<String>,
 }
@@ -103,6 +107,10 @@ struct FinalizeFieldRow {
     page_number: i32,
     recipient_id: String,
     required: bool,
+    position_x: f64,
+    position_y: f64,
+    width: f64,
+    height: f64,
     value: Option<Value>,
     completed_at: Option<DateTime<Utc>>,
 }
@@ -750,6 +758,10 @@ impl SignerDao {
                    f.page_number as page_number,
                    f.recipient_id::text as recipient_id,
                    f.required as required,
+                   f.position_x::float8 as position_x,
+                   f.position_y::float8 as position_y,
+                   f.width::float8 as width,
+                   f.height::float8 as height,
                    resp.value as value,
                    resp.completed_at as completed_at
               from signature_field f
@@ -802,6 +814,10 @@ impl SignerDao {
                     page_number: row.page_number,
                     recipient_id: row.recipient_id,
                     required: row.required,
+                    position_x: row.position_x,
+                    position_y: row.position_y,
+                    width: row.width,
+                    height: row.height,
                     value: row.value,
                     completed_at: row.completed_at.map(|value| value.to_rfc3339()),
                 })
