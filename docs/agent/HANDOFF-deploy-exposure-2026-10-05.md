@@ -76,7 +76,11 @@ never moved or altered, and the class of bug is refused by the deploy script its
 
 ## 6. OPEN — the next actions, in order
 
-1. **Triage the red CI gates** (rustfmt, 4 tests, osv) — its own story, unrelated to this deploy.
+1. **Red CI gates are PARKED, not triaged** (rustfmt, 4 tests, 1 osv advisory). The Captain directed on 2026-10-05
+   that red tests are not a gate for the next few days while the 684-file Rust test corpus is built to close the
+   TypeScript cut-over gap — a red test may be the test file or may be a real gap in prod, and telling them apart comes
+   after the corpus exists. Entry and time-box (my reading: re-check 2026-10-07, only he extends it):
+   `docs/agent/MEMORY.md`, 2026-10-05. Nothing was baselined or silenced; the parking is on *triage* only.
 2. **Decide whether the export belongs in the webroot at all.** It works today (the exporters, the deploy and the
    probe now agree), but `public/` is a webroot: the next private export that lands under it is one `.gitignore` edit
    away from being published again. The probe turns that into a refused deploy instead of a silent leak — that is the
