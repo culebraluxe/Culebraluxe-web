@@ -40,9 +40,7 @@
 //! a disposable DEV database and the harness will never open a PRODUCTION one.
 
 use db::{CommsDao, DbFailure, DbTarget, LandingDao};
-use model::{
-    moment_dto, source_channel_for, source_dto, CommsMomentChannel, CommsSourceChannel,
-};
+use model::{moment_dto, source_channel_for, source_dto, CommsMomentChannel, CommsSourceChannel};
 use test_harness::CrmHarness;
 
 /// The harness name and level, carried in every assertion message so a failure names its boundary.
@@ -159,7 +157,7 @@ async fn crm_comms_003__email_message_call_attribution() {
         moment_dto(model::CommsMomentRecord {
             id: "m".into(),
             channel: Some("email".into()),
-            event_type: "email".into(),
+            event_type: Some("email".into()),
             source_system: None,
             direction: None,
             occurred_at: "2026-10-01T12:00:00+00:00".into(),
@@ -174,7 +172,7 @@ async fn crm_comms_003__email_message_call_attribution() {
         moment_dto(model::CommsMomentRecord {
             id: "m".into(),
             channel: Some("imessage".into()),
-            event_type: "imessage".into(),
+            event_type: Some("imessage".into()),
             source_system: None,
             direction: None,
             occurred_at: "2026-10-01T12:00:00+00:00".into(),
@@ -188,7 +186,7 @@ async fn crm_comms_003__email_message_call_attribution() {
     let plain_call = model::CommsMomentRecord {
         id: "m".into(),
         channel: Some("call".into()),
-        event_type: "call".into(),
+        event_type: Some("call".into()),
         source_system: None,
         direction: None,
         occurred_at: "2026-10-01T12:00:00+00:00".into(),
@@ -210,7 +208,7 @@ async fn crm_comms_003__email_message_call_attribution() {
     let website = model::CommsMomentRecord {
         id: "m".into(),
         channel: Some("website".into()),
-        event_type: "general_enquiry_submitted".into(),
+        event_type: Some("general_enquiry_submitted".into()),
         source_system: Some("website".into()),
         direction: None,
         occurred_at: "2026-10-01T12:00:00+00:00".into(),
@@ -231,23 +229,68 @@ async fn crm_comms_003__email_message_call_attribution() {
         .seed_person(&format!("{marker}-person"))
         .await
         .expect("the fixture person seeds");
-    seed_evidence(harness.pool(), &person, &marker, "apple_messages", "exact_linked", Some(3), Some(2), false)
-        .await
-        .expect("the message evidence commits");
-    seed_evidence(harness.pool(), &person, &marker, "gmail", "exact_linked", Some(1), Some(0), false)
-        .await
-        .expect("the email evidence commits");
-    seed_evidence(harness.pool(), &person, &marker, "apple_calls", "exact_linked", Some(0), Some(1), false)
-        .await
-        .expect("the call evidence commits");
+    seed_evidence(
+        harness.pool(),
+        &person,
+        &marker,
+        "apple_messages",
+        "exact_linked",
+        Some(3),
+        Some(2),
+        false,
+    )
+    .await
+    .expect("the message evidence commits");
+    seed_evidence(
+        harness.pool(),
+        &person,
+        &marker,
+        "gmail",
+        "exact_linked",
+        Some(1),
+        Some(0),
+        false,
+    )
+    .await
+    .expect("the email evidence commits");
+    seed_evidence(
+        harness.pool(),
+        &person,
+        &marker,
+        "apple_calls",
+        "exact_linked",
+        Some(0),
+        Some(1),
+        false,
+    )
+    .await
+    .expect("the call evidence commits");
     // NEGATIVE 1 — an unlinked row is not anybody's communication yet.
-    seed_evidence(harness.pool(), &person, &marker, "apple_messages", "unresolved", Some(99), Some(99), false)
-        .await
-        .expect("the unresolved evidence commits");
+    seed_evidence(
+        harness.pool(),
+        &person,
+        &marker,
+        "apple_messages",
+        "unresolved",
+        Some(99),
+        Some(99),
+        false,
+    )
+    .await
+    .expect("the unresolved evidence commits");
     // NEGATIVE 2 — bulk/automated traffic is not relationship evidence for a person.
-    seed_evidence(harness.pool(), &person, &marker, "gmail", "exact_linked", Some(500), Some(0), true)
-        .await
-        .expect("the bulk evidence commits");
+    seed_evidence(
+        harness.pool(),
+        &person,
+        &marker,
+        "gmail",
+        "exact_linked",
+        Some(500),
+        Some(0),
+        true,
+    )
+    .await
+    .expect("the bulk evidence commits");
 
     landing
         .refresh_client_read_models()
@@ -278,7 +321,10 @@ async fn crm_comms_003__email_message_call_attribution() {
         (3, 2, 5),
         "{HARNESS}: message counts are the committed evidence's counts, not the unresolved row's 99/99"
     );
-    assert!(messages.two_way, "{HARNESS}: messages both ways are two-way");
+    assert!(
+        messages.two_way,
+        "{HARNESS}: messages both ways are two-way"
+    );
 
     let mail = by_source(&sources, "gmail");
     assert_eq!(
@@ -406,18 +452,22 @@ async fn crm_comms_003__email_message_call_attribution() {
         .cleanup(&marker)
         .await
         .expect("the fixture person is removed");
-    assert_eq!(removed, 1, "{HARNESS}: exactly this run's person is removed");
+    assert_eq!(
+        removed, 1,
+        "{HARNESS}: exactly this run's person is removed"
+    );
     landing
         .refresh_client_read_models()
         .await
         .expect("the production read models rebuild after cleanup");
-    let after: i64 =
-        sqlx::query_scalar("select count(*) from mv_client_relationship_channels where person_id = $1::uuid")
-            .bind(&person)
-            .fetch_one(harness.pool())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("test-harness.crm_comms003.after", &error))
-            .expect(" the rebuilt read model reads back");
+    let after: i64 = sqlx::query_scalar(
+        "select count(*) from mv_client_relationship_channels where person_id = $1::uuid",
+    )
+    .bind(&person)
+    .fetch_one(harness.pool())
+    .await
+    .map_err(|error| DbFailure::from_sqlx("test-harness.crm_comms003.after", &error))
+    .expect(" the rebuilt read model reads back");
     assert_eq!(
         after, 0,
         "{HARNESS}: the rebuilt read model holds no trace of this run"

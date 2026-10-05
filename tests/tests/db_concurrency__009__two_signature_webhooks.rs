@@ -11,8 +11,11 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test db_concurrency__009__two_signature_webhooks -- --ignored
 
-use db::{Database, DbTarget, SignatureDao, PrepareSignatureRequest, PreparedSignatureRecipient};
-use model::signature::{SignatureRecipientRole, SignatureCommandOutcome, SignatureRecipient};
+use db::{Database, DbTarget, SignatureDao};
+use model::signature::{
+    PrepareSignatureRequest, PreparedSignatureRecipient, SendSignatureRequest,
+    SignatureCommandOutcome, SignatureRecipient, SignatureRecipientRole,
+};
 use std::sync::Arc;
 use test_harness::barrier::ConcurrencyBarrier;
 use test_harness::fault::{Fault, FaultInjector};
@@ -51,11 +54,13 @@ async fn create_document(db: &Database, doc_id: &str) {
 }
 
 async fn count_signature_requests(db: &Database, doc_id: &str) -> i64 {
-    sqlx::query_scalar("select count(*)::bigint from signature_request where transaction_document_id = $1::uuid")
-        .bind(doc_id)
-        .fetch_one(db.pool())
-        .await
-        .expect("signature request count")
+    sqlx::query_scalar(
+        "select count(*)::bigint from signature_request where transaction_document_id = $1::uuid",
+    )
+    .bind(doc_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("signature request count")
 }
 
 #[tokio::test]
@@ -89,12 +94,13 @@ async fn db_concurrency_009__two_signature_webhooks() {
     let barrier = Arc::new(ConcurrencyBarrier::new(2));
     let mut handles = Vec::new();
     for _ in 0..2 {
-        let (dao, barrier, request) = (dao.clone(), barrier.clone(), request.clone());
+        let (db_c, dao_c, barrier_c, request_c) =
+            (db.clone(), dao.clone(), barrier.clone(), request.clone());
         handles.push(tokio::spawn(async move {
-            barrier.arrive_and_wait().await;
+            barrier_c.arrive_and_wait().await;
             // Use a transaction to test the prepare path
-            let mut tx = db.begin("signature.prepare").await.unwrap();
-            dao.prepare_tx(&mut tx, &request).await
+            let mut tx = db_c.begin("signature.prepare").await.unwrap();
+            dao_c.prepare_tx(&mut tx, &request_c).await
         }));
     }
 
@@ -112,27 +118,33 @@ async fn db_concurrency_009__two_signature_webhooks() {
             Err(e) => panic!("prepare failed: {}", e),
         }
     }
-    assert_eq!(created_count, 1, "exactly one webhook creates the signature request");
-    assert_eq!(existing_count, 1, "the other webhook finds the existing request");
-    assert_eq!(count_signature_requests(&db, &doc_id_1).await, 1, "exactly one signature request exists");
+    assert_eq!(
+        created_count, 1,
+        "exactly one webhook creates the signature request"
+    );
+    assert_eq!(
+        existing_count, 1,
+        "the other webhook finds the existing request"
+    );
+    assert_eq!(
+        count_signature_requests(&db, &doc_id_1).await,
+        1,
+        "exactly one signature request exists"
+    );
 
     // Test 2: Two webhooks race to send (create) the same document
     let doc_id_2 = Uuid::new_v4().to_string();
     sweep(&db, &doc_id_2).await;
     create_document(&db, &doc_id_2).await;
 
-    use db::signature::database::SendSignatureRequest;
-    use model::signature::SignatureCommandOutcome;
-
     let send_request = SendSignatureRequest {
         command_id: Uuid::new_v4().to_string(),
         transaction_document_id: doc_id_2.clone(),
-        recipients: vec![model::signature::SignatureRecipient {
+        recipients: vec![SignatureRecipient {
             name: "Test Signer".into(),
             email: "signer@example.test".into(),
             role: SignatureRecipientRole::Signer,
             order: 1,
-            signing_step: 1,
             execution_role: None,
             execution_slot_id: None,
         }],
@@ -141,6 +153,8 @@ async fn db_concurrency_009__two_signature_webhooks() {
         execution_role: None,
         execution_slot_id: None,
         slot_recipient_email: None,
+        signature_role: None,
+        completion_recipient_emails: Vec::new(),
     };
 
     let barrier = Arc::new(ConcurrencyBarrier::new(2));
@@ -169,8 +183,16 @@ async fn db_concurrency_009__two_signature_webhooks() {
     }
     // The unique index on transaction_document_id with active status filter
     // means exactly one succeeds, the other gets Conflict
-    assert_eq!(success_count + conflict_count, 2, "both webhooks get a response");
-    assert_eq!(count_signature_requests(&db, &doc_id_2).await, 1, "exactly one signature request exists");
+    assert_eq!(
+        success_count + conflict_count,
+        2,
+        "both webhooks get a response"
+    );
+    assert_eq!(
+        count_signature_requests(&db, &doc_id_2).await,
+        1,
+        "exactly one signature request exists"
+    );
 
     // Test 3: Fault injection - one webhook crashes
     let doc_id_3 = Uuid::new_v4().to_string();
@@ -199,16 +221,23 @@ async fn db_concurrency_009__two_signature_webhooks() {
     let barrier = Arc::new(ConcurrencyBarrier::new(2));
     let mut handles = Vec::new();
     for _ in 0..2 {
-        let (dao, barrier, injector, doc_id, fault_request) = (
-            dao.clone(), barrier.clone(), injector.clone(), doc_id_3.clone(), fault_request.clone()
+        let (db_c, dao_c, barrier_c, injector_c, fault_request_c) = (
+            db.clone(),
+            dao.clone(),
+            barrier.clone(),
+            injector.clone(),
+            fault_request.clone(),
         );
         handles.push(tokio::spawn(async move {
-            barrier.arrive_and_wait().await;
-            if injector.next_fault().is_failure() {
+            barrier_c.arrive_and_wait().await;
+            if injector_c.next_fault().is_failure() {
                 return Err("crashed".to_string());
             }
-            let mut tx = db.begin("signature.prepare").await.unwrap();
-            dao.prepare_tx(&mut tx, &fault_request).await.map_err(|e| e.to_string())
+            let mut tx = db_c.begin("signature.prepare").await.unwrap();
+            dao_c
+                .prepare_tx(&mut tx, &fault_request_c)
+                .await
+                .map_err(|e| e.to_string())
         }));
     }
 
@@ -218,8 +247,15 @@ async fn db_concurrency_009__two_signature_webhooks() {
             success_count += 1;
         }
     }
-    assert_eq!(success_count, 1, "the survivor still creates the signature request");
-    assert_eq!(count_signature_requests(&db, &doc_id_3).await, 1, "exactly one signature request exists");
+    assert_eq!(
+        success_count, 1,
+        "the survivor still creates the signature request"
+    );
+    assert_eq!(
+        count_signature_requests(&db, &doc_id_3).await,
+        1,
+        "exactly one signature request exists"
+    );
 
     // Cleanup
     sweep(&db, &doc_id_1).await;

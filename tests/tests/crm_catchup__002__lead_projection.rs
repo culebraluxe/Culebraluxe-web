@@ -11,6 +11,7 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test crm_catchup__002__lead_projection -- --ignored
 
+use db::DbTarget;
 use model::{CatchupLeadRequest, CatchupLeadResult};
 use test_harness::IntakeHarness;
 use uuid::Uuid;
@@ -43,7 +44,7 @@ async fn crm_catchup_002__lead_projection() {
     let harness = connect_dev().await;
     assert_eq!(
         harness.database().target(),
-        test_harness::DbTarget::Dev,
+        DbTarget::Dev,
         "{HARNESS}: the idempotency proof runs only on an isolated DEV target"
     );
     let ns = harness.namespace().to_string();
@@ -58,7 +59,7 @@ async fn crm_catchup_002__lead_projection() {
             total_value numeric not null default 0,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
-        )"
+        )",
     )
     .execute(harness.pool())
     .await
@@ -81,58 +82,84 @@ async fn crm_catchup_002__lead_projection() {
     };
 
     // First submission: creates the lead and projection.
-    let result1 = harness.submit_catchup(&request).await
+    let result1 = harness
+        .submit_catchup(&request)
+        .await
         .expect("first catchup lead succeeds");
-    assert_eq!(result1.status, "created", "{HARNESS}: first submission creates");
+    assert_eq!(
+        result1.status, "created",
+        "{HARNESS}: first submission creates"
+    );
     let person_id1 = result1.person_id.expect("person_id on create");
 
     // Read the projection created by the first submission.
-    let proj1: Option<serde_json::Value> = sqlx::query_scalar(
-        "select projection_json from crm_lead_projection where lead_id = $1"
-    )
-    .bind(&lead_id)
-    .fetch_optional(harness.pool())
-    .await
-    .expect("read projection 1");
+    let proj1: Option<serde_json::Value> =
+        sqlx::query_scalar("select projection_json from crm_lead_projection where lead_id = $1")
+            .bind(&lead_id)
+            .fetch_optional(harness.pool())
+            .await
+            .expect("read projection 1");
 
     // Second submission with same email/phone: should resolve to same person.
-    let result2 = harness.submit_catchup(&request).await
+    let result2 = harness
+        .submit_catchup(&request)
+        .await
         .expect("second catchup lead succeeds");
-    assert_eq!(result2.status, "resolved", "{HARNESS}: second submission resolves");
-    assert_eq!(result2.person_id, Some(person_id1.clone()), "{HARNESS}: resolves to same person");
+    assert_eq!(
+        result2.status, "resolved",
+        "{HARNESS}: second submission resolves"
+    );
+    assert_eq!(
+        result2.person_id,
+        Some(person_id1.clone()),
+        "{HARNESS}: resolves to same person"
+    );
 
     // Read the projection after second submission.
-    let proj2: Option<serde_json::Value> = sqlx::query_scalar(
-        "select projection_json from crm_lead_projection where lead_id = $1"
-    )
-    .bind(&lead_id)
-    .fetch_optional(harness.pool())
-    .await
-    .expect("read projection 2");
+    let proj2: Option<serde_json::Value> =
+        sqlx::query_scalar("select projection_json from crm_lead_projection where lead_id = $1")
+            .bind(&lead_id)
+            .fetch_optional(harness.pool())
+            .await
+            .expect("read projection 2");
 
     // Verify idempotency: exactly one projection row exists and it's the same.
-    let count: i64 = sqlx::query_scalar("select count(*) from crm_lead_projection where lead_id = $1")
-        .bind(&lead_id)
-        .fetch_one(harness.pool())
-        .await
-        .expect("projection count");
+    let count: i64 =
+        sqlx::query_scalar("select count(*) from crm_lead_projection where lead_id = $1")
+            .bind(&lead_id)
+            .fetch_one(harness.pool())
+            .await
+            .expect("projection count");
     assert_eq!(count, 1, "{HARNESS}: exactly one projection row exists");
 
     // The projection should be stable (same content or updated with same data).
     assert_eq!(proj1, proj2, "{HARNESS}: projection is idempotent");
 
     // Third submission: another idempotent call.
-    let result3 = harness.submit_catchup(&request).await
-        .expect("third catchup lead succeeds");
-    assert_eq!(result3.status, "resolved", "{HARNESS}: third submission resolves");
-    assert_eq!(result3.person_id, Some(person_id1), "{HARNESS}: resolves to same person");
-
-    let count_final: i64 = sqlx::query_scalar("select count(*) from crm_lead_projection where lead_id = $1")
-        .bind(&lead_id)
-        .fetch_one(harness.pool())
+    let result3 = harness
+        .submit_catchup(&request)
         .await
-        .expect("projection final count");
-    assert_eq!(count_final, 1, "{HARNESS}: still exactly one projection row after third call");
+        .expect("third catchup lead succeeds");
+    assert_eq!(
+        result3.status, "resolved",
+        "{HARNESS}: third submission resolves"
+    );
+    assert_eq!(
+        result3.person_id,
+        Some(person_id1),
+        "{HARNESS}: resolves to same person"
+    );
+
+    let count_final: i64 =
+        sqlx::query_scalar("select count(*) from crm_lead_projection where lead_id = $1")
+            .bind(&lead_id)
+            .fetch_one(harness.pool())
+            .await
+            .expect("projection final count");
+    assert_eq!(
+        count_final, 1,
+        "{HARNESS}: still exactly one projection row after third call"
+    );
 
     // Clean up.
     sqlx::query("delete from crm_lead_projection where lead_id = $1")
@@ -142,5 +169,11 @@ async fn crm_catchup_002__lead_projection() {
         .expect("sweep projection");
     let removed = harness.cleanup(&marker).await.expect("cleanup persons");
     assert_eq!(removed, 1, "{HARNESS}: exactly one person removed");
-    assert_eq!(harness.leftover_count(&marker).await.expect("leftover count"), 0);
+    assert_eq!(
+        harness
+            .leftover_count(&marker)
+            .await
+            .expect("leftover count"),
+        0
+    );
 }

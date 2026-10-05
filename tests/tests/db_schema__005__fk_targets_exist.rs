@@ -21,29 +21,37 @@ async fn db_schema_005__fk_targets_exist() {
         .await
         .expect("a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)");
 
-    let mut conn = test_db.database().pool().acquire().await.expect("pool checkout");
+    let mut conn = test_db
+        .database()
+        .pool()
+        .acquire()
+        .await
+        .expect("pool checkout");
 
     // 1. Verify no orphaned property_interest rows: every property_id in
     //    property_interest must reference an existing property.
     let orphan_interest: (i64,) = sqlx::query_as(
         "SELECT count(*) FROM property_interest pi WHERE NOT EXISTS (
             SELECT 1 FROM property p WHERE p.id = pi.property_id
-        )"
+        )",
     )
-    .fetch_one(&mut conn)
+    .fetch_one(&mut *conn)
     .await
     .expect("count orphaned property_interest rows");
 
-    assert_eq!(orphan_interest.0, 0, "no orphaned property_interest rows must exist");
+    assert_eq!(
+        orphan_interest.0, 0,
+        "no orphaned property_interest rows must exist"
+    );
 
     // 2. Verify no orphaned deal rows: every deal.property_id must reference
     //    an existing property.
     let orphan_deal: (i64,) = sqlx::query_as(
         "SELECT count(*) FROM deal d WHERE NOT EXISTS (
             SELECT 1 FROM property p WHERE p.id = d.property_id
-        )"
+        )",
     )
-    .fetch_one(&mut conn)
+    .fetch_one(&mut *conn)
     .await
     .expect("count orphaned deal rows");
 
@@ -55,13 +63,16 @@ async fn db_schema_005__fk_targets_exist() {
         "SELECT count(*) FROM interaction i WHERE i.property_id IS NOT NULL
          AND NOT EXISTS (
              SELECT 1 FROM property p WHERE p.id = i.property_id
-         )"
+         )",
     )
-    .fetch_one(&mut conn)
+    .fetch_one(&mut *conn)
     .await
     .expect("count orphaned interaction rows");
 
-    assert_eq!(orphan_interaction.0, 0, "no orphaned interaction rows must exist");
+    assert_eq!(
+        orphan_interaction.0, 0,
+        "no orphaned interaction rows must exist"
+    );
 
     // 4. Verify no orphaned deal client_person rows: every deal.client_person_id
     //    must reference an existing person.
@@ -69,13 +80,16 @@ async fn db_schema_005__fk_targets_exist() {
         "SELECT count(*) FROM deal d WHERE d.client_person_id IS NOT NULL
          AND NOT EXISTS (
              SELECT 1 FROM person p WHERE p.id = d.client_person_id
-         )"
+         )",
     )
-    .fetch_one(&mut conn)
+    .fetch_one(&mut *conn)
     .await
     .expect("count orphaned deal client_person rows");
 
-    assert_eq!(orphan_deal_person.0, 0, "no orphaned deal client_person rows must exist");
+    assert_eq!(
+        orphan_deal_person.0, 0,
+        "no orphaned deal client_person rows must exist"
+    );
 
     // 5. Verify no orphaned interaction person rows: every interaction.person_id
     //    must reference an existing person.
@@ -83,24 +97,30 @@ async fn db_schema_005__fk_targets_exist() {
         "SELECT count(*) FROM interaction i WHERE i.person_id IS NOT NULL
          AND NOT EXISTS (
              SELECT 1 FROM person p WHERE p.id = i.person_id
-         )"
+         )",
     )
-    .fetch_one(&mut conn)
+    .fetch_one(&mut *conn)
     .await
     .expect("count orphaned interaction person rows");
 
-    assert_eq!(orphan_interaction_person.0, 0, "no orphaned interaction person rows must exist");
+    assert_eq!(
+        orphan_interaction_person.0, 0,
+        "no orphaned interaction person rows must exist"
+    );
 
     // 6. Verify no orphaned app_user rows referenced by person or deal.
     let orphan_app_user_person: (i64,) = sqlx::query_as(
         "SELECT count(*) FROM person p WHERE p.assigned_user_id IS NOT NULL
          AND NOT EXISTS (
              SELECT 1 FROM app_user a WHERE a.id = p.assigned_user_id
-         )"
+         )",
     )
-    .fetch_one(&mut conn)
+    .fetch_one(&mut *conn)
     .await
     .expect("count orphaned app_user references from person");
 
-    assert_eq!(orphan_app_user_person.0, 0, "no orphaned app_user references from person must exist");
+    assert_eq!(
+        orphan_app_user_person.0, 0,
+        "no orphaned app_user references from person must exist"
+    );
 }
