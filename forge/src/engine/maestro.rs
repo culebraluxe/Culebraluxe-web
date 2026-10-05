@@ -1354,6 +1354,58 @@ mod tests {
     }
 
     #[test]
+    fn maestro_turn_ceiling_default_and_overrides() {
+        // FORGE_TURN_TIMEOUT_MINUTES preserved: unset/blank/garbage → 120; "0"/"off" disables.
+        assert_eq!(turn_ceiling(None), Some(Duration::from_secs(120 * 60)));
+        assert_eq!(turn_ceiling(Some("")), Some(Duration::from_secs(120 * 60)));
+        assert_eq!(
+            turn_ceiling(Some("garbage")),
+            Some(Duration::from_secs(120 * 60))
+        );
+        assert_eq!(turn_ceiling(Some("45")), Some(Duration::from_secs(45 * 60)));
+        assert_eq!(turn_ceiling(Some("0")), None);
+        assert_eq!(turn_ceiling(Some("off")), None);
+    }
+
+    #[test]
+    fn maestro_session_never_crosses_worktrees() {
+        // A lane session proven to belong to a different workspace is refused; resuming falls through to fresh.
+        assert_eq!(
+            resume_session(None, Some("other-worktree-session".into()), false),
+            None,
+            "a session from another worktree must never be resumed here"
+        );
+    }
+
+    #[test]
+    fn maestro_task_text_preserves_forge_context() {
+        // The task text Maestro receives is Forge's canonical builder output: role node, goal, brief,
+        // acceptance, and execution workspace context survive the adapter unchanged.
+        let _guard = lock_env();
+        std::env::set_var("FORGE_WORKTREE", ".");
+        std::env::set_var("FORGE_STORY_ID", "T-STORY");
+        let mut harness = MaestroHarness::from_env().expect("harness");
+        harness.packet.goal = Some("GOAL-TEXT".into());
+        harness.packet.architect_brief = Some("BRIEF-TEXT".into());
+        harness.packet.acceptance_criteria = Some("ACCEPT-TEXT".into());
+        let task = crate::engine::runtime::ActiveForgeRoleTask {
+            task_id: "task-1".into(),
+            process_instance_id: "proc-1".into(),
+            story_id: "T-STORY".into(),
+            token_id: None,
+            node_id: Some("architect".into()),
+            status: workflow::TaskStatus::InProgress,
+            assignee: None,
+            candidates: vec![],
+        };
+        let text = harness.task_text("architect", &task, None);
+        assert!(text.contains("GOAL-TEXT"), "{text}");
+        assert!(text.contains("BRIEF-TEXT"), "{text}");
+        assert!(text.contains("ACCEPT-TEXT"), "{text}");
+        assert!(text.contains("architect"), "{text}");
+    }
+
+    #[test]
     fn maestro_agent_selection_ignores_forge_role_ids() {
         // Forge roles (architect/lead/smith/qa/scout/devops) are owned by Forge's lifecycle; the Maestro
         // agent is a transport choice. The resolver's signature must not accept a role/node at all, so no
