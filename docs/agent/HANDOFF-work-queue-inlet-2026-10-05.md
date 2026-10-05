@@ -12,6 +12,7 @@
 | commit | what |
 | --- | --- |
 | `9950a399` | `db/migrations/270_forge_work_queue_inlet.sql` + the paragraph in `docs/agent/QUEUE-2026-10-02.md` (line 45: the door is an inlet, `arm_limit` is the rate control, `harness`/`execution_target` are provenance) |
+| this commit | `tests/tests/forge_work_queue__001__inlet_arms_and_settles.rs` — the six behaviours above, on DEV, `#[ignore]`d behind `DATABASE_URL_DEV` like `db_concurrency__008` |
 
 Migration 270, in one line: `forge_arm_work_queue` (FIFO arm, paced by `forge_work_queue_config.arm_limit`, default 3)
 and `forge_settle_work_queue` (Complete with the run's `commit_hash` and `ran_as` from its `model_used`; `Failed` is
@@ -27,6 +28,10 @@ terminal at the door; a run that ended with the story back on the board returns 
   `TST-INLET-001` then `002` then `003`; Complete carries `commit_sha` + `ran_as`; Failed → `Error` with the engine's
   reason; run-ended → `Pending` backed off; attempts spent → `Error`; blank target refused (`check_violation`);
   DEV left clean. Verdict row: all six columns `t`.
+- The same six behaviours as a landed test: `cargo test --manifest-path Cargo.toml -p test-harness --test
+  forge_work_queue__001__inlet_arms_and_settles -- --ignored` →
+  `test forge_work_queue_001__inlet_arms_and_settles ... ok` / `test result: ok. 1 passed; 0 failed` in 11.32s
+  (`build/logs/test-inlet-dev.log`). Re-run after `rustfmt` re-wrapped the file: same command, see the log.
 - PROD, the live chain: 3 rows enqueued (one call each, so `created_at` is real) → the trunk tick's sweep armed all
   three (`state=Running`, `attempts=1`, `claimed_by=forge-sweep`), each story `Ready` with **one** item whose
   `execution_policy='Unattended OK'` (the column default) and `work_type='FAST'`, then three `dispatch` runs opened and
@@ -44,11 +49,8 @@ terminal at the door; a run that ended with the story back on the board returns 
    shares `created_at` and loses the order to a uuid tie-break. Raise the rate with
    `update forge_work_queue_config set arm_limit = <n>, updated_at = now() where id = 1;` (`arm_limit` = how many runs a
    batch opens at once; the worker took the three at once, so it is the concurrency knob, not a queue length).
-3. **`tests/tests/forge_work_queue__001__inlet_arms_and_settles.rs` is written but NOT verified** — it is uncommitted in
-   `src/lane-deep` on purpose: `cargo test` could not get the build-dir lock while the worker's passes held it, and an
-   unverified test must not land on trunk. Run
-   `DATABASE_URL_DEV=… cargo test --manifest-path Cargo.toml -p test-harness --test forge_work_queue__001__inlet_arms_and_settles -- --ignored`
-   when the worker is idle, then land it. It pins the same six behaviours as the DEV smoke.
+3. **Nothing else is open.** `db:parity` was red before this work on two DEV-only tables
+   (`chaos_service_test_writes`, `crm_lead_projection`) — pre-existing and untouched here.
 
 ## Not verified
 
