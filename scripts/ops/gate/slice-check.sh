@@ -142,7 +142,13 @@ if [ -z "$failed" ]; then
     while IFS= read -r diff_line; do
       [ -n "$diff_line" ] || continue
       rel="${diff_line#Diff in }"
+      # rustfmt names the offending file two ways: `Diff in <path> at line N:` -- the shape this split was written
+      # against -- and `Diff in <path>:N:` (rustfmt 1.8+, and what this machine's rustfmt prints). Only the first was
+      # stripped, so from the day the header changed every unformatted file, this slice's own included, was filed as
+      # `theirs` and FMT could not fail a slice (`2026-10-04`: a slice listing its own two unformatted test files under
+      # "pre-existing, NOT this slice", while `mine` stayed empty). Both shapes are stripped now.
       rel="${rel% at line*}"
+      rel="${rel%:[0-9]*:}"
       case "$rel" in "$root"/*) rel="${rel#"$root"/}" ;; esac
       if printf '%s\n' "$changed_files" | grep -Fxq "$rel"; then
         mine="${mine}${rel}"$'\n'
