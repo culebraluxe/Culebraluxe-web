@@ -568,3 +568,46 @@ Short facts that are expensive to rediscover.
   peer's server: `RUST_UI_PROFILE=debug CARGO_TARGET_DIR=<private> bash scripts/rust-ui-build.sh`, then the server on
   another port with `CULEBRA_SITE_DIR` pointed at the lane's own `public/`.
 
+- **2026-10-05 (the webroot is also an rsync source, and `chmod` was the hinge: a private Apple Messages export became
+  a public 64 MB download).** The export has been staged at `public/upload/data/apple-messages-export/` since 2026-10-04
+  18:02 by `scripts/apple-sync.sh:59` — the exporters write there by design, and `.gitignore:42` marks that directory
+  private. `scripts/deploy-prod.sh` packs the **working tree's** `public/` with `rsync`, which does not read
+  `.gitignore`, so the export travelled into the image in every deploy. It stayed harmless only because the files are
+  mode 600 and the container runs as uid 10001: unreadable, therefore unpublished. Then the same file got
+  `--exclude rust-ui` and later `chmod -R a+rX` on the stage to fix the site's own mode-600 pictures (`f0e6224f`), and
+  the mode fix published the export: each of the 9 files answered 200 with `content-length` equal to its size on disk,
+  `messages.jsonl` at 66,860,709 bytes. The sibling artifact path already knew the rule —
+  `scripts/vercel-build-prod.sh:143-154` **fails the build** when `*/public/upload/data/apple-messages-export/*` is
+  traced into a prebuilt artifact — and the container path had lost that check in the layout refactor. Fixed in
+  `scripts/deploy-prod.sh` (`7e5f04c0`) with both halves: `--exclude 'upload/data'` on the rsync, and a fail-closed
+  probe after the stage is filled that refuses to deploy if any private path (`upload/data`, `contact-export`,
+  `apple-messages-output`, `apple-messages-export`, `culebraluxe-calendar*.json`) reached it. Receipts: deploy log
+  `private-data probe: clean`, stage `152M → 80M` (the ~72 MiB the export weighed), `scripts/verify-deploy.sh
+  7e5f04c0` → `checked 115 files; 0 wrong`, `12 staging file(s) on disk, 0 reachable`, `VERIFY: PASS (deploy
+  integrity)` with `PRIVACY: clean`, and the export URL answering `200 → text/html, 1278 bytes` where it answered
+  `content-length: 66860709` before. The export itself was never touched: same bytes, same mtime, `mv` was the tempting
+  move and the wrong one — the fix belongs in the artifact, not in the owner's data. Four lessons: a rule with two
+  homes is a rule with one home and a gap, so a second artifact path must inherit the first path's guard; when the
+  build source is a webroot, a permission change is a publication decision; an exclusion is only trustworthy if the
+  artifact *refuses* the content (a warning would have been read as noise); and the verifier now lives in the repo
+  (`scripts/verify-deploy.sh`, §6 asserts the staging root is unreachable) because a receipt nobody can pull is not a
+  receipt.
+
+- **2026-10-05 (the Captain parks red-test triage for the Rust test-corpus build-out: a red test is either a defect in
+  the test or a real gap in prod, and nobody can tell which yet — so neither is a gate for the next few days).**
+  Verbatim direction: *"I trying to get 684 test files created to fill the gap of the cut over from typcript to RUST we
+  are going to have new test files coming in and some may show broke it may be the test file it may be the test file
+  showing a real gap or bug in prod right now i am just tyring to get all the test files created … dont worry about red
+  tests for next couple days then we go back and fix the test and or the bug."* Owner: the Captain; time-box: my
+  reading of "a couple of days" is **2026-10-07**, and only he extends it. What the parking does **not** do: nothing is
+  baselined, allow-listed, `#[ignore]`d or deleted, no count is rewritten and no ledger row is silenced — the failures
+  stay red and named (rustfmt, 4 tests, 1 osv advisory as of this date), and "The gate is tiered" still stands, so a new
+  test file's own result is its author's to look at before pushing, not something CI discovers for them. Why the
+  parking is safe for releases, which is the DevOps half of it: a deploy never runs through CI — `pnpm deploy:prod` is
+  a local build plus `vc deploy`, gated at push time by `.githooks/pre-push` (workspace check, `pnpm ui:check` for
+  `web/ui`) and now by the stage's private-data probe — so a red T2 on `main` neither blocks nor corrupts a deploy, and
+  the two things that *are* release gates (`pnpm db:parity`, `pnpm db:migrations`) stay gates. The lesson worth
+  keeping after the corpus exists: during a bulk-port period, "the build is red" carries no information about the
+  product, because a green suite and a broken suite look identical from the outside — only a named, dated, owned row
+  does.
+
