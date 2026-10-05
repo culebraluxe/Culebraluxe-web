@@ -720,9 +720,33 @@ fn run_maestro_streaming(
     // below is the enforcement that always holds; the cap kills early only when a streamed usage line
     // already proves it breached.
     let stdout_pipe = child.stdout.take().unwrap();
-    let mut reader = std::io::BufReader::new(stdout_pipe);
-    let mut line = String::new();
     let start_time = std::time::Instant::now();
+
+    // Stdout is read on a thread and pumped over a channel: the blocking read must never hide the
+    // ceiling from the enforcement loop, so the main loop wakes every 100ms even when the child is
+    // silent. (Measured defect: a plain `read_line` blocked for the whole silent turn — `sleep 30`
+    // returned exit 0 at a 200ms ceiling.)
+    let (tx, rx) = std::sync::mpsc::channel::<std::io::Result<String>>();
+    std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader};
+        let mut reader = BufReader::new(stdout_pipe);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if tx.send(Ok(line.clone())).is_err() {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    let _ = tx.send(Err(error));
+                    break;
+                }
+            }
+        }
+    });
 
     loop {
         // Check turn timeout
@@ -737,11 +761,8 @@ fn run_maestro_streaming(
             }
         }
 
-        // Read line with timeout to allow periodic ceiling checks
-        line.clear();
-        match reader.read_line(&mut line) {
-            Ok(0) => break, // EOF
-            Ok(_) => {
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(Ok(line)) => {
                 stdout.push_str(&line);
                 // Check spend cap from parsed usage in line (if Maestro emits usage in streaming output)
                 if let Some(cap) = spend_cap {
@@ -757,11 +778,13 @@ fn run_maestro_streaming(
                     }
                 }
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 return Err(WorkflowError::generic(format!(
                     "failed to read maestro stdout: {e}"
                 )));
             }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break, // EOF
         }
     }
 
@@ -1351,6 +1374,73 @@ mod tests {
                 "Maestro target selection must not use OpenCode's {forbidden}"
             );
         }
+    }
+
+    #[test]
+    fn maestro_process_failures_stay_failures() {
+        // Spawn failure: a missing binary is a harness execution error, never a fake output.
+        let err = run_maestro_streaming("/nonexistent/maestro-cli-xyz", ".", &[], None, None, None)
+            .expect_err("a missing binary cannot produce a turn");
+        assert!(err.to_string().contains("failed to spawn"), "{err}");
+
+        // Non-zero exit and timeout/spend-cap live in one shared runner, exercised with a fake CLI:
+        // a script that exits 3, one that sleeps past the ceiling, one that overshoots the spend cap.
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("forge-maestro-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let write_script = |name: &str, body: &str| {
+            let path = dir.join(name);
+            let mut f = std::fs::File::create(&path).expect("script");
+            writeln!(f, "#!/bin/sh\n{body}").expect("write");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+            path
+        };
+
+        let fail = write_script("fail.sh", "echo 'agent is busy' >&2\nexit 3");
+        let result = run_maestro_streaming(fail.to_str().unwrap(), ".", &[], None, None, None)
+            .expect("the process ran and reported its exit");
+        assert_eq!(result.exit_code, Some(3));
+        assert!(result.stderr.contains("agent is busy"), "{}", result.stderr);
+
+        let slow = write_script("slow.sh", "sleep 30");
+        let err = run_maestro_streaming(
+            slow.to_str().unwrap(),
+            ".",
+            &[],
+            None,
+            None,
+            Some(Duration::from_millis(200)),
+        )
+        .expect_err("the ceiling must kill the turn");
+        assert!(err.to_string().contains("wall-clock ceiling"), "{err}");
+
+        let spendy = write_script(
+            "spendy.sh",
+            "echo '{\"usage\":{\"input_tokens\":10,\"output_tokens\":5,\"cost_usd\":5.0}}'\nsleep 30",
+        );
+        let err = run_maestro_streaming(
+            spendy.to_str().unwrap(),
+            ".",
+            &[],
+            None,
+            Some(0.01),
+            Some(Duration::from_secs(60)),
+        )
+        .expect_err("the spend cap must kill the turn");
+        assert!(err.to_string().contains("spend cap"), "{err}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn maestro_process_failure_classification() {
+        // Distinct, non-collapsible classes: the parse of a failed envelope carries Maestro's error,
+        // and an exit-3 process result cannot be read as a successful turn.
+        let err =
+            parse_maestro_output(r#"{"success":false,"error":"agent is busy","response":""}"#)
+                .expect_err("success:false is an execution error");
+        assert!(err.to_string().contains("agent is busy"), "{err}");
     }
 
     #[test]
