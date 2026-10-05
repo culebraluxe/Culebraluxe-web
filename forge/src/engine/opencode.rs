@@ -228,14 +228,17 @@ pub fn model_for_policy(raw: Option<&str>) -> &'static str {
 /// `OPENCODE_JUDGMENT_MODEL` is the only way the judgment policy names a different model
 /// than cheap — the 2026-09-16 pin made both flash because pro could not be billed per token.
 /// Setting the env is how that rail becomes observable without changing the default pin.
-pub fn resolve_model_for_policy(raw: Option<&str>) -> String {
+pub fn resolve_model_for_policy(raw: Option<&str>) -> workflow::Result<String> {
     match as_model_policy(raw) {
-        "judgment" => std::env::var("OPENCODE_JUDGMENT_MODEL")
+        "judgment" => match std::env::var("OPENCODE_JUDGMENT_MODEL")
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| MODEL_FOR_JUDGMENT.to_string()),
-        _ => MODEL_FOR_CHEAP.to_string(),
+        {
+            Some(value) => crate::engine::model_aliases::normalize_model_name(&value),
+            None => Ok(MODEL_FOR_JUDGMENT.to_string()),
+        },
+        _ => Ok(MODEL_FOR_CHEAP.to_string()),
     }
 }
 
@@ -249,7 +252,7 @@ pub fn resolve_opencode_model(model: Option<&str>) -> Result<String> {
         Some(v) if v.trim().is_empty() => Err(WorkflowError::generic(format!(
             "OpenCode harness has no explicit model configuration: expected '{OPENCODE_PINNED_MODEL}', got empty. Refusing to rely on OpenCode's default model selection."
         ))),
-        Some(v) => Ok(v.trim().to_string()),
+        Some(v) => crate::engine::model_aliases::normalize_model_name(v),
     }
 }
 
@@ -394,7 +397,7 @@ impl OpenCodeHarness {
             .filter(|value| !value.is_empty())
         {
             Some(model) => resolve_opencode_model(Some(model))?,
-            None => resolve_model_for_policy(model_policy),
+            None => resolve_model_for_policy(model_policy)?,
         };
         Ok(harness)
     }
@@ -1149,13 +1152,13 @@ mod tests {
     #[test]
     fn the_row_decides_the_model_and_an_explicit_override_still_wins() {
         // The row's policy is what the harness would run on when no explicit model is set.
-        let policy_model = resolve_model_for_policy(Some("cheap"));
+        let policy_model = resolve_model_for_policy(Some("cheap")).expect("cheap resolves");
         assert_eq!(
             policy_model,
             resolve_opencode_model(Some(&policy_model)).unwrap()
         );
         assert_eq!(
-            resolve_model_for_policy(Some("cheap")),
+            resolve_model_for_policy(Some("cheap")).expect("cheap resolves"),
             model_for_policy(Some("cheap"))
         );
         // An explicit empty override is refused rather than silently replaced (the harness's own rule).
