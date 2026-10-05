@@ -167,15 +167,38 @@ fn main() {
             std::process::exit(2);
         }
     }
+    // THE VENDOR IS SELECTED BEFORE IT IS VERIFIED — never the reverse. The backend decides which
+    // vendor contract gets checked: OpenCode's for OpenCode, Maestro's for Maestro. Verifying OpenCode
+    // unconditionally would make every Maestro turn depend on the direct OpenCode harness passing (§9).
+    let harness_backend = match forge::engine::harness::HarnessBackend::from_env() {
+        Ok(backend) => backend,
+        Err(e) => {
+            reject_configuration(work_item.as_deref(), &format!("{e}"));
+            eprintln!("{e}");
+            std::process::exit(2);
+        }
+    };
+    eprintln!("harness_backend={:?}", harness_backend);
     // THE VENDOR BINARY IS RESOLVED AND VERIFIED BEFORE ANY CLAIM IS OPENED — not in the middle of a turn.
     // MEASURED 2026-10-03: `ENG-FORGE-C1-BUILD-INFO-01` opened its claim, dispatched `architect`, and died on the
     // vendor's own help text (exit 1) because `opencode` on this process's PATH was the npm `opencode-ai` 1.18.26 —
     // a different CLI from the v2 build Forge's argument list is written against (`jobs.last_error` for durable job
     // `b319bf40` is that help page, verbatim). A lane that cannot run the vendor it was written for has nothing to
     // dispatch, and learning that here costs one `--help` call instead of a claim, a run and a story's Hold.
-    match forge::engine::opencode_client::verify_vendor_contract(
-        &forge::engine::opencode::default_cli_bin(),
-    ) {
+    let vendor = match harness_backend {
+        forge::engine::harness::HarnessBackend::OpenCode => {
+            forge::engine::opencode_client::verify_vendor_contract(
+                &forge::engine::opencode::default_cli_bin(),
+            )
+        }
+        forge::engine::harness::HarnessBackend::Maestro => {
+            forge::engine::maestro::verify_vendor_contract(
+                &forge::engine::maestro::MaestroHarness::default_cli_bin()
+                    .unwrap_or_else(|e| e.to_string()),
+            )
+        }
+    };
+    match vendor {
         Ok(vendor) => eprintln!("vendor={vendor}"),
         Err(e) => {
             reject_configuration(work_item.as_deref(), &format!("{e}"));
@@ -307,17 +330,11 @@ fn main() {
         env::var("FORGE_ROUTING_BRAIN").ok().as_deref(),
     );
     eprintln!("routing-brain={brain:?}");
-    // The model the lane bills is decided by the ROW (migration 179 `model_policy`), read at the claim together with
+    // The backend was selected and verified above, before the claim; the model the lane bills is decided
+    // by the ROW (migration 179 `model_policy`), read at the claim together with
     // the execution policy. `OPENCODE_MODEL` still wins: that is an explicit, attended configuration. Before this,
     // the model was whatever the pin said and the policy column was decoration.
-    let harness_backend = match forge::engine::harness::HarnessBackend::from_env() {
-        Ok(backend) => backend,
-        Err(e) => {
-            reject_configuration(work_item.as_deref(), &format!("{e}"));
-            eprintln!("{e}");
-            std::process::exit(2);
-        }
-    };
+    // (harness_backend is bound above, next to the vendor preflight it selects.)
     eprintln!("harness_backend={:?}", harness_backend);
     let harness_context = forge::engine::harness::HarnessContext {
         story_id: story.clone(),
