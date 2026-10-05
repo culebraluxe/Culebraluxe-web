@@ -160,4 +160,3 @@ if [ "$fail" = 0 ] && [ "$bad" = 0 ]; then echo "VERIFY: PASS (deploy integrity)
 if [ "$leaks" = 0 ]; then echo "PRIVACY: clean — nothing staged under public/upload/data is served"; else echo "PRIVACY: $leaks leaked path(s) — see LEAK above"; fi
 printf 'VERIFY_DONE=%s\n' "$fail"
 exit "$fail"
-
