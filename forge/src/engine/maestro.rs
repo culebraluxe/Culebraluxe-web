@@ -1260,4 +1260,64 @@ mod tests {
             "maestro-cli"
         );
     }
+
+    #[test]
+    fn maestro_bin_explicit_override_is_selected() {
+        let _guard = lock_env();
+        std::env::set_var("MAESTRO_BIN", "/usr/local/bin/maestro-cli");
+        assert_eq!(
+            MaestroHarness::default_cli_bin().expect("explicit wins"),
+            "/usr/local/bin/maestro-cli",
+            "a valid explicit MAESTRO_BIN is used as configured"
+        );
+        std::env::remove_var("MAESTRO_BIN");
+    }
+
+    #[test]
+    fn maestro_bin_invalid_explicit_fails_closed() {
+        let _guard = lock_env();
+        std::env::set_var("MAESTRO_BIN", "/nonexistent/maestro-cli-xyz");
+        // Resolution stays lenient (a name is not proof), but the bad explicit value is never replaced
+        // by a fallback and is refused at preflight — before a claim, before a token.
+        let bin = MaestroHarness::default_cli_bin().expect("no silent substitution");
+        assert_eq!(bin, "/nonexistent/maestro-cli-xyz");
+        assert!(
+            verify_vendor_contract(&bin).is_err(),
+            "an invalid explicit MAESTRO_BIN must fail closed"
+        );
+        std::env::remove_var("MAESTRO_BIN");
+    }
+
+    #[test]
+    fn maestro_backend_never_runs_direct_opencode_preflight() {
+        // Structural guard on the binary: backend selection must precede vendor verification, and the
+        // OpenCode contract check must sit behind the OpenCode backend arm — selecting Maestro must not
+        // require the direct Forge → OpenCode harness preflight to pass.
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src/bin/forge.rs")
+                .as_path(),
+        )
+        .expect("forge.rs is readable");
+        let selection = source
+            .find("HarnessBackend::from_env()")
+            .expect("backend is selected");
+        let opencode_verify = source
+            .find("opencode_client::verify_vendor_contract")
+            .expect("opencode verifies its own contract");
+        let maestro_verify = source
+            .find("maestro::verify_vendor_contract")
+            .expect("maestro verifies its own contract");
+        assert!(
+            selection < opencode_verify && selection < maestro_verify,
+            "the vendor must be resolved (and invalid config rejected) before any preflight runs"
+        );
+        let opencode_arm = source
+            .rfind("HarnessBackend::OpenCode =>")
+            .expect("opencode arm exists");
+        assert!(
+            opencode_arm < opencode_verify,
+            "the OpenCode preflight lives inside the OpenCode backend arm only"
+        );
+    }
 }
