@@ -1,151 +1,231 @@
 //! DB.SCHEMA — trigger/function referenced by code exists (TST-DB-SCHEMA-008).
 //!
-//! CONTRACT. Every trigger or database function that the Rust domain model or
-//! DAO code references must exist in the production schema.  This test verifies
-//! the set of triggers and functions codified in the Rust type system are
-//! present and have the expected signature, so that a missing trigger or function
-//! would cause a compile-time or runtime error in production.
+//! CONTRACT. A database routine that the production code names and invokes must
+//! exist in the schema that code runs against. The Rust DAO layer calls database
+//! functions by name (`select … from forge_dispatch_story($1)` in `db/src/forge_engine.rs`)
+//! and depends on the triggers those routines fire; a routine that was renamed or
+//! dropped on the database side is a runtime `42704` in production. This test turns
+//! that class of drift into a named, local proof.
 //!
-//! Level: L2 Persistence — exercise the same boundary production uses.  Use
-//! only an isolated disposable Postgres/Neon test target; assert committed
-//! database truth and rollback; PROD is forbidden.
+//! Each routine is checked twice, so the list cannot rot into a hardcoded fiction:
+//!   1. SOURCE — a repository file still names the routine, so a rename in code is
+//!      caught here rather than only after the database was changed, and
+//!   2. CATALOGUE — the isolated DEV target reports it present (`pg_proc` for a
+//!      function, `pg_trigger` for a trigger).
+//!
+//! The test then exercises the subject rather than only reading static lists:
+//! it creates a probe function inside a transaction, proves `pg_proc` sees it, rolls
+//! the transaction back, and proves the committed catalogue no longer holds it. The
+//! negative control asserts a fabricated routine name is absent from both catalogues,
+//! so a query that answered "present" for everything — or one that ignored rollback —
+//! cannot pass.
+//!
+//! Level: L2 Persistence — the production `Database` pool against an isolated
+//! disposable DEV/Neon target. The harness refuses PRODUCTION before any socket is
+//! opened, and the only write is a probe function rolled back inside the test.
 //!
 //! Run with:
-//!   cargo test --manifest-path Cargo.toml -p test-harness --test db_schema__008__trigger_function_referenced_by_code_exists
+//!   DATABASE_URL_DEV=... cargo test --manifest-path Cargo.toml -p test-harness \
+//!     --test db_schema__008__trigger_function_referenced_by_code_exists -- --ignored
+//! The plain command (no `--ignored`) passes with the test skipped, because the proof
+//! needs a disposable DEV database and the harness will never open a PRODUCTION one.
 
+use std::path::{Path, PathBuf};
+
+use db::DbTarget;
 use test_harness::database::TestDatabase;
-use test_harness::database::TestTransaction;
+
+/// The harness name and level, carried in every assertion message so a failure names its boundary.
+const HARNESS: &str = "DatabaseHarness/L2 Persistence";
+
+/// The repository root, derived from this crate's manifest directory (`tests/`).
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("tests/ has a parent (the repository root)")
+        .to_path_buf()
+}
+
+/// Functions the production code invokes by name: (routine, evidence path).
+///
+/// The evidence file must name the routine; that source check is what keeps the list
+/// tied to code instead of to this test's memory of the schema.
+const CODE_REFERENCED_FUNCTIONS: &[(&str, &str)] = &[
+    // The dispatch trigger's function, named by `db/src/forge_engine.rs` in the
+    // doc comment that explains the `42704` schema-mismatch path.
+    ("agent_work_item_dispatch", "db/src/forge_engine.rs"),
+    ("forge_begin_agent_work_run", "db/src/forge_engine.rs"),
+    ("forge_claim_next_agent_work", "db/src/forge_engine.rs"),
+    ("forge_claim_specific_agent_work", "db/src/forge_engine.rs"),
+    ("forge_dispatch_story", "db/src/forge_engine.rs"),
+    ("forge_finish_agent_work_run", "db/src/forge_engine.rs"),
+    ("forge_hold_stale_work", "db/src/forge_control.rs"),
+    ("forge_reconcile_dispatch_queue", "db/src/forge_engine.rs"),
+    ("forge_record_tool_artifact", "db/src/forge_engine.rs"),
+    ("forge_recover_stale_engine_claim", "db/src/forge_reset.rs"),
+    (
+        "forge_reject_agent_work_configuration",
+        "db/src/forge_engine.rs",
+    ),
+    ("forge_requeue_stale_work", "db/src/forge_control.rs"),
+    ("warehouse_promote_apple_contacts", "db/src/landing.rs"),
+];
+
+/// Triggers the code path depends on: (trigger, evidence path).
+///
+/// `storyboard_story_ready_dispatch` is the Ready-dispatch trigger the migration
+/// suite installs; `forge_dispatch_story` restores the change into `Ready` that fires
+/// it and returns `42704` if it is gone, so a deployment without it silently stops
+/// queuing work.
+const CODE_REFERENCED_TRIGGERS: &[(&str, &str)] = &[(
+    "storyboard_story_ready_dispatch",
+    "db/migrations/025_agent_work_queue.sql",
+)];
+
+/// Does the named evidence file still name the routine?
+///
+/// A missing file, or a file that no longer contains the name, fails the source half
+/// of the contract; the caller records it as missing.
+fn source_names(evidence: &str, routine: &str) -> bool {
+    std::fs::read_to_string(repo_root().join(evidence))
+        .map(|text| text.contains(routine))
+        .unwrap_or(false)
+}
+
+/// Connect to the disposable DEV branch, tolerating a cold-pool timeout under concurrent test load.
+///
+/// Infrastructure, not the contract: `TestDatabase` still refuses PRODUCTION before any socket is opened.
+async fn connect_dev() -> TestDatabase {
+    let mut last: Option<String> = None;
+    for attempt in 1..=4 {
+        match TestDatabase::connect_declared(Some("dev"), Some("dev")).await {
+            Ok(harness) => return harness,
+            Err(error) => {
+                eprintln!("proof: DEV connect attempt {attempt} failed: {error}");
+                last = Some(error.to_string());
+                tokio::time::sleep(std::time::Duration::from_millis(500 * attempt)).await;
+            }
+        }
+    }
+    panic!(
+        "DATABASE_URL_DEV must reach a disposable DEV branch; the harness refuses PROD: {}",
+        last.unwrap_or_default()
+    );
+}
 
 #[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (a disposable DEV branch); the harness refuses PROD before any socket"]
+#[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-DB-SCHEMA-008); the file and the assay use it.
 async fn db_schema_008__trigger_function_referenced_by_code_exists() {
-    let test_db = TestDatabase::connect_from_env()
-        .await
-        .expect("a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)");
-
-    let mut conn = test_db
-        .database()
-        .pool()
-        .acquire()
-        .await
-        .expect("pool checkout");
-
-    // 1. Check that the trigger on property exists.
-    let property_trigger: (i32,) = sqlx::query_as(
-        "SELECT count(*) FROM pg_trigger WHERE tgname = 'trigger_update_property_timestamp'",
-    )
-    .fetch_one(&mut *conn)
-    .await
-    .expect("query property trigger exists");
-
+    // 0. L2 boundary: an isolated disposable DEV/Neon target, never PRODUCTION.
+    let dev = connect_dev().await;
     assert_eq!(
-        property_trigger.0, 1,
-        "trigger trigger_update_property_timestamp must exist on property table"
+        dev.target(),
+        DbTarget::Dev,
+        "{HARNESS}: the routine-existence proof runs only on an isolated DEV target"
     );
+    let pool = dev.database().pool();
 
-    // 2. Verify the trigger function exists and has the expected signature.
-    let trigger_func: (i32,) = sqlx::query_as(
-        "SELECT count(*) FROM pg_proc WHERE proname = 'update_property_timestamp_func'",
-    )
-    .fetch_one(&mut *conn)
-    .await
-    .expect("query trigger function exists");
-
+    // 1. Negative control: fabricated names are absent from both catalogues, so a
+    //    lookup that answered "present" for everything could not pass this test.
+    let fabricated_function: (i64,) =
+        sqlx::query_as("select count(*) from pg_proc where proname = $1")
+            .bind("tst_db_schema_008_no_such_function")
+            .fetch_one(pool)
+            .await
+            .expect("count fabricated function");
     assert_eq!(
-        trigger_func.0, 1,
-        "function update_property_timestamp_func must exist"
+        fabricated_function.0, 0,
+        "{HARNESS}: a fabricated function is absent — the pg_proc lookup discriminates"
     );
 
-    // 3. Check the function signature has the right content.
-    let func_sig: (String,) = sqlx::query_as(
-        "SELECT prosrc FROM pg_proc WHERE proname = 'update_property_timestamp_func'",
-    )
-    .fetch_one(&mut *conn)
-    .await
-    .expect("query trigger function source");
-
-    let sig = func_sig.0;
-    // The function should reference the property table and updated_at column
-    assert!(
-        sig.contains("property"),
-        "trigger function must reference the property table: {:?}",
-        sig
-    );
-    assert!(
-        sig.contains("updated_at"),
-        "trigger function must reference updated_at column: {:?}",
-        sig
-    );
-
-    // 4. Check that the trigger actually fires by updating a property row
-    //    and verifying the updated_at timestamp changes.
-    let mut tx = test_db.begin().await.expect("begin transaction");
-
-    // Insert a property row first
-    sqlx::query(
-        "INSERT INTO property (name, location, status, list_price, bedrooms, bathrooms, square_feet, created_at, updated_at)
-         VALUES ('Trigger Test', 'Loc', 'prospect', 100000, NULL, NULL, NULL, now(), now())"
-    )
-    .execute(&mut *tx.connection())
-    .await
-    .expect("insert property for trigger test");
-
-    let property_id: String =
-        sqlx::query_scalar("SELECT id::text FROM property WHERE name = 'Trigger Test' LIMIT 1")
-            .fetch_one(&mut *tx.connection())
+    let fabricated_trigger: (i64,) =
+        sqlx::query_as("select count(*) from pg_trigger where tgname = $1")
+            .bind("tst_db_schema_008_no_such_trigger")
+            .fetch_one(pool)
             .await
-            .expect("get property id");
+            .expect("count fabricated trigger");
+    assert_eq!(
+        fabricated_trigger.0, 0,
+        "{HARNESS}: a fabricated trigger is absent — the pg_trigger lookup discriminates"
+    );
 
-    let before_updated_at: String =
-        sqlx::query_scalar::<_, String>("SELECT updated_at::text FROM property WHERE id = $1")
-            .bind(&property_id)
-            .fetch_one(&mut *tx.connection())
-            .await
-            .expect("get before updated_at")
-            .to_string();
+    // 2. Exercise the catalogue and the rollback contract together: a function that
+    //    exists is visible, and one created inside a transaction that is rolled back
+    //    is not. This is the positive control against which the fabricated-name
+    //    negative control above is meaningful.
+    let namespace = dev.namespace().replace('-', "_");
+    let probe = format!("tst_db_schema_008_probe_{namespace}");
+    let ddl = format!("create function {probe}() returns integer language sql as 'select 1'");
 
-    // Update the property row - the trigger should update updated_at
-    sqlx::query("UPDATE property SET name = 'Trigger Test Updated' WHERE id = $1")
-        .bind(&property_id)
-        .execute(&mut *tx.connection())
+    let mut tx = dev.begin().await.expect("begin probe transaction");
+    sqlx::query(sqlx::AssertSqlSafe(ddl))
+        .execute(tx.connection())
         .await
-        .expect("update property to trigger trigger");
+        .expect("create probe function");
+    let inside: (i64,) = sqlx::query_as("select count(*) from pg_proc where proname = $1")
+        .bind(&probe)
+        .fetch_one(tx.connection())
+        .await
+        .expect("probe visible inside its transaction");
+    assert_eq!(
+        inside.0, 1,
+        "{HARNESS}: a function created in this transaction must be visible in pg_proc"
+    );
+    tx.rollback()
+        .await
+        .expect("roll back the probe transaction");
 
-    let after_updated_at: String =
-        sqlx::query_scalar::<_, String>("SELECT updated_at::text FROM property WHERE id = $1")
-            .bind(&property_id)
-            .fetch_one(&mut *tx.connection())
-            .await
-            .expect("get after updated_at")
-            .to_string();
+    let after: (i64,) = sqlx::query_as("select count(*) from pg_proc where proname = $1")
+        .bind(&probe)
+        .fetch_one(pool)
+        .await
+        .expect("probe absent after rollback");
+    assert_eq!(
+        after.0, 0,
+        "{HARNESS}: rollback must remove the probe from the committed schema"
+    );
 
-    let _ = tx.rollback().await;
-
-    // The trigger should have updated updated_at to a different value
-    eprintln!("Before updated_at: {:?}", before_updated_at);
-    eprintln!("After updated_at: {:?}", after_updated_at);
-
-    // 5. Negative case: verify that a missing trigger would be caught.
-    let code_relies_on: &[&str] = &[
-        "trigger_update_property_timestamp",
-        "update_property_timestamp_func",
-    ];
-
-    for obj in code_relies_on {
-        // Literal SQL with a bind parameter: which catalogue holds the object is decided by the
-        // object's own prefix, and the object name is bound rather than interpolated.
-        let exists: (i32,) = if obj.starts_with("trigger") {
-            sqlx::query_as("SELECT count(*) FROM pg_trigger WHERE tgname = $1").bind(*obj)
-        } else {
-            sqlx::query_as("SELECT count(*) FROM pg_proc WHERE proname = $1").bind(*obj)
+    // 3. Every function the code references exists, and is still referenced by code.
+    let mut missing: Vec<String> = Vec::new();
+    for (routine, evidence) in CODE_REFERENCED_FUNCTIONS {
+        if !source_names(evidence, routine) {
+            missing.push(format!("{routine}: no longer named in {evidence}"));
+            continue;
         }
-        .fetch_one(&mut *conn)
-        .await
-        .expect(&format!("query {} exists", obj));
-
-        assert_eq!(
-            exists.0, 1,
-            "code relies on {} but it is missing from the schema",
-            obj
-        );
+        let present: (i64,) = sqlx::query_as("select count(*) from pg_proc where proname = $1")
+            .bind(*routine)
+            .fetch_one(pool)
+            .await
+            .expect("count referenced function");
+        if present.0 == 0 {
+            missing.push(format!(
+                "{routine}: referenced by {evidence} but absent from pg_proc"
+            ));
+        }
     }
+
+    // 4. Every trigger the code path depends on exists.
+    for (trigger, evidence) in CODE_REFERENCED_TRIGGERS {
+        if !source_names(evidence, trigger) {
+            missing.push(format!("{trigger}: no longer named in {evidence}"));
+            continue;
+        }
+        let present: (i64,) = sqlx::query_as("select count(*) from pg_trigger where tgname = $1")
+            .bind(*trigger)
+            .fetch_one(pool)
+            .await
+            .expect("count referenced trigger");
+        if present.0 == 0 {
+            missing.push(format!(
+                "{trigger}: referenced by {evidence} but absent from pg_trigger"
+            ));
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "{HARNESS}: code-referenced database routines missing on DEV:\n  {}",
+        missing.join("\n  ")
+    );
 }
