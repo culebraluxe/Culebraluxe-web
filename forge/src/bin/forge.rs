@@ -113,6 +113,50 @@ fn main() {
     // talk to the control plane install these, because the process that was dying was the worker.
     let budget = forge::engine::db_budget::install_engine_db_budget();
     let args: Vec<String> = env::args().collect();
+    // `forge harness-info`: print the resolved vendor identity and exit — the proof line for the A/B/C
+    // acceptance criteria without parsing a turn log.
+    if args.get(1).map(|s| s.as_str()) == Some("harness-info") {
+        match forge::engine::harness::HarnessBackend::from_env() {
+            Ok(forge::engine::harness::HarnessBackend::OpenCode) => {
+                let bin = forge::engine::opencode::default_cli_bin();
+                let model = forge::engine::opencode::resolve_opencode_model(None)
+                    .unwrap_or_else(|e| format!("error: {e}"));
+                eprintln!(
+                    "harness=opencode model={model} bin={bin} cwd={}",
+                    std::env::current_dir()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|_| "?".into())
+                );
+            }
+            Ok(forge::engine::harness::HarnessBackend::Maestro) => {
+                let bin = forge::engine::maestro::MaestroHarness::default_cli_bin()
+                    .unwrap_or_else(|e| format!("error: {e}"));
+                let selection = forge::engine::harness::ModelSelection::from_parts(
+                    std::env::var("FORGE_MODEL_POLICY").ok().as_deref(),
+                    None,
+                );
+                let agent = forge::engine::maestro::resolve_maestro_agent(
+                    &selection,
+                    std::env::var("MAESTRO_AGENT").ok().as_deref(),
+                    std::env::var("MAESTRO_CHEAP_AGENT").ok().as_deref(),
+                    std::env::var("MAESTRO_JUDGMENT_AGENT").ok().as_deref(),
+                    std::env::var("MAESTRO_DEFAULT_AGENT").ok().as_deref(),
+                )
+                .unwrap_or_else(|e| format!("error: {e}"));
+                eprintln!(
+                    "harness=maestro agent={agent} bin={bin} cwd={}",
+                    std::env::current_dir()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|_| "?".into())
+                );
+            }
+            Err(e) => {
+                eprintln!("harness=error {e}");
+                std::process::exit(2);
+            }
+        }
+        std::process::exit(0);
+    }
     // The claim this run was launched against, if any. A claimed run **owns** its queue row: it opens it as
     // `Running` before the first role turn and settles it on the way out. An operator invocation without the flag
     // stays legal and owns nothing — but nothing that dispatches may launch without it (`engine::worker` claims
