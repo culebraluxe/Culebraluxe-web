@@ -11,11 +11,11 @@ use crate::engine::harness::{HarnessUsage, TurnTermination};
 use crate::engine::harness_usage::UsageBaseline;
 use crate::engine::opencode_agents;
 use crate::engine::opencode_client::{
-    live_turn_slot, start_opencode_run_streaming, LiveTurnSlot, OpenCodeStartOptions, StreamStop,
-    StreamedRunResult,
+    LiveTurnSlot, OpenCodeStartOptions, StreamStop, StreamedRunResult, live_turn_slot,
+    start_opencode_run_streaming,
 };
 use crate::engine::opencode_events;
-use crate::engine::packet::{build_task_text_with_context, ExecutionWorkspace, StoryPacket};
+use crate::engine::packet::{ExecutionWorkspace, StoryPacket, build_task_text_with_context};
 use crate::engine::runner::{HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::spend_cap::{self, BUDGET_EXHAUSTED_CODE, SPEND_CAP_ENV};
@@ -148,7 +148,7 @@ pub fn turn_ceiling(raw: Option<&str>) -> Option<std::time::Duration> {
                 || word.eq_ignore_ascii_case("off")
                 || word.eq_ignore_ascii_case("none") =>
         {
-            return None
+            return None;
         }
         Some(word) => word.parse::<u64>().unwrap_or(DEFAULT_TURN_CEILING_MINUTES),
     };
@@ -537,6 +537,11 @@ impl RoleHarness for OpenCodeHarness {
                     .ok()
                     .as_deref(),
             )
+        );
+        // Execution receipt, before the first model token is spent: what runs, where, as whom.
+        eprintln!(
+            "harness=opencode model={} bin={} cwd={}",
+            self.model, self.cli_bin, cwd
         );
         // The config travels with the process (§3): a worktree does not discover the repo-root `opencode.json`,
         // so environment delivery is the path that actually applies.
@@ -1098,8 +1103,8 @@ mod tests {
     /// heard of. A post-flight check would be a receipt for work already done under an unknown authority.
     #[test]
     fn a_node_with_no_agent_is_refused_before_any_model_turn_is_started() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let workspace =
             std::env::temp_dir().join(format!("forge-v2-unmapped-{}", std::process::id()));
