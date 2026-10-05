@@ -161,16 +161,27 @@ async fn gather_postcard(
     })
 }
 
-/// Where the learn loop records its last pass: `<root>/.forge-context/learn-last-run.json`, field `at`.
+/// Where the learn loop records its last pass: `<root>/.forge-context/learn-last-run.json` (gitignored,
+/// written by whichever tree the worker ran in — so a lane without an anchor honestly reads "never").
 /// A missing or unreadable anchor is `None` — "never", never a fabricated timestamp.
 fn read_learn_anchor_at(root: &Path) -> Option<String> {
     let path = root.join(".forge-context").join("learn-last-run.json");
-    let text = std::fs::read_to_string(path).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
-    value
-        .get("at")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
+    learn_anchor_at(&std::fs::read_to_string(path).ok()?)
+}
+
+/// The anchor's own shape: `{"unix":<epoch seconds>,"lastKey":…}` is what `forge::engine::learn::write_anchor`
+/// writes today, and an ISO `at` is the shape the retired TypeScript pass left behind. Reading only `at`
+/// printed `never` beside an anchor the engine had advanced minutes earlier — a POSTCARD fact that existed
+/// on disk and was reported as absent. Both fields are accepted; an anchor with neither, or JSON that does
+/// not parse, stays `None`.
+fn learn_anchor_at(text: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    if let Some(at) = value.get("at").and_then(serde_json::Value::as_str) {
+        return Some(at.to_string());
+    }
+    let unix = value.get("unix").and_then(serde_json::Value::as_i64)?;
+    chrono::DateTime::from_timestamp(unix, 0)
+        .map(|moment| moment.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
 }
 
 /// The scheduled worker's own invocation log. `AGENT_WORKER_LOG_DIR` overrides the location, exactly as the
@@ -371,6 +382,37 @@ async fn qa_consistency_block(doctor_dao: &ForgeDoctorDao) -> Result<String, Fai
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_anchor_the_engine_writes_reads_as_the_time_of_that_pass() {
+        // The real shape: `forge::engine::learn::write_anchor` writes `unix`, not `at`. Reading only `at`
+        // reported "never" beside an anchor the worker had advanced minutes earlier.
+        let anchor = "{\"unix\":1791239179,\"lastKey\":\"stale-claim\"}\n";
+        assert_eq!(
+            learn_anchor_at(anchor).as_deref(),
+            Some("2026-10-05T22:26:19.000Z")
+        );
+        // The retired TypeScript anchor carried an ISO `at`, and it must still read.
+        assert_eq!(
+            learn_anchor_at("{\"at\":\"2026-09-28T00:00:00.000Z\"}").as_deref(),
+            Some("2026-09-28T00:00:00.000Z")
+        );
+    }
+
+    #[test]
+    fn an_anchor_without_a_readable_time_is_never_rather_than_a_guess() {
+        assert_eq!(learn_anchor_at("{\"lastKey\":\"\"}"), None);
+        assert_eq!(learn_anchor_at("{\"unix\":\"soon\"}"), None);
+        assert_eq!(learn_anchor_at("not json at all"), None);
+        assert_eq!(learn_anchor_at(""), None);
+    }
+
+    #[test]
+    fn a_tree_with_no_anchor_reads_as_never() {
+        let root =
+            std::env::temp_dir().join(format!("forge-doctor-no-anchor-{}", std::process::id()));
+        assert_eq!(read_learn_anchor_at(&root), None);
+    }
 
     #[test]
     fn an_invocation_line_is_split_into_its_time_and_its_message() {
