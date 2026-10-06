@@ -30,7 +30,8 @@
 //!      that cannot fail cannot pass, so every direction is planted below.
 //!   3. THE DATABASE'S OWN DOORS, BOUND. Ten migration functions write the column:
 //!      `agent_work_item_dispatch()` (the creation INSERT — 025, restated 146 and 259),
-//!      `forge_claim_specific_agent_work`/`forge_claim_next_agent_work` (262),
+//!      `forge_claim_specific_agent_work` (262) and `forge_claim_story` (275 — the claim door that obeys the brake; the
+//!      262 `forge_claim_next_agent_work` now only delegates to it),
 //!      `forge_finish_agent_work_run`/`forge_reject_agent_work_configuration` (263),
 //!      `forge_begin_agent_work_run` (264), `forge_reconcile_dispatch_queue` (265), and
 //!      `forge_hold_stale_work`/`forge_requeue_stale_work`/`forge_recover_stale_engine_claim` (266).
@@ -138,7 +139,10 @@ const DB_STATE_FUNCTIONS: [(&str, &[&str]); 10] = [
         "forge_claim_specific_agent_work",
         &["db/src/forge_engine.rs"],
     ),
-    ("forge_claim_next_agent_work", &["db/src/forge_engine.rs"]),
+    // 275: THE claim door. It writes `state` itself (and obeys the brake and the fleet ceiling);
+    // `forge_claim_next_agent_work` is now a one-line delegation to it and no longer writes the column, so the
+    // writer set did not grow — the claim moved from the old name to this one.
+    ("forge_claim_story", &["db/src/forge_engine.rs"]),
     ("forge_begin_agent_work_run", &["db/src/forge_engine.rs"]),
     ("forge_finish_agent_work_run", &["db/src/forge_engine.rs"]),
     (

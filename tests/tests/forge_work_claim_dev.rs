@@ -850,14 +850,25 @@ fn the_claim_transaction_lives_in_the_database_not_in_rust() {
             "the DAO calls {function}"
         );
     }
-    for function in [
-        "forge_claim_specific_agent_work",
-        "forge_claim_next_agent_work",
-    ] {
-        assert!(
-            routine.contains(&format!("create or replace function {function}(")),
-            "migration 262 defines {function}"
-        );
+    // The specific-item claim (262) and THE claim door (275). `forge_claim_next_agent_work` is still defined by 262 but
+    // is a delegation to `forge_claim_story` since 275, so the door the DAO calls — and the one that obeys the brake and
+    // the fleet ceiling — is `forge_claim_story`.
+    let claim_door =
+        std::fs::read_to_string(root.join("db/migrations/275_forge_claim_story_brake.sql"))
+            .unwrap();
+    assert!(
+        routine.contains("create or replace function forge_claim_specific_agent_work("),
+        "migration 262 defines forge_claim_specific_agent_work"
+    );
+    assert!(
+        routine.contains("create or replace function forge_claim_next_agent_work("),
+        "migration 262 still defines forge_claim_next_agent_work (275 re-points it at the door)"
+    );
+    assert!(
+        claim_door.contains("create or replace function forge_claim_story("),
+        "migration 275 defines forge_claim_story"
+    );
+    for function in ["forge_claim_specific_agent_work", "forge_claim_story"] {
         assert!(
             dao.contains(&format!("from {function}(")),
             "the DAO calls {function}"
@@ -912,12 +923,12 @@ async fn the_claim_routines_hold_the_claim_contract() {
 
     let installed: i64 = sqlx::query_scalar(
         "select count(*) from pg_proc
-          where proname in ('forge_claim_specific_agent_work', 'forge_claim_next_agent_work')",
+          where proname in ('forge_claim_specific_agent_work', 'forge_claim_next_agent_work', 'forge_claim_story')",
     )
     .fetch_one(pool)
     .await
     .unwrap();
-    assert_eq!(installed, 2, "migration 262 is applied to DEV");
+    assert_eq!(installed, 3, "migrations 262 and 275 are applied to DEV");
 
     // A run that panicked part-way leaves its proof stories behind; these prefixes are this test's alone.
     sqlx::query(

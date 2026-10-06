@@ -72,6 +72,25 @@ async fn forge_claim_003__pause_and_ceiling_close_the_door() {
         "{HARNESS}: the claim brake is proven on DEV only; PROD is forbidden"
     );
 
+    // A run that died part-way leaves its fixture stories behind — Ready, at a priority above everything real — and
+    // in a shared DEV that silently poisons every other claim test (the claim-order proof in
+    // `forge_work_claim_dev` claimed these instead of its own items). The prefix is this proof's alone; the age guard
+    // keeps a run still in flight elsewhere from being swept.
+    sqlx::query(
+        "delete from forge_work_queue where story_id in
+           (select id from storyboard_story
+             where id like 'TST-FORGE-CLAIM-003-%' and created_at < now() - interval '15 minutes')",
+    )
+    .execute(harness.pool())
+    .await
+    .expect("sweep an earlier run's door rows");
+    sqlx::query(
+        "delete from storyboard_story where id like 'TST-FORGE-CLAIM-003-%' and created_at < now() - interval '15 minutes'",
+    )
+    .execute(harness.pool())
+    .await
+    .expect("sweep an earlier run's fixture stories");
+
     let tag = uuid::Uuid::new_v4().simple().to_string();
     let story_a = story_id(&tag, "A");
     let story_b = story_id(&tag, "B");
