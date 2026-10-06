@@ -1,0 +1,726 @@
+//! Production Forge worker pass.
+//!
+//! The scheduler enters Rust directly. Persistence is owned by ForgeControlDao;
+//! this module contains orchestration and policy only.
+
+use crate::engine::agent_work;
+use crate::engine::config::{ChildConfig, WorkerConfig};
+use crate::engine::learn::run_learn_pass;
+use crate::engine::routing_brain::{parse_forge_routing_brain, ForgeRoutingBrain};
+use crate::engine::vendor_session::with_shared;
+use crate::engine::worktree::cleanup_worker_workspace;
+use db::{AgentWorkOutcome, ForgeControlDao};
+use std::path::Path;
+use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use uuid::Uuid;
+
+#[derive(Debug, Clone)]
+pub struct WorkerDispatch {
+    /// The claim this dispatch holds. It is passed to the child so the run it starts can move its own item
+    /// `Claimed → Running` and settle it, instead of the queue inferring a run from a `Ready` row.
+    pub work_item_id: String,
+    pub story_id: String,
+    pub work_type: String,
+    /// The durable dispatch envelope, straight off the claimed row (migrations 029 and 167). It travels to the child
+    /// because the child is a different process: whatever the row says this dispatch may do, the process that runs it
+    /// has to be told, or the envelope is decoration.
+    pub execution_policy: String,
+    pub model_policy: Option<String>,
+    pub stop_after: Option<String>,
+    pub launch_intent: Option<String>,
+}
+
+/// Who holds the claim. `AGENT_WORKER_ID` is the name the scheduler already exports
+/// (`scripts/agent-worker-once.sh`), so a claim names a process a human can go and look at.
+fn worker_identity() -> String {
+    std::env::var("AGENT_WORKER_ID")
+        .ok()
+        .as_deref()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            let uuid = Uuid::new_v4().to_string()[..8].to_string();
+            format!("forge-worker-{uuid}")
+        })
+}
+
+/// Hold the claim open while the child runs.
+///
+/// This is the half of the claim that the port also dropped: `stale_agent_work` decides staleness on `updated_at`
+/// alone, and a role turn touches nothing on the item, so without a beat a run longer than the window would be
+/// requeued **while it was still running** and the next tick would start a second engine over the same story.
+/// A beat that comes back `Ok(false)` means the claim is no longer ours; the thread stops and says so.
+fn spawn_heartbeat(work_item_id: String, interval: Duration) -> Arc<AtomicBool> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = stop.clone();
+    std::thread::spawn(move || loop {
+        // Sleep in one-second slices so the child finishing is noticed promptly.
+        for _ in 0..interval.as_secs().max(1) {
+            if flag.load(Ordering::Relaxed) {
+                return;
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        match agent_work::heartbeat_agent_work(&work_item_id) {
+            Ok(true) => {}
+            Ok(false) => {
+                eprintln!(
+                    "forge-worker: heartbeat lost for work item {work_item_id}; the claim is no longer ours"
+                );
+                return;
+            }
+            // A transient failure is reported (through the capture seam in `db::capture`) and retried on the
+            // next beat: `updated_at` is still fresh inside the stale window.
+            Err(error) => eprintln!("forge-worker-heartbeat-failed: {error}"),
+        }
+    });
+    stop
+}
+
+/// The engine's work types, verbatim as `--work-type` accepts them (`forge/src/bin/forge.rs:117`) and as
+/// migration 173's ledger and migration 259's column store them.
+const DECLARED_WORK_TYPES: &[&str] = &["FEATURE", "FAST", "BUG", "HOTFIX", "RESEARCH", "MIGRATION"];
+
+fn work_type_for_kind(kind: Option<&str>) -> &'static str {
+    match kind.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+        "fix" => "BUG",
+        "qa" | "learn" => "RESEARCH",
+        _ => "FEATURE",
+    }
+}
+
+/// The engine work type for a claimed item: the work type the **story declared** (migration 259) when it declared
+/// one, otherwise the legacy mapping off the batch `kind` (migration 179).
+///
+/// THE DECLARATION WINS, and it has to. `FAST` is the switch that opens the fast lane
+/// (`FORGE_SDLC-v6.xml:85` → `fast_lane_entry` → `fast_smith` → `fast_qa_verify`), and the queue's `kind` cannot say
+/// it: 179's vocabulary is the batch's six words, which land on BUG / RESEARCH / FEATURE. Until 2026-09-30 that made
+/// the lane unreachable from the board, so all 680 armed TST rows resolved to FEATURE and each paid a Scout, an
+/// Architect and a Lead turn on work whose acceptance bar is "it compiles".
+///
+/// An undeclared story, or a declaration that is not one of the six (impossible through the column's check
+/// constraint, but this is a boundary and it validates rather than trusts), falls back to the kind mapping — never to
+/// a work type invented from an unrecognised string.
+fn work_type_for_item(declared: Option<&str>, kind: Option<&str>) -> &'static str {
+    let declared = declared.unwrap_or("").trim().to_ascii_uppercase();
+    match DECLARED_WORK_TYPES
+        .iter()
+        .find(|candidate| **candidate == declared)
+        .copied()
+    {
+        Some(known) => known,
+        None => work_type_for_kind(kind),
+    }
+}
+
+fn assay_terminal_role(role: Option<&str>) -> bool {
+    matches!(
+        role.unwrap_or("").trim().to_ascii_lowercase().as_str(),
+        "reviewer" | "verifier"
+    )
+}
+
+/// The operator's brake, the fleet ceiling and the pinned version — `forge_runtime_control` (274), the row
+/// `forge_claim_story` (275) obeys at the claim door.
+///
+/// The worker reads it before it claims, because a closed claim door answers `None` for three different reasons
+/// (nothing eligible, paused, ceiling reached) and a pass that says "no work" while hundreds of rows wait is exactly
+/// the report that made this queue unoperable.
+///
+/// `Ok(None)` means the row is absent. 275 fails the door closed on that, so a pass that cannot read the brake must
+/// not claim either — it says so and stops claiming, rather than assuming "not paused".
+fn runtime_control() -> Result<Option<db::ForgeRuntimeControlRow>, String> {
+    with_shared(|db, rt| {
+        let dao = ForgeControlDao::new(db.clone());
+        rt.block_on(async {
+            dao.runtime_control()
+                .await
+                .map_err(|error| error.to_string())
+        })
+    })?
+}
+
+pub fn recover_stale_agent_work(stale_after_minutes: i64) -> Result<u64, String> {
+    with_shared(|db, rt| {
+        let dao = ForgeControlDao::new(db.clone());
+        rt.block_on(async {
+            let rows = dao
+                .stale_agent_work(stale_after_minutes)
+                .await
+                .map_err(|error| error.to_string())?;
+            let mut recovered = 0u64;
+            for row in rows {
+                let reason = format!(
+                    "stale worker: no heartbeat since {}; process/host presumed terminated",
+                    row.updated_at
+                );
+                let hold =
+                    assay_terminal_role(row.role.as_deref()) || row.attempts >= row.max_attempts;
+                let failure_code = match row
+                    .role
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
+                    "reviewer" | "verifier" => "ASSAY_RUNTIME_INTERRUPTED",
+                    "builder" => "SMITH_RUNTIME_INTERRUPTED",
+                    _ => "HUMAN_DECISION_REQUIRED",
+                };
+
+                if let Some(run_id) = row.story_run_id.as_deref() {
+                    dao.interrupt_story_run(run_id, failure_code, &reason)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                }
+
+                if hold {
+                    dao.hold_stale_work(&row.id, &row.story_id, &reason)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                } else {
+                    dao.requeue_stale_work(&row.id, &row.story_id)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                }
+                recovered += 1;
+            }
+            Ok::<u64, String>(recovered)
+        })
+    })?
+}
+
+pub fn fire_due_flights() -> Result<u64, String> {
+    with_shared(|db, rt| {
+        let dao = ForgeControlDao::new(db.clone());
+        rt.block_on(async {
+            let due = dao
+                .due_flight_ids()
+                .await
+                .map_err(|error| error.to_string())?;
+            for id in &due {
+                let result = dao
+                    .fire_flight(id)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                eprintln!(
+                    "flight {}: queued={} stamped={} skipped={}",
+                    result.batch_id, result.queued, result.stamped, result.skipped
+                );
+            }
+            Ok::<u64, String>(due.len() as u64)
+        })
+    })?
+}
+
+/// Claim the next item **and** return it only if this process now owns it.
+///
+/// This is the seam the port dropped: the old worker found work and claimed it in one act, while the Rust worker
+/// selected a `Ready` story and launched against it, so an item was never owned by anyone and every queue
+/// protection (the per-story serial claim, attempts, ordering, stale recovery) was inert. There is no fallback here
+/// on purpose: if the claim returns nothing, there is no work to dispatch.
+pub fn claim_next_dispatch(worker_id: &str) -> Result<Option<WorkerDispatch>, String> {
+    let claimed = agent_work::claim_next_agent_work(worker_id)?;
+    Ok(claimed.map(|item| WorkerDispatch {
+        work_type: work_type_for_item(item.work_type.as_deref(), item.kind.as_deref()).to_string(),
+        work_item_id: item.id,
+        story_id: item.story_id,
+        execution_policy: item.execution_policy,
+        model_policy: item.model_policy,
+        stop_after: item.stop_after,
+        launch_intent: item.launch_intent,
+    }))
+}
+pub fn run_worker_pass() -> Result<i32, String> {
+    let worker_cfg = WorkerConfig::from_env();
+    let brain = parse_forge_routing_brain(std::env::var("FORGE_ROUTING_BRAIN").ok().as_deref());
+    if brain == ForgeRoutingBrain::Reducer {
+        eprintln!(
+            "forge-worker: FORGE_ROUTING_BRAIN=reducer is retired for unattended execution; Rust engine owns this pass"
+        );
+    }
+
+    let recovered = recover_stale_agent_work(worker_cfg.stale_after_minutes)?;
+    // Clean the junk before each run (captain, 2026-09-29). A `Ready` story with no work item, a story whose run is
+    // gone while its board still says one is happening, and an item whose story no longer expects a run are all the
+    // same defect - one half of a pair moved without the other - and none of them is queue state a human should have
+    // to read. This runs before the claim, so what is dispatched is what is actually queued.
+    let swept = agent_work::reconcile_dispatch_queue()?;
+    eprintln!(
+        "forge-worker: queue reconciled queued={} restated={} cleared={}",
+        swept.queued, swept.restated, swept.cleared
+    );
+    let flights = fire_due_flights()?;
+    eprintln!("forge-worker: recovered={recovered} due_flights={flights}");
+
+    // Learning is observational and fail-open: a learn-pass defect must not block dispatch.
+    match run_learn_pass(std::path::Path::new("."), worker_cfg.stale_after_minutes) {
+        Ok(Some(story)) => eprintln!("learn: filed {story}"),
+        Ok(None) => {}
+        Err(error) => eprintln!("forge-learn-pass-failed: {error}"),
+    }
+
+    // BOUNDED STORY CONCURRENCY (2026-09-29). The queue is serial per story, not per system, so one pass may hold
+    // several stories at once and run them in parallel — which is what the three ready test stories needed and did
+    // not get: they queued behind a single harness run because one refusal asked the whole system to be idle.
+    //
+    // Each slot claims under its OWN worker identity (`scheduler:0`, `scheduler:1`, …), because the claim is what a
+    // human reads when a run is stuck and what every heartbeat and settlement is authorised by. Identity does not
+    // loosen anything: the story is the lock, `agent_work_item_one_serial_active_per_story` still refuses a second
+    // serial item on one story, and the slots only decide how many DIFFERENT stories move at once.
+    let base_worker_id = worker_identity();
+    let concurrency = worker_cfg.story_worker_concurrency;
+
+    // THE BRAKE, BEFORE THE FIRST CLAIM (274/275). Paused stops NEW claims and NEW arms; the arms are already
+    // refused inside the database by the same switch, and this is the line that says so out loud instead of letting
+    // a paused queue read as an idle one. Work already in flight is untouched — it settles normally, which is what
+    // "in flight finishes" means.
+    match runtime_control()? {
+        Some(control) if control.paused => {
+            eprintln!(
+                "forge-worker: paused by {} - no claims this pass (in-flight runs finish and settle)",
+                control.updated_by
+            );
+            return Ok(0);
+        }
+        Some(control) => {
+            eprintln!(
+                "forge-worker: ceiling={} brake-held-by={}",
+                control.global_story_concurrency, control.updated_by
+            );
+        }
+        None => {
+            // 275 fails the claim door closed when the control row is missing; a pass that cannot read the brake
+            // must not claim behind its back.
+            eprintln!("forge-worker: forge_runtime_control row is missing - no claims this pass");
+            return Ok(0);
+        }
+    }
+
+    let mut claimed: Vec<(String, WorkerDispatch)> = Vec::new();
+    for slot in 0..concurrency {
+        let worker_id = format!("{base_worker_id}:{slot}");
+        match claim_next_dispatch(&worker_id)? {
+            Some(dispatch) => {
+                eprintln!(
+                    "forge-worker: slot={slot} claimed={} story={}",
+                    dispatch.work_item_id, dispatch.story_id
+                );
+                claimed.push((worker_id, dispatch));
+            }
+            // The queue is read in priority order, so an empty slot means there is nothing behind it to claim.
+            // The next tick sweeps whatever arrives while these stories run.
+            None => break,
+        }
+    }
+
+    if claimed.is_empty() {
+        println!("no work");
+        return Ok(0);
+    }
+
+    eprintln!(
+        "forge-worker: launching {} of {} story slot(s)",
+        claimed.len(),
+        concurrency
+    );
+
+    // One thread per claimed story. Each child is a separate process with its own pool, its own worktree and its own
+    // claim, so the threads share nothing but this process's lifetime — and every one of them must be joined before
+    // the pass returns, because each settles its own claim on the way out.
+    let mut handles = Vec::with_capacity(claimed.len());
+    for (worker_id, dispatch) in claimed {
+        handles.push(std::thread::spawn(move || {
+            run_claimed_dispatch(dispatch, worker_id, worker_cfg.stale_after_minutes)
+        }));
+    }
+
+    // DO NOT RETURN ON THE FIRST FAILURE. Every claim has to be reaped and settled, or a story is left open with
+    // nobody driving it — the state stale recovery exists to clean up, and it should not have to.
+    let mut errors: Vec<String> = Vec::new();
+    let mut exit_code = 0;
+    for handle in handles {
+        match handle.join() {
+            Ok(Ok(code)) => {
+                if code != 0 && exit_code == 0 {
+                    exit_code = code;
+                }
+            }
+            Ok(Err(error)) => {
+                eprintln!("forge-worker: {error}");
+                errors.push(error);
+            }
+            Err(panic) => {
+                let error = format!("forge story worker panicked: {panic:?}");
+                eprintln!("forge-worker: {error}");
+                errors.push(error);
+            }
+        }
+    }
+
+    if !errors.is_empty() {
+        return Err(errors.join("; "));
+    }
+    Ok(exit_code)
+}
+
+/// Run ONE claimed story to its end, in its own thread.
+///
+/// Everything below the claim lives here rather than in `run_worker_pass`, so the pass can hold several stories at
+/// once: the policy fence, the heartbeat that keeps the claim out of stale recovery, the child process itself, and
+/// the settlement of a child that left no verdict of its own. The claim is passed in rather than looked up, so this
+/// function owns exactly the dispatch it was given — which is what makes it safe to run beside its peers.
+fn run_claimed_dispatch(
+    dispatch: WorkerDispatch,
+    worker_id: String,
+    _stale_after_minutes: i64,
+) -> Result<i32, String> {
+    let child_cfg = ChildConfig::from_env();
+    let worker_cfg = WorkerConfig::from_env();
+
+    eprintln!(
+        "forge-worker: claimed={} worker={} story={} work_type={} policy={} model_policy={} stop_after={} launch_intent={}",
+        dispatch.work_item_id,
+        worker_id,
+        dispatch.story_id,
+        dispatch.work_type,
+        dispatch.execution_policy,
+        dispatch.model_policy.as_deref().unwrap_or("(none)"),
+        dispatch.stop_after.as_deref().unwrap_or("(full chain)"),
+        dispatch.launch_intent.as_deref().unwrap_or("(lead decides)")
+    );
+
+    // The durable envelope is read here, before the child exists, so a policy that names a human never reaches a
+    // model. The claim goes back to the queue rather than being held against the story: no run happened.
+    if !agent_work::execution_policy_allows_unattended(&dispatch.execution_policy)
+        && !worker_cfg.attended_override
+    {
+        let reason = format!(
+            "execution_policy={} requires a human; refusing to dispatch {} unattended",
+            dispatch.execution_policy, dispatch.work_item_id
+        );
+        eprintln!("forge-worker: {reason} (set FORGE_ATTENDED=1 for a deliberate, attended run)");
+        match agent_work::finish_agent_work_run(
+            &dispatch.work_item_id,
+            AgentWorkOutcome::Abandoned,
+            Some(&reason),
+        ) {
+            Ok(Some(settled)) => eprintln!(
+                "forge-worker: settled {} as {} (story {})",
+                dispatch.work_item_id,
+                settled.item_state,
+                settled.story_status.as_deref().unwrap_or("unchanged")
+            ),
+            Ok(None) => eprintln!(
+                "forge-worker: {} already had a verdict; left as-is",
+                dispatch.work_item_id
+            ),
+            Err(settle) => eprintln!(
+                "forge-worker: could not settle {}: {settle}",
+                dispatch.work_item_id
+            ),
+        }
+        return Ok(0);
+    }
+
+    // The claim is only worth holding if it stays fresh for as long as the run lasts.
+    let heartbeat = spawn_heartbeat(dispatch.work_item_id.clone(), worker_cfg.heartbeat_interval);
+
+    let mut command = Command::new("cargo");
+    command.args([
+        "run",
+        "--manifest-path",
+        "Cargo.toml",
+        "-p",
+        "forge",
+        "--bin",
+        "forge",
+        "--",
+        "--story",
+        &dispatch.story_id,
+        "--work-type",
+        &dispatch.work_type,
+        "--work-item",
+        &dispatch.work_item_id,
+    ]);
+    // The dispatch cap travels with the dispatch (migration 167: "read by the engine worker when it claims the
+    // item"). It is omitted when the column is NULL, which is the full chain — the child's own default.
+    if let Some(stop_after) = dispatch.stop_after.as_deref() {
+        command.args(["--stop-after", stop_after]);
+    }
+    command
+        .env(
+            "APP_ENV",
+            std::env::var("APP_ENV").unwrap_or_else(|_| "production".into()),
+        )
+        .env(
+            "EXECUTION_ENV",
+            std::env::var("EXECUTION_ENV").unwrap_or_else(|_| "PROD".into()),
+        )
+        // Parallel stories MUST NOT share the control-plane checkout. The child provisions one disposable
+        // /tmp worktree from origin/main, keyed by this durable work-item id.
+        .env("FORGE_PROVISION", "1")
+        .env("FORGE_RUN_ID", &dispatch.work_item_id)
+        .env(
+            "FORGE_ALLOW_PUBLISH",
+            if child_cfg.allow_publish { "1" } else { "0" },
+        )
+        // THE FLOOR BELONGS TO THE COORDINATOR, NOT TO EVERY CHILD. Each story runs in its own process with its own
+        // pool, so four concurrent stories must not each hold the engine's warm floor open against one Neon branch
+        // (`FORGE_DB_POOL_MIN`, default 20 in `db/src/pool.rs:193`). The children are short-lived and
+        // single-story: MIN=0 means no warm floor, connections open on first use up to MAX=6 per child.
+        // With 4 concurrent stories this is at most 24 connections against one Neon branch.
+        .env("FORGE_DB_POOL_MIN", child_cfg.db_pool_min.to_string())
+        .env("FORGE_DB_POOL_MAX", child_cfg.db_pool_max.to_string());
+    // THE WALL CLOCK IS A HARD LIMIT (S4). A story that hangs must not hold its claim and its worker
+    // slot forever; a timeout settles the run as a timeout and frees both. The whole process group is
+    // signalled so the grandchild engine dies with the cargo wrapper.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let run_timeout = Duration::from_secs(
+        std::env::var("FORGE_RUN_TIMEOUT_SECS")
+            .ok()
+            .and_then(|raw| raw.trim().parse::<u64>().ok())
+            .unwrap_or(3600),
+    );
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            let reason = format!("launch Rust Forge engine: {error}");
+            match agent_work::finish_agent_work_run(
+                &dispatch.work_item_id,
+                AgentWorkOutcome::Abandoned,
+                Some(&reason),
+            ) {
+                Ok(Some(settled)) => eprintln!(
+                    "forge-worker: settled {} as {} (story {})",
+                    dispatch.work_item_id,
+                    settled.item_state,
+                    settled.story_status.as_deref().unwrap_or("unchanged")
+                ),
+                Ok(None) => eprintln!(
+                    "forge-worker: {} already had a verdict; left as-is",
+                    dispatch.work_item_id
+                ),
+                Err(settle) => eprintln!(
+                    "forge-worker: could not settle {} as Error: {settle}",
+                    dispatch.work_item_id
+                ),
+            }
+            heartbeat.store(true, Ordering::Relaxed);
+            return Err(reason);
+        }
+    };
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if started.elapsed() >= run_timeout {
+                    eprintln!(
+                        "forge-worker: run for {} exceeded {}s; killing process group",
+                        dispatch.work_item_id,
+                        run_timeout.as_secs()
+                    );
+                    #[cfg(unix)]
+                    {
+                        let _ = std::process::Command::new("kill")
+                            .args(["-9", &format!("-{}", child.id())])
+                            .status();
+                    }
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let reason = format!("FORGE_RUN_TIMEOUT_SECS={} elapsed", run_timeout.as_secs());
+                    match agent_work::finish_agent_work_run(
+                        &dispatch.work_item_id,
+                        AgentWorkOutcome::Abandoned,
+                        Some(&reason),
+                    ) {
+                        Ok(Some(settled)) => eprintln!(
+                            "forge-worker: settled {} as {} (story {})",
+                            dispatch.work_item_id,
+                            settled.item_state,
+                            settled.story_status.as_deref().unwrap_or("unchanged")
+                        ),
+                        Ok(None) => eprintln!(
+                            "forge-worker: {} already had a verdict; left as-is",
+                            dispatch.work_item_id
+                        ),
+                        Err(settle) => eprintln!(
+                            "forge-worker: could not settle {} as Error: {settle}",
+                            dispatch.work_item_id
+                        ),
+                    }
+                    heartbeat.store(true, Ordering::Relaxed);
+                    return Err(reason);
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
+            Err(error) => {
+                heartbeat.store(true, Ordering::Relaxed);
+                return Err(format!("wait on forge child: {error}"));
+            }
+        }
+    };
+            "APP_ENV",
+            std::env::var("APP_ENV").unwrap_or_else(|_| "production".into()),
+        )
+        .env(
+            "EXECUTION_ENV",
+            std::env::var("EXECUTION_ENV").unwrap_or_else(|_| "PROD".into()),
+        )
+        // Parallel stories MUST NOT share the control-plane checkout. The child provisions one disposable
+        // /tmp worktree from origin/main, keyed by this durable work-item id.
+        .env("FORGE_PROVISION", "1")
+        .env("FORGE_RUN_ID", &dispatch.work_item_id)
+        .env(
+            "FORGE_ALLOW_PUBLISH",
+            if child_cfg.allow_publish { "1" } else { "0" },
+        )
+        // THE FLOOR BELONGS TO THE COORDINATOR, NOT TO EVERY CHILD. Each story runs in its own process with its own
+        // pool, so four concurrent stories must not each hold the engine's warm floor open against one Neon branch
+        // (`FORGE_DB_POOL_MIN`, default 20 in `db/src/pool.rs:193`). The children are short-lived and
+        // single-story: MIN=0 means no warm floor, connections open on first use up to MAX=6 per child.
+        // With 4 concurrent stories this is at most 24 connections against one Neon branch.
+        .env("FORGE_DB_POOL_MIN", child_cfg.db_pool_min.to_string())
+        .env("FORGE_DB_POOL_MAX", child_cfg.db_pool_max.to_string())
+        .status();
+
+    let status = match launch {
+        Ok(status) => status,
+        Err(error) => {
+            // The child never started, so nothing else will ever settle this claim. Settle it here as `Abandoned`:
+            // no run happened, so the claim is cleared back into the queue instead of being held against the story
+            // (captain, 2026-09-29 - an engine fault must not cost a story its turn).
+            let reason = format!("launch Rust Forge engine: {error}");
+            match agent_work::finish_agent_work_run(
+                &dispatch.work_item_id,
+                AgentWorkOutcome::Abandoned,
+                Some(&reason),
+            ) {
+                Ok(Some(settled)) => eprintln!(
+                    "forge-worker: settled {} as {} (story {})",
+                    dispatch.work_item_id,
+                    settled.item_state,
+                    settled.story_status.as_deref().unwrap_or("unchanged")
+                ),
+                Ok(None) => eprintln!(
+                    "forge-worker: {} already had a verdict; left as-is",
+                    dispatch.work_item_id
+                ),
+                Err(settle) => eprintln!(
+                    "forge-worker: could not settle {} as Error: {settle}",
+                    dispatch.work_item_id
+                ),
+            }
+            heartbeat.store(true, Ordering::Relaxed);
+            return Err(reason);
+        }
+    };
+    heartbeat.store(true, Ordering::Relaxed);
+
+    // A worktree is an execution sandbox, not workflow state. Remove it after every child run. The cleanup helper
+    // keeps the branch only when its candidate is not yet contained in origin/main, so a Hold cannot erase paid code.
+    if let Err(error) = cleanup_worker_workspace(
+        std::env::current_dir().ok().as_deref(),
+        &dispatch.story_id,
+        &dispatch.work_item_id,
+        std::env::var("FORGE_WORKTREES_ROOT").ok().as_deref().map(Path::new),
+    ) {
+        eprintln!(
+            "forge-worker: worktree cleanup failed story={} item={}: {error}",
+            dispatch.story_id, dispatch.work_item_id
+        );
+    }
+
+    // The child settles its own run. This is the net under a child that died before it could (crash, kill, OOM):
+    // the guard inside `finish_agent_work_run` makes it a no-op if the child already has a verdict, so it can
+    // only ever replace a hung `Running` row, never a real one.
+    //
+    // Reaching here therefore means exactly one thing: **the child left no verdict**. That is never a story's
+    // failure - a story that failed says so in the row it writes - so the claim is cleared back into the queue
+    // (`Abandoned`) rather than held. This is the case that cost hours on 2026-09-29: a failed engine ended the
+    // story in a human `Hold` nobody had decided.
+    if !status.success() {
+        let reason = format!("forge run exited with {}", status.code().unwrap_or(1));
+        match agent_work::finish_agent_work_run(
+            &dispatch.work_item_id,
+            AgentWorkOutcome::Abandoned,
+            Some(&reason),
+        ) {
+            Ok(Some(settled)) => eprintln!(
+                "forge-worker: settled {} as {} with the board ({reason})",
+                dispatch.work_item_id, settled.item_state
+            ),
+            Ok(None) => eprintln!(
+                "forge-worker: {} already had a verdict; left as-is ({reason})",
+                dispatch.work_item_id
+            ),
+            Err(error) => eprintln!("forge-worker: could not settle the failed run: {error}"),
+        }
+    }
+
+    Ok(status.code().unwrap_or(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_batch_kind_to_engine_work_type() {
+        assert_eq!(work_type_for_kind(Some("fix")), "BUG");
+        assert_eq!(work_type_for_kind(Some("qa")), "RESEARCH");
+        assert_eq!(work_type_for_kind(Some("learn")), "RESEARCH");
+        assert_eq!(work_type_for_kind(Some("normal")), "FEATURE");
+    }
+
+    /// `FAST` is what opens the fast lane (`FORGE_SDLC-v6.xml:85`), and the batch `kind` vocabulary cannot express
+    /// it — so the story's declaration must win, or every board-dispatched story is a FEATURE story. That was the
+    /// state until migration 259: 680 armed test rows, each paying a Scout, an Architect and a Lead turn.
+    #[test]
+    fn a_declared_work_type_opens_the_fast_lane() {
+        assert_eq!(work_type_for_item(Some("FAST"), Some("fix")), "FAST");
+        assert_eq!(work_type_for_item(Some("fast"), None), "FAST");
+        assert_eq!(work_type_for_item(Some(" FAST "), Some("qa")), "FAST");
+    }
+
+    /// The legacy path is untouched: an undeclared story behaves exactly as it did before migration 259.
+    #[test]
+    fn an_undeclared_story_still_maps_off_its_kind() {
+        assert_eq!(work_type_for_item(None, Some("fix")), "BUG");
+        assert_eq!(work_type_for_item(None, Some("qa")), "RESEARCH");
+        assert_eq!(work_type_for_item(None, Some("learn")), "RESEARCH");
+        assert_eq!(work_type_for_item(None, None), "FEATURE");
+        assert_eq!(work_type_for_item(Some(""), Some("fix")), "BUG");
+    }
+
+    /// A declaration outside the six work types never invents a lane and never leaks through: the column's check
+    /// constraint makes this unreachable in the database, and this is the boundary that does not trust that.
+    #[test]
+    fn an_unknown_declaration_falls_back_to_the_kind_mapping() {
+        assert_eq!(work_type_for_item(Some("TURBO"), Some("qa")), "RESEARCH");
+        assert_eq!(work_type_for_item(Some("turbo"), None), "FEATURE");
+    }
+
+    #[test]
+    fn a_blank_worker_identity_still_names_a_process() {
+        // Note: worker_identity() reads from env, so we can't easily test the raw path here.
+        // The pure core is tested via the logic in worker_identity().
+        let id = worker_identity();
+        assert!(id.starts_with("forge-worker-") && id.len() > 13);
+    }
+
+    #[test]
+    fn assay_roles_are_terminal_recovery_roles() {
+        assert!(assay_terminal_role(Some("reviewer")));
+        assert!(assay_terminal_role(Some("verifier")));
+        assert!(!assay_terminal_role(Some("builder")));
+    }
+}
