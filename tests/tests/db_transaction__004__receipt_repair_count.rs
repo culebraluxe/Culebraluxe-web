@@ -1,102 +1,118 @@
 //! DB.TRANSACTION — receipt + repair count (TST-DB-TRANSACTION-004).
 //!
-//! CONTRACT. A receipt must track a repair count, and the repair count must be
-//! incrementable and readable.  This test verifies that a receipt row can have
-//! its repair count stored, updated, and read back correctly using the
-//! production database boundary with an isolated disposable test target; PROD is
-//! forbidden.
+//! CONTRACT. The repair budget is a column on the STORY (`storyboard_story.forge_repair_attempts`, migration 114), not
+//! a counter in a process, so it survives the one-process-per-dispatch engine and is the same number for every reader:
 //!
-//! Level: L2 Persistence — exercise the same boundary production uses.  Use
-//! only an isolated disposable Postgres/Neon test target; assert committed
-//! database truth and rollback; PROD is forbidden.
+//!   * a completion of `repair_smith` / `fast_repair_smith` increments it by exactly one per application;
+//!   * the QA failure route READS it (`ForgeEngineDao::story_repair_counts`), and a fresh instance or a story reset
+//!     returns it to zero (`reset_forge_attempts`) — a count that is only ever written would never stop a loop;
+//!   * it is part of the unit: a rolled-back unit leaves the count where it was.
+//!
+//! The statements are the DAO's, run inside a transaction that is rolled back. A non-production database only.
 //!
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test db_transaction__004__receipt_repair_count
 
 use test_harness::database::TestDatabase;
-use test_harness::database::TestTransaction;
+
+const STORY: &str = "TST-DB-TRANSACTION-004";
+
+const INCREMENT: &str = "update storyboard_story
+                            set forge_repair_attempts = coalesce(forge_repair_attempts, 0) + 1
+                          where id = $1";
+const READ: &str = "select coalesce(forge_repair_attempts, 0), coalesce(forge_replan_attempts, 0)
+                      from storyboard_story where id = $1";
+const RESET: &str = "update storyboard_story set forge_repair_attempts = 0, forge_replan_attempts = 0, updated_at = now()
+                      where id = $1 and (forge_repair_attempts <> 0 or forge_replan_attempts <> 0)";
 
 #[tokio::test]
 async fn db_transaction_004__receipt_repair_count() {
-    let test_db = TestDatabase::connect_from_env()
-        .await
-        .expect("a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)");
-
-    // 1. Begin a transaction to keep state isolated.
+    let test_db = TestDatabase::connect_from_env().await.expect(
+        "a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)",
+    );
     let mut tx = test_db.begin().await.expect("begin transaction");
-
-    // 2. Insert a receipt row with an initial repair count.
     sqlx::query(
-        "INSERT INTO app_error (incident_id, severity, category, message, correlation_id, metadata)
-         VALUES ('repair-count-001', 'info', 'transaction',
-                 'Repair count test for TST-DB-TRANSACTION-004',
-                 'corr-004',
-                 '{\"repair_count\": 0}'::jsonb)",
+        "insert into storyboard_story (id, workstream, title, priority, status)
+         values ($1, 'TEST', 'repair budget', 'P3', 'Planned')",
     )
+    .bind(STORY)
     .execute(&mut *tx.connection())
     .await
-    .expect("insert app_error receipt with repair count");
+    .expect("insert a story");
 
-    // 3. Verify the initial repair count is 0.
-    let repair_count: (i32,) = sqlx::query_as(
-        "SELECT (metadata->>'repair_count')::int FROM app_error WHERE incident_id = 'repair-count-001'"
-    )
-    .fetch_one(&mut *tx.connection())
-    .await
-    .expect("get initial repair count");
+    let start: (i32, i32) = sqlx::query_as(READ)
+        .bind(STORY)
+        .fetch_one(&mut *tx.connection())
+        .await
+        .expect("read the starting budget");
+    assert_eq!(start, (0, 0), "a new story has spent nothing");
 
-    assert_eq!(repair_count.0, 0, "initial repair count must be 0");
+    for expected in 1..=3 {
+        sqlx::query(INCREMENT)
+            .bind(STORY)
+            .execute(&mut *tx.connection())
+            .await
+            .expect("count a repair");
+        let (repairs, replans): (i32, i32) = sqlx::query_as(READ)
+            .bind(STORY)
+            .fetch_one(&mut *tx.connection())
+            .await
+            .expect("read the budget");
+        assert_eq!(
+            (repairs, replans),
+            (expected, 0),
+            "each application counts exactly one repair"
+        );
+    }
 
-    // 4. Update the repair count to 1.
-    sqlx::query(
-        "UPDATE app_error SET metadata = '{\"repair_count\": 1}'::jsonb WHERE incident_id = 'repair-count-001'"
-    )
-    .execute(&mut *tx.connection())
-    .await
-    .expect("update repair count to 1");
-
-    // 5. Verify the repair count is now 1.
-    let updated_count: (i32,) = sqlx::query_as(
-        "SELECT (metadata->>'repair_count')::int FROM app_error WHERE incident_id = 'repair-count-001'"
-    )
-    .fetch_one(&mut *tx.connection())
-    .await
-    .expect("get updated repair count");
-
-    assert_eq!(updated_count.0, 1, "repair count must be 1 after update");
-
-    // 6. Increment the repair count to 2.
-    sqlx::query(
-        "UPDATE app_error SET metadata = '{\"repair_count\": 2}'::jsonb WHERE incident_id = 'repair-count-001'"
-    )
-    .execute(&mut *tx.connection())
-    .await
-    .expect("increment repair count to 2");
-
-    // 7. Verify the repair count is now 2.
-    let final_count: (i32,) = sqlx::query_as(
-        "SELECT (metadata->>'repair_count')::int FROM app_error WHERE incident_id = 'repair-count-001'"
-    )
-    .fetch_one(&mut *tx.connection())
-    .await
-    .expect("get final repair count");
-
+    // A fresh attempt refills it — and only touches a story that has spent something.
+    let reset = sqlx::query(RESET)
+        .bind(STORY)
+        .execute(&mut *tx.connection())
+        .await
+        .expect("reset the budget");
     assert_eq!(
-        final_count.0, 2,
-        "repair count must be 2 after two increments"
+        reset.rows_affected(),
+        1,
+        "a story that spent repairs is refilled"
+    );
+    let refilled: (i32, i32) = sqlx::query_as(READ)
+        .bind(STORY)
+        .fetch_one(&mut *tx.connection())
+        .await
+        .expect("read the refilled budget");
+    assert_eq!(
+        refilled,
+        (0, 0),
+        "a fresh attempt starts with a full budget"
+    );
+    let untouched = sqlx::query(RESET)
+        .bind(STORY)
+        .execute(&mut *tx.connection())
+        .await
+        .expect("reset a full budget");
+    assert_eq!(
+        untouched.rows_affected(),
+        0,
+        "resetting a story that spent nothing writes nothing"
     );
 
-    // 8. Negative case: updating the repair count
-    //    must be handled gracefully.  We verify the contract by checking that
-    //    the metadata field stores a valid JSON number.
-    let result = sqlx::query(
-        "UPDATE app_error SET metadata = '{\"repair_count\": \"bad\"}'::jsonb WHERE incident_id = 'repair-count-001'"
-    )
-    .execute(&mut *tx.connection())
-    .await;
+    sqlx::query(INCREMENT)
+        .bind(STORY)
+        .execute(&mut *tx.connection())
+        .await
+        .expect("count one more repair");
+    tx.rollback().await.expect("rollback");
 
-    eprintln!("Update repair count to bad string result: {:?}", result);
-
-    // Roll back last: every statement that used the transaction has been consumed.
-    let _ = tx.rollback().await;
+    // The count is part of the unit: nothing of it survives a rollback (the story itself was part of it).
+    let left: Option<i32> =
+        sqlx::query_scalar("select forge_repair_attempts from storyboard_story where id = $1")
+            .bind(STORY)
+            .fetch_optional(test_db.database().pool())
+            .await
+            .expect("read after rollback");
+    assert_eq!(
+        left, None,
+        "a rolled-back unit leaves no story and no count"
+    );
 }

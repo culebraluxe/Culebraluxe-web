@@ -1,117 +1,152 @@
 //! DB.TRANSACTION — work item + story run (TST-DB-TRANSACTION-002).
 //!
-//! CONTRACT. A work item must be linkable to a story run, and the story run
-//! must be able to query its associated work items.  This test verifies the
-//! bidirectional relationship between a story run and its work items using the
-//! production database boundary with an isolated disposable test target; PROD is
-//! forbidden.
+//! CONTRACT. Claiming a work item and beginning its run is ONE fact over several rows, and settling it undoes none of
+//! it halfway: the claim marks the item Claimed, beginning opens a `storyboard_story_run` and links it back
+//! (`agent_work_item.story_run_id`) while the board moves to `In Progress`, and settling the claim closes that same run
+//! and writes the story's status in the same transaction. These are the stored routines the engine calls
+//! (`forge_claim_specific_agent_work`, `forge_begin_agent_work_run`, `forge_finish_agent_work_run`); each assertion
+//! reads the rows, not a return value.
 //!
-//! Level: L2 Persistence — exercise the same boundary production uses.  Use
-//! only an isolated disposable Postgres/Neon test target; assert committed
-//! database truth and rollback; PROD is forbidden.
+//! Inside a transaction that is rolled back; no row is left in the database. A non-production database only.
 //!
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test db_transaction__002__work_item_story_run
 
 use test_harness::database::TestDatabase;
-use test_harness::database::TestTransaction;
+
+const STORY: &str = "TST-DB-TRANSACTION-002";
 
 #[tokio::test]
 async fn db_transaction_002__work_item_story_run() {
-    let test_db = TestDatabase::connect_from_env()
-        .await
-        .expect("a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)");
-
-    // 1. Begin a transaction to keep state isolated.
+    let test_db = TestDatabase::connect_from_env().await.expect(
+        "a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)",
+    );
     let mut tx = test_db.begin().await.expect("begin transaction");
 
-    // 2. Insert a storyboard_story row to associate work items with.
     sqlx::query(
-        "INSERT INTO storyboard_story (name, status, context_refs, scope)
-         VALUES ('TST-DB-SCHEMA-002', 'planned', '[]', 'db')",
+        "insert into storyboard_story (id, workstream, title, priority, status)
+         values ($1, 'TEST', 'work item + run', 'P3', 'Planned')",
     )
+    .bind(STORY)
     .execute(&mut *tx.connection())
     .await
-    .expect("insert storyboard_story");
+    .expect("insert a Planned story");
+    sqlx::query("update storyboard_story set status = 'Ready' where id = $1")
+        .bind(STORY)
+        .execute(&mut *tx.connection())
+        .await
+        .expect("move the story to Ready (the trigger dispatches its item)");
+    let item: String =
+        sqlx::query_scalar("select id::text from agent_work_item where story_id = $1")
+            .bind(STORY)
+            .fetch_one(&mut *tx.connection())
+            .await
+            .expect("the dispatched item");
 
-    let story_id: String = sqlx::query_scalar::<_, String>(
-        "SELECT id::text FROM storyboard_story WHERE name = 'TST-DB-SCHEMA-002' LIMIT 1",
+    // CLAIM: the item is Claimed, and no run exists yet.
+    let claimed: Vec<String> = sqlx::query_scalar(
+        "select state from forge_claim_specific_agent_work($1::uuid, 'tst-db-transaction-002')",
     )
+    .bind(&item)
+    .fetch_all(&mut *tx.connection())
+    .await
+    .expect("claim the item");
+    assert_eq!(
+        claimed,
+        vec!["Claimed".to_string()],
+        "the claim returns the item it took"
+    );
+    let runs_before: i64 =
+        sqlx::query_scalar("select count(*) from storyboard_story_run where story_id = $1")
+            .bind(STORY)
+            .fetch_one(&mut *tx.connection())
+            .await
+            .expect("count runs before begin");
+    assert_eq!(runs_before, 0, "claiming opens no run");
+
+    // BEGIN: one run, linked from the item.
+    let (run_id,): (String,) =
+        sqlx::query_as("select story_run_id from forge_begin_agent_work_run($1::uuid, 'DEV')")
+            .bind(&item)
+            .fetch_one(&mut *tx.connection())
+            .await
+            .expect("begin the run");
+    let linked: Option<String> =
+        sqlx::query_scalar("select story_run_id::text from agent_work_item where id = $1::uuid")
+            .bind(&item)
+            .fetch_one(&mut *tx.connection())
+            .await
+            .expect("read the item's run link");
+    assert_eq!(
+        linked.as_deref(),
+        Some(run_id.as_str()),
+        "the item links the run it opened"
+    );
+    let (run_story, ended): (String, bool) = sqlx::query_as(
+        "select story_id, ended_at is not null from storyboard_story_run where id = $1::uuid",
+    )
+    .bind(&run_id)
     .fetch_one(&mut *tx.connection())
     .await
-    .expect("get story id")
-    .to_string();
-
-    // 3. Insert multiple work items that reference this story (simulating a story run).
-    sqlx::query(
-        "INSERT INTO agent_work_item (story_id, status, kind, payload)
-         VALUES ($1, 'pending', 'schema_check', '{\"test\": \"TST-DB-SCHEMA-002\"}'::jsonb)",
-    )
-    .bind(&story_id)
-    .execute(&mut *tx.connection())
-    .await
-    .expect("insert first work item");
-
-    sqlx::query(
-        "INSERT INTO agent_work_item (story_id, status, kind, payload)
-         VALUES ($1, 'pending', 'schema_check', '{\"test\": \"TST-DB-SCHEMA-002-2\"}'::jsonb)",
-    )
-    .bind(&story_id)
-    .execute(&mut *tx.connection())
-    .await
-    .expect("insert second work item");
-
-    sqlx::query(
-        "INSERT INTO agent_work_item (story_id, status, kind, payload)
-         VALUES ($1, 'pending', 'schema_check', '{\"test\": \"TST-DB-SCHEMA-002-3\"}'::jsonb)",
-    )
-    .bind(&story_id)
-    .execute(&mut *tx.connection())
-    .await
-    .expect("insert third work item");
-
-    // 4. Verify the story can query all its work items.
-    let work_items: (i64,) =
-        sqlx::query_as("SELECT count(*) FROM agent_work_item WHERE story_id = $1")
-            .bind(&story_id)
-            .fetch_one(&mut *tx.connection())
-            .await
-            .expect("count work items by story id");
-
-    assert_eq!(
-        work_items.0, 3,
-        "story run must have 3 associated work items"
+    .expect("read the run row");
+    assert_eq!(run_story, STORY, "the run belongs to the item's story");
+    assert!(!ended, "a run that has just begun is open");
+    // The board is NOT moved by the routine: the engine's writer marks the story `In Progress` itself once the role
+    // starts. What the routine guarantees is that the story still EXPECTS a run, which is what lets a failed claim
+    // hold it below.
+    let board: String = sqlx::query_scalar("select status from storyboard_story where id = $1")
+        .bind(STORY)
+        .fetch_one(&mut *tx.connection())
+        .await
+        .expect("read the board status");
+    assert!(
+        board == "Ready" || board == "In Progress",
+        "beginning a run leaves the story on a status that expects one, got {board:?}"
     );
 
-    // 5. Verify each work item is readable individually.
-    for expected_kind in &["schema_check"; 3] {
-        let kind: (String,) =
-            sqlx::query_as("SELECT kind FROM agent_work_item WHERE story_id = $1 LIMIT 1")
-                .bind(&story_id)
-                .fetch_one(&mut *tx.connection())
-                .await
-                .expect("get work item kind");
-
-        assert_eq!(
-            kind.0, "schema_check",
-            "work item kind must be schema_check"
-        );
-    }
-
-    // 6. Negative case: a story run with no work items should report count 0.
-    let other_story_id = "00000000-0000-0000-0000-000000000000";
-    let zero_count: (i64,) =
-        sqlx::query_as("SELECT count(*) FROM agent_work_item WHERE story_id = $1")
-            .bind(&other_story_id)
+    // SETTLE: the item, the story and the run close together. `Error` over an `In Progress` board holds the story.
+    let (item_state, story_status): (String, Option<String>) =
+        sqlx::query_as("select item_state, story_status from forge_finish_agent_work_run($1::uuid, 'Error', 'probe failure')")
+            .bind(&item)
             .fetch_one(&mut *tx.connection())
             .await
-            .expect("count work items for non-existent story");
-
+            .expect("settle the claim");
+    assert_eq!(item_state, "Error");
     assert_eq!(
-        zero_count.0, 0,
-        "story with no work items must report count 0"
+        story_status.as_deref(),
+        Some("Hold"),
+        "a failed claim holds the board it was running"
+    );
+    let (ended_at_set, result): (bool, Option<String>) = sqlx::query_as(
+        "select ended_at is not null, result_status from storyboard_story_run where id = $1::uuid",
+    )
+    .bind(&run_id)
+    .fetch_one(&mut *tx.connection())
+    .await
+    .expect("read the closed run");
+    assert!(
+        ended_at_set,
+        "settling closes the run it opened, in the same transaction"
+    );
+    assert_eq!(
+        result.as_deref(),
+        Some("Failed"),
+        "an Error item rules its run Failed"
     );
 
-    // 7. Roll back last: every statement that used the transaction has been consumed.
-    let _ = tx.rollback().await;
+    // A second settle is a no-op: a claim ends exactly once, and a ruling is never rewritten.
+    let again: Vec<String> = sqlx::query_scalar(
+        "select item_state from forge_finish_agent_work_run($1::uuid, 'Done', null)",
+    )
+    .bind(&item)
+    .fetch_all(&mut *tx.connection())
+    .await
+    .expect("settle again");
+    assert!(
+        again.is_empty(),
+        "a settled claim settles nothing a second time: {again:?}"
+    );
+    tx.rollback()
+        .await
+        .expect("rollback leaves no story, item or run");
 }

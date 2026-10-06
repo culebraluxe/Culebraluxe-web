@@ -1,117 +1,94 @@
 //! DB.TRANSACTION — story + agent work item (TST-DB-TRANSACTION-001).
 //!
-//! CONTRACT. Creating a story must concurrently create an agent work item,
-//! and both must be consistent: the work item references the story, and the
-//! story can be queried through the work item.  This test verifies the
-//! bidirectional relationship between a story and its agent work item using
-//! the production database boundary with an isolated disposable test target;
-//! PROD is forbidden.
+//! CONTRACT. A story that becomes `Ready` is dispatched exactly one open work item, in the same statement that moved
+//! it (the `storyboard_story_ready_dispatch` trigger), and the two stay one consistent fact: the item names its story,
+//! asking to dispatch again answers `AlreadyQueued` with the SAME item instead of a second one, and an item cannot
+//! exist for a story that does not.
 //!
-//! Level: L2 Persistence — exercise the same boundary production uses.  Use
-//! only an isolated disposable Postgres/Neon test target; assert committed
-//! database truth and rollback; PROD is forbidden.
+//! Everything runs inside transactions that are rolled back; no row is left in the database. A non-production database
+//! only; PROD is refused by the harness before a socket opens.
 //!
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test db_transaction__001__story_agent_work_item
 
 use test_harness::database::TestDatabase;
-use test_harness::database::TestTransaction;
+
+const STORY: &str = "TST-DB-TRANSACTION-001";
 
 #[tokio::test]
 async fn db_transaction_001__story_agent_work_item() {
-    let test_db = TestDatabase::connect_from_env()
-        .await
-        .expect("a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)");
+    let test_db = TestDatabase::connect_from_env().await.expect(
+        "a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)",
+    );
 
-    // 1. Begin a transaction to keep state isolated.
     let mut tx = test_db.begin().await.expect("begin transaction");
-
-    // 2. Insert a story-like row (using a minimal set of required columns).
     sqlx::query(
-        "INSERT INTO storyboard_story (name, status, context_refs, scope)
-         VALUES ('TST-DB-SCHEMA-001', 'planned', '[]', 'db')",
+        "insert into storyboard_story (id, workstream, title, priority, status)
+         values ($1, 'TEST', 'story + work item', 'P3', 'Planned')",
     )
+    .bind(STORY)
     .execute(&mut *tx.connection())
     .await
-    .expect("insert storyboard_story");
+    .expect("insert a Planned story");
 
-    // 3. Query the story back and verify it was persisted.
-    let story_count: (i64,) =
-        sqlx::query_as("SELECT count(*) FROM storyboard_story WHERE name = 'TST-DB-SCHEMA-001'")
+    let planned: i64 =
+        sqlx::query_scalar("select count(*) from agent_work_item where story_id = $1")
+            .bind(STORY)
             .fetch_one(&mut *tx.connection())
             .await
-            .expect("count storyboard_story");
+            .expect("count items for a Planned story");
+    assert_eq!(planned, 0, "a story that is not Ready has no work item");
 
+    sqlx::query("update storyboard_story set status = 'Ready' where id = $1")
+        .bind(STORY)
+        .execute(&mut *tx.connection())
+        .await
+        .expect("move the story to Ready");
+
+    let items: Vec<(String, String)> =
+        sqlx::query_as("select id::text, state from agent_work_item where story_id = $1")
+            .bind(STORY)
+            .fetch_all(&mut *tx.connection())
+            .await
+            .expect("read the dispatched item");
     assert_eq!(
-        story_count.0, 1,
-        "inserted storyboard_story must be readable back"
+        items.len(),
+        1,
+        "becoming Ready dispatches exactly one work item: {items:?}"
     );
+    assert_eq!(items[0].1, "Ready", "the dispatched item is open and Ready");
 
-    let story_id: String = sqlx::query_scalar::<_, String>(
-        "SELECT id::text FROM storyboard_story WHERE name = 'TST-DB-SCHEMA-001' LIMIT 1",
-    )
-    .fetch_one(&mut *tx.connection())
-    .await
-    .expect("get story id")
-    .to_string();
-
-    // 4. Create an agent work item that references the story.
-    sqlx::query(
-        "INSERT INTO agent_work_item (story_id, status, kind, payload)
-         VALUES ($1, 'pending', 'schema_check', '{\"test\": \"TST-DB-SCHEMA-001\"}'::jsonb)",
-    )
-    .bind(&story_id)
-    .execute(&mut *tx.connection())
-    .await
-    .expect("insert agent_work_item referencing story");
-
-    // 5. Verify the work item is readable through the story reference.
-    let work_item_count: (i64,) =
-        sqlx::query_as("SELECT count(*) FROM agent_work_item WHERE story_id = $1")
-            .bind(&story_id)
+    // Dispatching again is answered, not repeated: same item, no second row.
+    let (outcome, item): (String, Option<String>) =
+        sqlx::query_as("select outcome, item from forge_dispatch_story($1)")
+            .bind(STORY)
             .fetch_one(&mut *tx.connection())
             .await
-            .expect("count work items by story id");
-
+            .expect("dispatch a story that is already queued");
+    assert_eq!(outcome, "AlreadyQueued");
     assert_eq!(
-        work_item_count.0, 1,
-        "one work item must reference the story"
+        item.as_deref(),
+        Some(items[0].0.as_str()),
+        "the answer names the item that is already there"
     );
+    let after: i64 = sqlx::query_scalar("select count(*) from agent_work_item where story_id = $1")
+        .bind(STORY)
+        .fetch_one(&mut *tx.connection())
+        .await
+        .expect("count items after a repeat dispatch");
+    assert_eq!(after, 1, "a repeat dispatch adds no row");
+    tx.rollback()
+        .await
+        .expect("rollback leaves no story and no item");
 
-    // 6. Verify the work item has the expected data.
-    let wi_payload: (String,) =
-        sqlx::query_as("SELECT payload::text FROM agent_work_item WHERE story_id = $1")
-            .bind(&story_id)
-            .fetch_one(&mut *tx.connection())
-            .await
-            .expect("get work item payload");
-
+    // An item cannot exist for a story that does not (its own transaction: a refused insert aborts one).
+    let mut tx = test_db.begin().await.expect("begin transaction");
+    let orphan = sqlx::query("insert into agent_work_item (story_id, state) values ('TST-DB-TRANSACTION-001-NO-SUCH-STORY', 'Ready')")
+        .execute(&mut *tx.connection())
+        .await;
     assert!(
-        wi_payload.0.contains("TST-DB-SCHEMA-001"),
-        "work item payload must contain story identifier"
+        orphan.is_err(),
+        "a work item for a story that does not exist must be refused by its foreign key"
     );
-
-    // 7. Roll back to leave no residual state.
     let _ = tx.rollback().await;
-
-    // 8. Negative case: a work item without a valid story reference must not
-    //    be creatable.  We verify this by attempting to insert a work item
-    //    with a non-existent story id and checking the foreign key constraint.
-    let result = sqlx::query(
-        "INSERT INTO agent_work_item (story_id, status, kind, payload)
-         VALUES ('00000000-0000-0000-0000-000000000000', 'pending', 'bad_request', '{}'::jsonb)",
-    )
-    .execute(
-        &mut *test_db
-            .database()
-            .pool()
-            .acquire()
-            .await
-            .expect("pool checkout"),
-    )
-    .await;
-
-    // The insert should fail due to foreign key constraint if the DB enforces it,
-    // or the test documents that the application layer validates this.
-    eprintln!("Work item with invalid story_id result: {:?}", result);
 }
