@@ -123,6 +123,26 @@ fn assay_terminal_role(role: Option<&str>) -> bool {
     )
 }
 
+/// The operator's brake, the fleet ceiling and the pinned version — `forge_runtime_control` (274), the row
+/// `forge_claim_story` (275) obeys at the claim door.
+///
+/// The worker reads it before it claims, because a closed claim door answers `None` for three different reasons
+/// (nothing eligible, paused, ceiling reached) and a pass that says "no work" while hundreds of rows wait is exactly
+/// the report that made this queue unoperable.
+///
+/// `Ok(None)` means the row is absent. 275 fails the door closed on that, so a pass that cannot read the brake must
+/// not claim either — it says so and stops claiming, rather than assuming "not paused".
+fn runtime_control() -> Result<Option<db::ForgeRuntimeControlRow>, String> {
+    with_shared(|db, rt| {
+        let dao = ForgeControlDao::new(db.clone());
+        rt.block_on(async {
+            dao.runtime_control()
+                .await
+                .map_err(|error| error.to_string())
+        })
+    })?
+}
+
 pub fn recover_stale_agent_work(stale_after_minutes: i64) -> Result<u64, String> {
     with_shared(|db, rt| {
         let dao = ForgeControlDao::new(db.clone());
@@ -253,6 +273,33 @@ pub fn run_worker_pass() -> Result<i32, String> {
     // serial item on one story, and the slots only decide how many DIFFERENT stories move at once.
     let base_worker_id = worker_identity();
     let concurrency = worker_cfg.story_worker_concurrency;
+
+    // THE BRAKE, BEFORE THE FIRST CLAIM (274/275). Paused stops NEW claims and NEW arms; the arms are already
+    // refused inside the database by the same switch, and this is the line that says so out loud instead of letting
+    // a paused queue read as an idle one. Work already in flight is untouched — it settles normally, which is what
+    // "in flight finishes" means.
+    match runtime_control()? {
+        Some(control) if control.paused => {
+            eprintln!(
+                "forge-worker: paused by {} - no claims this pass (in-flight runs finish and settle)",
+                control.updated_by
+            );
+            return Ok(0);
+        }
+        Some(control) => {
+            eprintln!(
+                "forge-worker: ceiling={} brake-held-by={}",
+                control.global_story_concurrency, control.updated_by
+            );
+        }
+        None => {
+            // 275 fails the claim door closed when the control row is missing; a pass that cannot read the brake
+            // must not claim behind its back.
+            eprintln!("forge-worker: forge_runtime_control row is missing - no claims this pass");
+            return Ok(0);
+        }
+    }
+
     let mut claimed: Vec<(String, WorkerDispatch)> = Vec::new();
     for slot in 0..concurrency {
         let worker_id = format!("{base_worker_id}:{slot}");

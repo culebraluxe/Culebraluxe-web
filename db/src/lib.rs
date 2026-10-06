@@ -108,7 +108,9 @@ pub use email::EmailDao;
 pub use error::{DbFailure, DbFailureKind, DbResult};
 pub use firm::FirmDao;
 pub use flight_recorder::FlightRecorderDao;
-pub use forge_control::{FlightFireResult, ForgeControlDao, LearnStaleClaimRow, StaleAgentWorkRow};
+pub use forge_control::{
+    FlightFireResult, ForgeControlDao, ForgeRuntimeControlRow, LearnStaleClaimRow, StaleAgentWorkRow,
+};
 pub use forge_doctor::{
     ClaimRow, ControlPlaneCounts, EngineQueuedCardRow, EngineRunCardRow, ForgeDoctorDao, QaRunRow,
     RoiAttemptRow,
