@@ -12,6 +12,21 @@ pub struct StaleAgentWorkRow {
     pub updated_at: String,
 }
 
+/// The operator's brake and the fleet-wide ceiling — `forge_runtime_control`, one row (migration 274).
+///
+/// Read by the worker before it claims, because `forge_claim_story` (275) answers "no" to three different questions
+/// (nothing eligible, paused, ceiling reached) and a pass that reports an idle queue while 500 rows wait is the
+/// report that made this queue unoperable.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeRuntimeControlRow {
+    pub paused: bool,
+    /// The version the executor should be running, or `None` when nothing is pinned.
+    pub desired_worker_sha: Option<String>,
+    pub global_story_concurrency: i32,
+    /// Who last wrote the row: a pause nobody signed cannot be asked about.
+    pub updated_by: String,
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct LearnStaleClaimRow {
     pub id: String,
@@ -36,21 +51,41 @@ impl ForgeControlDao {
         Self { db }
     }
 
+    /// Claims a worker has walked away from: the one place the staleness rule is decided (`forge_reapable_claims`,
+    /// migration 275), so a caller reads a list instead of re-deciding what "stale" means.
+    ///
+    /// Two reasons, and the second is the one this exists to add: the claim is older than `stale_after_minutes`
+    /// (the original rule, kept for a claim whose owner never beats — a one-shot run, a test, a manual claim), **or**
+    /// the worker holding it is `stale` in `forge_worker_health` (273), which is the worker's own word about itself.
+    /// Before that second rule a live worker in a long model turn was indistinguishable from a dead one.
     pub async fn stale_agent_work(
         &self,
         stale_after_minutes: i64,
     ) -> DbResult<Vec<StaleAgentWorkRow>> {
         sqlx::query_as::<_, StaleAgentWorkRow>(
-            "select id::text as id, story_id, role, attempts, max_attempts, story_run_id::text as story_run_id, updated_at::text as updated_at
-             from agent_work_item
-             where state in ('Claimed','Running','Paused')
-               and updated_at < now() - ($1::text || ' minutes')::interval
-             order by updated_at asc",
+            "select id::text as id, story_id, role, attempts, max_attempts,
+                    story_run_id::text as story_run_id, updated_at::text as updated_at
+             from forge_reapable_claims($1::integer)",
         )
-        .bind(stale_after_minutes.max(0).to_string())
+        .bind(stale_after_minutes.clamp(0, i32::MAX as i64) as i32)
         .fetch_all(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_control.stale_agent_work", &error))
+    }
+
+    /// The operator's brake, the fleet ceiling and the pinned version — the row `forge_claim_story` obeys.
+    ///
+    /// `Ok(None)` means the row is absent, which 275 treats as a closed door; the worker reports it rather than
+    /// assuming "not paused".
+    pub async fn runtime_control(&self) -> DbResult<Option<ForgeRuntimeControlRow>> {
+        sqlx::query_as::<_, ForgeRuntimeControlRow>(
+            "select paused, desired_worker_sha, global_story_concurrency, updated_by
+             from forge_runtime_control
+             where id = 1",
+        )
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_control.runtime_control", &error))
     }
 
     pub async fn interrupt_story_run(

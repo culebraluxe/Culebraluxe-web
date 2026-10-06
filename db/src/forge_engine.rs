@@ -261,8 +261,15 @@ impl ForgeEngineDao {
     }
 
     /// Claim the next eligible item — one serial chain per STORY, not one per system (restored 2026-09-29) — or
-    /// `None`. The ordering, eligibility and lock are the database's: `forge_claim_next_agent_work` (migration
-    /// 262). Two writers on one story are refused by the unique indexes, raised here as the database's error.
+    /// `None`. Ordering, eligibility, the claim mutex and the policy rail are the database's, in `forge_claim_story`
+    /// (migration 275): that door refuses while `forge_runtime_control.paused`, honours the fleet-wide
+    /// `global_story_concurrency` ceiling, and claims oldest-first. The operator's brake therefore reaches the
+    /// executor through this call, not through a flag this process may or may not have been given. Two writers on one
+    /// story are refused by the unique indexes, raised here as the database's error.
+    ///
+    /// `p_max` is 1 on purpose: one slot claims one story, and the ceiling (not the caller's appetite) decides whether
+    /// the claim is granted. `Ok(None)` is therefore three facts at once — nothing eligible, the door paused, the
+    /// ceiling reached — and the worker reads `runtime_control` when it wants to tell them apart.
     pub async fn claim_next_agent_work(
         &self,
         worker_id: &str,
@@ -270,7 +277,7 @@ impl ForgeEngineDao {
         sqlx::query_as::<_, ForgeAgentWorkRow>(
             "select id::text as id, story_id, state, claimed_by, role, kind, work_type, execution_policy,
                     model_policy, stop_after, launch_intent
-             from forge_claim_next_agent_work($1)",
+             from forge_claim_story($1::text, 1)",
         )
         .bind(worker_id)
         .fetch_optional(self.db.pool())
