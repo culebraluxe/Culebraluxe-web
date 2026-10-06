@@ -59,6 +59,8 @@ fn write_str(out: &mut String, s: &str) {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
+            // Any other control character is illegal raw in JSON (Postgres' jsonb refuses it).
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
             c => out.push(c),
         }
     }
@@ -123,29 +125,64 @@ impl Parser<'_> {
         if self.bump() != Some(b'"') {
             return Err("string".into());
         }
-        let mut s = String::new();
+        // BYTES, decoded once at the end. This pushed each byte as a `char` (`c as char`), which reads a multi-byte
+        // UTF-8 character as that many Latin-1 characters: every "—" came back as "â" plus two invisible ones, so
+        // every non-ASCII value the engine read back from storage (payloads, variables, event data — names with
+        // accents among them) was corrupted.
+        let mut out: Vec<u8> = Vec::new();
         loop {
             match self.bump() {
                 None => return Err("unterminated string".into()),
-                Some(b'"') => return Ok(s),
+                Some(b'"') => {
+                    return String::from_utf8(out)
+                        .map_err(|_| "string is not valid UTF-8".to_string())
+                }
                 Some(b'\\') => match self.bump() {
-                    Some(b'"') => s.push('"'),
-                    Some(b'\\') => s.push('\\'),
-                    Some(b'n') => s.push('\n'),
-                    Some(b'r') => s.push('\r'),
-                    Some(b't') => s.push('\t'),
+                    Some(b'"') => out.push(b'"'),
+                    Some(b'\\') => out.push(b'\\'),
+                    Some(b'/') => out.push(b'/'),
+                    Some(b'b') => out.push(0x08),
+                    Some(b'f') => out.push(0x0c),
+                    Some(b'n') => out.push(b'\n'),
+                    Some(b'r') => out.push(b'\r'),
+                    Some(b't') => out.push(b'\t'),
                     Some(b'u') => {
-                        let hex =
-                            std::str::from_utf8(&self.b[self.i..self.i + 4]).map_err(|_| "uhex")?;
-                        self.i += 4;
-                        let cp = u32::from_str_radix(hex, 16).map_err(|_| "uhex")?;
-                        s.push(char::from_u32(cp).unwrap_or('\u{FFFD}'));
+                        let first = self.hex4()?;
+                        // A code point above U+FFFF arrives as a surrogate PAIR of \u escapes.
+                        let ch = if (0xD800..0xDC00).contains(&first)
+                            && self.b[self.i..].starts_with(b"\\u")
+                        {
+                            self.i += 2;
+                            let low = self.hex4()?;
+                            if (0xDC00..0xE000).contains(&low) {
+                                char::from_u32(0x10000 + ((first - 0xD800) << 10) + (low - 0xDC00))
+                            } else {
+                                None
+                            }
+                        } else {
+                            char::from_u32(first)
+                        };
+                        let mut buf = [0u8; 4];
+                        out.extend_from_slice(
+                            ch.unwrap_or('\u{FFFD}').encode_utf8(&mut buf).as_bytes(),
+                        );
                     }
-                    _ => s.push('\\'),
+                    Some(other) => {
+                        out.push(b'\\');
+                        out.push(other);
+                    }
+                    None => return Err("unterminated string".into()),
                 },
-                Some(c) => s.push(c as char),
+                Some(c) => out.push(c),
             }
         }
+    }
+    fn hex4(&mut self) -> Result<u32, String> {
+        let digits = self.b.get(self.i..self.i + 4).ok_or("uhex")?;
+        let hex = std::str::from_utf8(digits).map_err(|_| "uhex")?;
+        let cp = u32::from_str_radix(hex, 16).map_err(|_| "uhex")?;
+        self.i += 4;
+        Ok(cp)
     }
     fn number(&mut self) -> Result<Value, String> {
         let start = self.i;
@@ -517,5 +554,43 @@ mod tests {
             back.nodes["start"].transitions.as_ref().unwrap()[0].to,
             "end"
         );
+    }
+
+    /// The corruption that motivated the byte-wise decoder: a multi-byte character read back as Latin-1 mojibake.
+    #[test]
+    fn non_ascii_text_survives_a_round_trip() {
+        for text in [
+            "Lead — Execution Plan",
+            "José Peña",
+            "Zürich ñandú",
+            "emoji 😀 done",
+            "日本語",
+        ] {
+            let json = stringify(&Value::from(text));
+            assert_eq!(parse(&json).expect("parses"), Value::from(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn escapes_surrogate_pairs_and_control_characters_decode_and_encode() {
+        assert_eq!(parse(r#""café""#).unwrap(), Value::from("café"));
+        assert_eq!(parse(r#""😀""#).unwrap(), Value::from("😀"));
+        assert_eq!(
+            parse(r#""a\/b\b\f""#).unwrap(),
+            Value::from("a/b\u{8}\u{c}")
+        );
+        let with_control = Value::from("bell\u{7}end");
+        let json = stringify(&with_control);
+        assert!(
+            !json.contains('\u{7}'),
+            "a raw control character is not valid JSON: {json:?}"
+        );
+        assert_eq!(parse(&json).unwrap(), with_control);
+    }
+
+    #[test]
+    fn a_truncated_unicode_escape_is_an_error_not_a_panic() {
+        assert!(parse(r#""\u12""#).is_err());
+        assert!(parse(r#""\u"#).is_err());
     }
 }
