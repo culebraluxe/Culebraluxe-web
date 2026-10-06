@@ -7,8 +7,8 @@
 (recorded in `schema_migration`) and is on trunk as **`9950a399`**. The scheduler is fixed: it runs the worker from the
 **trunk checkout**, not from a lane (see "Holds" — this was the reason Forge was running *nothing*).
 
-**2026-10-06 update: the three PROD runs FAILED, their door rows are stuck `Running` and the inlet is jammed; D3 and D4
-landed. Read the last section first.**
+**2026-10-06 update: the jam is CLEARED and the queue is ARMED at N = 2. The three PROD door rows are `Error` and the
+inlet is open; D3, D4 and D1 (271) have landed. Read the last section first.**
 
 ## What landed
 
@@ -164,6 +164,94 @@ None of the following touches the database track:
 
 `pnpm db:migrations` reports `recorded for ONE target only (check whether that is intended): 80` — migration 80 predates
 this work by ~190 files and is unrelated to it.
+
+## 2026-10-06 (later) — D1 landed (271), the jam is CLEARED, the queue is ARMED at N = 2
+
+### What landed
+
+| commit | what |
+| --- | --- |
+| `547abefa` | `db/migrations/271_forge_work_queue_event_settle.sql` — D1. DEV then PROD, recorded in `schema_migration`. |
+| `5ae50242` | `tests/tests/forge_work_queue__002__a_refused_done_settles_its_own_row.rs` — the contract as a landed test. |
+
+Two changes, routines only (no table, no column, no constraint, no status redefined):
+
+1. **`forge_settle_work_queue` gains branch 2b, keyed on the ITEM.** The old branch 2 read
+   `storyboard_story.status = 'Failed'`, a status the settlement never writes for a refused `Done` — which is why the
+   three rows matched no branch at all. 2b reads the story's LATEST `agent_work_item` (`Error`/`Cancelled`, the one
+   column that says an attempt is over, written only by 263) and fails the row with that item's `error_text`. Guarded so
+   it cannot over-claim: `s.status not in ('Planned','Ready','Complete')` (a story back on the board stays branch 3's
+   FIFO retry) and branch 3's live-instance guard.
+2. **`forge_finish_agent_work_run` calls the door in its own transaction** — `forge_settle_work_queue()` then
+   `forge_arm_work_queue(null, 'forge-settle')` after `forge_close_story_run` — so a run that ends frees its slot there
+   and then instead of on a later pass. **Two exception blocks, not one:** a plpgsql exception block is a
+   subtransaction, and one block around both calls lets a failing arm undo a settle that had already succeeded
+   (measured on DEV: the row stayed `Running`; split, it goes `Error`). Both halves are `warning`s; the claim settlement
+   sits outside both blocks and survives either failure.
+
+### Verified
+
+- **DEV smoke, 7 sections, every verdict `t`** — `build/logs/d1-smoke-dev.{sql,out}`: the PROD shape settles with the
+  settlement's own words; the refused `Done` leaves the door row `Error` INSIDE its transaction (asserted before
+  `commit`); a story back on the board still returns to `Pending`; and with `forge_arm_work_queue` replaced by a raising
+  body the finish still returned its row, the claim settlement was kept (`Error`/`Hold`) and the warning named the arm
+  half. The injected function rolls back with the test transaction, so it is proved without touching DEV's routines.
+- **Landed test on DEV** — `cargo test --manifest-path Cargo.toml -p test-harness --test
+  forge_work_queue__002__a_refused_done_settles_its_own_row -- --ignored` → `1 passed; 0 failed` (8.15s),
+  `build/logs/test-271-d1q-dev.log`. It asserts 263's premise, the same-transaction settle, the settlement's words in
+  the reason, and that the freed slot arms the next FIFO row without a sweep.
+- **Migration ratchet** — `db_migration__006` with 271 in the tree → `1 passed; 0 failed`,
+  `build/logs/test-271-migration-lint.log`. 271 is `create or replace` only, so it owes no destructive-marker row.
+  (`--force` re-applied 271 to DEV after the guard split — that is the flag's stated purpose.)
+- **The jam is cleared on PROD by the engine's own sweep, with no hand-written UPDATE**: the three rows are `Error`
+  carrying `run ended without the board confirming completion (story status 'In Progress'); Done refused`, and the inlet
+  reports no held slot. Receipt: `build/logs/d1-unjam-prod.{sql,out}`.
+
+### The queue is armed (N = 2)
+
+`arm_limit = 2` (the order's own step 7; the D4 default `global_story_concurrency` is also 2) and five rows enqueued
+FIFO, one `forge_enqueue_work` call each through `\gexec` so every row gets its own `now()` — 5 distinct microsecond
+stamps, where a single multi-row insert would share one and lose the order to the uuid tie-break:
+`TST-DB-SCHEMA-004/005/007`, `TST-DB-TRANSACTION-001/002`. Two armed, three `Pending`. Receipt:
+`build/logs/arm-tranche-2026-10-06.{sql,out}`. The worker's own tick claims them (plist
+`AGENT_WORKER_REPO=/Users/Shared/dev/src/Culebraluxe-web`, `StartInterval` 180, last tick 23:47 local — it is on the
+trunk checkout now, so the D3 `checkout-not-main` finding no longer applies).
+
+**The 565 remaining `Planned` rows stay unenqueued until these five settle.** The same script with `limit 570` is the one
+command; it belongs after the gate, not before.
+
+### What the three failed runs actually were — read this before raising N
+
+All three ended after **20–23 minutes** with the board still `In Progress`, so `Done` was refused and the story was held:
+that is 263's designed answer to a run that does not finish its story, not an inlet bug. Their commits (`2363bea0`,
+`b463b4e4`, `2ca67565`) are **not on trunk** — they sit on `agent/tst-db-schema-00{3,6,8}/<uuid>` branches (paid code
+retained, house rule 7). Nothing in the database explains the stop: no `app_error` row in the window, no engine verdict
+beyond `Done refused`. So the tranche is a probe, not a load: **if the first two runs end the same way, the blocker is the
+run (its own lifetime, or the story's step budget), not the queue — do not raise N and do not enqueue the 565.**
+
+The order's step-7 gate, as rows:
+
+```sql
+select q.story_id, q.state, q.attempts, s.status as story, left(q.last_error, 60) as door_reason
+  from forge_work_queue q join storyboard_story s on s.id = q.story_id
+ where q.state <> 'Error' order by q.created_at;
+```
+
+### Open, in order
+
+1. **272** — the channel step. Recommendation stands: extend the existing `pg_notify('forge_work_queue', …)` payload
+   (269:115) with `json_build_object('kind', …)` rather than inventing `forge_work`, so one event keeps one channel.
+2. **275 / D5** — `forge_claim_story(worker_id, max)`: refuse while `paused`,
+   `pg_advisory_xact_lock(hashtext('forge_claim'))`, cap at `least(max, global_story_concurrency - running)`,
+   `for update skip locked`, stamp `claimed_by`; add the pause guard to `forge_arm_work_queue`; reap by
+   `forge_worker_health` staleness; **and cut the Rust `claim_next_agent_work` call site over in the same slice** — that
+   edit is what makes `paused` real, and without it cutover step 2 cannot be verified.
+3. Raise N (2 → 4 → the global cap, watching between steps), then the 565.
+
+### Not verified
+
+The tranche end to end: no run has completed a story through this inlet yet, so the five rows are armed and claimed but
+their settlement is unobserved. The DEV smoke and the landed test prove the routines, not a live run.
 
 
 
