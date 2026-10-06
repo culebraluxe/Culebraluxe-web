@@ -88,6 +88,34 @@ impl ForgeControlDao {
         .map_err(|error| DbFailure::from_sqlx("forge_control.runtime_control", &error))
     }
 
+    /// One resident-worker heartbeat (`forge_worker_beat`, migration 273). A beat that cannot be written is the
+    /// caller's to report: a missed beat reads as `stale` in the view, which is the signal, so this returns the failure
+    /// instead of swallowing it.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn worker_beat(
+        &self,
+        worker_id: &str,
+        host: &str,
+        git_sha: &str,
+        state: &str,
+        running: i32,
+        last_error: Option<&str>,
+        started_at: chrono::DateTime<chrono::Utc>,
+    ) -> DbResult<()> {
+        sqlx::query("select forge_worker_beat($1, $2, $3, $4, $5, $6, $7)")
+            .bind(worker_id)
+            .bind(host)
+            .bind(git_sha)
+            .bind(state)
+            .bind(running)
+            .bind(last_error)
+            .bind(started_at)
+            .execute(self.db.pool())
+            .await
+            .map(|_| ())
+            .map_err(|error| DbFailure::from_sqlx("forge_control.worker_beat", &error))
+    }
+
     pub async fn interrupt_story_run(
         &self,
         run_id: &str,
@@ -432,5 +460,30 @@ impl ForgeControlDao {
                 Err(error)
             }
         }
+    }
+}
+
+/// Wait for a `forge_work` NOTIFY on `url`, or until `timeout` elapses (which is `Ok`: a pass is due anyway).
+///
+/// `url` must be the DIRECT (non-pooler) endpoint: PgBouncer in transaction mode silently drops LISTEN. This opens its
+/// own connection by design — a listener holds one for its whole life and must not be a pooled one — which is why it
+/// lives here, beside the DAOs, and Forge never links a driver. A listener fault is an `Err`: notifications sent while
+/// disconnected are lost, so the caller backs off and then runs a pass immediately.
+pub async fn wait_for_forge_work(url: &str, timeout: std::time::Duration) -> DbResult<()> {
+    let mut listener = sqlx::postgres::PgListener::connect(url)
+        .await
+        .map_err(|error| {
+            DbFailure::from_sqlx("forge_control.wait_for_forge_work.connect", &error)
+        })?;
+    listener.listen("forge_work").await.map_err(|error| {
+        DbFailure::from_sqlx("forge_control.wait_for_forge_work.listen", &error)
+    })?;
+    match tokio::time::timeout(timeout, listener.recv()).await {
+        Ok(Ok(_notification)) => Ok(()),
+        Ok(Err(error)) => Err(DbFailure::from_sqlx(
+            "forge_control.wait_for_forge_work.recv",
+            &error,
+        )),
+        Err(_elapsed) => Ok(()),
     }
 }

@@ -47,6 +47,35 @@ fn worker_identity() -> String {
         })
 }
 
+/// How many story runs this process is carrying right now.
+///
+/// The resident worker drains against this on SIGTERM and on a version-drift restart: it stops claiming and gives
+/// in-flight runs the window before it exits. It is a counter held by the code that spawns the runs, with a guard that
+/// releases on every exit including a panic — the count of what THIS process holds is exactly what the drain needs, and
+/// it works while the database is unreachable. (The loop used to ask the database with a query against a column
+/// `storyboard_story_run` does not have, swallow the error, and read 0 every time, so a drain never waited.) The rows
+/// stay the authority for RECOVERY: a run this process loses is found by the stale-claim sweep, not by this number.
+static IN_FLIGHT_RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+struct InFlight;
+
+impl InFlight {
+    fn enter() -> Self {
+        IN_FLIGHT_RUNS.fetch_add(1, Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        IN_FLIGHT_RUNS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+pub fn in_flight_runs() -> usize {
+    IN_FLIGHT_RUNS.load(Ordering::SeqCst)
+}
+
 /// Hold the claim open while the child runs.
 ///
 /// This is the half of the claim that the port also dropped: `stale_agent_work` decides staleness on `updated_at`
@@ -380,6 +409,7 @@ fn run_claimed_dispatch(
     worker_id: String,
     _stale_after_minutes: i64,
 ) -> Result<i32, String> {
+    let _in_flight = InFlight::enter();
     let child_cfg = ChildConfig::from_env();
     let worker_cfg = WorkerConfig::from_env();
 
@@ -676,5 +706,26 @@ mod tests {
         assert!(assay_terminal_role(Some("reviewer")));
         assert!(assay_terminal_role(Some("verifier")));
         assert!(!assay_terminal_role(Some("builder")));
+    }
+
+    /// The drain waits on this count, so it has to be exact: up while a run is carried, down when it ends — and down
+    /// when the run PANICS, or a drain would wait out its whole window for a run that is already gone.
+    #[test]
+    fn the_in_flight_count_follows_runs_and_survives_a_panic() {
+        // Other tests in this process may hold a run; measure the change, not the absolute.
+        let before = in_flight_runs();
+        {
+            let _one = InFlight::enter();
+            let _two = InFlight::enter();
+            assert_eq!(in_flight_runs(), before + 2, "each carried run is counted");
+        }
+        assert_eq!(in_flight_runs(), before, "a finished run is released");
+
+        let panicked = std::panic::catch_unwind(|| {
+            let _run = InFlight::enter();
+            panic!("a role turn blew up");
+        });
+        assert!(panicked.is_err());
+        assert_eq!(in_flight_runs(), before, "a panicking run is released too");
     }
 }
