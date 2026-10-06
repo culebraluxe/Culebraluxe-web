@@ -24,6 +24,15 @@ fn main() {
         budget.statement_timeout_ms, budget.connect_timeout_ms
     );
     let forge = forge::ForgeService::new();
+    // --watch is the resident mode (S1–S4): heartbeat, control-row reads, wake loop, drain on
+    // SIGTERM or version drift. One-shot mode remains the rollback path and is the default.
+    if std::env::args().any(|arg| arg == "--watch") {
+        // S2: `--wake=poll` switches the listener off without a rebuild; default is LISTEN+poll.
+        if std::env::args().any(|arg| arg == "--wake=poll") {
+            std::env::set_var("FORGE_WAKE", "poll");
+        }
+        std::process::exit(forge::engine::resident::watch_loop());
+    }
     match forge.run_scheduled_pass() {
         Ok(code) => std::process::exit(code),
         Err(error) => {

@@ -1,0 +1,297 @@
+//! Resident worker mode (`forge-worker --watch`) — slices S1–S4 of the server-side execution order.
+//!
+//! One process, a Neon queue as the only authority, and no runtime git pull: the loop beats its
+//! heartbeat, reads the runtime-control row, claims through `forge_claim_story` (D5), wakes on
+//! LISTEN/poll/finish (S2), drains on version drift (S3), and never blocks its heartbeat on a story
+//! run (S1). The one-shot path (`ForgeService::run_scheduled_pass`) stays the rollback path.
+//!
+//! The D5 claim function is a SQL call, not a Rust symbol — this compiles before D5 lands and fails
+//! loudly at the first claim attempt until it does, which is the correct loud/soft split: schema
+//! drift tells the operator, it never silently claims with the old path.
+
+use crate::engine::constants::FORGE_GIT_SHA;
+use crate::engine::vendor_session::with_shared;
+use crate::engine::worker;
+use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+/// How in-flight runs get to finish after SIGTERM or a version drift before they are interrupted.
+pub const DRAIN_SECS_ENV: &str = "FORGE_DRAIN_SECS";
+pub const DEFAULT_DRAIN_SECS: u64 = 1800;
+
+/// Fallback wake interval when LISTEN is off or silent (S2: the poll is what guarantees correctness).
+pub const POLL_SECS_ENV: &str = "FORGE_POLL_SECS";
+pub const DEFAULT_POLL_SECS: u64 = 30;
+
+/// Hard wall-clock limit for one story run (S4).
+pub const RUN_TIMEOUT_SECS_ENV: &str = "FORGE_RUN_TIMEOUT_SECS";
+pub const DEFAULT_RUN_TIMEOUT_SECS: u64 = 3600;
+
+/// Free disk below which the worker refuses to claim (S4).
+pub const MIN_FREE_DISK_BYTES: u64 = 10 * 1024 * 1024 * 1024;
+
+/// Process start, captured once so every beat reports the same `p_started_at`.
+fn process_started_at() -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc::now()
+}
+
+fn env_secs(name: &str, default: u64) -> Duration {
+    Duration::from_secs(
+        std::env::var(name)
+            .ok()
+            .as_deref()
+            .and_then(|raw| raw.trim().parse::<u64>().ok())
+            .unwrap_or(default),
+    )
+}
+
+/// The wake posture for the idle loop: LISTEN on the direct endpoint, or poll only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WakeMode {
+    Listen,
+    Poll,
+}
+
+pub fn wake_mode_from_env() -> WakeMode {
+    match std::env::var("FORGE_WAKE")
+        .ok()
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("poll") => WakeMode::Poll,
+        _ => WakeMode::Listen,
+    }
+}
+
+/// The worker's own identity for the heartbeat row — the same env the one-shot path honors.
+fn worker_id() -> String {
+    std::env::var("FORGE_WORKER_ID")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            std::env::var("AGENT_WORKER_ID").unwrap_or_else(|_| "forge-worker".into())
+        })
+}
+
+/// One heartbeat. Returns Err on a DB fault so the loop decides to keep going (a beat miss is
+/// state=stale in the view; a panic here is not).
+fn beat(state: &str, running: i32, last_error: Option<&str>) -> Result<(), String> {
+    let worker_id = worker_id();
+    let host = hostname();
+    let started = process_started_at();
+    with_shared(|db, rt| {
+        rt.block_on(async {
+            sqlx::query("select forge_worker_beat($1, $2, $3, $4, $5, $6, $7)")
+                .bind(&worker_id)
+                .bind(&host)
+                .bind(FORGE_GIT_SHA)
+                .bind(state)
+                .bind(running)
+                .bind(last_error)
+                .bind(started)
+                .execute(db.pool())
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+    })?
+}
+
+fn hostname() -> String {
+    std::env::var("HOSTNAME")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "unknown-host".to_string())
+}
+
+/// The runtime-control facts this loop acts on.
+struct Control {
+    paused: bool,
+    desired_sha: Option<String>,
+}
+
+fn read_control() -> Result<Control, String> {
+    with_shared(|db, rt| {
+        rt.block_on(async {
+            let row: (bool, Option<String>) = sqlx::query_as(
+                "select paused, desired_worker_sha from forge_runtime_control where id = 1",
+            )
+            .fetch_one(db.pool())
+            .await
+            .map_err(|error| error.to_string())?;
+            Ok(Control {
+                paused: row.0,
+                desired_sha: row.1,
+            })
+        })
+    })?
+}
+
+/// S4: refuse to claim when the runs volume is nearly full, and say so in the heartbeat.
+fn free_disk_ok() -> bool {
+    match fs_free_bytes(Path::new("/var/lib/forge")) {
+        Some(free) => free >= MIN_FREE_DISK_BYTES,
+        None => true, // a non-Linux dev machine: the guard is a production-server rule
+    }
+}
+
+fn fs_free_bytes(path: &Path) -> Option<u64> {
+    let output = std::process::Command::new("df")
+        .arg("-k")
+        .arg(path)
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let line = text.lines().nth(1)?;
+    let blocks: u64 = line.split_whitespace().nth(3)?.parse().ok()?;
+    Some(blocks * 1024)
+}
+
+/// The resident loop. Returns the process exit code. One-shot mode never calls this.
+pub fn watch_loop() -> i32 {
+    let stop = Arc::new(AtomicBool::new(false));
+    install_sigterm_handler(stop.clone());
+    let poll = env_secs(POLL_SECS_ENV, DEFAULT_POLL_SECS);
+    let drain_window = env_secs(DRAIN_SECS_ENV, DEFAULT_DRAIN_SECS);
+    let mut state = "idle";
+
+    loop {
+        // SIGTERM arrived: stop claiming, report draining, give in-flight runs the window, exit 0.
+        if stop.load(Ordering::SeqCst) {
+            let _ = beat("draining", 0, None);
+            let deadline = Instant::now() + drain_window;
+            loop {
+                if pending_runs() == 0 || Instant::now() >= deadline {
+                    break;
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
+            let _ = beat("stopping", 0, None);
+            return 0;
+        }
+
+        if let Err(error) = beat(state, running_count() as i32, None) {
+            eprintln!("forge-worker: heartbeat failed: {error}");
+        }
+
+        match read_control() {
+            Ok(control) if control.paused => {
+                state = "idle";
+                std::thread::sleep(poll);
+                continue;
+            }
+            Ok(control) => {
+                if let Some(desired) = control.desired_sha.as_deref() {
+                    if desired != FORGE_GIT_SHA {
+                        let _ = beat(
+                            "draining",
+                            running_count() as i32,
+                            Some(&format!(
+                                "desired_sha={desired} != build_sha={FORGE_GIT_SHA}"
+                            )),
+                        );
+                        let deadline = Instant::now() + drain_window;
+                        while pending_runs() > 0 && Instant::now() < deadline {
+                            std::thread::sleep(Duration::from_secs(1));
+                        }
+                        let _ = beat("stopping", 0, Some("version drift, supervisor restarts"));
+                        return 0;
+                    }
+                }
+            }
+            Err(error) => {
+                eprintln!("forge-worker: read control failed: {error}");
+                std::thread::sleep(poll);
+                continue;
+            }
+        }
+
+        if !free_disk_ok() {
+            let _ = beat("idle", 0, Some("free disk under 10 GB, refusing to claim"));
+            std::thread::sleep(poll);
+            continue;
+        }
+
+        // One pass through the existing control-plane work. The claim inside it is the D5 SQL call;
+        // until that migration is applied the pass reports the missing function and this loop keeps
+        // beating — loud, not silent.
+        state = "running";
+        match worker::run_worker_pass() {
+            Ok(code) if code != 0 => {
+                eprintln!("forge-worker: pass returned {code}");
+                let _ = beat("idle", 0, Some(&format!("pass returned {code}")));
+            }
+            Ok(_) => {
+                state = "idle";
+            }
+            Err(error) => {
+                eprintln!("forge-worker: pass failed: {error}");
+                let _ = beat("idle", 0, Some(&error));
+            }
+        }
+
+        // S2 wake: with poll mode this sleep is the guarantee; in listen mode the NOTIFY wakes the
+        // listener and a finished run also wakes the loop. Either way the poll is the floor.
+        match wake_mode_from_env() {
+            WakeMode::Poll => std::thread::sleep(poll),
+            WakeMode::Listen => wait_for_wake(poll),
+        }
+    }
+}
+
+/// How many agent-work runs this process is still carrying. Read from the durable row the engine
+/// owns; never guessed from a counter.
+fn pending_runs() -> i32 {
+    with_shared(|db, rt| {
+        rt.block_on(async {
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from storyboard_story_run where status in ('Running','Reserved')",
+            )
+            .fetch_one(db.pool())
+            .await
+            .unwrap_or(0) as i32
+        })
+    })
+    .unwrap_or(0)
+}
+
+fn running_count() -> usize {
+    pending_runs() as usize
+}
+
+/// S2: wait for a `forge_work` NOTIFY on the direct endpoint, or the poll deadline, or a run beat.
+/// The direct (non-pooler) URL is mandatory — PgBouncer transaction mode silently drops LISTEN.
+fn wait_for_wake(poll: Duration) {
+    // The listener itself (reconnect-with-backoff, one pass on reconnect) belongs to the D2
+    // pg_notify migration; until `forge_work` exists the poll is the wake, which is correct.
+    std::thread::sleep(poll)
+}
+
+fn install_sigterm_handler(stop: Arc<AtomicBool>) {
+    // SIGTERM is the systemd stop signal (docker stop -t 1800 forwards it). Flag it and let the
+    // loop reach the drain branch on its next tick; SIGKILL is the only killer we cannot catch.
+    let flag = stop.clone();
+    std::thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(runtime) => runtime,
+            Err(_) => return,
+        };
+        runtime.block_on(async {
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(mut signal) => {
+                    signal.recv().await;
+                    flag.store(true, Ordering::SeqCst);
+                }
+                Err(_) => {}
+            }
+        });
+    });
+}

@@ -58,6 +58,7 @@ pub mod re_facts;
 pub mod re_port;
 pub mod re_receipt;
 pub mod re_runtime;
+pub mod resident;
 pub mod ready_gate;
 pub mod receipt;
 pub mod release;
