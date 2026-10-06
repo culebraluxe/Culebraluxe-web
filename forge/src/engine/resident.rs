@@ -160,6 +160,7 @@ pub fn watch_loop() -> i32 {
     let drain_window = env_secs(DRAIN_SECS_ENV, DEFAULT_DRAIN_SECS);
     let mut state = "idle";
     let mut listen_failures: u32 = 0;
+    let mut pass_handle: Option<std::thread::JoinHandle<Result<i32, String>>> = None;
 
     loop {
         // SIGTERM arrived: stop claiming, report draining, give in-flight runs the window, exit 0.
@@ -218,22 +219,35 @@ pub fn watch_loop() -> i32 {
             continue;
         }
 
-        // One pass through the existing control-plane work. The claim inside it is the D5 SQL call;
-        // until that migration is applied the pass reports the missing function and this loop keeps
-        // beating — loud, not silent.
-        state = "running";
-        match worker::run_worker_pass() {
-            Ok(code) if code != 0 => {
-                eprintln!("forge-worker: pass returned {code}");
-                let _ = beat("idle", 0, Some(&format!("pass returned {code}")));
+        // One pass through the existing control-plane work, on its own thread so the heartbeat
+        // keeps beating while stories run (S1: a story run must never block the heartbeat). The
+        // claim inside it is the D5 SQL call; until that migration is applied the pass reports the
+        // missing function and this loop keeps beating — loud, not silent.
+        if pass_handle
+            .as_ref()
+            .is_none_or(|handle| handle.is_finished())
+        {
+            if let Some(finished) = pass_handle.take() {
+                match finished.join() {
+                    Ok(Ok(code)) if code != 0 => {
+                        eprintln!("forge-worker: pass returned {code}");
+                        let _ = beat("idle", 0, Some(&format!("pass returned {code}")));
+                    }
+                    Ok(Ok(_)) => {
+                        state = "idle";
+                    }
+                    Ok(Err(error)) => {
+                        eprintln!("forge-worker: pass failed: {error}");
+                        let _ = beat("idle", 0, Some(&error));
+                    }
+                    Err(panic) => {
+                        eprintln!("forge-worker: pass panicked: {panic:?}");
+                        let _ = beat("idle", 0, Some("pass panicked"));
+                    }
+                }
             }
-            Ok(_) => {
-                state = "idle";
-            }
-            Err(error) => {
-                eprintln!("forge-worker: pass failed: {error}");
-                let _ = beat("idle", 0, Some(&error));
-            }
+            state = "running";
+            pass_handle = Some(std::thread::spawn(worker::run_worker_pass));
         }
 
         // S2 wake: LISTEN cuts latency, the poll is the correctness floor. A listener fault adds a
