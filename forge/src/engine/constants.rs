@@ -2,6 +2,10 @@
 //!
 //! Centralized constants used across the Forge engine to avoid drift.
 
+/// The git SHA this binary was built from, stamped by `forge/build.rs`. Every heartbeat beats with
+/// this so the runtime-control desired SHA can be compared against the artifact actually running.
+pub const FORGE_GIT_SHA: &str = env!("FORGE_GIT_SHA");
+
 /// Default stale threshold in minutes for Forge claims and jobs.
 /// 
 /// Used by:
