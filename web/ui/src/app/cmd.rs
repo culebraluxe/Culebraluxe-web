@@ -487,9 +487,42 @@ impl<T> Remote<T> {
     }
 }
 
+/// A command answered over HTTP is 200 with the verdict INSIDE the body (`value.outcome`). `None` means it
+/// succeeded (or the body carries no verdict); `Some(message)` is what to tell the person.
+pub fn command_refusal(body: &serde_json::Value) -> Option<String> {
+    let result = body.get("value").unwrap_or(body);
+    let outcome = result.get("outcome")?.as_str()?;
+    if outcome == "success" {
+        return None;
+    }
+    let detail = result
+        .pointer("/error/message")
+        .and_then(|v| v.as_str())
+        .or_else(|| result.get("message").and_then(|v| v.as_str()))
+        .filter(|text| !text.trim().is_empty());
+    Some(match detail {
+        Some(text) => text.to_string(),
+        None => format!("That was not accepted ({outcome})."),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refused_command_is_reported_and_a_success_is_not() {
+        let ok = serde_json::json!({"value": {"outcome": "success"}});
+        assert_eq!(command_refusal(&ok), None);
+        let refused = serde_json::json!({"value": {"outcome": "rejected", "error": {"message": "Consent first"}}});
+        assert_eq!(command_refusal(&refused).as_deref(), Some("Consent first"));
+        let bare = serde_json::json!({"outcome": "denied"});
+        assert_eq!(
+            command_refusal(&bare).as_deref(),
+            Some("That was not accepted (denied).")
+        );
+        assert_eq!(command_refusal(&serde_json::json!({})), None);
+    }
 
     #[derive(Debug, PartialEq)]
     enum Msg {

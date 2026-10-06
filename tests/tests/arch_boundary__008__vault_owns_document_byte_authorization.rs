@@ -41,13 +41,15 @@ use test_harness::source;
 ///
 /// The set is pinned so a new byte reader is a deliberate entry here rather than a new way to reach a file, and so a
 /// reader that disappears is noticed.
-const MEDIA_BYTE_READERS: [&str; 6] = [
+const MEDIA_BYTE_READERS: [&str; 7] = [
     "db/src/broker_signature.rs load_protected_asset",
     "db/src/media/media_row.rs media_bytes",
     "db/src/media/media_row.rs original_bytes",
     "db/src/public_listing.rs media_bytes",
     "db/src/vault/database.rs media_bytes",
     "db/src/vault/database.rs public_listing_document_bytes",
+    // The e-signature door (2026-10-06): a signer is shown the document they are asked to sign.
+    "db/src/vault/database.rs signing_document_bytes",
 ];
 
 /// The byte readers that do **not** restrict `media_type`: the debt that lets a document's bytes out of a door that is
@@ -62,11 +64,27 @@ const TYPE_UNRESTRICTED_READERS: [&str; 3] = [
 /// Every service method in `web/src` whose return type is a file's bytes, as
 /// `path function resource action`. A door with no `authorize` call cannot appear here at all: the scanner reports an
 /// empty action, which fails the comparison.
-const BYTE_DOORS: [&str; 4] = [
+const BYTE_DOORS: [&str; 5] = [
     "web/src/media/media_bytes.rs media_bytes media property.read",
     "web/src/public_listings.rs media_bytes property property.public.read",
     "web/src/vault/mod.rs media_bytes vault vault.read",
     "web/src/vault/mod.rs public_listing_document_bytes vault vault.publicListingDocument.read",
+    "web/src/vault/mod.rs signing_document_bytes vault vault.signingDocument.read",
+];
+
+/// The clauses the SIGNING door must keep. It answers a person who holds only an emailed link, so its SQL is the whole
+/// entitlement: the recipient must belong to THIS request, the request must have been ISSUED and still be live, and the
+/// bytes must be that request's own PDF `document`. Without them a link could open another envelope's document, or a
+/// draft's.
+const SIGNING_DOCUMENT_GUARDS: [&str; 8] = [
+    "r.id = $2::uuid",
+    "sr.id = $1::uuid",
+    "r.signature_request_id",
+    "dsr.issued_at is not null",
+    "sr.status not in ('declined', 'voided', 'expired', 'error')",
+    "td.id = sr.transaction_document_id",
+    "m.media_type = 'document'",
+    "'application/pdf'",
 ];
 
 /// The clauses the anonymous Vault door must keep, each one load-bearing: without them a guest could receive a signed
@@ -451,8 +469,8 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
         .collect();
     assert_eq!(
         vault_readers.len(),
-        2,
-        "the Vault owns exactly two byte readers (the private and the anonymous one)"
+        3,
+        "the Vault owns exactly three byte readers (the private, the anonymous and the signer's)"
     );
     for reader in &vault_readers {
         assert!(
@@ -484,6 +502,17 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
         guest.statement.contains("'application/pdf'"),
         "the anonymous Vault door must serve PDFs only"
     );
+    let signing = vault_readers
+        .iter()
+        .find(|reader| reader.function == "signing_document_bytes")
+        .expect("the signer's reader is pinned in MEDIA_BYTE_READERS");
+    for guard in SIGNING_DOCUMENT_GUARDS {
+        assert!(
+            signing.statement.contains(&normalized(guard)),
+            "the signing Vault door must keep its guard `{guard}`: without it an emailed link could open a document that is \
+             not the signer's to read"
+        );
+    }
 
     // 4. WHICH READERS SERVE ANY MEDIA TYPE. That set is the debt: those readers can hand out a `document` — a signed
     //    contract included — without the Vault's decision ever being asked.
@@ -534,8 +563,8 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
         .collect();
     assert_eq!(
         vault_doors.len(),
-        2,
-        "the Vault owns exactly two byte doors: the document's bytes and the anonymous listing document's"
+        3,
+        "the Vault owns exactly three byte doors: the document's bytes, the anonymous listing document's and the signer's"
     );
     assert_eq!(
         vault_doors
@@ -552,6 +581,15 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
             .count(),
         1,
         "the anonymous door must ask for its own action, never the member's `vault.read`"
+    );
+
+    assert_eq!(
+        vault_doors
+            .iter()
+            .filter(|door| door.action == "vault.signingDocument.read")
+            .count(),
+        1,
+        "the signer's door must ask for its own reserved action, never `vault.read`"
     );
 
     // 7. THE DEBT, NAMED. The doors that are not the Vault's are the weaker ones, and the two `media` readers beneath

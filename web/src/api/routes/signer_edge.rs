@@ -84,15 +84,12 @@ async fn edge_command(
     // Verify first: the recipient below comes from the token, so a forged
     // recipientId in the body cannot escalate — the service re-checks the
     // binding anyway, and this context carries the verified one.
-    let session = edge_session(state, &token).await.map_err(|error| {
-        error.with_correlation(correlation_id.clone())
-    })?;
+    let session = edge_session(state, &token)
+        .await
+        .map_err(|error| error.with_correlation(correlation_id.clone()))?;
     let recipient_id = session.recipient.id.clone();
     if let Some(map) = body.as_object_mut() {
-        map.insert(
-            "accessToken".into(),
-            serde_json::Value::String(token),
-        );
+        map.insert("accessToken".into(), serde_json::Value::String(token));
     }
     let request = CommandRequest {
         command_id: uuid::Uuid::new_v4().to_string(),
@@ -123,6 +120,47 @@ pub(super) async fn signer_session(
         .await
         .map_err(|error| error.with_correlation(correlation_id.clone()))?;
     Ok(success_with_correlation(value, &correlation_id))
+}
+
+/// The document the verified recipient is being asked to sign — the PDF itself, served so the browser's own viewer
+/// shows it.
+///
+/// A signer who cannot read the document cannot meaningfully consent to sign it. The link is the credential and already
+/// sits in the page's own address (`/sign/:token`), so the document is a GET on the same link: an inline frame, a new
+/// tab and a download all work natively, on a phone too, where a base64 blob in a frame would show only page one. The
+/// link is verified first (the recipient and request come from the TOKEN), then the Vault's own signing door answers as
+/// the recipient-bound actor — narrow action, SQL proof that the recipient belongs to an ISSUED, live envelope. A draft,
+/// a voided envelope or an unknown recipient answers 404, not the bytes. `?download=1` asks for an attachment.
+pub(super) async fn signer_document(
+    State(state): State<ApiState>,
+    Path(token): Path<String>,
+    Query(query): Query<VaultDownloadQuery>,
+) -> Result<Response, ApiError> {
+    let correlation_id = uuid::Uuid::new_v4().to_string();
+    let session = edge_session(&state, token.trim())
+        .await
+        .map_err(|error| error.with_correlation(correlation_id.clone()))?;
+    let recipient_id = session.recipient.id.clone();
+    let document = state
+        .services()
+        .vault()
+        .signing_document_bytes(
+            &session.signature_request_id,
+            &recipient_id,
+            &recipient_context(&recipient_id, &correlation_id),
+        )
+        .await
+        .map_err(|error| ApiError::from(error).with_correlation(correlation_id.clone()))?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "SIGNING_DOCUMENT_UNAVAILABLE",
+                "This signing request has no document to show.",
+            )
+            .with_correlation(correlation_id.clone())
+        })?;
+    let download = query.download.as_deref() == Some("1");
+    vault_document_response(document, download)
+        .map_err(|error| error.with_correlation(correlation_id))
 }
 
 pub(super) async fn signer_open(

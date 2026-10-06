@@ -59,7 +59,12 @@ pub enum Msg {
 
 pub struct SignDocument;
 
-fn act(token: &str, recipient_id: &str, action: &'static str, extra: serde_json::Value) -> Cmd<Msg> {
+fn act(
+    token: &str,
+    recipient_id: &str,
+    action: &'static str,
+    extra: serde_json::Value,
+) -> Cmd<Msg> {
     let mut body = extra.as_object().cloned().unwrap_or_default();
     body.insert(
         "accessToken".into(),
@@ -69,7 +74,13 @@ fn act(token: &str, recipient_id: &str, action: &'static str, extra: serde_json:
         "recipientId".into(),
         serde_json::Value::String(recipient_id.to_owned()),
     );
-    Cmd::request(SignerActPost { action, body: serde_json::Value::Object(body) }, Msg::Acted)
+    Cmd::request(
+        SignerActPost {
+            action,
+            body: serde_json::Value::Object(body),
+        },
+        Msg::Acted,
+    )
 }
 
 fn reload(token: &str) -> Cmd<Msg> {
@@ -93,7 +104,8 @@ impl Screen for SignDocument {
             ..Model::default()
         };
         if token.trim().is_empty() {
-            model.session = Remote::Failed(ApiError::network("This signing link is missing its token."));
+            model.session =
+                Remote::Failed(ApiError::network("This signing link is missing its token."));
             return (model, Cmd::none());
         }
         let cmd = reload(&token);
@@ -206,7 +218,14 @@ impl Screen for SignDocument {
                 model.notice = None;
                 act(&token, &recipient, "decline", serde_json::json!({}))
             }
-            Msg::Acted(Ok(_)) => reload(&model.token.clone()),
+            Msg::Acted(Ok(body)) => match crate::app::cmd::command_refusal(&body) {
+                Some(message) => {
+                    model.working = false;
+                    model.notice = Some(message);
+                    Cmd::none()
+                }
+                None => reload(&model.token.clone()),
+            },
             Msg::Acted(Err(error)) => {
                 model.working = false;
                 model.notice = Some(error.message.clone());
@@ -290,6 +309,17 @@ fn signing_view(model: &Model, session: &SignerSession, link: &Link<Msg>) -> Htm
                         {"An earlier signer must finish first — your fields unlock when your turn arrives."}
                     </div>
                 }
+
+                <section class="mb-5 overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
+                    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-black/10 bg-white/75 px-4 py-2.5">
+                        <span class="text-[10px] font-medium uppercase tracking-[0.14em] text-black/45">{"The document"}</span>
+                        <span class="flex gap-4 text-[11px] font-light">
+                            <a class="text-[#041024] underline decoration-black/20 underline-offset-2" href={document_url(&model.token)} target="_blank" rel="noopener">{"Open in a new tab"}</a>
+                            <a class="text-[#041024] underline decoration-black/20 underline-offset-2" href={format!("{}?download=true", document_url(&model.token))}>{"Download"}</a>
+                        </span>
+                    </div>
+                    <iframe class="block h-[70vh] min-h-[28rem] w-full bg-[#f4f1ea]" title="The document you are asked to sign" src={document_url(&model.token)}></iframe>
+                </section>
 
                 <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]">
                     <section class="overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
@@ -379,9 +409,17 @@ fn session_state_label(session: &SignerSession) -> String {
     }
 }
 
-fn field_editor(model: &Model, session: &SignerSession, field: &SignerField, link: &Link<Msg>) -> Html {
+fn field_editor(
+    model: &Model,
+    session: &SignerSession,
+    field: &SignerField,
+    link: &Link<Msg>,
+) -> Html {
     let locked = !session.is_turn || model.working;
-    let label = field.label.clone().unwrap_or_else(|| field.field_key.clone());
+    let label = field
+        .label
+        .clone()
+        .unwrap_or_else(|| field.field_key.clone());
     let submit = {
         let id = field.id.clone();
         link.callback(move |_: MouseEvent| Msg::FieldSubmitted(id.clone()))
@@ -510,6 +548,11 @@ fn signature_text_for(name: &str, style: usize, size: &'static str) -> Html {
     html! {
         <span class={classes!(size, style_class, "text-[#041024]")}>{ name.to_owned() }</span>
     }
+}
+
+/// The public, token-bound route that serves the document being signed.
+fn document_url(token: &str) -> String {
+    format!("/v1/signer/document/{token}")
 }
 
 fn completed_view(session: &SignerSession) -> Html {

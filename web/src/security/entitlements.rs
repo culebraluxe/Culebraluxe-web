@@ -150,7 +150,22 @@ impl AuthorizationPort for CasbinAuthorizationPort {
                 .and_then(|id| id.strip_prefix("signature-recipient:"))
                 .is_some_and(|recipient| !recipient.trim().is_empty())
             && signer_command(request.operation, request.action);
-        let document_sign_edge = signing_recipient
+        // THE SIGNER'S DOCUMENT. The recipient-bound actor may read the one document it is asked to sign — and only
+        // through the Vault's own narrow door, which proves in SQL that the recipient belongs to an issued, live
+        // envelope. Not `vault.read`: a signing recipient may never open a Vault document of its own choosing.
+        let signing_document = system
+            && request.domain == "vault"
+            && request.operation == "vault.signingDocumentBytes"
+            && request.action == "vault.signingDocument.read"
+            && request.kind == OperationKind::Query
+            && request
+                .actor
+                .id
+                .as_deref()
+                .and_then(|id| id.strip_prefix("signature-recipient:"))
+                .is_some_and(|recipient| !recipient.trim().is_empty());
+        let document_sign_edge = signing_document
+            || signing_recipient
             || (system
                 && request.actor.id.as_deref() == Some(crate::signer::DOCSIGN_EDGE_ACTOR)
                 && request.domain == "signer"
@@ -233,6 +248,7 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             (true, "rule:client.room.external-self")
         } else if request.action == "security.identity.resolve"
             || request.action == "vault.publicListingDocument.read"
+            || request.action == "vault.signingDocument.read"
             || request.action == "website.lead.notify"
             || request.action == "website.intake.submit"
             || request.action == "email.deliver"
@@ -542,6 +558,50 @@ mod tests {
             "the recipient-bound actor is a signer actor, not a document-sign one"
         );
         recipient.domain = "signer";
+        // The signer's document door: the recipient-bound actor, its own reserved action, a Query — nothing wider.
+        let mut document = request("vault.signingDocument.read", OperationKind::Query, &[]);
+        document.principal = None;
+        document.actor = ServiceActor {
+            id: Some("signature-recipient:7d1c0a52-0000-4000-8000-000000000001".into()),
+            kind: ServiceActorKind::System,
+        };
+        document.domain = "vault";
+        document.operation = "vault.signingDocumentBytes";
+        assert!(
+            auth.authorize(document.clone()).await.unwrap().allowed,
+            "a signing recipient may read the document it is asked to sign"
+        );
+        let mut wider = document.clone();
+        wider.operation = "vault.mediaBytes";
+        wider.action = "vault.read";
+        assert!(
+            !auth.authorize(wider).await.unwrap().allowed,
+            "a signing recipient may never open a Vault document of its own choosing"
+        );
+        let mut as_command = document.clone();
+        as_command.kind = OperationKind::Command;
+        assert!(
+            !auth.authorize(as_command).await.unwrap().allowed,
+            "the signing document door is a query"
+        );
+        let mut other_actor = document.clone();
+        other_actor.actor.id = Some(crate::signer::DOCSIGN_EDGE_ACTOR.into());
+        assert!(
+            !auth.authorize(other_actor).await.unwrap().allowed,
+            "the shared edge actor has no recipient to read for, so it has no document door"
+        );
+        let mut human = request(
+            "vault.signingDocument.read",
+            OperationKind::Query,
+            &["vault.read"],
+        );
+        human.domain = "vault";
+        human.operation = "vault.signingDocumentBytes";
+        assert!(
+            !auth.authorize(human).await.unwrap().allowed,
+            "the signing document action is reserved: no role can grant it to a person"
+        );
+
         recipient.actor.id = Some("signature-recipient:".into());
         assert!(
             !auth.authorize(recipient.clone()).await.unwrap().allowed,
