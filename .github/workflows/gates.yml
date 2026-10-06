@@ -530,6 +530,19 @@ jobs:
       - name: Rust MQ delivery runtime proofs
         run: cargo test -p test-harness --test mq_runtime_dev -- --ignored --test-threads=1
 
+      # The schema and transaction contracts (TST-DB-SCHEMA-003..008, TST-DB-TRANSACTION-001..004) and the claim door.
+      # Each is `#[ignore = "needs DATABASE_URL_DEV"]`, so the default `cargo nextest run` skips them and this job — the
+      # one that has the DEV database — runs them. They roll back what they write; the claim proofs sweep their own
+      # leftovers.
+      - name: Rust DEV schema, transaction and claim contracts
+        run: |
+          for file in tests/tests/db_schema__*.rs tests/tests/db_transaction__*.rs \
+                      tests/tests/forge_work_claim_dev.rs \
+                      tests/tests/forge_claim__003__pause_and_ceiling_close_the_door.rs; do
+            name="$(basename "$file" .rs)"
+            cargo test -p test-harness --test "$name" -- --ignored --test-threads=1
+          done
+
   rust_dev_server:
     name: rust DEV server boot + query
     # THE GATE THAT WOULD HAVE CAUGHT THE 2-HOUR OUTAGE (2026-09-28). Production went down in the

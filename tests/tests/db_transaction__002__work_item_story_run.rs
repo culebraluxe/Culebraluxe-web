@@ -17,6 +17,7 @@ use test_harness::database::TestDatabase;
 const STORY: &str = "TST-DB-TRANSACTION-002";
 
 #[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (APP_ENV=dev): runs only against the disposable DEV branch; PROD is refused"]
 async fn db_transaction_002__work_item_story_run() {
     let test_db = TestDatabase::connect_from_env().await.expect(
         "a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)",

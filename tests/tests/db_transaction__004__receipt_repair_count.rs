@@ -26,6 +26,7 @@ const RESET: &str = "update storyboard_story set forge_repair_attempts = 0, forg
                       where id = $1 and (forge_repair_attempts <> 0 or forge_replan_attempts <> 0)";
 
 #[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (APP_ENV=dev): runs only against the disposable DEV branch; PROD is refused"]
 async fn db_transaction_004__receipt_repair_count() {
     let test_db = TestDatabase::connect_from_env().await.expect(
         "a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)",

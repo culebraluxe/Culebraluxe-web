@@ -16,6 +16,7 @@
 use test_harness::database::TestDatabase;
 
 #[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (APP_ENV=dev): runs only against the disposable DEV branch; PROD is refused"]
 async fn db_schema_005__fk_targets_exist() {
     let test_db = TestDatabase::connect_from_env()
         .await
