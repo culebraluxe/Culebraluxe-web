@@ -62,11 +62,13 @@ async fn chaos_forge_003__process_crash_after_task_claim_converges_after_restart
         .expect("dispatch work item");
 
     // Get the work item id using a query that returns a row
-    let work_item_row = sqlx::query("select id::text as id from agent_work_item where story_id = $1 and state = 'Ready'")
-        .bind(&story_id)
-        .fetch_one(db.pool())
-        .await
-        .expect("work item dispatched");
+    let work_item_row = sqlx::query(
+        "select id::text as id from agent_work_item where story_id = $1 and state = 'Ready'",
+    )
+    .bind(&story_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("work item dispatched");
     let work_item_id: String = work_item_row.get("id");
 
     // Generation one claims the work item, then dies before finalizing: the DAO is dropped, never reused.
@@ -78,7 +80,10 @@ async fn chaos_forge_003__process_crash_after_task_claim_converges_after_restart
             .expect("claim answers");
         assert!(claimed.is_some(), "generation one claims the work item");
         let claimed = claimed.unwrap();
-        assert_eq!(claimed.state, "Claimed", "generation one moves item to Claimed");
+        assert_eq!(
+            claimed.state, "Claimed",
+            "generation one moves item to Claimed"
+        );
         drop(generation); // the process crash: no finalize, no cleanup, no goodbye
     }
 
@@ -155,9 +160,15 @@ async fn chaos_forge_003__process_crash_after_task_claim_converges_after_restart
             .claim_specific_agent_work(&work_item_id, &worker_id)
             .await
             .expect("recovery claim answers");
-        assert!(claimed.is_some(), "generation three reclaims the requeued item");
+        assert!(
+            claimed.is_some(),
+            "generation three reclaims the requeued item"
+        );
         let claimed = claimed.unwrap();
-        assert_eq!(claimed.state, "Claimed", "recovery claim moves item to Claimed");
+        assert_eq!(
+            claimed.state, "Claimed",
+            "recovery claim moves item to Claimed"
+        );
     }
     assert_eq!(
         work_item_state(&db, &work_item_id).await,

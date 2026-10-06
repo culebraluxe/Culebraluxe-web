@@ -17,8 +17,9 @@ use test_harness::source;
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ARCH-ONE-WRITER-007); the file and the assay use it.
 fn arch_one_writer_007__command_receipts() {
     // The table key is the whole guarantee: one row per command id, enforced by the database.
-    let migration =
-        source::read(&source::workspace_root().join("db/migrations/018_workflow_command_receipt.sql"));
+    let migration = source::read(
+        &source::workspace_root().join("db/migrations/018_workflow_command_receipt.sql"),
+    );
     assert!(
         migration.contains("create table workflow_command_receipt")
             && migration.contains("command_id text primary key"),
@@ -51,7 +52,10 @@ fn arch_one_writer_007__command_receipts() {
     );
 
     // Negative controls: the guarantee is the key plus the conflict clause, not the table name alone.
-    assert!(!migration.contains("on conflict"), "the migration states the key; the claim adds the race safety");
+    assert!(
+        !migration.contains("on conflict"),
+        "the migration states the key; the claim adds the race safety"
+    );
     assert!(
         !writer.contains("on conflict(command_id) do update"),
         "a claim that overwrote on conflict would let a retry rewrite history"

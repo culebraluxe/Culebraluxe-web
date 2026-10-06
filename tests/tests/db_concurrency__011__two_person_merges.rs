@@ -66,7 +66,7 @@ async fn db_concurrency_011__two_person_merges() {
     let catastro = "123456789";
     let target_id = Uuid::new_v4().to_string();
     let source_id = Uuid::new_v4().to_string();
-    
+
     sweep(&db, &target_id, catastro).await;
     create_property(&db, &target_id, "Target Property", catastro).await;
     create_property(&db, &source_id, "Source Property", catastro).await;
@@ -74,7 +74,12 @@ async fn db_concurrency_011__two_person_merges() {
     let barrier = Arc::new(ConcurrencyBarrier::new(2));
     let mut handles = Vec::new();
     for _ in 0..2 {
-        let (dao, barrier, target_id, catastro) = (dao.clone(), barrier.clone(), target_id.clone(), catastro.to_string());
+        let (dao, barrier, target_id, catastro) = (
+            dao.clone(),
+            barrier.clone(),
+            target_id.clone(),
+            catastro.to_string(),
+        );
         handles.push(tokio::spawn(async move {
             barrier.arrive_and_wait().await;
             dao.merge_parcel_record(&target_id, &catastro).await
@@ -92,13 +97,17 @@ async fn db_concurrency_011__two_person_merges() {
     }
     assert_eq!(merged, 1, "exactly one merge succeeds");
     assert_eq!(not_found, 1, "the other finds no source to merge");
-    assert_eq!(count_properties_with_catastro(&db, catastro).await, 1, "only one property remains with that catastro");
+    assert_eq!(
+        count_properties_with_catastro(&db, catastro).await,
+        1,
+        "only one property remains with that catastro"
+    );
 
     // Test 2: Fault injection - one worker crashes
     let catastro2 = "987654321";
     let target_id2 = Uuid::new_v4().to_string();
     let source_id2 = Uuid::new_v4().to_string();
-    
+
     sweep(&db, &target_id2, catastro2).await;
     create_property(&db, &target_id2, "Target 2", catastro2).await;
     create_property(&db, &source_id2, "Source 2", catastro2).await;
@@ -111,14 +120,20 @@ async fn db_concurrency_011__two_person_merges() {
     let mut handles = Vec::new();
     for _ in 0..2 {
         let (dao, barrier, injector, target_id, catastro) = (
-            dao.clone(), barrier.clone(), injector.clone(), target_id2.clone(), catastro2.to_string()
+            dao.clone(),
+            barrier.clone(),
+            injector.clone(),
+            target_id2.clone(),
+            catastro2.to_string(),
         );
         handles.push(tokio::spawn(async move {
             barrier.arrive_and_wait().await;
             if injector.next_fault().is_failure() {
                 return Err("crashed".to_string());
             }
-            dao.merge_parcel_record(&target_id, &catastro).await.map_err(|e| e.to_string())
+            dao.merge_parcel_record(&target_id, &catastro)
+                .await
+                .map_err(|e| e.to_string())
         }));
     }
 
@@ -129,13 +144,17 @@ async fn db_concurrency_011__two_person_merges() {
         }
     }
     assert_eq!(success, 1, "the survivor still completes the merge");
-    assert_eq!(count_properties_with_catastro(&db, catastro2).await, 1, "only one property remains");
+    assert_eq!(
+        count_properties_with_catastro(&db, catastro2).await,
+        1,
+        "only one property remains"
+    );
 
     // Test 3: Three workers race (more concurrent pressure)
     let catastro3 = "555555555";
     let target_id3 = Uuid::new_v4().to_string();
     let source_id3 = Uuid::new_v4().to_string();
-    
+
     sweep(&db, &target_id3, catastro3).await;
     create_property(&db, &target_id3, "Target 3", catastro3).await;
     create_property(&db, &source_id3, "Source 3", catastro3).await;
@@ -143,7 +162,12 @@ async fn db_concurrency_011__two_person_merges() {
     let barrier = Arc::new(ConcurrencyBarrier::new(3));
     let mut handles = Vec::new();
     for _ in 0..3 {
-        let (dao, barrier, target_id, catastro) = (dao.clone(), barrier.clone(), target_id3.clone(), catastro3.to_string());
+        let (dao, barrier, target_id, catastro) = (
+            dao.clone(),
+            barrier.clone(),
+            target_id3.clone(),
+            catastro3.to_string(),
+        );
         handles.push(tokio::spawn(async move {
             barrier.arrive_and_wait().await;
             dao.merge_parcel_record(&target_id, &catastro).await
@@ -161,7 +185,11 @@ async fn db_concurrency_011__two_person_merges() {
     }
     assert_eq!(merged, 1, "exactly one merge succeeds with 3 racers");
     assert_eq!(not_found, 2, "the other two find no source");
-    assert_eq!(count_properties_with_catastro(&db, catastro3).await, 1, "only one property remains");
+    assert_eq!(
+        count_properties_with_catastro(&db, catastro3).await,
+        1,
+        "only one property remains"
+    );
 
     // Cleanup
     sweep(&db, &target_id, catastro).await;

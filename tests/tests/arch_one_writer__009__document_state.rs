@@ -20,23 +20,23 @@ fn sets_document_state(text: &str) -> bool {
     if !lower.contains("update transaction_document") {
         return false;
     }
-    lower
-        .lines()
-        .any(|line| {
-            let code = source::code_of(line);
-            let words: Vec<&str> = code.split(|c: char| !c.is_alphanumeric() && c != '_').collect();
-            let mut iter = words.iter().peekable();
-            while let Some(word) = iter.next() {
-                if word.eq_ignore_ascii_case("set") {
-                    if let Some(next) = iter.next() {
-                        if next.eq_ignore_ascii_case("state") {
-                            return true;
-                        }
+    lower.lines().any(|line| {
+        let code = source::code_of(line);
+        let words: Vec<&str> = code
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .collect();
+        let mut iter = words.iter().peekable();
+        while let Some(word) = iter.next() {
+            if word.eq_ignore_ascii_case("set") {
+                if let Some(next) = iter.next() {
+                    if next.eq_ignore_ascii_case("state") {
+                        return true;
                     }
                 }
             }
-            false
-        })
+        }
+        false
+    })
 }
 
 #[test]
@@ -91,7 +91,9 @@ fn arch_one_writer_009__document_state() {
     );
 
     // Negative controls on the detector itself.
-    assert!(sets_document_state("update transaction_document set state = 'ready'"));
+    assert!(sets_document_state(
+        "update transaction_document set state = 'ready'"
+    ));
     assert!(!sets_document_state(
         "update transaction_document set signed_media_id = $2::uuid"
     ));

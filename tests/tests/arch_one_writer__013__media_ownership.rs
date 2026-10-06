@@ -73,5 +73,7 @@ fn arch_one_writer_013__media_ownership() {
         "insert into property_media (property_id, media_id, role, sort_order) values ($1,$2,$3,$4)"
     ));
     assert!(!inserts_link("update property_media set role = 'gallery'"));
-    assert!(!inserts_link("// the assembler inserts into property_media for us"));
+    assert!(!inserts_link(
+        "// the assembler inserts into property_media for us"
+    ));
 }

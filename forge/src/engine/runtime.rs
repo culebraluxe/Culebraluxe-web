@@ -42,6 +42,34 @@ pub struct OpenForgeTask {
     pub open_siblings: usize,
 }
 
+/// Refuse to run on a stored definition that is not the one this binary was built with.
+///
+/// `seed_definition` registers a `(key, version)` only when it is absent and otherwise returns what is stored, so a
+/// graph edited under an unchanged version is silently NOT the graph that runs: production ran a v6 without the ASSAY
+/// branch for three weeks while the XML said otherwise. Naming the drift at boot — before a token moves — is the only
+/// place it can be caught cheaply; the remedy is the version bump the message asks for.
+fn ensure_stored_definition_current<S: TxStore>(
+    engine: &WorkflowEngine<S>,
+    embedded: &workflow::ProcessDefinition,
+) -> Result<()> {
+    let stored = engine.store().with_tx(|tx| {
+        tx.load_definition(
+            &embedded.key,
+            Some(embedded.version),
+            embedded.tenant_id.as_deref(),
+        )
+    })?;
+    if crate::engine::version_policy::graphs_equal(&stored.definition, &embedded.definition) {
+        return Ok(());
+    }
+    Err(WorkflowError::generic(format!(
+        "the stored workflow definition {} v{} is not the one this build ships: the graph was edited without a \
+         version bump, and an executed version is immutable. Bump the version in forge/definitions/FORGE_SDLC-v6.xml \
+         and `topology::FORGE_SDLC_VERSION` together; the new version is inserted on the next start.",
+        embedded.key, embedded.version
+    )))
+}
+
 pub struct ForgeRuntime<S: TxStore = MemoryStore> {
     pub(crate) engine: Arc<WorkflowEngine<S>>,
     pub(crate) port: Arc<ForgeApplicationPort>,
@@ -141,7 +169,8 @@ impl<S: TxStore> ForgeRuntime<S> {
                 now: Box::new(wall_clock_ms),
             },
         ));
-        engine.seed_definition(def)?;
+        engine.seed_definition(def.clone())?;
+        ensure_stored_definition_current(&engine, &def)?;
         Ok(Self {
             engine,
             port,

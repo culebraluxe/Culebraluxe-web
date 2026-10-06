@@ -227,7 +227,10 @@ mod tests {
         let cfg = WorkerConfig::from_env();
         assert_eq!(cfg.story_worker_concurrency, 4);
         assert_eq!(cfg.stale_after_minutes, FORGE_DEFAULT_STALE_MINUTES);
-        assert_eq!(cfg.heartbeat_interval, Duration::from_secs(FORGE_DEFAULT_HEARTBEAT_SECONDS));
+        assert_eq!(
+            cfg.heartbeat_interval,
+            Duration::from_secs(FORGE_DEFAULT_HEARTBEAT_SECONDS)
+        );
         assert!(!cfg.attended_override);
     }
 }

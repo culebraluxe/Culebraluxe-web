@@ -17,19 +17,23 @@ use serde_json::json;
 use uuid::Uuid;
 
 async fn evidence_count(db: &Database, process_instance_id: &str) -> i64 {
-    sqlx::query_scalar("select count(*) from forge_workflow_evidence where process_instance_id = $1::uuid")
-        .bind(process_instance_id)
-        .fetch_one(db.pool())
-        .await
-        .expect("evidence count")
+    sqlx::query_scalar(
+        "select count(*) from forge_workflow_evidence where process_instance_id = $1::uuid",
+    )
+    .bind(process_instance_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("evidence count")
 }
 
 async fn evidence_findings(db: &Database, process_instance_id: &str) -> Option<serde_json::Value> {
-    sqlx::query_scalar("select findings from forge_workflow_evidence where process_instance_id = $1::uuid")
-        .bind(process_instance_id)
-        .fetch_optional(db.pool())
-        .await
-        .expect("evidence findings")
+    sqlx::query_scalar(
+        "select findings from forge_workflow_evidence where process_instance_id = $1::uuid",
+    )
+    .bind(process_instance_id)
+    .fetch_optional(db.pool())
+    .await
+    .expect("evidence findings")
 }
 
 #[tokio::test]

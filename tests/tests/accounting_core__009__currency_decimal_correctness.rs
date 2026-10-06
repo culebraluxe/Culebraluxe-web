@@ -71,7 +71,10 @@ fn accounting_core_009__currency_decimal_correctness() {
     // 3. Sign is part of the digits, not decoration. A refused input never becomes zero.
     let debit = Money::parse("-45.5").unwrap();
     assert!(!debit.is_non_negative(), "a debit is negative");
-    assert!(Money::parse("+3").unwrap().is_non_negative(), "a credit is non-negative");
+    assert!(
+        Money::parse("+3").unwrap().is_non_negative(),
+        "a credit is non-negative"
+    );
 
     // 4. Validating an amount and refusing a near-amount are different answers.
     assert!(

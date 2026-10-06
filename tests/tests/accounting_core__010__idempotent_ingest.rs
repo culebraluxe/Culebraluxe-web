@@ -59,7 +59,7 @@ async fn accounting_core_010__idempotent_ingest() {
     // 1. Seed a receivable through the DAO's ingest path (simulated by direct insert for test setup).
     //    The contract: the same provider/statement/transaction triple upserts, not duplicates.
     let reference = format!("{marker}-stmt-001");
-    
+
     // First ingest
     sqlx::query(
         "insert into account_receivable (reference, description, category, amount, issued_on, status, paid_on)
@@ -78,14 +78,16 @@ async fn accounting_core_010__idempotent_ingest() {
     .await
     .expect("first ingest succeeds");
 
-    let count_after_first: i64 = sqlx::query_scalar(
-        "select count(*) from account_receivable where reference = $1"
-    )
-    .bind(&reference)
-    .fetch_one(harness.pool())
-    .await
-    .expect("count reads");
-    assert_eq!(count_after_first, 1, "{HARNESS}: first ingest creates exactly one row");
+    let count_after_first: i64 =
+        sqlx::query_scalar("select count(*) from account_receivable where reference = $1")
+            .bind(&reference)
+            .fetch_one(harness.pool())
+            .await
+            .expect("count reads");
+    assert_eq!(
+        count_after_first, 1,
+        "{HARNESS}: first ingest creates exactly one row"
+    );
 
     // Second ingest of the same data — should upsert, not duplicate
     sqlx::query(
@@ -105,14 +107,16 @@ async fn accounting_core_010__idempotent_ingest() {
     .await
     .expect("second ingest succeeds");
 
-    let count_after_second: i64 = sqlx::query_scalar(
-        "select count(*) from account_receivable where reference = $1"
-    )
-    .bind(&reference)
-    .fetch_one(harness.pool())
-    .await
-    .expect("count reads");
-    assert_eq!(count_after_second, 1, "{HARNESS}: second ingest of same data does not duplicate (upsert)");
+    let count_after_second: i64 =
+        sqlx::query_scalar("select count(*) from account_receivable where reference = $1")
+            .bind(&reference)
+            .fetch_one(harness.pool())
+            .await
+            .expect("count reads");
+    assert_eq!(
+        count_after_second, 1,
+        "{HARNESS}: second ingest of same data does not duplicate (upsert)"
+    );
 
     // 2. Ingest with same natural key but different amount — should update the row (upsert semantics).
     sqlx::query(
@@ -132,14 +136,16 @@ async fn accounting_core_010__idempotent_ingest() {
     .await
     .expect("third ingest with different amount succeeds");
 
-    let updated_amount: String = sqlx::query_scalar(
-        "select amount::text from account_receivable where reference = $1"
-    )
-    .bind(&reference)
-    .fetch_one(harness.pool())
-    .await
-    .expect("amount reads");
-    assert_eq!(updated_amount, "15000.00", "{HARNESS}: upsert with new amount updates the row");
+    let updated_amount: String =
+        sqlx::query_scalar("select amount::text from account_receivable where reference = $1")
+            .bind(&reference)
+            .fetch_one(harness.pool())
+            .await
+            .expect("amount reads");
+    assert_eq!(
+        updated_amount, "15000.00",
+        "{HARNESS}: upsert with new amount updates the row"
+    );
 
     // 3. Cleanup: remove this run's fixture rows.
     let (receivables, expenses) = harness

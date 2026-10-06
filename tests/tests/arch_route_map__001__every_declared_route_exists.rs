@@ -83,8 +83,5 @@ fn arch_route_map_001__every_declared_route_exists() {
         declared_segments("\"/api/portal/rust-ui/clients?screen=clients\""),
         vec!["clients".to_string()]
     );
-    assert_eq!(
-        declared_segments("no routes here"),
-        Vec::<String>::new()
-    );
+    assert_eq!(declared_segments("no routes here"), Vec::<String>::new());
 }

@@ -7,12 +7,12 @@
 pub const FORGE_GIT_SHA: &str = env!("FORGE_GIT_SHA");
 
 /// Default stale threshold in minutes for Forge claims and jobs.
-/// 
+///
 /// Used by:
 /// - `engine::stale_claim::stale_after_ms_from_env`
 /// - `engine::config::stale_after_minutes`
 /// - `cli::forge::reset::DEFAULT_CLEAN_STALE_MINUTES`
-/// 
+///
 /// Can be overridden via environment variables:
 /// - `AGENT_WORKER_STALE_AFTER_MINUTES` (engine)
 /// - `FORGE_STALE_MINUTES` (config)

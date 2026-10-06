@@ -63,9 +63,7 @@ impl TstStoryView {
     /// Build the view from an already-loaded packet row. Pure: no I/O.
     pub fn from_row(row: &StoryPacketRow) -> Self {
         let brief = row.architect_brief.clone().filter(|v| !v.trim().is_empty());
-        let scope = brief
-            .as_deref()
-            .and_then(|b| extract_section(b, "SCOPE:"));
+        let scope = brief.as_deref().and_then(|b| extract_section(b, "SCOPE:"));
         let operating_surface = brief
             .as_deref()
             .and_then(|b| extract_section(b, "OPERATING SURFACE:"));
@@ -101,9 +99,7 @@ impl TstStoryView {
             .architect_brief
             .clone()
             .filter(|v| !v.trim().is_empty());
-        let scope = brief
-            .as_deref()
-            .and_then(|b| extract_section(b, "SCOPE:"));
+        let scope = brief.as_deref().and_then(|b| extract_section(b, "SCOPE:"));
         let operating_surface = brief
             .as_deref()
             .and_then(|b| extract_section(b, "OPERATING SURFACE:"));
@@ -306,9 +302,7 @@ pub fn read_neighbor_idiom(target_path: &str, workspace_root: &Path) -> Neighbor
             let mut siblings: Vec<PathBuf> = entries
                 .flatten()
                 .map(|e| e.path())
-                .filter(|p| {
-                    p.extension().map(|e| e == "rs").unwrap_or(false) && *p != module_abs
-                })
+                .filter(|p| p.extension().map(|e| e == "rs").unwrap_or(false) && *p != module_abs)
                 .collect();
             siblings.sort();
             for sib in siblings.into_iter().take(2) {
@@ -405,8 +399,7 @@ fn neighbors_have_inline_tests(module_abs: &Path) -> bool {
         if let Ok(entries) = std::fs::read_dir(parent) {
             for entry in entries.flatten().take(50) {
                 let path = entry.path();
-                if path.extension().map(|e| e == "rs").unwrap_or(false) && path != module_abs
-                {
+                if path.extension().map(|e| e == "rs").unwrap_or(false) && path != module_abs {
                     files.push(path);
                 }
             }
@@ -551,11 +544,8 @@ mod tests {
     }
 
     fn tmp_workspace(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "pianola-worker-{}-{}",
-            name,
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("pianola-worker-{}-{}", name, std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("fixture workspace");
         dir
@@ -579,7 +569,10 @@ mod tests {
             view.operating_surface.as_deref().map(str::trim),
             Some("TECH")
         );
-        assert_eq!(view.assay_commands, vec!["cargo test -p forge --lib worker"]);
+        assert_eq!(
+            view.assay_commands,
+            vec!["cargo test -p forge --lib worker"]
+        );
     }
 
     #[test]
@@ -651,8 +644,7 @@ mod tests {
             "pub fn rank() {}\n#[cfg(test)]\nmod tests { use super::*; #[test] fn ranks() {} }\n",
         )
         .expect("fixture");
-        let placement =
-            inspect_neighboring_tests(Some("forge/src/engine/scope.rs"), &ws);
+        let placement = inspect_neighboring_tests(Some("forge/src/engine/scope.rs"), &ws);
         assert_eq!(
             placement,
             TestPlacement::CrateLocalMod {
@@ -713,8 +705,7 @@ mod tests {
         std::fs::create_dir_all(&src).expect("fixture");
         std::fs::write(src.join("scope.rs"), "pub fn x() {}\n").expect("fixture");
         // No inline tests and no forge/tests dir: colocated default.
-        let placement =
-            inspect_neighboring_tests(Some("rust/forge/src/scope.rs"), &ws);
+        let placement = inspect_neighboring_tests(Some("rust/forge/src/scope.rs"), &ws);
         assert_eq!(
             placement,
             TestPlacement::CrateLocalMod {

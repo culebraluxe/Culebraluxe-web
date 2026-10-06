@@ -13,9 +13,17 @@
   though both are responsibility="qa". Human tasks (hold, repair_requirements,
   fast_confirmation) carry no service and are never made into agent jobs.
 -->
+<!--
+  VERSION 7 (2026-10-06). The file keeps its v6 name so every reference to it stays true; the VERSION is this
+  attribute and `topology::FORGE_SDLC_VERSION`. An executed definition version is immutable (version_policy), and the
+  engine seeds a version only when it is ABSENT — so edits made under version 6 after 2026-09-13 never reached a
+  database that already held 6. Production's v6 had no ASSAY branch at `execution_shape` (a Lead that routed ASSAY
+  died with "No valid transition"), and no later fix to this file was live there. Changing the graph means bumping the
+  version, in both places; the engine now refuses to start on a stored definition that differs from this one.
+-->
 <process-definition
     key="FORGE_SDLC"
-    version="6"
+    version="7"
     name="Forge Software Delivery Lifecycle"
     description="End-state Forge orchestration workflow for feature, bug, hotfix, research, repair, migration, QA, release and production verification.">
 

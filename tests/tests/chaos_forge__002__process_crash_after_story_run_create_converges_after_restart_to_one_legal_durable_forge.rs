@@ -82,14 +82,16 @@ async fn chaos_forge_002__process_crash_after_story_run_create_converges_after_r
 
     // A further retry with the same tag would fork the run: the tag is unique per attempt,
     // so convergence here means one row, and the row carries the generation that owns it.
-    let owner: String = sqlx::query_scalar(
-        "select story_id from storyboard_story_run where notes = $1",
-    )
-    .bind(&notes)
-    .fetch_one(db.pool())
-    .await
-    .expect("run owner");
-    assert_eq!(owner, story, "the single run belongs to the restarted generation's story");
+    let owner: String =
+        sqlx::query_scalar("select story_id from storyboard_story_run where notes = $1")
+            .bind(&notes)
+            .fetch_one(db.pool())
+            .await
+            .expect("run owner");
+    assert_eq!(
+        owner, story,
+        "the single run belongs to the restarted generation's story"
+    );
 
     sqlx::query("delete from storyboard_story_run where notes = $1")
         .bind(&notes)

@@ -46,9 +46,10 @@ use forge::engine::xml::{definition_from_xml, parse_process_definition_xml, FORG
 use workflow::json_codec::{graph_from_json, graph_to_json};
 
 const HARNESS: &str = "WorkflowHarness/L0 Pure";
-/// The production definition's identity, as the XML declares it (`FORGE_SDLC`, version 6).
+/// The production definition's identity, as the XML declares it (`FORGE_SDLC`, and the engine's own version
+/// constant — the XML keeps its `-v6` file name, the VERSION is its attribute; see the note at the top of the XML).
 const KEY: &str = "FORGE_SDLC";
-const VERSION: i32 = 6;
+const VERSION: i32 = forge::engine::FORGE_SDLC_VERSION;
 /// The source line that opens the definition the whole contract is about; the stable anchor for the edits below.
 const BEGIN_TRANSITION: &str = "<transition name=\"begin\" to=\"classify_work\"/>";
 const XML_DECLARATION: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
@@ -136,7 +137,7 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     assert_eq!(parsed.key, KEY, "{HARNESS}: the XML declares its own key");
     assert_eq!(
         parsed.version, VERSION,
-        "{HARNESS}: the XML declares version 6"
+        "{HARNESS}: the XML declares the version the engine asks for"
     );
     assert_eq!(
         parsed.name, "Forge Software Delivery Lifecycle",
@@ -159,7 +160,8 @@ fn wf_definition_013__forge_v6_xml_structural_equality_where_intended() {
     let def = definition_from_xml(FORGE_SDLC_V6_XML)
         .expect("the production definition loads from the XML");
     assert_eq!(
-        def.id, "FORGE_SDLC-v6",
+        def.id,
+        format!("{KEY}-v{VERSION}"),
         "{HARNESS}: the definition id is derived as key-v<version>"
     );
 

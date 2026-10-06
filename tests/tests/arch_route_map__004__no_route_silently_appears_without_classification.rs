@@ -104,7 +104,7 @@ fn in_repo(relative: &str) -> PathBuf {
 fn extract_routes_from_router() -> BTreeSet<String> {
     let text = source::read(&in_repo("web/src/api/routes.rs"));
     let mut routes = BTreeSet::new();
-    
+
     // Join all lines and find .route(" patterns anywhere in the text
     let mut full_code = String::new();
     for line in text.lines() {
@@ -114,12 +114,12 @@ fn extract_routes_from_router() -> BTreeSet<String> {
             full_code.push(' ');
         }
     }
-    
+
     let mut search_start = 0;
     while let Some(start) = full_code[search_start..].find(".route(") {
         let abs_start = search_start + start;
         let after_route = &full_code[abs_start + ".route(".len()..];
-        
+
         if let Some(path_start) = after_route.find('"') {
             if let Some(path_end) = after_route[path_start + 1..].find('"') {
                 let path = &after_route[path_start + 1..path_start + 1 + path_end];
@@ -130,15 +130,15 @@ fn extract_routes_from_router() -> BTreeSet<String> {
         }
         search_start = abs_start + 1;
     }
-    
+
     routes
 }
 
 /// Check if a path is explicitly listed as public in http_service_domain.
 fn is_explicitly_public(path: &str) -> bool {
-    EXPLICITLY_PUBLIC.iter().any(|&public| {
-        path == public || path.starts_with(public.trim_end_matches('/'))
-    })
+    EXPLICITLY_PUBLIC
+        .iter()
+        .any(|&public| path == public || path.starts_with(public.trim_end_matches('/')))
 }
 
 /// Extract all explicitly handled paths from http_service_domain function.
@@ -146,23 +146,25 @@ fn is_explicitly_public(path: &str) -> bool {
 fn extract_explicitly_handled_paths() -> BTreeSet<String> {
     let text = source::read(&in_repo("web/src/api/routes.rs"));
     let mut handled = BTreeSet::new();
-    
+
     let fn_start = text
         .find("fn http_service_domain")
         .expect("http_service_domain function not found");
     let fn_end = text[fn_start..]
         .find("\n}")
-        .expect("http_service_domain function not closed") + fn_start + 2;
+        .expect("http_service_domain function not closed")
+        + fn_start
+        + 2;
     let fn_text = &text[fn_start..fn_end];
-    
+
     // Extract paths from if conditions that return Some(domain).
     // We track whether we're in a block that returns Some(...).
     let mut in_some_block = false;
     let mut some_block_depth = 0;
-    
+
     for line in fn_text.lines() {
         let code = source::code_of(line);
-        
+
         // Track block entry/exit for Some returns
         if code.contains("return Some(") {
             in_some_block = true;
@@ -180,10 +182,10 @@ fn extract_explicitly_handled_paths() -> BTreeSet<String> {
                 }
             }
         }
-        
+
         // Only extract paths when we're in a Some-returning block
         if in_some_block {
-            // Match path == "..." 
+            // Match path == "..."
             if let Some(start) = code.find("path ==") {
                 let after = &code[start + "path ==".len()..];
                 if let Some(path_start) = after.find('"') {
@@ -195,7 +197,7 @@ fn extract_explicitly_handled_paths() -> BTreeSet<String> {
                     }
                 }
             }
-            
+
             // Match path.starts_with("...")
             if let Some(start) = code.find("path.starts_with(") {
                 let after = &code[start + "path.starts_with(".len()..];
@@ -206,7 +208,7 @@ fn extract_explicitly_handled_paths() -> BTreeSet<String> {
                     }
                 }
             }
-            
+
             // Match path.contains("...")
             if let Some(start) = code.find("path.contains(") {
                 let after = &code[start + "path.contains(".len()..];
@@ -219,7 +221,7 @@ fn extract_explicitly_handled_paths() -> BTreeSet<String> {
             }
         }
     }
-    
+
     handled
 }
 
@@ -233,20 +235,23 @@ fn arch_route_map_004__no_route_silently_appears_without_classification() {
         "the router must define at least 50 routes; found {}: router may have changed shape",
         routes.len()
     );
-    
+
     // 2. Extract all explicitly handled paths from http_service_domain.
     let handled_paths = extract_explicitly_handled_paths();
-    eprintln!("DEBUG: http_service_domain explicitly handles {} path patterns", handled_paths.len());
-    
+    eprintln!(
+        "DEBUG: http_service_domain explicitly handles {} path patterns",
+        handled_paths.len()
+    );
+
     // 3. For each route, verify it is explicitly handled or explicitly public.
     let mut unclassified = Vec::new();
-    
+
     for path in &routes {
         // Check if explicitly public
         if is_explicitly_public(path) {
             continue;
         }
-        
+
         // Check if explicitly handled by http_service_domain
         let mut handled = false;
         for pattern in &handled_paths {
@@ -255,12 +260,12 @@ fn arch_route_map_004__no_route_silently_appears_without_classification() {
                 break;
             }
         }
-        
+
         if !handled {
             unclassified.push(path.clone());
         }
     }
-    
+
     // 4. Report any unclassified routes.
     if !unclassified.is_empty() {
         eprintln!("UNCLASSIFIED ROUTES (fall through to implicit None):");
@@ -272,7 +277,7 @@ fn arch_route_map_004__no_route_silently_appears_without_classification() {
             unclassified.join("\n")
         );
     }
-    
+
     // 5. POSITIVE CONTROL: Verify all explicitly public routes are correctly unclassified
     // (they intentionally fall through to implicit None or are explicitly returned as None).
     for public in EXPLICITLY_PUBLIC {
@@ -281,7 +286,7 @@ fn arch_route_map_004__no_route_silently_appears_without_classification() {
             "explicitly public route `{public}` must NOT be in handled_paths (it should fall through to None)"
         );
     }
-    
+
     // 6. NEGATIVE CONTROL: A route not in http_service_domain must be detected.
     let test_unclassified = "/v1/test/unclassified/route";
     assert!(
@@ -289,7 +294,9 @@ fn arch_route_map_004__no_route_silently_appears_without_classification() {
         "test path must not be explicitly public"
     );
     assert!(
-        !handled_paths.iter().any(|p| test_unclassified.starts_with(p.trim_end_matches('/'))),
+        !handled_paths
+            .iter()
+            .any(|p| test_unclassified.starts_with(p.trim_end_matches('/'))),
         "test path must not match any handled pattern"
     );
 }

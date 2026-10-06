@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use workflow::{NodeDefinition, ProcessGraph};
 
 pub const FORGE_SDLC_KEY: &str = "FORGE_SDLC";
-pub const FORGE_SDLC_VERSION: i32 = 6;
+pub const FORGE_SDLC_VERSION: i32 = 7;
 
 pub const POSITIONS: &[&str] = &["scout", "architect", "lead", "smith", "qa", "dev_ops"];
 

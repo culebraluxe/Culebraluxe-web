@@ -57,19 +57,19 @@ async fn chaos_forge_009__process_crash_before_queue_settlement_converges_after_
         .execute(db.pool())
         .await
         .expect("sweep work items");
-    
+
     sqlx::query("update storyboard_story set status = 'Planned', updated_at = now() where id = $1")
         .bind(&story_id)
         .execute(db.pool())
         .await
         .expect("reset story to Planned");
-    
+
     sqlx::query("update storyboard_story set status = 'Ready', updated_at = now() where id = $1")
         .bind(&story_id)
         .execute(db.pool())
         .await
         .expect("dispatch work item");
-    
+
     let work_item_id: String = sqlx::query_scalar(
         "select id::text from agent_work_item where story_id = $1 and state = 'Ready'",
     )
@@ -77,7 +77,7 @@ async fn chaos_forge_009__process_crash_before_queue_settlement_converges_after_
     .fetch_one(db.pool())
     .await
     .expect("work item dispatched");
-    
+
     let generation = ForgeEngineDao::new(db.clone());
     let worker_id = format!("chaos-forge-009-{}", Uuid::new_v4());
     let claimed = generation
@@ -102,14 +102,20 @@ async fn chaos_forge_009__process_crash_before_queue_settlement_converges_after_
         Some("Claimed".to_string()),
         "a crashed settlement leaves work item in Claimed state"
     );
-    assert_eq!(work_item_count(&db, &story_id).await, 1, "exactly one work item row exists");
+    assert_eq!(
+        work_item_count(&db, &story_id).await,
+        1,
+        "exactly one work item row exists"
+    );
 
     // Set story to Complete so the settlement can succeed with Done.
-    sqlx::query("update storyboard_story set status = 'Complete', updated_at = now() where id = $1")
-        .bind(&story_id)
-        .execute(db.pool())
-        .await
-        .expect("set story to Complete");
+    sqlx::query(
+        "update storyboard_story set status = 'Complete', updated_at = now() where id = $1",
+    )
+    .bind(&story_id)
+    .execute(db.pool())
+    .await
+    .expect("set story to Complete");
 
     // Generation two restarts: the settlement is gone, so it is re-recorded.
     sqlx::query("select forge_finish_agent_work_run($1::uuid, 'Done', null)")
@@ -122,7 +128,11 @@ async fn chaos_forge_009__process_crash_before_queue_settlement_converges_after_
         Some("Done".to_string()),
         "the recovered settlement marks work item as Done"
     );
-    assert_eq!(work_item_count(&db, &story_id).await, 1, "exactly one work item row persists");
+    assert_eq!(
+        work_item_count(&db, &story_id).await,
+        1,
+        "exactly one work item row persists"
+    );
 
     // The work item is now Done - a further settlement attempt would be a no-op.
     sqlx::query("select forge_finish_agent_work_run($1::uuid, 'Error', 'test')")
@@ -135,7 +145,11 @@ async fn chaos_forge_009__process_crash_before_queue_settlement_converges_after_
         Some("Done".to_string()),
         "subsequent settlement is no-op, work item stays Done"
     );
-    assert_eq!(work_item_count(&db, &story_id).await, 1, "exactly one work item row throughout");
+    assert_eq!(
+        work_item_count(&db, &story_id).await,
+        1,
+        "exactly one work item row throughout"
+    );
 
     // Clean up.
     sqlx::query("delete from agent_work_item where story_id = $1")

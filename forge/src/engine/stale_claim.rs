@@ -1,6 +1,6 @@
 //! Port of forge-stale-claim.ts.
 
-use crate::engine::constants::{FORGE_DEFAULT_STALE_MS, FORGE_DEFAULT_STALE_MINUTES};
+use crate::engine::constants::{FORGE_DEFAULT_STALE_MINUTES, FORGE_DEFAULT_STALE_MS};
 
 pub fn is_forge_claim_stale(
     status: &str,

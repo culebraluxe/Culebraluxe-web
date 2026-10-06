@@ -3,12 +3,12 @@
 //! These run without a database: row structs are built literally and the
 //! clock is injected via `detect_stall_at`.
 
-use super::PianolaConfig;
 use super::load_batch_for_experiment;
 use super::supervisor::{
     can_continue_automatically, can_continue_for_packet, check_overlapping_targets,
     detect_stall_at, is_stalled, overlapping_pairs,
 };
+use super::PianolaConfig;
 use crate::engine::assay::CommandResult;
 use db::{ForgeQueueWorkRow, StoryPacketRow};
 
@@ -126,7 +126,10 @@ fn experiment_caps_are_two_by_two_equals_four() {
     assert_eq!(config.max_workers, 2);
     assert_eq!(config.stories_per_worker, 2);
     assert_eq!(config.total_cap, 4);
-    assert_eq!(config.max_workers * config.stories_per_worker, config.total_cap);
+    assert_eq!(
+        config.max_workers * config.stories_per_worker,
+        config.total_cap
+    );
 }
 
 #[test]
@@ -168,7 +171,11 @@ fn stall_boundary_is_strictly_older_than_threshold() {
         threshold
     ));
     // Fresh item: not stalled.
-    assert!(!is_stalled(Some(&stamp_ms(now_ms, 1_000)), now_ms, threshold));
+    assert!(!is_stalled(
+        Some(&stamp_ms(now_ms, 1_000)),
+        now_ms,
+        threshold
+    ));
 }
 
 #[test]
@@ -211,13 +218,22 @@ fn detect_stall_at_returns_only_stale_items() {
 fn overlapping_targets_rejected_with_path_and_pair() {
     let packets = vec![
         packet("TST-1", "cover forge/src/pianola/supervisor.rs with tests"),
-        packet("TST-2", "refactor forge/src/pianola/supervisor.rs for clarity"),
+        packet(
+            "TST-2",
+            "refactor forge/src/pianola/supervisor.rs for clarity",
+        ),
         packet("TST-3", "cargo test -p forge --lib b"),
         packet("TST-4", "cargo test -p forge --lib c"),
     ];
     let err = check_overlapping_targets(&packets).unwrap_err();
-    assert!(err.contains("forge/src/pianola/supervisor.rs"), "unexpected: {err}");
-    assert!(err.contains("TST-1") && err.contains("TST-2"), "unexpected: {err}");
+    assert!(
+        err.contains("forge/src/pianola/supervisor.rs"),
+        "unexpected: {err}"
+    );
+    assert!(
+        err.contains("TST-1") && err.contains("TST-2"),
+        "unexpected: {err}"
+    );
     let pairs = overlapping_pairs(&packets);
     assert_eq!(pairs.len(), 1);
     assert_eq!(pairs[0].1, "TST-1");
@@ -303,13 +319,21 @@ fn packet_continue_refuses_brief_conflict_and_overlap() {
         packet("TST-1", "cover forge/src/pianola/supervisor.rs"),
         packet("TST-2", "cover forge/src/pianola/batch.rs"),
     ];
-    assert!(can_continue_for_packet(&clean_batch[0], &passing, &clean_batch));
+    assert!(can_continue_for_packet(
+        &clean_batch[0],
+        &passing,
+        &clean_batch
+    ));
     let conflicted = packet_with_brief(
         "TST-1",
         "add tests",
         "this brief is in conflict with the goal above",
     );
-    assert!(!can_continue_for_packet(&conflicted, &passing, &clean_batch));
+    assert!(!can_continue_for_packet(
+        &conflicted,
+        &passing,
+        &clean_batch
+    ));
     let overlapping_batch = vec![
         packet("TST-1", "cover forge/src/pianola/supervisor.rs"),
         packet("TST-2", "refactor forge/src/pianola/supervisor.rs"),

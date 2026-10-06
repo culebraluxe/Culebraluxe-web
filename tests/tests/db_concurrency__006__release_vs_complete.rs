@@ -80,7 +80,10 @@ async fn db_concurrency_006__release_vs_complete() {
     // Exactly one transition succeeds; the story ends in a valid state
     let final_status = story_status(&db, &story_id_1).await;
     assert!(
-        matches!(final_status.as_deref(), Some("In Progress") | Some("Complete")),
+        matches!(
+            final_status.as_deref(),
+            Some("In Progress") | Some("Complete")
+        ),
         "story must end in a valid state, got {:?}",
         final_status
     );
@@ -108,7 +111,9 @@ async fn db_concurrency_006__release_vs_complete() {
             if injector.next_fault().is_failure() {
                 return Err("crashed".to_string());
             }
-            dao.mark_story_complete(&story_id).await.map_err(|e| e.to_string())
+            dao.mark_story_complete(&story_id)
+                .await
+                .map_err(|e| e.to_string())
         }));
     }
 
@@ -118,7 +123,10 @@ async fn db_concurrency_006__release_vs_complete() {
             success_count += 1;
         }
     }
-    assert_eq!(success_count, 1, "the survivor still completes the transition");
+    assert_eq!(
+        success_count, 1,
+        "the survivor still completes the transition"
+    );
     let final_status = story_status(&db, &story_id_2).await;
     assert_eq!(final_status.as_deref(), Some("Complete"));
 
@@ -147,7 +155,10 @@ async fn db_concurrency_006__release_vs_complete() {
 
     let final_status = story_status(&db, &story_id_3).await;
     assert!(
-        matches!(final_status.as_deref(), Some("In Progress") | Some("Complete")),
+        matches!(
+            final_status.as_deref(),
+            Some("In Progress") | Some("Complete")
+        ),
         "story must end in a valid state, got {:?}",
         final_status
     );

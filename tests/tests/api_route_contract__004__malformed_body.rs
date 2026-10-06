@@ -9,20 +9,20 @@
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test api_route_contract__004__malformed_body
 
 use axum::{http::Method, Router};
-use test_harness::http::{call, TestRequest};
 use serde_json::json;
+use test_harness::http::{call, TestRequest};
 
 /// Build a test router with JSON body validation.
 fn test_router() -> Router {
     use axum::{routing::post, Json, Router};
     use serde::{Deserialize, Serialize};
-    
+
     #[derive(Deserialize)]
     struct CreateProjectRequest {
         name: String,
         description: Option<String>,
     }
-    
+
     #[derive(Serialize)]
     struct ProjectResponse {
         id: String,
@@ -53,9 +53,13 @@ async fn api_route_contract_004__malformed_body() {
     let router = test_router();
 
     // 1. Invalid JSON syntax with correct Content-Type must return 400
-    let response = call(&router, TestRequest::post("/v1/projects")
-        .header("content-type", "application/json")
-        .body("{ invalid json }")).await;
+    let response = call(
+        &router,
+        TestRequest::post("/v1/projects")
+            .header("content-type", "application/json")
+            .body("{ invalid json }"),
+    )
+    .await;
     assert_eq!(
         response.status().as_u16(),
         400,
@@ -64,9 +68,13 @@ async fn api_route_contract_004__malformed_body() {
     );
 
     // 2. Empty body with correct Content-Type must return 400 (or 422 depending on extractor)
-    let response = call(&router, TestRequest::post("/v1/projects")
-        .header("content-type", "application/json")
-        .body("")).await;
+    let response = call(
+        &router,
+        TestRequest::post("/v1/projects")
+            .header("content-type", "application/json")
+            .body(""),
+    )
+    .await;
     assert!(
         response.status().as_u16() == 400 || response.status().as_u16() == 422,
         "{HARNESS}: empty body must return 400/422, got {}",
@@ -74,9 +82,13 @@ async fn api_route_contract_004__malformed_body() {
     );
 
     // 3. Wrong Content-Type must return 415 or 400
-    let response = call(&router, TestRequest::post("/v1/projects")
-        .header("content-type", "text/plain")
-        .body("name=test")).await;
+    let response = call(
+        &router,
+        TestRequest::post("/v1/projects")
+            .header("content-type", "text/plain")
+            .body("name=test"),
+    )
+    .await;
     assert!(
         response.status().as_u16() == 415 || response.status().as_u16() == 400,
         "{HARNESS}: wrong content type must return 415/400, got {}",
@@ -84,8 +96,11 @@ async fn api_route_contract_004__malformed_body() {
     );
 
     // 4. Valid JSON but missing required field must return 422 (validation error)
-    let response = call(&router, TestRequest::post("/v1/projects")
-        .json(&json!({"description": "missing name"}))).await;
+    let response = call(
+        &router,
+        TestRequest::post("/v1/projects").json(&json!({"description": "missing name"})),
+    )
+    .await;
     assert_eq!(
         response.status().as_u16(),
         422,
@@ -94,8 +109,12 @@ async fn api_route_contract_004__malformed_body() {
     );
 
     // 5. Valid JSON with correct schema must succeed
-    let response = call(&router, TestRequest::post("/v1/projects")
-        .json(&json!({"name": "Test Project", "description": "A test"}))).await;
+    let response = call(
+        &router,
+        TestRequest::post("/v1/projects")
+            .json(&json!({"name": "Test Project", "description": "A test"})),
+    )
+    .await;
     assert!(
         response.status().is_success(),
         "{HARNESS}: valid request must succeed, got {}: {}",
@@ -104,8 +123,11 @@ async fn api_route_contract_004__malformed_body() {
     );
 
     // 6. Extra fields are allowed (serde default behavior)
-    let response = call(&router, TestRequest::post("/v1/projects")
-        .json(&json!({"name": "Test", "extra": "field"}))).await;
+    let response = call(
+        &router,
+        TestRequest::post("/v1/projects").json(&json!({"name": "Test", "extra": "field"})),
+    )
+    .await;
     assert!(
         response.status().is_success(),
         "{HARNESS}: extra fields must be allowed, got {}",
@@ -113,8 +135,11 @@ async fn api_route_contract_004__malformed_body() {
     );
 
     // 7. Wrong type for field must return 422
-    let response = call(&router, TestRequest::post("/v1/projects")
-        .json(&json!({"name": 123}))).await;
+    let response = call(
+        &router,
+        TestRequest::post("/v1/projects").json(&json!({"name": 123})),
+    )
+    .await;
     assert_eq!(
         response.status().as_u16(),
         422,

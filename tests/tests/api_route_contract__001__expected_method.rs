@@ -15,8 +15,8 @@ use test_harness::http::{call, TestRequest};
 /// Build a test router with a representative subset of production routes.
 /// In a real test this would use the full `web::api::routes::router` composition.
 fn test_router() -> Router {
-    use axum::routing::{get, post, put, patch, delete};
-    
+    use axum::routing::{delete, get, patch, post, put};
+
     Router::new()
         // Health endpoints (GET only)
         .route("/healthz", get(|| async { "ok" }))
@@ -28,71 +28,176 @@ fn test_router() -> Router {
         // Service catalog (GET only)
         .route("/v1/services", get(|| async { "catalog" }))
         .route("/v1/services/health", get(|| async { "health" }))
-        .route("/v1/services/kernel/health", get(|| async { "kernel health" }))
-        .route("/v1/services/runtime/health", get(|| async { "runtime health" }))
+        .route(
+            "/v1/services/kernel/health",
+            get(|| async { "kernel health" }),
+        )
+        .route(
+            "/v1/services/runtime/health",
+            get(|| async { "runtime health" }),
+        )
         // Security (mostly GET/POST as per production)
         .route("/v1/security/identity", get(|| async { "identity" }))
         .route("/v1/security/authorize", post(|| async { "authorize" }))
-        .route("/v1/security/authorize/public", post(|| async { "authorize public" }))
-        .route("/v1/security/role-entitlements", get(|| async { "role entitlements" }).put(|| async { "set role entitlement" }))
-        .route("/v1/security/users", get(|| async { "users" }).put(|| async { "set user role" }))
+        .route(
+            "/v1/security/authorize/public",
+            post(|| async { "authorize public" }),
+        )
+        .route(
+            "/v1/security/role-entitlements",
+            get(|| async { "role entitlements" }).put(|| async { "set role entitlement" }),
+        )
+        .route(
+            "/v1/security/users",
+            get(|| async { "users" }).put(|| async { "set user role" }),
+        )
         .route("/v1/security/guests", post(|| async { "provision guest" }))
-        .route("/v1/security/guest-code", post(|| async { "request guest code" }))
-        .route("/v1/security/guest-code/verify", post(|| async { "verify guest code" }))
+        .route(
+            "/v1/security/guest-code",
+            post(|| async { "request guest code" }),
+        )
+        .route(
+            "/v1/security/guest-code/verify",
+            post(|| async { "verify guest code" }),
+        )
         // Cockpit
         .route("/v1/cockpit", get(|| async { "cockpit" }))
-        .route("/v1/tech/cockpit", get(|| async { "tech cockpit" }).post(|| async { "tech command" }))
+        .route(
+            "/v1/tech/cockpit",
+            get(|| async { "tech cockpit" }).post(|| async { "tech command" }),
+        )
         // Workflows
         .route("/v1/workflows", get(|| async { "workflows" }))
         .route("/v1/workflows/{id}", get(|| async { "workflow detail" }))
-        .route("/v1/flight-recorder/{id}", get(|| async { "flight recorder" }))
+        .route(
+            "/v1/flight-recorder/{id}",
+            get(|| async { "flight recorder" }),
+        )
         // Projects/WBS
-        .route("/v1/projects", get(|| async { "projects" }).post(|| async { "create project" }))
-        .route("/v1/projects/{id}", get(|| async { "project" }).patch(|| async { "update project" }))
+        .route(
+            "/v1/projects",
+            get(|| async { "projects" }).post(|| async { "create project" }),
+        )
+        .route(
+            "/v1/projects/{id}",
+            get(|| async { "project" }).patch(|| async { "update project" }),
+        )
         .route("/v1/wbs", post(|| async { "create wbs item" }))
-        .route("/v1/wbs/project-items", get(|| async { "wbs project items" }))
-        .route("/v1/wbs/dependencies/{project_id}", get(|| async { "wbs dependencies" }).post(|| async { "add wbs dependency" }))
-        .route("/v1/wbs/dependencies/{project_id}/{source_id}/{target_id}", delete(|| async { "remove wbs dependency" }))
-        .route("/v1/wbs/{id}", get(|| async { "wbs item" }).patch(|| async { "update wbs item" }))
-        .route("/v1/tasks/{id}/complete", post(|| async { "complete task" }))
+        .route(
+            "/v1/wbs/project-items",
+            get(|| async { "wbs project items" }),
+        )
+        .route(
+            "/v1/wbs/dependencies/{project_id}",
+            get(|| async { "wbs dependencies" }).post(|| async { "add wbs dependency" }),
+        )
+        .route(
+            "/v1/wbs/dependencies/{project_id}/{source_id}/{target_id}",
+            delete(|| async { "remove wbs dependency" }),
+        )
+        .route(
+            "/v1/wbs/{id}",
+            get(|| async { "wbs item" }).patch(|| async { "update wbs item" }),
+        )
+        .route(
+            "/v1/tasks/{id}/complete",
+            post(|| async { "complete task" }),
+        )
         // Clients/People
         .route("/v1/clients", get(|| async { "clients" }))
         .route("/v1/clients/agents", get(|| async { "client agents" }))
-        .route("/v1/clients/{person_id}/history", get(|| async { "client history" }))
-        .route("/v1/clients/{person_id}", get(|| async { "client detail" }).patch(|| async { "update client" }))
+        .route(
+            "/v1/clients/{person_id}/history",
+            get(|| async { "client history" }),
+        )
+        .route(
+            "/v1/clients/{person_id}",
+            get(|| async { "client detail" }).patch(|| async { "update client" }),
+        )
         .route("/v1/people/search", get(|| async { "search people" }))
-        .route("/v1/people/{id}", get(|| async { "person" }).patch(|| async { "update person" }))
-        .route("/v1/people/{id}/properties", get(|| async { "properties for person" }))
+        .route(
+            "/v1/people/{id}",
+            get(|| async { "person" }).patch(|| async { "update person" }),
+        )
+        .route(
+            "/v1/people/{id}/properties",
+            get(|| async { "properties for person" }),
+        )
         // Properties
-        .route("/v1/properties/admin", get(|| async { "property admin" }).post(|| async { "create property" }))
-        .route("/v1/properties/{id}/admin", get(|| async { "property admin detail" }).patch(|| async { "save property" }))
+        .route(
+            "/v1/properties/admin",
+            get(|| async { "property admin" }).post(|| async { "create property" }),
+        )
+        .route(
+            "/v1/properties/{id}/admin",
+            get(|| async { "property admin detail" }).patch(|| async { "save property" }),
+        )
         .route("/v1/properties/{id}", get(|| async { "property" }))
         // Media
         .route("/v1/media/{id}", get(|| async { "private media" }))
         .route("/v1/media/upload", post(|| async { "upload media" }))
-        .route("/v1/properties/{id}/media", get(|| async { "property media" }).post(|| async { "upload property media" }))
+        .route(
+            "/v1/properties/{id}/media",
+            get(|| async { "property media" }).post(|| async { "upload property media" }),
+        )
         // Deals/Contracts
-        .route("/v1/deals", get(|| async { "deals" }).post(|| async { "create deal" }))
+        .route(
+            "/v1/deals",
+            get(|| async { "deals" }).post(|| async { "create deal" }),
+        )
         .route("/v1/deals/{id}", get(|| async { "deal workspace" }))
         .route("/v1/deals/{id}/commands", post(|| async { "deal command" }))
-        .route("/v1/contracts", get(|| async { "contracts" }).post(|| async { "create contract" }))
+        .route(
+            "/v1/contracts",
+            get(|| async { "contracts" }).post(|| async { "create contract" }),
+        )
         .route("/v1/contracts/{id}", get(|| async { "contract" }))
         // Forms
-        .route("/v1/forms", get(|| async { "forms" }).post(|| async { "create form" }))
-        .route("/v1/forms/deal-facts/{deal_id}", get(|| async { "form deal facts" }))
+        .route(
+            "/v1/forms",
+            get(|| async { "forms" }).post(|| async { "create form" }),
+        )
+        .route(
+            "/v1/forms/deal-facts/{deal_id}",
+            get(|| async { "form deal facts" }),
+        )
         .route("/v1/forms/{id}/signers", get(|| async { "form signers" }))
-        .route("/v1/forms/{id}/issued-document", get(|| async { "form issued document" }))
-        .route("/v1/forms/{id}", get(|| async { "form" }).patch(|| async { "update form" }))
+        .route(
+            "/v1/forms/{id}/issued-document",
+            get(|| async { "form issued document" }),
+        )
+        .route(
+            "/v1/forms/{id}",
+            get(|| async { "form" }).patch(|| async { "update form" }),
+        )
         // Accounting
-        .route("/v1/accounting/dashboard", get(|| async { "accounting dashboard" }))
-        .route("/v1/accounting/receivables", get(|| async { "receivables" }).post(|| async { "create receivable" }))
-        .route("/v1/accounting/receivables/{id}/paid", post(|| async { "mark receivable paid" }))
-        .route("/v1/accounting/expenses", get(|| async { "expenses" }).post(|| async { "create expense" }))
-        .route("/v1/accounting/expense-categories", get(|| async { "expense categories" }))
+        .route(
+            "/v1/accounting/dashboard",
+            get(|| async { "accounting dashboard" }),
+        )
+        .route(
+            "/v1/accounting/receivables",
+            get(|| async { "receivables" }).post(|| async { "create receivable" }),
+        )
+        .route(
+            "/v1/accounting/receivables/{id}/paid",
+            post(|| async { "mark receivable paid" }),
+        )
+        .route(
+            "/v1/accounting/expenses",
+            get(|| async { "expenses" }).post(|| async { "create expense" }),
+        )
+        .route(
+            "/v1/accounting/expense-categories",
+            get(|| async { "expense categories" }),
+        )
         .route("/v1/accounting/pnl", get(|| async { "pnl" }))
         // Vault
         .route("/v1/vault/documents", get(|| async { "vault documents" }))
-        .route("/v1/vault/documents/{id}", get(|| async { "vault document" }))
+        .route(
+            "/v1/vault/documents/{id}",
+            get(|| async { "vault document" }),
+        )
         // Public
         .route("/v1/public/listings", get(|| async { "public listings" }))
         .route("/v1/public/property", get(|| async { "public property" }))
@@ -101,14 +206,32 @@ fn test_router() -> Router {
         .route("/v1/public/slugs", get(|| async { "public slugs" }))
         .route("/v1/public/guide", get(|| async { "public guide" }))
         // Engine
-        .route("/v1/engine/transactions", post(|| async { "start transaction" }))
-        .route("/v1/engine/timers/reconcile", post(|| async { "reconcile timer" }))
-        .route("/v1/engine/tasks/complete", post(|| async { "complete task" }))
+        .route(
+            "/v1/engine/transactions",
+            post(|| async { "start transaction" }),
+        )
+        .route(
+            "/v1/engine/timers/reconcile",
+            post(|| async { "reconcile timer" }),
+        )
+        .route(
+            "/v1/engine/tasks/complete",
+            post(|| async { "complete task" }),
+        )
         .route("/v1/engine/reclaim", post(|| async { "reclaim" }))
         // Signature
-        .route("/v1/signature/requests", post(|| async { "signature send" }))
-        .route("/v1/signature/requests/{id}", get(|| async { "signature request" }))
-        .route("/v1/signature/requests/{id}/refresh", post(|| async { "signature refresh" }))
+        .route(
+            "/v1/signature/requests",
+            post(|| async { "signature send" }),
+        )
+        .route(
+            "/v1/signature/requests/{id}",
+            get(|| async { "signature request" }),
+        )
+        .route(
+            "/v1/signature/requests/{id}/refresh",
+            post(|| async { "signature refresh" }),
+        )
         // Signer edge
         .route("/v1/signer/session", post(|| async { "signer session" }))
         .route("/v1/signer/open", post(|| async { "signer open" }))
@@ -232,7 +355,11 @@ async fn api_route_contract_001__expected_method() {
 
     for path in get_and_post {
         let get_resp = call(&router, TestRequest::get(path)).await;
-        let post_resp = call(&router, TestRequest::post(path).json(&serde_json::json!({}))).await;
+        let post_resp = call(
+            &router,
+            TestRequest::post(path).json(&serde_json::json!({})),
+        )
+        .await;
         assert!(
             get_resp.status().is_success() || get_resp.status().is_server_error(),
             "{HARNESS}: declared GET route {path} must not return 405/404, got {}",
@@ -257,7 +384,11 @@ async fn api_route_contract_001__expected_method() {
 
     for path in get_and_patch {
         let get_resp = call(&router, TestRequest::get(path)).await;
-        let patch_resp = call(&router, TestRequest::new(Method::PATCH, path).json(&serde_json::json!({}))).await;
+        let patch_resp = call(
+            &router,
+            TestRequest::new(Method::PATCH, path).json(&serde_json::json!({})),
+        )
+        .await;
         assert!(
             get_resp.status().is_success() || get_resp.status().is_server_error(),
             "{HARNESS}: declared GET route {path} must not return 405/404, got {}",
@@ -271,14 +402,15 @@ async fn api_route_contract_001__expected_method() {
     }
 
     // 5. Routes with GET and PUT
-    let get_and_put = [
-        "/v1/security/role-entitlements",
-        "/v1/security/users",
-    ];
+    let get_and_put = ["/v1/security/role-entitlements", "/v1/security/users"];
 
     for path in get_and_put {
         let get_resp = call(&router, TestRequest::get(path)).await;
-        let put_resp = call(&router, TestRequest::new(Method::PUT, path).json(&serde_json::json!({}))).await;
+        let put_resp = call(
+            &router,
+            TestRequest::new(Method::PUT, path).json(&serde_json::json!({})),
+        )
+        .await;
         assert!(
             get_resp.status().is_success() || get_resp.status().is_server_error(),
             "{HARNESS}: declared GET route {path} must not return 405/404, got {}",
@@ -294,7 +426,11 @@ async fn api_route_contract_001__expected_method() {
     // 6. Tech cockpit - GET and POST
     {
         let get_resp = call(&router, TestRequest::get("/v1/tech/cockpit")).await;
-        let post_resp = call(&router, TestRequest::post("/v1/tech/cockpit").json(&serde_json::json!({}))).await;
+        let post_resp = call(
+            &router,
+            TestRequest::post("/v1/tech/cockpit").json(&serde_json::json!({})),
+        )
+        .await;
         assert!(get_resp.status().is_success() || get_resp.status().is_server_error());
         assert!(post_resp.status().is_success() || post_resp.status().is_server_error());
     }
