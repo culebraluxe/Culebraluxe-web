@@ -1201,3 +1201,168 @@ async fn signers_complete_an_envelope_over_the_public_http_edge() {
     );
     cleanup(&db, &env).await;
 }
+
+// ── THE SIGNER IS SHOWN THE DOCUMENT ─────────────────────────────────────────────────────────────────────────────
+//
+// A person who cannot read a document cannot meaningfully consent to sign it, and until the signer's Vault door existed
+// the public page showed only a list of fields. This proves the door end to end: the envelope's own PDF, byte for byte,
+// to the signer holding its link — and nothing to a draft, a voided envelope, or no link at all.
+
+/// A one-page PDF built the Vault's own way, with a recognisable line of text.
+fn proof_pdf(text: &str) -> Vec<u8> {
+    use model::forms_font::encode;
+    use web::vault::pdf::{Content, Pdf, Rgb};
+    let mut pdf = Pdf::new();
+    let font = pdf.font("Helvetica");
+    let tree = pdf.reserve();
+    let resources = pdf.dictionary(&web::vault::pdf::resources(&[("F1", font)], &[]));
+    let mut content = Content::new();
+    content.text(
+        "F1",
+        12.0,
+        54.0,
+        700.0,
+        Rgb::from_bytes(3, 15, 35),
+        &encode(text).unwrap(),
+    );
+    let page = pdf
+        .page(612.0, 792.0, tree, resources, &content.into_bytes())
+        .unwrap();
+    let info = pdf.info("T", "A", "S", "C", "P", "D:20260101000000");
+    pdf.finish(tree, &[page], Some(info)).unwrap()
+}
+
+/// Store `original` as the envelope's document the way the Vault does, and link it to the transaction document.
+async fn attach_original(db: &Database, tag: &str, original: &[u8]) {
+    let media_id: String = sqlx::query_scalar(
+        "insert into media (file_data, filename, mime_type, file_size, media_type) \
+         values ($1, 'agreement.pdf', 'application/pdf', $2, 'document') returning id::text",
+    )
+    .bind(original)
+    .bind(original.len() as i64)
+    .fetch_one(db.pool())
+    .await
+    .expect("original media");
+    sqlx::query("update transaction_document set media_id = $2::uuid where title = $1")
+        .bind(format!("docsign proof {tag}"))
+        .bind(&media_id)
+        .execute(db.pool())
+        .await
+        .expect("link the original");
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL_DEV"]
+async fn a_signer_is_shown_the_document_they_are_asked_to_sign() {
+    use test_harness::http::{call, TestRequest};
+    let db = Database::connect_target(DbTarget::Dev).await.unwrap();
+    let tag = format!("document-{}", Uuid::new_v4());
+    let env = envelope(&db, &tag).await;
+    let ctx = context(&tag);
+    let original = proof_pdf("This agreement is the document the signer must be able to read.");
+    attach_original(&db, &tag, &original).await;
+
+    let infrastructure = web::service_bootstrap::production_service_infrastructure(&db)
+        .await
+        .expect("the production service infrastructure composes");
+    let router = web::api::build_router(
+        db.clone(),
+        infrastructure,
+        web::api::ApiConfig {
+            internal_api_key: Arc::from(HTTP_KEY),
+        },
+    );
+    let codec = SignerAccessTokenCodec::from_env().expect("a signer access secret is configured");
+    let issuing = SignerService::new(SignerDao::new(db.clone()), codec, infra());
+    let token_a = grant(&issuing, &db, &env.a, &ctx).await;
+    let token_b = grant(&issuing, &db, &env.b, &ctx).await;
+    let get = |token: String| {
+        let router = router.clone();
+        async move {
+            call(
+                &router,
+                TestRequest::get(format!("/v1/signer/document/{token}")),
+            )
+            .await
+        }
+    };
+
+    // A forged link is refused (a link is the only credential this edge has).
+    let response = get("not-a-signing-link".into()).await;
+    assert_eq!(response.status().as_u16(), 401, "a forged link is refused");
+
+    // A DRAFT is the operator's: it has links (the fixture minted them) but was never issued, so it shows nothing.
+    let response = get(token_a.clone()).await;
+    assert_eq!(
+        response.status().as_u16(),
+        404,
+        "an envelope that was never issued shows no document: {}",
+        response.text()
+    );
+
+    // ISSUED: both recipients of the envelope see the envelope's own PDF, byte for byte, as a PDF the browser can open.
+    sqlx::query(
+        "update document_sign_request set issued_at = now() where signature_request_id = $1::uuid",
+    )
+    .bind(&env.request_id)
+    .execute(db.pool())
+    .await
+    .unwrap();
+    for token in [&token_a, &token_b] {
+        let response = get(token.clone()).await;
+        assert_eq!(
+            response.status().as_u16(),
+            200,
+            "an issued envelope's document is shown: {}",
+            response.text()
+        );
+        assert_eq!(response.header("content-type"), Some("application/pdf"));
+        assert!(
+            response
+                .header("content-disposition")
+                .unwrap_or("")
+                .starts_with("inline"),
+            "the document opens in the browser's own viewer"
+        );
+        assert_eq!(
+            response.header("cache-control"),
+            Some("private, no-store"),
+            "a signed-for document is never cached"
+        );
+        assert_eq!(response.header("x-content-type-options"), Some("nosniff"));
+        assert!(
+            response.bytes().starts_with(b"%PDF-"),
+            "what arrives is a PDF"
+        );
+        assert_eq!(
+            response.bytes(),
+            original.as_slice(),
+            "the signer is shown exactly the stored document"
+        );
+    }
+
+    // A download is an attachment, same bytes.
+    let response = call(
+        &router,
+        TestRequest::get(format!("/v1/signer/document/{token_a}?download=1")),
+    )
+    .await;
+    assert!(response
+        .header("content-disposition")
+        .unwrap_or("")
+        .starts_with("attachment"));
+
+    // A VOIDED envelope shows nothing, even to a recipient whose link has not expired.
+    sqlx::query("update signature_request set status = 'voided' where id = $1::uuid")
+        .bind(&env.request_id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+    let response = get(token_a.clone()).await;
+    assert!(
+        matches!(response.status().as_u16(), 400 | 401 | 404),
+        "a voided envelope must not hand out its document, got {}",
+        response.status()
+    );
+    cleanup(&db, &env).await;
+}

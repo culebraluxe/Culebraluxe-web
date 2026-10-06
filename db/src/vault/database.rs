@@ -537,6 +537,48 @@ impl VaultDao {
         }))
     }
 
+    /// The document a signer is being asked to sign, and nothing else.
+    ///
+    /// The signing door proves its own entitlement in SQL, the way the anonymous listing door does: the recipient must
+    /// belong to THIS request, the request must have been ISSUED (a draft is the operator's, not a signer's) and still be
+    /// live (declined, voided, expired and errored envelopes show nothing), and the bytes are the request's own
+    /// transaction document — a PDF stored as a `document`. A recipient id from another envelope, or an envelope that was
+    /// never sent, answers `None`.
+    pub async fn signing_document_bytes(
+        &self,
+        signature_request_id: &str,
+        recipient_id: &str,
+    ) -> DbResult<Option<VaultMediaBytes>> {
+        let row = sqlx::query_as::<_, MediaRow>(
+            r#"
+            select m.file_data, m.filename, m.mime_type
+            from signature_envelope_recipient r
+            join signature_request sr on sr.id = r.signature_request_id
+            join document_sign_request dsr on dsr.signature_request_id = sr.id
+            join transaction_document td on td.id = sr.transaction_document_id
+            join media m on m.id = td.media_id
+            where r.id = $2::uuid
+              and sr.id = $1::uuid
+              and dsr.issued_at is not null
+              and sr.status not in ('declined', 'voided', 'expired', 'error')
+              and m.media_type = 'document'
+              and lower(split_part(m.mime_type, ';', 1)) = 'application/pdf'
+              and m.file_data is not null
+            limit 1
+            "#,
+        )
+        .bind(signature_request_id)
+        .bind(recipient_id)
+        .fetch_optional(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("vault.signing_document_bytes", &error))?;
+        Ok(row.map(|row| VaultMediaBytes {
+            bytes: row.file_data.unwrap_or_default(),
+            filename: row.filename,
+            mime_type: row.mime_type,
+        }))
+    }
+
     pub async fn form_contract_id(&self, form_instance_id: &str) -> DbResult<Option<String>> {
         sqlx::query_scalar::<_, Option<String>>(
             r#"

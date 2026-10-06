@@ -56,6 +56,11 @@ pub trait VaultRepository: Send + Sync {
         &self,
         media_id: &str,
     ) -> DbResult<Option<VaultMediaBytes>>;
+    async fn signing_document_bytes(
+        &self,
+        signature_request_id: &str,
+        recipient_id: &str,
+    ) -> DbResult<Option<VaultMediaBytes>>;
     async fn form_contract_id(&self, form_instance_id: &str) -> DbResult<Option<String>>;
     async fn bind_form_to_contract(
         &self,
@@ -128,6 +133,14 @@ impl VaultRepository for VaultDao {
         media_id: &str,
     ) -> DbResult<Option<VaultMediaBytes>> {
         VaultDao::public_listing_document_bytes(self, media_id).await
+    }
+
+    async fn signing_document_bytes(
+        &self,
+        signature_request_id: &str,
+        recipient_id: &str,
+    ) -> DbResult<Option<VaultMediaBytes>> {
+        VaultDao::signing_document_bytes(self, signature_request_id, recipient_id).await
     }
 
     async fn form_contract_id(&self, form_instance_id: &str) -> DbResult<Option<String>> {
@@ -451,6 +464,46 @@ impl<R: VaultRepository> VaultService<R> {
             .public_listing_document_bytes(media_id)
             .await
             .map_err(Into::into);
+        audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// The document a SIGNER is asked to sign, handed to that signer only.
+    ///
+    /// The third byte door the Vault owns, and the narrowest: its own action (`vault.signingDocument.read`, reserved to
+    /// the recipient-bound actor the signer edge mints from a verified link), and its own SQL proof — the recipient must
+    /// belong to this ISSUED, live envelope (`VaultDao::signing_document_bytes`). The actor must also be the recipient it
+    /// asks for, so a caller cannot read one recipient's envelope under another's identity.
+    pub async fn signing_document_bytes(
+        &self,
+        signature_request_id: &str,
+        recipient_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<VaultMediaBytes>, CoreServiceError> {
+        const OP: &str = "vault.signingDocumentBytes";
+        let decision = authorize(
+            &self.runtime,
+            "vault",
+            "vault.signingDocument.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = async {
+            let expected = format!("signature-recipient:{recipient_id}");
+            if context.actor.id.as_deref() != Some(expected.as_str()) {
+                return Err(CoreServiceError::business(
+                    "SIGNING_DOCUMENT_FORBIDDEN",
+                    "The signing document may be read only by its own recipient.",
+                ));
+            }
+            self.repository
+                .signing_document_bytes(signature_request_id, recipient_id)
+                .await
+                .map_err(Into::into)
+        }
+        .await;
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result
     }

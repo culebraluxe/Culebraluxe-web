@@ -158,7 +158,9 @@ impl Screen for DocumentSigning {
         match msg {
             Msg::ListLoaded(Ok(envelopes)) => {
                 if model.selected_id.is_none() {
-                    model.selected_id = envelopes.first().map(|row| row.signature_request_id.clone());
+                    model.selected_id = envelopes
+                        .first()
+                        .map(|row| row.signature_request_id.clone());
                 }
                 model.envelopes = Remote::Loaded(envelopes);
                 match model.selected_id.clone() {
@@ -235,13 +237,20 @@ impl Screen for DocumentSigning {
                     Msg::Acted,
                 )
             }
+            Msg::Acted(Ok(body)) if crate::app::cmd::command_refusal(&body).is_some() => {
+                model.notice = crate::app::cmd::command_refusal(&body);
+                Cmd::none()
+            }
             Msg::Acted(Ok(_)) => {
                 model.notice = Some("Done — the desk is re-reading.".into());
                 model.detail = Remote::Loading;
-                Cmd::batch(vec![reload_list(), match model.selected_id.clone() {
-                    Some(id) => read_detail(&id),
-                    None => Cmd::none(),
-                }])
+                Cmd::batch(vec![
+                    reload_list(),
+                    match model.selected_id.clone() {
+                        Some(id) => read_detail(&id),
+                        None => Cmd::none(),
+                    },
+                ])
             }
             Msg::Acted(Err(error)) => {
                 model.notice = Some(error.message.clone());
@@ -312,7 +321,10 @@ fn metrics(model: &Model) -> Html {
             let waiting = rows
                 .iter()
                 .filter(|row| {
-                    matches!(EnvelopeStatus::of(&row.status), EnvelopeStatus::Waiting | EnvelopeStatus::Viewed)
+                    matches!(
+                        EnvelopeStatus::of(&row.status),
+                        EnvelopeStatus::Waiting | EnvelopeStatus::Viewed
+                    )
                 })
                 .count();
             let completed = rows
@@ -349,11 +361,18 @@ fn recipient_count(model: &Model) -> usize {
     }
 }
 
-fn envelope_row(row: &crate::model::SigningEnvelopeSummary, selected: bool, link: &Link<Msg>) -> Html {
+fn envelope_row(
+    row: &crate::model::SigningEnvelopeSummary,
+    selected: bool,
+    link: &Link<Msg>,
+) -> Html {
     let id = row.signature_request_id.clone();
     let onclick = link.callback(move |_: MouseEvent| Msg::Select(id.clone()));
     let status = EnvelopeStatus::of(&row.status);
-    let title = row.subject.clone().unwrap_or_else(|| short_id(&row.signature_request_id));
+    let title = row
+        .subject
+        .clone()
+        .unwrap_or_else(|| short_id(&row.signature_request_id));
     let client = row.client_name.clone().unwrap_or_default();
     html! {
         <button
@@ -476,11 +495,8 @@ mod tests {
             recipient_total: 2,
             completed_total: 1,
         }];
-        let cmd = DocumentSigning::update(
-            &mut model,
-            Msg::ListLoaded(Ok(rows)),
-            &ScreenCtx::default(),
-        );
+        let cmd =
+            DocumentSigning::update(&mut model, Msg::ListLoaded(Ok(rows)), &ScreenCtx::default());
         // First row auto-selects and reads its detail.
         assert_eq!(model.selected_id.as_deref(), Some("req-1"));
         let request = cmd.into_requests().remove(0);
@@ -488,11 +504,7 @@ mod tests {
 
         // Actions address the durable dispatcher with verified ids.
         model.seq = 7;
-        let cmd = DocumentSigning::update(
-            &mut model,
-            Msg::VoidEnvelope,
-            &ScreenCtx::default(),
-        );
+        let cmd = DocumentSigning::update(&mut model, Msg::VoidEnvelope, &ScreenCtx::default());
         let request = cmd.into_requests().remove(0);
         assert_eq!(request.path, "/v1/commands/dispatch");
     }
