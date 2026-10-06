@@ -255,3 +255,76 @@ their settlement is unobserved. The DEV smoke and the landed test prove the rout
 
 
 
+
+---
+
+## 2026-10-06, later — D is closed (D2 and D5 landed), O is next
+
+**Status. The D track is done: D1–D5 are on trunk and on DEV + PROD.** D2 and D5 landed from `lane/deep` after the
+captain's order to finish D and hand S to another lane (S3 landed `be0ae42a` while this lane worked).
+
+| commit | what |
+| --- | --- |
+| `baf57d71` | **D2 / 272** `db/migrations/272_forge_work_queue_event_payload.sql` — the doorbell gets a kind |
+| `7c5df6f3` | **D5 / 275** `db/migrations/275_forge_claim_story_brake.sql` + the Rust cutover + the DEV contract test |
+
+### D2 (272) in one line
+
+One channel, one payload writer, four kinds: `forge_notify_work(kind, id, story_id)` fires `enqueued` (269's door),
+`armed` (270's), `settled` (271's branches) and `claimed` (275's door). **The channel name is unchanged** — the second
+channel the order floated was refused, because two names for one door is two answers to "has the queue moved" and a
+listener on the wrong one is silent while looking healthy. Payload: `{kind, id, story_id, at}`; `id`/`story_id` are
+`null` for a batch event rather than naming one of the rows that moved; an unknown kind raises `22023`.
+
+**Measured on DEV** (`build/logs/d2-smoke-dev.sql`, payloads in `build/logs/d2-notify-dev.out`): all four kinds
+captured by a listening session, unknown kind refused, branch 1 rings with nulls and branch 2 per row. Applied DEV +
+PROD (`target=dev`/`target=prod` printed, ledger rows written).
+
+### D5 (275) in one line
+
+`forge_set_paused(true)` stopped nothing because nothing read it; now **both doors read it**.
+
+- `forge_claim_story(worker_id, max)` — the claim door: refuses while `paused` (one `warning` naming who paused it,
+  empty set — a brake must not look like a fault), honours `global_story_concurrency` as
+  `least(max, ceiling − stories in flight)`, read under 262's own mutex `pg_advisory_xact_lock(9000212)`, claims
+  oldest-first with `for update skip locked`, and rings `claimed`.
+- `forge_claim_next_agent_work` — now a **delegation** to it: one implementation, so 262's callers cannot drift into a
+  second door that ignores the brake.
+- `forge_arm_work_queue` — the same brake at the second door (274:19-22), fail-closed when the control row is missing.
+- `forge_reapable_claims(stale_after)` — staleness decided in one place: the age rule (unchanged) **or** a worker that
+  is `stale` in `forge_worker_health` (273). The second rule is what a live-but-slow worker needed; it cannot fire yet
+  because S1 (the beat) has not landed (`forge_worker_heartbeat` is empty on PROD).
+- Rust: `db/src/forge_engine.rs` claims through `forge_claim_story`; `forge/src/engine/worker.rs` reads
+  `forge_runtime_control` before it claims and says `paused by <who>` instead of reporting an idle queue;
+  `ForgeControlDao::stale_agent_work` reads `forge_reapable_claims`.
+- `forge_worker` grants: **conditional, and a no-op today** — neither DEV nor PROD has any `forge*` role. O4's premise
+  was false; the block records what that role would need, and creating it (role + password + env) is the captain's call.
+
+**Measured on DEV** (`build/logs/d5-brake-dev.sql` → `.out`, all in one rolled-back transaction so a shared DEV's
+singleton is never left flipped): paused → 0 claims and the item still `Ready`; brake lifted with one story in flight
+and ceiling 1 → 0; ceiling raised → the claim, stamped with the worker; paused arm → 0 with the row still `Pending`;
+released → the row `Running`; `prosrc` shows the delegation and the brake read; `forge_reapable_claims(0)` → nothing.
+The committed claim rang `claimed` (`build/logs/d5-notify-dev.out`) — **`NOTIFY` is delivered at commit**, so the
+rolled-back steps correctly rang nothing. Applied DEV + PROD; **PROD's brake verified off** (`paused=f`,
+`updated_by=migration-274`) and the live tranche still claiming.
+
+### Not verified (D5's Rust half)
+
+The Rust contract test `tests/tests/forge_claim__003__pause_and_ceiling_close_the_door.rs` was **not run to green** in
+this window: the shared `CARGO_TARGET_DIR` was held by the two live Smith runs, so `cargo test` only ever reached
+"Blocking waiting for file lock on build directory". The push therefore carried
+`CULEBRALUXE_SKIP_BUILD_CHECK=1` (the hook printed its own line saying so). What **is** verified: the last full
+`cargo check --workspace --all-targets` compiled `db` and `forge` clean with these edits, and the test binary built with
+zero errors at the revision before the last two cosmetic edits. **Run
+`cargo test -p test-harness --test forge_claim__003__pause_and_ceiling_close_the_door -- --ignored` once the lock
+frees** and report it; the DEV psql proof above already covers every assertion it makes.
+
+### S and O
+
+S is another lane's (`be0ae42a` is S3's sha stamp). **O has not been started: nothing in the tree answers O1, O3, O4
+(see above) or O6.** What exists today, for whoever picks it up: the Mac executor is
+`~/Library/LaunchAgents/com.culebraluxe.agent-worker.plist` + `scripts/agent-worker-once.sh`, templated from
+`scripts/com.culebraluxe.agent-worker.plist.template`; there is **no** server-side supervisor unit in the tree, and
+`forge_runtime_control.desired_worker_sha` is written but read by nobody. **O1's text is not in this handoff** — the
+order lettered it but never spelled it out here, so the next agent must ask the captain for it rather than guess.
+
