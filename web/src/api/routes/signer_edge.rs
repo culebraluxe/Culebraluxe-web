@@ -24,7 +24,17 @@ async fn edge_session(
         .signer()
         .session(access_token, &edge_context("signer.session"))
         .await
-        .map_err(ApiError::from)
+        .map_err(|error| match &error {
+            // An unusable signing LINK is a failed credential, the same as no link at all (`access_token` below answers
+            // that with 401). It was a plain business error, so a forged or expired link read as 400 "bad request" —
+            // wrong for a public edge whose only credential is the link, and inconsistent with its own missing-link answer.
+            crate::service_support::CoreServiceError::Business { code, message }
+                if matches!(*code, "SIGNER_ACCESS_INVALID" | "SIGNER_ACCESS_EXPIRED") =>
+            {
+                ApiError::unauthorized(*code, message.clone())
+            }
+            _ => ApiError::from(error),
+        })
 }
 
 /// The edge context: a System actor with no principal. Narrower than the
