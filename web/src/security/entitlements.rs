@@ -123,18 +123,42 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             );
         // The public signing edge has no portal principal. Its signed recipient capability is
         // validated by SignerService; Casbin admits only the signer operations named here.
-        let document_sign_edge = system
-            && request.actor.id.as_deref() == Some(crate::signer::DOCSIGN_EDGE_ACTOR)
+        //
+        // TWO ACTORS, ONE RULE. The edge reads a session as itself (`document-sign-edge`), then runs every mutation as
+        // the RECIPIENT-BOUND actor `signature-recipient:<id>`, derived from the verified token and never from request
+        // JSON (`api/routes/signer_edge.rs`), which `SignerService` re-checks against the capability's own recipient. This
+        // rule admitted only the shared edge actor, so every signer's open, consent, field and complete was refused
+        // `no matching entitlement` over HTTP while the service-level proofs (which run as the edge actor) stayed green.
+        // The recipient-bound actor is admitted for exactly the five signer commands; the edge actor keeps all six.
+        let signer_command = |operation: &str, action: &str| {
+            matches!(
+                (operation, action),
+                ("signer.open", "signer.act")
+                    | ("signer.acceptConsent", "signer.act")
+                    | ("signer.completeField", "signer.act")
+                    | ("signer.complete", "signer.act")
+                    | ("signer.decline", "signer.act")
+            )
+        };
+        let signing_recipient = system
             && request.domain == "signer"
-            && matches!(
-                (request.operation, request.action, request.kind),
-                ("signer.session", "signer.read", OperationKind::Query)
-                    | ("signer.open", "signer.act", OperationKind::Command)
-                    | ("signer.acceptConsent", "signer.act", OperationKind::Command)
-                    | ("signer.completeField", "signer.act", OperationKind::Command)
-                    | ("signer.complete", "signer.act", OperationKind::Command)
-                    | ("signer.decline", "signer.act", OperationKind::Command)
-            );
+            && request.kind == OperationKind::Command
+            && request
+                .actor
+                .id
+                .as_deref()
+                .and_then(|id| id.strip_prefix("signature-recipient:"))
+                .is_some_and(|recipient| !recipient.trim().is_empty())
+            && signer_command(request.operation, request.action);
+        let document_sign_edge = signing_recipient
+            || (system
+                && request.actor.id.as_deref() == Some(crate::signer::DOCSIGN_EDGE_ACTOR)
+                && request.domain == "signer"
+                && (matches!(
+                    (request.operation, request.action, request.kind),
+                    ("signer.session", "signer.read", OperationKind::Query)
+                ) || (request.kind == OperationKind::Command
+                    && signer_command(request.operation, request.action))));
         // Existing MQ owns retries/leases. The worker may deliver exactly one queued email and
         // cannot queue arbitrary messages or call any other application command.
         let email_delivery = system
@@ -481,6 +505,52 @@ mod tests {
         assert!(
             !auth.authorize(signer).await.unwrap().allowed,
             "public signing edge may never mint signer capabilities"
+        );
+
+        // The recipient-bound actor the edge runs mutations as: the five signer commands and nothing else.
+        let mut recipient = request("signer.act", OperationKind::Command, &[]);
+        recipient.principal = None;
+        recipient.actor = ServiceActor {
+            id: Some("signature-recipient:7d1c0a52-0000-4000-8000-000000000001".into()),
+            kind: ServiceActorKind::System,
+        };
+        recipient.domain = "signer";
+        for operation in [
+            "signer.open",
+            "signer.acceptConsent",
+            "signer.completeField",
+            "signer.complete",
+            "signer.decline",
+        ] {
+            recipient.operation = operation;
+            assert!(
+                auth.authorize(recipient.clone()).await.unwrap().allowed,
+                "a signing recipient may {operation}"
+            );
+        }
+        recipient.operation = "signer.issueAccess";
+        recipient.action = "signer.access.issue";
+        assert!(
+            !auth.authorize(recipient.clone()).await.unwrap().allowed,
+            "a signing recipient may never mint signer capabilities"
+        );
+        recipient.operation = "signer.complete";
+        recipient.action = "signer.act";
+        recipient.domain = "documentSign";
+        assert!(
+            !auth.authorize(recipient.clone()).await.unwrap().allowed,
+            "the recipient-bound actor is a signer actor, not a document-sign one"
+        );
+        recipient.domain = "signer";
+        recipient.actor.id = Some("signature-recipient:".into());
+        assert!(
+            !auth.authorize(recipient.clone()).await.unwrap().allowed,
+            "a recipient actor must name a recipient"
+        );
+        recipient.actor.id = Some("signature-recipient-impostor".into());
+        assert!(
+            !auth.authorize(recipient).await.unwrap().allowed,
+            "only the exact recipient-bound prefix is admitted"
         );
 
         let mut delivery = request("email.deliver", OperationKind::Command, &[]);
