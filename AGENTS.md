@@ -175,6 +175,14 @@ production code.
 
 Always
 
+- **PROD access is open to agents, with full CRUD.** The Captain directs production work, and when he does his
+  direction **is** the authorization: read and write, run SQL against `DATABASE_URL_PROD`, migrate, repair a row, run
+  the engine, run a test that touches PROD. What is forbidden is *deciding for him* — an unrequested production write
+  ("Never", below) — never the access itself. Name the target and read the `database: target=…` line a command prints
+  before believing its output; a resolved target that is not the one you meant is a REFUSAL (HOLD) naming both, never a
+  guess. `.env.local` declares `APP_ENV="development"`, so what a command is *not* told resolves to DEV: ad-hoc SQL is
+  `set -a; . ./.env.local; set +a; psql "$DATABASE_URL_PROD" -tAc "<sql>"`, and a recorded migration is
+  `cargo run -p cli -- db-tool apply <file.sql> prod`.
 - Load this file, the story packet, and any listed skills before editing.
 - Treat anything crossing a process boundary — a public webhook body, a route body, a provider response — as unknown until a runtime schema validates it. A hand-written type or an `as` cast is not validation; validate before the value reaches the domain.
 - Read the story's scope manifest when one exists: `pnpm forge:manifest <STORY-ID>` writes and ranks it (`docs/agent/manifest/<STORY-ID>.md`); the rows are the files to open for that scope, structural first.
@@ -214,10 +222,12 @@ Ask first
 Never
 
 - Commit secrets or `.env.local`. guard: cli/src/forge/secret_shapes.rs
-- **Act on PROD on your own initiative.** The Captain directs production work; when he does, his direction **is**
+- **Decide production work for the Captain.** This bullet is about *whose decision* production work is, never about
+  whether an agent may touch it — access itself is open, and `Always` leads with it: "PROD access is open to agents,
+  with full CRUD". The Captain directs production work; when he does, his direction **is**
   the authorization and it is full CRUD — read and write, migrate, repair a row, run the engine, run a test that
-  touches PROD. What is never allowed is *deciding for him*: no production write nobody asked for, and no
-  production work whose only reason is that the environment happened to resolve that way. A production **deploy**
+  touches PROD, run SQL against `DATABASE_URL_PROD`. What is never allowed is *deciding for him*: no production write
+  nobody asked for, and no production work whose only reason is that the environment happened to resolve that way. A production **deploy**
   follows the same rule — it happens when he directs it or when a story's release obligation requires it
   ("Working Style", "Database Delivery Rule"), never as a side effect of something else.
   This bullet used to forbid PROD outright ("Deploy to production, or run anything at all against
@@ -227,7 +237,10 @@ Never
   State* below, which already said not to assume a default production prohibition). Rewritten on his ruling,
   2026-10-04, in his words: *"i need my agents to access prod NEON Database to do forge work and write test code …
   if i tell them to go do something in prod they need full CRUD."* The ruling and the history: `docs/agent/MEMORY.md`.
-  The mechanism is unchanged, and it is why naming the target still matters: the Rust API picks its database from
+  Retitled again on his direction 2026-10-06 (*"change that orientation agents can access prod and have full CRUD"*):
+  the permission moves to the head of `Always` and the `Never` heading now names the forbidden
+  thing — *whose decision* production work is — instead of reading as a prohibition on touching PROD. The mechanism is
+  unchanged, and it is why naming the target still matters: the Rust API picks its database from
   the environment (`db/src/pool.rs`, `resolve_declared_target`), and `VERCEL_ENV=production` or
   `APP_ENV=production`/`prod` resolves to the production database with no confirmation step — **a production
   deploy is a production database connection**, there is no dry run and no separate switch. Both the boot line and

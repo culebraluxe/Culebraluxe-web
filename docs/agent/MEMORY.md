@@ -2,6 +2,22 @@
 
 # Decision log
 
+- **2026-10-06 (the permission was already true, but it was written inside a `Never` list, so the Captain had to say it
+  again).** His direction: *"change that orientation agents can access prod and have full CRUD"*. The mechanism is
+  untouched; what moved is where the permission is written. `AGENTS.md` now opens `Always` with **"PROD access is open to
+  agents, with full CRUD"**, carrying the two commands that make it actionable (`psql "$DATABASE_URL_PROD" -tAc "<sql>"`
+  for ad-hoc SQL, `cargo run -p cli -- db-tool apply <file.sql> prod` for a recorded migration) and the `.env.local`
+  `APP_ENV="development"` trap that silently lands an untargeted command on DEV; the `Never` bullet is retitled **"Decide
+  production work for the Captain"** so its heading names the forbidden thing (*whose decision* production work is)
+  rather than reading as a prohibition on touching PROD; and `docs/agent/ORIENTATION.md` §Boundaries now opens with the
+  permission and the literal command instead of pointing into the `Never` list. The pattern behind three rewrites of this
+  one rule: **a permission stated as a bullet under a `Never` heading is a prohibition to any reader that stops at the
+  first clause**, and a second file restating a rule is a second source for one fact. Guards are unchanged and are
+  *routing, not authorization*: `tests/src/database.rs:71` refuses PROD inside the harness, `opencode.rs:163` strips
+  `DATABASE_URL*` from a vendor child, `db_writer.rs:78` requires `DATABASE_URL_PROD` for a Forge write — so a
+  Forge-spawned agent still cannot write PROD whatever it is told, while a lane agent or a human terminal can. Verified
+  docs-only: `pnpm protected-files`, `pnpm forge:guard-lint`, `pnpm forge:packet-lint`, `git diff --check`.
+
 - **2026-10-04 (the same production prohibition had a second home - `ORIENTATION.md`, the second file every agent reads -
   where it read as a literal do-not-touch and one bot obeyed it).** `AGENTS.md` was the copy that got rewritten (entry
   above); the restatement at `docs/agent/ORIENTATION.md:134` led with *"Never deploy, and never touch the production
@@ -22,7 +38,7 @@
   ("apply the same required migration(s) to PROD"), "Production Guardrails" ("do not invent extra enterprise approval
   gates around normal authorized release work"), the Builder role ("does not leave required PROD migration as a separate
   human follow-up"), and *Production Release State* ("do not assume a default production prohibition that conflicts with
-  the startup delivery model above"). So the `Never` bullet now reads **"Act on PROD on your own initiative"**: the
+  the startup delivery model above"). So the `Never` bullet was rewritten — **"Act on PROD on your own initiative"** when this entry was written, retitled **"Decide production work for the Captain"** on 2026-10-06 (entry above) so its heading names the forbidden thing: the
   Captain's direction *is* the authorization and it is full CRUD — read and write, migrate, repair a row, run the engine,
   run a test that touches PROD — while an unrequested production write stays forbidden, and a resolved target that is not
   the one the agent meant stays a REFUSAL naming both, never a guess. Two neighbouring lines were aligned so the handbook
