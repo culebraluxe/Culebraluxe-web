@@ -6,14 +6,14 @@
 use crate::engine::agent_work;
 use crate::engine::config::{ChildConfig, WorkerConfig};
 use crate::engine::learn::run_learn_pass;
-use crate::engine::routing_brain::{parse_forge_routing_brain, ForgeRoutingBrain};
+use crate::engine::routing_brain::{ForgeRoutingBrain, parse_forge_routing_brain};
 use crate::engine::vendor_session::with_shared;
 use crate::engine::worktree::cleanup_worker_workspace;
 use db::{AgentWorkOutcome, ForgeControlDao};
 use std::path::Path;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -56,25 +56,27 @@ fn worker_identity() -> String {
 fn spawn_heartbeat(work_item_id: String, interval: Duration) -> Arc<AtomicBool> {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
-    std::thread::spawn(move || loop {
-        // Sleep in one-second slices so the child finishing is noticed promptly.
-        for _ in 0..interval.as_secs().max(1) {
-            if flag.load(Ordering::Relaxed) {
-                return;
+    std::thread::spawn(move || {
+        loop {
+            // Sleep in one-second slices so the child finishing is noticed promptly.
+            for _ in 0..interval.as_secs().max(1) {
+                if flag.load(Ordering::Relaxed) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_secs(1));
             }
-            std::thread::sleep(Duration::from_secs(1));
-        }
-        match agent_work::heartbeat_agent_work(&work_item_id) {
-            Ok(true) => {}
-            Ok(false) => {
-                eprintln!(
-                    "forge-worker: heartbeat lost for work item {work_item_id}; the claim is no longer ours"
-                );
-                return;
+            match agent_work::heartbeat_agent_work(&work_item_id) {
+                Ok(true) => {}
+                Ok(false) => {
+                    eprintln!(
+                        "forge-worker: heartbeat lost for work item {work_item_id}; the claim is no longer ours"
+                    );
+                    return;
+                }
+                // A transient failure is reported (through the capture seam in `db::capture`) and retried on the
+                // next beat: `updated_at` is still fresh inside the stale window.
+                Err(error) => eprintln!("forge-worker-heartbeat-failed: {error}"),
             }
-            // A transient failure is reported (through the capture seam in `db::capture`) and retried on the
-            // next beat: `updated_at` is still fresh inside the stale window.
-            Err(error) => eprintln!("forge-worker-heartbeat-failed: {error}"),
         }
     });
     stop
@@ -390,7 +392,10 @@ fn run_claimed_dispatch(
         dispatch.execution_policy,
         dispatch.model_policy.as_deref().unwrap_or("(none)"),
         dispatch.stop_after.as_deref().unwrap_or("(full chain)"),
-        dispatch.launch_intent.as_deref().unwrap_or("(lead decides)")
+        dispatch
+            .launch_intent
+            .as_deref()
+            .unwrap_or("(lead decides)")
     );
 
     // The durable envelope is read here, before the child exists, so a policy that names a human never reaches a
@@ -451,7 +456,7 @@ fn run_claimed_dispatch(
     if let Some(stop_after) = dispatch.stop_after.as_deref() {
         command.args(["--stop-after", stop_after]);
     }
-    let launch = command
+    command
         .env(
             "APP_ENV",
             std::env::var("APP_ENV").unwrap_or_else(|_| "production".into()),
@@ -474,15 +479,24 @@ fn run_claimed_dispatch(
         // single-story: MIN=0 means no warm floor, connections open on first use up to MAX=6 per child.
         // With 4 concurrent stories this is at most 24 connections against one Neon branch.
         .env("FORGE_DB_POOL_MIN", child_cfg.db_pool_min.to_string())
-        .env("FORGE_DB_POOL_MAX", child_cfg.db_pool_max.to_string())
-        .status();
-
-    let status = match launch {
-        Ok(status) => status,
+        .env("FORGE_DB_POOL_MAX", child_cfg.db_pool_max.to_string());
+    // THE WALL CLOCK IS A HARD LIMIT (S4). A story that hangs must not hold its claim and its worker
+    // slot forever; a timeout settles the run as a timeout and frees both. The whole process group is
+    // signalled so the grandchild engine dies with the cargo wrapper.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let run_timeout = Duration::from_secs(
+        std::env::var("FORGE_RUN_TIMEOUT_SECS")
+            .ok()
+            .and_then(|raw| raw.trim().parse::<u64>().ok())
+            .unwrap_or(3600),
+    );
+    let mut child = match command.spawn() {
+        Ok(child) => child,
         Err(error) => {
-            // The child never started, so nothing else will ever settle this claim. Settle it here as `Abandoned`:
-            // no run happened, so the claim is cleared back into the queue instead of being held against the story
-            // (captain, 2026-09-29 - an engine fault must not cost a story its turn).
             let reason = format!("launch Rust Forge engine: {error}");
             match agent_work::finish_agent_work_run(
                 &dispatch.work_item_id,
@@ -508,6 +522,58 @@ fn run_claimed_dispatch(
             return Err(reason);
         }
     };
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if started.elapsed() >= run_timeout {
+                    eprintln!(
+                        "forge-worker: run for {} exceeded {}s; killing process group",
+                        dispatch.work_item_id,
+                        run_timeout.as_secs()
+                    );
+                    #[cfg(unix)]
+                    {
+                        let _ = std::process::Command::new("kill")
+                            .args(["-9", &format!("-{}", child.id())])
+                            .status();
+                    }
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let reason =
+                        format!("FORGE_RUN_TIMEOUT_SECS={} elapsed", run_timeout.as_secs());
+                    match agent_work::finish_agent_work_run(
+                        &dispatch.work_item_id,
+                        AgentWorkOutcome::Abandoned,
+                        Some(&reason),
+                    ) {
+                        Ok(Some(settled)) => eprintln!(
+                            "forge-worker: settled {} as {} (story {})",
+                            dispatch.work_item_id,
+                            settled.item_state,
+                            settled.story_status.as_deref().unwrap_or("unchanged")
+                        ),
+                        Ok(None) => eprintln!(
+                            "forge-worker: {} already had a verdict; left as-is",
+                            dispatch.work_item_id
+                        ),
+                        Err(settle) => eprintln!(
+                            "forge-worker: could not settle {} as Error: {settle}",
+                            dispatch.work_item_id
+                        ),
+                    }
+                    heartbeat.store(true, Ordering::Relaxed);
+                    return Err(reason);
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
+            Err(error) => {
+                heartbeat.store(true, Ordering::Relaxed);
+                return Err(format!("wait on forge child: {error}"));
+            }
+        }
+    };
     heartbeat.store(true, Ordering::Relaxed);
 
     // A worktree is an execution sandbox, not workflow state. Remove it after every child run. The cleanup helper
@@ -516,7 +582,10 @@ fn run_claimed_dispatch(
         std::env::current_dir().ok().as_deref(),
         &dispatch.story_id,
         &dispatch.work_item_id,
-        std::env::var("FORGE_WORKTREES_ROOT").ok().as_deref().map(Path::new),
+        std::env::var("FORGE_WORKTREES_ROOT")
+            .ok()
+            .as_deref()
+            .map(Path::new),
     ) {
         eprintln!(
             "forge-worker: worktree cleanup failed story={} item={}: {error}",
