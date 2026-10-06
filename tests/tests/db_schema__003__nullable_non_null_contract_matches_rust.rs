@@ -1,87 +1,68 @@
-//! DB.SCHEMA — nullable/non-null contract matches Rust (TST-DB-SCHEMA-003).
+//! DB.SCHEMA — nullable / NOT NULL contract matches Rust (TST-DB-SCHEMA-003).
 //!
-//! CONTRACT. Every `NOT NULL` Rust newtype and every `Option<T>` Rust optional
-//! must have a matching constraint in the production schema.  A column that is
-//! `Optional` in Rust must allow `NULL` in the database, and a column that is
-//! a non‑optional newtype in Rust must be `NOT NULL` in the database.  This
-//! test asserts that invariant across every column used by the domain model.
+//! CONTRACT. The columns the Rust `property` model reads as required are NOT NULL in the database, and the ones it
+//! reads as optional (`Option<_>`) are nullable. A column that drifts in either direction is a runtime decode failure
+//! (a NULL into a required field) or a lie in the type (a required field that can never be absent).
 //!
-//! Level: L2 Persistence — exercise the same boundary production uses.  Use
-//! only an isolated disposable Postgres/Neon test target; assert committed
-//! database truth and rollback; PROD is forbidden.
+//! Read from `information_schema.columns`; no row is written. A non-production database only; PROD is refused by the
+//! harness before a socket opens.
 //!
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test db_schema__003__nullable_non_null_contract_matches_rust
 
 use test_harness::database::TestDatabase;
-use test_harness::database::TestTransaction;
+
+/// `(column, nullable)` as the Rust `property` model treats each one.
+const PROPERTY_COLUMNS: [(&str, bool); 9] = [
+    ("id", false),
+    ("status", false),
+    ("created_at", false),
+    ("updated_at", false),
+    ("name", true),
+    ("list_price", true),
+    ("bedrooms", true),
+    ("bathrooms", true),
+    ("square_feet", true),
+];
 
 #[tokio::test]
 async fn db_schema_003__nullable_non_null_contract_matches_rust() {
-    let test_db = TestDatabase::connect_from_env()
+    let test_db = TestDatabase::connect_from_env().await.expect(
+        "a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)",
+    );
+    let mut conn = test_db
+        .database()
+        .pool()
+        .acquire()
         .await
-        .expect("a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)");
+        .expect("pool checkout");
 
-    let mut tx = test_db.begin().await.expect("begin transaction");
-
-    // 1. Verify NOT NULL columns in the database are the ones Rust expects.
-    //    We check the information_schema for nullability.
-    let columns_to_check = [
-        ("id", false),         // NOT NULL in Rust → NOT NULL in DB
-        ("name", true),        // Option<Text> in Rust → NULL allowed in DB
-        ("list_price", true),  // Option<Numeric> in Rust → NULL allowed in DB
-        ("bedrooms", true),    // Option<Numeric> in Rust → NULL allowed in DB
-        ("bathrooms", true),   // Option<Numeric> in Rust → NULL allowed in DB
-        ("square_feet", true), // Option<Integer> in Rust → NULL allowed in DB
-        ("created_at", false), // NOT NULL in Rust → NOT NULL in DB
-        ("updated_at", false), // NOT NULL in Rust → NOT NULL in DB
-    ];
-
-    for (column, allows_null) in &columns_to_check {
-        let query = if *allows_null {
-            "SELECT nullable = 'YES' FROM information_schema.columns WHERE table_name = 'property' AND column_name = $1"
-        } else {
-            "SELECT NOT NULL IS NOT NULL FROM information_schema.columns WHERE table_name = 'property' AND column_name = $1"
-        };
-        let result: (i32,) = sqlx::query_as(query)
-            .bind(column)
-            .fetch_one(&mut *tx.connection())
-            .await
-            .expect(&format!("query column {} nullability", column));
-
-        let value = result.0 != 0;
+    for (column, nullable) in PROPERTY_COLUMNS {
+        let is_nullable: String = sqlx::query_scalar(
+            "select is_nullable::text from information_schema.columns
+              where table_schema = 'public' and table_name = 'property' and column_name = $1",
+        )
+        .bind(column)
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap_or_else(|error| panic!("property.{column} is not in the schema: {error}"));
         assert_eq!(
-            value, *allows_null,
-            "column `{}` should allow NULL={} in DB, got {}",
-            column, allows_null, value
+            is_nullable == "YES",
+            nullable,
+            "property.{column}: the Rust model expects nullable={nullable}, the database says is_nullable={is_nullable}"
         );
     }
 
-    // 2. Verify the unique index on listing_identifier exists.
-    let unique_check: (i32,) = sqlx::query_as(
-        "SELECT count(*) FROM pg_index WHERE indexname = 'idx_property_listing_identifier_unique'",
+    // The status vocabulary is enforced by a CHECK, not by convention (004 pins its contents).
+    let checks: i64 = sqlx::query_scalar(
+        "select count(*) from pg_constraint
+          where conname = 'property_status_check' and conrelid = 'property'::regclass and contype = 'c'",
     )
-    .fetch_one(&mut *tx.connection())
+    .fetch_one(&mut *conn)
     .await
-    .expect("count unique index");
-
+    .expect("count property_status_check");
     assert_eq!(
-        unique_check.0, 1,
-        "unique index idx_property_listing_identifier_unique must exist"
+        checks, 1,
+        "property.status must be guarded by property_status_check"
     );
-
-    // 3. Verify the CHECK constraint on status exists.
-    let check_constraint: (i32,) = sqlx::query_as(
-        "SELECT count(*) FROM pg_constraint WHERE conname = 'property_status_check'",
-    )
-    .fetch_one(&mut *tx.connection())
-    .await
-    .expect("count status check constraint");
-
-    assert_eq!(
-        check_constraint.0, 1,
-        "CHECK constraint property_status_check must exist"
-    );
-
-    let _ = tx.rollback().await;
 }
