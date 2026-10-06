@@ -362,7 +362,7 @@ async fn registered_service_mailbox(
     }
 }
 
-fn http_service_domain(path: &str) -> Option<&'static str> {
+pub(super) fn http_service_domain(path: &str) -> Option<&'static str> {
     if path == "/api/portal/rust-ui/clients" {
         return Some("client");
     }
