@@ -107,6 +107,14 @@ impl ApiState {
     }
 }
 
+/// The service domain (capability owner) a request path belongs to, or `None` when the path is deliberately outside the
+/// service map (health checks, the internal-key engine surface, public pages). This is the REAL function the router
+/// uses, exposed so the route-map contract tests ask it instead of re-parsing its source, which they could not do:
+/// a parser written for one shape of `if` block read one pattern out of dozens.
+pub fn service_domain_for_path(path: &str) -> Option<&'static str> {
+    routes::http_service_domain(path)
+}
+
 pub fn build_application(
     db: Database,
     infrastructure: ServiceInfrastructure,
