@@ -159,6 +159,7 @@ pub fn watch_loop() -> i32 {
     let poll = env_secs(POLL_SECS_ENV, DEFAULT_POLL_SECS);
     let drain_window = env_secs(DRAIN_SECS_ENV, DEFAULT_DRAIN_SECS);
     let mut state = "idle";
+    let mut listen_failures: u32 = 0;
 
     loop {
         // SIGTERM arrived: stop claiming, report draining, give in-flight runs the window, exit 0.
@@ -235,11 +236,21 @@ pub fn watch_loop() -> i32 {
             }
         }
 
-        // S2 wake: with poll mode this sleep is the guarantee; in listen mode the NOTIFY wakes the
-        // listener and a finished run also wakes the loop. Either way the poll is the floor.
+        // S2 wake: LISTEN cuts latency, the poll is the correctness floor. A listener fault adds a
+        // backoff (1s doubling to 60s) and then falls through to the next pass immediately, because
+        // notifications sent while disconnected are lost.
         match wake_mode_from_env() {
             WakeMode::Poll => std::thread::sleep(poll),
-            WakeMode::Listen => wait_for_wake(poll),
+            WakeMode::Listen => match wait_for_wake(poll) {
+                Ok(()) => listen_failures = 0,
+                Err(error) => {
+                    listen_failures = (listen_failures + 1).min(6);
+                    let backoff =
+                        Duration::from_secs(1u64 << listen_failures).min(Duration::from_secs(60));
+                    eprintln!("forge-worker: listen failed ({error}); backoff {backoff:?}");
+                    std::thread::sleep(backoff);
+                }
+            },
         }
     }
 }
@@ -264,12 +275,58 @@ fn running_count() -> usize {
     pending_runs() as usize
 }
 
-/// S2: wait for a `forge_work` NOTIFY on the direct endpoint, or the poll deadline, or a run beat.
+/// S2: wait for a `forge_work` NOTIFY on the direct endpoint, or the poll deadline.
+///
 /// The direct (non-pooler) URL is mandatory — PgBouncer transaction mode silently drops LISTEN.
-fn wait_for_wake(poll: Duration) {
-    // The listener itself (reconnect-with-backoff, one pass on reconnect) belongs to the D2
-    // pg_notify migration; until `forge_work` exists the poll is the wake, which is correct.
-    std::thread::sleep(poll)
+/// On any listener fault this returns Err: the caller backs off, then runs one pass immediately,
+/// because notifications sent while disconnected are lost. The poll is the correctness floor;
+/// LISTEN only cuts latency.
+fn wait_for_wake(poll: Duration) -> Result<(), String> {
+    let url = match direct_neon_url() {
+        Some(url) => url,
+        None => {
+            std::thread::sleep(poll);
+            return Ok(());
+        }
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| error.to_string())?;
+    runtime.block_on(async {
+        let mut listener = sqlx::postgres::PgListener::connect(&url)
+            .await
+            .map_err(|error| error.to_string())?;
+        listener
+            .listen("forge_work")
+            .await
+            .map_err(|error| error.to_string())?;
+        match tokio::time::timeout(poll, listener.recv()).await {
+            Ok(Ok(_notification)) => Ok(()),
+            Ok(Err(error)) => Err(error.to_string()),
+            Err(_elapsed) => Ok(()), // the poll deadline: a pass is due anyway
+        }
+    })
+}
+
+/// The connection URL for LISTEN: `DATABASE_URL_DIRECT` if set, else the pooled URL with the
+/// Neon `-pooler` host segment removed. `None` when no Neon URL is configured at all — then the
+/// poll floor is the wake, which is correct.
+fn direct_neon_url() -> Option<String> {
+    if let Ok(direct) = std::env::var("DATABASE_URL_DIRECT") {
+        let direct = direct.trim().to_string();
+        if !direct.is_empty() {
+            return Some(direct);
+        }
+    }
+    let pooled = std::env::var("DATABASE_URL_PROD")
+        .ok()
+        .or_else(|| std::env::var("DATABASE_URL").ok())?;
+    if pooled.contains("-pooler") {
+        Some(pooled.replace("-pooler", ""))
+    } else {
+        Some(pooled)
+    }
 }
 
 fn install_sigterm_handler(stop: Arc<AtomicBool>) {
