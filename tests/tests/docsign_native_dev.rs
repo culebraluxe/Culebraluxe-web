@@ -963,3 +963,241 @@ async fn import_builds_owned_fields_from_template_anchors() {
     assert_eq!(refused.code(), "DOCUMENT_SIGN_FIELD_INVALID");
     cleanup(&db, &env).await;
 }
+
+// ── THE HTTP EDGE ────────────────────────────────────────────────────────────────────────────────────────────────
+//
+// Everything above drives the services directly. A signer is not a service: they hold an emailed link and a browser.
+// This drives the SAME production composition root the server runs (`web::api::build_router`, over DEV, without the
+// TCP listener) through the six public `/v1/signer/*` routes, with a real access token minted by the same codec the
+// router builds from the environment — so what is proven is the path a person's click takes: token → session → open →
+// consent → field → complete, the durable command dispatcher in between, and the refusals at each door.
+
+const HTTP_KEY: &str = "docsign-http-proof-internal-key";
+const CONSENT_SHA: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+
+async fn post(
+    router: &axum::Router,
+    path: &str,
+    body: serde_json::Value,
+) -> (u16, serde_json::Value) {
+    use test_harness::http::{call, TestRequest};
+    let response = call(router, TestRequest::post(path).json(&body)).await;
+    let status = response.status().as_u16();
+    let json = serde_json::from_str(&response.text()).unwrap_or(serde_json::Value::Null);
+    (status, json)
+}
+
+/// A command answered over the edge is HTTP 200 with the verdict INSIDE the envelope (`value.outcome`): the durable
+/// command runtime's receipt, replayable by command id. `success` is the only good answer.
+fn outcome(body: &serde_json::Value) -> String {
+    body["value"]["outcome"]
+        .as_str()
+        .unwrap_or("(no outcome)")
+        .to_string()
+}
+
+async fn recipient_state(db: &Database, recipient: &str) -> (String, bool) {
+    sqlx::query_as::<_, (String, bool)>(
+        "select state, completed_at is not null from signature_recipient_state where recipient_id = $1::uuid",
+    )
+    .bind(recipient)
+    .fetch_one(db.pool())
+    .await
+    .expect("the recipient has a state row")
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL_DEV"]
+async fn signers_complete_an_envelope_over_the_public_http_edge() {
+    let db = Database::connect_target(DbTarget::Dev).await.unwrap();
+    let tag = format!("http-{}", Uuid::new_v4());
+    let env = envelope(&db, &tag).await;
+    let ctx = context(&tag);
+
+    // The production composition root over DEV, and an issuer built with the router's own codec (env-derived secret).
+    let infrastructure = web::service_bootstrap::production_service_infrastructure(&db)
+        .await
+        .expect("the production service infrastructure composes");
+    let router = web::api::build_router(
+        db.clone(),
+        infrastructure,
+        web::api::ApiConfig {
+            internal_api_key: Arc::from(HTTP_KEY),
+        },
+    );
+    let codec = SignerAccessTokenCodec::from_env()
+        .expect("DOCSIGN_ACCESS_SECRET, AUTH_SECRET or CULEBRA_INTERNAL_API_KEY must be set (as the router needs)");
+    let issuing = SignerService::new(SignerDao::new(db.clone()), codec, infra());
+
+    // ── The doors refuse what they must ──────────────────────────────────────────────────────────────────────────
+    let (status, body) = post(&router, "/v1/signer/session", serde_json::json!({})).await;
+    assert_eq!(status, 401, "no link, no session: {body}");
+    assert_eq!(body["ok"], false);
+    let (status, _) = post(
+        &router,
+        "/v1/signer/session",
+        serde_json::json!({ "accessToken": "not-a-signing-link" }),
+    )
+    .await;
+    assert_eq!(status, 401, "a forged link is refused");
+
+    // ── A and B (step 1, together) ───────────────────────────────────────────────────────────────────────────────
+    let token_a = grant(&issuing, &db, &env.a, &ctx).await;
+    let token_b = grant(&issuing, &db, &env.b, &ctx).await;
+
+    let (status, body) = post(
+        &router,
+        "/v1/signer/session",
+        serde_json::json!({ "accessToken": token_a }),
+    )
+    .await;
+    assert_eq!(status, 200, "a valid link opens a session: {body}");
+    assert_eq!(body["ok"], true);
+    assert_eq!(
+        body["value"]["recipient"]["id"], env.a,
+        "the session names the recipient the TOKEN belongs to"
+    );
+
+    // Completing before consent is refused by the command's own verdict, and changes nothing.
+    let (status, body) = post(
+        &router,
+        "/v1/signer/complete",
+        serde_json::json!({ "accessToken": token_b, "recipientId": env.b }),
+    )
+    .await;
+    assert!(
+        status >= 400 || outcome(&body) != "success",
+        "complete before consent must be refused, got {status}: {body}"
+    );
+    assert_ne!(
+        recipient_state(&db, &env.b).await.0,
+        "completed",
+        "the refusal left B unfinished"
+    );
+
+    // A forged recipientId cannot ride a valid token onto someone else's lane: B's token naming A is refused.
+    let (status, body) = post(
+        &router,
+        "/v1/signer/consent",
+        serde_json::json!({
+            "accessToken": token_b, "recipientId": env.a, "consentVersion": "v1",
+            "consentText": "I agree.", "consentTextSha256": CONSENT_SHA,
+        }),
+    )
+    .await;
+    assert!(
+        status >= 400 || outcome(&body) != "success",
+        "a token cannot act for another recipient, got {status}: {body}"
+    );
+
+    for (recipient, token, field) in [
+        (&env.a, &token_a, Some(env.field_a.as_str())),
+        (&env.b, &token_b, None),
+    ] {
+        let (status, body) = post(
+            &router,
+            "/v1/signer/open",
+            serde_json::json!({ "accessToken": token, "recipientId": recipient }),
+        )
+        .await;
+        assert!(
+            status == 200 && outcome(&body) == "success",
+            "open: {status} {body}"
+        );
+        let (status, body) = post(
+            &router,
+            "/v1/signer/consent",
+            serde_json::json!({
+                "accessToken": token, "recipientId": recipient, "consentVersion": "v1",
+                "consentText": "I agree.", "consentTextSha256": CONSENT_SHA,
+            }),
+        )
+        .await;
+        assert!(
+            status == 200 && outcome(&body) == "success",
+            "consent: {status} {body}"
+        );
+        if let Some(field) = field {
+            let (status, body) = post(
+                &router,
+                "/v1/signer/field",
+                serde_json::json!({
+                    "accessToken": token, "recipientId": recipient, "fieldId": field,
+                    "value": { "signature": "proof-strokes" },
+                }),
+            )
+            .await;
+            assert!(
+                status == 200 && outcome(&body) == "success",
+                "field: {status} {body}"
+            );
+        }
+        let (status, body) = post(
+            &router,
+            "/v1/signer/complete",
+            serde_json::json!({ "accessToken": token, "recipientId": recipient }),
+        )
+        .await;
+        assert!(
+            status == 200 && outcome(&body) == "success",
+            "complete: {status} {body}"
+        );
+    }
+    for recipient in [&env.a, &env.b] {
+        let (state, has_completed_at) = recipient_state(&db, recipient).await;
+        assert_eq!(
+            state, "completed",
+            "step 1 signers are completed in the database"
+        );
+        assert!(has_completed_at, "and carry a completion time");
+    }
+
+    // ── C (step 2) acts only once step 1 is done — and now it is ────────────────────────────────────────────────
+    let token_c = grant(&issuing, &db, &env.c, &ctx).await;
+    for (path, body) in [
+        (
+            "/v1/signer/open",
+            serde_json::json!({ "accessToken": token_c, "recipientId": env.c }),
+        ),
+        (
+            "/v1/signer/consent",
+            serde_json::json!({
+                "accessToken": token_c, "recipientId": env.c, "consentVersion": "v1",
+                "consentText": "I agree.", "consentTextSha256": CONSENT_SHA,
+            }),
+        ),
+        (
+            "/v1/signer/complete",
+            serde_json::json!({ "accessToken": token_c, "recipientId": env.c }),
+        ),
+    ] {
+        let (status, response) = post(&router, path, body).await;
+        assert!(
+            status == 200 && outcome(&response) == "success",
+            "{path}: {status} {response}"
+        );
+    }
+    assert_eq!(recipient_state(&db, &env.c).await.0, "completed");
+
+    // ── What the database holds is the audit trail ──────────────────────────────────────────────────────────────
+    let responses: i64 = sqlx::query_scalar(
+        "select count(*) from signature_field_response where field_id = $1::uuid",
+    )
+    .bind(&env.field_a)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(responses, 1, "A's field response was recorded once");
+    let events: Vec<String> = sqlx::query_scalar(
+        "select event_type from signature_evidence_event where signature_request_id = $1::uuid order by id",
+    )
+    .bind(&env.request_id)
+    .fetch_all(db.pool())
+    .await
+    .unwrap();
+    assert!(
+        events.len() >= 9,
+        "three signers each leave open, consent and completion evidence: {events:?}"
+    );
+    cleanup(&db, &env).await;
+}
