@@ -143,3 +143,98 @@ pub fn crate_name_of(entry: &str) -> String {
         .trim()
         .to_string()
 }
+
+/// The body of a free function `fn name(…) { … }`, as the lines from the signature to the closing
+/// brace at the signature's indentation.
+///
+/// The signature may span lines until the `{` that opens the body; the body ends at the first line
+/// whose code is exactly `}` at the signature's indentation. A trait declaration (`fn name(…) …;`)
+/// has no body and is refused rather than returned as an empty one.
+pub fn fn_body(text: &str, name: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines
+        .iter()
+        .position(|line| code_of(line).contains(&format!("fn {name}(")))
+        .unwrap_or_else(|| panic!("fn {name} must exist"));
+    body_from(&lines, start)
+}
+
+/// The body of a method `fn name(…) { … }` inside the `impl … impl_type …` block.
+///
+/// Anchoring on the impl block matters where a method is declared in a trait, defined in the DAO's
+/// impl and again in the service's impl: the service's definition is the one that authorizes, and it
+/// is the one this reads rather than the DAO's pass-through.
+pub fn impl_body(text: &str, impl_type: &str, name: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let impl_start = lines
+        .iter()
+        .position(|line| {
+            let code = code_of(line);
+            code.starts_with("impl") && code.contains(impl_type)
+        })
+        .unwrap_or_else(|| panic!("the impl of {impl_type} must exist"));
+    let mut index = impl_start;
+    while index < lines.len() {
+        if code_of(lines[index]).contains(&format!("fn {name}(")) {
+            return body_from(&lines, index);
+        }
+        index += 1;
+    }
+    panic!("fn {name} must exist in the impl of {impl_type}")
+}
+
+/// The lines of the function whose signature starts at `start`, through the closing brace.
+fn body_from(lines: &[&str], start: usize) -> String {
+    // The signature may span lines until the `{` that opens the body.
+    let mut cursor = start;
+    let mut signature = String::new();
+    loop {
+        let code = code_of(lines[cursor]);
+        signature.push_str(code);
+        if signature.contains('{') || code.contains(';') {
+            break;
+        }
+        cursor += 1;
+    }
+    assert!(
+        signature.contains('{'),
+        "fn at line {} must be a definition with a body",
+        start + 1
+    );
+    let indent = lines[start]
+        .chars()
+        .take_while(|character| *character == ' ')
+        .count();
+    let closing = format!("{}}}", " ".repeat(indent));
+    let mut body = String::new();
+    for line in lines.iter().skip(start) {
+        body.push_str(line);
+        body.push('\n');
+        if code_of(line) == closing {
+            return body;
+        }
+    }
+    panic!("fn at line {} must have a closing brace", start + 1)
+}
+
+/// The `.route(…)` block a path is wired to: the lines from the path literal to the closing `)`.
+///
+/// The block is the unit a route assertion reads — the path and the handler that serves it are
+/// wired together in one `.route(…)` call, and this returns that call's lines.
+pub fn route_block(routes: &str, path: &str) -> String {
+    let lines: Vec<&str> = routes.lines().collect();
+    let start = lines
+        .iter()
+        .position(|line| code_of(line).contains(path))
+        .unwrap_or_else(|| panic!("the route {path} must exist"));
+    let mut block = String::new();
+    for line in lines.iter().skip(start) {
+        let code = code_of(line);
+        block.push_str(line);
+        block.push('\n');
+        if code.trim() == ")" {
+            break;
+        }
+    }
+    block
+}
