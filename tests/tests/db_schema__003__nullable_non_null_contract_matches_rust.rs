@@ -26,6 +26,7 @@ const PROPERTY_COLUMNS: [(&str, bool); 9] = [
 ];
 
 #[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (APP_ENV=dev): runs only against the disposable DEV branch; PROD is refused"]
 async fn db_schema_003__nullable_non_null_contract_matches_rust() {
     let test_db = TestDatabase::connect_from_env().await.expect(
         "a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)",
