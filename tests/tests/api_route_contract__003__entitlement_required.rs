@@ -3,7 +3,10 @@
 //! Contract: routes protected by entitlements reject requests from principals lacking the required
 //! entitlement with 403 Forbidden. The entitlement check happens after authentication.
 //!
-//! Level: L3 Composition — the production `axum::Router` driven in-process via `tower::ServiceExt`.
+//! Level: L3 Composition over a SIMULATED router — a principal middleware and inline entitlement checks standing in for
+//! the production handlers, driven in-process via `tower::ServiceExt`. It pins the CONTRACT's shape (no entitlement and a
+//! wrong entitlement are 403, the right one and a `tech.*` wildcard are not, public and health routes never are); it does
+//! not exercise the production router, whose entitlement decisions live in `web/src/security/entitlements.rs`.
 //!
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test api_route_contract__003__entitlement_required
@@ -160,8 +163,10 @@ fn test_router() -> Router {
             .unwrap()
     }
 
+    // THE LAYER GOES LAST. In axum a layer wraps only the routes added BEFORE it, so with `.layer(...)` first (as this
+    // was) `add_principal` wrapped nothing, no principal was ever attached, and every handler answered 403 — including
+    // for the principal that held the right entitlement.
     Router::new()
-        .layer(middleware::from_fn(add_principal))
         // Public routes
         .route("/healthz", get(health_handler))
         .route("/v1/public/listings", get(public_handler))
@@ -178,6 +183,7 @@ fn test_router() -> Router {
         .route("/v1/vault/documents", get(vault_documents_handler))
         .route("/v1/workflows", get(workflows_handler))
         .route("/v1/projects", get(projects_handler))
+        .layer(middleware::from_fn(add_principal))
 }
 
 const HARNESS: &str = "AxumHttpHarness/L3 Composition";

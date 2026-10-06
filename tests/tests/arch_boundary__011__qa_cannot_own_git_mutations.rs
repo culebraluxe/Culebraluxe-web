@@ -368,6 +368,12 @@ fn copy_char_literal(characters: &mut std::iter::Peekable<std::str::Chars<'_>>, 
     }
 }
 
+/// `line` with the inside of every double-quoted literal removed, so a handle NAMED in a string (a sibling test's planted
+/// detector sample, an assertion message) is not mistaken for code that BUILDS one.
+fn without_literals(line: &str) -> String {
+    line.split('"').step_by(2).collect::<Vec<_>>().join("\"\"")
+}
+
 /// The double-quoted literals in `text`, in order.
 fn literals(text: &str) -> Vec<String> {
     text.split('"')
@@ -840,7 +846,10 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
 
     let constructors: BTreeSet<String> = swept
         .iter()
-        .filter(|(_, code)| code.lines().any(builds_release_handle))
+        .filter(|(_, code)| {
+            code.lines()
+                .any(|line| builds_release_handle(&without_literals(line)))
+        })
         .map(|(path, _)| path.clone())
         .collect();
     assert!(
