@@ -12,6 +12,7 @@
 use crate::engine::constants::FORGE_GIT_SHA;
 use crate::engine::vendor_session::with_shared;
 use crate::engine::worker;
+use db::ForgeControlDao;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -86,17 +87,17 @@ fn beat(state: &str, running: i32, last_error: Option<&str>) -> Result<(), Strin
     let started = process_started_at();
     with_shared(|db, rt| {
         rt.block_on(async {
-            sqlx::query("select forge_worker_beat($1, $2, $3, $4, $5, $6, $7)")
-                .bind(&worker_id)
-                .bind(&host)
-                .bind(FORGE_GIT_SHA)
-                .bind(state)
-                .bind(running)
-                .bind(last_error)
-                .bind(started)
-                .execute(db.pool())
+            ForgeControlDao::new(db.clone())
+                .worker_beat(
+                    &worker_id,
+                    &host,
+                    FORGE_GIT_SHA,
+                    state,
+                    running,
+                    last_error,
+                    started,
+                )
                 .await
-                .map(|_| ())
                 .map_err(|error| error.to_string())
         })
     })?
@@ -118,15 +119,15 @@ struct Control {
 fn read_control() -> Result<Control, String> {
     with_shared(|db, rt| {
         rt.block_on(async {
-            let row: (bool, Option<String>) = sqlx::query_as(
-                "select paused, desired_worker_sha from forge_runtime_control where id = 1",
-            )
-            .fetch_one(db.pool())
-            .await
-            .map_err(|error| error.to_string())?;
+            let row = ForgeControlDao::new(db.clone())
+                .runtime_control()
+                .await
+                .map_err(|error| error.to_string())?
+                // No row is a closed door in the claim routine (275); the loop says so rather than assuming "not paused".
+                .ok_or_else(|| "forge_runtime_control row 1 is missing".to_string())?;
             Ok(Control {
-                paused: row.0,
-                desired_sha: row.1,
+                paused: row.paused,
+                desired_sha: row.desired_worker_sha,
             })
         })
     })?
@@ -269,20 +270,9 @@ pub fn watch_loop() -> i32 {
     }
 }
 
-/// How many agent-work runs this process is still carrying. Read from the durable row the engine
-/// owns; never guessed from a counter.
+/// How many story runs this process is still carrying (see `worker::in_flight_runs`).
 fn pending_runs() -> i32 {
-    with_shared(|db, rt| {
-        rt.block_on(async {
-            sqlx::query_scalar::<_, i64>(
-                "select count(*) from storyboard_story_run where status in ('Running','Reserved')",
-            )
-            .fetch_one(db.pool())
-            .await
-            .unwrap_or(0) as i32
-        })
-    })
-    .unwrap_or(0)
+    worker::in_flight_runs() as i32
 }
 
 fn running_count() -> usize {
@@ -307,20 +297,9 @@ fn wait_for_wake(poll: Duration) -> Result<(), String> {
         .enable_all()
         .build()
         .map_err(|error| error.to_string())?;
-    runtime.block_on(async {
-        let mut listener = sqlx::postgres::PgListener::connect(&url)
-            .await
-            .map_err(|error| error.to_string())?;
-        listener
-            .listen("forge_work")
-            .await
-            .map_err(|error| error.to_string())?;
-        match tokio::time::timeout(poll, listener.recv()).await {
-            Ok(Ok(_notification)) => Ok(()),
-            Ok(Err(error)) => Err(error.to_string()),
-            Err(_elapsed) => Ok(()), // the poll deadline: a pass is due anyway
-        }
-    })
+    runtime
+        .block_on(db::wait_for_forge_work(&url, poll))
+        .map_err(|error| error.to_string())
 }
 
 /// The connection URL for LISTEN: `DATABASE_URL_DIRECT` if set, else the pooled URL with the

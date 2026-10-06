@@ -109,7 +109,8 @@ pub use error::{DbFailure, DbFailureKind, DbResult};
 pub use firm::FirmDao;
 pub use flight_recorder::FlightRecorderDao;
 pub use forge_control::{
-    FlightFireResult, ForgeControlDao, ForgeRuntimeControlRow, LearnStaleClaimRow, StaleAgentWorkRow,
+    wait_for_forge_work, FlightFireResult, ForgeControlDao, ForgeRuntimeControlRow,
+    LearnStaleClaimRow, StaleAgentWorkRow,
 };
 pub use forge_doctor::{
     ClaimRow, ControlPlaneCounts, EngineQueuedCardRow, EngineRunCardRow, ForgeDoctorDao, QaRunRow,
@@ -159,7 +160,9 @@ pub use security::{IdentityPrincipal, SecurityDao};
 pub use security_audit::SecurityAuditDao;
 pub use showing::ShowingDao;
 pub use signature::SignatureDao;
-pub use signer::{FinalizeEvent, FinalizeField, FinalizeInputs, FinalizeRecipient, SignerAccessRecord, SignerDao};
+pub use signer::{
+    FinalizeEvent, FinalizeField, FinalizeInputs, FinalizeRecipient, SignerAccessRecord, SignerDao,
+};
 pub use support::SupportDiagnosticsDao;
 pub use task::TaskDao;
 pub use tech::{
