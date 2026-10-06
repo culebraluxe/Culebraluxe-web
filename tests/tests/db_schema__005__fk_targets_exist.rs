@@ -1,126 +1,198 @@
 //! DB.SCHEMA — FK targets exist (TST-DB-SCHEMA-005).
 //!
-//! CONTRACT. Every foreign key reference in the production schema must have a
-//! matching row in the referenced table.  This test verifies that all FK
-//! constraints are satisfied: no orphaned rows exist in tables that reference
-//! parent tables via foreign keys.  The test exercises the production boundary
-//! using an isolated disposable test target; PROD is forbidden.
+//! Contract: every foreign key in the production schema points at a target that exists.
+//! The test reads the schema through the production reader
+//! [`db::schema_parity::read_snapshot`] — the same catalogue reader the `db:parity`
+//! release gate uses — and asserts, against an isolated disposable DEV target:
 //!
-//! Level: L2 Persistence — exercise the same boundary production uses.  Use
-//! only an isolated disposable Postgres/Neon test target; assert committed
-//! database truth and rollback; PROD is forbidden.
+//! 1. the schema declares foreign keys at all (otherwise the test is vacuous);
+//! 2. every FK's parent table is present in the live table set — no dangling target;
+//! 3. the canonical property/media core declares both of its FK targets
+//!    (`property_media -> property`, `property_media -> media`);
+//! 4. the committed relation rows are referentially clean — no orphaned
+//!    `property_media` row points at a property or media row that is absent;
+//! 5. the database itself refuses a reference to a target that does not exist (a
+//!    rolled-back orphan insert), so the invariant cannot be bypassed.
+//!
+//! The negative control is two-fold: a fabricated table reads absent and a fabricated
+//! foreign key reads absent, so a reader that answered "present" for everything could
+//! not pass. The orphan insert is rolled back, so no disposable row survives.
+//!
+//! Level: L2 Persistence — the production snapshot reader plus one rolled-back write
+//! against an isolated disposable DEV/Neon target. The harness refuses PRODUCTION
+//! before any socket is opened, and the only writes are inside a rollback-only
+//! transaction.
 //!
 //! Run with:
-//!   cargo test --manifest-path Cargo.toml -p test-harness --test db_schema__005__fk_targets_exist
+//!   DATABASE_URL_DEV=... cargo test --manifest-path Cargo.toml -p test-harness \
+//!     --test db_schema__005__fk_targets_exist -- --ignored
+//! The plain command (no `--ignored`) passes with the test skipped, because the proof
+//! needs a disposable DEV database and the harness will never open a PRODUCTION one.
 
+use db::DbTarget;
 use test_harness::database::TestDatabase;
 
-#[tokio::test]
-async fn db_schema_005__fk_targets_exist() {
-    let test_db = TestDatabase::connect_from_env()
-        .await
-        .expect("a declared non-production database (DATABASE_URL_DEV with APP_ENV/VERCEL_ENV not production)");
+/// The harness name and level, carried in every assertion message so a failure names its boundary.
+const HARNESS: &str = "DatabaseHarness/L2 Persistence";
 
-    let mut conn = test_db
+/// The FK target relationships the canonical property/media core relies upon:
+/// (child table, parent table). A missing pair means a target the domain needs is
+/// not declared. `property` is the canonical listing record and `media` the reusable
+/// asset, both related through `property_media` (project handbook).
+const CANONICAL_FK_TARGETS: &[(&str, &str)] = &[
+    ("property_media", "property"),
+    ("property_media", "media"),
+];
+
+/// Connect to the disposable DEV branch, tolerating a cold-pool timeout under concurrent test load.
+///
+/// Infrastructure, not the contract: `TestDatabase` still refuses PRODUCTION before any socket is opened.
+async fn connect_dev() -> TestDatabase {
+    let mut last: Option<String> = None;
+    for attempt in 1..=4 {
+        match TestDatabase::connect_declared(Some("dev"), Some("dev")).await {
+            Ok(harness) => return harness,
+            Err(error) => {
+                eprintln!("proof: DEV connect attempt {attempt} failed: {error}");
+                last = Some(error.to_string());
+                tokio::time::sleep(std::time::Duration::from_millis(500 * attempt)).await;
+            }
+        }
+    }
+    panic!(
+        "DATABASE_URL_DEV must reach a disposable DEV branch; the harness refuses PROD: {}",
+        last.unwrap_or_default()
+    );
+}
+
+/// `regclass::text` may qualify a relation (`public.property_media`); the snapshot's table
+/// set is unqualified, so compare on the bare relation name.
+fn bare_relation(relation: &str) -> &str {
+    relation
+        .rsplit_once('.')
+        .map(|(_, bare)| bare)
+        .unwrap_or(relation)
+}
+
+#[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (a disposable DEV branch); the harness refuses PROD before any socket"]
+#[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-DB-SCHEMA-005); the file and the assay use it.
+async fn db_schema_005__fk_targets_exist() {
+    // 0. L2 boundary: an isolated disposable DEV/Neon target, never PRODUCTION.
+    let dev = connect_dev().await;
+    assert_eq!(
+        dev.target(),
+        DbTarget::Dev,
+        "{HARNESS}: the FK-target proof runs only on an isolated DEV target"
+    );
+
+    // 1. The production snapshot reader — the same reader the parity gate uses.
+    let snapshot = db::schema_parity::read_snapshot(dev.database())
+        .await
+        .expect("the production snapshot reader reads DEV");
+
+    // 2. The subject is non-empty: a schema that declares no foreign keys cannot
+    //    demonstrate that FK targets exist.
+    assert!(
+        !snapshot.fks.is_empty(),
+        "{HARNESS}: the schema declares foreign keys — otherwise this test is vacuous"
+    );
+
+    // 3. Negative control: fabricated names read absent, so a reader that answered
+    //    "present" for everything could not pass this test.
+    assert!(
+        !snapshot
+            .tables
+            .iter()
+            .any(|table| table == "no_such_table_tst_schema_005"),
+        "{HARNESS}: a fabricated table reads absent — the reader discriminates"
+    );
+    assert!(
+        !snapshot.fks.contains_key("no_such_fk_tst_schema_005"),
+        "{HARNESS}: a fabricated foreign key reads absent — the reader discriminates"
+    );
+
+    // 4. Every FK's parent table exists. (`read_snapshot` stores each FK as
+    //    `"child -> parent"`, so a dangling target is visible here.)
+    let mut dangling: Vec<String> = Vec::new();
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for (constraint, value) in &snapshot.fks {
+        let Some((child, parent)) = value.split_once(" -> ") else {
+            dangling.push(format!("{constraint}: unreadable FK value {value:?}"));
+            continue;
+        };
+        let child = bare_relation(child);
+        let parent = bare_relation(parent);
+        pairs.push((child.to_owned(), parent.to_owned()));
+        if !snapshot.tables.iter().any(|table| table == parent) {
+            dangling.push(format!(
+                "{constraint}: {child} -> {parent} targets a table that is absent"
+            ));
+        }
+    }
+    assert!(
+        dangling.is_empty(),
+        "{HARNESS}: foreign keys target tables that do not exist:\n  {}",
+        dangling.join("\n  ")
+    );
+
+    // 5. The canonical property/media FK targets are declared.
+    let mut missing: Vec<String> = Vec::new();
+    for (child, parent) in CANONICAL_FK_TARGETS {
+        if !pairs
+            .iter()
+            .any(|(actual_child, actual_parent)| actual_child == child && actual_parent == parent)
+        {
+            missing.push(format!("{child} -> {parent}"));
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "{HARNESS}: canonical FK targets not declared on DEV:\n  {}",
+        missing.join("\n  ")
+    );
+
+    // 6. Committed relation rows are referentially clean: the FK targets every child row
+    //    needs actually exist. A healthy schema returns zero; a non-zero count is a
+    //    violation of "FK targets exist". Read through the production pool.
+    let mut conn = dev
         .database()
         .pool()
         .acquire()
         .await
         .expect("pool checkout");
-
-    // 1. Verify no orphaned property_interest rows: every property_id in
-    //    property_interest must reference an existing property.
-    let orphan_interest: (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM property_interest pi WHERE NOT EXISTS (
-            SELECT 1 FROM property p WHERE p.id = pi.property_id
-        )",
+    let orphaned: (i64,) = sqlx::query_as(
+        "select count(*) from property_media pm \
+         where not exists (select 1 from property p where p.id = pm.property_id) \
+            or not exists (select 1 from media m where m.id = pm.media_id)",
     )
     .fetch_one(&mut *conn)
     .await
-    .expect("count orphaned property_interest rows");
-
+    .expect("count orphaned property_media rows");
     assert_eq!(
-        orphan_interest.0, 0,
-        "no orphaned property_interest rows must exist"
+        orphaned.0, 0,
+        "{HARNESS}: every property_media row must target an existing property and media"
     );
 
-    // 2. Verify no orphaned deal rows: every deal.property_id must reference
-    //    an existing property.
-    let orphan_deal: (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM deal d WHERE NOT EXISTS (
-            SELECT 1 FROM property p WHERE p.id = d.property_id
-        )",
+    // 7. Enforcement: a reference to a target that does not exist is refused. Both ids
+    //    are freshly generated and therefore absent, so the property/media FK must
+    //    reject the row. The transaction is rolled back no matter what, so no
+    //    disposable row survives.
+    let mut tx = dev.begin().await.expect("begin rollback transaction");
+    let orphan_insert = sqlx::query(
+        "insert into property_media (property_id, media_id) values (gen_random_uuid(), gen_random_uuid())",
     )
-    .fetch_one(&mut *conn)
-    .await
-    .expect("count orphaned deal rows");
+    .execute(&mut *tx.connection())
+    .await;
+    let _ = tx.rollback().await;
 
-    assert_eq!(orphan_deal.0, 0, "no orphaned deal rows must exist");
-
-    // 3. Verify no orphaned interaction rows: every interaction.property_id
-    //    must reference an existing property (nullable, so we check non-null).
-    let orphan_interaction: (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM interaction i WHERE i.property_id IS NOT NULL
-         AND NOT EXISTS (
-             SELECT 1 FROM property p WHERE p.id = i.property_id
-         )",
-    )
-    .fetch_one(&mut *conn)
-    .await
-    .expect("count orphaned interaction rows");
-
-    assert_eq!(
-        orphan_interaction.0, 0,
-        "no orphaned interaction rows must exist"
+    let error = orphan_insert.expect_err(
+        "the database must refuse a property_media row whose property/media targets do not exist",
     );
-
-    // 4. Verify no orphaned deal client_person rows: every deal.client_person_id
-    //    must reference an existing person.
-    let orphan_deal_person: (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM deal d WHERE d.client_person_id IS NOT NULL
-         AND NOT EXISTS (
-             SELECT 1 FROM person p WHERE p.id = d.client_person_id
-         )",
-    )
-    .fetch_one(&mut *conn)
-    .await
-    .expect("count orphaned deal client_person rows");
-
+    let sqlstate = error.as_database_error().and_then(|db_error| db_error.code());
     assert_eq!(
-        orphan_deal_person.0, 0,
-        "no orphaned deal client_person rows must exist"
-    );
-
-    // 5. Verify no orphaned interaction person rows: every interaction.person_id
-    //    must reference an existing person.
-    let orphan_interaction_person: (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM interaction i WHERE i.person_id IS NOT NULL
-         AND NOT EXISTS (
-             SELECT 1 FROM person p WHERE p.id = i.person_id
-         )",
-    )
-    .fetch_one(&mut *conn)
-    .await
-    .expect("count orphaned interaction person rows");
-
-    assert_eq!(
-        orphan_interaction_person.0, 0,
-        "no orphaned interaction person rows must exist"
-    );
-
-    // 6. Verify no orphaned app_user rows referenced by person or deal.
-    let orphan_app_user_person: (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM person p WHERE p.assigned_user_id IS NOT NULL
-         AND NOT EXISTS (
-             SELECT 1 FROM app_user a WHERE a.id = p.assigned_user_id
-         )",
-    )
-    .fetch_one(&mut *conn)
-    .await
-    .expect("count orphaned app_user references from person");
-
-    assert_eq!(
-        orphan_app_user_person.0, 0,
-        "no orphaned app_user references from person must exist"
+        sqlstate.as_deref(),
+        Some("23503"),
+        "{HARNESS}: the refusal must be a foreign-key violation (SQLSTATE 23503): {error}"
     );
 }
