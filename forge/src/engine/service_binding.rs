@@ -231,7 +231,9 @@ mod tests {
             );
         }
         assert_eq!(
-            forge_service_bindings().expect("bindings must be valid").len(),
+            forge_service_bindings()
+                .expect("bindings must be valid")
+                .len(),
             cases.len(),
             "no unlisted binding"
         );
@@ -241,9 +243,15 @@ mod tests {
     /// collapse them back into one generic QA.
     #[test]
     fn inspector_and_assay_stay_distinct() {
-        assert_eq!(service_for_node("qa_review"), Ok(Some(INSPECTOR_SERVICE_ID)));
+        assert_eq!(
+            service_for_node("qa_review"),
+            Ok(Some(INSPECTOR_SERVICE_ID))
+        );
         assert_eq!(service_for_node("qa_verify"), Ok(Some(ASSAY_SERVICE_ID)));
-        assert_eq!(service_for_node("fast_qa_verify"), Ok(Some(ASSAY_SERVICE_ID)));
+        assert_eq!(
+            service_for_node("fast_qa_verify"),
+            Ok(Some(ASSAY_SERVICE_ID))
+        );
         let graph = graph();
         assert_eq!(
             graph.nodes["qa_review"].responsibility.as_deref(),
@@ -292,10 +300,7 @@ mod tests {
             let lane = lane_for_node(node).unwrap_or_else(|e| panic!("{node}: {e}"));
             assert_eq!(lane.service_key(), service, "{node}");
         }
-        let bound: BTreeSet<&str> = bindings
-            .values()
-            .map(String::as_str)
-            .collect();
+        let bound: BTreeSet<&str> = bindings.values().map(String::as_str).collect();
         for lane in LaneId::ALL {
             assert_eq!(LaneId::for_service_key(lane.service_key()), Some(lane));
             assert!(

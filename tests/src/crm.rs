@@ -25,7 +25,10 @@ use model::{
     ClientAdminPageRequest, ClientContactHistoryResult, ClientDetail, ClientDirectoryPageRequest,
     ClientDirectoryRecord, ClientHistoryRequest, Person, PersonIdentity,
 };
-use services::{CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceContext, ServiceInfrastructure};
+use services::{
+    CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceContext,
+    ServiceInfrastructure,
+};
 use sqlx::PgPool;
 use std::sync::Arc;
 

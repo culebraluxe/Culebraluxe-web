@@ -36,17 +36,20 @@ async fn chaos_workflow_001__seeded_random_claim_release_complete_cancel_timer_f
     let db = Database::connect_target(DbTarget::Dev).await.unwrap();
 
     // Pick an existing process instance.
-    let process_instance_id: String = sqlx::query_scalar("select id::text from process_instances limit 1")
-        .fetch_one(db.pool())
-        .await
-        .expect("DEV must hold at least one process instance");
+    let process_instance_id: String =
+        sqlx::query_scalar("select id::text from process_instances limit 1")
+            .fetch_one(db.pool())
+            .await
+            .expect("DEV must hold at least one process instance");
 
     // Clean any existing test tokens for this instance (test isolation - only our test node).
-    sqlx::query("delete from tokens where process_instance_id = $1::uuid and node_id = 'chaos_test_node'")
-        .bind(&process_instance_id)
-        .execute(db.pool())
-        .await
-        .expect("sweep test tokens");
+    sqlx::query(
+        "delete from tokens where process_instance_id = $1::uuid and node_id = 'chaos_test_node'",
+    )
+    .bind(&process_instance_id)
+    .execute(db.pool())
+    .await
+    .expect("sweep test tokens");
 
     // Generation one: claim a test token, then process dies before release.
     {
@@ -61,7 +64,11 @@ async fn chaos_workflow_001__seeded_random_claim_release_complete_cancel_timer_f
         .expect("claim token");
         // No commit: process dies here.
     }
-    assert_eq!(token_count(&db, &process_instance_id).await, 0, "crashed claim leaves no ghost token");
+    assert_eq!(
+        token_count(&db, &process_instance_id).await,
+        0,
+        "crashed claim leaves no ghost token"
+    );
 
     // Generation two: claim again (retry), then complete.
     sqlx::query(
@@ -72,7 +79,11 @@ async fn chaos_workflow_001__seeded_random_claim_release_complete_cancel_timer_f
     .execute(db.pool())
     .await
     .expect("retry claim");
-    assert_eq!(token_count(&db, &process_instance_id).await, 1, "crash plus retry converges to one token");
+    assert_eq!(
+        token_count(&db, &process_instance_id).await,
+        1,
+        "crash plus retry converges to one token"
+    );
 
     // Complete the token.
     sqlx::query(
@@ -95,13 +106,22 @@ async fn chaos_workflow_001__seeded_random_claim_release_complete_cancel_timer_f
     .await
     .expect("additional claim");
 
-    assert_eq!(instance_count(&db, &process_instance_id).await, 1, "exactly one process instance");
-    assert!(token_count(&db, &process_instance_id).await >= 1, "at least one test token exists");
+    assert_eq!(
+        instance_count(&db, &process_instance_id).await,
+        1,
+        "exactly one process instance"
+    );
+    assert!(
+        token_count(&db, &process_instance_id).await >= 1,
+        "at least one test token exists"
+    );
 
     // Clean up.
-    sqlx::query("delete from tokens where process_instance_id = $1::uuid and node_id = 'chaos_test_node'")
-        .bind(&process_instance_id)
-        .execute(db.pool())
-        .await
-        .expect("sweep test tokens");
+    sqlx::query(
+        "delete from tokens where process_instance_id = $1::uuid and node_id = 'chaos_test_node'",
+    )
+    .bind(&process_instance_id)
+    .execute(db.pool())
+    .await
+    .expect("sweep test tokens");
 }

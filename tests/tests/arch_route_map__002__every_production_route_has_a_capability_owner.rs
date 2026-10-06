@@ -157,9 +157,9 @@ const ROUTE_DOMAIN_MAP: &[(&str, &str)] = &[
 /// Negative control: a route that MUST have a domain but the map misses it.
 /// This should fail if http_service_domain has an entry the map doesn't know.
 const MISSED_ROUTE_PATTERNS: &[&str] = &[
-    "/v1/tech/cockpit", // Returns None intentionally
-    "/v1/tasks/",        // Returns None intentionally
-    "/v1/workflows",     // Returns None intentionally
+    "/v1/tech/cockpit",    // Returns None intentionally
+    "/v1/tasks/",          // Returns None intentionally
+    "/v1/workflows",       // Returns None intentionally
     "/v1/flight-recorder", // Returns None intentionally
 ];
 
@@ -173,7 +173,7 @@ fn extract_routes_from_router() -> BTreeMap<String, Vec<String>> {
     let text = source::read(&in_repo("web/src/api/routes.rs"));
     eprintln!("DEBUG: read {} bytes from routes.rs", text.len());
     let mut routes = BTreeMap::new();
-    
+
     // Process line by line, stripping comments, then search for .route(" patterns
     let mut full_code = String::new();
     for line in text.lines() {
@@ -183,14 +183,14 @@ fn extract_routes_from_router() -> BTreeMap<String, Vec<String>> {
             full_code.push(' ');
         }
     }
-    
+
     eprintln!("DEBUG: full_code length: {}", full_code.len());
-    
+
     let mut search_start = 0;
     while let Some(start) = full_code[search_start..].find(".route(") {
         let abs_start = search_start + start;
         let after_route = &full_code[abs_start + ".route(".len()..];
-        
+
         // Find the first quoted string (the path)
         if let Some(path_start) = after_route.find('"') {
             if let Some(path_end) = after_route[path_start + 1..].find('"') {
@@ -204,7 +204,7 @@ fn extract_routes_from_router() -> BTreeMap<String, Vec<String>> {
         }
         search_start = abs_start + 1;
     }
-    
+
     eprintln!("DEBUG: extracted {} routes", routes.len());
     routes
 }
@@ -237,9 +237,9 @@ fn extract_handlers(text: &str) -> Vec<String> {
 
 /// Check if a path is intentionally public.
 fn is_intentionally_public(path: &str) -> bool {
-    INTENTIONALLY_PUBLIC.iter().any(|&public| {
-        path == public || path.starts_with(public.trim_end_matches('/'))
-    })
+    INTENTIONALLY_PUBLIC
+        .iter()
+        .any(|&public| path == public || path.starts_with(public.trim_end_matches('/')))
 }
 
 /// Check if a path matches a known domain mapping.
@@ -275,23 +275,27 @@ fn arch_route_map_002__every_production_route_has_a_capability_owner() {
         .expect("http_service_domain function not found in web/src/api/routes.rs");
     let domain_fn_end = http_domain_text[domain_fn_start..]
         .find("\n}")
-        .expect("http_service_domain function not closed") + domain_fn_start + 2;
+        .expect("http_service_domain function not closed")
+        + domain_fn_start
+        + 2;
     let domain_fn = &http_domain_text[domain_fn_start..domain_fn_end];
 
     // 3. For each route, verify it has a capability owner.
     let mut findings = Vec::new();
     let mut covered_paths = BTreeSet::new();
-    
+
     for (path, handlers) in &routes {
         // Skip health checks and other intentionally public routes
         if is_intentionally_public(path) {
             continue;
         }
-        
+
         // Check if http_service_domain has an entry for this path
-        let has_explicit_entry = domain_fn.contains(path) || 
-            ROUTE_DOMAIN_MAP.iter().any(|(pattern, _)| path.starts_with(pattern));
-        
+        let has_explicit_entry = domain_fn.contains(path)
+            || ROUTE_DOMAIN_MAP
+                .iter()
+                .any(|(pattern, _)| path.starts_with(pattern));
+
         if !has_explicit_entry {
             // Check if it's a sub-path of a known pattern
             let mut matched = false;
@@ -305,9 +309,12 @@ fn arch_route_map_002__every_production_route_has_a_capability_owner() {
                     break;
                 }
             }
-            
+
             if !matched && !is_intentionally_public(path) {
-                findings.push(format!("{path}: no capability owner in http_service_domain (handlers: {:?})", handlers));
+                findings.push(format!(
+                    "{path}: no capability owner in http_service_domain (handlers: {:?})",
+                    handlers
+                ));
             }
         } else {
             covered_paths.insert(path.clone());
@@ -361,7 +368,11 @@ fn arch_route_map_002__every_production_route_has_a_capability_owner() {
     // 9. POSITIVE CONTROL: The intentionally public routes must return None.
     // This is verified by the absence of these paths in the domain function.
     for public in INTENTIONALLY_PUBLIC {
-        if public.contains("healthz") || public.contains("build-info") || public.contains("rust-ready") || public.contains("whoami") {
+        if public.contains("healthz")
+            || public.contains("build-info")
+            || public.contains("rust-ready")
+            || public.contains("whoami")
+        {
             assert!(
                 !domain_fn.contains(public),
                 "intentionally public route `{public}` must not appear in http_service_domain"

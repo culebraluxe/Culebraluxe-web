@@ -13,8 +13,8 @@ use crate::engine::constants::FORGE_GIT_SHA;
 use crate::engine::vendor_session::with_shared;
 use crate::engine::worker;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// How in-flight runs get to finish after SIGTERM or a version drift before they are interrupted.

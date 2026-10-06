@@ -11,11 +11,11 @@ use crate::engine::harness::{HarnessUsage, TurnTermination};
 use crate::engine::harness_usage::UsageBaseline;
 use crate::engine::opencode_agents;
 use crate::engine::opencode_client::{
-    LiveTurnSlot, OpenCodeStartOptions, StreamStop, StreamedRunResult, live_turn_slot,
-    start_opencode_run_streaming,
+    live_turn_slot, start_opencode_run_streaming, LiveTurnSlot, OpenCodeStartOptions, StreamStop,
+    StreamedRunResult,
 };
 use crate::engine::opencode_events;
-use crate::engine::packet::{ExecutionWorkspace, StoryPacket, build_task_text_with_context};
+use crate::engine::packet::{build_task_text_with_context, ExecutionWorkspace, StoryPacket};
 use crate::engine::runner::{HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::spend_cap::{self, BUDGET_EXHAUSTED_CODE, SPEND_CAP_ENV};
@@ -1106,8 +1106,8 @@ mod tests {
     /// heard of. A post-flight check would be a receipt for work already done under an unknown authority.
     #[test]
     fn a_node_with_no_agent_is_refused_before_any_model_turn_is_started() {
-        use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
 
         let workspace =
             std::env::temp_dir().join(format!("forge-v2-unmapped-{}", std::process::id()));

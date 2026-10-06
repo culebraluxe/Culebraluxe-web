@@ -12,7 +12,7 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test db_concurrency__010__two_media_finalizations -- --ignored
 
-use db::{Database, DbTarget, MediaDao, MediaUploadAssembly, MediaDerivativeInput};
+use db::{Database, DbTarget, MediaDao, MediaDerivativeInput, MediaUploadAssembly};
 use std::sync::Arc;
 use test_harness::barrier::ConcurrencyBarrier;
 use test_harness::fault::{Fault, FaultInjector};
@@ -102,7 +102,11 @@ async fn db_concurrency_010__two_media_finalizations() {
     }
     assert_eq!(wins, 1, "exactly one finisher assembles the media");
     let state = dao.media_upload_state(&upload_id_1).await.expect("state");
-    assert_eq!(state.as_deref(), Some("complete"), "upload must be complete");
+    assert_eq!(
+        state.as_deref(),
+        Some("complete"),
+        "upload must be complete"
+    );
 
     // Test 2: Fail-and-retry converges
     let upload_id_2 = Uuid::new_v4().to_string();
@@ -112,18 +116,36 @@ async fn db_concurrency_010__two_media_finalizations() {
 
     // First finisher succeeds
     assert!(dao.claim_media_upload(&upload_id_2).await.expect("claim"));
-    assert_eq!(dao.media_upload_state(&upload_id_2).await.expect("state").as_deref(), Some("complete"));
+    assert_eq!(
+        dao.media_upload_state(&upload_id_2)
+            .await
+            .expect("state")
+            .as_deref(),
+        Some("complete")
+    );
 
     // Fail it
     dao.fail_media_upload(&upload_id_2).await.expect("fail");
-    assert_eq!(dao.media_upload_state(&upload_id_2).await.expect("state").as_deref(), Some("failed"));
+    assert_eq!(
+        dao.media_upload_state(&upload_id_2)
+            .await
+            .expect("state")
+            .as_deref(),
+        Some("failed")
+    );
 
     // Retry converges to one finisher
     assert!(
         dao.claim_media_upload(&upload_id_2).await.expect("retry"),
         "retry after failure converges to one finisher"
     );
-    assert_eq!(dao.media_upload_state(&upload_id_2).await.expect("state").as_deref(), Some("complete"));
+    assert_eq!(
+        dao.media_upload_state(&upload_id_2)
+            .await
+            .expect("state")
+            .as_deref(),
+        Some("complete")
+    );
 
     // Late finisher refused
     assert!(
@@ -145,7 +167,10 @@ async fn db_concurrency_010__two_media_finalizations() {
     let mut handles = Vec::new();
     for _ in 0..2 {
         let (dao, barrier, injector, upload_id) = (
-            dao.clone(), barrier.clone(), injector.clone(), upload_id_3.clone()
+            dao.clone(),
+            barrier.clone(),
+            injector.clone(),
+            upload_id_3.clone(),
         );
         handles.push(tokio::spawn(async move {
             barrier.arrive_and_wait().await;
@@ -163,7 +188,13 @@ async fn db_concurrency_010__two_media_finalizations() {
         }
     }
     assert!(success, "the survivor still completes the upload");
-    assert_eq!(dao.media_upload_state(&upload_id_3).await.expect("state").as_deref(), Some("complete"));
+    assert_eq!(
+        dao.media_upload_state(&upload_id_3)
+            .await
+            .expect("state")
+            .as_deref(),
+        Some("complete")
+    );
 
     // Cleanup
     sweep(&db, &upload_id_1).await;

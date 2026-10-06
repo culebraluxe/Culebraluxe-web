@@ -138,7 +138,10 @@ pub enum PianolaDecision {
     /// Green path: keep the worker moving on its current story.
     ContinueWorker { story_id: String },
     /// The worker's item is older than `stall_threshold_ms`.
-    StallDetected { story_id: String, work_item_id: String },
+    StallDetected {
+        story_id: String,
+        work_item_id: String,
+    },
     /// Needs a human: one of the guard conditions fired.
     Escalate { story_id: String, reason: String },
     /// All 4 experiment stories reached a terminal state.

@@ -21,8 +21,8 @@ use std::collections::{HashMap, HashSet};
 
 use db::{DbResult, ForgeEngineDao, ForgeQueueWorkRow, ForgeReadDao, StoryPacketRow};
 
-use super::{PianolaConfig, PianolaDecision, SupervisorState, log_decision};
-use crate::engine::assay::{CommandResult, is_rust_contract_production_path};
+use super::{log_decision, PianolaConfig, PianolaDecision, SupervisorState};
+use crate::engine::assay::{is_rust_contract_production_path, CommandResult};
 
 // ---------------------------------------------------------------------------
 // Stall detection
@@ -145,10 +145,7 @@ pub fn can_continue_automatically(story_id: &str, assay_results: &[CommandResult
         .collect::<Vec<_>>()
         .join("\n")
         .to_lowercase();
-    if SECURITY_TOKENS
-        .iter()
-        .any(|token| haystack.contains(token))
-    {
+    if SECURITY_TOKENS.iter().any(|token| haystack.contains(token)) {
         return false;
     }
     if ARCH_CONFLICT_MARKERS
@@ -225,9 +222,7 @@ fn target_paths_for_packet(packet: &StoryPacketRow) -> HashSet<String> {
 
 /// Every `(path, story_a, story_b)` triple where two different stories claim
 /// the same normalized file path. Empty means the batch is disjoint.
-pub fn overlapping_pairs(
-    assigned_stories: &[StoryPacketRow],
-) -> Vec<(String, String, String)> {
+pub fn overlapping_pairs(assigned_stories: &[StoryPacketRow]) -> Vec<(String, String, String)> {
     let mut owner: HashMap<String, String> = HashMap::new();
     let mut pairs = Vec::new();
     for packet in assigned_stories {
@@ -236,8 +231,7 @@ pub fn overlapping_pairs(
                 if first != &packet.id
                     && !pairs.iter().any(|(p, a, b): &(String, String, String)| {
                         p == &path
-                            && ((a == first && b == &packet.id)
-                                || (a == &packet.id && b == first))
+                            && ((a == first && b == &packet.id) || (a == &packet.id && b == first))
                     })
                 {
                     pairs.push((path.clone(), first.clone(), packet.id.clone()));
@@ -253,9 +247,7 @@ pub fn overlapping_pairs(
 /// Refuse a batch in which two stories touch the same file path. Returns
 /// `Ok(())` when the assignment is disjoint, `Err` naming the first overlap.
 /// Shared with `load_batch_for_experiment`: same rule, one implementation.
-pub fn check_overlapping_targets(
-    assigned_stories: &[StoryPacketRow],
-) -> Result<(), String> {
+pub fn check_overlapping_targets(assigned_stories: &[StoryPacketRow]) -> Result<(), String> {
     if let Some((path, first, second)) = overlapping_pairs(assigned_stories).into_iter().next() {
         return Err(format!(
             "pianola supervisor refuses overlapping target {path}: {first} and {second}"
@@ -273,10 +265,7 @@ pub fn check_overlapping_targets(
 /// Pianola heartbeat table, and there must never be one. Returns false when
 /// the row is no longer claimable (settled or reassigned), which the caller
 /// treats as "stop and escalate", never as an error.
-pub async fn heartbeat_via_engine(
-    engine: &ForgeEngineDao,
-    work_item_id: &str,
-) -> DbResult<bool> {
+pub async fn heartbeat_via_engine(engine: &ForgeEngineDao, work_item_id: &str) -> DbResult<bool> {
     engine.heartbeat_agent_work(work_item_id).await
 }
 
@@ -345,7 +334,10 @@ pub async fn supervisor_tick(
         } else {
             PianolaDecision::HoldForCaptain {
                 story_id: item.story_id.clone(),
-                reason: format!("work item {} is in unexpected state {}", item.id, item.state),
+                reason: format!(
+                    "work item {} is in unexpected state {}",
+                    item.id, item.state
+                ),
             }
         };
         log_decision(&state.target, &decision);

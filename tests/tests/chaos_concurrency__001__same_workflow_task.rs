@@ -56,7 +56,11 @@ async fn chaos_concurrency_001__same_workflow_task() {
     let mut acquired = 0;
     let mut held = 0;
     for handle in handles {
-        match handle.await.expect("racer panicked").expect("claim answers") {
+        match handle
+            .await
+            .expect("racer panicked")
+            .expect("claim answers")
+        {
             WorkflowReceiptClaim::Acquired => acquired += 1,
             WorkflowReceiptClaim::HeldByAnother => held += 1,
             WorkflowReceiptClaim::AlreadyFinal(_) => panic!("a fresh task cannot be already final"),

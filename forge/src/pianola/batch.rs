@@ -90,9 +90,7 @@ pub fn validate_experiment_batch(assignments: &[(WorkerId, Vec<StoryId>)]) -> Re
     for (_, stories) in assignments {
         for story in stories {
             if !seen.insert(story.clone()) {
-                return Err(format!(
-                    "pianola batch rejects duplicate story id: {story}"
-                ));
+                return Err(format!("pianola batch rejects duplicate story id: {story}"));
             }
         }
     }
@@ -199,9 +197,18 @@ mod tests {
     #[test]
     fn rejects_three_workers() {
         let assignments = vec![
-            ("worker-a".to_string(), vec!["TST-1".to_string(), "TST-2".to_string()]),
-            ("worker-b".to_string(), vec!["TST-3".to_string(), "TST-4".to_string()]),
-            ("worker-c".to_string(), vec!["TST-5".to_string(), "TST-6".to_string()]),
+            (
+                "worker-a".to_string(),
+                vec!["TST-1".to_string(), "TST-2".to_string()],
+            ),
+            (
+                "worker-b".to_string(),
+                vec!["TST-3".to_string(), "TST-4".to_string()],
+            ),
+            (
+                "worker-c".to_string(),
+                vec!["TST-5".to_string(), "TST-6".to_string()],
+            ),
         ];
         let err = validate_experiment_batch(&assignments).unwrap_err();
         assert!(err.contains("exactly 2 workers"), "unexpected: {err}");
@@ -222,11 +229,19 @@ mod tests {
         let assignments = vec![
             (
                 "worker-a".to_string(),
-                vec!["TST-1".to_string(), "TST-2".to_string(), "TST-3".to_string()],
+                vec![
+                    "TST-1".to_string(),
+                    "TST-2".to_string(),
+                    "TST-3".to_string(),
+                ],
             ),
             (
                 "worker-b".to_string(),
-                vec!["TST-4".to_string(), "TST-5".to_string(), "TST-6".to_string()],
+                vec![
+                    "TST-4".to_string(),
+                    "TST-5".to_string(),
+                    "TST-6".to_string(),
+                ],
             ),
         ];
         let err = validate_experiment_batch(&assignments).unwrap_err();
@@ -257,8 +272,7 @@ mod tests {
             packet("TST-3", "edit forge/src/shared.rs for gamma"),
             packet("TST-4", "cargo test -p forge --lib delta"),
         ];
-        let err =
-            validate_experiment_batch_with_targets(&good_assignment(), &packets).unwrap_err();
+        let err = validate_experiment_batch_with_targets(&good_assignment(), &packets).unwrap_err();
         assert!(err.contains("overlapping target"), "unexpected: {err}");
     }
 
@@ -266,8 +280,7 @@ mod tests {
     fn rejects_packet_not_in_assignment() {
         let mut packets = good_packets();
         packets[3] = packet("TST-9", "cargo test -p forge --lib delta");
-        let err =
-            validate_experiment_batch_with_targets(&good_assignment(), &packets).unwrap_err();
+        let err = validate_experiment_batch_with_targets(&good_assignment(), &packets).unwrap_err();
         assert!(err.contains("not assigned"), "unexpected: {err}");
     }
 

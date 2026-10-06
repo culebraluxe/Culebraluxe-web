@@ -13,8 +13,13 @@ use test_harness::http::{call, TestRequest};
 
 /// Build a test router with auth middleware simulation.
 fn test_router() -> Router {
-    use axum::{body::Body, middleware, routing::{get, post}, Router};
-    
+    use axum::{
+        body::Body,
+        middleware,
+        routing::{get, post},
+        Router,
+    };
+
     // Mock auth middleware that checks for Authorization header
     async fn require_auth(
         req: axum::http::Request<Body>,
@@ -46,19 +51,52 @@ fn test_router() -> Router {
         .route("/v1/whoami", get(|| async { "whoami" }))
         .route("/v1/security/identity", get(|| async { "identity" }))
         .route("/v1/security/authorize", post(|| async { "authorize" }))
-        .route("/v1/security/authorize/public", post(|| async { "authorize public" }))
+        .route(
+            "/v1/security/authorize/public",
+            post(|| async { "authorize public" }),
+        )
         .route("/v1/security/guests", post(|| async { "provision guest" }))
-        .route("/v1/security/guest-code", post(|| async { "request guest code" }))
-        .route("/v1/security/guest-code/verify", post(|| async { "verify guest code" }))
+        .route(
+            "/v1/security/guest-code",
+            post(|| async { "request guest code" }),
+        )
+        .route(
+            "/v1/security/guest-code/verify",
+            post(|| async { "verify guest code" }),
+        )
         // Protected routes (auth required)
-        .route("/v1/cockpit", get(|| async { "cockpit" }).layer(auth_layer.clone()))
-        .route("/v1/tech/cockpit", get(|| async { "tech cockpit" }).layer(auth_layer.clone()))
-        .route("/v1/workflows", get(|| async { "workflows" }).layer(auth_layer.clone()))
-        .route("/v1/projects", get(|| async { "projects" }).layer(auth_layer.clone()))
-        .route("/v1/clients", get(|| async { "clients" }).layer(auth_layer.clone()))
-        .route("/v1/properties", get(|| async { "properties" }).layer(auth_layer.clone()))
-        .route("/v1/accounting/dashboard", get(|| async { "accounting dashboard" }).layer(auth_layer.clone()))
-        .route("/v1/vault/documents", get(|| async { "vault documents" }).layer(auth_layer.clone()))
+        .route(
+            "/v1/cockpit",
+            get(|| async { "cockpit" }).layer(auth_layer.clone()),
+        )
+        .route(
+            "/v1/tech/cockpit",
+            get(|| async { "tech cockpit" }).layer(auth_layer.clone()),
+        )
+        .route(
+            "/v1/workflows",
+            get(|| async { "workflows" }).layer(auth_layer.clone()),
+        )
+        .route(
+            "/v1/projects",
+            get(|| async { "projects" }).layer(auth_layer.clone()),
+        )
+        .route(
+            "/v1/clients",
+            get(|| async { "clients" }).layer(auth_layer.clone()),
+        )
+        .route(
+            "/v1/properties",
+            get(|| async { "properties" }).layer(auth_layer.clone()),
+        )
+        .route(
+            "/v1/accounting/dashboard",
+            get(|| async { "accounting dashboard" }).layer(auth_layer.clone()),
+        )
+        .route(
+            "/v1/vault/documents",
+            get(|| async { "vault documents" }).layer(auth_layer.clone()),
+        )
 }
 
 const HARNESS: &str = "AxumHttpHarness/L3 Composition";
@@ -78,8 +116,8 @@ async fn api_route_contract_002__auth_required() {
         "/v1/public/similar",
         "/v1/public/slugs",
         "/v1/public/guide",
-        "/v1/whoami",        // answers identity, doesn't require it
-        "/v1/security/identity", // answers mapping, doesn't require it
+        "/v1/whoami",             // answers identity, doesn't require it
+        "/v1/security/identity",  // answers mapping, doesn't require it
         "/v1/security/authorize", // authorization decision endpoint
         "/v1/security/authorize/public",
         "/v1/security/guests",
@@ -132,7 +170,11 @@ async fn api_route_contract_002__auth_required() {
 
     // 4. Invalid/malformed auth must be rejected (401)
     for path in protected_routes {
-        let response = call(&router, TestRequest::get(path).header("authorization", "Bearer invalid")).await;
+        let response = call(
+            &router,
+            TestRequest::get(path).header("authorization", "Bearer invalid"),
+        )
+        .await;
         // Our mock middleware just checks for presence, but real middleware would validate
         // In real app, invalid tokens return 401
         // For this test, we verify the middleware is invoked

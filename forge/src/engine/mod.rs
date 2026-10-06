@@ -31,12 +31,12 @@ pub mod harness_usage;
 pub mod hold;
 pub mod hold_resolve;
 pub mod integration;
-pub mod maestro;
-pub mod model_aliases;
 pub mod job;
 pub mod job_payload;
 pub mod learn;
+pub mod maestro;
 pub mod migration_guard;
+pub mod model_aliases;
 pub mod neon_sql;
 pub mod observer;
 pub mod opencode;
@@ -58,11 +58,11 @@ pub mod re_facts;
 pub mod re_port;
 pub mod re_receipt;
 pub mod re_runtime;
-pub mod resident;
 pub mod ready_gate;
 pub mod receipt;
 pub mod release;
 pub mod release_receipt;
+pub mod resident;
 pub mod role_mapping;
 pub mod role_slice;
 pub mod routing_brain;
@@ -96,7 +96,7 @@ pub use db_writer::DbForgeStateWriter;
 pub use definition::{forge_sdlc_compact_definition, forge_sdlc_definition, forge_sdlc_graph};
 pub use facts::ForgeGateEvidence;
 pub use graph::{fake_edge_candidates, plan_smith_layers, split_eligibility, SmithWorkNode};
-pub use harness::{HarnessBackend, HarnessContext, HarnessUsage, TurnTermination, create_harness};
+pub use harness::{create_harness, HarnessBackend, HarnessContext, HarnessUsage, TurnTermination};
 pub use port::ForgeApplicationPort;
 pub use process::WakeResult;
 pub use receipt::{replay_outcome, CommandReceipt, ReceiptOutcome, ReplayDecision};
@@ -131,11 +131,13 @@ pub use xml::{parse_re_supermodel, RE_SUPERMODEL_KEY, RE_SUPERMODEL_V1_XML};
 pub use re_commands::{assert_command_nodes_routed, XML_COMMAND_NODE_TYPES};
 pub use re_port::{CompositeApplicationPort, ReApplicationPort};
 
+pub use constants::{
+    FORGE_DEFAULT_HEARTBEAT_SECONDS, FORGE_DEFAULT_STALE_MINUTES, FORGE_DEFAULT_STALE_MS,
+};
 pub use re_runtime::{
     complete_workflow_task, reconcile_closing_timer, shared_forge_runtime,
     start_residential_transaction,
 };
-pub use constants::{FORGE_DEFAULT_HEARTBEAT_SECONDS, FORGE_DEFAULT_STALE_MINUTES, FORGE_DEFAULT_STALE_MS};
 
 // No `pub use executor::…` here. Re-exporting the role-job driver at this level put a role-queue name in the
 // same file as this module's story-queue re-exports, which `forge_arch_seam__003` refuses — it caught exactly

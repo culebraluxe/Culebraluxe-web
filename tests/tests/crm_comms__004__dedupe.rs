@@ -37,7 +37,9 @@
 //! a disposable DEV database and the harness will never open a PRODUCTION one.
 
 use chrono::{DateTime, Utc};
-use db::{DbFailure, DbFailureKind, DbTarget, LandingDao, LatestInteraction, LatestInteractionOutcome};
+use db::{
+    DbFailure, DbFailureKind, DbTarget, LandingDao, LatestInteraction, LatestInteractionOutcome,
+};
 use serde_json::json;
 use test_harness::CrmHarness;
 
@@ -127,7 +129,11 @@ async fn crm_comms_004__dedupe() {
     // 1. FIRST LANDING INSERTS; THE SAME EVENT AGAIN IS A NO-OP.
     // -----------------------------------------------------------------------------------------------------------
     let first = landing
-        .upsert_latest_interaction(&candidate(&person, &external_id, "2026-10-01T12:00:00+00:00"))
+        .upsert_latest_interaction(&candidate(
+            &person,
+            &external_id,
+            "2026-10-01T12:00:00+00:00",
+        ))
         .await
         .expect("the first landing runs");
     assert_eq!(
@@ -140,13 +146,19 @@ async fn crm_comms_004__dedupe() {
         .expect("the committed row reads")
         .unwrap_or_else(|| panic!("{HARNESS}: the landed interaction is committed"));
     assert_eq!(
-        committed_count(harness.pool(), &person).await.expect("the count reads"),
+        committed_count(harness.pool(), &person)
+            .await
+            .expect("the count reads"),
         1,
         "{HARNESS}: one key, one committed row"
     );
 
     let replay = landing
-        .upsert_latest_interaction(&candidate(&person, &external_id, "2026-10-01T12:00:00+00:00"))
+        .upsert_latest_interaction(&candidate(
+            &person,
+            &external_id,
+            "2026-10-01T12:00:00+00:00",
+        ))
         .await
         .expect("the replay runs");
     assert_eq!(
@@ -155,7 +167,9 @@ async fn crm_comms_004__dedupe() {
         "{HARNESS}: replaying the identical event writes nothing"
     );
     assert_eq!(
-        committed_count(harness.pool(), &person).await.expect("the count reads"),
+        committed_count(harness.pool(), &person)
+            .await
+            .expect("the count reads"),
         1,
         "{HARNESS}: a replay does not append a second row"
     );
@@ -165,7 +179,11 @@ async fn crm_comms_004__dedupe() {
     //    REFUSED. Newest evidence wins, and there is still exactly one row.
     // -----------------------------------------------------------------------------------------------------------
     let newer = landing
-        .upsert_latest_interaction(&candidate(&person, &external_id, "2026-10-01T13:00:00+00:00"))
+        .upsert_latest_interaction(&candidate(
+            &person,
+            &external_id,
+            "2026-10-01T13:00:00+00:00",
+        ))
         .await
         .expect("the newer landing runs");
     assert_eq!(
@@ -189,13 +207,19 @@ async fn crm_comms_004__dedupe() {
         "{HARNESS}: the row now carries the newer event's time"
     );
     assert_eq!(
-        committed_count(harness.pool(), &person).await.expect("the count reads"),
+        committed_count(harness.pool(), &person)
+            .await
+            .expect("the count reads"),
         1,
         "{HARNESS}: an update does not append either"
     );
 
     let stale = landing
-        .upsert_latest_interaction(&candidate(&person, &external_id, "2026-10-01T11:00:00+00:00"))
+        .upsert_latest_interaction(&candidate(
+            &person,
+            &external_id,
+            "2026-10-01T11:00:00+00:00",
+        ))
         .await
         .expect("the stale landing runs");
     assert_eq!(
@@ -226,7 +250,9 @@ async fn crm_comms_004__dedupe() {
         "{HARNESS}: a different source_external_id is a different event"
     );
     assert_eq!(
-        committed_count(harness.pool(), &person).await.expect("the count reads"),
+        committed_count(harness.pool(), &person)
+            .await
+            .expect("the count reads"),
         2,
         "{HARNESS}: two keys from one source system are two canonical rows"
     );
@@ -262,7 +288,9 @@ async fn crm_comms_004__dedupe() {
         "{HARNESS}: the refusal names the dedupe index, got {refusal:?}"
     );
     assert_eq!(
-        committed_count(harness.pool(), &person).await.expect("the count reads"),
+        committed_count(harness.pool(), &person)
+            .await
+            .expect("the count reads"),
         2,
         "{HARNESS}: the refused duplicate wrote nothing"
     );
@@ -298,7 +326,9 @@ async fn crm_comms_004__dedupe() {
         "{HARNESS}: the probe row is visible inside its own transaction"
     );
     assert_eq!(
-        committed_count(harness.pool(), &person).await.expect("the count reads"),
+        committed_count(harness.pool(), &person)
+            .await
+            .expect("the count reads"),
         2,
         "{HARNESS}: a rolled-back key commits nothing — the dedupe counts committed truth only"
     );
@@ -310,7 +340,10 @@ async fn crm_comms_004__dedupe() {
         .cleanup(&marker)
         .await
         .expect("the fixture person is removed");
-    assert_eq!(removed, 1, "{HARNESS}: exactly this run's person is removed");
+    assert_eq!(
+        removed, 1,
+        "{HARNESS}: exactly this run's person is removed"
+    );
     assert_eq!(
         harness
             .leftover_count(&marker)

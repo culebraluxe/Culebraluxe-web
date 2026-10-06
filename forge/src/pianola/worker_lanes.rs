@@ -118,9 +118,7 @@ pub fn provision_tst_lane(
 /// (neither prefixes the other) and no file reachable at depth <= 1 under
 /// both lanes shares the same `(dev, ino)`.
 pub fn verify_lane_isolation(lane_a: &Path, lane_b: &Path) -> bool {
-    let canon = |p: &Path| {
-        std::fs::canonicalize(p).unwrap_or_else(|_| absolutize(p))
-    };
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| absolutize(p));
     let a = canon(lane_a);
     let b = canon(lane_b);
     if a == b || a.starts_with(&b) || b.starts_with(&a) {
@@ -187,13 +185,20 @@ pub fn detect_mainline_movement(base_commit: &str) -> Result<bool, String> {
 
 fn detect_mainline_movement_in(repo_root: &Path, base_commit: &str) -> Result<bool, String> {
     let out = Command::new(git_binary())
-        .args(["rev-list", &format!("{base_commit}..origin/main"), "--count"])
+        .args([
+            "rev-list",
+            &format!("{base_commit}..origin/main"),
+            "--count",
+        ])
         .current_dir(repo_root)
         .output()
         .map_err(|e| format!("git rev-list base..origin/main: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        return Err(format!("git rev-list base..origin/main failed: {}", err.trim()));
+        return Err(format!(
+            "git rev-list base..origin/main failed: {}",
+            err.trim()
+        ));
     }
     let count: u64 = String::from_utf8_lossy(&out.stdout)
         .trim()
@@ -244,10 +249,7 @@ mod tests {
 
     #[test]
     fn lane_isolation_rejects_nested_and_same_paths() {
-        let dir = std::env::temp_dir().join(format!(
-            "pianola-lane-iso-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("pianola-lane-iso-{}", std::process::id()));
         let a = dir.join("lane-a");
         let b = dir.join("lane-a").join("nested");
         std::fs::create_dir_all(&b).expect("fixture");

@@ -33,8 +33,7 @@ async fn projection_value(db: &Database, lead_id: &str) -> Option<serde_json::Va
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL_DEV"]
-async fn crm_catchup_001__lead_projection(
-) {
+async fn crm_catchup_001__lead_projection() {
     let db = Database::connect_target(DbTarget::Dev).await.unwrap();
     let lead_id = format!("crm-catchup-001-{}", Uuid::new_v4());
 
@@ -47,7 +46,7 @@ async fn crm_catchup_001__lead_projection(
             total_value numeric not null default 0,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
-        )"
+        )",
     )
     .execute(db.pool())
     .await
@@ -76,7 +75,11 @@ async fn crm_catchup_001__lead_projection(
         .expect("record projection");
         // No commit: process dies here.
     }
-    assert_eq!(projection_count(&db, &lead_id).await, 0, "crashed projection leaves no ghost row");
+    assert_eq!(
+        projection_count(&db, &lead_id).await,
+        0,
+        "crashed projection leaves no ghost row"
+    );
 
     // Generation two: projection re-runs and succeeds.
     let projection_json_gen2 = json!({"source": "gen-two", "deals": 2});
@@ -90,8 +93,16 @@ async fn crm_catchup_001__lead_projection(
     .execute(db.pool())
     .await
     .expect("record recovery projection");
-    assert_eq!(projection_count(&db, &lead_id).await, 1, "crash plus retry converges to exactly one projection row");
-    assert_eq!(projection_value(&db, &lead_id).await, Some(projection_json_gen2), "recovery projection wins");
+    assert_eq!(
+        projection_count(&db, &lead_id).await,
+        1,
+        "crash plus retry converges to exactly one projection row"
+    );
+    assert_eq!(
+        projection_value(&db, &lead_id).await,
+        Some(projection_json_gen2),
+        "recovery projection wins"
+    );
 
     // Generation three: idempotent re-run with updated data.
     let projection_json_gen3 = json!({"source": "gen-three", "deals": 3});
@@ -105,8 +116,16 @@ async fn crm_catchup_001__lead_projection(
     .execute(db.pool())
     .await
     .expect("idempotent re-run");
-    assert_eq!(projection_count(&db, &lead_id).await, 1, "subsequent re-runs converge to same row");
-    assert_eq!(projection_value(&db, &lead_id).await, Some(projection_json_gen3), "latest re-run wins");
+    assert_eq!(
+        projection_count(&db, &lead_id).await,
+        1,
+        "subsequent re-runs converge to same row"
+    );
+    assert_eq!(
+        projection_value(&db, &lead_id).await,
+        Some(projection_json_gen3),
+        "latest re-run wins"
+    );
 
     // Clean up.
     sqlx::query("delete from crm_lead_projection where lead_id = $1")

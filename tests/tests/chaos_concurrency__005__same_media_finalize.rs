@@ -83,8 +83,7 @@ async fn chaos_concurrency_005__same_media_finalize() {
         "the retry after failure converges to one finisher"
     );
     assert!(
-        !dao
-            .claim_media_upload(&upload_id)
+        !dao.claim_media_upload(&upload_id)
             .await
             .expect("late answers"),
         "a completed upload refuses every late finisher"

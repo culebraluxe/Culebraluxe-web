@@ -39,7 +39,9 @@ fn arch_one_writer_005__workflow_receipts() {
 
     // The sha detector accepts short and full hex shas, and refuses everything else.
     assert!(is_commit_sha(Some("abc1234")));
-    assert!(is_commit_sha(Some("9f3a1c2e4b5d6f708192a3b4c5d6e7f8091a2b3c")));
+    assert!(is_commit_sha(Some(
+        "9f3a1c2e4b5d6f708192a3b4c5d6e7f8091a2b3c"
+    )));
     assert!(!is_commit_sha(None));
     assert!(!is_commit_sha(Some("not-a-sha")));
     assert!(!is_commit_sha(Some("abc"))); // too short to be a sha

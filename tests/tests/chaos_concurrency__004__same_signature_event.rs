@@ -95,11 +95,12 @@ async fn chaos_concurrency_004__same_signature_event() {
         "replaying the event after convergence changes nothing"
     );
     tx.commit().await.unwrap();
-    let status: String = sqlx::query_scalar("select status from signature_request where id = $1::uuid")
-        .bind(&request)
-        .fetch_one(db.pool())
-        .await
-        .expect("status read");
+    let status: String =
+        sqlx::query_scalar("select status from signature_request where id = $1::uuid")
+            .bind(&request)
+            .fetch_one(db.pool())
+            .await
+            .expect("status read");
     assert_eq!(status, "signed", "one event, one terminal state");
 
     sqlx::query("delete from signature_request where id = $1::uuid")

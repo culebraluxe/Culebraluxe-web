@@ -135,14 +135,19 @@ async fn db_concurrency_012__duplicate_relationship_evidence_action() {
     let mut handles = Vec::new();
     for _ in 0..2 {
         let (dao, barrier, injector, evidence_id) = (
-            dao.clone(), barrier.clone(), injector.clone(), evidence_id_3.clone()
+            dao.clone(),
+            barrier.clone(),
+            injector.clone(),
+            evidence_id_3.clone(),
         );
         handles.push(tokio::spawn(async move {
             barrier.arrive_and_wait().await;
             if injector.next_fault().is_failure() {
                 return Err("crashed".to_string());
             }
-            dao.classify(&evidence_id, Some(true), Some(true)).await.map_err(|e| e.to_string())
+            dao.classify(&evidence_id, Some(true), Some(true))
+                .await
+                .map_err(|e| e.to_string())
         }));
     }
 
@@ -154,7 +159,10 @@ async fn db_concurrency_012__duplicate_relationship_evidence_action() {
     }
     assert_eq!(success, 1, "the survivor still classifies the evidence");
     let (automated, service) = get_evidence_flags(&db, &evidence_id_3).await;
-    assert!(automated && service, "survivor's classification must be applied");
+    assert!(
+        automated && service,
+        "survivor's classification must be applied"
+    );
 
     // Cleanup
     sweep(&db, &evidence_id_1).await;

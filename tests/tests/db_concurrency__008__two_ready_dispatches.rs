@@ -11,7 +11,7 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test db_concurrency__008__two_ready_dispatches -- --ignored
 
-use db::{Database, DbTarget, ForgeEngineDao, EnsureDispatch};
+use db::{Database, DbTarget, EnsureDispatch, ForgeEngineDao};
 use std::sync::Arc;
 use test_harness::barrier::ConcurrencyBarrier;
 use test_harness::fault::{Fault, FaultInjector};
@@ -82,9 +82,19 @@ async fn db_concurrency_008__two_ready_dispatches() {
             Err(e) => panic!("dispatch failed: {}", e),
         }
     }
-    assert_eq!(queued_count, 1, "exactly one dispatch creates the work item");
-    assert_eq!(already_queued_count, 1, "the other dispatch confirms the existing item");
-    assert_eq!(count_work_items(&db, &story_id_1).await, 1, "exactly one work item exists");
+    assert_eq!(
+        queued_count, 1,
+        "exactly one dispatch creates the work item"
+    );
+    assert_eq!(
+        already_queued_count, 1,
+        "the other dispatch confirms the existing item"
+    );
+    assert_eq!(
+        count_work_items(&db, &story_id_1).await,
+        1,
+        "exactly one work item exists"
+    );
 
     // Test 2: Fault injection - one worker crashes during dispatch
     let story_id_2 = format!("db-008-fault-{}", Uuid::new_v4());
@@ -99,14 +109,19 @@ async fn db_concurrency_008__two_ready_dispatches() {
     let mut handles = Vec::new();
     for _ in 0..2 {
         let (dao, barrier, injector, story_id) = (
-            dao.clone(), barrier.clone(), injector.clone(), story_id_2.clone()
+            dao.clone(),
+            barrier.clone(),
+            injector.clone(),
+            story_id_2.clone(),
         );
         handles.push(tokio::spawn(async move {
             barrier.arrive_and_wait().await;
             if injector.next_fault().is_failure() {
                 return Err("crashed".to_string());
             }
-            dao.ensure_story_dispatched(&story_id).await.map_err(|e| e.to_string())
+            dao.ensure_story_dispatched(&story_id)
+                .await
+                .map_err(|e| e.to_string())
         }));
     }
 
@@ -117,7 +132,11 @@ async fn db_concurrency_008__two_ready_dispatches() {
         }
     }
     assert_eq!(success_count, 1, "the survivor still dispatches the story");
-    assert_eq!(count_work_items(&db, &story_id_2).await, 1, "exactly one work item exists");
+    assert_eq!(
+        count_work_items(&db, &story_id_2).await,
+        1,
+        "exactly one work item exists"
+    );
 
     // Test 3: Three workers race (more concurrent pressure)
     let story_id_3 = format!("db-008-three-{}", Uuid::new_v4());
@@ -144,9 +163,19 @@ async fn db_concurrency_008__two_ready_dispatches() {
             Err(e) => panic!("dispatch failed: {}", e),
         }
     }
-    assert_eq!(queued_count, 1, "exactly one dispatch creates the work item even with 3 racers");
-    assert_eq!(already_queued_count, 2, "the other two confirm the existing item");
-    assert_eq!(count_work_items(&db, &story_id_3).await, 1, "exactly one work item exists");
+    assert_eq!(
+        queued_count, 1,
+        "exactly one dispatch creates the work item even with 3 racers"
+    );
+    assert_eq!(
+        already_queued_count, 2,
+        "the other two confirm the existing item"
+    );
+    assert_eq!(
+        count_work_items(&db, &story_id_3).await,
+        1,
+        "exactly one work item exists"
+    );
 
     // Cleanup
     sweep(&db, &story_id_1).await;

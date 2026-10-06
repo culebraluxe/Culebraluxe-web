@@ -45,7 +45,7 @@ async fn chaos_service_001__transient_database_failure_injected_at_each_service_
             attempt integer not null default 1,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
-        )"
+        )",
     )
     .execute(db.pool())
     .await
@@ -72,7 +72,11 @@ async fn chaos_service_001__transient_database_failure_injected_at_each_service_
         .expect("record write");
         // No commit: process dies here.
     }
-    assert_eq!(write_count(&db, &write_key).await, 0, "crashed write leaves no ghost row");
+    assert_eq!(
+        write_count(&db, &write_key).await,
+        0,
+        "crashed write leaves no ghost row"
+    );
 
     // Generation two: transient DB failure on first attempt, retry succeeds.
     sqlx::query(
@@ -84,8 +88,16 @@ async fn chaos_service_001__transient_database_failure_injected_at_each_service_
     .execute(db.pool())
     .await
     .expect("retry write");
-    assert_eq!(write_count(&db, &write_key).await, 1, "crash plus retry converges to exactly one write row");
-    assert_eq!(write_value(&db, &write_key).await, Some("gen-two".to_string()), "retry write wins");
+    assert_eq!(
+        write_count(&db, &write_key).await,
+        1,
+        "crash plus retry converges to exactly one write row"
+    );
+    assert_eq!(
+        write_value(&db, &write_key).await,
+        Some("gen-two".to_string()),
+        "retry write wins"
+    );
 
     // Generation three: another transient failure, retry with new value.
     sqlx::query(
@@ -97,8 +109,16 @@ async fn chaos_service_001__transient_database_failure_injected_at_each_service_
     .execute(db.pool())
     .await
     .expect("retry write 2");
-    assert_eq!(write_count(&db, &write_key).await, 1, "subsequent retries converge to same row");
-    assert_eq!(write_value(&db, &write_key).await, Some("gen-three".to_string()), "latest retry wins");
+    assert_eq!(
+        write_count(&db, &write_key).await,
+        1,
+        "subsequent retries converge to same row"
+    );
+    assert_eq!(
+        write_value(&db, &write_key).await,
+        Some("gen-three".to_string()),
+        "latest retry wins"
+    );
 
     // Clean up.
     sqlx::query("delete from chaos_service_test_writes where write_key = $1")

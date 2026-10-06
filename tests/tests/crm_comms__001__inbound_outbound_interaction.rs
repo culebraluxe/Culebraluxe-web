@@ -243,21 +243,22 @@ async fn crm_comms_001__inbound_outbound_interaction() {
         refusal.kind
     );
     assert!(
-        refusal
-            .to_string()
-            .contains("interaction_direction_check")
+        refusal.to_string().contains("interaction_direction_check")
             || refusal
                 .detail
                 .as_deref()
                 .is_some_and(|detail| detail.contains("interaction_direction_check")),
         "{HARNESS}: the refusal names the direction check, got {refusal:?}"
     );
-    let after_refusal: i64 = sqlx::query_scalar("select count(*) from interaction where person_id = $1::uuid")
-        .bind(&person)
-        .fetch_one(harness.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("test-harness.crm_comms001.after_refusal", &error))
-        .expect("the count reads");
+    let after_refusal: i64 =
+        sqlx::query_scalar("select count(*) from interaction where person_id = $1::uuid")
+            .bind(&person)
+            .fetch_one(harness.pool())
+            .await
+            .map_err(|error| {
+                DbFailure::from_sqlx("test-harness.crm_comms001.after_refusal", &error)
+            })
+            .expect("the count reads");
     assert_eq!(
         after_refusal, 3,
         "{HARNESS}: a refused direction writes no row"
@@ -298,12 +299,15 @@ async fn crm_comms_001__inbound_outbound_interaction() {
         visible_inside, 1,
         "{HARNESS}: the probe row is visible inside its own transaction"
     );
-    let committed: i64 = sqlx::query_scalar("select count(*) from interaction where person_id = $1::uuid")
-        .bind(&person)
-        .fetch_one(harness.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("test-harness.crm_comms001.probe_leftover", &error))
-        .expect("the post-rollback count reads");
+    let committed: i64 =
+        sqlx::query_scalar("select count(*) from interaction where person_id = $1::uuid")
+            .bind(&person)
+            .fetch_one(harness.pool())
+            .await
+            .map_err(|error| {
+                DbFailure::from_sqlx("test-harness.crm_comms001.probe_leftover", &error)
+            })
+            .expect("the post-rollback count reads");
     assert_eq!(
         committed, 3,
         "{HARNESS}: a rolled-back transaction commits nothing — both readers answer from committed truth"

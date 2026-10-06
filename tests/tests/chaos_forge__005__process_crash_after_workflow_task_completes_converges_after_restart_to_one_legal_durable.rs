@@ -65,11 +65,13 @@ async fn chaos_forge_005__process_crash_after_workflow_task_completes_converges_
         .expect("sweep task executions");
 
     // Get the work item id using a query that returns a row
-    let work_item_row = sqlx::query("select id::text as id from agent_work_item where story_id = $1 and state = 'Ready'")
-        .bind(&story_id)
-        .fetch_one(db.pool())
-        .await
-        .expect("work item dispatched");
+    let work_item_row = sqlx::query(
+        "select id::text as id from agent_work_item where story_id = $1 and state = 'Ready'",
+    )
+    .bind(&story_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("work item dispatched");
     let work_item_id: String = work_item_row.get("id");
 
     // Claim the work item to get a worker.
@@ -82,12 +84,11 @@ async fn chaos_forge_005__process_crash_after_workflow_task_completes_converges_
     let _claimed = claimed.unwrap();
 
     // Get a process instance to anchor the task execution.
-    let process_instance_id: String = sqlx::query_scalar(
-        "select id::text from process_instances limit 1",
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("DEV must hold at least one process instance");
+    let process_instance_id: String =
+        sqlx::query_scalar("select id::text from process_instances limit 1")
+            .fetch_one(db.pool())
+            .await
+            .expect("DEV must hold at least one process instance");
 
     // Get a token for the process instance.
     let token_id: String = sqlx::query_scalar(
@@ -184,16 +185,14 @@ async fn chaos_forge_005__process_crash_after_workflow_task_completes_converges_
         .expect("recover stale engine claim");
 
     // After recovery, the work item should be back to Ready.
-    let work_item_state: String = sqlx::query_scalar(
-        "select state from agent_work_item where id = $1::uuid",
-    )
-    .bind(&work_item_id)
-    .fetch_one(db.pool())
-    .await
-    .expect("work item state");
+    let work_item_state: String =
+        sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
+            .bind(&work_item_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("work item state");
     assert_eq!(
-        work_item_state,
-        "Ready",
+        work_item_state, "Ready",
         "stale engine claim recovery requeues the work item"
     );
 

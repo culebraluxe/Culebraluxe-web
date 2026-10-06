@@ -256,11 +256,12 @@ async fn forge_claim_003__pause_and_ceiling_close_the_door() {
 
     // 5. ONE IMPLEMENTATION, TWO NAMES. `forge_claim_next_agent_work` is a delegation, so a caller that still uses
     //    262's name reaches the same mutex, brake and ceiling. A second body here would be a second door.
-    let old_door: String =
-        sqlx::query_scalar("select prosrc from pg_proc where proname = 'forge_claim_next_agent_work'")
-            .fetch_one(harness.pool())
-            .await
-            .expect("the 262 door still exists for its callers");
+    let old_door: String = sqlx::query_scalar(
+        "select prosrc from pg_proc where proname = 'forge_claim_next_agent_work'",
+    )
+    .fetch_one(harness.pool())
+    .await
+    .expect("the 262 door still exists for its callers");
     assert!(
         old_door.contains("forge_claim_story"),
         "{HARNESS}: 262's door must delegate to the claim door, not re-implement it"
@@ -387,11 +388,7 @@ async fn forge_claim_003__pause_and_ceiling_close_the_door() {
     .await
     .expect("the control row is readable at the end");
     assert_eq!(
-        (
-            restored_paused,
-            restored_ceiling,
-            restored_by.as_str()
-        ),
+        (restored_paused, restored_ceiling, restored_by.as_str()),
         (prior_paused, prior_ceiling, prior_by.as_str()),
         "{HARNESS}: the brake and the ceiling must be left exactly as this proof found them"
     );

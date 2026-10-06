@@ -81,13 +81,12 @@ async fn chaos_concurrency_003__same_agent_work_item() {
     );
 
     // One item, one run: the race converged instead of forking.
-    let runs: i64 = sqlx::query_scalar(
-        "select count(*) from storyboard_story_run where id = $1::uuid",
-    )
-    .bind(&run_id)
-    .fetch_one(db.pool())
-    .await
-    .expect("run count");
+    let runs: i64 =
+        sqlx::query_scalar("select count(*) from storyboard_story_run where id = $1::uuid")
+            .bind(&run_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("run count");
     assert_eq!(runs, 1);
 
     sqlx::query("delete from storyboard_story_run where id = $1::uuid")

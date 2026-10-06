@@ -16,6 +16,7 @@
 //! correlation id. Reads of ambient DEV rows are limited to borrowing one
 //! existing deal id as the envelope anchor.
 
+use db::EmailDao;
 use db::{Database, DbTarget, SignerDao};
 use model::{
     AcceptSignerConsentRequest, CompleteSignatureFieldRequest, CompleteSignerRequest,
@@ -30,7 +31,6 @@ use uuid::Uuid;
 use web::email::EmailService;
 use web::service_support::CoreServiceError;
 use web::signer::{SignerAccessTokenCodec, SignerService, DOCSIGN_EDGE_ACTOR};
-use db::EmailDao;
 
 fn context(tag: &str) -> ServiceContext {
     ServiceContext {
@@ -426,8 +426,7 @@ async fn consent_is_immutable_and_completion_replays_safely() {
     let token_a = grant(&service, &db, &env.a, &ctx).await;
     consent(&service, &db, &env.a, &token_a, &ctx).await;
     // A second acceptance with different text returns the existing evidence.
-    let other_sha =
-        "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35";
+    let other_sha = "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35";
     let mut tx = db.begin("docsign-proof-consent").await.unwrap();
     service
         .accept_consent_transactional(
@@ -501,7 +500,9 @@ async fn email_dedupe_keeps_one_invitation_per_key() {
     sweep_tag(&db, &tag).await;
 }
 
-async fn document_sign(db: &Database) -> web::document_sign::DocumentSignService<
+async fn document_sign(
+    db: &Database,
+) -> web::document_sign::DocumentSignService<
     db::DocumentSignDao,
     db::SignatureDao,
     SignerDao,
@@ -551,9 +552,11 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
     let env = envelope(&db, &tag).await;
     let signing = signer(&db);
     let ctx = context(&tag);
-    for (recipient, field) in
-        [(&env.a, Some(env.field_a.as_str())), (&env.b, None), (&env.c, None)]
-    {
+    for (recipient, field) in [
+        (&env.a, Some(env.field_a.as_str())),
+        (&env.b, None),
+        (&env.c, None),
+    ] {
         let token = grant(&signing, &db, recipient, &ctx).await;
         consent(&signing, &db, recipient, &token, &ctx).await;
         if let Some(field) = field {
@@ -575,14 +578,21 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
     // The envelope's original: a one-page PDF stored the Vault way, so
     // finalize has bytes to seal.
     let original: Vec<u8> = {
-        use web::vault::pdf::{Content, Pdf, Rgb};
         use model::forms_font::encode;
+        use web::vault::pdf::{Content, Pdf, Rgb};
         let mut pdf = Pdf::new();
         let font = pdf.font("Helvetica");
         let tree = pdf.reserve();
         let resources = pdf.dictionary(&web::vault::pdf::resources(&[("F1", font)], &[]));
         let mut content = Content::new();
-        content.text("F1", 12.0, 54.0, 700.0, Rgb::from_bytes(3, 15, 35), &encode("Original").unwrap());
+        content.text(
+            "F1",
+            12.0,
+            54.0,
+            700.0,
+            Rgb::from_bytes(3, 15, 35),
+            &encode("Original").unwrap(),
+        );
         let page = pdf
             .page(612.0, 792.0, tree, resources, &content.into_bytes())
             .unwrap();
@@ -629,13 +639,12 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
     let audit_media_id = done.audit_media_id.expect("audit artifact stored");
 
     // The canonical request is Completed and the audit trail is linked.
-    let status: String = sqlx::query_scalar(
-        "select status from signature_request where id = $1::uuid",
-    )
-    .bind(&env.request_id)
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let status: String =
+        sqlx::query_scalar("select status from signature_request where id = $1::uuid")
+            .bind(&env.request_id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
     assert_eq!(status, "completed");
     let linked: Option<String> = sqlx::query_scalar(
         "select td.signed_audit_media_id::text from transaction_document td \
@@ -696,13 +705,11 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
     assert_eq!(&magic, b"%PDF-1.4");
 
     // Replay answers with the existing artifact instead of storing another.
-    let media_before: i64 = sqlx::query_scalar(
-        "select count(*) from media where id = $1::uuid",
-    )
-    .bind(&audit_media_id)
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let media_before: i64 = sqlx::query_scalar("select count(*) from media where id = $1::uuid")
+        .bind(&audit_media_id)
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     let mut tx = db.begin("docsign-proof-finalize").await.unwrap();
     let replay = service
         .finalize_transactional(&mut tx, &env.request_id, &ctx)
@@ -710,14 +717,15 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
         .expect("replay answers");
     tx.commit().await.unwrap();
     assert!(replay.already_completed);
-    assert_eq!(replay.audit_media_id.as_deref(), Some(audit_media_id.as_str()));
-    let media_after: i64 = sqlx::query_scalar(
-        "select count(*) from media where id = $1::uuid",
-    )
-    .bind(&audit_media_id)
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    assert_eq!(
+        replay.audit_media_id.as_deref(),
+        Some(audit_media_id.as_str())
+    );
+    let media_after: i64 = sqlx::query_scalar("select count(*) from media where id = $1::uuid")
+        .bind(&audit_media_id)
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     assert_eq!(media_before, media_after);
     cleanup(&db, &env).await;
 }
@@ -765,7 +773,12 @@ async fn sweep_expires_overdue_grants_and_envelopes() {
     );
     let mut tx = db.begin("docsign-proof-sweep").await.unwrap();
     signature
-        .transition_transactional(&mut tx, &env.request_id, model::SignatureRequestStatus::Sent, &ctx)
+        .transition_transactional(
+            &mut tx,
+            &env.request_id,
+            model::SignatureRequestStatus::Sent,
+            &ctx,
+        )
         .await
         .expect("sent");
     tx.commit().await.unwrap();
@@ -787,13 +800,12 @@ async fn sweep_expires_overdue_grants_and_envelopes() {
     .await
     .unwrap();
     assert_eq!(state, "expired");
-    let status: String = sqlx::query_scalar(
-        "select status from signature_request where id = $1::uuid",
-    )
-    .bind(&env.request_id)
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let status: String =
+        sqlx::query_scalar("select status from signature_request where id = $1::uuid")
+            .bind(&env.request_id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
     assert_eq!(status, "expired");
 
     // Second sweep is a no-op: terminal states never reopen.
@@ -830,7 +842,12 @@ async fn import_builds_owned_fields_from_template_anchors() {
         page_index: 0,
         page_width: 612.0,
         page_height: 792.0,
-        rect: TemplateAnchorRect { x: 72.0, y: 650.0, width: 180.0, height: 20.0 },
+        rect: TemplateAnchorRect {
+            x: 72.0,
+            y: 650.0,
+            width: 180.0,
+            height: 20.0,
+        },
     };
     let service = document_sign(&db).await;
     let ctx = context(&tag);
@@ -918,13 +935,12 @@ async fn import_builds_owned_fields_from_template_anchors() {
         .expect("template import");
     tx.commit().await.unwrap();
     assert_eq!(from_template.created_field_ids.len(), 1);
-    let owner: String = sqlx::query_scalar(
-        "select recipient_id::text from signature_field where id = $1::uuid",
-    )
-    .bind(&from_template.created_field_ids[0])
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let owner: String =
+        sqlx::query_scalar("select recipient_id::text from signature_field where id = $1::uuid")
+            .bind(&from_template.created_field_ids[0])
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
     assert_eq!(owner, env.b);
 
     // An anchor no recipient claims fails loud instead of half-mapping.

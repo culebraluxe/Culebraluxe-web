@@ -50,7 +50,10 @@ async fn chaos_forge_008__process_crash_after_receipt_finalize_converges_after_r
         drop(generation); // the process crash: no finalize, no cleanup, no goodbye
     };
     let _ = first;
-    assert_eq!(receipt_outcome(&db, &command_id).await, Some("pending".to_string()));
+    assert_eq!(
+        receipt_outcome(&db, &command_id).await,
+        Some("pending".to_string())
+    );
 
     // Generation two restarts and finds the unit held — not free (no duplicate work) and not lost.
     {
@@ -64,7 +67,10 @@ async fn chaos_forge_008__process_crash_after_receipt_finalize_converges_after_r
             "after a crash the unit reads held, never free and never lost"
         );
     }
-    assert_eq!(receipt_outcome(&db, &command_id).await, Some("pending".to_string()));
+    assert_eq!(
+        receipt_outcome(&db, &command_id).await,
+        Some("pending".to_string())
+    );
 
     // Generation two finalizes the receipt, but the process dies before the finalization
     // is committed (simulated by rolling back the transaction).
@@ -103,7 +109,7 @@ async fn chaos_forge_008__process_crash_after_receipt_finalize_converges_after_r
             .await
             .expect("recovery answers");
         assert!(is_acquired(&claim), "a stale claim is reclaimable");
-        
+
         // Finalize for real this time.
         sqlx::query(
             "update workflow_command_receipt \
