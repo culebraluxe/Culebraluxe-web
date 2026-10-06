@@ -81,9 +81,19 @@ const GUEST_DOCUMENT_GUARDS: [&str; 7] = [
     "from transaction_document td",
 ];
 
-/// The only files in `web/src` allowed to name the Vault's DAO: the adapter and the composition root. A route
-/// or a service holding `VaultDao` is a second path to the bytes, past the Vault's own decision.
-const VAULT_DAO_FILES: [&str; 2] = ["web/src/composition.rs", "web/src/vault/mod.rs"];
+/// The only files in `web/src` allowed to name the Vault's DAO: the adapter, the composition root, and the e-signature
+/// service's production type alias (below). A route or a service HOLDING `VaultDao` is a second path to the bytes, past
+/// the Vault's own decision.
+const VAULT_DAO_FILES: [&str; 3] = [
+    "web/src/composition.rs",
+    // `ProductionDocumentSignService` instantiates `DocumentSignService<…, VaultDao>`: the e-signature service NAMES the
+    // DAO as a generic argument and holds only `Arc<VaultService<_>>`. Every byte it reads goes through
+    // `VaultService::get_document` / `media_bytes` under the CALLER's authority (the Vault's own decision runs first), and
+    // the signed artifact is stored through its own repository — so it is not a second path to the bytes. Pinned, not
+    // waved through: if it ever calls a `VaultDao` method itself, the door scan above sees it.
+    "web/src/document_sign/mod.rs",
+    "web/src/vault/mod.rs",
+];
 
 /// The only files allowed to name the media DAO, for the same reason.
 const MEDIA_DAO_FILES: [&str; 3] = [
