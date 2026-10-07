@@ -295,12 +295,15 @@ impl IntakeHarness {
 }
 
 /// The production CRM client service on an isolated, disposable DEV database.
-#[derive(Clone)]
+/// Only compiled for tests since it depends on the `web` crate (a dev-dependency).
+#[cfg(test)]
+#[derive(Debug)]
 pub struct ClientHarness {
     database: TestDatabase,
     service: web::clients::ClientService<ClientDao>,
 }
 
+#[cfg(test)]
 impl ClientHarness {
     /// Read the declared environment, refuse PRODUCTION, connect, and wrap the production client service.
     pub async fn connect_from_env() -> Result<Self, HarnessDbError> {

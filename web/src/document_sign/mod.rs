@@ -1282,7 +1282,8 @@ where
                 .await?;
             return Ok(DocumentSignFinalizeResult {
                 signature_request_id: signature_request_id.to_owned(),
-                audit_media_id,
+                audit_media_id: audit_media_id.clone(),
+                signed_media_id: audit_media_id,
                 already_completed: true,
             });
         }
@@ -1349,7 +1350,8 @@ where
             .await?;
         Ok(DocumentSignFinalizeResult {
             signature_request_id: signature_request_id.to_owned(),
-            audit_media_id: Some(audit_media_id),
+            audit_media_id: Some(audit_media_id.clone()),
+            signed_media_id: Some(audit_media_id),
             already_completed: false,
         })
     }

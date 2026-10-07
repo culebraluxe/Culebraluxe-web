@@ -51,6 +51,17 @@ pub fn is_engine_fault(message: &str) -> bool {
         "connection refused",
         "could not be run at all",
         "is not the opencode build",
+        // Child process termination (SIGKILL, etc.) — the OS killed the child, not a story verdict.
+        "child process killed",
+        "signal 9",
+        // OpenCode harness failures — the vendor CLI itself failed, not the story.
+        "opencode-harness failed",
+        // Git failures — the version control system failed, not the story.
+        "git push failed",
+        "git fetch failed",
+        // Artifact write failures — the storage layer failed, not the story.
+        "artifact write failed",
+        "disk full",
     ];
     let message = message.to_ascii_lowercase();
     MARKS.iter().any(|mark| message.contains(mark))

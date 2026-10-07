@@ -261,6 +261,7 @@ pub struct DocumentSignSweepResult {
 pub struct DocumentSignFinalizeResult {
     pub signature_request_id: String,
     pub audit_media_id: Option<String>,
+    pub signed_media_id: Option<String>,
     pub already_completed: bool,
 }
 
