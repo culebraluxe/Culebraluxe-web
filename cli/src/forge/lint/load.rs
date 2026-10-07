@@ -124,9 +124,7 @@ pub fn run(args: &[String]) -> Result<u8, Failure> {
                 json = args.get(index + 1).map(String::as_str) == Some("json");
                 index += 1;
             }
-            other => return Err(Failure::usage(format!(
-                "unknown argument `{other}`; usage: forge harness-lint [--strict] [--format json]"
-            ))),
+            other => return Err(Failure::usage(unknown_argument(other))),
         }
         index += 1;
     }
@@ -209,6 +207,12 @@ pub fn run(args: &[String]) -> Result<u8, Failure> {
         }
     );
     Ok(exit_code(strict, failures))
+}
+
+/// Kept out of the match arm in `run`: with the message inline the arm is rewritten between two
+/// forms by consecutive `cargo fmt` passes, so `cargo fmt --all --check` could never be satisfied.
+fn unknown_argument(argument: &str) -> String {
+    format!("unknown argument `{argument}`; usage: forge harness-lint [--strict] [--format json]")
 }
 
 pub(super) fn exit_code(strict: bool, failures: usize) -> u8 {
