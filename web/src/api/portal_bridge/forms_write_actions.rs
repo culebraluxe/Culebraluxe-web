@@ -604,7 +604,12 @@ pub(super) async fn send_signature(
             .or(result.message)
             .unwrap_or_else(|| "Could not send the document for signature.".into());
         return Err(correlate(
-            ApiError::new(StatusCode::CONFLICT, "FORM_SIGNATURE_SEND_FAILED", message, false),
+            ApiError::new(
+                StatusCode::CONFLICT,
+                "FORM_SIGNATURE_SEND_FAILED",
+                message,
+                false,
+            ),
             &resolved,
         ));
     }
