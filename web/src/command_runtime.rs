@@ -550,6 +550,16 @@ impl DurableCommandHandler for DocumentSignCommand {
                 Ok(result)
             }
             DocumentSignCommandKind::Send => {
+                // The aggregate IS the document: a caller that names it once (as the aggregate) need not name it
+                // again in the input. `validate_command_target` below still refuses the two disagreeing.
+                let mut envelope = envelope.clone();
+                if let Some(document) = envelope.aggregate_id.clone() {
+                    envelope
+                        .input
+                        .entry("transactionDocumentId")
+                        .or_insert(Value::String(document));
+                }
+                let envelope = &envelope;
                 let request: SendDocumentSignRequest = match decode_command_input(envelope) {
                     Ok(value) => value,
                     Err(result) => return Ok(result),
