@@ -318,14 +318,14 @@ fn signing_view(model: &Model, session: &SignerSession, link: &Link<Msg>) -> Htm
                             <a class="text-[#041024] underline decoration-black/20 underline-offset-2" href={format!("{}?download=true", document_url(&model.token))}>{"Download"}</a>
                         </span>
                     </div>
-                    <iframe class="block h-[70vh] min-h-[28rem] w-full bg-[#f4f1ea]" title="The document you are asked to sign" src={document_url(&model.token)}></iframe>
+                    <iframe class="block h-[60vh] min-h-[24rem] max-h-[44rem] w-full bg-[#f4f1ea]" title="The document you are asked to sign" src={format!("{}#navpanes=0&view=FitH", document_url(&model.token))}></iframe>
                 </section>
 
                 <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]">
                     <section class="overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
                         <div class="flex items-center justify-between border-b border-black/10 bg-white/75 px-4 py-2.5">
                             <span class="text-[10px] font-medium uppercase tracking-[0.14em] text-black/45">{"Your fields"}</span>
-                            <span class="text-[10px] font-light text-black/35">{ format!("{} fields", session.fields.len()) }</span>
+                            <span class="text-[10px] font-light text-black/35">{ format!("{} {}", session.fields.len(), if session.fields.len() == 1 { "field" } else { "fields" }) }</span>
                         </div>
                         <div class="space-y-5 p-4 sm:p-6">
                             { for session.fields.iter().map(|field| field_editor(model, session, field, link)) }
@@ -448,6 +448,17 @@ fn field_editor(
                 </label>
             }
         }
+        "signature" => html! {
+            <div>
+                <span class="block text-[9px] font-medium uppercase tracking-[0.12em] text-black/35">
+                    { if field.label.is_some() { label.clone() } else { "Your signature".to_owned() } }
+                    if field.required { <span class="text-[#a88450]">{" *"}</span> }
+                </span>
+                <p class="mt-2 text-sm font-light text-black/60">
+                    { format!("Signs as {} in the appearance you choose on the right.", session.recipient.name) }
+                </p>
+            </div>
+        },
         "radio" | "dropdown" => {
             let id = field.id.clone();
             let selected = model.selected.get(&field.id).cloned().unwrap_or_default();
@@ -510,7 +521,7 @@ fn field_editor(
                 onclick={submit}
                 class="mt-3 rounded-md border border-[#caa36b] bg-[#fffaf0] px-4 py-2 text-[10px] font-medium uppercase tracking-[0.14em] text-[#041024] transition hover:bg-[#caa36b]/20 disabled:cursor-not-allowed disabled:opacity-40"
             >
-                {"Save field"}
+                { if field.field_type == "signature" { "Sign here" } else { "Save field" } }
             </button>
         </div>
     }

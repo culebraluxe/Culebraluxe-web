@@ -6,11 +6,14 @@
 
 use yew::prelude::*;
 
-use crate::app::api::{SigningDeskCommand, SigningDeskList, SigningEnvelopeGet};
-use crate::app::cmd::{ApiError, Cmd, Remote};
+use crate::app::api::{
+    SigningDeskCommand, SigningDeskList, SigningDocumentsList, SigningEnvelopeGet,
+};
+use crate::app::cmd::{command_refusal, ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
+use crate::app::screens::signing_compose::{self as compose, Draft, RecipientDraft, Stage};
 use crate::app::template::{self, PANEL};
-use crate::model::{SigningEnvelopeRecipient, SigningEnvelopeSummary};
+use crate::model::{SigningDocumentOption, SigningEnvelopeRecipient, SigningEnvelopeSummary};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EnvelopeStatus {
@@ -95,6 +98,31 @@ pub struct Model {
     detail: Remote<EnvelopeDetail>,
     notice: Option<String>,
     seq: u64,
+    compose: Option<Compose>,
+}
+
+/// The "Send for signature" panel: the draft, the documents to pick from, and where the command chain is.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Compose {
+    draft: Draft,
+    documents: Remote<Vec<SigningDocumentOption>>,
+    stage: Stage,
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComposeEdit {
+    Document(String),
+    Subject(String),
+    Message(String),
+    Days(String),
+    Page(String),
+    Sequential(bool),
+    Name(usize, String),
+    Email(usize, String),
+    Approver(usize, bool),
+    AddPerson,
+    RemovePerson(usize),
 }
 
 #[derive(Debug, PartialEq)]
@@ -107,6 +135,12 @@ pub enum Msg {
     ImportFields,
     Acted(Result<serde_json::Value, ApiError>),
     ClearNotice,
+    OpenCompose,
+    CloseCompose,
+    DocumentsLoaded(Result<Vec<SigningDocumentOption>, ApiError>),
+    Compose(ComposeEdit),
+    SendCompose,
+    ComposeStepped(Result<serde_json::Value, ApiError>),
 }
 
 /// Clock for command ids and request stamps. Zero off the browser, where
@@ -123,6 +157,171 @@ fn now_rfc3339() -> String {
     {
         "1970-01-01T00:00:00Z".into()
     }
+}
+
+fn apply_edit(draft: &mut Draft, edit: ComposeEdit) {
+    match edit {
+        ComposeEdit::Document(value) => draft.document_id = value,
+        ComposeEdit::Subject(value) => draft.subject = value,
+        ComposeEdit::Message(value) => draft.message = value,
+        ComposeEdit::Days(value) => draft.expires_in_days = value,
+        ComposeEdit::Page(value) => draft.signature_page = value,
+        ComposeEdit::Sequential(value) => draft.sequential = value,
+        ComposeEdit::Name(i, value) => {
+            if let Some(person) = draft.recipients.get_mut(i) {
+                person.name = value;
+            }
+        }
+        ComposeEdit::Email(i, value) => {
+            if let Some(person) = draft.recipients.get_mut(i) {
+                person.email = value;
+            }
+        }
+        ComposeEdit::Approver(i, value) => {
+            if let Some(person) = draft.recipients.get_mut(i) {
+                person.approver = value;
+            }
+        }
+        ComposeEdit::AddPerson => draft.recipients.push(RecipientDraft::default()),
+        ComposeEdit::RemovePerson(i) => {
+            if draft.recipients.len() > 1 && i < draft.recipients.len() {
+                draft.recipients.remove(i);
+            }
+        }
+    }
+}
+
+/// The expiry instant for "N days from now". Needs the browser clock; off the browser only tests run this.
+fn expiry_in_days(draft: &Draft) -> Option<String> {
+    let days: f64 = draft.expires_in_days.trim().parse().ok()?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let at = js_sys::Date::new_0();
+        at.set_time(at.get_time() + days * 86_400_000.0);
+        at.to_iso_string().as_string()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = days;
+        None
+    }
+}
+
+/// One link of the prepare → putField… → issue chain finished; start the next, or end the chain.
+fn compose_stepped(model: &mut Model, result: Result<serde_json::Value, ApiError>) -> Cmd<Msg> {
+    let outcome = match result {
+        Ok(body) => match command_refusal(&body) {
+            Some(reason) => Err(reason),
+            None => Ok(body),
+        },
+        Err(error) => Err(error.message),
+    };
+    let Some(stage) = model.compose.as_ref().map(|c| c.stage.clone()) else {
+        return Cmd::none();
+    };
+    let body = match outcome {
+        Ok(body) => body,
+        Err(reason) => {
+            if let Some(c) = model.compose.as_mut() {
+                let drafted = !matches!(stage, Stage::Preparing);
+                c.error = Some(if drafted {
+                    format!("{reason} A draft was saved; it is listed and can be voided.")
+                } else {
+                    reason
+                });
+                c.stage = Stage::Idle;
+            }
+            return Cmd::batch(vec![reload_list()]);
+        }
+    };
+    match stage {
+        Stage::Idle => Cmd::none(),
+        Stage::Preparing => {
+            let page = model
+                .compose
+                .as_ref()
+                .and_then(|c| c.draft.signature_page.trim().parse::<i32>().ok())
+                .unwrap_or(1);
+            let snapshot = body.get("value").cloned().unwrap_or_default();
+            match compose::read_prepared(&snapshot, page) {
+                Ok(prepared) => next_link(model, prepared.signature_request_id, prepared.fields),
+                Err(reason) => {
+                    if let Some(c) = model.compose.as_mut() {
+                        c.error = Some(reason);
+                        c.stage = Stage::Idle;
+                    }
+                    reload_list()
+                }
+            }
+        }
+        Stage::Fielding {
+            signature_request_id,
+            remaining,
+        } => next_link(model, signature_request_id, remaining),
+        Stage::Issuing { .. } => {
+            let notice = model
+                .compose
+                .as_ref()
+                .map(|c| compose::sent_notice(&c.draft))
+                .unwrap_or_default();
+            model.compose = None;
+            model.notice = Some(notice);
+            model.detail = Remote::Loading;
+            model.selected_id = None;
+            reload_list()
+        }
+    }
+}
+
+/// Send the next putField, or issue once every signer has a field.
+fn next_link(
+    model: &mut Model,
+    signature_request_id: String,
+    mut remaining: Vec<serde_json::Value>,
+) -> Cmd<Msg> {
+    if remaining.is_empty() {
+        if let Some(c) = model.compose.as_mut() {
+            c.stage = Stage::Issuing {
+                signature_request_id: signature_request_id.clone(),
+            };
+        }
+        let id = command_id(model, "issue");
+        return Cmd::request(
+            SigningDeskCommand::on_envelope(
+                id,
+                "documentSign.issue",
+                signature_request_id.clone(),
+                now_rfc3339(),
+                compose::issue_input(&signature_request_id),
+            ),
+            Msg::ComposeStepped,
+        );
+    }
+    let field = remaining.remove(0);
+    if let Some(c) = model.compose.as_mut() {
+        c.stage = Stage::Fielding {
+            signature_request_id: signature_request_id.clone(),
+            remaining,
+        };
+    }
+    let id = command_id(model, "field");
+    Cmd::request(
+        SigningDeskCommand::on_envelope(
+            id,
+            "documentSign.putField",
+            signature_request_id,
+            now_rfc3339(),
+            field,
+        ),
+        Msg::ComposeStepped,
+    )
+}
+
+/// A command id that is unique across page loads. The dispatcher treats a repeated id as a replay and answers the
+/// old result, so a per-page counter alone would make the second session's "void" a no-op.
+fn command_id(model: &mut Model, what: &str) -> String {
+    model.seq += 1;
+    format!("desk-{what}-{}-{}", now_rfc3339(), model.seq)
 }
 
 pub struct DocumentSigning;
@@ -190,16 +389,15 @@ impl Screen for DocumentSigning {
                 let Some(id) = model.selected_id.clone() else {
                     return Cmd::none();
                 };
-                model.seq += 1;
-                let seq = model.seq;
+                let command_id = command_id(model, "resend");
                 Cmd::request(
-                    SigningDeskCommand {
-                        command_id: format!("desk-resend-{seq}"),
-                        command_type: "documentSign.resend",
-                        signature_request_id: id,
-                        requested_at: now_rfc3339(),
-                        input: serde_json::json!({ "recipientId": recipient_id }),
-                    },
+                    SigningDeskCommand::on_envelope(
+                        command_id,
+                        "documentSign.resend",
+                        id,
+                        now_rfc3339(),
+                        serde_json::json!({ "recipientId": recipient_id }),
+                    ),
                     Msg::Acted,
                 )
             }
@@ -207,16 +405,15 @@ impl Screen for DocumentSigning {
                 let Some(id) = model.selected_id.clone() else {
                     return Cmd::none();
                 };
-                model.seq += 1;
-                let seq = model.seq;
+                let command_id = command_id(model, "import");
                 Cmd::request(
-                    SigningDeskCommand {
-                        command_id: format!("desk-import-{seq}"),
-                        command_type: "documentSign.importFields",
-                        signature_request_id: id,
-                        requested_at: now_rfc3339(),
-                        input: serde_json::json!({}),
-                    },
+                    SigningDeskCommand::on_envelope(
+                        command_id,
+                        "documentSign.importFields",
+                        id,
+                        now_rfc3339(),
+                        serde_json::json!({}),
+                    ),
                     Msg::Acted,
                 )
             }
@@ -224,16 +421,15 @@ impl Screen for DocumentSigning {
                 let Some(id) = model.selected_id.clone() else {
                     return Cmd::none();
                 };
-                model.seq += 1;
-                let seq = model.seq;
+                let command_id = command_id(model, "void");
                 Cmd::request(
-                    SigningDeskCommand {
-                        command_id: format!("desk-void-{seq}"),
-                        command_type: "documentSign.void",
-                        signature_request_id: id,
-                        requested_at: now_rfc3339(),
-                        input: serde_json::json!({}),
-                    },
+                    SigningDeskCommand::on_envelope(
+                        command_id,
+                        "documentSign.void",
+                        id,
+                        now_rfc3339(),
+                        serde_json::json!({}),
+                    ),
                     Msg::Acted,
                 )
             }
@@ -256,6 +452,55 @@ impl Screen for DocumentSigning {
                 model.notice = Some(error.message.clone());
                 Cmd::none()
             }
+            Msg::OpenCompose => {
+                model.notice = None;
+                model.compose = Some(Compose {
+                    documents: Remote::Loading,
+                    ..Compose::default()
+                });
+                Cmd::request(SigningDocumentsList, Msg::DocumentsLoaded)
+            }
+            Msg::CloseCompose => {
+                if model.compose.as_ref().is_some_and(|c| !c.stage.busy()) {
+                    model.compose = None;
+                }
+                Cmd::none()
+            }
+            Msg::DocumentsLoaded(result) => {
+                if let Some(c) = model.compose.as_mut() {
+                    c.documents = match result {
+                        Ok(rows) => Remote::Loaded(rows),
+                        Err(error) => Remote::Failed(error),
+                    };
+                }
+                Cmd::none()
+            }
+            Msg::Compose(edit) => {
+                if let Some(c) = model.compose.as_mut().filter(|c| !c.stage.busy()) {
+                    c.error = None;
+                    apply_edit(&mut c.draft, edit);
+                }
+                Cmd::none()
+            }
+            Msg::SendCompose => {
+                let Some(c) = model.compose.as_mut().filter(|c| !c.stage.busy()) else {
+                    return Cmd::none();
+                };
+                if let Err(reason) = compose::validate(&c.draft) {
+                    c.error = Some(reason);
+                    return Cmd::none();
+                }
+                c.error = None;
+                c.stage = Stage::Preparing;
+                let input = compose::prepare_input(&c.draft, expiry_in_days(&c.draft));
+                let document_id = c.draft.document_id.clone();
+                let id = command_id(model, "prepare");
+                Cmd::request(
+                    SigningDeskCommand::prepare(id, document_id, now_rfc3339(), input),
+                    Msg::ComposeStepped,
+                )
+            }
+            Msg::ComposeStepped(result) => compose_stepped(model, result),
             Msg::ClearNotice => {
                 model.notice = None;
                 Cmd::none()
@@ -271,6 +516,17 @@ impl Screen for DocumentSigning {
                     "Document Signing",
                     "Send, follow and finish native signing envelopes.",
                 ) }
+
+                <div class="flex justify-end">
+                    <button type="button" onclick={link.callback(|_: MouseEvent| Msg::OpenCompose)}
+                        class="rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 py-2.5 text-[10px] font-medium uppercase tracking-[0.14em] text-white transition hover:opacity-90">
+                        {"Send for signature"}
+                    </button>
+                </div>
+
+                if let Some(compose) = model.compose.as_ref() {
+                    { compose_panel(compose, link) }
+                }
 
                 { metrics(model) }
 
@@ -299,12 +555,156 @@ impl Screen for DocumentSigning {
     }
 }
 
+const INPUT: &str = "w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-3 py-2 text-sm font-light text-[var(--portal-navy)] disabled:opacity-50";
+const LABEL: &str = "mb-1 block text-[9px] font-medium uppercase tracking-[0.15em] text-black/40";
+
+fn text_input(
+    link: &Link<Msg>,
+    value: &str,
+    placeholder: &'static str,
+    disabled: bool,
+    edit: impl Fn(String) -> ComposeEdit + 'static,
+) -> Html {
+    html! {
+        <input type="text" class={INPUT} {placeholder} {disabled} value={value.to_owned()}
+            oninput={link.callback(move |event: InputEvent| {
+                let value = event
+                    .target_dyn_into::<web_sys::HtmlInputElement>()
+                    .map(|input| input.value())
+                    .unwrap_or_default();
+                Msg::Compose(edit(value))
+            })} />
+    }
+}
+
+fn compose_panel(c: &Compose, link: &Link<Msg>) -> Html {
+    let busy = c.stage.busy();
+    let draft = &c.draft;
+    html! {
+        <section class={classes!(PANEL, "space-y-4", "p-5")}>
+            <div class="flex items-start justify-between gap-3">
+                <div>
+                    <p class="text-[9px] font-medium uppercase tracking-[0.16em] text-[var(--portal-gold-muted)]">{"New envelope"}</p>
+                    <h2 class="mt-1 font-serif text-2xl font-light text-[var(--portal-navy)]">{"Send for signature"}</h2>
+                </div>
+                <button type="button" disabled={busy} onclick={link.callback(|_: MouseEvent| Msg::CloseCompose)}
+                    class="text-lg text-black/40 hover:text-black/70 disabled:opacity-40">{"×"}</button>
+            </div>
+
+            <div>
+                <label class={LABEL}>{"Document"}</label>
+                { match &c.documents {
+                    Remote::Loading | Remote::NotAsked => template::loading_line("documents"),
+                    Remote::Failed(error) => template::failure(error),
+                    Remote::Loaded(rows) if rows.is_empty() => html! {
+                        <p class="text-xs font-light text-black/50">{"No issued documents yet. Issue one from Forms first."}</p>
+                    },
+                    Remote::Loaded(rows) => html! {
+                        <select class={INPUT} disabled={busy}
+                            onchange={link.callback(|event: Event| {
+                                let value = event
+                                    .target_dyn_into::<web_sys::HtmlSelectElement>()
+                                    .map(|select| select.value())
+                                    .unwrap_or_default();
+                                Msg::Compose(ComposeEdit::Document(value))
+                            })}>
+                            <option value="" selected={draft.document_id.is_empty()}>{"Choose a document…"}</option>
+                            { for rows.iter().map(|row| html! {
+                                <option value={row.id.clone()} selected={row.id == draft.document_id}>{ row.label() }</option>
+                            }) }
+                        </select>
+                    },
+                } }
+            </div>
+
+            <div class="grid gap-3 sm:grid-cols-2">
+                <div>
+                    <label class={LABEL}>{"Subject (optional)"}</label>
+                    { text_input(link, &draft.subject, "Purchase agreement for signature", busy, ComposeEdit::Subject) }
+                </div>
+                <div>
+                    <label class={LABEL}>{"Message to signers (optional)"}</label>
+                    { text_input(link, &draft.message, "Please sign by Friday.", busy, ComposeEdit::Message) }
+                </div>
+            </div>
+
+            <div>
+                <label class={LABEL}>{"People"}</label>
+                <div class="space-y-2">
+                    { for draft.recipients.iter().enumerate().map(|(i, person)| html! {
+                        <div class="grid items-center gap-2 sm:grid-cols-[1fr_1.3fr_auto_auto]">
+                            { text_input(link, &person.name, "Full name", busy, move |v| ComposeEdit::Name(i, v)) }
+                            { text_input(link, &person.email, "email@example.com", busy, move |v| ComposeEdit::Email(i, v)) }
+                            <label class="flex items-center gap-1.5 text-[11px] font-light text-black/60">
+                                <input type="checkbox" disabled={busy} checked={person.approver}
+                                    onchange={link.callback(move |event: Event| {
+                                        let checked = event
+                                            .target_dyn_into::<web_sys::HtmlInputElement>()
+                                            .map(|input| input.checked())
+                                            .unwrap_or(false);
+                                        Msg::Compose(ComposeEdit::Approver(i, checked))
+                                    })} />
+                                {"Approves only"}
+                            </label>
+                            <button type="button" disabled={busy || draft.recipients.len() < 2}
+                                onclick={link.callback(move |_: MouseEvent| Msg::Compose(ComposeEdit::RemovePerson(i)))}
+                                class="text-black/35 hover:text-black/70 disabled:opacity-30">{"Remove"}</button>
+                        </div>
+                    }) }
+                </div>
+                <button type="button" disabled={busy}
+                    onclick={link.callback(|_: MouseEvent| Msg::Compose(ComposeEdit::AddPerson))}
+                    class="mt-2 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--portal-navy)] disabled:opacity-40">
+                    {"+ Add person"}
+                </button>
+            </div>
+
+            <div class="grid gap-3 sm:grid-cols-3">
+                <div>
+                    <label class={LABEL}>{"Order"}</label>
+                    <select class={INPUT} disabled={busy}
+                        onchange={link.callback(|event: Event| {
+                            let value = event
+                                .target_dyn_into::<web_sys::HtmlSelectElement>()
+                                .map(|select| select.value())
+                                .unwrap_or_default();
+                            Msg::Compose(ComposeEdit::Sequential(value == "sequential"))
+                        })}>
+                        <option value="parallel" selected={!draft.sequential}>{"Everyone at once"}</option>
+                        <option value="sequential" selected={draft.sequential}>{"One after another, as listed"}</option>
+                    </select>
+                </div>
+                <div>
+                    <label class={LABEL}>{"Expires in (days)"}</label>
+                    { text_input(link, &draft.expires_in_days, "14", busy, ComposeEdit::Days) }
+                </div>
+                <div>
+                    <label class={LABEL}>{"Signature on page"}</label>
+                    { text_input(link, &draft.signature_page, "1", busy, ComposeEdit::Page) }
+                </div>
+            </div>
+
+            if let Some(error) = c.error.as_deref() {
+                <p class="rounded-[var(--portal-tab-radius)] bg-[var(--portal-archive-pale)] px-3 py-2 text-xs font-light text-[var(--portal-archive)]">{ error }</p>
+            }
+
+            <div class="flex items-center justify-end gap-3">
+                <span class="text-xs font-light text-black/50">{ c.stage.label() }</span>
+                <button type="button" disabled={busy} onclick={link.callback(|_: MouseEvent| Msg::SendCompose)}
+                    class="rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-5 py-2.5 text-[10px] font-medium uppercase tracking-[0.14em] text-white disabled:opacity-50">
+                    {"Send invitations"}
+                </button>
+            </div>
+        </section>
+    }
+}
+
 fn list_body(model: &Model, link: &Link<Msg>) -> Html {
     match &model.envelopes {
         Remote::Loading | Remote::NotAsked => template::loading_line("envelopes"),
         Remote::Failed(error) => template::failure(error),
         Remote::Loaded(rows) if rows.is_empty() => {
-            template::empty_panel("No native envelopes yet. Prepare one to begin.")
+            template::empty_panel("No envelopes yet. Choose “Send for signature” to start one.")
         }
         Remote::Loaded(rows) => html! {
             { for rows.iter().map(|row| {
@@ -517,6 +917,89 @@ mod tests {
         let cmd = DocumentSigning::update(&mut model, Msg::ImportFields, &ScreenCtx::default());
         let request = cmd.into_requests().remove(0);
         assert_eq!(request.path, "/v1/commands/dispatch");
+    }
+
+    #[test]
+    fn sending_chains_prepare_then_a_field_per_signer_then_issue() {
+        let ctx = ScreenCtx::default();
+        let (mut model, _) = DocumentSigning::init(&ctx);
+        DocumentSigning::update(&mut model, Msg::OpenCompose, &ctx);
+        for edit in [
+            ComposeEdit::Document("doc-1".into()),
+            ComposeEdit::Name(0, "Ada".into()),
+            ComposeEdit::Email(0, "ada@example.com".into()),
+        ] {
+            DocumentSigning::update(&mut model, Msg::Compose(edit), &ctx);
+        }
+        // An incomplete draft is refused without a request.
+        let mut bad = model.clone();
+        DocumentSigning::update(
+            &mut bad,
+            Msg::Compose(ComposeEdit::Email(0, "nope".into())),
+            &ctx,
+        );
+        let cmd = DocumentSigning::update(&mut bad, Msg::SendCompose, &ctx);
+        assert!(cmd.into_requests().is_empty());
+        assert!(bad.compose.as_ref().unwrap().error.is_some());
+
+        let cmd = DocumentSigning::update(&mut model, Msg::SendCompose, &ctx);
+        assert_eq!(model.compose.as_ref().unwrap().stage, Stage::Preparing);
+        assert_eq!(cmd.into_requests().remove(0).path, "/v1/commands/dispatch");
+
+        // prepare answered: one signer without a field → a putField follows.
+        let prepared = serde_json::json!({
+            "outcome": "success",
+            "value": {
+                "signatureRequest": { "id": "req-1" },
+                "recipients": [{ "id": "r1", "role": "signer" }],
+                "fields": [],
+            }
+        });
+        let cmd = DocumentSigning::update(&mut model, Msg::ComposeStepped(Ok(prepared)), &ctx);
+        assert!(matches!(
+            model.compose.as_ref().unwrap().stage,
+            Stage::Fielding { .. }
+        ));
+        assert_eq!(cmd.into_requests().len(), 1);
+
+        // field placed → issue.
+        let ok = serde_json::json!({ "outcome": "success" });
+        let cmd = DocumentSigning::update(&mut model, Msg::ComposeStepped(Ok(ok.clone())), &ctx);
+        assert!(matches!(
+            model.compose.as_ref().unwrap().stage,
+            Stage::Issuing { .. }
+        ));
+        assert_eq!(cmd.into_requests().len(), 1);
+
+        // issued → the panel closes and the list re-reads.
+        DocumentSigning::update(&mut model, Msg::ComposeStepped(Ok(ok)), &ctx);
+        assert!(model.compose.is_none());
+        assert!(model
+            .notice
+            .as_deref()
+            .unwrap()
+            .starts_with("Sent for signature"));
+    }
+
+    #[test]
+    fn a_refused_step_stops_the_chain_and_says_why() {
+        let ctx = ScreenCtx::default();
+        let (mut model, _) = DocumentSigning::init(&ctx);
+        model.compose = Some(Compose {
+            stage: Stage::Issuing {
+                signature_request_id: "req-1".into(),
+            },
+            ..Compose::default()
+        });
+        let refused = serde_json::json!({ "outcome": "rejected", "error": { "message": "Every signer needs a field." } });
+        DocumentSigning::update(&mut model, Msg::ComposeStepped(Ok(refused)), &ctx);
+        let compose = model.compose.as_ref().unwrap();
+        assert_eq!(compose.stage, Stage::Idle);
+        assert!(compose
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("Every signer needs a field."));
     }
 
     #[test]
