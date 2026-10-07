@@ -1,16 +1,14 @@
+use crate::service_support::CoreServiceError;
 use apis::whatsapp::{
     parse_webhook, verify_handshake, verify_signature, MetaWhatsAppConfig, WhatsAppDirection,
 };
 use async_trait::async_trait;
-use crate::service_support::CoreServiceError;
 use db::{
     DbResult, WhatsAppCanonicalInput, WhatsAppDao, WhatsAppLandingInput, WhatsAppProcessOutcome,
 };
 use serde::Serialize;
 use serde_json::Value;
-use services::{
-    ServiceErrorRecord, ServiceFailureSeverity, ServiceInfrastructure, ServiceRuntime,
-};
+use services::{ServiceErrorRecord, ServiceFailureSeverity, ServiceInfrastructure, ServiceRuntime};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,9 +74,8 @@ impl<R: WhatsAppRepository> WhatsAppService<R> {
         token: Option<&str>,
         challenge: Option<&str>,
     ) -> Result<Option<String>, CoreServiceError> {
-        let config = MetaWhatsAppConfig::from_env().map_err(|error| {
-            CoreServiceError::business("WHATSAPP_NOT_CONFIGURED", error)
-        })?;
+        let config = MetaWhatsAppConfig::from_env()
+            .map_err(|error| CoreServiceError::business("WHATSAPP_NOT_CONFIGURED", error))?;
         Ok(verify_handshake(
             mode,
             token,
@@ -92,9 +89,8 @@ impl<R: WhatsAppRepository> WhatsAppService<R> {
         raw_body: &str,
         signature: Option<&str>,
     ) -> Result<WhatsAppWebhookResult, CoreServiceError> {
-        let config = MetaWhatsAppConfig::from_env().map_err(|error| {
-            CoreServiceError::business("WHATSAPP_NOT_CONFIGURED", error)
-        })?;
+        let config = MetaWhatsAppConfig::from_env()
+            .map_err(|error| CoreServiceError::business("WHATSAPP_NOT_CONFIGURED", error))?;
         if !verify_signature(raw_body, signature, &config.app_secret) {
             return Err(CoreServiceError::business(
                 "WHATSAPP_SIGNATURE_INVALID",
@@ -330,9 +326,7 @@ mod tests {
         std::env::set_var("WHATSAPP_VERIFY_TOKEN", "fixture-verify-token");
     }
 
-    fn infrastructure(
-        sink: Arc<CapturingServiceErrorSink>,
-    ) -> ServiceInfrastructure {
+    fn infrastructure(sink: Arc<CapturingServiceErrorSink>) -> ServiceInfrastructure {
         ServiceInfrastructure::new(
             Arc::new(DefaultAuthorizationPort),
             Arc::new(CapturingAuditPort::default()),
@@ -366,8 +360,7 @@ mod tests {
     fn signature(raw: &str) -> String {
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
-        let mut mac =
-            Hmac::<Sha256>::new_from_slice(b"fixture-app-secret").expect("hmac key fits");
+        let mut mac = Hmac::<Sha256>::new_from_slice(b"fixture-app-secret").expect("hmac key fits");
         mac.update(raw.as_bytes());
         let digest = mac.finalize().into_bytes();
         let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();

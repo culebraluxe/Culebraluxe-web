@@ -549,10 +549,7 @@ impl DocumentSignDao {
 
     /// Envelopes past their clock with an open canonical status. The
     /// sweep transitions each to Expired after expiring its recipients.
-    pub async fn overdue_envelopes_tx(
-        &self,
-        tx: &mut DbTransaction,
-    ) -> DbResult<Vec<String>> {
+    pub async fn overdue_envelopes_tx(&self, tx: &mut DbTransaction) -> DbResult<Vec<String>> {
         sqlx::query_scalar::<_, String>(
             r#"
             select ds.signature_request_id::text

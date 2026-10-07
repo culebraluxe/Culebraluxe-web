@@ -17,12 +17,7 @@ pub fn load_harness_files(root: &Path) -> Vec<HarnessFile> {
             content,
         });
     }
-    fn add_dir(
-        root: &Path,
-        dir: &Path,
-        filter: &dyn Fn(&str) -> bool,
-        out: &mut Vec<HarnessFile>,
-    ) {
+    fn add_dir(root: &Path, dir: &Path, filter: &dyn Fn(&str) -> bool, out: &mut Vec<HarnessFile>) {
         let Ok(entries) = fs::read_dir(dir) else {
             return; // absent directory
         };
@@ -129,11 +124,9 @@ pub fn run(args: &[String]) -> Result<u8, Failure> {
                 json = args.get(index + 1).map(String::as_str) == Some("json");
                 index += 1;
             }
-            other => {
-                return Err(Failure::usage(format!(
-                    "unknown argument `{other}`; usage: forge harness-lint [--strict] [--format json]"
-                )))
-            }
+            other => return Err(Failure::usage(format!(
+                "unknown argument `{other}`; usage: forge harness-lint [--strict] [--format json]"
+            ))),
         }
         index += 1;
     }

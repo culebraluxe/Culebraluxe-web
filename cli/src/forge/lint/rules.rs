@@ -87,7 +87,9 @@ pub(super) fn rules_over_the_corpus(
     // point of replicating a rule: a generated file must never assert something the handbook stopped
     // saying.
     if let Some(agents) = files.iter().find(|file| file.path == "AGENTS.md") {
-        for guardrail in orphaned_guardrails(&agents.content, &crate::forge::vendor_block::GUARDRAILS) {
+        for guardrail in
+            orphaned_guardrails(&agents.content, &crate::forge::vendor_block::GUARDRAILS)
+        {
             findings.push(finding(
                 Level::Fail,
                 "guardrail-anchor-missing",

@@ -90,27 +90,17 @@ pub(super) async fn whatsapp_webhook(
         .await
         .map_err(|error| match error {
             CoreServiceError::Business { code, message } => match code {
-                "WHATSAPP_SIGNATURE_INVALID" => {
-                    ApiError::unauthorized(code, message)
+                "WHATSAPP_SIGNATURE_INVALID" => ApiError::unauthorized(code, message),
+                "WHATSAPP_PAYLOAD_INVALID" => {
+                    ApiError::new(StatusCode::BAD_REQUEST, code, message, false)
                 }
-                "WHATSAPP_PAYLOAD_INVALID" => ApiError::new(
-                    StatusCode::BAD_REQUEST,
-                    code,
-                    message,
-                    false,
-                ),
                 "WHATSAPP_NOT_CONFIGURED" => ApiError::new(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     code,
                     "WhatsApp webhook is not configured.",
                     false,
                 ),
-                _ => ApiError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    code,
-                    message,
-                    false,
-                ),
+                _ => ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, code, message, false),
             },
             // A `DbFailure` keeps its incident id and retryability through
             // `ApiError::from_db`; the response carries the original incident

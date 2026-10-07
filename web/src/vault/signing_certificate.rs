@@ -187,9 +187,19 @@ pub fn render_completion_certificate(
     let mut pages = Pages::new();
     pages.rule(GOLD);
     pages.heading("Certificate of Completion");
-    pages.body(SANS, 10.0, BODY, "CulebraLuxe native signing · signature-audit-trail-v1");
+    pages.body(
+        SANS,
+        10.0,
+        BODY,
+        "CulebraLuxe native signing · signature-audit-trail-v1",
+    );
     pages.body(SANS, 9.0, FAINT, &format!("Request {signature_request_id}"));
-    pages.body(SANS, 9.0, FAINT, &format!("Document {transaction_document_id}"));
+    pages.body(
+        SANS,
+        9.0,
+        FAINT,
+        &format!("Document {transaction_document_id}"),
+    );
     pages.body(SANS, 9.0, FAINT, &format!("Completed {finalized_at}"));
 
     pages.section("RECIPIENTS");
@@ -247,7 +257,11 @@ pub fn render_completion_certificate(
                 "Page {} · owner {} · {} · {}",
                 field.page_number,
                 short_id(&field.recipient_id),
-                if field.required { "required" } else { "optional" },
+                if field.required {
+                    "required"
+                } else {
+                    "optional"
+                },
                 value_text(&field.value),
             ),
         );
@@ -278,8 +292,14 @@ pub fn render_completion_certificate(
     let mut page_refs = Vec::with_capacity(pages.pages.len());
     for content in pages.pages {
         page_refs.push(
-            pdf.page(PAGE_WIDTH, PAGE_HEIGHT, page_tree, resources, &content.into_bytes())
-                .map_err(|error| error.to_string())?,
+            pdf.page(
+                PAGE_WIDTH,
+                PAGE_HEIGHT,
+                page_tree,
+                resources,
+                &content.into_bytes(),
+            )
+            .map_err(|error| error.to_string())?,
         );
     }
     let info = pdf.info(
@@ -314,7 +334,11 @@ mod tests {
     use super::*;
     use db::{FinalizeEvent, FinalizeField, FinalizeRecipient};
 
-    fn inputs() -> (Vec<FinalizeRecipient>, Vec<FinalizeField>, Vec<FinalizeEvent>) {
+    fn inputs() -> (
+        Vec<FinalizeRecipient>,
+        Vec<FinalizeField>,
+        Vec<FinalizeEvent>,
+    ) {
         (
             vec![FinalizeRecipient {
                 id: "r1".into(),
@@ -354,13 +378,25 @@ mod tests {
     #[test]
     fn certificate_is_a_pdf_and_deterministic() {
         let (recipients, fields, events) = inputs();
-        let first =
-            render_completion_certificate("req-1", "doc-1", &recipients, &fields, &events, "2026-01-03T00:00:00+00:00")
-                .expect("renders");
+        let first = render_completion_certificate(
+            "req-1",
+            "doc-1",
+            &recipients,
+            &fields,
+            &events,
+            "2026-01-03T00:00:00+00:00",
+        )
+        .expect("renders");
         assert!(first.starts_with(b"%PDF-1.4"), "a real PDF document");
-        let second =
-            render_completion_certificate("req-1", "doc-1", &recipients, &fields, &events, "2026-01-03T00:00:00+00:00")
-                .expect("renders");
+        let second = render_completion_certificate(
+            "req-1",
+            "doc-1",
+            &recipients,
+            &fields,
+            &events,
+            "2026-01-03T00:00:00+00:00",
+        )
+        .expect("renders");
         assert_eq!(first, second, "identical inputs render identical bytes");
     }
 
@@ -370,9 +406,15 @@ mod tests {
     #[cfg(target_os = "macos")]
     fn quicklook_renders_the_certificate() {
         let (recipients, fields, events) = inputs();
-        let bytes =
-            render_completion_certificate("req-1", "doc-1", &recipients, &fields, &events, "2026-01-03T00:00:00+00:00")
-                .expect("renders");
+        let bytes = render_completion_certificate(
+            "req-1",
+            "doc-1",
+            &recipients,
+            &fields,
+            &events,
+            "2026-01-03T00:00:00+00:00",
+        )
+        .expect("renders");
         let directory = std::env::temp_dir().join(format!("cl-cert-{}", std::process::id()));
         std::fs::create_dir_all(&directory).expect("a temp directory");
         let path = directory.join("certificate.pdf");

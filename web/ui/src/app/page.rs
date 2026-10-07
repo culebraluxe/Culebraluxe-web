@@ -79,8 +79,9 @@ impl<T: PageSpec> Screen for PageScreen<T> {
             }
             Msg::Loaded(answer) => {
                 model.read = Remote::from_result(answer.and_then(|page| {
-                    T::pick(page)
-                        .ok_or_else(|| ApiError::decode(format!("The answer had no {} in it.", T::NOUN)))
+                    T::pick(page).ok_or_else(|| {
+                        ApiError::decode(format!("The answer had no {} in it.", T::NOUN))
+                    })
                 }));
                 Cmd::none()
             }

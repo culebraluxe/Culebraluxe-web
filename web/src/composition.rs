@@ -267,25 +267,28 @@ impl ServiceCatalog {
             firm.clone(),
             property.clone(),
         ));
-        let signature_provider: Option<Arc<dyn SignatureProvider>> = match BoldSignConfig::from_env()
-            .and_then(|config| BoldSignSignatureProvider::new(db.clone(), config))
-        {
-            Ok(provider) => Some(Arc::new(provider) as Arc<dyn SignatureProvider>),
-            Err(error) => {
-                // LOUD DEGRADED BOOT, not a silent `None`: document signing will
-                // refuse with SIGNATURE_PROVIDER_UNAVAILABLE until this is fixed.
-                eprintln!("composition: BoldSign provider unavailable, signing degraded: {error}");
-                crate::api::error_capture::record(
-                    "rust:boot",
-                    "composition.signature_provider",
-                    &format!("BoldSign provider unavailable, signing degraded: {error}"),
-                    "warn",
-                    None,
-                    serde_json::json!({"source": "rust"}),
-                );
-                None
-            }
-        };
+        let signature_provider: Option<Arc<dyn SignatureProvider>> =
+            match BoldSignConfig::from_env()
+                .and_then(|config| BoldSignSignatureProvider::new(db.clone(), config))
+            {
+                Ok(provider) => Some(Arc::new(provider) as Arc<dyn SignatureProvider>),
+                Err(error) => {
+                    // LOUD DEGRADED BOOT, not a silent `None`: document signing will
+                    // refuse with SIGNATURE_PROVIDER_UNAVAILABLE until this is fixed.
+                    eprintln!(
+                        "composition: BoldSign provider unavailable, signing degraded: {error}"
+                    );
+                    crate::api::error_capture::record(
+                        "rust:boot",
+                        "composition.signature_provider",
+                        &format!("BoldSign provider unavailable, signing degraded: {error}"),
+                        "warn",
+                        None,
+                        serde_json::json!({"source": "rust"}),
+                    );
+                    None
+                }
+            };
         let signature = Arc::new(SignatureService::new_optional(
             SignatureDao::new(db.clone()),
             signature_provider,
