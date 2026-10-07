@@ -207,7 +207,7 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                             </button>
                             <button
                                 type="button"
-                                disabled={working || signature_active || !ctx.can("signature.write")}
+                                disabled={working || signature_active || !ctx.can("documentSign.issue")}
                                 onclick={link.callback(|_: MouseEvent| Msg::SendSignature)}
                                 class={GHOST_BUTTON}
                             >
@@ -215,7 +215,7 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                                     if signature_active {
                                         "Sent for signature"
                                     } else {
-                                        "Send BoldSign"
+                                        "Send for signature"
                                     }
                                 }
                             </button>
