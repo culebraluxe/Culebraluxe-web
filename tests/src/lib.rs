@@ -53,6 +53,7 @@ pub mod pool;
 pub mod providers;
 pub mod race;
 pub mod runtime;
+pub mod security;
 pub mod snapshot;
 pub mod source;
 
@@ -70,3 +71,7 @@ pub use level::TestLevel;
 pub use pool::{DbPoolFaultHarness, PoolFault};
 pub use race::RaceHarness;
 pub use runtime::RuntimeHarness;
+pub use security::{
+    decide, edge_context, infrastructure, principal, system_context, user_context, GuestHarness,
+    SecurityHarness, CORRELATION as SECURITY_CORRELATION,
+};
