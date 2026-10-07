@@ -504,8 +504,27 @@ struct Branded<'a> {
     footer: &'a str,
 }
 
-/// The branded layout every signing email shares. Inline styles and a table layout only: mail clients ignore the
-/// rest.
+/// The site's public origin, for the logo (`PUBLIC_SITE_URL`, else the production host). Mail clients cannot read a
+/// relative path, so the logo is an absolute link to the site's own copy.
+fn site_origin() -> String {
+    std::env::var("PUBLIC_SITE_URL")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_owned())
+        .filter(|value| value.starts_with("https://") || value.starts_with("http://"))
+        .unwrap_or_else(|| "https://www.culebraluxe.com".into())
+}
+
+// The house colours: navy ground, gold accents, ivory type. The logo image carries its own navy (about #021429), so
+// the header band is that colour and the picture sits in it without a visible edge.
+const NAVY: &str = "#021429";
+const PANEL: &str = "#0a1d38";
+const GOLD: &str = "#c6a15b";
+const IVORY: &str = "#f3ecd9";
+const TEXT: &str = "#d9d4c5";
+const MUTED: &str = "#8f98ab";
+
+/// The branded layout every signing email shares: navy and gold, the CulebraLuxe logo on top. Inline styles and a
+/// table layout only: mail clients ignore the rest.
 fn branded_html(mail: &Branded<'_>) -> String {
     let paragraphs: String = mail
         .paragraphs
@@ -513,7 +532,7 @@ fn branded_html(mail: &Branded<'_>) -> String {
         .filter(|text| !text.trim().is_empty())
         .map(|text| {
             format!(
-                r#"<tr><td style="padding:0 40px 14px;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:24px;color:#4a4a4a">{}</td></tr>"#,
+                r#"<tr><td style="padding:0 40px 14px;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:24px;color:{TEXT}">{}</td></tr>"#,
                 escape_html(text)
             )
         })
@@ -522,7 +541,7 @@ fn branded_html(mail: &Branded<'_>) -> String {
         .note
         .map(|value| {
             format!(
-                r#"<tr><td style="padding:6px 40px 24px"><div style="border-left:3px solid #a88450;padding:4px 0 4px 14px;color:#4a4a4a;font-family:Georgia,'Times New Roman',serif;font-size:14px;line-height:22px;white-space:pre-wrap">{}</div></td></tr>"#,
+                r#"<tr><td style="padding:6px 40px 24px"><div style="border-left:3px solid {GOLD};padding:4px 0 4px 14px;color:{IVORY};font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:23px;white-space:pre-wrap">{}</div></td></tr>"#,
                 escape_html(value)
             )
         })
@@ -536,21 +555,28 @@ fn branded_html(mail: &Branded<'_>) -> String {
                 "#".into()
             };
             format!(
-                r#"<tr><td style="padding:10px 40px 28px"><a href="{safe_url}" style="display:inline-block;background:#041024;color:#ffffff;text-decoration:none;font-family:Helvetica,Arial,sans-serif;font-size:14px;letter-spacing:0.6px;padding:13px 28px;border-radius:6px">{}</a></td></tr>
-<tr><td style="padding:0 40px 12px;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:19px;color:#8a8a8a">If the button does not work, paste this link into your browser:<br><a href="{safe_url}" style="color:#8a8a8a;word-break:break-all">{safe_url}</a></td></tr>"#,
+                r#"<tr><td style="padding:10px 40px 28px"><a href="{safe_url}" style="display:inline-block;background:{GOLD};color:{NAVY};text-decoration:none;font-family:Helvetica,Arial,sans-serif;font-size:13px;font-weight:bold;letter-spacing:1.6px;text-transform:uppercase;padding:15px 34px;border-radius:4px">{}</a></td></tr>
+<tr><td style="padding:0 40px 12px;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:19px;color:{MUTED}">If the button does not work, paste this link into your browser:<br><a href="{safe_url}" style="color:{GOLD};word-break:break-all">{safe_url}</a></td></tr>"#,
                 escape_html(label)
             )
         })
         .unwrap_or_default();
+    let logo = escape_html(&format!(
+        "{}/images/culebraluxe-email-logo.png",
+        site_origin()
+    ));
     format!(
         r##"<!doctype html>
-<html><body style="margin:0;padding:0;background:#f4f1ea">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1ea"><tr><td align="center" style="padding:32px 12px">
-<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border:1px solid #e4dfd2;border-radius:10px;font-family:Georgia,'Times New Roman',serif;color:#041024">
-<tr><td style="padding:32px 40px 8px;font-family:Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:2.4px;text-transform:uppercase;color:#a88450">CulebraLuxe &middot; Secure Signing</td></tr>
-<tr><td style="padding:0 40px 14px;font-size:26px;line-height:32px;font-weight:300">{heading}</td></tr>
+<html><head><meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"></head>
+<body style="margin:0;padding:0;background:{NAVY}">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{NAVY}"><tr><td align="center" style="padding:28px 12px">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:{PANEL};border:1px solid #3b3424;font-family:Georgia,'Times New Roman',serif;color:{IVORY}">
+<tr><td align="center" style="background:{NAVY};padding:26px 24px 22px"><img src="{logo}" alt="CulebraLuxe" width="300" style="display:block;border:0;outline:none;width:300px;max-width:100%;height:auto"></td></tr>
+<tr><td style="height:2px;line-height:2px;font-size:0;background:{GOLD}">&nbsp;</td></tr>
+<tr><td style="padding:34px 40px 8px;font-family:Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:2.6px;text-transform:uppercase;color:{GOLD}">Secure Signing</td></tr>
+<tr><td style="padding:0 40px 16px;font-size:27px;line-height:34px;font-weight:300;color:{IVORY}">{heading}</td></tr>
 {paragraphs}{note}{button}
-<tr><td style="padding:10px 40px 32px;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:19px;color:#8a8a8a">{footer}</td></tr>
+<tr><td style="padding:14px 40px 30px;border-top:1px solid #1d2c47;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:19px;color:{MUTED}">{footer}<br><span style="color:{GOLD};letter-spacing:1.4px">CULEBRALUXE</span> &middot; Culebra, Puerto Rico</td></tr>
 </table></td></tr></table></body></html>"##,
         heading = escape_html(mail.heading),
         footer = escape_html(mail.footer),
