@@ -401,7 +401,7 @@ impl SignerRepository for SignerDao {
 /// A signer's signature or initials may carry the picture they saw on the page (`image`, `initialsImage`: a
 /// `data:image/png;base64,` URL). It becomes ink on a legal document, so it is checked at the door: a PNG, of sensible
 /// size, that actually decodes. Anything else in the value is the field's own business.
-fn validate_signature_value(value: &serde_json::Value) -> Result<(), CoreServiceError> {
+pub(crate) fn validate_signature_value(value: &serde_json::Value) -> Result<(), CoreServiceError> {
     // 450 KB of base64 is a generous full-width signature; more is not a signature.
     const MAX_ENCODED_BYTES: usize = 450_000;
     for key in ["image", "initialsImage"] {

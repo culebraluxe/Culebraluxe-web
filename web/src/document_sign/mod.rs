@@ -2016,6 +2016,62 @@ fn overlay_text(
     }
 }
 
+/// What this signer's signature page will look like once they sign, drawn on the original: their own blocks only, with
+/// the picture they chose, their initials and today's date, and nothing but the page(s) those blocks are on. Nothing is
+/// stored: it is the same drawing the seal makes, shown ahead of time so the signer sees exactly what they are signing.
+pub fn preview_pdf(
+    original: &[u8],
+    fields: &[SignatureField],
+    recipient_name: &str,
+    signature_png: Option<&str>,
+    initials_png: Option<&str>,
+    now: &str,
+) -> Result<Vec<u8>, CoreServiceError> {
+    use crate::vault::signing_overlay::{keep_pages, overlay_fields, OverlayField};
+    let failure = |detail: String| {
+        CoreServiceError::business(
+            "SIGNER_PREVIEW_FAILED",
+            format!("The preview could not be drawn: {detail}"),
+        )
+    };
+    let completed = Some(now.to_owned());
+    let mut drawn = Vec::new();
+    let mut pages = Vec::new();
+    for field in fields {
+        let kind = field.field_type.as_str();
+        let Some(text) = overlay_text(kind, &None, recipient_name, &completed) else {
+            continue;
+        };
+        let picture = match kind {
+            "signature" => signature_png,
+            "initials" => initials_png,
+            _ => None,
+        };
+        drawn.push(OverlayField {
+            page_number: field.page_number,
+            x_percent: field.position_x,
+            y_percent: field.position_y,
+            width_percent: field.width,
+            height_percent: field.height,
+            signature: kind == "signature",
+            style: 0,
+            caption: None,
+            text,
+            image: picture.and_then(decode_data_url_png),
+            ruled: field.field_key.starts_with("signature-"),
+        });
+        if field.page_number > 0 && !pages.contains(&(field.page_number as u32)) {
+            pages.push(field.page_number as u32);
+        }
+    }
+    if pages.is_empty() {
+        return Err(failure("this signer has no blocks to show".into()));
+    }
+    pages.sort_unstable();
+    let drawn_on = overlay_fields(original, &drawn).map_err(failure)?;
+    keep_pages(&drawn_on, &pages).map_err(failure)
+}
+
 /// The bytes of a `data:image/png;base64,…` picture, or `None` when it is anything else.
 pub(crate) fn decode_data_url_png(value: &str) -> Option<Vec<u8>> {
     use base64::Engine as _;
