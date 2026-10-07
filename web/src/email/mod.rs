@@ -517,7 +517,8 @@ fn site_origin() -> String {
 // The house colours: navy ground, gold accents, ivory type. The logo image carries its own navy (about #021429), so
 // the header band is that colour and the picture sits in it without a visible edge.
 const NAVY: &str = "#021429";
-const PANEL: &str = "#0a1d38";
+/// The page behind the card: the site's tan. The card itself is one navy (the logo's own), so there is no seam.
+const TAN: &str = "#f4f1ea";
 const GOLD: &str = "#c6a15b";
 const IVORY: &str = "#f3ecd9";
 const TEXT: &str = "#d9d4c5";
@@ -567,10 +568,10 @@ fn branded_html(mail: &Branded<'_>) -> String {
     ));
     format!(
         r##"<!doctype html>
-<html><head><meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"></head>
-<body style="margin:0;padding:0;background:{NAVY}">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{NAVY}"><tr><td align="center" style="padding:28px 12px">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:{PANEL};border:1px solid #3b3424;font-family:Georgia,'Times New Roman',serif;color:{IVORY}">
+<html><head><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"></head>
+<body style="margin:0;padding:0;background:{TAN}">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{TAN}"><tr><td align="center" style="padding:32px 12px">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:{NAVY};border-radius:6px;font-family:Georgia,'Times New Roman',serif;color:{IVORY}">
 <tr><td align="center" style="background:{NAVY};padding:26px 24px 22px"><img src="{logo}" alt="CulebraLuxe" width="300" style="display:block;border:0;outline:none;width:300px;max-width:100%;height:auto"></td></tr>
 <tr><td style="height:2px;line-height:2px;font-size:0;background:{GOLD}">&nbsp;</td></tr>
 <tr><td style="padding:34px 40px 8px;font-family:Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:2.6px;text-transform:uppercase;color:{GOLD}">Secure Signing</td></tr>

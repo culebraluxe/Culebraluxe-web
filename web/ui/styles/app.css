@@ -14,6 +14,14 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* The cursive faces a signer chooses between (SIL Open Font License; files and licences in public/fonts). Self-hosted:
+   nothing the signing page needs comes from a third party, and the canvas draws the very face the person saw. */
+@font-face { font-family: "CL Signature Great Vibes"; src: url("/fonts/GreatVibes-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "CL Signature Allura"; src: url("/fonts/Allura-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "CL Signature Dancing Script"; src: url("/fonts/DancingScript.ttf") format("truetype"); font-weight: 400 700; font-display: swap; }
+@font-face { font-family: "CL Signature Sacramento"; src: url("/fonts/Sacramento-Regular.ttf") format("truetype"); font-display: swap; }
+
+
 @theme inline {
   --color-brand-navy: var(--brand-navy);
   --color-brand-gold: var(--brand-gold);
