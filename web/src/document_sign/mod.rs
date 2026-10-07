@@ -10,13 +10,14 @@ use db::{
     VaultDao,
 };
 use model::{
-    validate_document_sign_recipients, DocumentSignConfig, DocumentSignEnvelopeSummary,
-    DocumentSignFinalizeResult, DocumentSignIssueResult, DocumentSignRecipient,
-    DocumentSignSnapshot, DocumentSignSweepResult, EmailMessageKind, ImportAnchorFieldsRequest,
-    ImportAnchorFieldsResult, IssueDocumentSignRequest, PrepareDocumentSignRequest,
-    PrepareSignatureRequest, PreparedSignatureRecipient, PutSignatureFieldRequest,
-    QueueEmailRequest, RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest,
-    SignatureField, SignatureFieldType, SignatureRequestStatus, TemplateAnchor,
+    validate_document_sign_recipients, DocumentSignConfig, DocumentSignFinalizeResult,
+    DocumentSignIssueResult, DocumentSignRecipient, DocumentSignSendResult, DocumentSignSnapshot, DocumentSignEnvelopeSummary, DocumentSignSweepResult, EmailMessageKind,
+    ImportAnchorFieldsRequest, ImportAnchorFieldsResult,
+    IssueDocumentSignRequest, PrepareDocumentSignRequest, PrepareSignatureRequest,
+    PreparedSignatureRecipient, PutSignatureFieldRequest, QueueEmailRequest,
+    RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest, SignatureField, SignatureFieldType,
+    SendDocumentSignRequest, SendFieldPlacement, SignatureRecipientRole, SignatureRequestStatus,
+    TemplateAnchor,
 };
 use serde_json::{json, Value};
 use services::{
@@ -671,6 +672,138 @@ where
         result
     }
 
+    /// Prepare, place every signer's signature field, and issue — in the caller's one transaction, so an envelope is
+    /// never left half-built. Each step is still authorized on its own (`documentSign.write`, then
+    /// `documentSign.issue`), so this grants nothing the three commands did not.
+    pub async fn send_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        request: &SendDocumentSignRequest,
+        context: &ServiceContext,
+    ) -> Result<DocumentSignSendResult, CoreServiceError> {
+        // The page count is read first (under the caller's authority) so a request for "the last page" is resolved
+        // against the real document, and so a bad page is refused before anything is written.
+        let page_count = self
+            .vault
+            .pdf_page_count(&request.transaction_document_id, context)
+            .await?;
+        let page = match &request.placement {
+            SendFieldPlacement::Template => None,
+            SendFieldPlacement::LastPage => Some(page_count.ok_or_else(|| {
+                CoreServiceError::business(
+                    "DOCUMENT_SIGN_FIELD_INVALID",
+                    "The document has no readable PDF, so its last page is unknown.",
+                )
+            })? as i32),
+            SendFieldPlacement::Page { page_number } => {
+                if *page_number < 1 || page_count.is_some_and(|count| *page_number as u32 > count) {
+                    return Err(CoreServiceError::business(
+                        "DOCUMENT_SIGN_FIELD_INVALID",
+                        match page_count {
+                            Some(count) => format!(
+                                "Page {page_number} does not exist: the document has {count} page(s)."
+                            ),
+                            None => "The signature page must be 1 or higher.".to_owned(),
+                        },
+                    ));
+                }
+                Some(*page_number)
+            }
+        };
+
+        let snapshot = self
+            .prepare_transactional(
+                tx,
+                &PrepareDocumentSignRequest {
+                    transaction_document_id: request.transaction_document_id.clone(),
+                    recipients: request.recipients.clone(),
+                    subject: request.subject.clone(),
+                    message: request.message.clone(),
+                    signing_mode: request.signing_mode,
+                    expires_at: request.expires_at.clone(),
+                },
+                context,
+            )
+            .await?;
+        let signature_request_id = snapshot.signature_request.id.clone();
+
+        match page {
+            None => {
+                self.import_fields_transactional(
+                    tx,
+                    &ImportAnchorFieldsRequest {
+                        signature_request_id: signature_request_id.clone(),
+                        anchors: Vec::new(),
+                    },
+                    context,
+                )
+                .await?;
+            }
+            Some(page_number) => {
+                let owners: std::collections::BTreeSet<String> = snapshot
+                    .fields
+                    .iter()
+                    .map(|field| field.recipient_id.clone())
+                    .collect();
+                let signers = snapshot
+                    .recipients
+                    .iter()
+                    .filter(|recipient| recipient.role == SignatureRecipientRole::Signer)
+                    .filter(|recipient| !owners.contains(&recipient.id));
+                for (slot, recipient) in signers.enumerate() {
+                    let (x, y, width, height) = default_signature_box(slot);
+                    self.put_field_transactional(
+                        tx,
+                        &PutSignatureFieldRequest {
+                            signature_request_id: signature_request_id.clone(),
+                            field_id: None,
+                            recipient_id: recipient.id.clone(),
+                            // The key is unique per envelope, so each signer's box needs its own.
+                            field_key: format!("signature-{}", recipient.id),
+                            field_type: SignatureFieldType::Signature,
+                            page_number,
+                            position_x: x,
+                            position_y: y,
+                            width,
+                            height,
+                            required: true,
+                            label: Some("Signature".into()),
+                            configuration: json!({}),
+                        },
+                        context,
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        let issued = self
+            .issue_transactional(
+                tx,
+                &IssueDocumentSignRequest {
+                    signature_request_id: signature_request_id.clone(),
+                },
+                context,
+            )
+            .await?;
+        let recipients = self
+            .repository
+            .recipients_tx(tx, &signature_request_id)
+            .await?;
+        let fields = self
+            .repository
+            .fields_tx(tx, &signature_request_id)
+            .await?;
+        Ok(DocumentSignSendResult {
+            snapshot: DocumentSignSnapshot {
+                recipients,
+                fields,
+                ..snapshot
+            },
+            issued,
+        })
+    }
+
     pub async fn issue_transactional(
         &self,
         tx: &mut DbTransaction,
@@ -719,6 +852,32 @@ where
                         gaps.len()
                     ),
                 ));
+            }
+
+            // Every field must sit on a page the document has: sealing fails on a missing page, and by then the
+            // signers have already signed. Skipped only when the PDF itself cannot be read.
+            if let Some((_, document_id)) = self
+                .repository
+                .canonical_status_tx(tx, &request.signature_request_id)
+                .await?
+            {
+                if let Some(pages) = self.vault.pdf_page_count(&document_id, context).await? {
+                    let fields = self
+                        .repository
+                        .fields_tx(tx, &request.signature_request_id)
+                        .await?;
+                    if let Some(field) = fields.iter().find(|field| {
+                        field.page_number < 1 || field.page_number as u32 > pages
+                    }) {
+                        return Err(CoreServiceError::business(
+                            "DOCUMENT_SIGN_FIELD_INVALID",
+                            format!(
+                                "Field '{}' is on page {}, but the document has {pages} page(s).",
+                                field.field_key, field.page_number
+                            ),
+                        ));
+                    }
+                }
             }
 
             let recipients = self
@@ -1643,6 +1802,20 @@ fn prepare_intent_matches(
     })
 }
 
+/// A signature box in the lower part of the page, two to a row and filling upward. Page percent: x, y, width, height.
+fn default_signature_box(slot: usize) -> (f64, f64, f64, f64) {
+    const WIDTH: f64 = 38.0;
+    const HEIGHT: f64 = 7.0;
+    let column = (slot % 2) as f64;
+    let row = (slot / 2) as f64;
+    (
+        8.0 + column * (WIDTH + 8.0),
+        (86.0 - row * (HEIGHT + 3.0)).max(2.0),
+        WIDTH,
+        HEIGHT,
+    )
+}
+
 fn validate_prepare(request: &PrepareDocumentSignRequest) -> Result<(), CoreServiceError> {
     if request.transaction_document_id.trim().is_empty() {
         return Err(CoreServiceError::business(
@@ -1973,6 +2146,14 @@ where
                     ServiceExecutionPolicy::ordered("signatureRequestId"),
                 ),
                 capability(
+                    "documentSign.send",
+                    OperationKind::Command,
+                    "Prepare, place signature fields, and issue an envelope in one transaction.",
+                    "documentSign.issue",
+                    true,
+                    ServiceExecutionPolicy::ordered("transactionDocumentId"),
+                ),
+                capability(
                     "documentSign.issue",
                     OperationKind::Command,
                     "Atomically issue a native envelope and queue signer invitations.",
@@ -2068,6 +2249,7 @@ where
             | "documentSign.resend"
             | "documentSign.finalize"
             | "documentSign.sweepDue"
+            | "documentSign.send"
             | "documentSign.importFields" => Err(ServiceDispatchError::business(
                 "DURABLE_COMMAND_REQUIRED",
                 format!(

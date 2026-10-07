@@ -1366,3 +1366,160 @@ async fn a_signer_is_shown_the_document_they_are_asked_to_sign() {
     );
     cleanup(&db, &env).await;
 }
+
+/// The service as production composes it: the real policy, so the system-actor steps inside "send" are decided by
+/// the same rules that decide them in production.
+async fn document_sign_production(
+    db: &Database,
+) -> std::sync::Arc<web::document_sign::ProductionDocumentSignService> {
+    let infrastructure = web::service_bootstrap::production_service_infrastructure(db)
+        .await
+        .expect("the production service infrastructure composes");
+    web::composition::ServiceCatalog::new(db.clone(), infrastructure).document_sign()
+}
+
+/// A PDF with `pages` pages, each carrying its number.
+fn multi_page_pdf(pages: usize) -> Vec<u8> {
+    use model::forms_font::encode;
+    use web::vault::pdf::{Content, Pdf, Rgb};
+    let mut pdf = Pdf::new();
+    let font = pdf.font("Helvetica");
+    let tree = pdf.reserve();
+    let resources = pdf.dictionary(&web::vault::pdf::resources(&[("F1", font)], &[]));
+    let mut ids = Vec::new();
+    for number in 1..=pages {
+        let mut content = Content::new();
+        content.text(
+            "F1",
+            12.0,
+            54.0,
+            700.0,
+            Rgb::from_bytes(3, 15, 35),
+            &encode(&format!("Page {number}")).unwrap(),
+        );
+        ids.push(
+            pdf.page(612.0, 792.0, tree, resources, &content.into_bytes())
+                .unwrap(),
+        );
+    }
+    let info = pdf.info("T", "A", "S", "C", "P", "D:20260101000000");
+    pdf.finish(tree, &ids, Some(info)).unwrap()
+}
+
+/// A transaction document with a stored PDF and nothing else: the starting point of "send".
+async fn bare_document(db: &Database, tag: &str, pages: usize) -> String {
+    let deal: String = sqlx::query_scalar("select id::text from deal limit 1")
+        .fetch_one(db.pool())
+        .await
+        .expect("DEV must hold at least one deal");
+    let id: String = sqlx::query_scalar(
+        "insert into transaction_document (deal_id, document_type, title, state, source) \
+         values ($1::uuid, 'agreement', $2, 'draft', 'generated') returning id::text",
+    )
+    .bind(&deal)
+    .bind(format!("docsign proof {tag}"))
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    attach_original(db, tag, &multi_page_pdf(pages)).await;
+    id
+}
+
+fn person(name: &str, email: &str, order: i32) -> model::DocumentSignRecipientInput {
+    model::DocumentSignRecipientInput {
+        role: model::SignatureRecipientRole::Signer,
+        name: name.into(),
+        email: email.into(),
+        signer_order: order,
+        signing_step: 1,
+        execution_role: None,
+        execution_slot_id: None,
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL_DEV"]
+async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() {
+    use model::{DocumentSigningMode, SendDocumentSignRequest, SendFieldPlacement};
+    let db = Database::connect_target(DbTarget::Dev).await.unwrap();
+    let tag = format!("send-{}", Uuid::new_v4());
+    sweep_tag(&db, &tag).await;
+    let document = bare_document(&db, &tag, 3).await;
+    let service = document_sign_production(&db).await;
+    // The author is a real app user: the draft records who prepared it.
+    let author: String = sqlx::query_scalar("select id::text from app_user limit 1")
+        .fetch_one(db.pool())
+        .await
+        .expect("DEV must hold an app user");
+    let mut ctx = context(&tag);
+    {
+        // The production policy decides here, as it does for the desk operator.
+        let principal = ctx.principal.as_mut().unwrap();
+        principal.app_user_id = author;
+        principal.level = "BUSINESS_POWER_USER".into();
+        principal.role_codes = vec!["owner".into()];
+    }
+    let request = |placement| SendDocumentSignRequest {
+        transaction_document_id: document.clone(),
+        recipients: vec![
+            person("Ada", &format!("{tag}-a@example.test"), 1),
+            person("Bo", &format!("{tag}-b@example.test"), 2),
+        ],
+        subject: Some("Purchase agreement".into()),
+        message: None,
+        signing_mode: DocumentSigningMode::Parallel,
+        expires_at: None,
+        placement,
+    };
+
+    // A page the document does not have is refused BEFORE anything is written.
+    let mut tx = db.begin("docsign-proof-send").await.unwrap();
+    let refused = service
+        .send_transactional(&mut tx, &request(SendFieldPlacement::Page { page_number: 5 }), &ctx)
+        .await
+        .expect_err("page 5 of 3");
+    let _ = tx.rollback().await;
+    assert!(
+        format!("{refused:?}").contains("3 page"),
+        "the refusal names the real page count: {refused:?}"
+    );
+    let drafts: i64 = sqlx::query_scalar(
+        "select count(*) from signature_request where transaction_document_id = $1::uuid",
+    )
+    .bind(&document)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(drafts, 0, "a refused send leaves no draft behind");
+
+    // The last page: one signature per signer, issued, one invitation each.
+    let mut tx = db.begin("docsign-proof-send").await.unwrap();
+    let sent = service
+        .send_transactional(&mut tx, &request(SendFieldPlacement::LastPage), &ctx)
+        .await
+        .expect("send");
+    tx.commit().await.unwrap();
+    assert_eq!(sent.issued.invitation_message_ids.len(), 2);
+    assert_eq!(sent.snapshot.fields.len(), 2);
+    assert!(
+        sent.snapshot.fields.iter().all(|field| field.page_number == 3),
+        "the signature goes on the last page"
+    );
+    let owners: std::collections::BTreeSet<_> = sent
+        .snapshot
+        .fields
+        .iter()
+        .map(|field| field.recipient_id.clone())
+        .collect();
+    assert_eq!(owners.len(), 2, "each person has their own box");
+    let issued: bool = sqlx::query_scalar(
+        "select issued_at is not null from document_sign_request where signature_request_id = $1::uuid",
+    )
+    .bind(&sent.snapshot.signature_request.id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert!(issued);
+
+    sweep_tag(&db, &tag).await;
+}

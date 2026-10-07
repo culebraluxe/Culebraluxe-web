@@ -202,6 +202,41 @@ pub struct IssueDocumentSignRequest {
     pub signature_request_id: String,
 }
 
+/// Where each signer's signature goes when an envelope is sent in one step.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SendFieldPlacement {
+    /// The form's own fixed positions: the issuing template's anchor blocks. Each person signs only their own block.
+    #[default]
+    Template,
+    /// One signature box per signer on the last page of the document.
+    LastPage,
+    /// One signature box per signer on this 1-based page.
+    #[serde(rename_all = "camelCase")]
+    Page { page_number: i32 },
+}
+
+/// Prepare, place the signature fields, and issue in ONE transaction: the envelope is never left half-built.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendDocumentSignRequest {
+    pub transaction_document_id: String,
+    pub recipients: Vec<DocumentSignRecipientInput>,
+    pub subject: Option<String>,
+    pub message: Option<String>,
+    pub signing_mode: DocumentSigningMode,
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub placement: SendFieldPlacement,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSignSendResult {
+    pub snapshot: DocumentSignSnapshot,
+    pub issued: DocumentSignIssueResult,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentSignIssueResult {
