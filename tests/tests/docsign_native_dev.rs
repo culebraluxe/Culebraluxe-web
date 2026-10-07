@@ -191,8 +191,9 @@ async fn sweep_tag(db: &Database, tag: &str) {
     .execute(db.pool())
     .await
     .expect("evidence cleanup");
-    sqlx::query("delete from email_message where correlation_id = $1")
+    sqlx::query("delete from email_message where correlation_id = $1 or recipient_email like $2")
         .bind(tag)
+        .bind(format!("%{tag}%"))
         .execute(db.pool())
         .await
         .expect("email cleanup");
@@ -244,6 +245,8 @@ async fn complete_field(
         .complete_field_transactional(
             &mut tx,
             &model::CompleteSignatureFieldRequest {
+                ip_address: None,
+                user_agent: None,
                 recipient_id: recipient.into(),
                 access_token: token.into(),
                 field_id: field.into(),
@@ -268,6 +271,8 @@ async fn complete(
         .complete_transactional(
             &mut tx,
             &CompleteSignerRequest {
+                ip_address: None,
+                user_agent: None,
                 recipient_id: recipient.into(),
                 access_token: token.into(),
             },
@@ -360,6 +365,8 @@ async fn consent_gates_completion_and_field_ownership_holds() {
         .complete_transactional(
             &mut tx,
             &CompleteSignerRequest {
+                ip_address: None,
+                user_agent: None,
                 recipient_id: env.a.clone(),
                 access_token: token_a.clone(),
             },
@@ -379,6 +386,8 @@ async fn consent_gates_completion_and_field_ownership_holds() {
         .complete_field_transactional(
             &mut tx,
             &model::CompleteSignatureFieldRequest {
+                ip_address: None,
+                user_agent: None,
                 recipient_id: env.b.clone(),
                 access_token: token_a.clone(),
                 field_id: env.field_a.clone(),
@@ -401,6 +410,8 @@ async fn consent_gates_completion_and_field_ownership_holds() {
         .complete_field_transactional(
             &mut tx,
             &model::CompleteSignatureFieldRequest {
+                ip_address: None,
+                user_agent: None,
                 recipient_id: env.b.clone(),
                 access_token: token_b,
                 field_id: env.field_a.clone(),
@@ -1470,6 +1481,8 @@ async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() 
         signing_mode: DocumentSigningMode::Parallel,
         expires_at: None,
         placement,
+        copy_to: vec![],
+        reminder_every_days: None,
     };
 
     // A page the document does not have is refused BEFORE anything is written.
@@ -1522,4 +1535,306 @@ async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() 
     assert!(issued);
 
     sweep_tag(&db, &tag).await;
+}
+
+
+// ── Sealing, outcome emails, and the signer's own copy ───────────────────────────────────────────────────────────
+
+/// An email transport that keeps what it is asked to send. Nothing leaves the test.
+struct CapturingTransport(std::sync::Mutex<Vec<apis::mail::OutgoingMail>>);
+
+#[async_trait::async_trait]
+impl web::email::EmailTransport for CapturingTransport {
+    async fn send(&self, mail: apis::mail::OutgoingMail) -> Result<(), apis::mail::MailError> {
+        self.0.lock().unwrap().push(mail);
+        Ok(())
+    }
+}
+
+/// The token in a signing link (`<site>/sign/<token>`) that was queued for `email`.
+async fn token_for(db: &Database, email: &str) -> String {
+    let url: String = sqlx::query_scalar(
+        "select template_payload->>'signingUrl' from email_message \
+          where recipient_email = $1 and message_kind = 'signature_invitation' order by queued_at desc limit 1",
+    )
+    .bind(email)
+    .fetch_one(db.pool())
+    .await
+    .expect("an invitation was queued with a signing link");
+    url.rsplit_once("/sign/")
+        .map(|(_, token)| token.to_owned())
+        .expect("the link has the /sign/ shape")
+}
+
+async fn http(
+    router: &axum::Router,
+    path: &str,
+    body: serde_json::Value,
+) -> (u16, serde_json::Value) {
+    use test_harness::http::{call, TestRequest};
+    let response = call(
+        router,
+        TestRequest::post(path)
+            .header("x-forwarded-for", "203.0.113.7, 10.0.0.1")
+            .header("user-agent", "DocsignProof/1.0")
+            .json(&body),
+    )
+    .await;
+    let status = response.status().as_u16();
+    (status, serde_json::from_str(&response.text()).unwrap_or(serde_json::Value::Null))
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL_DEV"]
+async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and_why() {
+    use model::{DocumentSigningMode, SendDocumentSignRequest, SendFieldPlacement};
+    let db = Database::connect_target(DbTarget::Dev).await.unwrap();
+    let tag = format!("seal-{}", Uuid::new_v4());
+    sweep_tag(&db, &tag).await;
+
+    // The sender: a real app user (the draft records who prepared it), with an address that is the test's own.
+    let operator_email = format!("{tag}-operator@example.test");
+    let operator: String = sqlx::query_scalar(
+        "insert into app_user (display_name, email) values ($1, $2) returning id::text",
+    )
+    .bind("Docsign Proof Operator")
+    .bind(&operator_email)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    let mut ctx = context(&tag);
+    {
+        let principal = ctx.principal.as_mut().unwrap();
+        principal.app_user_id = operator.clone();
+        principal.level = "BUSINESS_POWER_USER".into();
+        principal.role_codes = vec!["owner".into()];
+    }
+
+    let infrastructure = web::service_bootstrap::production_service_infrastructure(&db)
+        .await
+        .expect("production infrastructure");
+    let catalog = web::composition::ServiceCatalog::new(db.clone(), infrastructure.clone());
+    let service = catalog.document_sign();
+    let router = web::api::build_router(
+        db.clone(),
+        infrastructure.clone(),
+        web::api::ApiConfig {
+            internal_api_key: Arc::from(HTTP_KEY),
+        },
+    );
+
+    // ── Send: two signers, the broker copied, signatures on the last page ────────────────────────────────────────
+    let document = bare_document(&db, &tag, 2).await;
+    let ada = format!("{tag}-ada@example.test");
+    let bo = format!("{tag}-bo@example.test");
+    let broker = format!("{tag}-broker@example.test");
+    let mut tx = db.begin("docsign-proof-seal").await.unwrap();
+    let sent = service
+        .send_transactional(
+            &mut tx,
+            &SendDocumentSignRequest {
+                transaction_document_id: document.clone(),
+                recipients: vec![person("Ada Alvarez", &ada, 1), person("Bo Díaz", &bo, 2)],
+                subject: Some("Listing Agreement".into()),
+                message: Some("Please sign today.".into()),
+                signing_mode: DocumentSigningMode::Parallel,
+                expires_at: None,
+                placement: SendFieldPlacement::LastPage,
+                copy_to: vec![broker.clone(), " ".into(), broker.to_uppercase()],
+                reminder_every_days: Some(3),
+            },
+            &ctx,
+        )
+        .await
+        .expect("send");
+    tx.commit().await.unwrap();
+    let request_id = sent.snapshot.signature_request.id.clone();
+
+    // ── Both sign, over the public edge, as people do ────────────────────────────────────────────────────────────
+    for (name, email) in [("Ada Alvarez", &ada), ("Bo Díaz", &bo)] {
+        let token = token_for(&db, email).await;
+        let (_, session) = http(&router, "/v1/signer/session", serde_json::json!({ "accessToken": token })).await;
+        let recipient = session["value"]["recipient"]["id"].as_str().unwrap().to_owned();
+        assert_eq!(session["value"]["parties"].as_array().unwrap().len(), 2, "a signer sees who else is on it");
+        assert_eq!(session["value"]["documentTitle"], format!("docsign proof {tag}"));
+        assert_eq!(session["value"]["message"], "Please sign today.");
+        assert_eq!(session["value"]["envelopeStatus"].as_str().unwrap_or(""), "sent");
+        let field = session["value"]["fields"][0]["id"].as_str().unwrap().to_owned();
+        for (path, body) in [
+            ("/v1/signer/open", serde_json::json!({ "accessToken": token, "recipientId": recipient })),
+            (
+                "/v1/signer/consent",
+                serde_json::json!({
+                    "accessToken": token, "recipientId": recipient, "consentVersion": "v1",
+                    "consentText": "I agree.", "consentTextSha256": CONSENT_SHA,
+                }),
+            ),
+            (
+                "/v1/signer/field",
+                serde_json::json!({
+                    "accessToken": token, "recipientId": recipient, "fieldId": field,
+                    "value": { "style": 1, "name": name },
+                }),
+            ),
+            ("/v1/signer/complete", serde_json::json!({ "accessToken": token, "recipientId": recipient })),
+        ] {
+            let (status, body) = http(&router, path, body).await;
+            assert!(status == 200 && outcome(&body) == "success", "{path}: {status} {body}");
+        }
+    }
+    let seen: i64 = sqlx::query_scalar(
+        "select count(*) from signature_evidence_event where signature_request_id = $1::uuid \
+            and evidence->>'ipAddress' = '203.0.113.7' and evidence->>'userAgent' = 'DocsignProof/1.0'",
+    )
+    .bind(&request_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert!(seen >= 8, "every signer action records where it came from (the proxy's client address): {seen}");
+
+    // ── Seal ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    let mut tx = db.begin("docsign-proof-seal").await.unwrap();
+    let done = service
+        .finalize_transactional(&mut tx, &request_id, &ctx)
+        .await
+        .expect("finalize");
+    tx.commit().await.unwrap();
+    assert!(done.signed_media_id.is_some() && done.audit_media_id.is_some());
+    assert_eq!(
+        done.notification_message_ids.len(),
+        4,
+        "Ada, Bo, the broker (once, however it was typed) and the sender are each told once"
+    );
+    let queued: Vec<(String, bool)> = sqlx::query_as(
+        "select recipient_email, (template_payload->>'attachCompletion')::bool from email_message \
+          where message_kind = 'signature_completed' and recipient_email like $1 order by recipient_email",
+    )
+    .bind(format!("%{tag}%"))
+    .fetch_all(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(queued.len(), 4);
+    assert!(queued.iter().all(|(_, attach)| *attach));
+    assert!(queued.iter().any(|(email, _)| *email == operator_email), "the sender is copied");
+
+    // The delivery worker attaches the sealed document and the certificate, read through the Vault's own door.
+    let transport = Arc::new(CapturingTransport(std::sync::Mutex::new(Vec::new())));
+    let mailer = web::email::EmailService::new(
+        EmailDao::new(db.clone()),
+        Some(transport.clone()),
+        infrastructure.clone(),
+    )
+    .with_attachment_source(Arc::new(web::email::VaultAttachmentSource::new(catalog.vault())));
+    let worker = ServiceContext {
+        actor: ServiceActor {
+            id: Some(web::email::EMAIL_DELIVERY_ACTOR.into()),
+            kind: ServiceActorKind::System,
+        },
+        correlation_id: tag.clone(),
+        causation_id: None,
+        principal: None,
+    };
+    let completion_id: String = sqlx::query_scalar(
+        "select id::text from email_message where message_kind = 'signature_completed' and recipient_email = $1",
+    )
+    .bind(&ada)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    mailer.deliver(&completion_id, &worker).await.expect("the completion email is delivered");
+    let sent_mail = transport.0.lock().unwrap().clone();
+    assert_eq!(sent_mail.len(), 1);
+    let mail = &sent_mail[0];
+    assert_eq!(mail.subject, format!("Signed: docsign proof {tag} — CulebraLuxe"));
+    assert!(mail.html.as_deref().unwrap_or("").contains("signed by everyone"));
+    assert_eq!(mail.attachments.len(), 2, "the signed document and its certificate");
+    assert!(mail.attachments[0].filename.starts_with("signature-signed-"));
+    assert!(mail.attachments[1].filename.starts_with("signature-completion-"));
+    assert!(mail.attachments.iter().all(|file| file.bytes.starts_with(b"%PDF-")));
+
+    // …and only that worker may use the door: a signer's own identity is refused the completion artifacts.
+    let intruder = ServiceContext {
+        actor: ServiceActor { id: Some("signature-recipient:someone".into()), kind: ServiceActorKind::System },
+        correlation_id: tag.clone(),
+        causation_id: None,
+        principal: None,
+    };
+    assert!(catalog.vault().completion_artifacts(&request_id, &intruder).await.is_err());
+
+    // The signer's own copy: the same link, now that the envelope is complete.
+    let token = token_for(&db, &ada).await;
+    {
+        use test_harness::http::{call, TestRequest};
+        let response = call(&router, TestRequest::get(format!("/v1/signer/signed/{token}"))).await;
+        assert_eq!(response.status().as_u16(), 200, "{}", response.text());
+        assert_eq!(response.header("content-type"), Some("application/pdf"));
+        assert!(response.header("content-disposition").unwrap_or("").starts_with("attachment"));
+        assert!(response.bytes().starts_with(b"%PDF-"));
+    }
+
+    sweep_tag(&db, &tag).await;
+
+    // ── A decline: everyone but the decliner is told who, and why ────────────────────────────────────────────────
+    let tag = format!("decl-{}", Uuid::new_v4());
+    let document = bare_document(&db, &tag, 1).await;
+    let (cat, dan) = (format!("{tag}-cat@example.test"), format!("{tag}-dan@example.test"));
+    let mut ctx = context(&tag);
+    ctx.principal = Some(ServicePrincipal {
+        app_user_id: operator.clone(),
+        level: "BUSINESS_POWER_USER".into(),
+        role_codes: vec!["owner".into()],
+        account_type: "internal".into(),
+        entitlement_codes: vec![],
+    });
+    let mut tx = db.begin("docsign-proof-decline").await.unwrap();
+    let sent = service
+        .send_transactional(
+            &mut tx,
+            &SendDocumentSignRequest {
+                transaction_document_id: document,
+                recipients: vec![person("Cat", &cat, 1), person("Dan", &dan, 2)],
+                subject: None,
+                message: None,
+                signing_mode: DocumentSigningMode::Parallel,
+                expires_at: None,
+                placement: SendFieldPlacement::LastPage,
+                copy_to: vec![],
+                reminder_every_days: None,
+            },
+            &ctx,
+        )
+        .await
+        .expect("send");
+    tx.commit().await.unwrap();
+    let token = token_for(&db, &cat).await;
+    let (_, session) = http(&router, "/v1/signer/session", serde_json::json!({ "accessToken": token })).await;
+    let recipient = session["value"]["recipient"]["id"].as_str().unwrap().to_owned();
+    let (status, body) = http(
+        &router,
+        "/v1/signer/decline",
+        serde_json::json!({ "accessToken": token, "recipientId": recipient, "reason": "The price is wrong." }),
+    )
+    .await;
+    assert!(status == 200 && outcome(&body) == "success", "decline: {status} {body}");
+    let told: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "select recipient_email, template_payload->>'declinerName', template_payload->>'reason' from email_message \
+          where message_kind = 'signature_declined' and template_payload->>'signatureRequestId' = $1 order by recipient_email",
+    )
+    .bind(&sent.snapshot.signature_request.id)
+    .fetch_all(db.pool())
+    .await
+    .unwrap();
+    let who: std::collections::BTreeSet<&str> = told.iter().map(|(email, _, _)| email.as_str()).collect();
+    assert_eq!(
+        who,
+        [dan.as_str(), operator_email.as_str()].into_iter().collect(),
+        "Dan and the sender hear of it; Cat, who declined, does not"
+    );
+    assert!(told.iter().all(|(_, decliner, reason)| decliner.as_deref() == Some("Cat") && reason.as_deref() == Some("The price is wrong.")));
+    sweep_tag(&db, &tag).await;
+    sqlx::query("delete from app_user where id = $1::uuid")
+        .bind(&operator)
+        .execute(db.pool())
+        .await
+        .unwrap();
 }

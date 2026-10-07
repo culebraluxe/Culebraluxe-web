@@ -579,6 +579,74 @@ impl VaultDao {
         }))
     }
 
+    /// The SEALED copy a signer may keep, once the envelope they were part of is completed. Same shape of proof as
+    /// `signing_document_bytes`: the recipient must belong to the envelope, and the envelope must be `completed` with a
+    /// sealed PDF linked. Anything else answers `None`.
+    pub async fn signing_signed_bytes(
+        &self,
+        signature_request_id: &str,
+        recipient_id: &str,
+    ) -> DbResult<Option<VaultMediaBytes>> {
+        let row = sqlx::query_as::<_, MediaRow>(
+            r#"
+            select m.file_data, m.filename, m.mime_type
+            from signature_envelope_recipient r
+            join signature_request sr on sr.id = r.signature_request_id
+            join transaction_document td on td.id = sr.transaction_document_id
+            join media m on m.id = td.signed_media_id
+            where r.id = $2::uuid
+              and sr.id = $1::uuid
+              and sr.status = 'completed'
+              and m.media_type = 'document'
+              and m.file_data is not null
+            limit 1
+            "#,
+        )
+        .bind(signature_request_id)
+        .bind(recipient_id)
+        .fetch_optional(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("vault.signing_signed_bytes", &error))?;
+        Ok(row.map(|row| VaultMediaBytes {
+            bytes: row.file_data.unwrap_or_default(),
+            filename: row.filename,
+            mime_type: row.mime_type,
+        }))
+    }
+
+    /// What a completion email carries: the sealed document first, then its certificate. Only a `completed`
+    /// envelope has either, and only the artifacts the finalize step linked.
+    pub async fn completion_artifacts(
+        &self,
+        signature_request_id: &str,
+    ) -> DbResult<Vec<VaultMediaBytes>> {
+        let rows = sqlx::query_as::<_, MediaRow>(
+            r#"
+            select m.file_data, m.filename, m.mime_type
+            from signature_request sr
+            join transaction_document td on td.id = sr.transaction_document_id
+            join media m on m.id in (td.signed_media_id, td.signed_audit_media_id)
+            where sr.id = $1::uuid
+              and sr.status = 'completed'
+              and m.media_type = 'document'
+              and m.file_data is not null
+            order by (m.id = td.signed_media_id) desc
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_all(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("vault.completion_artifacts", &error))?;
+        Ok(rows
+            .into_iter()
+            .map(|row| VaultMediaBytes {
+                bytes: row.file_data.unwrap_or_default(),
+                filename: row.filename,
+                mime_type: row.mime_type,
+            })
+            .collect())
+    }
+
     pub async fn form_contract_id(&self, form_instance_id: &str) -> DbResult<Option<String>> {
         sqlx::query_scalar::<_, Option<String>>(
             r#"

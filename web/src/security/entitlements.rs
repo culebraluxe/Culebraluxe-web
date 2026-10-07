@@ -155,7 +155,10 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         // envelope. Not `vault.read`: a signing recipient may never open a Vault document of its own choosing.
         let signing_document = system
             && request.domain == "vault"
-            && request.operation == "vault.signingDocumentBytes"
+            && matches!(
+                request.operation,
+                "vault.signingDocumentBytes" | "vault.signingSignedBytes"
+            )
             && request.action == "vault.signingDocument.read"
             && request.kind == OperationKind::Query
             && request
@@ -174,6 +177,38 @@ impl AuthorizationPort for CasbinAuthorizationPort {
                     ("signer.session", "signer.read", OperationKind::Query)
                 ) || (request.kind == OperationKind::Command
                     && signer_command(request.operation, request.action))));
+        // THE SIGNING WORKERS. Each is one system actor with one job. The finalizer seals a fully signed envelope: it
+        // runs `documentSign.finalize`, and reads that one document's PDF through the Vault (the caller's authority,
+        // which for the automatic path is its own). The sweeper expires overdue signers and queues reminders.
+        let signing_finalizer = system
+            && request.actor.id.as_deref()
+                == Some(crate::document_sign::worker::DOCUMENT_SIGN_FINALIZER_ACTOR)
+            && ((request.kind == OperationKind::Command
+                && request.domain == "document-sign"
+                && request.operation == "documentSign.finalize"
+                && request.action == "documentSign.write")
+                || (request.kind == OperationKind::Query
+                    && request.domain == "vault"
+                    && matches!(
+                        request.operation,
+                        "vault.getDocument" | "vault.mediaBytes"
+                    )
+                    && request.action == "vault.read"));
+        let signing_sweeper = system
+            && request.actor.id.as_deref()
+                == Some(crate::document_sign::worker::DOCUMENT_SIGN_SWEEPER_ACTOR)
+            && request.kind == OperationKind::Command
+            && request.domain == "document-sign"
+            && request.operation == "documentSign.sweepDue"
+            && request.action == "documentSign.write";
+        // THE COMPLETION EMAIL'S FILES. The delivery worker reads the sealed document and its certificate for one
+        // envelope, through the Vault's own door, to attach them. Nothing else may use this action.
+        let completion_artifacts = system
+            && request.actor.id.as_deref() == Some(crate::email::EMAIL_DELIVERY_ACTOR)
+            && request.domain == "vault"
+            && request.operation == "vault.completionArtifacts"
+            && request.action == "vault.completionArtifacts.read"
+            && request.kind == OperationKind::Query;
         // Existing MQ owns retries/leases. The worker may deliver exactly one queued email and
         // cannot queue arbitrary messages or call any other application command.
         let email_delivery = system
@@ -236,6 +271,9 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             || agreement_execution
             || document_sign_service
             || document_sign_edge
+            || signing_finalizer
+            || signing_sweeper
+            || completion_artifacts
             || email_delivery
             || guest_code
             || guest_provision
@@ -249,6 +287,7 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         } else if request.action == "security.identity.resolve"
             || request.action == "vault.publicListingDocument.read"
             || request.action == "vault.signingDocument.read"
+            || request.action == "vault.completionArtifacts.read"
             || request.action == "website.lead.notify"
             || request.action == "website.intake.submit"
             || request.action == "email.deliver"

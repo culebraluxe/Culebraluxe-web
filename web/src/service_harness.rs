@@ -27,6 +27,8 @@ pub struct ServiceHarness {
     gateway: ServiceGateway,
     commands: CommandDispatcher,
     mq: MqRuntime,
+    /// Whether this harness runs the signing sweep (production composition only: a test harness has no clock to keep).
+    sweep_signing: bool,
     shutdown: Arc<OnceCell<Result<(), ServiceDispatchError>>>,
 }
 
@@ -82,10 +84,15 @@ impl ServiceHarness {
                 kernel.registry(),
             );
             let email_delivery = EmailDeliverySubscriber::new(catalog.email());
+            let finalizer = crate::document_sign::worker::DocumentSignFinalizeSubscriber::new(
+                commands.clone(),
+                kernel.registry(),
+            );
             vec![
                 Arc::new(MqProofSubscriber::new(outbox.clone())),
                 Arc::new(crm26),
                 Arc::new(email_delivery),
+                Arc::new(finalizer),
             ]
         } else {
             Vec::new()
@@ -96,6 +103,7 @@ impl ServiceHarness {
             gateway,
             commands,
             mq,
+            sweep_signing: production_mq_subscribers,
             shutdown: Arc::new(OnceCell::new()),
         })
     }
@@ -105,6 +113,14 @@ impl ServiceHarness {
         if let Err(error) = self.mq.start().await {
             let _ = self.kernel.shutdown().await;
             return Err(error);
+        }
+        if self.sweep_signing {
+            // Ends with the kernel's own cancellation, like every other background task it owns.
+            crate::document_sign::worker::spawn_sweeper(
+                self.commands.clone(),
+                self.kernel.registry(),
+                self.kernel.child_token(),
+            );
         }
         Ok(())
     }

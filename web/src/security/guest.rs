@@ -357,6 +357,7 @@ pub fn code_email(email: &str, code: &str, settings: &LeadMailSettings) -> Outgo
         ),
         html: None,
         reply_to: Some(settings.team_address.clone()),
+        attachments: Vec::new(),
     }
 }
 

@@ -52,6 +52,8 @@ pub struct FinalizeRecipient {
     pub consent_version: Option<String>,
     pub consent_sha256: Option<String>,
     pub consent_accepted_at: Option<String>,
+    /// When this recipient finished (their state row), for the certificate.
+    pub completed_at: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +77,8 @@ pub struct FinalizeEvent {
     pub event_type: String,
     pub occurred_at: String,
     pub actor_id: Option<String>,
+    /// The recipient the event is about, when it is about one.
+    pub recipient_id: Option<String>,
     pub evidence: Value,
 }
 
@@ -97,6 +101,7 @@ struct FinalizeRecipientRow {
     consent_version: Option<String>,
     consent_sha256: Option<String>,
     consent_accepted_at: Option<DateTime<Utc>>,
+    completed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, FromRow)]
@@ -120,6 +125,7 @@ struct FinalizeEventRow {
     event_type: String,
     occurred_at: DateTime<Utc>,
     actor_id: Option<String>,
+    recipient_id: Option<String>,
     evidence: Value,
 }
 
@@ -295,6 +301,75 @@ impl SignerDao {
         .fetch_one(&mut *self.db.connection().await?)
         .await
         .map_err(|error| DbFailure::from_sqlx("signer.consent_exists", &error))
+    }
+
+    /// The envelope-level facts a signer's page shows: status, title, the sender's note, which of this recipient's
+    /// fields are answered, and everyone's progress (names and states only).
+    pub async fn session_context(
+        &self,
+        recipient_id: &str,
+    ) -> DbResult<model::SignerSessionContext> {
+        let mut connection = self.db.connection().await?;
+        let head: Option<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+            r#"
+            select sr.status, td.title, d.subject, sr.message
+              from signature_envelope_recipient r
+              join signature_request sr on sr.id = r.signature_request_id
+              join transaction_document td on td.id = sr.transaction_document_id
+              left join document_sign_request d on d.signature_request_id = sr.id
+             where r.id = $1::uuid
+            "#,
+        )
+        .bind(recipient_id)
+        .fetch_optional(&mut *connection)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signer.session_context.head", &error))?;
+        let answered: Vec<String> = sqlx::query_scalar(
+            r#"
+            select f.id::text
+              from signature_field f
+              join signature_field_response resp on resp.field_id = f.id
+             where f.recipient_id = $1::uuid
+               and resp.recipient_id = $1::uuid
+            "#,
+        )
+        .bind(recipient_id)
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signer.session_context.answered", &error))?;
+        let parties: Vec<(String, String, String, bool)> = sqlx::query_as(
+            r#"
+            select r2.recipient_name, r2.recipient_role, s.state, r2.id = r1.id
+              from signature_envelope_recipient r1
+              join signature_envelope_recipient r2
+                on r2.signature_request_id = r1.signature_request_id
+              join signature_recipient_state s on s.recipient_id = r2.id
+             where r1.id = $1::uuid
+             order by r2.signing_step, r2.signer_order
+            "#,
+        )
+        .bind(recipient_id)
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("signer.session_context.parties", &error))?;
+        let (envelope_status, document_title, subject, message) =
+            head.unwrap_or_default();
+        Ok(model::SignerSessionContext {
+            envelope_status,
+            document_title,
+            subject,
+            message,
+            answered_field_ids: answered,
+            parties: parties
+                .into_iter()
+                .map(|(name, role, state, is_you)| model::SignerParty {
+                    name,
+                    role,
+                    state,
+                    is_you,
+                })
+                .collect(),
+        })
     }
 
     pub async fn is_turn(&self, recipient_id: &str) -> DbResult<bool> {
@@ -738,7 +813,8 @@ impl SignerDao {
                    coalesce(s.state, 'pending') as state,
                    c.consent_version as consent_version,
                    c.consent_text_sha256 as consent_sha256,
-                   c.accepted_at as consent_accepted_at
+                   c.accepted_at as consent_accepted_at,
+                   s.completed_at as completed_at
               from signature_envelope_recipient r
               left join signature_recipient_state s on s.recipient_id = r.id
               left join signature_recipient_consent c on c.recipient_id = r.id
@@ -779,6 +855,7 @@ impl SignerDao {
             select event_type,
                    occurred_at,
                    actor_id,
+                   recipient_id::text as recipient_id,
                    evidence
               from signature_evidence_event
              where signature_request_id = $1::uuid
@@ -803,6 +880,7 @@ impl SignerDao {
                     consent_version: row.consent_version,
                     consent_sha256: row.consent_sha256,
                     consent_accepted_at: row.consent_accepted_at.map(|value| value.to_rfc3339()),
+                    completed_at: row.completed_at.map(|value| value.to_rfc3339()),
                 })
                 .collect(),
             fields: fields
@@ -828,6 +906,7 @@ impl SignerDao {
                     event_type: row.event_type,
                     occurred_at: row.occurred_at.to_rfc3339(),
                     actor_id: row.actor_id,
+                    recipient_id: row.recipient_id,
                     evidence: row.evidence,
                 })
                 .collect(),

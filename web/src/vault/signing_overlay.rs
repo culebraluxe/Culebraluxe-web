@@ -21,6 +21,10 @@ pub struct OverlayField {
     pub height_percent: f64,
     /// A signature is drawn as one: italic serif on a rule, with a caption.
     pub signature: bool,
+    /// The signer's chosen appearance: 0 classic (italic), 1 refined (italic, open letter-spacing), 2 bold italic.
+    pub style: u8,
+    /// The small line under a signature ("Electronically signed 2026-10-07").
+    pub caption: Option<String>,
     pub text: String,
 }
 
@@ -88,26 +92,35 @@ pub fn overlay_fields(original: &[u8], fields: &[OverlayField]) -> Result<Vec<u8
                     )
                     .as_bytes(),
                 );
+                let (font, spacing) = match field.style {
+                    1 => ("DSF2", 0.9),
+                    2 => ("DSF3", 0.0),
+                    _ => ("DSF2", 0.0),
+                };
                 operations.extend_from_slice(
                     format!(
-                        "BT /DSF2 {} Tf {} rg {} {} Td (",
+                        "BT /{font} {} Tf {} Tc {} rg {} {} Td (",
                         point(size),
+                        point(spacing),
                         navy(),
                         point(x + 2.0),
-                        point(bottom + 7.0),
+                        point(bottom + 9.5),
                     )
                     .as_bytes(),
                 );
                 operations.extend_from_slice(&crate::vault::pdf::escape_bytes(&text));
                 operations.extend_from_slice(b") Tj ET\n");
+                let caption = encoded(field.caption.as_deref().unwrap_or("Electronically signed"));
                 operations.extend_from_slice(
                     format!(
-                        "BT /DSF1 6 Tf 0.45 0.5 0.58 rg {} {} Td (Electronically signed) Tj ET\n",
+                        "BT /DSF1 6 Tf 0.45 0.5 0.58 rg {} {} Td (",
                         point(x + 2.0),
                         point(bottom - 4.0),
                     )
                     .as_bytes(),
                 );
+                operations.extend_from_slice(&crate::vault::pdf::escape_bytes(&caption));
+                operations.extend_from_slice(b") Tj ET\n");
             } else {
                 // A value sits on the box's text line (or at the anchor when the box is unknown).
                 let baseline = if box_height > 0.0 {
@@ -182,6 +195,7 @@ fn append_content(
     // so the borrow checker sees distinct phases.
     let font_ref = Object::Reference(stream_font_id(document, "Helvetica"));
     let signature_font_ref = Object::Reference(stream_font_id(document, "Times-Italic"));
+    let bold_signature_font_ref = Object::Reference(stream_font_id(document, "Times-BoldItalic"));
     let resources_id = {
         let page = document
             .get_object(page_id)
@@ -235,11 +249,18 @@ fn append_content(
                 .as_dict_mut()
                 .map_err(|_| "font dictionary is not a dictionary".to_string())?
                 .set("DSF2", signature_font_ref);
+            document
+                .get_object_mut(id)
+                .map_err(|_| "font dictionary vanished".to_string())?
+                .as_dict_mut()
+                .map_err(|_| "font dictionary is not a dictionary".to_string())?
+                .set("DSF3", bold_signature_font_ref);
         }
         None => {
             let id = document.add_object(Object::Dictionary(dictionary! {
                 "DSF1" => font_ref,
                 "DSF2" => signature_font_ref,
+                "DSF3" => bold_signature_font_ref,
             }));
             let resources = document
                 .get_object_mut(resources_id)
@@ -351,6 +372,8 @@ mod tests {
                 width_percent: 38.0,
                 height_percent: 7.0,
                 signature: true,
+                style: 2,
+                caption: Some("Electronically signed 2026-10-07".into()),
                 text: "María Rivera".into(),
             }],
         )
@@ -381,6 +404,8 @@ mod tests {
                 width_percent: 0.0,
                 height_percent: 0.0,
                 signature: false,
+                style: 0,
+                caption: None,
                 text: "x".into(),
             }],
         )

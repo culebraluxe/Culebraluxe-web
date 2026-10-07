@@ -521,8 +521,10 @@ pub(super) async fn send_signature(
         .await
         .map_err(failed(&resolved))?;
 
-    let mut recipients = Vec::new();
-    let mut completion_recipient_emails = Vec::new();
+    // The form's own signers, by slot and role. Each person signs only their own block (the form's fixed positions);
+    // the broker signs nothing here and is copied on the completed document instead.
+    let mut recipients: Vec<Value> = Vec::new();
+    let mut copy_to: Vec<String> = Vec::new();
     for signer in &signers {
         let Some(email) = signer
             .email
@@ -533,19 +535,19 @@ pub(super) async fn send_signature(
             continue;
         };
         if signer.role == "SELLER_BROKER" {
-            completion_recipient_emails.push(email.to_owned());
+            copy_to.push(email.to_owned());
             continue;
         }
-        let execution_slot_id = signer.slot_id.clone();
-        let execution_role = execution_slot_id.as_ref().map(|_| signer.role.clone());
-        recipients.push(model::SignatureRecipient {
-            role: model::SignatureRecipientRole::Signer,
-            name: signer.name.clone(),
-            email: email.to_owned(),
-            order: recipients.len() as i32 + 1,
-            execution_role,
-            execution_slot_id,
-        });
+        let order = recipients.len() as i32 + 1;
+        recipients.push(json!({
+            "role": "signer",
+            "name": signer.name,
+            "email": email,
+            "signerOrder": order,
+            "signingStep": 1,
+            "executionRole": signer.slot_id.as_ref().map(|_| signer.role.clone()),
+            "executionSlotId": signer.slot_id,
+        }));
     }
     if recipients.is_empty() {
         return Err(correlate(
@@ -557,34 +559,52 @@ pub(super) async fn send_signature(
         ));
     }
 
-    let sent = signature
-        .send(
-            &model::SendSignatureRequest {
+    // The envelope's subject: the issued document's own title, when it has one.
+    let subject = services
+        .vault()
+        .get_document(&issued.document_id, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?
+        .and_then(|document| document.title)
+        .map(|title| title.trim().to_owned())
+        .filter(|title| !title.is_empty());
+    let party_count = recipients.len();
+    let input = json!({
+        "recipients": recipients,
+        "subject": subject,
+        "message": null,
+        "signingMode": "parallel",
+        "expiresAt": null,
+        "placement": { "kind": "template" },
+        "copyTo": copy_to,
+    });
+    let Value::Object(input) = input else {
+        unreachable!("json! of an object literal is an object")
+    };
+    let result = state
+        .service_harness()
+        .execute_command(
+            &services::CommandRequest {
                 command_id: uuid::Uuid::new_v4().to_string(),
-                transaction_document_id: issued.document_id.clone(),
-                recipients: recipients.clone(),
-                message: None,
-                created_by_user_id: Some(resolved.acting_user.app_user_id.clone()),
-                execution_role: None,
-                execution_slot_id: None,
-                slot_recipient_email: None,
-                signature_role: None,
-                completion_recipient_emails,
+                command_type: "documentSign.send".into(),
+                aggregate_type: "transaction_document".into(),
+                aggregate_id: Some(issued.document_id.clone()),
+                requested_at: chrono::Utc::now().to_rfc3339(),
+                input,
             },
             &resolved.service,
         )
         .await
-        .map_err(failed(&resolved))?;
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
 
-    if sent.outcome != model::SignatureCommandOutcome::Success {
+    if result.outcome != services::CommandOutcome::Success {
+        let message = result
+            .error
+            .map(|error| error.message)
+            .or(result.message)
+            .unwrap_or_else(|| "Could not send the document for signature.".into());
         return Err(correlate(
-            ApiError::new(
-                StatusCode::BAD_GATEWAY,
-                "FORM_SIGNATURE_SEND_FAILED",
-                sent.message
-                    .unwrap_or_else(|| "Could not send document for signature.".into()),
-                true,
-            ),
+            ApiError::new(StatusCode::CONFLICT, "FORM_SIGNATURE_SEND_FAILED", message, false),
             &resolved,
         ));
     }
@@ -594,9 +614,8 @@ pub(super) async fn send_signature(
         "formId": form_id,
         "forms": page,
         "message": format!(
-            "Sent for signature · {} external {}",
-            recipients.len(),
-            if recipients.len() == 1 { "party" } else { "parties" },
+            "Sent for signature · {party_count} {}",
+            if party_count == 1 { "signer" } else { "signers" },
         ),
     })))
 }

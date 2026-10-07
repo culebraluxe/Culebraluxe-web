@@ -1,6 +1,6 @@
 use crate::mq_runtime::{MqSubscriber, MqSubscriberError};
 use crate::service_support::{audit_result, authorize, CoreServiceError};
-use apis::mail::{MailConfig, MailError, OutgoingMail, SmtpMailer};
+use apis::mail::{MailAttachment, MailConfig, MailError, OutgoingMail, SmtpMailer};
 use async_trait::async_trait;
 use db::{DbResult, DbTransaction, EmailDao, OutboxDelivery};
 use model::{
@@ -69,8 +69,20 @@ impl EmailTransport for SmtpMailer {
     }
 }
 
+/// Where a completion email's files come from. The production implementation reads them through the Vault's own door
+/// (`VaultService::completion_artifacts`); this port keeps the email service from knowing about the Vault.
+#[async_trait]
+pub trait EmailAttachmentSource: Send + Sync {
+    async fn completion_artifacts(
+        &self,
+        signature_request_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Vec<MailAttachment>, CoreServiceError>;
+}
+
 pub struct EmailService<R> {
     repository: R,
+    attachments: Option<Arc<dyn EmailAttachmentSource>>,
     transport: Option<Arc<dyn EmailTransport>>,
     runtime: ServiceRuntime,
 }
@@ -83,9 +95,16 @@ impl<R: EmailRepository> EmailService<R> {
     ) -> Self {
         Self {
             repository,
+            attachments: None,
             transport,
             runtime: ServiceRuntime::new(infrastructure),
         }
+    }
+
+    /// Give the service the means to attach a completed envelope's files (see [`EmailAttachmentSource`]).
+    pub fn with_attachment_source(mut self, source: Arc<dyn EmailAttachmentSource>) -> Self {
+        self.attachments = Some(source);
+        self
     }
 
     pub async fn get(
@@ -180,7 +199,28 @@ impl<R: EmailRepository> EmailService<R> {
                     "Transactional email transport is not configured.",
                 )
             })?;
-            let mail = render_email(&message)?;
+            let mut mail = render_email(&message)?;
+            let wants_files = message
+                .template_payload
+                .get("attachCompletion")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            if wants_files {
+                let request_id = message
+                    .template_payload
+                    .get("signatureRequestId")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                let source = self.attachments.as_ref().ok_or_else(|| {
+                    CoreServiceError::business(
+                        "EMAIL_ATTACHMENTS_UNAVAILABLE",
+                        "This message carries the signed document, but no attachment source is configured.",
+                    )
+                })?;
+                // A failure here leaves the message queued for the MQ retry: a completion email that silently lost
+                // its document would be worse than a late one.
+                mail.attachments = source.completion_artifacts(request_id, context).await?;
+            }
             if let Err(error) = transport.send(mail).await {
                 self.repository
                     .mark_failed(&message.id, &error.to_string(), false)
@@ -313,8 +353,14 @@ fn render_email(message: &EmailMessage) -> Result<OutgoingMail, CoreServiceError
         EmailMessageKind::SignatureReminder => {
             "Reminder: document waiting for your signature — CulebraLuxe".into()
         }
-        EmailMessageKind::SignatureCompleted => "Document signing completed — CulebraLuxe".into(),
-        EmailMessageKind::SignatureDeclined => "Document signing declined — CulebraLuxe".into(),
+        EmailMessageKind::SignatureCompleted => match string("documentTitle") {
+            Some(title) => format!("Signed: {title} — CulebraLuxe"),
+            None => "Document signing completed — CulebraLuxe".into(),
+        },
+        EmailMessageKind::SignatureDeclined => match string("documentTitle") {
+            Some(title) => format!("Declined: {title} — CulebraLuxe"),
+            None => "Document signing declined — CulebraLuxe".into(),
+        },
     });
 
     let (text, html) = match message.message_kind {
@@ -343,14 +389,76 @@ fn render_email(message: &EmailMessage) -> Result<OutgoingMail, CoreServiceError
             let html = signature_request_html(&name, lead, &url, note.as_deref());
             (text, Some(html))
         }
-        EmailMessageKind::SignatureCompleted => (
-            "The CulebraLuxe document signing process has completed.".into(),
-            None,
-        ),
-        EmailMessageKind::SignatureDeclined => (
-            "A recipient declined the CulebraLuxe document signing request.".into(),
-            None,
-        ),
+        EmailMessageKind::SignatureCompleted => {
+            let name = string("recipientName");
+            let title = string("documentTitle");
+            let signers: Vec<String> = message
+                .template_payload
+                .get("signers")
+                .and_then(serde_json::Value::as_array)
+                .map(|names| {
+                    names
+                        .iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let attached = message
+                .template_payload
+                .get("attachCompletion")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let lead = match &title {
+                Some(title) => format!("{title} has been signed by everyone and is complete."),
+                None => "The document has been signed by everyone and is complete.".to_owned(),
+            };
+            let detail = if signers.is_empty() {
+                String::new()
+            } else {
+                format!("Signed by: {}.", signers.join(", "))
+            };
+            let files = if attached {
+                "The signed document and its certificate of completion are attached. Keep both for your records."
+            } else {
+                "Your CulebraLuxe contact has the signed document and its certificate of completion."
+            };
+            let greeting = greeting_for(name.as_deref());
+            let text = format!("{greeting}\n\n{lead}\n{detail}\n\n{files}\n\nCulebraLuxe");
+            let html = branded_html(&Branded {
+                heading: &greeting,
+                paragraphs: &[&lead, &detail, files],
+                note: None,
+                button: None,
+                footer: "This is a record of a completed signing. Please keep the attached files.",
+            });
+            (text, Some(html))
+        }
+        EmailMessageKind::SignatureDeclined => {
+            let name = string("recipientName");
+            let title = string("documentTitle");
+            let decliner = string("declinerName").unwrap_or_else(|| "A signer".into());
+            let reason = string("reason");
+            let lead = match &title {
+                Some(title) => format!("{decliner} declined to sign {title}."),
+                None => format!("{decliner} declined to sign the document."),
+            };
+            let outcome = "The signing has ended and the document will not be completed. No one else needs to sign it.";
+            let greeting = greeting_for(name.as_deref());
+            let reason_text = reason
+                .as_deref()
+                .map(|reason| format!("\n\nTheir reason:\n{reason}"))
+                .unwrap_or_default();
+            let text = format!("{greeting}\n\n{lead}{reason_text}\n\n{outcome}\n\nCulebraLuxe");
+            let html = branded_html(&Branded {
+                heading: &greeting,
+                paragraphs: &[&lead, outcome],
+                note: reason.as_deref(),
+                button: None,
+                footer: "If you think this was a mistake, contact your CulebraLuxe representative to start again.",
+            });
+            (text, Some(html))
+        }
     };
 
     Ok(OutgoingMail {
@@ -359,6 +467,8 @@ fn render_email(message: &EmailMessage) -> Result<OutgoingMail, CoreServiceError
         text,
         html,
         reply_to: None,
+
+        attachments: Vec::new(),
     })
 }
 
@@ -377,19 +487,58 @@ fn escape_html(value: &str) -> String {
     out
 }
 
-/// The branded invitation / reminder. Inline styles and a table layout only: mail clients ignore the rest. Every
-/// interpolated value is escaped, and the link is only ever a `https://` / `http://` URL.
-fn signature_request_html(name: &str, lead: &str, url: &str, note: Option<&str>) -> String {
-    let safe_url = if url.starts_with("https://") || url.starts_with("http://") {
-        escape_html(url)
-    } else {
-        "#".into()
-    };
-    let note_block = note
+fn greeting_for(name: Option<&str>) -> String {
+    match name.map(str::trim).filter(|name| !name.is_empty()) {
+        Some(name) => format!("Hello {name},"),
+        None => "Hello,".to_owned(),
+    }
+}
+
+/// What the branded layout shows. Every string is escaped on the way in; the button link only if it is http(s).
+struct Branded<'a> {
+    heading: &'a str,
+    paragraphs: &'a [&'a str],
+    /// A quoted block (the sender's message, a decliner's reason).
+    note: Option<&'a str>,
+    button: Option<(&'a str, &'a str)>,
+    footer: &'a str,
+}
+
+/// The branded layout every signing email shares. Inline styles and a table layout only: mail clients ignore the
+/// rest.
+fn branded_html(mail: &Branded<'_>) -> String {
+    let paragraphs: String = mail
+        .paragraphs
+        .iter()
+        .filter(|text| !text.trim().is_empty())
+        .map(|text| {
+            format!(
+                r#"<tr><td style="padding:0 40px 14px;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:24px;color:#4a4a4a">{}</td></tr>"#,
+                escape_html(text)
+            )
+        })
+        .collect();
+    let note = mail
+        .note
         .map(|value| {
             format!(
-                r#"<tr><td style="padding:0 40px 24px"><div style="border-left:3px solid #a88450;padding:4px 0 4px 14px;color:#4a4a4a;font-size:14px;line-height:22px;white-space:pre-wrap">{}</div></td></tr>"#,
+                r#"<tr><td style="padding:6px 40px 24px"><div style="border-left:3px solid #a88450;padding:4px 0 4px 14px;color:#4a4a4a;font-family:Georgia,'Times New Roman',serif;font-size:14px;line-height:22px;white-space:pre-wrap">{}</div></td></tr>"#,
                 escape_html(value)
+            )
+        })
+        .unwrap_or_default();
+    let button = mail
+        .button
+        .map(|(label, url)| {
+            let safe_url = if url.starts_with("https://") || url.starts_with("http://") {
+                escape_html(url)
+            } else {
+                "#".into()
+            };
+            format!(
+                r#"<tr><td style="padding:10px 40px 28px"><a href="{safe_url}" style="display:inline-block;background:#041024;color:#ffffff;text-decoration:none;font-family:Helvetica,Arial,sans-serif;font-size:14px;letter-spacing:0.6px;padding:13px 28px;border-radius:6px">{}</a></td></tr>
+<tr><td style="padding:0 40px 12px;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:19px;color:#8a8a8a">If the button does not work, paste this link into your browser:<br><a href="{safe_url}" style="color:#8a8a8a;word-break:break-all">{safe_url}</a></td></tr>"#,
+                escape_html(label)
             )
         })
         .unwrap_or_default();
@@ -399,17 +548,59 @@ fn signature_request_html(name: &str, lead: &str, url: &str, note: Option<&str>)
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1ea"><tr><td align="center" style="padding:32px 12px">
 <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border:1px solid #e4dfd2;border-radius:10px;font-family:Georgia,'Times New Roman',serif;color:#041024">
 <tr><td style="padding:32px 40px 8px;font-family:Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:2.4px;text-transform:uppercase;color:#a88450">CulebraLuxe &middot; Secure Signing</td></tr>
-<tr><td style="padding:0 40px 8px;font-size:26px;line-height:32px;font-weight:300">Hello {name},</td></tr>
-<tr><td style="padding:0 40px 24px;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:24px;color:#4a4a4a">{lead}</td></tr>
-{note_block}
-<tr><td style="padding:0 40px 28px"><a href="{url}" style="display:inline-block;background:#041024;color:#ffffff;text-decoration:none;font-family:Helvetica,Arial,sans-serif;font-size:14px;letter-spacing:0.6px;padding:13px 28px;border-radius:6px">Review and sign</a></td></tr>
-<tr><td style="padding:0 40px 32px;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:19px;color:#8a8a8a">If the button does not work, paste this link into your browser:<br><a href="{url}" style="color:#8a8a8a;word-break:break-all">{url}</a><br><br>This link is unique to you. Please do not forward it.</td></tr>
+<tr><td style="padding:0 40px 14px;font-size:26px;line-height:32px;font-weight:300">{heading}</td></tr>
+{paragraphs}{note}{button}
+<tr><td style="padding:10px 40px 32px;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:19px;color:#8a8a8a">{footer}</td></tr>
 </table></td></tr></table></body></html>"##,
-        name = escape_html(name),
-        lead = escape_html(lead),
-        url = safe_url,
-        note_block = note_block,
+        heading = escape_html(mail.heading),
+        footer = escape_html(mail.footer),
     )
+}
+
+/// The branded invitation / reminder.
+fn signature_request_html(name: &str, lead: &str, url: &str, note: Option<&str>) -> String {
+    let heading = greeting_for(Some(name));
+    branded_html(&Branded {
+        heading: &heading,
+        paragraphs: &[lead],
+        note,
+        button: Some(("Review and sign", url)),
+        footer: "This link is unique to you. Please do not forward it.",
+    })
+}
+
+/// The production attachment source: the Vault's own door, so the email service never reads a document itself.
+pub struct VaultAttachmentSource<VR: crate::vault::VaultRepository> {
+    vault: Arc<crate::vault::VaultService<VR>>,
+}
+
+impl<VR: crate::vault::VaultRepository> VaultAttachmentSource<VR> {
+    pub fn new(vault: Arc<crate::vault::VaultService<VR>>) -> Self {
+        Self { vault }
+    }
+}
+
+#[async_trait]
+impl<VR: crate::vault::VaultRepository + 'static> EmailAttachmentSource
+    for VaultAttachmentSource<VR>
+{
+    async fn completion_artifacts(
+        &self,
+        signature_request_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Vec<MailAttachment>, CoreServiceError> {
+        Ok(self
+            .vault
+            .completion_artifacts(signature_request_id, context)
+            .await?
+            .into_iter()
+            .map(|media| MailAttachment {
+                filename: media.filename,
+                content_type: media.mime_type,
+                bytes: media.bytes,
+            })
+            .collect())
+    }
 }
 
 pub fn transport_from_env() -> Option<Arc<dyn EmailTransport>> {
@@ -570,5 +761,68 @@ mod tests {
         reminder.message_kind = EmailMessageKind::SignatureReminder;
         let mail = render_email(&reminder).unwrap();
         assert!(mail.text.contains("still waiting"));
+    }
+
+    fn outcome(kind: EmailMessageKind, payload: serde_json::Value) -> OutgoingMail {
+        let mut message = message(payload);
+        message.message_kind = kind;
+        render_email(&message).unwrap()
+    }
+
+    #[test]
+    fn the_completed_notice_names_the_document_and_the_people_and_promises_the_files() {
+        let mail = outcome(
+            EmailMessageKind::SignatureCompleted,
+            serde_json::json!({
+                "recipientName": "Maria",
+                "documentTitle": "Listing Agreement",
+                "signers": ["Maria Alvarez", "Pedro Diaz"],
+                "attachCompletion": true,
+                "signatureRequestId": "req-1"
+            }),
+        );
+        assert_eq!(mail.subject, "Signed: Listing Agreement — CulebraLuxe");
+        assert!(mail
+            .text
+            .contains("Listing Agreement has been signed by everyone"));
+        assert!(mail.text.contains("Maria Alvarez, Pedro Diaz"));
+        assert!(mail.text.contains("attached"));
+        let html = mail.html.expect("an HTML part");
+        assert!(html.contains("Hello Maria,"));
+        assert!(
+            !html.contains("Review and sign"),
+            "a completed notice has no signing button"
+        );
+    }
+
+    #[test]
+    fn a_copy_recipient_without_a_name_is_greeted_plainly() {
+        let mail = outcome(
+            EmailMessageKind::SignatureCompleted,
+            serde_json::json!({ "recipientName": "", "documentTitle": "Deed" }),
+        );
+        assert!(mail.text.starts_with("Hello,\n"));
+        assert!(mail
+            .text
+            .contains("Your CulebraLuxe contact has the signed document"));
+    }
+
+    #[test]
+    fn the_declined_notice_says_who_and_why_and_escapes_what_a_person_typed() {
+        let mail = outcome(
+            EmailMessageKind::SignatureDeclined,
+            serde_json::json!({
+                "recipientName": "Pedro",
+                "documentTitle": "Listing Agreement",
+                "declinerName": "Maria <b>Alvarez</b>",
+                "reason": "Price & terms <script>x</script>"
+            }),
+        );
+        assert_eq!(mail.subject, "Declined: Listing Agreement — CulebraLuxe");
+        assert!(mail.text.contains("declined to sign Listing Agreement"));
+        assert!(mail.text.contains("Price & terms"));
+        let html = mail.html.unwrap();
+        assert!(!html.contains("<script>") && !html.contains("<b>Alvarez"));
+        assert!(html.contains("Price &amp; terms &lt;script&gt;"));
     }
 }
