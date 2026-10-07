@@ -1947,7 +1947,13 @@ fn lisa_presignature() -> model::forms_applied_signature::FormAppliedSignature {
         AppliedSignatureImageMimeType, FormAppliedSignature, BROKER_SIGNATURE_CONSENT_BASIS,
         BROKER_SIGNATURE_DATE_SEMANTIC,
     };
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/brand/CLLOGO.png");
+    // The real handwriting when a copy is supplied (LISA_SIGNATURE_PNG, never committed: it is a protected asset);
+    // otherwise the brand mark stands in, which is only fit for proving placement.
+    let path = std::env::var("LISA_SIGNATURE_PNG")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/brand/CLLOGO.png")
+        });
     FormAppliedSignature {
         role: "SELLER_BROKER".into(),
         slot_id: None,
