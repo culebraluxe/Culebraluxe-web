@@ -9,8 +9,24 @@
 
 use lopdf::{dictionary, Document, Object, Stream};
 
+/// What a block is, which decides how it is drawn on a block the template placed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayKind {
+    Signature,
+    Initials,
+    Date,
+    Text,
+}
+
+/// The Forms renderer's own ink and sizes for a signature block, so a signer's marks are drawn EXACTLY as the brokerage's
+/// pre-signature is (`forms_render/draw_overview.rs`): one size, one face, for every party.
+const FORMS_INK: &str = "0.110 0.122 0.137";
+const FORMS_INITIALS_SIZE: f64 = 10.5;
+const FORMS_DATE_SIZE: f64 = 8.6;
+
 /// One drawable value: PDF points are derived from the page's own MediaBox.
 pub struct OverlayField {
+    pub kind: OverlayKind,
     /// 1-based page number in document order.
     pub page_number: i32,
     /// 0–100, top-left origin, as stored on `signature_field`.
@@ -189,29 +205,59 @@ pub fn overlay_fields(original: &[u8], fields: &[OverlayField]) -> Result<Vec<u8
             let box_width = field.width_percent.clamp(0.0, 100.0) / 100.0 * width;
             let box_height = field.height_percent.clamp(0.0, 100.0) / 100.0 * height;
             let text = encoded(&field.text);
-            if let (Some((name, px_w, px_h)), true) =
+            let template_block = !field.ruled && box_width > 0.0 && box_height > 0.0;
+            if template_block && field.kind == OverlayKind::Initials {
+                // Bold initials, centred in the block, exactly as the pre-signature's.
+                let width = model::forms_font::text_width(
+                    model::forms_font::StandardFont::HelveticaBold,
+                    &field.text,
+                    FORMS_INITIALS_SIZE,
+                );
+                operations.extend_from_slice(
+                    format!(
+                        "BT /DSF4 {} Tf {FORMS_INK} rg {} {} Td (",
+                        point(FORMS_INITIALS_SIZE),
+                        point(x + (box_width - width) / 2.0),
+                        point(top - box_height + 6.0),
+                    )
+                    .as_bytes(),
+                );
+                operations.extend_from_slice(&crate::vault::pdf::escape_bytes(&text));
+                operations.extend_from_slice(b") Tj ET\n");
+            } else if template_block && field.kind == OverlayKind::Date {
+                // The date, in the pre-signature's size and place.
+                operations.extend_from_slice(
+                    format!(
+                        "BT /DSF1 {} Tf {FORMS_INK} rg {} {} Td (",
+                        point(FORMS_DATE_SIZE),
+                        point(x + 2.0),
+                        point(top - box_height + 5.0),
+                    )
+                    .as_bytes(),
+                );
+                operations.extend_from_slice(&crate::vault::pdf::escape_bytes(&text));
+                operations.extend_from_slice(b") Tj ET\n");
+            } else if let (Some((name, px_w, px_h)), true) =
                 (placed.get(index), box_width > 0.0 && box_height > 0.0)
             {
                 // The signer's own picture, as large as the block allows without distortion, standing on the line.
                 let bottom = top - box_height;
-                let aspect = f64::from(*px_w) / f64::from(*px_h);
-                let mut draw_h = box_height;
-                let mut draw_w = draw_h * aspect;
-                if draw_w > box_width {
-                    draw_w = box_width;
-                    draw_h = draw_w / aspect;
-                }
-                let lift = if field.ruled {
-                    4.0
+                // A template block fits the picture the way the pre-signature is fitted: the block less a margin, never
+                // stretched, 4pt in and 1pt up. A default-placed box fills its own height and stands on its rule.
+                let (fit_w, fit_h) = if field.ruled {
+                    (box_width, box_height)
                 } else {
-                    (box_height - draw_h) / 2.0
+                    (box_width - 8.0, box_height - 2.0)
                 };
+                let scale = (fit_w / f64::from(*px_w)).min(fit_h / f64::from(*px_h));
+                let (draw_w, draw_h) = (f64::from(*px_w) * scale, f64::from(*px_h) * scale);
+                let lift = if field.ruled { 4.0 } else { 1.0 };
                 operations.extend_from_slice(
                     format!(
                         "q {} 0 0 {} {} {} cm /{name} Do Q\n",
                         point(draw_w),
                         point(draw_h),
-                        point(x + 1.0),
+                        point(x + if field.ruled { 1.0 } else { 4.0 }),
                         point(bottom + lift),
                     )
                     .as_bytes(),
@@ -361,6 +407,7 @@ fn append_content(
     let font_ref = Object::Reference(stream_font_id(document, "Helvetica"));
     let signature_font_ref = Object::Reference(stream_font_id(document, "Times-Italic"));
     let bold_signature_font_ref = Object::Reference(stream_font_id(document, "Times-BoldItalic"));
+    let initials_font_ref = Object::Reference(stream_font_id(document, "Helvetica-Bold"));
     let resources_id = {
         let page = document
             .get_object(page_id)
@@ -397,6 +444,7 @@ fn append_content(
             ("DSF1".to_owned(), font_ref),
             ("DSF2".to_owned(), signature_font_ref),
             ("DSF3".to_owned(), bold_signature_font_ref),
+            ("DSF4".to_owned(), initials_font_ref),
         ],
     )?;
     if !images.is_empty() {
@@ -568,6 +616,7 @@ mod tests {
         let out = overlay_fields(
             &bytes,
             &[OverlayField {
+                kind: OverlayKind::Signature,
                 page_number: 1,
                 x_percent: 10.0,
                 y_percent: 10.0,
@@ -602,6 +651,7 @@ mod tests {
         let refused = overlay_fields(
             &bytes,
             &[OverlayField {
+                kind: OverlayKind::Signature,
                 page_number: 9,
                 x_percent: 10.0,
                 y_percent: 10.0,
@@ -641,6 +691,7 @@ mod tests {
     fn a_signature_picture_is_embedded_as_an_image_with_a_soft_mask() {
         let bytes = original();
         let field = |image: Option<Vec<u8>>, ruled: bool| OverlayField {
+            kind: OverlayKind::Signature,
             page_number: 1,
             x_percent: 10.0,
             y_percent: 70.0,
@@ -705,6 +756,7 @@ mod tests {
         let out = overlay_fields(
             &bytes,
             &[OverlayField {
+                kind: OverlayKind::Signature,
                 page_number: 1,
                 x_percent: 10.0,
                 y_percent: 70.0,
@@ -749,5 +801,64 @@ mod tests {
         let kept = keep_pages(&bytes, &[1]).expect("keeps page one");
         assert_eq!(page_count(&kept), Some(1));
         assert!(keep_pages(&bytes, &[7]).is_err());
+    }
+
+    /// A block the TEMPLATE placed is drawn at the brokerage's own sizes (the pre-signature's): initials in bold 10.5pt,
+    /// the date in 8.6pt, the signature picture fitted inside the block less a margin. One size for every party.
+    #[test]
+    fn a_template_block_is_drawn_at_the_brokerages_own_sizes() {
+        let bytes = original();
+        let block = |kind, text: &str, image| OverlayField {
+            kind,
+            page_number: 1,
+            x_percent: 10.0,
+            y_percent: 60.0,
+            width_percent: 30.0,
+            height_percent: 4.0,
+            signature: kind == OverlayKind::Signature,
+            style: 0,
+            caption: None,
+            text: text.into(),
+            image,
+            ruled: false,
+        };
+        let out = overlay_fields(
+            &bytes,
+            &[
+                block(
+                    OverlayKind::Signature,
+                    "Ada Alvarez",
+                    Some(signature_png(1000, 260)),
+                ),
+                block(OverlayKind::Initials, "AA", None),
+                block(OverlayKind::Date, "October 7, 2026", None),
+            ],
+        )
+        .expect("overlays");
+        let document = Document::load_mem(&out).unwrap();
+        let page = *document.get_pages().get(&1).unwrap();
+        let content = String::from_utf8_lossy(&document.get_page_content(page)).into_owned();
+        assert!(
+            content.contains("/DSF4 10.50 Tf"),
+            "initials: Helvetica-Bold 10.5: {content}"
+        );
+        assert!(
+            content.contains("/DSF1 8.60 Tf"),
+            "date: Helvetica 8.6: {content}"
+        );
+        assert!(
+            content.contains("0.11 0.12 0.14 rg") || content.contains("0.110 0.122 0.137 rg"),
+            "the Forms ink"
+        );
+        // The picture is fitted into (block - margin), 4pt in: 30% of 612 = 183.6pt wide, 4% of 792 = 31.68pt tall.
+        let fitted_height = 31.68 - 2.0;
+        assert!(
+            content.contains(&format!(
+                "{:.2} 0 0 {:.2}",
+                fitted_height * 1000.0 / 260.0,
+                fitted_height
+            )),
+            "{content}"
+        );
     }
 }

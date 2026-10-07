@@ -258,7 +258,6 @@ pub(super) async fn signer_preview(
         &session.fields,
         &session.recipient.name,
         text("image"),
-        text("initialsImage"),
         &chrono::Utc::now().to_rfc3339(),
     )
     .map_err(|error| ApiError::from(error).with_correlation(correlation_id.clone()))?;

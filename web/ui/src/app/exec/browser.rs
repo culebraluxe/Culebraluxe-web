@@ -378,14 +378,8 @@ pub(super) fn render_signature<Msg: 'static>(
             }
         })
     };
-    let initials = model::forms_applied_signature::format_broker_initials(&name);
     let draw = {
-        let (finish, family, name, initials) = (
-            finish.clone(),
-            family.to_owned(),
-            name.clone(),
-            initials.clone(),
-        );
+        let (finish, family, name) = (finish.clone(), family.to_owned(), name.clone());
         move || {
             let document = web_sys::window()
                 .and_then(|window| window.document())
@@ -394,14 +388,9 @@ pub(super) fn render_signature<Msg: 'static>(
                 finish(Err(ApiError::network("The browser page is unavailable.")));
                 return;
             };
-            let signature = draw_text_png(&document, &family, &name, 1000, 260, false);
-            let initial_marks = draw_text_png(&document, &family, &initials, 420, 260, true);
-            match (signature, initial_marks) {
-                (Ok(signature), Ok(initials)) => finish(Ok(crate::app::cmd::SignatureArt {
-                    signature,
-                    initials,
-                })),
-                _ => finish(Err(ApiError::network(
+            match draw_text_png(&document, &family, &name, 1000, 260, false) {
+                Ok(signature) => finish(Ok(crate::app::cmd::SignatureArt { signature })),
+                Err(_) => finish(Err(ApiError::network(
                     "Your browser could not draw the signature. Try another browser.",
                 ))),
             }
@@ -419,7 +408,7 @@ pub(super) fn render_signature<Msg: 'static>(
                 "load",
                 &[
                     JsValue::from_str(&format!("100px \"{family}\"")),
-                    JsValue::from_str(&format!("{name}{initials}")),
+                    JsValue::from_str(&name),
                 ],
             )
             .ok()
