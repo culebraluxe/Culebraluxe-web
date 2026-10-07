@@ -23,7 +23,9 @@
 //! Usage:
 //!   cargo run -p cli -- forge harness-lint [--strict] [--format json]
 
-use crate::forge::citations::{count_lines, cited_repo_paths, line_citations, Resolution, Resolver};
+use crate::forge::citations::{
+    cited_repo_paths, count_lines, line_citations, Resolution, Resolver,
+};
 use crate::forge::decision::{parse_decision_file, validate_statement, DECISION_STATUSES};
 use crate::forge::secret_shapes::shapes_in_line;
 use crate::forge::vendor_block::{
@@ -100,7 +102,10 @@ pattern!(decision_path_pattern, r"docs/agent/decisions/[^/]+\.md$");
 pattern!(memory_entry_pattern, r"^[-*]\s+\*\*");
 pattern!(date_pattern, r"\d{4}-\d{2}-\d{2}");
 pattern!(manifest_row_pattern, r"^- `([^`]+)`( \*\*MISSING\*\*)? — ");
-pattern!(roles_that_may_not_commit, r"(?i)\b(scout|assay|inspector)\b");
+pattern!(
+    roles_that_may_not_commit,
+    r"(?i)\b(scout|assay|inspector)\b"
+);
 pattern!(
     prohibition,
     r"(?i)\b(?:never|not|no|may not|must not|do not|don't|cannot|can't|forbidden|prohibited)\b"
@@ -114,21 +119,24 @@ pattern!(
     r"(?i)\b(?:then|after|have|let)\s+(?:scout|assay|inspector)\s+(?:commit|commits|should commit|must commit|will commit)"
 );
 pattern!(list_item_pattern, r"^[-*]\s+");
-pattern!(prohibition_heading_pattern, r"(?i)^#*\s*(never|do not|don't|must not|forbidden)\b");
+pattern!(
+    prohibition_heading_pattern,
+    r"(?i)^#*\s*(never|do not|don't|must not|forbidden)\b"
+);
 pattern!(skills_heading_pattern, r"(?i)^skills$");
 
-mod helpers;
 mod harness;
-mod rules;
+mod helpers;
 mod load;
-#[allow(unused_imports)]
-pub use helpers::*;
+mod rules;
 #[allow(unused_imports)]
 pub use harness::*;
 #[allow(unused_imports)]
-pub use rules::*;
+pub use helpers::*;
 #[allow(unused_imports)]
 pub use load::*;
+#[allow(unused_imports)]
+pub use rules::*;
 
 #[cfg(test)]
 mod tests {
@@ -156,8 +164,10 @@ mod tests {
         // run). A per-call counter gives every fixture its own directory.
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let root =
-            std::env::temp_dir().join(format!("forge-harness-lint-{}-{n}-{name}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "forge-harness-lint-{}-{n}-{name}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("fixture root");
         root
@@ -206,7 +216,11 @@ mod tests {
             .find(|finding| finding.rule == "skills-unknown")
             .expect("expected an unknown-skill finding");
         assert_eq!(hit.level, Level::Fail);
-        assert!(hit.message.contains("quantum-neural-wiki"), "{}", hit.message);
+        assert!(
+            hit.message.contains("quantum-neural-wiki"),
+            "{}",
+            hit.message
+        );
     }
 
     #[test]
@@ -256,8 +270,9 @@ mod tests {
         let dated = lint_with(
             &[HarnessFile {
                 path: "docs/agent/MEMORY.md".to_string(),
-                content: "- **2026-09-15 (a dated fact):** something we learned and can now find again\n"
-                    .to_string(),
+                content:
+                    "- **2026-09-15 (a dated fact):** something we learned and can now find again\n"
+                        .to_string(),
             }],
             &KNOWN_SKILLS,
             &[],
@@ -295,7 +310,9 @@ mod tests {
     #[test]
     fn telling_inspector_to_commit_fails_and_forbidding_it_does_not() {
         let instruction = lint_with(
-            &[packet("## Loop\n\nInspector: verify the diff, then git commit the fixes.\n")],
+            &[packet(
+                "## Loop\n\nInspector: verify the diff, then git commit the fixes.\n",
+            )],
             &KNOWN_SKILLS,
             &[],
         );
@@ -304,7 +321,9 @@ mod tests {
             .any(|finding| finding.rule == "non-builder-commit-instruction"));
 
         let prohibition = lint_with(
-            &[packet("## Loop\n\nNever create a git commit as Scout, Assay or Inspector.\n")],
+            &[packet(
+                "## Loop\n\nNever create a git commit as Scout, Assay or Inspector.\n",
+            )],
             &KNOWN_SKILLS,
             &[],
         );
@@ -318,13 +337,11 @@ mod tests {
         // `AGENTS.md` states the same rule as a `Never` list item, and the cue is the heading, not a
         // word on the line. Reading only a three-line window flagged the rule statement itself.
         let findings = lint_with(
-            &[
-                HarnessFile {
-                    path: "AGENTS.md".to_string(),
-                    content: "## Never\n\n- Keep a git commit as Scout, Assay, or Inspector.\n"
-                        .to_string(),
-                },
-            ],
+            &[HarnessFile {
+                path: "AGENTS.md".to_string(),
+                content: "## Never\n\n- Keep a git commit as Scout, Assay, or Inspector.\n"
+                    .to_string(),
+            }],
             &KNOWN_SKILLS,
             &[],
         );
@@ -375,7 +392,11 @@ mod tests {
             1
         );
 
-        let baselined = lint_with(&files, &["neon"], &["docs/agent/packets/TEST-01.md::skills-unknown"]);
+        let baselined = lint_with(
+            &files,
+            &["neon"],
+            &["docs/agent/packets/TEST-01.md::skills-unknown"],
+        );
         assert!(rules(&baselined, Level::Fail).is_empty());
         let hit = baselined
             .iter()
@@ -388,7 +409,11 @@ mod tests {
     #[test]
     fn a_map_page_citing_a_missing_file_fails_and_real_paths_pass() {
         let root = fixture_root("map");
-        write_file(&root, "legacy/services/property/property-service.ts", "// real\n");
+        write_file(
+            &root,
+            "legacy/services/property/property-service.ts",
+            "// real\n",
+        );
         let resolver = Resolver::new(root.clone());
         let baseline = HashSet::new();
 
@@ -470,7 +495,9 @@ mod tests {
             &baseline,
             &resolver,
         );
-        assert!(!ok.iter().any(|finding| finding.rule == "vendor-block-drift"));
+        assert!(!ok
+            .iter()
+            .any(|finding| finding.rule == "vendor-block-drift"));
 
         let drifted = lint_harness(
             &[
@@ -497,7 +524,8 @@ mod tests {
     #[test]
     fn a_guardrail_whose_handbook_sentence_is_gone_fails() {
         let root = fixture_root("orphan");
-        let handbook = fixture_handbook().replace("Commit secrets or `.env.local`", "Commit anything");
+        let handbook =
+            fixture_handbook().replace("Commit secrets or `.env.local`", "Commit anything");
         let findings = lint_harness(
             &[HarnessFile {
                 path: "AGENTS.md".to_string(),
@@ -523,7 +551,9 @@ mod tests {
         let baseline = HashSet::new();
 
         let past = lint_harness(
-            &[packet("## Context refs\n\nsee `cli/src/forge/citations.rs:99999`\n")],
+            &[packet(
+                "## Context refs\n\nsee `cli/src/forge/citations.rs:99999`\n",
+            )],
             &KNOWN_SKILLS,
             &baseline,
             &resolver,
@@ -533,7 +563,9 @@ mod tests {
             .any(|finding| finding.rule == "evidence-line-past-eof"));
 
         let real = lint_harness(
-            &[packet("## Context refs\n\nsee `cli/src/forge/citations.rs:1-3`\n")],
+            &[packet(
+                "## Context refs\n\nsee `cli/src/forge/citations.rs:1-3`\n",
+            )],
             &KNOWN_SKILLS,
             &baseline,
             &resolver,
@@ -552,7 +584,9 @@ mod tests {
         let baseline = HashSet::new();
 
         let gone = lint_harness(
-            &[packet("## Context refs\n\nsee `engine-that-never-was.ts:1966`\n")],
+            &[packet(
+                "## Context refs\n\nsee `engine-that-never-was.ts:1966`\n",
+            )],
             &KNOWN_SKILLS,
             &baseline,
             &resolver,
@@ -671,8 +705,14 @@ mod tests {
             resolver.resolve("web/a/thing.rs"),
             Resolution::File(path) if path == "web/a/thing.rs"
         ));
-        assert!(matches!(resolver.resolve("thing.rs"), Resolution::Ambiguous));
-        assert!(matches!(resolver.resolve("nothing-here.rs"), Resolution::None));
+        assert!(matches!(
+            resolver.resolve("thing.rs"),
+            Resolution::Ambiguous
+        ));
+        assert!(matches!(
+            resolver.resolve("nothing-here.rs"),
+            Resolution::None
+        ));
         assert!(resolver.path_exists("web/a/*.rs"));
         assert!(!resolver.path_exists("web/a/*.ts"));
         let _ = fs::remove_dir_all(&root);

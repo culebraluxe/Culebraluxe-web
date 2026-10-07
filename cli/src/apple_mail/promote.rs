@@ -41,7 +41,10 @@ pub async fn mail_intake(args: &[String]) -> Result<(), Box<dyn Error>> {
                         sent: Vec::new(),
                     });
                     println!("Apple Mail Envelope Index verification OK");
-                    println!("account={}", page.account.unwrap_or_else(|| account.clone()));
+                    println!(
+                        "account={}",
+                        page.account.unwrap_or_else(|| account.clone())
+                    );
                     println!(
                         "account_id={}",
                         page.account_id.unwrap_or_else(|| account_id.clone())

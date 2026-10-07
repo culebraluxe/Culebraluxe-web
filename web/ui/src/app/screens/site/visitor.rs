@@ -577,12 +577,17 @@ fn maybe_init_map(model: &mut Model) -> Cmd<Msg> {
     }
     model.map_mounted_for = Some(record.id.clone());
     let slug = record.id.clone();
-    Cmd::init_map(key, lat, lng, record.title.clone(), "property-map", move |result| {
-        match result {
+    Cmd::init_map(
+        key,
+        lat,
+        lng,
+        record.title.clone(),
+        "property-map",
+        move |result| match result {
             Ok(()) => Msg::MapReady(slug),
             Err(_) => Msg::MapFailed(slug),
-        }
-    })
+        },
+    )
 }
 
 /// The clock, for the recently-viewed record. Zero off the browser, where only tests run this.
@@ -660,7 +665,7 @@ mod tests {
         let cmd = update(
             &mut model,
             Msg::MapKeyLoaded(Ok(MapsKeyAnswer { key: None })),
-            );
+        );
         assert!(init_map(&cmd).is_none());
         assert_eq!(model.map_mounted_for, None);
 

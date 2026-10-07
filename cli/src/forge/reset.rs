@@ -19,8 +19,8 @@
 //!   cargo run -p cli -- forge clean [--stale-minutes N] [--force]
 
 use super::{connect, Failure};
-use forge::engine::constants::FORGE_DEFAULT_STALE_MINUTES;
 use db::{resolve_declared_target, DbTarget, ForgeResetDao, ResetReport};
+use forge::engine::constants::FORGE_DEFAULT_STALE_MINUTES;
 use std::env;
 
 /// A claim younger than this is treated as LIVE: `clean` must never cancel a running peer.

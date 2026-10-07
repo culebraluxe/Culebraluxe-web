@@ -144,7 +144,10 @@ pub(super) async fn intake_band(
             )
             .into());
         }
-        if max_pages.map(|limit| pages_this_run >= limit).unwrap_or(false) {
+        if max_pages
+            .map(|limit| pages_this_run >= limit)
+            .unwrap_or(false)
+        {
             println!(
                 "stopped cleanly after --max-pages={}; rerun the same command to resume",
                 max_pages.unwrap_or_default()

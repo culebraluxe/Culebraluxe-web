@@ -112,12 +112,8 @@ async fn init_map_async(
         &JsValue::from_str("DROPDOWN_MENU"),
     )
     .map_err(|_| network("Google Maps did not load."))?;
-    Reflect::set(
-        &control_options,
-        &JsValue::from_str("style"),
-        &dropdown,
-    )
-    .map_err(|_| network("The map controls could not be set."))?;
+    Reflect::set(&control_options, &JsValue::from_str("style"), &dropdown)
+        .map_err(|_| network("The map controls could not be set."))?;
     Reflect::set(
         &control_options,
         &JsValue::from_str("mapTypeIds"),
@@ -128,8 +124,12 @@ async fn init_map_async(
     let options = Object::new();
     Reflect::set(&options, &JsValue::from_str("center"), &center)
         .map_err(|_| network("The map could not be configured."))?;
-    Reflect::set(&options, &JsValue::from_str("zoom"), &JsValue::from_f64(14.0))
-        .map_err(|_| network("The map could not be configured."))?;
+    Reflect::set(
+        &options,
+        &JsValue::from_str("zoom"),
+        &JsValue::from_f64(14.0),
+    )
+    .map_err(|_| network("The map could not be configured."))?;
     Reflect::set(
         &options,
         &JsValue::from_str("mapId"),
@@ -204,23 +204,16 @@ async fn init_map_async(
         &JsValue::from_str(&format!("{title} property location")),
     )
     .map_err(|_| network("The map pin could not be placed."))?;
-    Reflect::set(
-        &marker_options,
-        &JsValue::from_str("content"),
-        &content,
-    )
-    .map_err(|_| network("The map pin could not be placed."))?;
+    Reflect::set(&marker_options, &JsValue::from_str("content"), &content)
+        .map_err(|_| network("The map pin could not be placed."))?;
     Reflect::set(
         &marker_options,
         &JsValue::from_str("gmpClickable"),
         &JsValue::from_bool(true),
     )
     .map_err(|_| network("The map pin could not be placed."))?;
-    Reflect::construct(
-        &marker_ctor,
-        &js_sys::Array::of1(&marker_options.into()),
-    )
-    .map_err(|_| network("The map pin could not be placed."))?;
+    Reflect::construct(&marker_ctor, &js_sys::Array::of1(&marker_options.into()))
+        .map_err(|_| network("The map pin could not be placed."))?;
     Ok(())
 }
 

@@ -79,12 +79,18 @@ pub(super) fn bands_arg(args: &[String]) -> Result<Vec<String>, Box<dyn Error>> 
     .into())
 }
 
-pub(crate) fn positive_int(args: &[String], name: &str, fallback: i64) -> Result<i64, Box<dyn Error>> {
+pub(crate) fn positive_int(
+    args: &[String],
+    name: &str,
+    fallback: i64,
+) -> Result<i64, Box<dyn Error>> {
     match option(args, name) {
         None => Ok(fallback),
-        Some(raw) => raw.parse::<i64>().ok().filter(|value| *value > 0).ok_or_else(|| {
-            io::Error::other(format!("{name} must be a positive integer")).into()
-        }),
+        Some(raw) => raw
+            .parse::<i64>()
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or_else(|| io::Error::other(format!("{name} must be a positive integer")).into()),
     }
 }
 
