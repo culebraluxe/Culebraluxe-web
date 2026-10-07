@@ -398,6 +398,36 @@ impl SignerRepository for SignerDao {
     }
 }
 
+/// A signer's signature or initials may carry the picture they saw on the page (`image`, `initialsImage`: a
+/// `data:image/png;base64,` URL). It becomes ink on a legal document, so it is checked at the door: a PNG, of sensible
+/// size, that actually decodes. Anything else in the value is the field's own business.
+fn validate_signature_value(value: &serde_json::Value) -> Result<(), CoreServiceError> {
+    // 450 KB of base64 is a generous full-width signature; more is not a signature.
+    const MAX_ENCODED_BYTES: usize = 450_000;
+    for key in ["image", "initialsImage"] {
+        let Some(picture) = value.get(key) else {
+            continue;
+        };
+        let invalid = |detail: &str| {
+            CoreServiceError::business(
+                "SIGNER_SIGNATURE_IMAGE_INVALID",
+                format!("The signature picture ({key}) is not usable: {detail}."),
+            )
+        };
+        let Some(text) = picture.as_str() else {
+            return Err(invalid("it must be a data URL"));
+        };
+        if text.len() > MAX_ENCODED_BYTES {
+            return Err(invalid("it is too large"));
+        }
+        let bytes = crate::document_sign::decode_data_url_png(text)
+            .ok_or_else(|| invalid("it must be a base64 PNG data URL"))?;
+        crate::vault::signing_overlay::decode_signature_png(&bytes)
+            .map_err(|detail| invalid(&detail))?;
+    }
+    Ok(())
+}
+
 pub struct SignerService<R> {
     repository: R,
     codec: SignerAccessTokenCodec,
@@ -850,6 +880,7 @@ impl<R: SignerRepository> SignerService<R> {
                     "An earlier signing step must complete first.",
                 ));
             }
+            validate_signature_value(&request.value)?;
             if !self
                 .repository
                 .complete_field_tx(tx, &access.recipient_id, &request.field_id, &request.value)

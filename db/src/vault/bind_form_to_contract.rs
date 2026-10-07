@@ -157,18 +157,74 @@ impl VaultDao {
             let supersedes_id = prior.as_ref().map(|(id, _)| id.clone());
             let participants = list_signers_on(tx.connection(), &form.id).await?;
 
+            // THE BROKER'S PRE-SIGNATURE. Where the document names Lisa as the brokerage's signer and the person issuing is
+            // her (or a ROOT delegate), her signature, initials and date are drawn into the PDF NOW, so the sellers
+            // receive a document she has already signed. Nothing here is optional for the policy: a template with no
+            // policy, or a broker line that is not hers, simply yields no signature.
+            let form_values = string_map(form.field_values.clone());
+            let slots: Vec<model::forms_execution::IssuedExecutionSlot> = participants
+                .iter()
+                .enumerate()
+                .filter_map(|(order, person)| {
+                    person.slot_id.clone().map(|slot_id| {
+                        model::forms_execution::IssuedExecutionSlot {
+                            slot_id,
+                            role: person.role.clone(),
+                            person_id: person.person_id.clone(),
+                            name: person.name.clone(),
+                            email: person.email.clone(),
+                            required: true,
+                            order,
+                        }
+                    })
+                })
+                .collect();
+            let applied_signatures = match crate::broker_signature::resolve_for_issuance(
+                tx.connection(),
+                &form.template_id,
+                &form_values,
+                &slots,
+                request.actor_app_user_id.as_deref(),
+                request.issued_at.as_deref(),
+                // The slot is optional here: a document whose participants carry no execution slot is still signed by
+                // her at her own block (matched by role), rather than refused.
+                false,
+            )
+            .await
+            {
+                Ok(applied) => applied,
+                Err(failure) => {
+                    finalize_receipt(
+                        &mut tx,
+                        &request.command_id,
+                        &failure.outcome,
+                        None,
+                        Some(&failure.message),
+                        request.actor_app_user_id.as_deref(),
+                    )
+                    .await?;
+                    return Ok(outcome_result(
+                        &request.command_id,
+                        failure.outcome,
+                        None,
+                        Some(failure.message),
+                        false,
+                    ));
+                }
+            };
+
             let artifact = match render(VaultRenderRequest {
                 form_instance_id: form.id.clone(),
                 contract_id: form.contract_id.clone(),
                 template_id: form.template_id.clone(),
                 template_version: form.template_version,
-                field_values: string_map(form.field_values.clone()),
+                field_values: form_values.clone(),
                 sections: string_map(form.sections.clone()),
                 issued_version,
                 participants: participants.clone(),
                 actor_app_user_id: request.actor_app_user_id.clone(),
                 issued_at: request.issued_at.clone(),
-                applied_signatures: Vec::new(),
+                applied_signatures,
             })
             .await
             {
