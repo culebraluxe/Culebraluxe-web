@@ -90,6 +90,44 @@ pub struct SignerSession {
     pub consented: bool,
     pub is_turn: bool,
     pub expires_at: String,
+    /// The canonical envelope status (`sent`, `viewed`, `signed`, `completed`, …): the signer's page offers the sealed
+    /// copy only once it is `completed`.
+    #[serde(default)]
+    pub envelope_status: String,
+    #[serde(default)]
+    pub document_title: Option<String>,
+    #[serde(default)]
+    pub subject: Option<String>,
+    /// The sender's note to the signers.
+    #[serde(default)]
+    pub message: Option<String>,
+    /// Ids of this recipient's fields that already have an answer.
+    #[serde(default)]
+    pub answered_field_ids: Vec<String>,
+    /// Everyone on the envelope, in signing order, so a signer can see how far along it is.
+    #[serde(default)]
+    pub parties: Vec<SignerParty>,
+}
+
+/// One person on the envelope, as another signer may see them: a name, a role and how far they are. No address.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignerParty {
+    pub name: String,
+    pub role: String,
+    pub state: String,
+    pub is_you: bool,
+}
+
+/// What the session needs beyond the recipient's own rows (read in one place so the screen draws one truth).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SignerSessionContext {
+    pub envelope_status: String,
+    pub document_title: Option<String>,
+    pub subject: Option<String>,
+    pub message: Option<String>,
+    pub answered_field_ids: Vec<String>,
+    pub parties: Vec<SignerParty>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,6 +135,11 @@ pub struct SignerSession {
 pub struct OpenSignerRequest {
     pub recipient_id: String,
     pub access_token: String,
+    /// Where and on what the signer acted, stamped by the edge from the request itself (never from the body).
+    #[serde(default)]
+    pub ip_address: Option<String>,
+    #[serde(default)]
+    pub user_agent: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,6 +161,11 @@ pub struct CompleteSignatureFieldRequest {
     pub access_token: String,
     pub field_id: String,
     pub value: Value,
+    /// Where and on what the signer acted, stamped by the edge from the request itself (never from the body).
+    #[serde(default)]
+    pub ip_address: Option<String>,
+    #[serde(default)]
+    pub user_agent: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +173,11 @@ pub struct CompleteSignatureFieldRequest {
 pub struct CompleteSignerRequest {
     pub recipient_id: String,
     pub access_token: String,
+    /// Where and on what the signer acted, stamped by the edge from the request itself (never from the body).
+    #[serde(default)]
+    pub ip_address: Option<String>,
+    #[serde(default)]
+    pub user_agent: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,6 +186,11 @@ pub struct DeclineSignerRequest {
     pub recipient_id: String,
     pub access_token: String,
     pub reason: Option<String>,
+    /// Where and on what the signer acted, stamped by the edge from the request itself (never from the body).
+    #[serde(default)]
+    pub ip_address: Option<String>,
+    #[serde(default)]
+    pub user_agent: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

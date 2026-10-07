@@ -74,10 +74,31 @@ fn access_token(body: &serde_json::Value, correlation_id: &str) -> Result<String
         })
 }
 
+/// Where the request came from and what it came on: the proxy's forwarded address (its left-most entry is the
+/// client), else the real-ip header, plus the browser's user agent. Both come from the HEADERS, which the edge reads,
+/// and overwrite anything the body claimed.
+fn client_details(headers: &HeaderMap) -> (Option<String>, Option<String>) {
+    let text = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
+    let ip = text("x-forwarded-for")
+        .and_then(|list| list.split(',').next())
+        .map(str::trim)
+        .or_else(|| text("x-real-ip"))
+        .map(|ip| ip.chars().take(64).collect::<String>());
+    let user_agent = text("user-agent").map(|agent| agent.chars().take(300).collect::<String>());
+    (ip, user_agent)
+}
+
 async fn edge_command(
     state: &ApiState,
     command_type: &str,
     mut body: serde_json::Value,
+    headers: &HeaderMap,
     correlation_id: String,
 ) -> Result<Json<ApiSuccess<CommandResult>>, ApiError> {
     let token = access_token(&body, &correlation_id)?;
@@ -90,6 +111,9 @@ async fn edge_command(
     let recipient_id = session.recipient.id.clone();
     if let Some(map) = body.as_object_mut() {
         map.insert("accessToken".into(), serde_json::Value::String(token));
+        let (ip, user_agent) = client_details(headers);
+        map.insert("ipAddress".into(), serde_json::json!(ip));
+        map.insert("userAgent".into(), serde_json::json!(user_agent));
     }
     let request = CommandRequest {
         command_id: uuid::Uuid::new_v4().to_string(),
@@ -163,42 +187,80 @@ pub(super) async fn signer_document(
         .map_err(|error| error.with_correlation(correlation_id))
 }
 
+/// The SEALED copy of the document, for a recipient of an envelope that has completed: the same verified link, the
+/// Vault's own fourth door (`vault.signingSignedBytes`, SQL proof that the envelope is `completed`). Until then it
+/// answers 404, so the signing page can offer the link only on its completion screen. Always an attachment: this is the
+/// copy to keep.
+pub(super) async fn signer_signed_copy(
+    State(state): State<ApiState>,
+    Path(token): Path<String>,
+) -> Result<Response, ApiError> {
+    let correlation_id = uuid::Uuid::new_v4().to_string();
+    let session = edge_session(&state, token.trim())
+        .await
+        .map_err(|error| error.with_correlation(correlation_id.clone()))?;
+    let recipient_id = session.recipient.id.clone();
+    let document = state
+        .services()
+        .vault()
+        .signing_signed_bytes(
+            &session.signature_request_id,
+            &recipient_id,
+            &recipient_context(&recipient_id, &correlation_id),
+        )
+        .await
+        .map_err(|error| ApiError::from(error).with_correlation(correlation_id.clone()))?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "SIGNED_COPY_UNAVAILABLE",
+                "The signed copy is not ready yet.",
+            )
+            .with_correlation(correlation_id.clone())
+        })?;
+    vault_document_response(document, true).map_err(|error| error.with_correlation(correlation_id))
+}
+
 pub(super) async fn signer_open(
     State(state): State<ApiState>,
+    headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<ApiSuccess<CommandResult>>, ApiError> {
     let correlation_id = uuid::Uuid::new_v4().to_string();
-    edge_command(&state, "signer.open", body, correlation_id).await
+    edge_command(&state, "signer.open", body, &headers, correlation_id).await
 }
 
 pub(super) async fn signer_consent(
     State(state): State<ApiState>,
+    headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<ApiSuccess<CommandResult>>, ApiError> {
     let correlation_id = uuid::Uuid::new_v4().to_string();
-    edge_command(&state, "signer.acceptConsent", body, correlation_id).await
+    edge_command(&state, "signer.acceptConsent", body, &headers, correlation_id).await
 }
 
 pub(super) async fn signer_field(
     State(state): State<ApiState>,
+    headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<ApiSuccess<CommandResult>>, ApiError> {
     let correlation_id = uuid::Uuid::new_v4().to_string();
-    edge_command(&state, "signer.completeField", body, correlation_id).await
+    edge_command(&state, "signer.completeField", body, &headers, correlation_id).await
 }
 
 pub(super) async fn signer_complete(
     State(state): State<ApiState>,
+    headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<ApiSuccess<CommandResult>>, ApiError> {
     let correlation_id = uuid::Uuid::new_v4().to_string();
-    edge_command(&state, "signer.complete", body, correlation_id).await
+    edge_command(&state, "signer.complete", body, &headers, correlation_id).await
 }
 
 pub(super) async fn signer_decline(
     State(state): State<ApiState>,
+    headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<ApiSuccess<CommandResult>>, ApiError> {
     let correlation_id = uuid::Uuid::new_v4().to_string();
-    edge_command(&state, "signer.decline", body, correlation_id).await
+    edge_command(&state, "signer.decline", body, &headers, correlation_id).await
 }
