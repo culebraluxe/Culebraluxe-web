@@ -79,6 +79,21 @@ fn early_answer(path: &str) -> Option<Response> {
 }
 
 /// The application shell for `path`.
+/// What names the current build in an asset address: the deployed commit (`CULEBRALUXE_BUILD_SHA`, stamped into the image by
+/// `scripts/deploy-prod.sh`), shortened, restricted to characters safe in an address.
+fn build_version() -> String {
+    std::env::var("CULEBRALUXE_BUILD_SHA")
+        .ok()
+        .map(|sha| {
+            sha.chars()
+                .filter(char::is_ascii_alphanumeric)
+                .take(12)
+                .collect::<String>()
+        })
+        .filter(|sha| !sha.is_empty())
+        .unwrap_or_else(|| "dev".to_owned())
+}
+
 pub fn shell(path: &str, actor: &str) -> Response {
     let portal = path == "/portal" || path.starts_with("/portal/");
     let actor_script = if actor.is_empty() {
@@ -91,6 +106,10 @@ pub fn shell(path: &str, actor: &str) -> Response {
         )
     };
     let app = if portal { "portal" } else { "site" };
+    // The stylesheet, the script and the wasm are named for the build that is serving them, so a browser can never run a
+    // new page against an older cached stylesheet or code (the "button jumped" a signer saw when the two were from
+    // different deploys). Locally, with no stamp, it is a constant and changes nothing.
+    let version = build_version();
     let html = format!(
         r##"<!doctype html>
 <html lang="en" class="light bg-background">
@@ -106,13 +125,13 @@ pub fn shell(path: &str, actor: &str) -> Response {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap">
 <style>:root{{--font-cormorant:'Cormorant Garamond',serif;--font-instrument:'Instrument Sans',sans-serif}}</style>
-<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/app.css?v={version}">
 </head>
 <body class="font-sans antialiased">
 {actor_script}<div id="rust-ui" data-rust-app="{app}"></div>
 <script type="module">
-import init, {{ start_in }} from '/rust-ui/ui.js';
-await init({{ module_or_path: '/rust-ui/ui_bg.wasm' }});
+import init, {{ start_in }} from '/rust-ui/ui.js?v={version}';
+await init({{ module_or_path: '/rust-ui/ui_bg.wasm?v={version}' }});
 start_in(document.getElementById('rust-ui'));
 </script>
 </body>
@@ -144,7 +163,11 @@ mod tests {
         };
         let site = body(shell("/buyers", "")).await;
         assert!(site.contains(r#"data-rust-app="site""#));
-        assert!(site.contains("import init, { start_in } from '/rust-ui/ui.js'"));
+        assert!(site.contains("import init, { start_in } from '/rust-ui/ui.js?v="));
+        assert!(
+            site.contains("/app.css?v="),
+            "the stylesheet is named for the build"
+        );
         let portal = body(shell("/portal/clients/abc", "")).await;
         assert!(portal.contains(r#"data-rust-app="portal""#));
     }

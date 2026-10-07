@@ -178,7 +178,6 @@ impl Screen for SignDocument {
                     serde_json::json!({
                         "accessToken": model.token,
                         "image": art.signature,
-                        "initialsImage": art.initials,
                     }),
                     move |result| Msg::PreviewReady(style, result),
                 )
@@ -337,8 +336,8 @@ impl Screen for SignDocument {
     }
 }
 
-/// The value to send for one field. A signature and initials carry the picture drawn for this signing (the very
-/// pixels sealed into the document); the date needs no answer (the seal writes the day they finished).
+/// The value to send for one field. A signature carries the picture drawn for this signing (the very pixels sealed into
+/// the document); initials and the date need no picture (the seal typesets them like the brokerage's).
 fn field_value(field: &SignerField, model: &Model) -> serde_json::Value {
     let name = field_label_name(model, field);
     match field.field_type.as_str() {
@@ -353,10 +352,10 @@ fn field_value(field: &SignerField, model: &Model) -> serde_json::Value {
             "name": name,
             "image": model.art.signature,
         }),
+        // Initials are typeset by the document from the name, like the brokerage's: no picture.
         "initials" => serde_json::json!({
             "style": model.signature_style,
             "name": name,
-            "initialsImage": model.art.initials,
         }),
         "date" => serde_json::json!({ "auto": true }),
         _ => serde_json::json!({
@@ -582,8 +581,8 @@ fn signing_view(model: &Model, session: &SignerSession, link: &Link<Msg>) -> Htm
             if let Some(notice) = &model.notice {
                 <div class="mb-5 rounded-lg border border-red-900/20 bg-red-50 px-4 py-3 text-sm font-light text-red-900" role="alert">{ notice.clone() }</div>
             }
-            <div class="grid gap-5 lg:grid-cols-[24rem_minmax(0,1fr)]">
-                <aside class="self-start rounded-xl border border-black/10 bg-white p-5 shadow-sm lg:sticky lg:top-6">
+            <div class="grid gap-5 md:grid-cols-[22rem_minmax(0,1fr)]">
+                <aside class="self-start rounded-xl border border-black/10 bg-white p-5 shadow-sm md:sticky md:top-6">
                     <p class="text-[10px] font-medium uppercase tracking-[0.2em] text-[#a88450]">{"Ready to sign"}</p>
                     <h1 class="mt-1 break-words font-serif text-[1.7rem] font-light leading-8 text-[#041024]">{ heading }</h1>
                     <p class="mt-1 text-sm font-light text-black/50">{ prepared_for(session) }</p>
@@ -1024,7 +1023,6 @@ mod tests {
     fn art() -> SignatureArt {
         SignatureArt {
             signature: "data:image/png;base64,SIG".into(),
-            initials: "data:image/png;base64,INI".into(),
         }
     }
 
@@ -1173,7 +1171,7 @@ mod tests {
     }
 
     #[test]
-    fn the_signature_and_initials_travel_as_the_pictures_drawn_and_the_date_needs_none() {
+    fn the_signature_travels_as_the_picture_drawn_and_initials_and_date_are_left_to_the_document() {
         let mut session = test_session(true);
         session.fields = vec![
             field("s", "signature", true),
@@ -1187,7 +1185,11 @@ mod tests {
             |id: &str| field_value(session.fields.iter().find(|f| f.id == id).unwrap(), &model);
         assert_eq!(value("s")["image"], "data:image/png;base64,SIG");
         assert_eq!(value("s")["style"], 2);
-        assert_eq!(value("i")["initialsImage"], "data:image/png;base64,INI");
+        assert!(
+            value("i").get("initialsImage").is_none(),
+            "initials are typeset, not pictures"
+        );
+        assert_eq!(value("i")["name"], "Ada");
         assert_eq!(value("d"), serde_json::json!({ "auto": true }));
     }
 
