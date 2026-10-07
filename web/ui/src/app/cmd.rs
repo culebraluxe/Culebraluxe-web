@@ -107,8 +107,8 @@ pub enum Cmd<Msg> {
     Listen {
         reply: Box<dyn FnOnce(Result<String, ApiError>) -> Msg>,
     },
-    /// Draw a person's signature and initials in a cursive face (`SIGNATURE_FONTS[style]`) on a canvas and answer both as
-    /// PNG data URLs: what the signer sees is exactly what is sealed into the document.
+    /// Draw a person's signature in a cursive face (`SIGNATURE_FONTS[style]`) on a canvas and answer it as a
+    /// PNG data URL: what the signer sees is exactly what is sealed into the document.
     RenderSignature {
         name: String,
         style: usize,
@@ -173,11 +173,11 @@ pub const SIGNATURE_FONTS: [(&str, &str); 4] = [
     ("CL Signature Sacramento", "Light"),
 ];
 
-/// A signature and the initials in the same hand, as PNG data URLs (transparent background).
+/// A signature in the chosen hand, as a PNG data URL (transparent background). Initials and the date are not drawn by the
+/// browser: the document typesets them exactly as the brokerage's own, so every party's marks match.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SignatureArt {
     pub signature: String,
-    pub initials: String,
 }
 
 /// A file sent in pieces, so no single request reaches the gateway's body limit: `init` declares it (the executor adds
