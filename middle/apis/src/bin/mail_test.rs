@@ -46,7 +46,7 @@ async fn run(to: &str) -> Result<(), MailError> {
                 .into(),
             html: None,
             reply_to: None,
-        
+
             attachments: Vec::new(),
         })
         .await

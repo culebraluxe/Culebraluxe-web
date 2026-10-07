@@ -235,7 +235,14 @@ pub(super) async fn signer_consent(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<ApiSuccess<CommandResult>>, ApiError> {
     let correlation_id = uuid::Uuid::new_v4().to_string();
-    edge_command(&state, "signer.acceptConsent", body, &headers, correlation_id).await
+    edge_command(
+        &state,
+        "signer.acceptConsent",
+        body,
+        &headers,
+        correlation_id,
+    )
+    .await
 }
 
 pub(super) async fn signer_field(
@@ -244,7 +251,14 @@ pub(super) async fn signer_field(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<ApiSuccess<CommandResult>>, ApiError> {
     let correlation_id = uuid::Uuid::new_v4().to_string();
-    edge_command(&state, "signer.completeField", body, &headers, correlation_id).await
+    edge_command(
+        &state,
+        "signer.completeField",
+        body,
+        &headers,
+        correlation_id,
+    )
+    .await
 }
 
 pub(super) async fn signer_complete(

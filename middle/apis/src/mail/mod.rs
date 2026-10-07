@@ -218,8 +218,9 @@ pub fn build_message(config: &MailConfig, mail: &OutgoingMail) -> Result<Message
         };
         let mut mixed = MultiPart::mixed().multipart(body);
         for attachment in &mail.attachments {
-            let content_type = ContentType::parse(&attachment.content_type)
-                .unwrap_or_else(|_| ContentType::parse("application/octet-stream").expect("a valid type"));
+            let content_type = ContentType::parse(&attachment.content_type).unwrap_or_else(|_| {
+                ContentType::parse("application/octet-stream").expect("a valid type")
+            });
             mixed = mixed.singlepart(
                 lettre::message::Attachment::new(attachment.filename.clone())
                     .body(attachment.bytes.clone(), content_type),
