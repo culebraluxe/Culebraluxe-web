@@ -444,6 +444,26 @@ impl<R: VaultRepository> VaultService<R> {
         result
     }
 
+    /// The page count of a document's PDF, read under the CALLER's authority (`vault.read`). `None` when the document
+    /// has no PDF bytes, or they are not a readable PDF.
+    pub async fn pdf_page_count(
+        &self,
+        document_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<u32>, CoreServiceError> {
+        let Some(media_id) = self
+            .get_document(document_id, context)
+            .await?
+            .and_then(|document| document.media_id)
+        else {
+            return Ok(None);
+        };
+        Ok(self
+            .media_bytes(&media_id, context)
+            .await?
+            .and_then(|media| signing_overlay::page_count(&media.bytes)))
+    }
+
     pub async fn public_listing_document_bytes(
         &self,
         media_id: &str,
