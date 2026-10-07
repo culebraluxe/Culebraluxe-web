@@ -219,6 +219,8 @@ const NON_BUILDER_COMMIT_MESSAGE: &str =
     "instructs Scout/Assay/Inspector to commit; only the Builder role commits";
 const ROLES_THAT_MAY_NOT_COMMIT: &str =
     r#"pattern!(roles_that_may_not_commit, r"(?i)\b(scout|assay|inspector)\b");"#;
+/// The regex alone, so the assertion survives rustfmt wrapping the `pattern!` macro across lines.
+const ROLES_THAT_MAY_NOT_COMMIT_REGEX: &str = r#"r"(?i)\b(scout|assay|inspector)\b""#;
 
 /// The two directive shapes the rule refuses («a role, commit» and «give a role the commit»), and the tests
 /// that hold the rule — including the one for the `Never` heading the rule statement itself used to trip.
@@ -906,8 +908,10 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
     // ── 6. THE INSTRUCTION DOOR: a packet cannot tell a QA role to commit, and the handbook says so twice. ─
 
     let lint = source::read(&in_repo("cli/src/forge/lint.rs"));
+    // The contract is the pattern's content, not its line breaks: rustfmt may wrap the `pattern!`
+    // macro across lines, so match the regex that names the three roles, not the single-line spelling.
     assert!(
-        lint.contains(ROLES_THAT_MAY_NOT_COMMIT),
+        lint.contains(ROLES_THAT_MAY_NOT_COMMIT_REGEX),
         "the rule's role pattern changed: the lint must name Scout, Assay and Inspector — the same three \
          roles the handbook's `Never` line names"
     );
