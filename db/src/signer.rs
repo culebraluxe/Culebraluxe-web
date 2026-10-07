@@ -310,8 +310,9 @@ impl SignerDao {
         recipient_id: &str,
     ) -> DbResult<model::SignerSessionContext> {
         let mut connection = self.db.connection().await?;
-        let head: Option<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-            r#"
+        let head: Option<(String, Option<String>, Option<String>, Option<String>)> =
+            sqlx::query_as(
+                r#"
             select sr.status, td.title, d.subject, sr.message
               from signature_envelope_recipient r
               join signature_request sr on sr.id = r.signature_request_id
@@ -319,11 +320,11 @@ impl SignerDao {
               left join document_sign_request d on d.signature_request_id = sr.id
              where r.id = $1::uuid
             "#,
-        )
-        .bind(recipient_id)
-        .fetch_optional(&mut *connection)
-        .await
-        .map_err(|error| DbFailure::from_sqlx("signer.session_context.head", &error))?;
+            )
+            .bind(recipient_id)
+            .fetch_optional(&mut *connection)
+            .await
+            .map_err(|error| DbFailure::from_sqlx("signer.session_context.head", &error))?;
         let answered: Vec<String> = sqlx::query_scalar(
             r#"
             select f.id::text
@@ -352,8 +353,7 @@ impl SignerDao {
         .fetch_all(&mut *connection)
         .await
         .map_err(|error| DbFailure::from_sqlx("signer.session_context.parties", &error))?;
-        let (envelope_status, document_title, subject, message) =
-            head.unwrap_or_default();
+        let (envelope_status, document_title, subject, message) = head.unwrap_or_default();
         Ok(model::SignerSessionContext {
             envelope_status,
             document_title,

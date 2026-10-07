@@ -1488,7 +1488,11 @@ async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() 
     // A page the document does not have is refused BEFORE anything is written.
     let mut tx = db.begin("docsign-proof-send").await.unwrap();
     let refused = service
-        .send_transactional(&mut tx, &request(SendFieldPlacement::Page { page_number: 5 }), &ctx)
+        .send_transactional(
+            &mut tx,
+            &request(SendFieldPlacement::Page { page_number: 5 }),
+            &ctx,
+        )
         .await
         .expect_err("page 5 of 3");
     let _ = tx.rollback().await;
@@ -1515,7 +1519,10 @@ async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() 
     assert_eq!(sent.issued.invitation_message_ids.len(), 2);
     assert_eq!(sent.snapshot.fields.len(), 2);
     assert!(
-        sent.snapshot.fields.iter().all(|field| field.page_number == 3),
+        sent.snapshot
+            .fields
+            .iter()
+            .all(|field| field.page_number == 3),
         "the signature goes on the last page"
     );
     let owners: std::collections::BTreeSet<_> = sent
@@ -1536,7 +1543,6 @@ async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() 
 
     sweep_tag(&db, &tag).await;
 }
-
 
 // ── Sealing, outcome emails, and the signer's own copy ───────────────────────────────────────────────────────────
 
@@ -1581,7 +1587,10 @@ async fn http(
     )
     .await;
     let status = response.status().as_u16();
-    (status, serde_json::from_str(&response.text()).unwrap_or(serde_json::Value::Null))
+    (
+        status,
+        serde_json::from_str(&response.text()).unwrap_or(serde_json::Value::Null),
+    )
 }
 
 #[tokio::test]
@@ -1653,15 +1662,39 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
     // ── Both sign, over the public edge, as people do ────────────────────────────────────────────────────────────
     for (name, email) in [("Ada Alvarez", &ada), ("Bo Díaz", &bo)] {
         let token = token_for(&db, email).await;
-        let (_, session) = http(&router, "/v1/signer/session", serde_json::json!({ "accessToken": token })).await;
-        let recipient = session["value"]["recipient"]["id"].as_str().unwrap().to_owned();
-        assert_eq!(session["value"]["parties"].as_array().unwrap().len(), 2, "a signer sees who else is on it");
-        assert_eq!(session["value"]["documentTitle"], format!("docsign proof {tag}"));
+        let (_, session) = http(
+            &router,
+            "/v1/signer/session",
+            serde_json::json!({ "accessToken": token }),
+        )
+        .await;
+        let recipient = session["value"]["recipient"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            session["value"]["parties"].as_array().unwrap().len(),
+            2,
+            "a signer sees who else is on it"
+        );
+        assert_eq!(
+            session["value"]["documentTitle"],
+            format!("docsign proof {tag}")
+        );
         assert_eq!(session["value"]["message"], "Please sign today.");
-        assert_eq!(session["value"]["envelopeStatus"].as_str().unwrap_or(""), "sent");
-        let field = session["value"]["fields"][0]["id"].as_str().unwrap().to_owned();
+        assert_eq!(
+            session["value"]["envelopeStatus"].as_str().unwrap_or(""),
+            "sent"
+        );
+        let field = session["value"]["fields"][0]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
         for (path, body) in [
-            ("/v1/signer/open", serde_json::json!({ "accessToken": token, "recipientId": recipient })),
+            (
+                "/v1/signer/open",
+                serde_json::json!({ "accessToken": token, "recipientId": recipient }),
+            ),
             (
                 "/v1/signer/consent",
                 serde_json::json!({
@@ -1676,10 +1709,16 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
                     "value": { "style": 1, "name": name },
                 }),
             ),
-            ("/v1/signer/complete", serde_json::json!({ "accessToken": token, "recipientId": recipient })),
+            (
+                "/v1/signer/complete",
+                serde_json::json!({ "accessToken": token, "recipientId": recipient }),
+            ),
         ] {
             let (status, body) = http(&router, path, body).await;
-            assert!(status == 200 && outcome(&body) == "success", "{path}: {status} {body}");
+            assert!(
+                status == 200 && outcome(&body) == "success",
+                "{path}: {status} {body}"
+            );
         }
     }
     let seen: i64 = sqlx::query_scalar(
@@ -1690,7 +1729,10 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
     .fetch_one(db.pool())
     .await
     .unwrap();
-    assert!(seen >= 8, "every signer action records where it came from (the proxy's client address): {seen}");
+    assert!(
+        seen >= 8,
+        "every signer action records where it came from (the proxy's client address): {seen}"
+    );
 
     // ── Seal ─────────────────────────────────────────────────────────────────────────────────────────────────────
     let mut tx = db.begin("docsign-proof-seal").await.unwrap();
@@ -1715,7 +1757,10 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
     .unwrap();
     assert_eq!(queued.len(), 4);
     assert!(queued.iter().all(|(_, attach)| *attach));
-    assert!(queued.iter().any(|(email, _)| *email == operator_email), "the sender is copied");
+    assert!(
+        queued.iter().any(|(email, _)| *email == operator_email),
+        "the sender is copied"
+    );
 
     // The delivery worker attaches the sealed document and the certificate, read through the Vault's own door.
     let transport = Arc::new(CapturingTransport(std::sync::Mutex::new(Vec::new())));
@@ -1724,7 +1769,9 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
         Some(transport.clone()),
         infrastructure.clone(),
     )
-    .with_attachment_source(Arc::new(web::email::VaultAttachmentSource::new(catalog.vault())));
+    .with_attachment_source(Arc::new(web::email::VaultAttachmentSource::new(
+        catalog.vault(),
+    )));
     let worker = ServiceContext {
         actor: ServiceActor {
             id: Some(web::email::EMAIL_DELIVERY_ACTOR.into()),
@@ -1741,34 +1788,69 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
     .fetch_one(db.pool())
     .await
     .unwrap();
-    mailer.deliver(&completion_id, &worker).await.expect("the completion email is delivered");
+    mailer
+        .deliver(&completion_id, &worker)
+        .await
+        .expect("the completion email is delivered");
     let sent_mail = transport.0.lock().unwrap().clone();
     assert_eq!(sent_mail.len(), 1);
     let mail = &sent_mail[0];
-    assert_eq!(mail.subject, format!("Signed: docsign proof {tag} — CulebraLuxe"));
-    assert!(mail.html.as_deref().unwrap_or("").contains("signed by everyone"));
-    assert_eq!(mail.attachments.len(), 2, "the signed document and its certificate");
-    assert!(mail.attachments[0].filename.starts_with("signature-signed-"));
-    assert!(mail.attachments[1].filename.starts_with("signature-completion-"));
-    assert!(mail.attachments.iter().all(|file| file.bytes.starts_with(b"%PDF-")));
+    assert_eq!(
+        mail.subject,
+        format!("Signed: docsign proof {tag} — CulebraLuxe")
+    );
+    assert!(mail
+        .html
+        .as_deref()
+        .unwrap_or("")
+        .contains("signed by everyone"));
+    assert_eq!(
+        mail.attachments.len(),
+        2,
+        "the signed document and its certificate"
+    );
+    assert!(mail.attachments[0]
+        .filename
+        .starts_with("signature-signed-"));
+    assert!(mail.attachments[1]
+        .filename
+        .starts_with("signature-completion-"));
+    assert!(mail
+        .attachments
+        .iter()
+        .all(|file| file.bytes.starts_with(b"%PDF-")));
 
     // …and only that worker may use the door: a signer's own identity is refused the completion artifacts.
     let intruder = ServiceContext {
-        actor: ServiceActor { id: Some("signature-recipient:someone".into()), kind: ServiceActorKind::System },
+        actor: ServiceActor {
+            id: Some("signature-recipient:someone".into()),
+            kind: ServiceActorKind::System,
+        },
         correlation_id: tag.clone(),
         causation_id: None,
         principal: None,
     };
-    assert!(catalog.vault().completion_artifacts(&request_id, &intruder).await.is_err());
+    assert!(catalog
+        .vault()
+        .completion_artifacts(&request_id, &intruder)
+        .await
+        .is_err());
 
     // The signer's own copy: the same link, now that the envelope is complete.
     let token = token_for(&db, &ada).await;
     {
         use test_harness::http::{call, TestRequest};
-        let response = call(&router, TestRequest::get(format!("/v1/signer/signed/{token}"))).await;
+        let response = call(
+            &router,
+            TestRequest::get(format!("/v1/signer/signed/{token}")),
+        )
+        .await;
         assert_eq!(response.status().as_u16(), 200, "{}", response.text());
         assert_eq!(response.header("content-type"), Some("application/pdf"));
-        assert!(response.header("content-disposition").unwrap_or("").starts_with("attachment"));
+        assert!(response
+            .header("content-disposition")
+            .unwrap_or("")
+            .starts_with("attachment"));
         assert!(response.bytes().starts_with(b"%PDF-"));
     }
 
@@ -1777,7 +1859,10 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
     // ── A decline: everyone but the decliner is told who, and why ────────────────────────────────────────────────
     let tag = format!("decl-{}", Uuid::new_v4());
     let document = bare_document(&db, &tag, 1).await;
-    let (cat, dan) = (format!("{tag}-cat@example.test"), format!("{tag}-dan@example.test"));
+    let (cat, dan) = (
+        format!("{tag}-cat@example.test"),
+        format!("{tag}-dan@example.test"),
+    );
     let mut ctx = context(&tag);
     ctx.principal = Some(ServicePrincipal {
         app_user_id: operator.clone(),
@@ -1807,15 +1892,26 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
         .expect("send");
     tx.commit().await.unwrap();
     let token = token_for(&db, &cat).await;
-    let (_, session) = http(&router, "/v1/signer/session", serde_json::json!({ "accessToken": token })).await;
-    let recipient = session["value"]["recipient"]["id"].as_str().unwrap().to_owned();
+    let (_, session) = http(
+        &router,
+        "/v1/signer/session",
+        serde_json::json!({ "accessToken": token }),
+    )
+    .await;
+    let recipient = session["value"]["recipient"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let (status, body) = http(
         &router,
         "/v1/signer/decline",
         serde_json::json!({ "accessToken": token, "recipientId": recipient, "reason": "The price is wrong." }),
     )
     .await;
-    assert!(status == 200 && outcome(&body) == "success", "decline: {status} {body}");
+    assert!(
+        status == 200 && outcome(&body) == "success",
+        "decline: {status} {body}"
+    );
     let told: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
         "select recipient_email, template_payload->>'declinerName', template_payload->>'reason' from email_message \
           where message_kind = 'signature_declined' and template_payload->>'signatureRequestId' = $1 order by recipient_email",
@@ -1824,13 +1920,19 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
     .fetch_all(db.pool())
     .await
     .unwrap();
-    let who: std::collections::BTreeSet<&str> = told.iter().map(|(email, _, _)| email.as_str()).collect();
+    let who: std::collections::BTreeSet<&str> =
+        told.iter().map(|(email, _, _)| email.as_str()).collect();
     assert_eq!(
         who,
-        [dan.as_str(), operator_email.as_str()].into_iter().collect(),
+        [dan.as_str(), operator_email.as_str()]
+            .into_iter()
+            .collect(),
         "Dan and the sender hear of it; Cat, who declined, does not"
     );
-    assert!(told.iter().all(|(_, decliner, reason)| decliner.as_deref() == Some("Cat") && reason.as_deref() == Some("The price is wrong.")));
+    assert!(told
+        .iter()
+        .all(|(_, decliner, reason)| decliner.as_deref() == Some("Cat")
+            && reason.as_deref() == Some("The price is wrong.")));
     sweep_tag(&db, &tag).await;
     sqlx::query("delete from app_user where id = $1::uuid")
         .bind(&operator)
