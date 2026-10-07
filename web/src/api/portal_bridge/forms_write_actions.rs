@@ -570,6 +570,7 @@ pub(super) async fn send_signature(
         .filter(|title| !title.is_empty());
     let party_count = recipients.len();
     let input = json!({
+        "transactionDocumentId": issued.document_id,
         "recipients": recipients,
         "subject": subject,
         "message": null,
