@@ -43,5 +43,12 @@ web = { path = "../web" }
 # Test-only, so the harness's own modules never link the Forge runtime — the parse is the same one the deploy path
 # (`forge::engine::deploy::deploy_xml`) and the engine binary use, not a re-declared copy of it.
 forge = { path = "../forge" }
+# The Meta webhook trust boundary (TST-INT-WHATSAPP-001): `apis::whatsapp::verify_signature` is an HMAC-SHA256 over
+# the exact raw body, so a test that wants a VALID signature has to compute one. These are the same two crates the
+# boundary itself uses (`middle/apis/Cargo.toml`), not a re-implementation: the test signs with the identical
+# algorithm the server verifies with, which is what makes "a valid signature is accepted" a real assertion rather
+# than a tautology against a fixture constant. Test-only — the harness's own modules still never link them.
+hmac.workspace = true
+sha2.workspace = true
 # Used by one migrated test for `CancellationToken`-shaped shutdown, never by the harness's own modules.
 tokio-util.workspace = true
