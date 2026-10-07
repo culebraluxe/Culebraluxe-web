@@ -61,6 +61,15 @@ pub trait VaultRepository: Send + Sync {
         signature_request_id: &str,
         recipient_id: &str,
     ) -> DbResult<Option<VaultMediaBytes>>;
+    async fn signing_signed_bytes(
+        &self,
+        signature_request_id: &str,
+        recipient_id: &str,
+    ) -> DbResult<Option<VaultMediaBytes>>;
+    async fn completion_artifacts(
+        &self,
+        signature_request_id: &str,
+    ) -> DbResult<Vec<VaultMediaBytes>>;
     async fn form_contract_id(&self, form_instance_id: &str) -> DbResult<Option<String>>;
     async fn bind_form_to_contract(
         &self,
@@ -141,6 +150,21 @@ impl VaultRepository for VaultDao {
         recipient_id: &str,
     ) -> DbResult<Option<VaultMediaBytes>> {
         VaultDao::signing_document_bytes(self, signature_request_id, recipient_id).await
+    }
+
+    async fn signing_signed_bytes(
+        &self,
+        signature_request_id: &str,
+        recipient_id: &str,
+    ) -> DbResult<Option<VaultMediaBytes>> {
+        VaultDao::signing_signed_bytes(self, signature_request_id, recipient_id).await
+    }
+
+    async fn completion_artifacts(
+        &self,
+        signature_request_id: &str,
+    ) -> DbResult<Vec<VaultMediaBytes>> {
+        VaultDao::completion_artifacts(self, signature_request_id).await
     }
 
     async fn form_contract_id(&self, form_instance_id: &str) -> DbResult<Option<String>> {
@@ -524,6 +548,69 @@ impl<R: VaultRepository> VaultService<R> {
                 .map_err(Into::into)
         }
         .await;
+        audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// The SEALED copy of a completed envelope, handed to one of its own recipients. The fourth byte door: the same
+    /// reserved action and recipient-bound actor as the original (`vault.signingDocument.read`), with its own SQL proof
+    /// that the envelope is `completed` (`VaultDao::signing_signed_bytes`).
+    pub async fn signing_signed_bytes(
+        &self,
+        signature_request_id: &str,
+        recipient_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<VaultMediaBytes>, CoreServiceError> {
+        const OP: &str = "vault.signingSignedBytes";
+        let decision = authorize(
+            &self.runtime,
+            "vault",
+            "vault.signingDocument.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = async {
+            let expected = format!("signature-recipient:{recipient_id}");
+            if context.actor.id.as_deref() != Some(expected.as_str()) {
+                return Err(CoreServiceError::business(
+                    "SIGNING_DOCUMENT_FORBIDDEN",
+                    "The signed copy may be read only by its own recipient.",
+                ));
+            }
+            self.repository
+                .signing_signed_bytes(signature_request_id, recipient_id)
+                .await
+                .map_err(Into::into)
+        }
+        .await;
+        audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// The files a completion email attaches, read by the email delivery worker and by nobody else
+    /// (`vault.completionArtifacts.read` is reserved to that actor). The fifth byte door.
+    pub async fn completion_artifacts(
+        &self,
+        signature_request_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Vec<VaultMediaBytes>, CoreServiceError> {
+        const OP: &str = "vault.completionArtifacts";
+        let decision = authorize(
+            &self.runtime,
+            "vault",
+            "vault.completionArtifacts.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self
+            .repository
+            .completion_artifacts(signature_request_id)
+            .await
+            .map_err(Into::into);
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result
     }

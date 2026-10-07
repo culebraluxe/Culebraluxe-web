@@ -25,6 +25,8 @@ use services::{
     ServiceDispatchError, ServiceEnvelope, ServiceExecutionPolicy, ServiceInfrastructure,
     ServiceRuntime,
 };
+pub mod worker;
+
 use std::sync::Arc;
 
 pub const DOCUMENT_SIGN_SERVICE_ACTOR: &str = "document-sign-service";
@@ -54,6 +56,33 @@ pub trait DocumentSignRepository: Send + Sync {
         signing_mode: model::DocumentSigningMode,
         expires_at: Option<DateTime<Utc>>,
     ) -> DbResult<DocumentSignConfig>;
+    async fn set_notice_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        copy_to_emails: &[String],
+        reminder_every_days: i32,
+    ) -> DbResult<()>;
+    async fn notice_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<(Vec<String>, i32)>;
+    async fn operator_email_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>>;
+    async fn document_title_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>>;
+    async fn reminders_due_tx(
+        &self,
+        tx: &mut DbTransaction,
+        max_reminders: i64,
+    ) -> DbResult<Vec<(String, String)>>;
     async fn put_field_tx(
         &self,
         tx: &mut DbTransaction,
@@ -156,6 +185,50 @@ impl DocumentSignRepository for DocumentSignDao {
         signature_request_id: &str,
     ) -> DbResult<Vec<SignatureField>> {
         DocumentSignDao::fields_tx(self, tx, signature_request_id).await
+    }
+    async fn set_notice_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        copy_to_emails: &[String],
+        reminder_every_days: i32,
+    ) -> DbResult<()> {
+        DocumentSignDao::set_notice_tx(
+            self,
+            tx,
+            signature_request_id,
+            copy_to_emails,
+            reminder_every_days,
+        )
+        .await
+    }
+    async fn notice_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<(Vec<String>, i32)> {
+        DocumentSignDao::notice_tx(self, tx, signature_request_id).await
+    }
+    async fn operator_email_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>> {
+        DocumentSignDao::operator_email_tx(self, tx, signature_request_id).await
+    }
+    async fn document_title_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>> {
+        DocumentSignDao::document_title_tx(self, tx, signature_request_id).await
+    }
+    async fn reminders_due_tx(
+        &self,
+        tx: &mut DbTransaction,
+        max_reminders: i64,
+    ) -> DbResult<Vec<(String, String)>> {
+        DocumentSignDao::reminders_due_tx(self, tx, max_reminders).await
     }
     async fn create_config_tx(
         &self,
@@ -726,6 +799,17 @@ where
             )
             .await?;
         let signature_request_id = snapshot.signature_request.id.clone();
+        let copy_to = clean_copy_to(&request.copy_to)?;
+        let reminder_every_days = request.reminder_every_days.unwrap_or(DEFAULT_REMINDER_DAYS);
+        if !(0..=60).contains(&reminder_every_days) {
+            return Err(CoreServiceError::business(
+                "DOCUMENT_SIGN_REMINDER_INVALID",
+                "Reminders must be every 0 to 60 days (0 turns them off).",
+            ));
+        }
+        self.repository
+            .set_notice_tx(tx, &signature_request_id, &copy_to, reminder_every_days)
+            .await?;
 
         match page {
             None => {
@@ -1014,36 +1098,9 @@ where
                 &internal,
             )
             .await?;
-        // Completion is announced to every recipient in the same transaction
-        // that flips the envelope: SMTP still happens asynchronously through
-        // the outbox, so a mail outage cannot undo the signature.
-        let recipients = self
-            .repository
-            .recipients_tx(tx, signature_request_id)
-            .await?;
-        for recipient in &recipients {
-            self.email
-                .queue_transactional(
-                    tx,
-                    &QueueEmailRequest {
-                        message_kind: EmailMessageKind::SignatureCompleted,
-                        recipient_email: recipient.email.clone(),
-                        template_key: "document-sign.completed".into(),
-                        template_payload: json!({
-                            "recipientName": recipient.name,
-                            "signatureRequestId": signature_request_id,
-                        }),
-                        dedupe_key: format!(
-                            "signature-completed:{signature_request_id}:{}",
-                            recipient.id
-                        ),
-                        correlation_id: Some(context.correlation_id.clone()),
-                        causation_id: context.causation_id.clone(),
-                    },
-                    &internal,
-                )
-                .await?;
-        }
+        // Completion is announced when the document is SEALED (`finalize_transactional`), not here: the notice carries
+        // the signed document and its certificate, which do not exist until then. This flip only marks the envelope
+        // signed; the finalizer picks it up from the READY_TO_FINALIZE event.
         Ok(())
     }
 
@@ -1052,8 +1109,9 @@ where
         tx: &mut DbTransaction,
         signature_request_id: &str,
         decliner_recipient_id: &str,
+        reason: Option<&str>,
         context: &ServiceContext,
-    ) -> Result<(), CoreServiceError> {
+    ) -> Result<Vec<String>, CoreServiceError> {
         let internal = internal_context(context);
         self.signer
             .revoke_request_access_transactional(tx, signature_request_id, &internal)
@@ -1066,31 +1124,126 @@ where
                 &internal,
             )
             .await?;
-        // Everyone except the decliner learns the envelope died; the decliner
-        // already knows. Queued here so invitations and outcome share one
-        // transaction with the status flip.
+        // Everyone except the decliner learns the envelope died (the decliner already knows), with who declined and
+        // why. Queued here so the notices and the status flip share one transaction.
+        self.queue_outcome_emails_tx(
+            tx,
+            signature_request_id,
+            &OutcomeNotice::Declined {
+                decliner_recipient_id,
+                reason,
+            },
+            context,
+        )
+        .await
+    }
+
+    /// Queue the outcome notice (completed or declined) for everyone who should hear it: the envelope's recipients
+    /// (except the decliner, who already knows), the people the sender copied, and the sender. One message per email
+    /// address, deduplicated case-insensitively, so a person who is both a signer and the sender is told once.
+    async fn queue_outcome_emails_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        notice: &OutcomeNotice<'_>,
+        context: &ServiceContext,
+    ) -> Result<Vec<String>, CoreServiceError> {
+        let internal = internal_context(context);
         let recipients = self
             .repository
             .recipients_tx(tx, signature_request_id)
             .await?;
-        for recipient in recipients
+        let (copy_to, _) = self.repository.notice_tx(tx, signature_request_id).await?;
+        let operator = self
+            .repository
+            .operator_email_tx(tx, signature_request_id)
+            .await?;
+        let title = self
+            .repository
+            .document_title_tx(tx, signature_request_id)
+            .await?;
+
+        let (kind, template_key, dedupe_kind, skip_recipient, decliner, reason) = match notice {
+            OutcomeNotice::Completed => (
+                EmailMessageKind::SignatureCompleted,
+                "document-sign.completed",
+                "signature-completed",
+                None,
+                None,
+                None,
+            ),
+            OutcomeNotice::Declined {
+                decliner_recipient_id,
+                reason,
+            } => (
+                EmailMessageKind::SignatureDeclined,
+                "document-sign.declined",
+                "signature-declined",
+                Some(*decliner_recipient_id),
+                recipients
+                    .iter()
+                    .find(|recipient| recipient.id == *decliner_recipient_id)
+                    .map(|recipient| recipient.name.clone()),
+                reason.map(str::to_owned),
+            ),
+        };
+
+        let signers: Vec<String> = recipients
             .iter()
-            .filter(|recipient| recipient.id != decliner_recipient_id)
-        {
-            self.email
+            .filter(|recipient| recipient.role == SignatureRecipientRole::Signer)
+            .map(|recipient| recipient.name.clone())
+            .collect();
+        let mut addressees: Vec<(String, String)> = Vec::new();
+        // The decliner is not told, so their address is "already seen": it stays out even when they are also the
+        // sender or on the copy list.
+        let mut seen: std::collections::BTreeSet<String> = recipients
+            .iter()
+            .filter(|recipient| Some(recipient.id.as_str()) == skip_recipient)
+            .map(|recipient| recipient.email.trim().to_lowercase())
+            .collect();
+        let mut add = |name: String, email: &str| {
+            let email = email.trim();
+            if !email.is_empty() && seen.insert(email.to_lowercase()) {
+                addressees.push((name, email.to_owned()));
+            }
+        };
+        for recipient in &recipients {
+            if Some(recipient.id.as_str()) == skip_recipient {
+                continue;
+            }
+            add(recipient.name.clone(), &recipient.email);
+        }
+        for email in &copy_to {
+            add(String::new(), email);
+        }
+        if let Some(email) = operator.as_deref() {
+            add(String::new(), email);
+        }
+
+        let mut message_ids = Vec::with_capacity(addressees.len());
+        for (name, email) in addressees {
+            let queued = self
+                .email
                 .queue_transactional(
                     tx,
                     &QueueEmailRequest {
-                        message_kind: EmailMessageKind::SignatureDeclined,
-                        recipient_email: recipient.email.clone(),
-                        template_key: "document-sign.declined".into(),
+                        message_kind: kind,
+                        recipient_email: email.clone(),
+                        template_key: template_key.into(),
                         template_payload: json!({
-                            "recipientName": recipient.name,
+                            "recipientName": name,
+                            "documentTitle": title,
                             "signatureRequestId": signature_request_id,
+                            "signers": signers,
+                            "declinerName": decliner,
+                            "reason": reason,
+                            // The completed document and its certificate travel with the notice; the delivery worker
+                            // reads them from the Vault when it sends.
+                            "attachCompletion": matches!(notice, OutcomeNotice::Completed),
                         }),
                         dedupe_key: format!(
-                            "signature-declined:{signature_request_id}:{}",
-                            recipient.id
+                            "{dedupe_kind}:{signature_request_id}:{}",
+                            email.to_lowercase()
                         ),
                         correlation_id: Some(context.correlation_id.clone()),
                         causation_id: context.causation_id.clone(),
@@ -1098,8 +1251,63 @@ where
                     &internal,
                 )
                 .await?;
+            message_ids.push(queued.message_id);
         }
-        Ok(())
+        Ok(message_ids)
+    }
+
+    /// One reminder to one waiting recipient, over their live link. `None` when there is nothing to remind them with
+    /// (their link can no longer be read, or they are no longer waiting).
+    async fn queue_reminder_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        recipient_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<String>, CoreServiceError> {
+        let internal = internal_context(context);
+        let Some(recipient) = self
+            .repository
+            .recipients_tx(tx, signature_request_id)
+            .await?
+            .into_iter()
+            .find(|recipient| recipient.id == recipient_id)
+        else {
+            return Ok(None);
+        };
+        let Ok(signing_url) = self.signer.active_signing_url(tx, recipient_id).await else {
+            return Ok(None);
+        };
+        let subject = self
+            .repository
+            .lock_config_tx(tx, signature_request_id)
+            .await?
+            .and_then(|config| config.subject);
+        let queued = self
+            .email
+            .queue_transactional(
+                tx,
+                &QueueEmailRequest {
+                    message_kind: EmailMessageKind::SignatureReminder,
+                    recipient_email: recipient.email.clone(),
+                    template_key: "document-sign.reminder".into(),
+                    template_payload: json!({
+                        "recipientName": recipient.name,
+                        "signingUrl": signing_url,
+                        "subject": subject,
+                    }),
+                    // The `signature-reminder:{request}:{recipient}:` prefix is what `reminders_due_tx` counts.
+                    dedupe_key: format!(
+                        "signature-reminder:{signature_request_id}:{recipient_id}:{}",
+                        Utc::now().timestamp_millis()
+                    ),
+                    correlation_id: Some(context.correlation_id.clone()),
+                    causation_id: context.causation_id.clone(),
+                },
+                &internal,
+            )
+            .await?;
+        Ok(Some(queued.message_id))
     }
 
     pub async fn void_transactional(
@@ -1468,6 +1676,31 @@ where
         signature_request_id: &str,
         context: &ServiceContext,
     ) -> Result<DocumentSignFinalizeResult, CoreServiceError> {
+        // Finalizing seals another party's document and mails it out: it is a write, decided like one. The
+        // automatic finalizer is the narrow system actor Casbin admits for exactly this operation.
+        const OP: &str = "documentSign.finalize";
+        let decision = authorize(
+            &self.runtime,
+            "document-sign",
+            "documentSign.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+        let result = self
+            .finalize_authorized_transactional(tx, signature_request_id, context)
+            .await;
+        audit_result(&self.runtime, "document-sign", OP, context, decision, &result).await?;
+        result
+    }
+
+    async fn finalize_authorized_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        context: &ServiceContext,
+    ) -> Result<DocumentSignFinalizeResult, CoreServiceError> {
         let internal = internal_context(context);
         let (status, transaction_document_id) = self
             .repository
@@ -1493,6 +1726,7 @@ where
                 audit_media_id,
                 signed_media_id,
                 already_completed: true,
+                notification_message_ids: Vec::new(),
             });
         }
         if status != SignatureRequestStatus::Signed.as_str() {
@@ -1516,13 +1750,56 @@ where
             .finalize_inputs_tx(tx, signature_request_id)
             .await?;
         let finalized_at = Utc::now().to_rfc3339();
+        // The original bytes travel through Vault under the CALLER's authority, never the internal service actor:
+        // sealing another party's document is the operator's own grant or it does not happen.
+        let original: Option<Vec<u8>> = match self
+            .vault
+            .get_document(&transaction_document_id, context)
+            .await
+            .map_err(CoreServiceError::from)?
+            .and_then(|document| document.media_id)
+        {
+            Some(media_id) => {
+                self.vault
+                    .media_bytes(&media_id, context)
+                    .await
+                    .map_err(CoreServiceError::from)?
+                    .map(|media| media.bytes)
+            }
+            None => None,
+        };
+        // The sealed copy is drawn first so the certificate can state the fingerprint of both documents: the one that
+        // was sent and the one that came back signed.
+        let sealed: Option<Vec<u8>> = match &original {
+            Some(bytes) => Some(seal_overlay(&inputs, bytes)?),
+            None => None,
+        };
+        let sha256 = |bytes: &[u8]| {
+            use sha2::{Digest, Sha256};
+            format!("{:x}", Sha256::digest(bytes))
+        };
+        let original_sha256 = original.as_deref().map(sha256);
+        let sealed_sha256 = sealed.as_deref().map(sha256);
+        let document_title = self
+            .repository
+            .document_title_tx(tx, signature_request_id)
+            .await?;
+        let page_count = original
+            .as_deref()
+            .and_then(crate::vault::signing_overlay::page_count);
         let certificate = crate::vault::signing_certificate::render_completion_certificate(
-            signature_request_id,
-            &transaction_document_id,
-            &inputs.recipients,
-            &inputs.fields,
-            &inputs.events,
-            &finalized_at,
+            &crate::vault::signing_certificate::Certificate {
+                signature_request_id,
+                transaction_document_id: &transaction_document_id,
+                document_title: document_title.as_deref(),
+                recipients: &inputs.recipients,
+                fields: &inputs.fields,
+                events: &inputs.events,
+                finalized_at: &finalized_at,
+                original_sha256: original_sha256.as_deref(),
+                sealed_sha256: sealed_sha256.as_deref(),
+                page_count,
+            },
         )
         .map_err(|error| {
             CoreServiceError::business(
@@ -1540,27 +1817,8 @@ where
                 &certificate,
             )
             .await?;
-        // The original bytes travel through Vault under the CALLER's
-        // authority, never the internal service actor: sealing another
-        // party's document is the operator's own grant or it does not happen.
-        let original: Option<Vec<u8>> = match self
-            .vault
-            .get_document(&transaction_document_id, context)
-            .await
-            .map_err(CoreServiceError::from)?
-            .and_then(|document| document.media_id)
-        {
-            Some(media_id) => self
-                .vault
-                .media_bytes(&media_id, context)
-                .await
-                .map_err(CoreServiceError::from)?
-                .map(|media| media.bytes),
-            None => None,
-        };
-        let signed_media_id = match original {
-            Some(bytes) => {
-                let overlay = seal_overlay(&inputs, &bytes)?;
+        let signed_media_id = match sealed {
+            Some(overlay) => {
                 let media_id = self
                     .repository
                     .store_signed_artifact_tx(
@@ -1575,7 +1833,7 @@ where
                     .await?;
                 Some(media_id)
             }
-            _ => None,
+            None => None,
         };
         self.signer
             .append_finalize_evidence_tx(
@@ -1594,11 +1852,22 @@ where
                 &internal,
             )
             .await?;
+        // Everyone learns the outcome in the same transaction as the status flip: the signers, whoever the sender
+        // copied (a listing's broker), and the sender. Each gets the signed document and the certificate attached.
+        let notification_message_ids = self
+            .queue_outcome_emails_tx(
+                tx,
+                signature_request_id,
+                &OutcomeNotice::Completed,
+                context,
+            )
+            .await?;
         Ok(DocumentSignFinalizeResult {
             signature_request_id: signature_request_id.to_owned(),
             audit_media_id: Some(audit_media_id),
             signed_media_id,
             already_completed: false,
+            notification_message_ids,
         })
     }
 
@@ -1608,6 +1877,26 @@ where
     /// Terminal states never reopen, and envelopes without an expiry clock
     /// are left alone no matter how old they are.
     pub async fn sweep_due_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        context: &ServiceContext,
+    ) -> Result<DocumentSignSweepResult, CoreServiceError> {
+        const OP: &str = "documentSign.sweepDue";
+        let decision = authorize(
+            &self.runtime,
+            "document-sign",
+            "documentSign.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+        let result = self.sweep_due_authorized_transactional(tx, context).await;
+        audit_result(&self.runtime, "document-sign", OP, context, decision, &result).await?;
+        result
+    }
+
+    async fn sweep_due_authorized_transactional(
         &self,
         tx: &mut DbTransaction,
         context: &ServiceContext,
@@ -1641,9 +1930,26 @@ where
                 .await?;
             expired_envelopes.push(signature_request_id);
         }
+        // Reminders go to the signers whose turn it is and who have gone quiet (the envelope's own cadence, three at
+        // most). A recipient whose link can no longer be read is skipped, not fatal: one bad row must not stop the
+        // sweep that expires everyone else.
+        let mut reminder_message_ids = Vec::new();
+        for (signature_request_id, recipient_id) in self
+            .repository
+            .reminders_due_tx(tx, MAX_REMINDERS)
+            .await?
+        {
+            if let Some(message_id) = self
+                .queue_reminder_tx(tx, &signature_request_id, &recipient_id, context)
+                .await?
+            {
+                reminder_message_ids.push(message_id);
+            }
+        }
         Ok(DocumentSignSweepResult {
             expired_recipients,
             expired_envelopes,
+            reminder_message_ids,
         })
     }
 }
@@ -1728,6 +2034,18 @@ fn seal_overlay(inputs: &FinalizeInputs, original: &[u8]) -> Result<Vec<u8>, Cor
             width_percent: field.width,
             height_percent: field.height,
             signature: field.field_type == "signature",
+            style: field
+                .value
+                .as_ref()
+                .and_then(|value| value.get("style"))
+                .and_then(Value::as_u64)
+                .map(|style| style.min(2) as u8)
+                .unwrap_or(0),
+            caption: field
+                .completed_at
+                .as_deref()
+                .and_then(|at| at.get(..10))
+                .map(|day| format!("Electronically signed {day}")),
             text,
         });
     }
@@ -1803,6 +2121,49 @@ fn prepare_intent_matches(
 }
 
 /// A signature box in the lower part of the page, two to a row and filling upward. Page percent: x, y, width, height.
+const DEFAULT_REMINDER_DAYS: i32 = 3;
+/// A waiting signer is reminded at most this many times; after that the sender's own follow-up is the next step.
+const MAX_REMINDERS: i64 = 3;
+
+/// Which outcome an email announces.
+enum OutcomeNotice<'a> {
+    Completed,
+    Declined {
+        decliner_recipient_id: &'a str,
+        reason: Option<&'a str>,
+    },
+}
+
+/// Trim, lower-case and de-duplicate the copy list, refusing anything that is not an email address.
+fn clean_copy_to(values: &[String]) -> Result<Vec<String>, CoreServiceError> {
+    let mut out: Vec<String> = Vec::new();
+    for value in values {
+        let email = value.trim().to_lowercase();
+        if email.is_empty() {
+            continue;
+        }
+        let plausible = email
+            .split_once('@')
+            .is_some_and(|(local, domain)| {
+                !local.is_empty()
+                    && domain.contains('.')
+                    && !domain.starts_with('.')
+                    && !domain.ends_with('.')
+                    && !email.contains(char::is_whitespace)
+            });
+        if !plausible {
+            return Err(CoreServiceError::business(
+                "DOCUMENT_SIGN_RECIPIENT_INVALID",
+                format!("'{value}' is not a valid email address to copy."),
+            ));
+        }
+        if !out.contains(&email) {
+            out.push(email);
+        }
+    }
+    Ok(out)
+}
+
 fn default_signature_box(slot: usize) -> (f64, f64, f64, f64) {
     const WIDTH: f64 = 38.0;
     const HEIGHT: f64 = 7.0;

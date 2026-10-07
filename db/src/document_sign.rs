@@ -246,6 +246,143 @@ impl DocumentSignDao {
         map_config(row)
     }
 
+    /// Who is copied on the outcome, and how often a waiting signer is reminded (0 = never).
+    pub async fn set_notice_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        copy_to_emails: &[String],
+        reminder_every_days: i32,
+    ) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            update document_sign_request
+               set copy_to_emails = $2,
+                   reminder_every_days = $3
+             where signature_request_id = $1::uuid
+            "#,
+        )
+        .bind(signature_request_id)
+        .bind(copy_to_emails)
+        .bind(reminder_every_days)
+        .execute(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.notice.set", &error))?;
+        Ok(())
+    }
+
+    pub async fn notice_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<(Vec<String>, i32)> {
+        sqlx::query_as::<_, (Vec<String>, i32)>(
+            r#"
+            select copy_to_emails, reminder_every_days
+              from document_sign_request
+             where signature_request_id = $1::uuid
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_one(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.notice.read", &error))
+    }
+
+    /// The email of the app user who prepared the envelope, when there is one and they are active.
+    pub async fn operator_email_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>> {
+        let row: Option<(Option<String>,)> = sqlx::query_as(
+            r#"
+            select u.email
+              from signature_request sr
+              join app_user u on u.id = sr.created_by_user_id and u.active
+             where sr.id = $1::uuid
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_optional(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.operator_email", &error))?;
+        Ok(row
+            .and_then(|(email,)| email)
+            .map(|email| email.trim().to_owned())
+            .filter(|email| !email.is_empty()))
+    }
+
+    /// The envelope's document title (what an email calls it).
+    pub async fn document_title_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>> {
+        let row: Option<(Option<String>,)> = sqlx::query_as(
+            r#"
+            select td.title
+              from signature_request sr
+              join transaction_document td on td.id = sr.transaction_document_id
+             where sr.id = $1::uuid
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_optional(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.document_title", &error))?;
+        Ok(row.and_then(|(title,)| title))
+    }
+
+    /// Recipients who are due a reminder: it is their turn (the lowest step still open), they have not acted, the
+    /// envelope is issued and live, reminders are on, fewer than `max_reminders` went out, and the last contact
+    /// (reminder, else first notice, else issue) is at least the envelope's cadence ago. Reminders are counted from the
+    /// durable email log by their dedupe key, so no counter is kept anywhere.
+    pub async fn reminders_due_tx(
+        &self,
+        tx: &mut DbTransaction,
+        max_reminders: i64,
+    ) -> DbResult<Vec<(String, String)>> {
+        sqlx::query_as::<_, (String, String)>(
+            r#"
+            select r.signature_request_id::text, r.id::text
+              from signature_envelope_recipient r
+              join signature_request sr
+                on sr.id = r.signature_request_id
+               and sr.status in ('requested', 'sent', 'viewed')
+              join document_sign_request d
+                on d.signature_request_id = sr.id
+               and d.issued_at is not null
+               and d.reminder_every_days > 0
+               and (d.expires_at is null or d.expires_at > now())
+              join signature_recipient_state s
+                on s.recipient_id = r.id
+               and s.state in ('pending', 'notified', 'viewed', 'in_progress')
+              left join lateral (
+                    select count(*) as sent, max(m.queued_at) as last_at
+                      from email_message m
+                     where m.dedupe_key like
+                           'signature-reminder:' || r.signature_request_id::text || ':' || r.id::text || ':%'
+              ) rem on true
+             where r.signing_step = (
+                       select min(r2.signing_step)
+                         from signature_envelope_recipient r2
+                         join signature_recipient_state s2 on s2.recipient_id = r2.id
+                        where r2.signature_request_id = r.signature_request_id
+                          and s2.state <> 'completed')
+               and rem.sent < $1
+               and coalesce(rem.last_at, s.notified_at, d.issued_at)
+                   <= now() - make_interval(days => d.reminder_every_days)
+             order by r.signature_request_id, r.signer_order
+             limit 100
+            "#,
+        )
+        .bind(max_reminders)
+        .fetch_all(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("document_sign.reminders_due", &error))
+    }
+
     pub async fn put_field_tx(
         &self,
         tx: &mut DbTransaction,
