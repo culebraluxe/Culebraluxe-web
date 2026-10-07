@@ -110,6 +110,30 @@ pub fn page_count(bytes: &[u8]) -> Option<u32> {
         .filter(|count| *count > 0)
 }
 
+/// The document reduced to the pages in `keep` (1-based, document order), as fresh PDF bytes. The signing page shows a
+/// signer only the page(s) they sign: a viewer that cannot jump to a page (a phone's) would otherwise open on page one.
+pub fn keep_pages(bytes: &[u8], keep: &[u32]) -> Result<Vec<u8>, String> {
+    let mut document =
+        Document::load_mem(bytes).map_err(|error| format!("PDF unreadable: {error}"))?;
+    let all: Vec<u32> = document.get_pages().keys().copied().collect();
+    if !all.iter().any(|page| keep.contains(page)) {
+        return Err("none of the pages to keep exist in this document".into());
+    }
+    let remove: Vec<u32> = all
+        .into_iter()
+        .filter(|page| !keep.contains(page))
+        .collect();
+    if !remove.is_empty() {
+        document.delete_pages(&remove);
+        document.prune_objects();
+    }
+    let mut out = Vec::new();
+    document
+        .save_to(&mut out)
+        .map_err(|error| format!("PDF could not be written: {error}"))?;
+    Ok(out)
+}
+
 fn navy() -> &'static str {
     "0.012 0.059 0.137"
 }
@@ -717,5 +741,13 @@ mod tests {
             text.contains("Original"),
             "the original's words survive: {text:?}"
         );
+    }
+
+    #[test]
+    fn keeping_pages_leaves_only_those_and_refuses_a_page_that_is_not_there() {
+        let bytes = original();
+        let kept = keep_pages(&bytes, &[1]).expect("keeps page one");
+        assert_eq!(page_count(&kept), Some(1));
+        assert!(keep_pages(&bytes, &[7]).is_err());
     }
 }

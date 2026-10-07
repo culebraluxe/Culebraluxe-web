@@ -325,6 +325,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/signer/session", post(signer_session))
         .route("/v1/signer/document/{token}", get(signer_document))
         .route("/v1/signer/signed/{token}", get(signer_signed_copy))
+        .route("/v1/signer/preview", post(signer_preview))
         .route("/v1/signer/open", post(signer_open))
         .route("/v1/signer/consent", post(signer_consent))
         .route("/v1/signer/field", post(signer_field))

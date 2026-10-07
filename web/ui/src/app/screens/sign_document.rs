@@ -47,6 +47,13 @@ pub struct Model {
     art: SignatureArt,
     /// The answers still to send once "Sign & complete" is pressed, in order. One button, one chain.
     queue: Vec<Step>,
+    /// The style `art` was drawn in, so pressing "Sign & complete" does not redraw what the preview already drew.
+    art_style: Option<usize>,
+    /// The signature page as it will be sealed (a `blob:` address), drawn with the signer's own picture.
+    preview_url: Option<String>,
+    previewing: bool,
+    /// The preview could not be drawn: the page falls back to the full document rather than showing nothing.
+    preview_failed: bool,
 }
 
 /// One answer in the chain behind "Sign & complete": agree, answer each block, finish.
@@ -68,6 +75,9 @@ pub enum Msg {
     /// The one primary action: draw the signature, then agree, answer every block and finish.
     SignAndComplete,
     SignatureReady(Result<SignatureArt, ApiError>),
+    /// The signature was drawn for the preview (and is kept for signing); the style says which request this answers.
+    PreviewArt(usize, Result<SignatureArt, ApiError>),
+    PreviewReady(usize, Result<String, ApiError>),
     DeclineOpened,
     DeclineCancelled,
     DeclineReasonChanged(String),
@@ -138,9 +148,12 @@ impl Screen for SignDocument {
                 let recipient = session.recipient.id.clone();
                 model.session = Remote::Loaded(session);
                 model.working = false;
-                // Record the open once, when the session first arrives.
+                // Record the open once, when the session first arrives, and draw the signature page the signer will see.
                 if first_sight {
-                    return act(&token, &recipient, "open", serde_json::json!({}));
+                    return Cmd::batch(vec![
+                        act(&token, &recipient, "open", serde_json::json!({})),
+                        refresh_preview(model),
+                    ]);
                 }
                 Cmd::none()
             }
@@ -155,6 +168,40 @@ impl Screen for SignDocument {
             }
             Msg::SignatureStyle(style) => {
                 model.signature_style = style.min(SIGNATURE_FONTS.len() - 1);
+                refresh_preview(model)
+            }
+            Msg::PreviewArt(style, Ok(art)) if style == model.signature_style => {
+                model.art = art.clone();
+                model.art_style = Some(style);
+                Cmd::preview_pdf(
+                    "/v1/signer/preview",
+                    serde_json::json!({
+                        "accessToken": model.token,
+                        "image": art.signature,
+                        "initialsImage": art.initials,
+                    }),
+                    move |result| Msg::PreviewReady(style, result),
+                )
+            }
+            Msg::PreviewArt(_, Ok(_)) => Cmd::none(), // an answer for a style no longer chosen
+            Msg::PreviewArt(style, Err(_)) => {
+                if style == model.signature_style {
+                    model.previewing = false;
+                    model.preview_failed = true;
+                }
+                Cmd::none()
+            }
+            Msg::PreviewReady(style, result) => {
+                if style == model.signature_style {
+                    model.previewing = false;
+                    match result {
+                        Ok(url) => {
+                            model.preview_url = Some(url);
+                            model.preview_failed = false;
+                        }
+                        Err(_) => model.preview_failed = true,
+                    }
+                }
                 Cmd::none()
             }
             Msg::FieldChanged(id, value) => {
@@ -183,6 +230,11 @@ impl Screen for SignDocument {
                 let (name, style) = (session.recipient.name.clone(), model.signature_style);
                 model.working = true;
                 model.notice = None;
+                if model.art_style == Some(style) {
+                    // The preview already drew this signature: sign with exactly that picture.
+                    let art = model.art.clone();
+                    return Self::update(model, Msg::SignatureReady(Ok(art)), _ctx);
+                }
                 Cmd::render_signature(name, style, Msg::SignatureReady)
             }
             Msg::SignatureReady(Ok(art)) => {
@@ -360,6 +412,16 @@ fn sign_blocker(model: &Model, session: &SignerSession) -> Option<String> {
     None
 }
 
+/// Draw the signature in the chosen style (answered as `PreviewArt`, then the preview PDF is requested with it).
+fn refresh_preview(model: &mut Model) -> Cmd<Msg> {
+    let Remote::Loaded(session) = &model.session else {
+        return Cmd::none();
+    };
+    let (name, style) = (session.recipient.name.clone(), model.signature_style);
+    model.previewing = true;
+    Cmd::render_signature(name, style, move |result| Msg::PreviewArt(style, result))
+}
+
 /// Send the next answer in the chain (agree, each block, finish), or re-read the session when the chain is done.
 fn next_step(model: &mut Model) -> Cmd<Msg> {
     if model.queue.is_empty() {
@@ -450,33 +512,6 @@ fn failure_view(error: &ApiError) -> Html {
     })
 }
 
-/// The two beats of a signing: read it, then sign and complete.
-fn stepper(_session: &SignerSession) -> Html {
-    let steps = [("Review the document", true), ("Sign & complete", false)];
-    html! {
-        <ol class="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.14em]" aria-label="Progress">
-            { for steps.iter().enumerate().map(|(index, (label, done))| {
-                let (dot, text) = if *done {
-                    ("bg-emerald-600 text-white", "text-black/55")
-                } else {
-                    ("bg-[#041024] text-white", "text-[#041024]")
-                };
-                html! {
-                    <>
-                        if index > 0 { <span class="h-px w-6 bg-black/15 sm:w-10"></span> }
-                        <li class="flex items-center gap-2">
-                            <span class={classes!("flex", "h-5", "w-5", "items-center", "justify-center", "rounded-full", "text-[9px]", dot)}>
-                                { if *done { "✓".to_owned() } else { (index + 1).to_string() } }
-                            </span>
-                            <span class={text}>{ *label }</span>
-                        </li>
-                    </>
-                }
-            }) }
-        </ol>
-    }
-}
-
 fn party_state(state: &str) -> (&'static str, &'static str) {
     match state {
         "completed" => ("Signed", "bg-emerald-50 text-emerald-700"),
@@ -528,100 +563,51 @@ fn expiry_phrase(expires_at: &str) -> String {
     }
 }
 
+/// The signing page: the ACTION on the left, the signature page as it will be sealed on the right. Most signers have read
+/// the document already and are here for the last step, so the page opens on the page they sign, with their own
+/// signature drawn in place, rather than at the top of a long document.
 fn signing_view(model: &Model, session: &SignerSession, link: &Link<Msg>) -> Html {
     let turn = session.is_turn;
     let heading = session
         .document_name()
         .map(str::to_owned)
         .unwrap_or_else(|| "Review and sign".to_owned());
+    let message = session
+        .message
+        .as_deref()
+        .map(str::trim)
+        .filter(|message| !message.is_empty());
     page(html! {
         <>
-            <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
-                <div class="min-w-0">
-                    <p class="text-[10px] font-medium uppercase tracking-[0.24em] text-[#a88450]">{"Review and sign"}</p>
-                    <h1 class="mt-1 break-words font-serif text-3xl font-light text-[#041024] sm:text-4xl">{ heading }</h1>
-                    <p class="mt-1 text-sm font-light text-black/50">
-                        { prepared_for(session) }
-                    </p>
-                </div>
-                <div class="flex flex-col items-start gap-3 sm:items-end">
-                    { stepper(session) }
-                    <div class="rounded-full border border-black/10 bg-white/70 px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.12em] text-black/45">
-                        { session_state_label(session) }
-                    </div>
-                </div>
-            </header>
-
             if let Some(notice) = &model.notice {
                 <div class="mb-5 rounded-lg border border-red-900/20 bg-red-50 px-4 py-3 text-sm font-light text-red-900" role="alert">{ notice.clone() }</div>
             }
-
-            if let Some(message) = session.message.as_deref().map(str::trim).filter(|message| !message.is_empty()) {
-                <section class="mb-5 rounded-xl border border-[#caa36b]/40 bg-[#fffaf0] px-5 py-4">
-                    <p class="text-[10px] font-medium uppercase tracking-[0.14em] text-[#a88450]">{"A note from the sender"}</p>
-                    <p class="mt-1 whitespace-pre-wrap text-sm font-light leading-6 text-black/70">{ message.to_owned() }</p>
-                </section>
-            }
-
-            if !turn {
-                <div class="mb-5 rounded-lg border border-[#caa36b]/50 bg-[#fffaf0] px-4 py-3 text-sm font-light text-black/60">
-                    {"An earlier signer must finish first — your fields unlock when your turn arrives."}
-                </div>
-            }
-
-            { parties_panel(session) }
-
-            <section class="mb-5 overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
-                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-black/10 bg-white/75 px-4 py-2.5">
-                    <span class="text-[10px] font-medium uppercase tracking-[0.14em] text-black/45">{"The document"}</span>
-                    <span class="flex gap-4 text-[11px] font-light">
-                        <a class="text-[#041024] underline decoration-black/20 underline-offset-2" href={document_url(&model.token)} target="_blank" rel="noopener">{"Open in a new tab"}</a>
-                        <a class="text-[#041024] underline decoration-black/20 underline-offset-2" href={format!("{}?download=1", document_url(&model.token))}>{"Download"}</a>
-                    </span>
-                </div>
-                <iframe class="block h-[60vh] min-h-[24rem] max-h-[44rem] w-full bg-[#f4f1ea]" title="The document you are asked to sign" src={format!("{}#navpanes=0&view=FitH", document_url(&model.token))}></iframe>
-            </section>
-
-            <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
-                <section class="overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
-                    <div class="border-b border-black/10 bg-white/75 px-4 py-2.5">
-                        <span class="text-[10px] font-medium uppercase tracking-[0.14em] text-black/45">{"What you are signing"}</span>
-                    </div>
-                    <div class="space-y-4 p-4 sm:p-6">
-                        <p class="text-sm font-light leading-6 text-black/60">
-                            {"Read the document above. When you are ready, choose how your signature looks and press "}
-                            <span class="font-normal text-[#041024]">{"Sign & complete"}</span>
-                            {" — that one step signs every block below."}
-                        </p>
-                        <ul class="divide-y divide-black/10 rounded-lg border border-black/10">
-                            { for session.fields.iter().filter(|field| !is_hand_filled(field)).map(|field| block_row(session, field)) }
-                        </ul>
-                        { for session.fields.iter().filter(|field| is_hand_filled(field)).map(|field| hand_field(model, session, field, link)) }
-                        if session.fields.is_empty() {
-                            <p class="text-sm font-light text-black/45">{"Nothing to fill in: review the document, then sign and complete."}</p>
-                        }
-                        <p class="text-xs font-light leading-5 text-black/40">
-                            {"Your initials are made from your name in the same hand, and the date is filled in the moment you finish."}
-                        </p>
-                    </div>
-                </section>
-
+            <div class="grid gap-5 lg:grid-cols-[24rem_minmax(0,1fr)]">
                 <aside class="self-start rounded-xl border border-black/10 bg-white p-5 shadow-sm lg:sticky lg:top-6">
-                    <p class="text-[10px] font-medium uppercase tracking-[0.16em] text-[#a88450]">{"Your signature"}</p>
+                    <p class="text-[10px] font-medium uppercase tracking-[0.2em] text-[#a88450]">{"Ready to sign"}</p>
+                    <h1 class="mt-1 break-words font-serif text-[1.7rem] font-light leading-8 text-[#041024]">{ heading }</h1>
+                    <p class="mt-1 text-sm font-light text-black/50">{ prepared_for(session) }</p>
 
-                    <div class="mt-3 rounded-lg border border-black/10 bg-[#fffdf8] px-4 py-3">
-                        <p class="truncate text-[2.6rem] leading-[1.15] text-[#041024]" style={signature_face(model.signature_style)}>
-                            { session.recipient.name.clone() }
+                    if let Some(message) = message {
+                        <p class="mt-4 rounded-lg border border-[#caa36b]/40 bg-[#fffaf0] px-3 py-2.5 text-sm font-light leading-5 text-black/65">
+                            { format!("“{message}”") }
                         </p>
-                        <p class="mt-1 flex items-baseline gap-3 text-xs font-light text-black/40">
-                            <span>{"Initials"}</span>
-                            <span class="text-2xl text-[#041024]" style={signature_face(model.signature_style)}>
-                                { model::forms_applied_signature::format_broker_initials(&session.recipient.name) }
-                            </span>
+                    }
+                    if !turn {
+                        <p class="mt-4 rounded-lg border border-[#caa36b]/50 bg-[#fffaf0] px-3 py-2.5 text-sm font-light text-black/60">
+                            {"An earlier signer must finish first — you can sign when your turn arrives."}
                         </p>
+                    }
+
+                    <p class="mt-5 text-[9px] font-medium uppercase tracking-[0.14em] text-black/35">{"You will sign"}</p>
+                    <ul class="mt-2 divide-y divide-black/10 rounded-lg border border-black/10">
+                        { for session.fields.iter().filter(|field| !is_hand_filled(field)).map(|field| block_row(session, field)) }
+                    </ul>
+                    <div class="mt-3 space-y-3">
+                        { for session.fields.iter().filter(|field| is_hand_filled(field)).map(|field| hand_field(model, session, field, link)) }
                     </div>
 
-                    <p class="mt-4 text-[9px] font-medium uppercase tracking-[0.14em] text-black/35">{"Choose a style"}</p>
+                    <p class="mt-5 text-[9px] font-medium uppercase tracking-[0.14em] text-black/35">{"Your signature"}</p>
                     <div class="mt-2 grid grid-cols-2 gap-2">
                         { for (0..SIGNATURE_FONTS.len()).map(|style| signature_choice(&session.recipient.name, model.signature_style, style, link)) }
                     </div>
@@ -656,9 +642,44 @@ fn signing_view(model: &Model, session: &SignerSession, link: &Link<Msg>) -> Htm
                     </p>
                     { decline_panel(model, link) }
                 </aside>
+
+                { document_panel(model, session) }
             </div>
         </>
     })
+}
+
+/// The right-hand side: the signature page as it will be sealed (the signer's own picture, initials and today's date in
+/// place), zoomed to the page's width. If it cannot be drawn the full document stands in, so there is always something
+/// to read.
+fn document_panel(model: &Model, _session: &SignerSession) -> Html {
+    let full = document_url(&model.token);
+    let (title, source) = match (&model.preview_url, model.preview_failed) {
+        (Some(url), _) => (
+            "Your signature page, as it will look",
+            Some(format!("{url}#toolbar=0&navpanes=0&view=FitH")),
+        ),
+        (None, true) => ("The document", Some(format!("{full}#navpanes=0&view=FitH"))),
+        (None, false) => ("Your signature page", None),
+    };
+    html! {
+        <section class="min-w-0 overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-black/10 bg-white/75 px-4 py-2.5">
+                <span class="text-[10px] font-medium uppercase tracking-[0.14em] text-black/45">{ title }</span>
+                <span class="flex gap-4 text-[11px] font-light">
+                    <a class="text-[#041024] underline decoration-black/20 underline-offset-2" href={full.clone()} target="_blank" rel="noopener">{"Read the full document"}</a>
+                    <a class="text-[#041024] underline decoration-black/20 underline-offset-2" href={format!("{full}?download=1")}>{"Download"}</a>
+                </span>
+            </div>
+            if let Some(source) = source {
+                <iframe class="block h-[82vh] min-h-[34rem] w-full bg-[#f4f1ea]" title="The page you are signing" src={source}></iframe>
+            } else {
+                <div class="flex h-[82vh] min-h-[34rem] items-center justify-center bg-[#f4f1ea] text-sm font-light text-black/40" data-screen-state="loading">
+                    {"Drawing your signature page…"}
+                </div>
+            }
+        </section>
+    }
 }
 
 /// "Decline to sign" is a deliberate two-step: it ends the signing for everyone, so it asks first, and lets the signer
@@ -715,20 +736,6 @@ fn decline_panel(model: &Model, link: &Link<Msg>) -> Html {
                 </button>
             </div>
         </div>
-    }
-}
-
-fn session_state_label(session: &SignerSession) -> String {
-    match session.state.as_str() {
-        "completed" => "Signed".into(),
-        "notified" | "pending" => "Waiting for you".into(),
-        other => {
-            let mut label = other.replace('_', " ");
-            if let Some(first) = label.get_mut(..1) {
-                first.make_ascii_uppercase();
-            }
-            label
-        }
     }
 }
 
@@ -1019,6 +1026,71 @@ mod tests {
             signature: "data:image/png;base64,SIG".into(),
             initials: "data:image/png;base64,INI".into(),
         }
+    }
+
+    #[test]
+    fn choosing_a_style_redraws_the_preview_and_only_the_latest_answer_counts() {
+        let mut session = test_session(true);
+        session.fields = vec![field("s", "signature", true)];
+        let (mut model, ctx) = loaded(session);
+
+        // Choosing a style asks the browser to draw it, tagged with that style.
+        let cmd = SignDocument::update(&mut model, Msg::SignatureStyle(2), &ctx);
+        assert!(model.previewing);
+        assert!(
+            format!("{cmd:?}").contains("RenderSignature(Ada, style 2)"),
+            "{cmd:?}"
+        );
+
+        // The drawing for the CURRENT style is kept and sent to the preview endpoint, pictures in the body.
+        let cmd = SignDocument::update(&mut model, Msg::PreviewArt(2, Ok(art())), &ctx);
+        assert_eq!(model.art_style, Some(2));
+        assert_eq!(format!("{cmd:?}"), "PreviewPdf(/v1/signer/preview)");
+
+        // A slow answer for a style the signer has since left must not replace the page they are looking at.
+        SignDocument::update(&mut model, Msg::SignatureStyle(1), &ctx);
+        SignDocument::update(
+            &mut model,
+            Msg::PreviewReady(2, Ok("blob:stale".into())),
+            &ctx,
+        );
+        assert_eq!(model.preview_url, None);
+        SignDocument::update(
+            &mut model,
+            Msg::PreviewReady(1, Ok("blob:fresh".into())),
+            &ctx,
+        );
+        assert_eq!(model.preview_url.as_deref(), Some("blob:fresh"));
+        assert!(!model.previewing && !model.preview_failed);
+    }
+
+    #[test]
+    fn a_preview_that_cannot_be_drawn_falls_back_to_the_full_document() {
+        let (mut model, ctx) = loaded(test_session(true));
+        SignDocument::update(&mut model, Msg::SignatureStyle(0), &ctx);
+        let error = ApiError::network("no canvas");
+        SignDocument::update(&mut model, Msg::PreviewArt(0, Err(error)), &ctx);
+        assert!(model.preview_failed && !model.previewing);
+    }
+
+    #[test]
+    fn signing_uses_the_picture_the_preview_already_drew() {
+        let mut session = test_session(true);
+        session.fields = vec![field("s", "signature", true)];
+        let (mut model, ctx) = loaded(session);
+        model.art = art();
+        model.art_style = Some(model.signature_style);
+        // No redraw: straight into the chain (consented already, so the first request is the signature itself).
+        let cmd = SignDocument::update(&mut model, Msg::SignAndComplete, &ctx);
+        let requests = cmd.into_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].path, "/v1/signer/field");
+        assert!(requests[0]
+            .body
+            .as_ref()
+            .unwrap()
+            .to_string()
+            .contains("data:image/png;base64,SIG"));
     }
 
     #[test]

@@ -220,6 +220,59 @@ pub(super) async fn signer_signed_copy(
     vault_document_response(document, true).map_err(|error| error.with_correlation(correlation_id))
 }
 
+/// The signing page, drawn as it will be sealed: the verified recipient's own blocks on the original, with the pictures
+/// they are about to sign with (posted as data URLs, validated exactly as a signature is), today's date, and only the
+/// page(s) those blocks are on. Nothing is stored. It is a POST because the pictures are too large for an address.
+pub(super) async fn signer_preview(
+    State(state): State<ApiState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Response, ApiError> {
+    let correlation_id = uuid::Uuid::new_v4().to_string();
+    let token = access_token(&body, &correlation_id)?;
+    let session = edge_session(&state, &token)
+        .await
+        .map_err(|error| error.with_correlation(correlation_id.clone()))?;
+    crate::signer::validate_signature_value(&body)
+        .map_err(|error| ApiError::from(error).with_correlation(correlation_id.clone()))?;
+    let recipient_id = session.recipient.id.clone();
+    let original = state
+        .services()
+        .vault()
+        .signing_document_bytes(
+            &session.signature_request_id,
+            &recipient_id,
+            &recipient_context(&recipient_id, &correlation_id),
+        )
+        .await
+        .map_err(|error| ApiError::from(error).with_correlation(correlation_id.clone()))?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "SIGNING_DOCUMENT_UNAVAILABLE",
+                "This signing request has no document to show.",
+            )
+            .with_correlation(correlation_id.clone())
+        })?;
+    let text = |key: &str| body.get(key).and_then(serde_json::Value::as_str);
+    let bytes = crate::document_sign::preview_pdf(
+        &original.bytes,
+        &session.fields,
+        &session.recipient.name,
+        text("image"),
+        text("initialsImage"),
+        &chrono::Utc::now().to_rfc3339(),
+    )
+    .map_err(|error| ApiError::from(error).with_correlation(correlation_id.clone()))?;
+    vault_document_response(
+        model::VaultMediaBytes {
+            bytes,
+            filename: "signing-preview.pdf".into(),
+            mime_type: "application/pdf".into(),
+        },
+        false,
+    )
+    .map_err(|error| error.with_correlation(correlation_id))
+}
+
 pub(super) async fn signer_open(
     State(state): State<ApiState>,
     headers: HeaderMap,

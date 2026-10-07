@@ -2144,6 +2144,49 @@ async fn a_presigned_listing_agreement_is_sent_by_its_own_anchors_signed_and_sea
         serde_json::json!({ "accessToken": token, "recipientId": recipient }),
     )
     .await;
+    // THE PREVIEW: the signer's own page, drawn as it will be sealed, and only that page.
+    {
+        use test_harness::http::{call, TestRequest};
+        let response = call(
+            &router,
+            TestRequest::post("/v1/signer/preview").json(&serde_json::json!({
+                "accessToken": token, "image": data_url, "initialsImage": data_url,
+            })),
+        )
+        .await;
+        assert_eq!(
+            response.status().as_u16(),
+            200,
+            "{}",
+            String::from_utf8_lossy(response.bytes())
+        );
+        assert_eq!(response.header("content-type"), Some("application/pdf"));
+        assert_eq!(
+            web::vault::signing_overlay::page_count(response.bytes()),
+            Some(1),
+            "only the signature page"
+        );
+        // A bad picture is refused exactly as a signature is.
+        let refused = call(
+            &router,
+            TestRequest::post("/v1/signer/preview").json(&serde_json::json!({
+                "accessToken": token, "image": "data:image/png;base64,bm90IGEgcG5n",
+            })),
+        )
+        .await;
+        assert!(
+            refused.status().as_u16() >= 400 || !refused.is_success(),
+            "a non-PNG preview picture is refused"
+        );
+        // And without a link there is no preview at all.
+        let anonymous = call(
+            &router,
+            TestRequest::post("/v1/signer/preview").json(&serde_json::json!({})),
+        )
+        .await;
+        assert_eq!(anonymous.status().as_u16(), 401);
+    }
+
     let (status, body) = http(&router, "/v1/signer/consent", serde_json::json!({
         "accessToken": token, "recipientId": recipient, "consentVersion": "v1", "consentText": "I agree.", "consentTextSha256": CONSENT_SHA })).await;
     assert!(
