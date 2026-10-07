@@ -16,6 +16,11 @@ pub struct OverlayField {
     /// 0–100, top-left origin, as stored on `signature_field`.
     pub x_percent: f64,
     pub y_percent: f64,
+    /// The box the value belongs in, as a percent of the page. Zero falls back to a text line at the anchor.
+    pub width_percent: f64,
+    pub height_percent: f64,
+    /// A signature is drawn as one: italic serif on a rule, with a caption.
+    pub signature: bool,
     pub text: String,
 }
 
@@ -27,8 +32,8 @@ fn navy() -> &'static str {
 /// Pure apart from parsing: no I/O, no fonts to embed (base-14 Helvetica
 /// lives in every reader), WinAnsi-encoded like the Forms pipeline.
 pub fn overlay_fields(original: &[u8], fields: &[OverlayField]) -> Result<Vec<u8>, String> {
-    let mut document =
-        Document::load_mem(original).map_err(|error| format!("original PDF unreadable: {error}"))?;
+    let mut document = Document::load_mem(original)
+        .map_err(|error| format!("original PDF unreadable: {error}"))?;
     let pages = document.get_pages();
     if pages.is_empty() {
         return Err("original PDF has no pages".into());
@@ -48,29 +53,75 @@ pub fn overlay_fields(original: &[u8], fields: &[OverlayField]) -> Result<Vec<u8
         by_page.entry(field.page_number).or_default().push(index);
     }
 
-
     for (page_number, indices) in &by_page {
         let page_id = pages[&(*page_number as u32)];
         let (width, height) = page_size(&document, page_id)?;
-        let mut operations = String::new();
+        let mut operations: Vec<u8> = Vec::new();
         for index in indices {
             let field = &fields[*index];
             let x = field.x_percent.clamp(0.0, 100.0) / 100.0 * width;
             // Percentage geometry runs top-left; PDF runs bottom-left.
-            let y = (1.0 - field.y_percent.clamp(0.0, 100.0) / 100.0) * height;
-            let text = escape(&field.text);
-            operations.push_str(&format!(
-                "BT /DSF1 11 Tf {} {} {} Td ({}) Tj ET\n",
-                navy(),
-                point(x),
-                point(y),
-                text,
-            ));
+            let top = (1.0 - field.y_percent.clamp(0.0, 100.0) / 100.0) * height;
+            let box_width = field.width_percent.clamp(0.0, 100.0) / 100.0 * width;
+            let box_height = field.height_percent.clamp(0.0, 100.0) / 100.0 * height;
+            let text = encoded(&field.text);
+            if field.signature && box_width > 0.0 && box_height > 0.0 {
+                let bottom = top - box_height;
+                let size = (box_height * 0.6).clamp(12.0, 20.0);
+                // The rule, the name above it, a caption below it.
+                operations.extend_from_slice(
+                    format!(
+                        "{} RG 0.6 w {} {} m {} {} l S\n",
+                        navy(),
+                        point(x),
+                        point(bottom + 3.0),
+                        point(x + box_width),
+                        point(bottom + 3.0),
+                    )
+                    .as_bytes(),
+                );
+                operations.extend_from_slice(
+                    format!(
+                        "BT /DSF2 {} Tf {} rg {} {} Td (",
+                        point(size),
+                        navy(),
+                        point(x + 2.0),
+                        point(bottom + 7.0),
+                    )
+                    .as_bytes(),
+                );
+                operations.extend_from_slice(&crate::vault::pdf::escape_bytes(&text));
+                operations.extend_from_slice(b") Tj ET\n");
+                operations.extend_from_slice(
+                    format!(
+                        "BT /DSF1 6 Tf 0.45 0.5 0.58 rg {} {} Td (Electronically signed) Tj ET\n",
+                        point(x + 2.0),
+                        point(bottom - 4.0),
+                    )
+                    .as_bytes(),
+                );
+            } else {
+                // A value sits on the box's text line (or at the anchor when the box is unknown).
+                let baseline = if box_height > 0.0 {
+                    top - box_height * 0.7
+                } else {
+                    top
+                };
+                operations.extend_from_slice(
+                    format!(
+                        "BT /DSF1 11 Tf {} rg {} {} Td (",
+                        navy(),
+                        point(x),
+                        point(baseline),
+                    )
+                    .as_bytes(),
+                );
+                operations.extend_from_slice(&crate::vault::pdf::escape_bytes(&text));
+                operations.extend_from_slice(b") Tj ET\n");
+            }
         }
-        let stream_id = document.add_object(Object::Stream(Stream::new(
-            dictionary! {},
-            operations.into_bytes(),
-        )));
+        let stream_id =
+            document.add_object(Object::Stream(Stream::new(dictionary! {}, operations)));
         append_content(&mut document, page_id, stream_id)?;
     }
 
@@ -121,7 +172,8 @@ fn append_content(
     // Ensure the page sees Helvetica as /DSF1, merging with whatever the
     // original Resources already carry. Reads happen before any mutation
     // so the borrow checker sees distinct phases.
-    let font_ref = Object::Reference(stream_font_id(document)?);
+    let font_ref = Object::Reference(stream_font_id(document, "Helvetica"));
+    let signature_font_ref = Object::Reference(stream_font_id(document, "Times-Italic"));
     let resources_id = {
         let page = document
             .get_object(page_id)
@@ -169,10 +221,17 @@ fn append_content(
                 .as_dict_mut()
                 .map_err(|_| "font dictionary is not a dictionary".to_string())?
                 .set("DSF1", font_ref);
+            document
+                .get_object_mut(id)
+                .map_err(|_| "font dictionary vanished".to_string())?
+                .as_dict_mut()
+                .map_err(|_| "font dictionary is not a dictionary".to_string())?
+                .set("DSF2", signature_font_ref);
         }
         None => {
             let id = document.add_object(Object::Dictionary(dictionary! {
                 "DSF1" => font_ref,
+                "DSF2" => signature_font_ref,
             }));
             let resources = document
                 .get_object_mut(resources_id)
@@ -215,15 +274,15 @@ fn append_content(
     }
 }
 
-/// The Helvetica object every touched page shares. Created once per call;
+/// A base-14 font object every touched page shares. Created once per call;
 /// unreferenced on pages we never touch, which PDF readers ignore.
-fn stream_font_id(document: &mut Document) -> Result<lopdf::ObjectId, String> {
-    Ok(document.add_object(Object::Dictionary(dictionary! {
+fn stream_font_id(document: &mut Document, base_font: &str) -> lopdf::ObjectId {
+    document.add_object(Object::Dictionary(dictionary! {
         "Type" => "Font",
         "Subtype" => "Type1",
-        "BaseFont" => "Helvetica",
+        "BaseFont" => base_font,
         "Encoding" => "WinAnsiEncoding",
-    })))
+    }))
 }
 
 fn point(value: f64) -> String {
@@ -242,10 +301,6 @@ fn encoded(text: &str) -> Vec<u8> {
         }
     }
     codes
-}
-
-fn escape(text: &str) -> String {
-    String::from_utf8_lossy(&crate::vault::pdf::escape_bytes(&encoded(text))).into_owned()
 }
 
 #[cfg(test)]
@@ -285,6 +340,9 @@ mod tests {
                 page_number: 1,
                 x_percent: 10.0,
                 y_percent: 10.0,
+                width_percent: 38.0,
+                height_percent: 7.0,
+                signature: true,
                 text: "María Rivera".into(),
             }],
         )
@@ -294,6 +352,13 @@ mod tests {
         // Re-parsing proves structural survival, not just a magic prefix.
         let reparsed = Document::load_mem(&out).expect("reparses");
         assert_eq!(reparsed.get_pages().len(), 1);
+        // "í" is 0xED in WinAnsi, which is not UTF-8: it must reach the page as that byte, not as U+FFFD.
+        assert!(
+            out.windows(3).any(|w| w == [b'M', b'a', b'r'])
+                && out.windows(2).any(|w| w == [b'r', 0xED]),
+            "the accented name is drawn byte-exact"
+        );
+        assert!(!out.windows(3).any(|w| w == [0xEF, 0xBF, 0xBD]));
     }
 
     #[test]
@@ -305,6 +370,9 @@ mod tests {
                 page_number: 9,
                 x_percent: 10.0,
                 y_percent: 10.0,
+                width_percent: 0.0,
+                height_percent: 0.0,
+                signature: false,
                 text: "x".into(),
             }],
         )

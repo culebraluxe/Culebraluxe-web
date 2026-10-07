@@ -1573,6 +1573,9 @@ fn seal_overlay(
             page_number: field.page_number,
             x_percent: field.position_x,
             y_percent: field.position_y,
+            width_percent: field.width,
+            height_percent: field.height,
+            signature: field.field_type == "signature",
             text,
         });
     }
