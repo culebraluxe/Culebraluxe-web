@@ -919,6 +919,18 @@ impl DurableCommandHandler for DocumentSignCommand {
                         "recipientId": recipient_id,
                     }),
                 ));
+                // The message is only QUEUED by the service; this event is what hands it to the delivery worker.
+                // Without it a resend (and a reminder) sat in the queue forever.
+                result.emitted_events.push(command_event(
+                    envelope,
+                    crate::email::EMAIL_DELIVERY_ROUTING_KEY,
+                    "email_message",
+                    &message_id,
+                    json!({
+                        "messageId": message_id,
+                        "signatureRequestId": signature_request_id,
+                    }),
+                ));
                 Ok(result)
             }
             DocumentSignCommandKind::Finalize => {
