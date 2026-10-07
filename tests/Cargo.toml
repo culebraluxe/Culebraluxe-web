@@ -13,6 +13,8 @@ publish.workspace = true
 # The legacy TypeScript test estate is NOT a conversion target. There is no Node, no mjs and no shelling out to a
 # runner: `cargo test -p test-harness` is the whole entry point.
 [dependencies]
+# The mail types a delivery test captures (`OutgoingMail`, `MailAttachment`).
+apis = { path = "../middle/apis" }
 async-trait.workspace = true
 axum.workspace = true
 chrono.workspace = true

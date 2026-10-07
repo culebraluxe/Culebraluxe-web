@@ -311,11 +311,21 @@ impl ServiceCatalog {
                 serde_json::json!({"source": "rust"}),
             );
         }
-        let email = Arc::new(EmailService::new(
-            EmailDao::new(db.clone()),
-            email_transport,
+        let vault = Arc::new(VaultService::new(
+            VaultDao::new(db.clone()),
+            crate::vault::artifact::shared(),
             infrastructure.clone(),
         ));
+        let email = Arc::new(
+            EmailService::new(
+                EmailDao::new(db.clone()),
+                email_transport,
+                infrastructure.clone(),
+            )
+            .with_attachment_source(Arc::new(crate::email::VaultAttachmentSource::new(
+                vault.clone(),
+            ))),
+        );
         let signer_codec = match SignerAccessTokenCodec::from_env() {
             Ok(codec) => codec,
             Err(error) => {
@@ -336,11 +346,6 @@ impl ServiceCatalog {
         let signer = Arc::new(SignerService::new(
             SignerDao::new(db.clone()),
             signer_codec,
-            infrastructure.clone(),
-        ));
-        let vault = Arc::new(VaultService::new(
-            VaultDao::new(db.clone()),
-            crate::vault::artifact::shared(),
             infrastructure.clone(),
         ));
         let document_sign = Arc::new(DocumentSignService::new(
