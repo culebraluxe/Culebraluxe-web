@@ -322,9 +322,9 @@ impl ServiceCatalog {
                 email_transport,
                 infrastructure.clone(),
             )
-            .with_attachment_source(Arc::new(crate::email::VaultAttachmentSource::new(
-                vault.clone(),
-            ))),
+            .with_attachment_source(Arc::new(
+                crate::email::VaultAttachmentSource::new(vault.clone()),
+            )),
         );
         let signer_codec = match SignerAccessTokenCodec::from_env() {
             Ok(codec) => codec,

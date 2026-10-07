@@ -189,10 +189,7 @@ impl AuthorizationPort for CasbinAuthorizationPort {
                 && request.action == "documentSign.write")
                 || (request.kind == OperationKind::Query
                     && request.domain == "vault"
-                    && matches!(
-                        request.operation,
-                        "vault.getDocument" | "vault.mediaBytes"
-                    )
+                    && matches!(request.operation, "vault.getDocument" | "vault.mediaBytes")
                     && request.action == "vault.read"));
         let signing_sweeper = system
             && request.actor.id.as_deref()

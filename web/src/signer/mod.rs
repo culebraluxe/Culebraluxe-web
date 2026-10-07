@@ -454,7 +454,10 @@ impl<R: SignerRepository> SignerService<R> {
             let fields = self.repository.fields(&access.recipient_id).await?;
             let consented = self.repository.consent_exists(&access.recipient_id).await?;
             let is_turn = self.repository.is_turn(&access.recipient_id).await?;
-            let context_rows = self.repository.session_context(&access.recipient_id).await?;
+            let context_rows = self
+                .repository
+                .session_context(&access.recipient_id)
+                .await?;
             Ok(SignerSession {
                 signature_request_id: access.signature_request_id,
                 recipient,

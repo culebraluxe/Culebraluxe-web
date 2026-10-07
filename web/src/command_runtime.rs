@@ -11,9 +11,10 @@ use db::{
 };
 use model::{
     AcceptSignerConsentRequest, CompleteSignatureFieldRequest, CompleteSignerRequest,
-    DeclineSignerRequest, ExecuteContractRequest, ImportAnchorFieldsRequest, IssueDocumentSignRequest, OpenSignerRequest,
-    PrepareDocumentSignRequest, PutSignatureFieldRequest, QueueEmailRequest, SendDocumentSignRequest,
-    RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest,
+    DeclineSignerRequest, ExecuteContractRequest, ImportAnchorFieldsRequest,
+    IssueDocumentSignRequest, OpenSignerRequest, PrepareDocumentSignRequest,
+    PutSignatureFieldRequest, QueueEmailRequest, RemoveSignatureFieldRequest,
+    SendDocumentSignRequest, SetDocumentSignRecipientsRequest,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};

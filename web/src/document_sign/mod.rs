@@ -10,14 +10,14 @@ use db::{
     VaultDao,
 };
 use model::{
-    validate_document_sign_recipients, DocumentSignConfig, DocumentSignFinalizeResult,
-    DocumentSignIssueResult, DocumentSignRecipient, DocumentSignSendResult, DocumentSignSnapshot, DocumentSignEnvelopeSummary, DocumentSignSweepResult, EmailMessageKind,
-    ImportAnchorFieldsRequest, ImportAnchorFieldsResult,
-    IssueDocumentSignRequest, PrepareDocumentSignRequest, PrepareSignatureRequest,
-    PreparedSignatureRecipient, PutSignatureFieldRequest, QueueEmailRequest,
-    RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest, SignatureField, SignatureFieldType,
-    SendDocumentSignRequest, SendFieldPlacement, SignatureRecipientRole, SignatureRequestStatus,
-    TemplateAnchor,
+    validate_document_sign_recipients, DocumentSignConfig, DocumentSignEnvelopeSummary,
+    DocumentSignFinalizeResult, DocumentSignIssueResult, DocumentSignRecipient,
+    DocumentSignSendResult, DocumentSignSnapshot, DocumentSignSweepResult, EmailMessageKind,
+    ImportAnchorFieldsRequest, ImportAnchorFieldsResult, IssueDocumentSignRequest,
+    PrepareDocumentSignRequest, PrepareSignatureRequest, PreparedSignatureRecipient,
+    PutSignatureFieldRequest, QueueEmailRequest, RemoveSignatureFieldRequest,
+    SendDocumentSignRequest, SendFieldPlacement, SetDocumentSignRecipientsRequest, SignatureField,
+    SignatureFieldType, SignatureRecipientRole, SignatureRequestStatus, TemplateAnchor,
 };
 use serde_json::{json, Value};
 use services::{
@@ -874,10 +874,7 @@ where
             .repository
             .recipients_tx(tx, &signature_request_id)
             .await?;
-        let fields = self
-            .repository
-            .fields_tx(tx, &signature_request_id)
-            .await?;
+        let fields = self.repository.fields_tx(tx, &signature_request_id).await?;
         Ok(DocumentSignSendResult {
             snapshot: DocumentSignSnapshot {
                 recipients,
@@ -950,9 +947,10 @@ where
                         .repository
                         .fields_tx(tx, &request.signature_request_id)
                         .await?;
-                    if let Some(field) = fields.iter().find(|field| {
-                        field.page_number < 1 || field.page_number as u32 > pages
-                    }) {
+                    if let Some(field) = fields
+                        .iter()
+                        .find(|field| field.page_number < 1 || field.page_number as u32 > pages)
+                    {
                         return Err(CoreServiceError::business(
                             "DOCUMENT_SIGN_FIELD_INVALID",
                             format!(
@@ -1691,7 +1689,15 @@ where
         let result = self
             .finalize_authorized_transactional(tx, signature_request_id, context)
             .await;
-        audit_result(&self.runtime, "document-sign", OP, context, decision, &result).await?;
+        audit_result(
+            &self.runtime,
+            "document-sign",
+            OP,
+            context,
+            decision,
+            &result,
+        )
+        .await?;
         result
     }
 
@@ -1759,13 +1765,12 @@ where
             .map_err(CoreServiceError::from)?
             .and_then(|document| document.media_id)
         {
-            Some(media_id) => {
-                self.vault
-                    .media_bytes(&media_id, context)
-                    .await
-                    .map_err(CoreServiceError::from)?
-                    .map(|media| media.bytes)
-            }
+            Some(media_id) => self
+                .vault
+                .media_bytes(&media_id, context)
+                .await
+                .map_err(CoreServiceError::from)?
+                .map(|media| media.bytes),
             None => None,
         };
         // The sealed copy is drawn first so the certificate can state the fingerprint of both documents: the one that
@@ -1855,12 +1860,7 @@ where
         // Everyone learns the outcome in the same transaction as the status flip: the signers, whoever the sender
         // copied (a listing's broker), and the sender. Each gets the signed document and the certificate attached.
         let notification_message_ids = self
-            .queue_outcome_emails_tx(
-                tx,
-                signature_request_id,
-                &OutcomeNotice::Completed,
-                context,
-            )
+            .queue_outcome_emails_tx(tx, signature_request_id, &OutcomeNotice::Completed, context)
             .await?;
         Ok(DocumentSignFinalizeResult {
             signature_request_id: signature_request_id.to_owned(),
@@ -1892,7 +1892,15 @@ where
         )
         .await?;
         let result = self.sweep_due_authorized_transactional(tx, context).await;
-        audit_result(&self.runtime, "document-sign", OP, context, decision, &result).await?;
+        audit_result(
+            &self.runtime,
+            "document-sign",
+            OP,
+            context,
+            decision,
+            &result,
+        )
+        .await?;
         result
     }
 
@@ -1934,10 +1942,8 @@ where
         // most). A recipient whose link can no longer be read is skipped, not fatal: one bad row must not stop the
         // sweep that expires everyone else.
         let mut reminder_message_ids = Vec::new();
-        for (signature_request_id, recipient_id) in self
-            .repository
-            .reminders_due_tx(tx, MAX_REMINDERS)
-            .await?
+        for (signature_request_id, recipient_id) in
+            self.repository.reminders_due_tx(tx, MAX_REMINDERS).await?
         {
             if let Some(message_id) = self
                 .queue_reminder_tx(tx, &signature_request_id, &recipient_id, context)
@@ -2142,15 +2148,13 @@ fn clean_copy_to(values: &[String]) -> Result<Vec<String>, CoreServiceError> {
         if email.is_empty() {
             continue;
         }
-        let plausible = email
-            .split_once('@')
-            .is_some_and(|(local, domain)| {
-                !local.is_empty()
-                    && domain.contains('.')
-                    && !domain.starts_with('.')
-                    && !domain.ends_with('.')
-                    && !email.contains(char::is_whitespace)
-            });
+        let plausible = email.split_once('@').is_some_and(|(local, domain)| {
+            !local.is_empty()
+                && domain.contains('.')
+                && !domain.starts_with('.')
+                && !domain.ends_with('.')
+                && !email.contains(char::is_whitespace)
+        });
         if !plausible {
             return Err(CoreServiceError::business(
                 "DOCUMENT_SIGN_RECIPIENT_INVALID",
