@@ -54,6 +54,48 @@ pub struct SignerSession {
     pub consented: bool,
     pub is_turn: bool,
     pub expires_at: String,
+    /// The envelope's own status; the sealed copy is offered once it is `completed`.
+    pub envelope_status: String,
+    pub document_title: Option<String>,
+    pub subject: Option<String>,
+    /// The sender's note to the signers.
+    pub message: Option<String>,
+    /// Ids of this recipient's fields that already have an answer.
+    pub answered_field_ids: Vec<String>,
+    /// Everyone on the envelope, in signing order.
+    pub parties: Vec<SignerParty>,
+}
+
+/// One person on the envelope as another signer sees them: a name, a role and how far they are.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SignerParty {
+    pub name: String,
+    pub role: String,
+    pub state: String,
+    pub is_you: bool,
+}
+
+impl SignerSession {
+    /// What the page calls the document: the sender's subject (they wrote it for this signing), else the document's
+    /// own title.
+    pub fn document_name(&self) -> Option<&str> {
+        self.subject
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .or(self.document_title.as_deref())
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+    }
+
+    /// Whether every one of this recipient's required fields already has an answer.
+    pub fn fields_answered(&self) -> bool {
+        self.fields
+            .iter()
+            .filter(|field| field.required)
+            .all(|field| self.answered_field_ids.contains(&field.id))
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
