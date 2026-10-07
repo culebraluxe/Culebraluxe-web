@@ -504,7 +504,10 @@ mod tests {
     async fn known_directory_filters_pass_through() {
         let service = service();
         let page = service
-            .directory(&request(Some("active"), Some("buyer"), "recent"), &context())
+            .directory(
+                &request(Some("active"), Some("buyer"), "recent"),
+                &context(),
+            )
             .await
             .expect("known filters must pass");
         assert_eq!(page.total, 0);

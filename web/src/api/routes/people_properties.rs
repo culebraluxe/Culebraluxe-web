@@ -34,10 +34,7 @@ pub(super) async fn clients(
         // than a silently unfiltered listing.
         let status = query.status.clone();
         let role = query.role.clone();
-        let sort = query
-            .sort
-            .clone()
-            .unwrap_or_else(|| "name".into());
+        let sort = query.sort.clone().unwrap_or_else(|| "name".into());
 
         ClientPageResponse::Directory(
             service

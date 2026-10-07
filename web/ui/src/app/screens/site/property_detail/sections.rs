@@ -309,8 +309,7 @@ pub(super) fn location(record: &PropertyRecord, model: &Model) -> Html {
 /// failed — the panel draws the matching state on the same ground, in the
 /// TypeScript original's words.
 fn map_panel(record: &PropertyRecord, model: &Model) -> Html {
-    let live =
-        model.map_live_for.as_deref() == Some(record.id.as_str()) && !model.map_dead;
+    let live = model.map_live_for.as_deref() == Some(record.id.as_str()) && !model.map_dead;
     let (title, body) = match &model.map_key {
         Remote::Loaded(None) => (
             "Map temporarily unavailable",

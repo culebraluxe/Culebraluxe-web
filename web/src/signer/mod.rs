@@ -586,7 +586,9 @@ impl<R: SignerRepository> SignerService<R> {
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<bool> {
-        self.repository.envelope_ready_tx(tx, signature_request_id).await
+        self.repository
+            .envelope_ready_tx(tx, signature_request_id)
+            .await
     }
 
     pub(crate) async fn finalize_inputs_tx(
@@ -594,7 +596,9 @@ impl<R: SignerRepository> SignerService<R> {
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<FinalizeInputs> {
-        self.repository.finalize_inputs_tx(tx, signature_request_id).await
+        self.repository
+            .finalize_inputs_tx(tx, signature_request_id)
+            .await
     }
 
     pub(crate) async fn append_finalize_evidence_tx(
@@ -1086,7 +1090,8 @@ impl<R: SignerRepository> SignerService<R> {
     pub(crate) async fn current_state(
         &self,
         recipient_id: &str,
-    ) -> Result<SignerRecipientState, CoreServiceError> {        self.repository.state(recipient_id).await?.ok_or_else(|| {
+    ) -> Result<SignerRecipientState, CoreServiceError> {
+        self.repository.state(recipient_id).await?.ok_or_else(|| {
             CoreServiceError::business("SIGNER_ACCESS_INVALID", "Signer state not found.")
         })
     }

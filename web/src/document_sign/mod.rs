@@ -5,15 +5,18 @@ use crate::signer::{SignerRepository, SignerService};
 use crate::vault::{VaultRepository, VaultService};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use db::{DbResult, DbTransaction, DocumentSignDao, EmailDao, FinalizeInputs, SignatureDao, SignerDao, VaultDao};
+use db::{
+    DbResult, DbTransaction, DocumentSignDao, EmailDao, FinalizeInputs, SignatureDao, SignerDao,
+    VaultDao,
+};
 use model::{
-    validate_document_sign_recipients, DocumentSignConfig, DocumentSignFinalizeResult,
-    DocumentSignIssueResult, DocumentSignRecipient, DocumentSignSnapshot, DocumentSignEnvelopeSummary, DocumentSignSweepResult, EmailMessageKind,
-    ImportAnchorFieldsRequest, ImportAnchorFieldsResult,
-    IssueDocumentSignRequest, PrepareDocumentSignRequest, PrepareSignatureRequest,
-    PreparedSignatureRecipient, PutSignatureFieldRequest, QueueEmailRequest,
-    RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest, SignatureField, SignatureFieldType,
-    SignatureRequestStatus, TemplateAnchor,
+    validate_document_sign_recipients, DocumentSignConfig, DocumentSignEnvelopeSummary,
+    DocumentSignFinalizeResult, DocumentSignIssueResult, DocumentSignRecipient,
+    DocumentSignSnapshot, DocumentSignSweepResult, EmailMessageKind, ImportAnchorFieldsRequest,
+    ImportAnchorFieldsResult, IssueDocumentSignRequest, PrepareDocumentSignRequest,
+    PrepareSignatureRequest, PreparedSignatureRecipient, PutSignatureFieldRequest,
+    QueueEmailRequest, RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest,
+    SignatureField, SignatureFieldType, SignatureRequestStatus, TemplateAnchor,
 };
 use serde_json::{json, Value};
 use services::{
@@ -103,10 +106,7 @@ pub trait DocumentSignRepository: Send + Sync {
         mime_type: &str,
         bytes: &[u8],
     ) -> DbResult<String>;
-    async fn overdue_envelopes_tx(
-        &self,
-        tx: &mut DbTransaction,
-    ) -> DbResult<Vec<String>>;
+    async fn overdue_envelopes_tx(&self, tx: &mut DbTransaction) -> DbResult<Vec<String>>;
     /// The canonical status and owning document, read inside the caller's
     /// transaction. Finalize uses this instead of `signature.get` because
     /// the internal context carries no principal and must not depend on
@@ -253,10 +253,7 @@ impl DocumentSignRepository for DocumentSignDao {
     ) -> DbResult<String> {
         DocumentSignDao::store_signed_artifact_tx(self, tx, filename, mime_type, bytes).await
     }
-    async fn overdue_envelopes_tx(
-        &self,
-        tx: &mut DbTransaction,
-    ) -> DbResult<Vec<String>> {
+    async fn overdue_envelopes_tx(&self, tx: &mut DbTransaction) -> DbResult<Vec<String>> {
         DocumentSignDao::overdue_envelopes_tx(self, tx).await
     }
     async fn canonical_status_tx(
@@ -861,7 +858,10 @@ where
         // Completion is announced to every recipient in the same transaction
         // that flips the envelope: SMTP still happens asynchronously through
         // the outbox, so a mail outage cannot undo the signature.
-        let recipients = self.repository.recipients_tx(tx, signature_request_id).await?;
+        let recipients = self
+            .repository
+            .recipients_tx(tx, signature_request_id)
+            .await?;
         for recipient in &recipients {
             self.email
                 .queue_transactional(
@@ -910,7 +910,10 @@ where
         // Everyone except the decliner learns the envelope died; the decliner
         // already knows. Queued here so invitations and outcome share one
         // transaction with the status flip.
-        let recipients = self.repository.recipients_tx(tx, signature_request_id).await?;
+        let recipients = self
+            .repository
+            .recipients_tx(tx, signature_request_id)
+            .await?;
         for recipient in recipients
             .iter()
             .filter(|recipient| recipient.id != decliner_recipient_id)
@@ -1098,12 +1101,7 @@ where
                 )
                 .await?;
             self.signer
-                .mark_notified_transactional(
-                    tx,
-                    recipient_id,
-                    signature_request_id,
-                    &internal,
-                )
+                .mark_notified_transactional(tx, recipient_id, signature_request_id, &internal)
                 .await?;
             Ok(queued.message_id)
         }
@@ -1393,13 +1391,12 @@ where
             .map_err(CoreServiceError::from)?
             .and_then(|document| document.media_id)
         {
-            Some(media_id) => {
-                self.vault
-                    .media_bytes(&media_id, context)
-                    .await
-                    .map_err(CoreServiceError::from)?
-                    .map(|media| media.bytes)
-            }
+            Some(media_id) => self
+                .vault
+                .media_bytes(&media_id, context)
+                .await
+                .map_err(CoreServiceError::from)?
+                .map(|media| media.bytes),
             None => None,
         };
         let signed_media_id = match original {
@@ -1522,9 +1519,9 @@ fn overlay_text(
             .and_then(|at| at.get(..10))
             .map(str::to_owned)
             .or_else(|| {
-                value.as_ref().and_then(|value| {
-                    value.as_str().map(str::to_owned)
-                })
+                value
+                    .as_ref()
+                    .and_then(|value| value.as_str().map(str::to_owned))
             }),
         "checkbox" => match value {
             Some(serde_json::Value::Bool(true)) => Some("X".into()),
@@ -1548,10 +1545,7 @@ fn overlay_text(
 
 /// Seal the original bytes with every answered field, positioned by the
 /// field geometry the template import recorded. Pure apart from parsing.
-fn seal_overlay(
-    inputs: &FinalizeInputs,
-    original: &[u8],
-) -> Result<Vec<u8>, CoreServiceError> {
+fn seal_overlay(inputs: &FinalizeInputs, original: &[u8]) -> Result<Vec<u8>, CoreServiceError> {
     use crate::vault::signing_overlay::{overlay_fields, OverlayField};
     let names: std::collections::BTreeMap<&str, &str> = inputs
         .recipients
@@ -1560,13 +1554,12 @@ fn seal_overlay(
         .collect();
     let mut fields = Vec::new();
     for field in &inputs.fields {
-        let name = names.get(field.recipient_id.as_str()).copied().unwrap_or("");
-        let Some(text) = overlay_text(
-            &field.field_type,
-            &field.value,
-            name,
-            &field.completed_at,
-        ) else {
+        let name = names
+            .get(field.recipient_id.as_str())
+            .copied()
+            .unwrap_or("");
+        let Some(text) = overlay_text(&field.field_type, &field.value, name, &field.completed_at)
+        else {
             continue;
         };
         fields.push(OverlayField {
@@ -1779,7 +1772,11 @@ fn parse_anchor(anchor: &TemplateAnchor, index: usize) -> Result<GroupedAnchor, 
     }
     // PDF points run bottom-left; field percentages run top-left.
     let clamp = |value: f64| value.clamp(0.0, 100.0);
-    let slot = anchor.slot_id.clone().map(|slot| slot.trim().to_owned()).filter(|slot| !slot.is_empty());
+    let slot = anchor
+        .slot_id
+        .clone()
+        .map(|slot| slot.trim().to_owned())
+        .filter(|slot| !slot.is_empty());
     let key = format!(
         "{}-{}-{}-{}-{}",
         slug(&anchor.role),
@@ -1803,7 +1800,9 @@ fn parse_anchor(anchor: &TemplateAnchor, index: usize) -> Result<GroupedAnchor, 
 
 /// Group anchors by (role, slot) in first-seen order — the retired
 /// BoldSign matcher's grouping, minus the provider.
-fn group_anchor_sets(anchors: &[TemplateAnchor]) -> Result<Vec<GroupedAnchorSet>, CoreServiceError> {
+fn group_anchor_sets(
+    anchors: &[TemplateAnchor],
+) -> Result<Vec<GroupedAnchorSet>, CoreServiceError> {
     let mut order: Vec<(String, Option<String>)> = Vec::new();
     let mut parsed = Vec::with_capacity(anchors.len());
     for (index, anchor) in anchors.iter().enumerate() {
@@ -1821,7 +1820,11 @@ fn group_anchor_sets(anchors: &[TemplateAnchor]) -> Result<Vec<GroupedAnchorSet>
                 .filter(|entry| entry.role == role && entry.slot == slot)
                 .cloned()
                 .collect();
-            GroupedAnchorSet { role, slot, anchors: members }
+            GroupedAnchorSet {
+                role,
+                slot,
+                anchors: members,
+            }
         })
         .collect())
 }
@@ -2052,10 +2055,10 @@ where
                 serde_json::to_value(self.fields(&id, context).await.map_err(service_error)?)
                     .map_err(serialization_error)
             }
-            "documentSign.list" => serde_json::to_value(
-                self.list(context).await.map_err(service_error)?,
-            )
-            .map_err(serialization_error),
+            "documentSign.list" => {
+                serde_json::to_value(self.list(context).await.map_err(service_error)?)
+                    .map_err(serialization_error)
+            }
             "documentSign.prepare"
             | "documentSign.setRecipients"
             | "documentSign.putField"
@@ -2179,7 +2182,12 @@ mod anchor_import_tests {
             page_index: 0,
             page_width: 612.0,
             page_height: 792.0,
-            rect: TemplateAnchorRect { x: 72.0, y: 650.0, width: 180.0, height: 20.0 },
+            rect: TemplateAnchorRect {
+                x: 72.0,
+                y: 650.0,
+                width: 180.0,
+                height: 20.0,
+            },
         }
     }
 

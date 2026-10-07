@@ -11,9 +11,10 @@ use db::{
 };
 use model::{
     AcceptSignerConsentRequest, CompleteSignatureFieldRequest, CompleteSignerRequest,
-    DeclineSignerRequest, ExecuteContractRequest, ImportAnchorFieldsRequest, IssueDocumentSignRequest, OpenSignerRequest,
-    PrepareDocumentSignRequest, PutSignatureFieldRequest, QueueEmailRequest,
-    RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest,
+    DeclineSignerRequest, ExecuteContractRequest, ImportAnchorFieldsRequest,
+    IssueDocumentSignRequest, OpenSignerRequest, PrepareDocumentSignRequest,
+    PutSignatureFieldRequest, QueueEmailRequest, RemoveSignatureFieldRequest,
+    SetDocumentSignRecipientsRequest,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
@@ -918,11 +919,7 @@ impl DurableCommandHandler for DocumentSignCommand {
                 Ok(result)
             }
             DocumentSignCommandKind::SweepDue => {
-                let swept = match self
-                    .service
-                    .sweep_due_transactional(tx, context)
-                    .await
-                {
+                let swept = match self.service.sweep_due_transactional(tx, context).await {
                     Ok(value) => value,
                     Err(error) => return core_command_error(envelope, None, error),
                 };
