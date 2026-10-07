@@ -46,3 +46,9 @@ web = { path = "../web" }
 forge = { path = "../forge" }
 # Used by one migrated test for `CancellationToken`-shaped shutdown, never by the harness's own modules.
 tokio-util.workspace = true
+# Used by deploy tests for temp directories and futures executor
+tempfile.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+libc.workspace = true
+tower-http.workspace = true

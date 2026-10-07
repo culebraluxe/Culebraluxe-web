@@ -57,6 +57,10 @@ tokio-util = { version = "0.7", features = ["rt"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 proptest = "1.4"
 unicode-normalization = "0.1"
+tempfile = "3"
+futures = "0.3"
+nix = "0.28"
+libc = "0.2"
 
 # ONE shared target directory, held down. Every worktree builds into /Users/Shared/dev/build/rust (set by
 # `~/.cargo/config.toml`, so it holds for every invocation and not only for shells that inherited an export).
