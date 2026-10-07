@@ -114,6 +114,14 @@ pub enum Cmd<Msg> {
         style: usize,
         reply: Box<dyn FnOnce(Result<SignatureArt, ApiError>) -> Msg>,
     },
+    /// POST `body` as JSON and answer the PDF that comes back as an address the page's viewer can open (a `blob:` URL).
+    /// How the signing page shows the signature page as it will be sealed: the pictures are too large for an address,
+    /// and a frame cannot POST.
+    PreviewPdf {
+        path: String,
+        body: serde_json::Value,
+        reply: Box<dyn FnOnce(Result<String, ApiError>) -> Msg>,
+    },
     /// Read one value from the device's storage; `None` when absent or storage is unavailable.
     StorageRead {
         key: String,
@@ -297,6 +305,18 @@ impl<Msg: 'static> Cmd<Msg> {
         }
     }
 
+    pub fn preview_pdf(
+        path: impl Into<String>,
+        body: serde_json::Value,
+        to_msg: impl FnOnce(Result<String, ApiError>) -> Msg + 'static,
+    ) -> Self {
+        Cmd::PreviewPdf {
+            path: path.into(),
+            body,
+            reply: Box::new(to_msg),
+        }
+    }
+
     pub fn render_signature(
         name: impl Into<String>,
         style: usize,
@@ -424,6 +444,11 @@ impl<Msg: 'static> Cmd<Msg> {
             Cmd::Listen { reply } => Cmd::Listen {
                 reply: Box::new(move |answer| f(reply(answer))),
             },
+            Cmd::PreviewPdf { path, body, reply } => Cmd::PreviewPdf {
+                path,
+                body,
+                reply: Box::new(move |answer| f(reply(answer))),
+            },
             Cmd::RenderSignature { name, style, reply } => Cmd::RenderSignature {
                 name,
                 style,
@@ -486,6 +511,7 @@ impl<Msg> std::fmt::Debug for Cmd<Msg> {
             Cmd::ReplacePath(path) => write!(f, "ReplacePath({path})"),
             Cmd::SharePdf { filename, .. } => write!(f, "SharePdf({filename})"),
             Cmd::Listen { .. } => write!(f, "Listen"),
+            Cmd::PreviewPdf { path, .. } => write!(f, "PreviewPdf({path})"),
             Cmd::RenderSignature { name, style, .. } => {
                 write!(f, "RenderSignature({name}, style {style})")
             }

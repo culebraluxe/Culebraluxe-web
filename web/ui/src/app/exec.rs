@@ -110,6 +110,12 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
         Cmd::Listen { reply } => {
             listen(reply, deliver.clone());
         }
+        Cmd::PreviewPdf { path, body, reply } => {
+            let deliver = deliver.clone();
+            spawn_local(async move {
+                deliver.emit(reply(preview_pdf_url(&path, &body).await));
+            });
+        }
         Cmd::RenderSignature { name, style, reply } => {
             render_signature(name, style, reply, deliver.clone());
         }
@@ -168,6 +174,37 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
             maps::init_map(key, lat, lng, title, container_id, reply, deliver.clone());
         }
     }
+}
+
+/// POST `body`, and turn the PDF that answers into a `blob:` address for the viewer. A refusal comes back as the server's
+/// own words (its envelope), not as a broken frame.
+async fn preview_pdf_url(path: &str, body: &serde_json::Value) -> Result<String, ApiError> {
+    let response = HttpRequest::post(path)
+        .json(body)
+        .map_err(|error| ApiError::network(error.to_string()))?
+        .send()
+        .await
+        .map_err(|error| ApiError::network(error.to_string()))?;
+    if !response.ok() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(interpret(status, false, &text)
+            .err()
+            .unwrap_or_else(|| ApiError::network("The preview could not be drawn.")));
+    }
+    let bytes = response
+        .binary()
+        .await
+        .map_err(|error| ApiError::network(error.to_string()))?;
+    let part = js_sys::Uint8Array::from(bytes.as_slice());
+    let parts = js_sys::Array::new();
+    parts.push(&part);
+    let options = web_sys::BlobPropertyBag::new();
+    options.set_type("application/pdf");
+    let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &options)
+        .map_err(|_| ApiError::network("The browser could not prepare the preview."))?;
+    web_sys::Url::create_object_url_with_blob(&blob)
+        .map_err(|_| ApiError::network("The browser could not open the preview."))
 }
 
 /// Read an endpoint from the shell's own infrastructure (not a screen): the entitlements for a portal visit.
