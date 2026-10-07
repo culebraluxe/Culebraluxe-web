@@ -409,7 +409,7 @@ impl Endpoint for SigningEnvelopeGet {
 pub struct SigningDeskCommand {
     pub command_id: String,
     pub command_type: &'static str,
-    /// `signature_request` for everything after prepare; `transaction_document` for prepare itself.
+    /// `signature_request` for a command on an existing envelope; `transaction_document` for send.
     pub aggregate_type: &'static str,
     pub aggregate_id: String,
     pub requested_at: String,
@@ -435,8 +435,9 @@ impl SigningDeskCommand {
         }
     }
 
-    /// `documentSign.prepare`: the envelope does not exist yet, so the aggregate is the document.
-    pub fn prepare(
+    /// `documentSign.send`: the envelope does not exist yet, so the aggregate is the document. Prepares, places the
+    /// signature fields and issues in one transaction.
+    pub fn send(
         command_id: String,
         transaction_document_id: String,
         requested_at: String,
@@ -444,7 +445,7 @@ impl SigningDeskCommand {
     ) -> Self {
         Self {
             command_id,
-            command_type: "documentSign.prepare",
+            command_type: "documentSign.send",
             aggregate_type: "transaction_document",
             aggregate_id: transaction_document_id,
             requested_at,

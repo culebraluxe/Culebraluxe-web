@@ -11,10 +11,9 @@ use db::{
 };
 use model::{
     AcceptSignerConsentRequest, CompleteSignatureFieldRequest, CompleteSignerRequest,
-    DeclineSignerRequest, ExecuteContractRequest, ImportAnchorFieldsRequest,
-    IssueDocumentSignRequest, OpenSignerRequest, PrepareDocumentSignRequest,
-    PutSignatureFieldRequest, QueueEmailRequest, RemoveSignatureFieldRequest,
-    SetDocumentSignRecipientsRequest,
+    DeclineSignerRequest, ExecuteContractRequest, ImportAnchorFieldsRequest, IssueDocumentSignRequest, OpenSignerRequest,
+    PrepareDocumentSignRequest, PutSignatureFieldRequest, QueueEmailRequest, SendDocumentSignRequest,
+    RemoveSignatureFieldRequest, SetDocumentSignRecipientsRequest,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
@@ -99,6 +98,7 @@ impl CommandDispatcher {
         registry.register(Arc::new(ContractExecuteCommand { service: contract }))?;
         for kind in [
             DocumentSignCommandKind::Prepare,
+            DocumentSignCommandKind::Send,
             DocumentSignCommandKind::SetRecipients,
             DocumentSignCommandKind::PutField,
             DocumentSignCommandKind::RemoveField,
@@ -439,6 +439,7 @@ fn outbox_event(event: &CommandDomainEvent) -> OutboxEventInput {
 #[derive(Debug, Clone, Copy)]
 enum DocumentSignCommandKind {
     Prepare,
+    Send,
     SetRecipients,
     PutField,
     RemoveField,
@@ -454,6 +455,7 @@ impl DocumentSignCommandKind {
     const fn command_type(self) -> &'static str {
         match self {
             Self::Prepare => "documentSign.prepare",
+            Self::Send => "documentSign.send",
             Self::SetRecipients => "documentSign.setRecipients",
             Self::PutField => "documentSign.putField",
             Self::RemoveField => "documentSign.removeField",
@@ -484,7 +486,7 @@ impl DurableCommandHandler for DocumentSignCommand {
 
     fn scheduling_payload(&self, request: &CommandRequest) -> Option<Value> {
         match self.kind {
-            DocumentSignCommandKind::Prepare => request
+            DocumentSignCommandKind::Prepare | DocumentSignCommandKind::Send => request
                 .input
                 .get("transactionDocumentId")
                 .and_then(Value::as_str)
@@ -544,6 +546,55 @@ impl DurableCommandHandler for DocumentSignCommand {
                         "transactionDocumentId": snapshot.signature_request.transaction_document_id,
                     }),
                 ));
+                Ok(result)
+            }
+            DocumentSignCommandKind::Send => {
+                let request: SendDocumentSignRequest = match decode_command_input(envelope) {
+                    Ok(value) => value,
+                    Err(result) => return Ok(result),
+                };
+                if let Some(result) = validate_command_target(
+                    envelope,
+                    "transaction_document",
+                    &request.transaction_document_id,
+                    "DOCUMENT_SIGN_DOCUMENT_MISMATCH",
+                ) {
+                    return Ok(result);
+                }
+                let sent = match self.service.send_transactional(tx, &request, context).await {
+                    Ok(value) => value,
+                    Err(error) => return core_command_error(envelope, None, error),
+                };
+                let signature_request_id = sent.snapshot.signature_request.id.clone();
+                let mut result = CommandResult::success(
+                    envelope.command_id.clone(),
+                    Some(signature_request_id.clone()),
+                    Some(serialize_value(&sent)?),
+                );
+                result.emitted_events.push(command_event(
+                    envelope,
+                    "DOCUMENT_SIGN_ISSUED",
+                    "signature_request",
+                    &signature_request_id,
+                    json!({
+                        "signatureRequestId": signature_request_id,
+                        "transactionDocumentId": request.transaction_document_id,
+                        "expiresAt": sent.issued.expires_at,
+                        "invitationCount": sent.issued.invitation_message_ids.len(),
+                    }),
+                ));
+                for message_id in &sent.issued.invitation_message_ids {
+                    result.emitted_events.push(command_event(
+                        envelope,
+                        crate::email::EMAIL_DELIVERY_ROUTING_KEY,
+                        "email_message",
+                        message_id,
+                        json!({
+                            "messageId": message_id,
+                            "signatureRequestId": signature_request_id,
+                        }),
+                    ));
+                }
                 Ok(result)
             }
             DocumentSignCommandKind::SetRecipients => {

@@ -24,6 +24,14 @@ pub struct OverlayField {
     pub text: String,
 }
 
+/// How many pages a PDF has, or `None` when the bytes are not a readable PDF.
+pub fn page_count(bytes: &[u8]) -> Option<u32> {
+    Document::load_mem(bytes)
+        .ok()
+        .map(|document| document.get_pages().len() as u32)
+        .filter(|count| *count > 0)
+}
+
 fn navy() -> &'static str {
     "0.012 0.059 0.137"
 }
