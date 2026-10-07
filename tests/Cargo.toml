@@ -49,5 +49,8 @@ apis = { path = "../middle/apis" }
 # Test-only, so the harness's own modules never link the Forge runtime — the parse is the same one the deploy path
 # (`forge::engine::deploy::deploy_xml`) and the engine binary use, not a re-declared copy of it.
 forge = { path = "../forge" }
+# Property-based contract tests (PROP.PROPERTY_BASED, TST-PROP-PROPERTY-BASED-001..010): the ProptestHarness
+# strategy runner. Test-only; production crates never depend on it.
+proptest = { workspace = true }
 # Used by one migrated test for `CancellationToken`-shaped shutdown, never by the harness's own modules.
 tokio-util.workspace = true
