@@ -105,6 +105,12 @@ pub struct Entry {
 
 impl Entry {
     /// Whether arriving here, or leaving from here, must load the document rather than move in-app.
+    /// A screen that draws its own whole page, with no site header or footer around it: the signing page, where the
+    /// only things a signer should see are the document and what is asked of them.
+    pub fn chrome_free(&self) -> bool {
+        self.key == "sign-document"
+    }
+
     pub fn needs_document(&self) -> bool {
         matches!(self.kind, Kind::External)
     }

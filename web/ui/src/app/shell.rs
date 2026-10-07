@@ -119,6 +119,9 @@ fn frame_component(props: &MasterProps) -> Html {
             </div>
         },
     };
+    if entry.chrome_free() {
+        return content;
+    }
     frame(entry.area(), entry.surface, content)
 }
 
