@@ -2016,6 +2016,17 @@ fn overlay_text(
     }
 }
 
+/// How a block is drawn: by what it is.
+fn overlay_kind(field_type: &str) -> crate::vault::signing_overlay::OverlayKind {
+    use crate::vault::signing_overlay::OverlayKind;
+    match field_type {
+        "signature" => OverlayKind::Signature,
+        "initials" => OverlayKind::Initials,
+        "date" => OverlayKind::Date,
+        _ => OverlayKind::Text,
+    }
+}
+
 /// What this signer's signature page will look like once they sign, drawn on the original: their own blocks only, with
 /// the picture they chose, their initials and today's date, and nothing but the page(s) those blocks are on. Nothing is
 /// stored: it is the same drawing the seal makes, shown ahead of time so the signer sees exactly what they are signing.
@@ -2024,7 +2035,6 @@ pub fn preview_pdf(
     fields: &[SignatureField],
     recipient_name: &str,
     signature_png: Option<&str>,
-    initials_png: Option<&str>,
     now: &str,
 ) -> Result<Vec<u8>, CoreServiceError> {
     use crate::vault::signing_overlay::{keep_pages, overlay_fields, OverlayField};
@@ -2042,12 +2052,11 @@ pub fn preview_pdf(
         let Some(text) = overlay_text(kind, &None, recipient_name, &completed) else {
             continue;
         };
-        let picture = match kind {
-            "signature" => signature_png,
-            "initials" => initials_png,
-            _ => None,
-        };
+        // Only the signature is a picture (the signer's chosen cursive). Initials and date are typeset exactly as the
+        // brokerage's own are, so every party's marks are the same size and face.
+        let picture = (kind == "signature").then_some(signature_png).flatten();
         drawn.push(OverlayField {
+            kind: overlay_kind(kind),
             page_number: field.page_number,
             x_percent: field.position_x,
             y_percent: field.position_y,
@@ -2100,19 +2109,16 @@ fn seal_overlay(inputs: &FinalizeInputs, original: &[u8]) -> Result<Vec<u8>, Cor
         else {
             continue;
         };
-        // The signer's own picture (cursive or drawn), when they gave one: `image` for a signature, `initialsImage`
-        // for initials. The signing door already proved it is a readable PNG; a picture that still fails here falls
-        // back to the typeset text inside the overlay.
-        let picture_key = match field.field_type.as_str() {
-            "signature" => Some("image"),
-            "initials" => Some("initialsImage"),
-            _ => None,
-        };
+        // The signer's own picture (their chosen cursive), for a signature only. Initials and date are typeset exactly as
+        // the brokerage's are. The signing door already proved the picture is a readable PNG; one that still fails here
+        // falls back to the typeset name inside the overlay.
+        let picture_key = (field.field_type == "signature").then_some("image");
         let image = picture_key
             .and_then(|key| field.value.as_ref().and_then(|value| value.get(key)))
             .and_then(Value::as_str)
             .and_then(decode_data_url_png);
         fields.push(OverlayField {
+            kind: overlay_kind(&field.field_type),
             page_number: field.page_number,
             x_percent: field.position_x,
             y_percent: field.position_y,

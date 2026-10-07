@@ -2150,7 +2150,7 @@ async fn a_presigned_listing_agreement_is_sent_by_its_own_anchors_signed_and_sea
         let response = call(
             &router,
             TestRequest::post("/v1/signer/preview").json(&serde_json::json!({
-                "accessToken": token, "image": data_url, "initialsImage": data_url,
+                "accessToken": token, "image": data_url,
             })),
         )
         .await;
@@ -2219,7 +2219,7 @@ async fn a_presigned_listing_agreement_is_sent_by_its_own_anchors_signed_and_sea
                 serde_json::json!({ "style": 0, "name": "Ada Alvarez", "image": data_url })
             }
             model::SignatureFieldType::Initials => {
-                serde_json::json!({ "style": 0, "name": "Ada Alvarez", "initialsImage": data_url })
+                serde_json::json!({ "style": 0, "name": "Ada Alvarez" })
             }
             _ => serde_json::json!({ "auto": true }),
         };
