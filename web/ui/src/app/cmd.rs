@@ -490,7 +490,13 @@ impl<T> Remote<T> {
 /// A command answered over HTTP is 200 with the verdict INSIDE the body (`value.outcome`). `None` means it
 /// succeeded (or the body carries no verdict); `Some(message)` is what to tell the person.
 pub fn command_refusal(body: &serde_json::Value) -> Option<String> {
-    let result = body.get("value").unwrap_or(body);
+    // The UI executor already unwraps `{ok, value}`, so the body is normally the command result itself, whose own
+    // `value` is the aggregate. Only an un-unwrapped envelope has `outcome` one level down.
+    let result = if body.get("outcome").is_some() {
+        body
+    } else {
+        body.get("value").unwrap_or(body)
+    };
     let outcome = result.get("outcome")?.as_str()?;
     if outcome == "success" {
         return None;
@@ -522,6 +528,10 @@ mod tests {
             Some("That was not accepted (denied).")
         );
         assert_eq!(command_refusal(&serde_json::json!({})), None);
+        // An unwrapped command result carries the aggregate in its own `value`; that must not hide the verdict.
+        let unwrapped =
+            serde_json::json!({"outcome": "rejected", "message": "No", "value": {"x": 1}});
+        assert_eq!(command_refusal(&unwrapped).as_deref(), Some("No"));
     }
 
     #[derive(Debug, PartialEq)]

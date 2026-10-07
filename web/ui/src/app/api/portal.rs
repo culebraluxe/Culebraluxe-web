@@ -409,9 +409,48 @@ impl Endpoint for SigningEnvelopeGet {
 pub struct SigningDeskCommand {
     pub command_id: String,
     pub command_type: &'static str,
-    pub signature_request_id: String,
+    /// `signature_request` for everything after prepare; `transaction_document` for prepare itself.
+    pub aggregate_type: &'static str,
+    pub aggregate_id: String,
     pub requested_at: String,
     pub input: serde_json::Value,
+}
+
+impl SigningDeskCommand {
+    /// A command on an existing envelope.
+    pub fn on_envelope(
+        command_id: String,
+        command_type: &'static str,
+        signature_request_id: String,
+        requested_at: String,
+        input: serde_json::Value,
+    ) -> Self {
+        Self {
+            command_id,
+            command_type,
+            aggregate_type: "signature_request",
+            aggregate_id: signature_request_id,
+            requested_at,
+            input,
+        }
+    }
+
+    /// `documentSign.prepare`: the envelope does not exist yet, so the aggregate is the document.
+    pub fn prepare(
+        command_id: String,
+        transaction_document_id: String,
+        requested_at: String,
+        input: serde_json::Value,
+    ) -> Self {
+        Self {
+            command_id,
+            command_type: "documentSign.prepare",
+            aggregate_type: "transaction_document",
+            aggregate_id: transaction_document_id,
+            requested_at,
+            input,
+        }
+    }
 }
 
 impl Endpoint for SigningDeskCommand {
@@ -422,17 +461,35 @@ impl Endpoint for SigningDeskCommand {
     }
     fn body(&self) -> Option<serde_json::Value> {
         let mut input = self.input.as_object().cloned().unwrap_or_default();
-        input.insert(
-            "signatureRequestId".into(),
-            serde_json::Value::String(self.signature_request_id.clone()),
-        );
+        if self.aggregate_type == "signature_request" {
+            input.insert(
+                "signatureRequestId".into(),
+                serde_json::Value::String(self.aggregate_id.clone()),
+            );
+        } else {
+            input.insert(
+                "transactionDocumentId".into(),
+                serde_json::Value::String(self.aggregate_id.clone()),
+            );
+        }
         Some(serde_json::json!({
             "commandId": self.command_id,
             "commandType": self.command_type,
-            "aggregateType": "signature_request",
-            "aggregateId": self.signature_request_id,
+            "aggregateType": self.aggregate_type,
+            "aggregateId": self.aggregate_id,
             "requestedAt": self.requested_at,
             "input": input,
         }))
+    }
+}
+
+/// The documents the desk can send for signature: the Vault's issued documents (`GET /v1/vault/documents`).
+pub struct SigningDocumentsList;
+
+impl Endpoint for SigningDocumentsList {
+    const METHOD: Method = Method::Get;
+    type Response = Vec<crate::model::SigningDocumentOption>;
+    fn path(&self) -> String {
+        "/v1/vault/documents".into()
     }
 }

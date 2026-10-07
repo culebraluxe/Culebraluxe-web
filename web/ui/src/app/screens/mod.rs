@@ -18,6 +18,7 @@ pub mod security;
 pub mod security_users;
 pub mod seller_strategy;
 pub mod sign_document;
+pub mod signing_compose;
 pub mod sign_in;
 pub mod site;
 pub mod storyboard;
