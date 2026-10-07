@@ -207,7 +207,8 @@ fn expiry_in_days(draft: &Draft) -> Option<String> {
     }
 }
 
-/// One link of the prepare → putField… → issue chain finished; start the next, or end the chain.
+/// The send finished: on success the panel closes and the list re-reads; on a refusal the panel stays, with the
+/// server's words, and nothing was written (the send is one transaction).
 fn compose_stepped(model: &mut Model, result: Result<serde_json::Value, ApiError>) -> Cmd<Msg> {
     let outcome = match result {
         Ok(body) => match command_refusal(&body) {
@@ -216,49 +217,8 @@ fn compose_stepped(model: &mut Model, result: Result<serde_json::Value, ApiError
         },
         Err(error) => Err(error.message),
     };
-    let Some(stage) = model.compose.as_ref().map(|c| c.stage.clone()) else {
-        return Cmd::none();
-    };
-    let body = match outcome {
-        Ok(body) => body,
-        Err(reason) => {
-            if let Some(c) = model.compose.as_mut() {
-                let drafted = !matches!(stage, Stage::Preparing);
-                c.error = Some(if drafted {
-                    format!("{reason} A draft was saved; it is listed and can be voided.")
-                } else {
-                    reason
-                });
-                c.stage = Stage::Idle;
-            }
-            return Cmd::batch(vec![reload_list()]);
-        }
-    };
-    match stage {
-        Stage::Idle => Cmd::none(),
-        Stage::Preparing => {
-            let page = model
-                .compose
-                .as_ref()
-                .and_then(|c| c.draft.signature_page.trim().parse::<i32>().ok())
-                .unwrap_or(1);
-            let snapshot = body.get("value").cloned().unwrap_or_default();
-            match compose::read_prepared(&snapshot, page) {
-                Ok(prepared) => next_link(model, prepared.signature_request_id, prepared.fields),
-                Err(reason) => {
-                    if let Some(c) = model.compose.as_mut() {
-                        c.error = Some(reason);
-                        c.stage = Stage::Idle;
-                    }
-                    reload_list()
-                }
-            }
-        }
-        Stage::Fielding {
-            signature_request_id,
-            remaining,
-        } => next_link(model, signature_request_id, remaining),
-        Stage::Issuing { .. } => {
+    match outcome {
+        Ok(_) => {
             let notice = model
                 .compose
                 .as_ref()
@@ -270,51 +230,14 @@ fn compose_stepped(model: &mut Model, result: Result<serde_json::Value, ApiError
             model.selected_id = None;
             reload_list()
         }
-    }
-}
-
-/// Send the next putField, or issue once every signer has a field.
-fn next_link(
-    model: &mut Model,
-    signature_request_id: String,
-    mut remaining: Vec<serde_json::Value>,
-) -> Cmd<Msg> {
-    if remaining.is_empty() {
-        if let Some(c) = model.compose.as_mut() {
-            c.stage = Stage::Issuing {
-                signature_request_id: signature_request_id.clone(),
-            };
+        Err(reason) => {
+            if let Some(c) = model.compose.as_mut() {
+                c.error = Some(reason);
+                c.stage = Stage::Idle;
+            }
+            Cmd::none()
         }
-        let id = command_id(model, "issue");
-        return Cmd::request(
-            SigningDeskCommand::on_envelope(
-                id,
-                "documentSign.issue",
-                signature_request_id.clone(),
-                now_rfc3339(),
-                compose::issue_input(&signature_request_id),
-            ),
-            Msg::ComposeStepped,
-        );
     }
-    let field = remaining.remove(0);
-    if let Some(c) = model.compose.as_mut() {
-        c.stage = Stage::Fielding {
-            signature_request_id: signature_request_id.clone(),
-            remaining,
-        };
-    }
-    let id = command_id(model, "field");
-    Cmd::request(
-        SigningDeskCommand::on_envelope(
-            id,
-            "documentSign.putField",
-            signature_request_id,
-            now_rfc3339(),
-            field,
-        ),
-        Msg::ComposeStepped,
-    )
 }
 
 /// A command id that is unique across page loads. The dispatcher treats a repeated id as a replay and answers the
@@ -491,12 +414,12 @@ impl Screen for DocumentSigning {
                     return Cmd::none();
                 }
                 c.error = None;
-                c.stage = Stage::Preparing;
-                let input = compose::prepare_input(&c.draft, expiry_in_days(&c.draft));
+                c.stage = Stage::Sending;
+                let input = compose::send_input(&c.draft, expiry_in_days(&c.draft));
                 let document_id = c.draft.document_id.clone();
-                let id = command_id(model, "prepare");
+                let id = command_id(model, "send");
                 Cmd::request(
-                    SigningDeskCommand::prepare(id, document_id, now_rfc3339(), input),
+                    SigningDeskCommand::send(id, document_id, now_rfc3339(), input),
                     Msg::ComposeStepped,
                 )
             }
@@ -679,8 +602,8 @@ fn compose_panel(c: &Compose, link: &Link<Msg>) -> Html {
                     { text_input(link, &draft.expires_in_days, "14", busy, ComposeEdit::Days) }
                 </div>
                 <div>
-                    <label class={LABEL}>{"Signature on page"}</label>
-                    { text_input(link, &draft.signature_page, "1", busy, ComposeEdit::Page) }
+                    <label class={LABEL}>{"Signature on page (blank = last)"}</label>
+                    { text_input(link, &draft.signature_page, "Last page", busy, ComposeEdit::Page) }
                 </div>
             </div>
 
@@ -920,7 +843,7 @@ mod tests {
     }
 
     #[test]
-    fn sending_chains_prepare_then_a_field_per_signer_then_issue() {
+    fn sending_is_one_command_and_closes_the_panel_when_it_succeeds() {
         let ctx = ScreenCtx::default();
         let (mut model, _) = DocumentSigning::init(&ctx);
         DocumentSigning::update(&mut model, Msg::OpenCompose, &ctx);
@@ -943,36 +866,13 @@ mod tests {
         assert!(bad.compose.as_ref().unwrap().error.is_some());
 
         let cmd = DocumentSigning::update(&mut model, Msg::SendCompose, &ctx);
-        assert_eq!(model.compose.as_ref().unwrap().stage, Stage::Preparing);
-        assert_eq!(cmd.into_requests().remove(0).path, "/v1/commands/dispatch");
+        assert_eq!(model.compose.as_ref().unwrap().stage, Stage::Sending);
+        let requests = cmd.into_requests();
+        assert_eq!(requests.len(), 1, "one command, not a chain");
+        assert_eq!(requests[0].path, "/v1/commands/dispatch");
 
-        // prepare answered: one signer without a field → a putField follows.
-        let prepared = serde_json::json!({
-            "outcome": "success",
-            "value": {
-                "signatureRequest": { "id": "req-1" },
-                "recipients": [{ "id": "r1", "role": "signer" }],
-                "fields": [],
-            }
-        });
-        let cmd = DocumentSigning::update(&mut model, Msg::ComposeStepped(Ok(prepared)), &ctx);
-        assert!(matches!(
-            model.compose.as_ref().unwrap().stage,
-            Stage::Fielding { .. }
-        ));
-        assert_eq!(cmd.into_requests().len(), 1);
-
-        // field placed → issue.
-        let ok = serde_json::json!({ "outcome": "success" });
-        let cmd = DocumentSigning::update(&mut model, Msg::ComposeStepped(Ok(ok.clone())), &ctx);
-        assert!(matches!(
-            model.compose.as_ref().unwrap().stage,
-            Stage::Issuing { .. }
-        ));
-        assert_eq!(cmd.into_requests().len(), 1);
-
-        // issued → the panel closes and the list re-reads.
-        DocumentSigning::update(&mut model, Msg::ComposeStepped(Ok(ok)), &ctx);
+        let sent = serde_json::json!({ "outcome": "success", "value": { "issued": {} } });
+        DocumentSigning::update(&mut model, Msg::ComposeStepped(Ok(sent)), &ctx);
         assert!(model.compose.is_none());
         assert!(model
             .notice
@@ -982,24 +882,21 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_step_stops_the_chain_and_says_why() {
+    fn a_refused_send_keeps_the_panel_and_says_why() {
         let ctx = ScreenCtx::default();
         let (mut model, _) = DocumentSigning::init(&ctx);
         model.compose = Some(Compose {
-            stage: Stage::Issuing {
-                signature_request_id: "req-1".into(),
-            },
+            stage: Stage::Sending,
             ..Compose::default()
         });
-        let refused = serde_json::json!({ "outcome": "rejected", "error": { "message": "Every signer needs a field." } });
+        let refused = serde_json::json!({
+            "outcome": "rejected",
+            "error": { "message": "Page 5 does not exist: the document has 3 page(s)." }
+        });
         DocumentSigning::update(&mut model, Msg::ComposeStepped(Ok(refused)), &ctx);
         let compose = model.compose.as_ref().unwrap();
         assert_eq!(compose.stage, Stage::Idle);
-        assert!(compose
-            .error
-            .as_deref()
-            .unwrap()
-            .contains("Every signer needs a field."));
+        assert!(compose.error.as_deref().unwrap().contains("3 page"));
     }
 
     #[test]
