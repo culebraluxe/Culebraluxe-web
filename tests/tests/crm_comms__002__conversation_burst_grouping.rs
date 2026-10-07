@@ -350,7 +350,7 @@ async fn crm_comms_002__conversation_burst_grouping() {
                 let count: i64 = sqlx::query_scalar(
                     "insert into interaction (person_id, channel, event_type, direction, occurred_at, summary)
                      values ($1::uuid, 'imessage', 'imessage', 'inbound', now(), 'rolled back')
-                     returning 1",
+                     returning 1::bigint",
                 )
                 .bind(&probe_person)
                 .fetch_one(&mut *conn)

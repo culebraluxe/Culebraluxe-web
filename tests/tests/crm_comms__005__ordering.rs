@@ -15,8 +15,10 @@
 //!   sound).
 //!
 //! The activity feed and the timeline are separate queries over the same rows; the test asserts
-//! they agree on the head of the ordering, and that `limit` truncates the ORDERED sequence rather
-//! than an arbitrary one.
+//! they agree on this run's rows, and that `limit` truncates the ORDERED sequence — a narrow
+//! feed read is the head of the wide one. (The feed is global, so the truncation is asserted
+//! against the feed's own order rather than this run's fixtures: shared DEV holds other
+//! writers' rows, and the global head is theirs as often as ours.)
 //!
 //! Level: L2 Persistence — the isolated, disposable DEV/Neon target; the harness refuses
 //! PRODUCTION before any socket is opened. Fixture rows live under a uniquely named person and are
@@ -236,8 +238,9 @@ async fn crm_comms_005__ordering() {
     );
 
     // -----------------------------------------------------------------------------------------------------------
-    // 2. THE SECOND READER — the activity feed orders the person's rows the same way, and `limit`
-    //    truncates the ORDERED sequence: the head is the newest event, not an arbitrary one.
+    // 2. THE SECOND READER — the activity feed orders this run's rows the same way as the
+    //    timeline, and `limit` truncates the feed's own ordered sequence (see the header:
+    //    the feed is global, so the head assertion is feed-against-feed).
     // -----------------------------------------------------------------------------------------------------------
     let activity = dao
         .activity(500)
@@ -252,14 +255,47 @@ async fn crm_comms_005__ordering() {
         feed, order,
         "{HARNESS}: the activity feed and the timeline order the person's rows identically"
     );
-    let head = dao
-        .activity(1)
+    let narrow = dao
+        .activity(3)
         .await
         .expect("the limited activity read runs");
+    let narrow_ids: Vec<&str> = narrow
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect();
+    let wide_ids: Vec<&str> = activity
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect();
     assert_eq!(
-        head.first().map(|entry| entry.id.as_str()),
-        order.first().copied(),
-        "{HARNESS}: limit=1 takes the NEWEST entry — the limit truncates the ordered sequence"
+        narrow_ids.len(),
+        3,
+        "{HARNESS}: limit=3 returns exactly three rows — this run alone committed four"
     );
-    assert_eq!(head.len(), 1, "{HARNESS}: limit=1 returns exactly one row");
+    assert_eq!(
+        narrow_ids,
+        wide_ids[..3],
+        "{HARNESS}: limit=3 takes the HEAD of the ordered feed — the limit truncates the ordered sequence"
+    );
+
+    // -----------------------------------------------------------------------------------------------------------
+    // 3. CLEANUP / NO LEFTOVER — the person is deleted (interactions cascade) with a
+    //    zero-leftover assertion, so shared DEV keeps no fixture of this run.
+    // -----------------------------------------------------------------------------------------------------------
+    let removed = harness
+        .cleanup(&marker)
+        .await
+        .expect("the fixture person is removed");
+    assert_eq!(
+        removed, 1,
+        "{HARNESS}: exactly this run's person is removed"
+    );
+    assert_eq!(
+        harness
+            .leftover_count(&marker)
+            .await
+            .expect("the leftover count reads"),
+        0,
+        "{HARNESS}: the proof leaves no person or interaction behind"
+    );
 }
