@@ -74,7 +74,10 @@ fn redirect_uri(headers: &HeaderMap) -> String {
 ///
 /// `\` is refused as well as `//`: every browser reads `/\evil.example` as `//evil.example` when it follows
 /// the `Location` header, so a backslash after the leading `/` is an off-site redirect.
-fn safe_next(next: Option<&str>) -> String {
+///
+/// Public as the smallest honest seam for the PROP.PROPERTY_BASED contract test
+/// (`TST-PROP-PROPERTY-BASED-006`): the harness exercises this exact filter, not a copy of it.
+pub fn safe_next(next: Option<&str>) -> String {
     next.filter(|path| path.starts_with('/') && !path.starts_with("//") && !path.starts_with("/\\"))
         .unwrap_or("/portal/dashboard")
         .to_owned()
@@ -226,7 +229,10 @@ async fn callback(
     response
 }
 
-fn percent_decode(text: &str) -> String {
+/// Percent-decoding for the `next` cookie value. Public as the smallest honest seam
+/// for the PROP.PROPERTY_BASED contract test (`TST-PROP-PROPERTY-BASED-006`): the
+/// callback decodes BEFORE it filters, and the harness pins that order here.
+pub fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;

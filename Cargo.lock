@@ -3097,6 +3097,7 @@ dependencies = [
  "db",
  "forge",
  "model",
+ "proptest",
  "serde",
  "serde_json",
  "services",
