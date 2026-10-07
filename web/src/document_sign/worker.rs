@@ -80,6 +80,13 @@ async fn run(
     Err(format!("{code}: {message}"))
 }
 
+/// The command's own refusals that no retry can change.
+fn is_permanent(error: &str) -> bool {
+    ["DOCUMENT_SIGN_NOT_FOUND", "DOCUMENT_SIGN_NOT_MUTABLE"]
+        .iter()
+        .any(|code| error.starts_with(code))
+}
+
 pub struct DocumentSignFinalizeSubscriber {
     commands: CommandDispatcher,
     registry: Arc<ServiceRegistry>,
@@ -138,9 +145,20 @@ impl MqSubscriber for DocumentSignFinalizeSubscriber {
                 .unwrap_or_else(|| delivery.event_id.clone()),
             Some(delivery.event_id.clone()),
         );
-        run(&self.commands, &self.registry, request, context)
-            .await
-            .map_err(MqSubscriberError::new)
+        match run(&self.commands, &self.registry, request, context).await {
+            Ok(()) => Ok(()),
+            // An envelope that no longer exists, or is not in a state that can be sealed (voided, expired, declined),
+            // will never become sealable: retrying five times only fills the log. Acknowledge it and say so.
+            Err(error) if is_permanent(&error) => {
+                tracing::warn!(
+                    target: "culebraluxe::document_sign",
+                    %signature_request_id, %error,
+                    "not finalizing: this envelope cannot be sealed, so the event is acknowledged"
+                );
+                Ok(())
+            }
+            Err(error) => Err(MqSubscriberError::new(error)),
+        }
     }
 }
 
@@ -191,6 +209,18 @@ mod tests {
             producer.contains(&format!("\"{READY_TO_FINALIZE_ROUTING_KEY}\"")),
             "command_runtime must emit {READY_TO_FINALIZE_ROUTING_KEY}"
         );
+    }
+
+    #[test]
+    fn a_refusal_no_retry_can_change_is_acknowledged_and_a_transient_one_is_not() {
+        assert!(is_permanent(
+            "DOCUMENT_SIGN_NOT_FOUND: Canonical signature request not found."
+        ));
+        assert!(is_permanent(
+            "DOCUMENT_SIGN_NOT_MUTABLE: Only a signed envelope can be finalized."
+        ));
+        assert!(!is_permanent("DATABASE: connection reset"));
+        assert!(!is_permanent("EMAIL_DELIVERY_FAILED: timeout"));
     }
 
     #[test]

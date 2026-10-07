@@ -244,12 +244,15 @@ pub fn render_metadata(rendered: &RenderedForm) -> serde_json::Value {
             })
         })
         .collect();
+    // The full evidence, in the shape `parse_applied_signature_slot_ids` proves it from: provenance plus where it landed.
+    let applied = serde_json::to_value(&rendered.applied_evidence).unwrap_or_else(|_| json!([]));
     json!({
         "pageCount": rendered.page_count,
         "pageSize": { "width": 612, "height": 792 },
         "coordinateSpace": COORDINATE_SPACE,
         "signatureAnchors": anchors,
-        "appliedSignatures": [],
+        // What the issuer already signed into the PDF. The signing step reads this to leave those blocks alone.
+        "appliedSignatures": applied,
     })
 }
 

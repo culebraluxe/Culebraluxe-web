@@ -1973,22 +1973,24 @@ fn overlay_text(
     match field_type {
         "signature" => Some(recipient_name.to_owned()),
         "initials" => {
-            let marks: String = recipient_name
-                .split_whitespace()
-                .filter_map(|part| part.chars().next())
-                .take(2)
-                .collect::<String>()
-                .to_uppercase();
-            if marks.is_empty() {
+            // The brokerage's own rule (first letter, then the last name's), so a seller's initials read like Lisa's.
+            let marks = model::forms_applied_signature::format_broker_initials(recipient_name);
+            if marks.trim().is_empty() {
                 None
             } else {
                 Some(marks)
             }
         }
+        // The day they signed, written the way the brokerage writes it ("October 7, 2026", Puerto Rico's own day).
         "date" => completed_at
             .as_deref()
-            .and_then(|at| at.get(..10))
-            .map(str::to_owned)
+            .and_then(|at| model::forms_applied_signature::format_broker_signature_date(at).ok())
+            .or_else(|| {
+                completed_at
+                    .as_deref()
+                    .and_then(|at| at.get(..10))
+                    .map(str::to_owned)
+            })
             .or_else(|| {
                 value
                     .as_ref()
@@ -2014,6 +2016,15 @@ fn overlay_text(
     }
 }
 
+/// The bytes of a `data:image/png;base64,…` picture, or `None` when it is anything else.
+pub(crate) fn decode_data_url_png(value: &str) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    let payload = value.trim().strip_prefix("data:image/png;base64,")?;
+    base64::engine::general_purpose::STANDARD
+        .decode(payload)
+        .ok()
+}
+
 /// Seal the original bytes with every answered field, positioned by the
 /// field geometry the template import recorded. Pure apart from parsing.
 fn seal_overlay(inputs: &FinalizeInputs, original: &[u8]) -> Result<Vec<u8>, CoreServiceError> {
@@ -2033,6 +2044,18 @@ fn seal_overlay(inputs: &FinalizeInputs, original: &[u8]) -> Result<Vec<u8>, Cor
         else {
             continue;
         };
+        // The signer's own picture (cursive or drawn), when they gave one: `image` for a signature, `initialsImage`
+        // for initials. The signing door already proved it is a readable PNG; a picture that still fails here falls
+        // back to the typeset text inside the overlay.
+        let picture_key = match field.field_type.as_str() {
+            "signature" => Some("image"),
+            "initials" => Some("initialsImage"),
+            _ => None,
+        };
+        let image = picture_key
+            .and_then(|key| field.value.as_ref().and_then(|value| value.get(key)))
+            .and_then(Value::as_str)
+            .and_then(decode_data_url_png);
         fields.push(OverlayField {
             page_number: field.page_number,
             x_percent: field.position_x,
@@ -2053,6 +2076,9 @@ fn seal_overlay(inputs: &FinalizeInputs, original: &[u8]) -> Result<Vec<u8>, Cor
                 .and_then(|at| at.get(..10))
                 .map(|day| format!("Electronically signed {day}")),
             text,
+            image,
+            // A block the template placed prints its own line; one placed by default (`signature-<recipient>`) does not.
+            ruled: field.field_key.starts_with("signature-"),
         });
     }
     overlay_fields(original, &fields).map_err(|error| {
@@ -2284,7 +2310,8 @@ fn parse_anchor(anchor: &TemplateAnchor, index: usize) -> Result<GroupedAnchor, 
     }
     let kind = match anchor.kind.as_str() {
         "signature" => SignatureFieldType::Signature,
-        "initials" => SignatureFieldType::Initials,
+        // Forms names it `initial`; the field type says `initials`. Both are the same block.
+        "initials" | "initial" => SignatureFieldType::Initials,
         "date" => SignatureFieldType::Date,
         other => return Err(invalid(&format!("unknown kind {other}"))),
     };

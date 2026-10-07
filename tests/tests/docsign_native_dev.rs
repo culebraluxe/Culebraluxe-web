@@ -1940,3 +1940,294 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
         .await
         .unwrap();
 }
+
+/// The broker's standing pre-signature, in the shape issuance resolves it. The picture is a stand-in (the brand mark).
+fn lisa_presignature() -> model::forms_applied_signature::FormAppliedSignature {
+    use model::forms_applied_signature::{
+        AppliedSignatureImageMimeType, FormAppliedSignature, BROKER_SIGNATURE_CONSENT_BASIS,
+        BROKER_SIGNATURE_DATE_SEMANTIC,
+    };
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/brand/CLLOGO.png");
+    FormAppliedSignature {
+        role: "SELLER_BROKER".into(),
+        slot_id: None,
+        signer_name: "Lisa Penfield".into(),
+        credential_line: "Real Estate Broker License #: C-9931".into(),
+        signer_app_user_id: "user-1".into(),
+        image_bytes: std::fs::read(path).expect("the brand mark is in the repository"),
+        image_mime_type: AppliedSignatureImageMimeType::Png,
+        asset_media_id: "media-1".into(),
+        asset_checksum_sha256: "a".repeat(64),
+        applied_at: "2026-10-07T13:30:00Z".into(),
+        consent_basis: BROKER_SIGNATURE_CONSENT_BASIS.into(),
+        date_semantic: BROKER_SIGNATURE_DATE_SEMANTIC.into(),
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL_DEV"]
+async fn a_presigned_listing_agreement_is_sent_by_its_own_anchors_signed_and_sealed_with_pictures()
+{
+    use base64::Engine as _;
+    use model::{
+        forms::FormSignerPerson, DocumentSigningMode, SendDocumentSignRequest, SendFieldPlacement,
+        VaultRenderRequest,
+    };
+    let db = Database::connect_target(DbTarget::Dev).await.unwrap();
+    let tag = format!("anchors-{}", Uuid::new_v4());
+    sweep_tag(&db, &tag).await;
+
+    // A real Listing Agreement, rendered by the Forms pipeline with Lisa's pre-signature drawn in.
+    let participants = vec![
+        FormSignerPerson {
+            person_id: None,
+            name: "Ada Alvarez".into(),
+            email: None,
+            role: "SELLER".into(),
+            slot_id: None,
+        },
+        FormSignerPerson {
+            person_id: None,
+            name: "Lisa Penfield".into(),
+            email: None,
+            role: "SELLER_BROKER".into(),
+            slot_id: None,
+        },
+    ];
+    let artifact = web::vault::artifact::shared()
+        .render_issued_document(VaultRenderRequest {
+            form_instance_id: "form-1".into(),
+            contract_id: None,
+            template_id: "LISTING-01".into(),
+            template_version: 4,
+            field_values: [
+                ("sellerName", "Ada Alvarez"),
+                ("brokerName", "Lisa Penfield"),
+                ("property", "Casa Luar"),
+                ("propertyLocation", "Culebra, Puerto Rico"),
+                ("listPrice", "1250000"),
+                ("startDate", "2026-10-15"),
+                ("endDate", "2027-10-15"),
+                ("listingType", "Exclusive Right to Sell"),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+            sections: Default::default(),
+            issued_version: 1,
+            participants,
+            actor_app_user_id: None,
+            issued_at: Some("2026-10-07T13:30:00Z".into()),
+            applied_signatures: vec![lisa_presignature()],
+        })
+        .await
+        .expect("the agreement renders");
+    if let Ok(dir) = std::env::var("DUMP_DIR") {
+        std::fs::write(format!("{dir}/anchors_original.pdf"), &artifact.bytes).unwrap();
+    }
+    let metadata = artifact.render_metadata.clone();
+    assert_eq!(
+        metadata["appliedSignatures"].as_array().unwrap().len(),
+        1,
+        "Lisa's signature is recorded as applied"
+    );
+
+    let deal: String = sqlx::query_scalar("select id::text from deal limit 1")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    let document: String = sqlx::query_scalar(
+        "insert into transaction_document (deal_id, document_type, title, state, source, source_snapshot, \
+             issued_checksum_sha256, template_id, template_version, issued_version, form_instance_id) \
+         values ($1::uuid, 'agreement', $2, 'draft', 'generated', $3::jsonb, repeat('a', 64), 'LISTING-01', 4, \
+                 (floor(random() * 1000000) + 1000)::int, (select id from document_form_instance limit 1)) \
+         returning id::text",
+    )
+    .bind(&deal)
+    .bind(format!("docsign proof {tag}"))
+    .bind(serde_json::json!({ "render": metadata, "templateId": "LISTING-01" }))
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    attach_original(&db, &tag, &artifact.bytes).await;
+
+    let operator: String = sqlx::query_scalar("insert into app_user (display_name, email) values ('Docsign Proof Operator', $1) returning id::text")
+        .bind(format!("{tag}-operator@example.test")).fetch_one(db.pool()).await.unwrap();
+    let mut ctx = context(&tag);
+    {
+        let principal = ctx.principal.as_mut().unwrap();
+        principal.app_user_id = operator.clone();
+        principal.level = "BUSINESS_POWER_USER".into();
+        principal.role_codes = vec!["owner".into()];
+    }
+    let infrastructure = web::service_bootstrap::production_service_infrastructure(&db)
+        .await
+        .unwrap();
+    let catalog = web::composition::ServiceCatalog::new(db.clone(), infrastructure.clone());
+    let service = catalog.document_sign();
+    let router = web::api::build_router(
+        db.clone(),
+        infrastructure,
+        web::api::ApiConfig {
+            internal_api_key: Arc::from(HTTP_KEY),
+        },
+    );
+
+    // Send by the form's own anchors: ONE seller recipient claims the SELLER block; Lisa's block is already signed.
+    let ada = format!("{tag}-ada@example.test");
+    let mut tx = db.begin("anchors").await.unwrap();
+    let sent = service
+        .send_transactional(
+            &mut tx,
+            &SendDocumentSignRequest {
+                transaction_document_id: document.clone(),
+                recipients: vec![person("Ada Alvarez", &ada, 1)],
+                subject: Some("Listing Agreement".into()),
+                message: None,
+                signing_mode: DocumentSigningMode::Parallel,
+                expires_at: None,
+                placement: SendFieldPlacement::Template,
+                copy_to: vec![],
+                reminder_every_days: Some(0),
+            },
+            &ctx,
+        )
+        .await
+        .expect("send by anchors");
+    tx.commit().await.unwrap();
+    let kinds: std::collections::BTreeSet<_> = sent
+        .snapshot
+        .fields
+        .iter()
+        .map(|f| f.field_type.as_str())
+        .collect();
+    assert_eq!(
+        kinds,
+        ["date", "initials", "signature"].into_iter().collect(),
+        "the seller's three blocks, and none for Lisa"
+    );
+    assert!(
+        sent.snapshot.fields.iter().all(|f| f.page_number == 5),
+        "on the page the template put them"
+    );
+
+    // Ada signs once; her picture is the one she saw.
+    let picture = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../public/images/culebraluxe-email-logo.png"),
+    )
+    .unwrap();
+    let data_url = format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&picture)
+    );
+    let token = token_for(&db, &ada).await;
+    let (_, session) = http(
+        &router,
+        "/v1/signer/session",
+        serde_json::json!({ "accessToken": token }),
+    )
+    .await;
+    let recipient = session["value"]["recipient"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    http(
+        &router,
+        "/v1/signer/open",
+        serde_json::json!({ "accessToken": token, "recipientId": recipient }),
+    )
+    .await;
+    let (status, body) = http(&router, "/v1/signer/consent", serde_json::json!({
+        "accessToken": token, "recipientId": recipient, "consentVersion": "v1", "consentText": "I agree.", "consentTextSha256": CONSENT_SHA })).await;
+    assert!(
+        status == 200 && outcome(&body) == "success",
+        "consent {body}"
+    );
+    // A picture that is not a PNG is refused at the door.
+    let bad = sent
+        .snapshot
+        .fields
+        .iter()
+        .find(|f| f.field_type == model::SignatureFieldType::Signature)
+        .unwrap();
+    let (_, refused) = http(
+        &router,
+        "/v1/signer/field",
+        serde_json::json!({
+        "accessToken": token, "recipientId": recipient, "fieldId": bad.id,
+        "value": { "style": 0, "name": "Ada", "image": "data:image/png;base64,bm90IGEgcG5n" } }),
+    )
+    .await;
+    assert_ne!(
+        outcome(&refused),
+        "success",
+        "a non-PNG signature picture is refused: {refused}"
+    );
+    for field in &sent.snapshot.fields {
+        let value = match field.field_type {
+            model::SignatureFieldType::Signature => {
+                serde_json::json!({ "style": 0, "name": "Ada Alvarez", "image": data_url })
+            }
+            model::SignatureFieldType::Initials => {
+                serde_json::json!({ "style": 0, "name": "Ada Alvarez", "initialsImage": data_url })
+            }
+            _ => serde_json::json!({ "auto": true }),
+        };
+        let (status, body) = http(
+            &router,
+            "/v1/signer/field",
+            serde_json::json!({
+            "accessToken": token, "recipientId": recipient, "fieldId": field.id, "value": value }),
+        )
+        .await;
+        assert!(
+            status == 200 && outcome(&body) == "success",
+            "field {:?}: {body}",
+            field.field_type
+        );
+    }
+    let (status, body) = http(
+        &router,
+        "/v1/signer/complete",
+        serde_json::json!({ "accessToken": token, "recipientId": recipient }),
+    )
+    .await;
+    assert!(
+        status == 200 && outcome(&body) == "success",
+        "complete {body}"
+    );
+
+    let mut tx = db.begin("anchors").await.unwrap();
+    let done = service
+        .finalize_transactional(&mut tx, &sent.snapshot.signature_request.id, &ctx)
+        .await
+        .expect("finalize");
+    tx.commit().await.unwrap();
+    let signed = done.signed_media_id.expect("sealed");
+    let sealed: Vec<u8> = sqlx::query_scalar("select file_data from media where id = $1::uuid")
+        .bind(&signed)
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    if let Ok(dir) = std::env::var("DUMP_DIR") {
+        std::fs::write(format!("{dir}/anchors_sealed.pdf"), &sealed).unwrap();
+        let cert: Vec<u8> = sqlx::query_scalar("select file_data from media where id = $1::uuid")
+            .bind(done.audit_media_id.as_ref().unwrap())
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        std::fs::write(format!("{dir}/anchors_cert.pdf"), &cert).unwrap();
+    }
+    assert!(
+        sealed.len() > artifact.bytes.len(),
+        "the seal added the signer's pictures"
+    );
+
+    sweep_tag(&db, &tag).await;
+    sqlx::query("delete from app_user where id = $1::uuid")
+        .bind(&operator)
+        .execute(db.pool())
+        .await
+        .unwrap();
+}
