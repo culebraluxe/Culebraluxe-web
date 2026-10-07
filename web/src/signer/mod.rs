@@ -161,6 +161,7 @@ pub trait SignerRepository: Send + Sync {
     async fn fields(&self, recipient_id: &str) -> DbResult<Vec<SignatureField>>;
     async fn consent_exists(&self, recipient_id: &str) -> DbResult<bool>;
     async fn is_turn(&self, recipient_id: &str) -> DbResult<bool>;
+    async fn session_context(&self, recipient_id: &str) -> DbResult<model::SignerSessionContext>;
     async fn issue_access_tx(
         &self,
         tx: &mut DbTransaction,
@@ -259,6 +260,9 @@ impl SignerRepository for SignerDao {
     }
     async fn is_turn(&self, recipient_id: &str) -> DbResult<bool> {
         SignerDao::is_turn(self, recipient_id).await
+    }
+    async fn session_context(&self, recipient_id: &str) -> DbResult<model::SignerSessionContext> {
+        SignerDao::session_context(self, recipient_id).await
     }
     async fn issue_access_tx(
         &self,
@@ -450,6 +454,7 @@ impl<R: SignerRepository> SignerService<R> {
             let fields = self.repository.fields(&access.recipient_id).await?;
             let consented = self.repository.consent_exists(&access.recipient_id).await?;
             let is_turn = self.repository.is_turn(&access.recipient_id).await?;
+            let context_rows = self.repository.session_context(&access.recipient_id).await?;
             Ok(SignerSession {
                 signature_request_id: access.signature_request_id,
                 recipient,
@@ -458,6 +463,12 @@ impl<R: SignerRepository> SignerService<R> {
                 consented,
                 is_turn,
                 expires_at: access.expires_at.to_rfc3339(),
+                envelope_status: context_rows.envelope_status,
+                document_title: context_rows.document_title,
+                subject: context_rows.subject,
+                message: context_rows.message,
+                answered_field_ids: context_rows.answered_field_ids,
+                parties: context_rows.parties,
             })
         }
         .await;
@@ -703,7 +714,7 @@ impl<R: SignerRepository> SignerService<R> {
                         context.actor.id.as_deref(),
                         Some(&context.correlation_id),
                         context.causation_id.as_deref(),
-                        &json!({}),
+                        &json!({ "ipAddress": request.ip_address, "userAgent": request.user_agent }),
                     )
                     .await?;
             }
@@ -776,6 +787,8 @@ impl<R: SignerRepository> SignerService<R> {
                         Some(&context.correlation_id),
                         context.causation_id.as_deref(),
                         &json!({
+                            "ipAddress": request.ip_address,
+                            "userAgent": request.user_agent,
                             "consentVersion": request.consent_version,
                             "consentTextSha256": request.consent_text_sha256,
                         }),
@@ -853,7 +866,7 @@ impl<R: SignerRepository> SignerService<R> {
                     context.actor.id.as_deref(),
                     Some(&context.correlation_id),
                     context.causation_id.as_deref(),
-                    &json!({ "fieldId": request.field_id }),
+                    &json!({ "fieldId": request.field_id, "ipAddress": request.ip_address, "userAgent": request.user_agent }),
                 )
                 .await?;
             Ok(SignerActionResult {
@@ -948,7 +961,7 @@ impl<R: SignerRepository> SignerService<R> {
                     context.actor.id.as_deref(),
                     Some(&context.correlation_id),
                     context.causation_id.as_deref(),
-                    &json!({}),
+                    &json!({ "ipAddress": request.ip_address, "userAgent": request.user_agent }),
                 )
                 .await?;
             let ready = self
@@ -1006,7 +1019,7 @@ impl<R: SignerRepository> SignerService<R> {
                     context.actor.id.as_deref(),
                     Some(&context.correlation_id),
                     context.causation_id.as_deref(),
-                    &json!({ "reason": request.reason }),
+                    &json!({ "reason": request.reason, "ipAddress": request.ip_address, "userAgent": request.user_agent }),
                 )
                 .await?;
             Ok(SignerActionResult {

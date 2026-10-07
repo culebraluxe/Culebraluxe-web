@@ -41,7 +41,7 @@ use test_harness::source;
 ///
 /// The set is pinned so a new byte reader is a deliberate entry here rather than a new way to reach a file, and so a
 /// reader that disappears is noticed.
-const MEDIA_BYTE_READERS: [&str; 7] = [
+const MEDIA_BYTE_READERS: [&str; 9] = [
     "db/src/broker_signature.rs load_protected_asset",
     "db/src/media/media_row.rs media_bytes",
     "db/src/media/media_row.rs original_bytes",
@@ -50,6 +50,10 @@ const MEDIA_BYTE_READERS: [&str; 7] = [
     "db/src/vault/database.rs public_listing_document_bytes",
     // The e-signature door (2026-10-06): a signer is shown the document they are asked to sign.
     "db/src/vault/database.rs signing_document_bytes",
+    // The signed copy a recipient may keep once the envelope is completed, and the files a completion email attaches
+    // (2026-10-07). Each has its own SQL proof of `completed`; see SIGNED_COPY_GUARDS.
+    "db/src/vault/database.rs signing_signed_bytes",
+    "db/src/vault/database.rs completion_artifacts",
 ];
 
 /// The byte readers that do **not** restrict `media_type`: the debt that lets a document's bytes out of a door that is
@@ -64,12 +68,30 @@ const TYPE_UNRESTRICTED_READERS: [&str; 3] = [
 /// Every service method in `web/src` whose return type is a file's bytes, as
 /// `path function resource action`. A door with no `authorize` call cannot appear here at all: the scanner reports an
 /// empty action, which fails the comparison.
-const BYTE_DOORS: [&str; 5] = [
+const BYTE_DOORS: [&str; 7] = [
     "web/src/media/media_bytes.rs media_bytes media property.read",
     "web/src/public_listings.rs media_bytes property property.public.read",
     "web/src/vault/mod.rs media_bytes vault vault.read",
     "web/src/vault/mod.rs public_listing_document_bytes vault vault.publicListingDocument.read",
     "web/src/vault/mod.rs signing_document_bytes vault vault.signingDocument.read",
+    "web/src/vault/mod.rs signing_signed_bytes vault vault.signingDocument.read",
+    "web/src/vault/mod.rs completion_artifacts vault vault.completionArtifacts.read",
+];
+
+/// The clauses the SIGNED-COPY door and the COMPLETION-ARTIFACTS reader must keep: only a `completed` envelope has a
+/// sealed copy, the sealed copy is the request's own document's `signed_media_id`, and (for the recipient's door) the
+/// recipient must belong to that envelope.
+const SIGNED_COPY_GUARDS: [&str; 5] = [
+    "sr.status = 'completed'",
+    "td.id = sr.transaction_document_id",
+    "m.file_data is not null",
+    "sr.id = $1::uuid",
+    "r.id = $2::uuid",
+];
+const COMPLETION_ARTIFACT_GUARDS: [&str; 3] = [
+    "sr.status = 'completed'",
+    "td.id = sr.transaction_document_id",
+    "sr.id = $1::uuid",
 ];
 
 /// The clauses the SIGNING door must keep. It answers a person who holds only an emailed link, so its SQL is the whole
@@ -310,7 +332,9 @@ fn authorized_pair(body: &str) -> (String, String) {
 fn is_byte_return(code: &str) -> bool {
     let trimmed = code.trim();
     trimmed.starts_with(')')
-        && trimmed.contains("-> Result<Option<")
+        // One file (`Option<…>`), or several (`Vec<VaultMediaBytes>`, the completion email's two attachments): a door
+        // that hands out a LIST of files is still a door.
+        && (trimmed.contains("-> Result<Option<") || trimmed.contains("-> Result<Vec<VaultMediaBytes>"))
         && (trimmed.contains("Vec<u8>") || trimmed.contains("VaultMediaBytes"))
 }
 
@@ -469,8 +493,9 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
         .collect();
     assert_eq!(
         vault_readers.len(),
-        3,
-        "the Vault owns exactly three byte readers (the private, the anonymous and the signer's)"
+        5,
+        "the Vault owns exactly five byte readers (the private, the anonymous, the signer's document, the signer's \
+         sealed copy and the completion email's files)"
     );
     for reader in &vault_readers {
         assert!(
@@ -512,6 +537,23 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
             "the signing Vault door must keep its guard `{guard}`: without it an emailed link could open a document that is \
              not the signer's to read"
         );
+    }
+
+    for (function, guards) in [
+        ("signing_signed_bytes", &SIGNED_COPY_GUARDS[..]),
+        ("completion_artifacts", &COMPLETION_ARTIFACT_GUARDS[..]),
+    ] {
+        let reader = vault_readers
+            .iter()
+            .find(|reader| reader.function == function)
+            .unwrap_or_else(|| panic!("{function} is pinned in MEDIA_BYTE_READERS"));
+        for guard in guards {
+            assert!(
+                reader.statement.contains(&normalized(guard)),
+                "`{function}` must keep its guard `{guard}`: without it a document that is not finished could be \
+                 handed out as the signed one"
+            );
+        }
     }
 
     // 4. WHICH READERS SERVE ANY MEDIA TYPE. That set is the debt: those readers can hand out a `document` — a signed
@@ -563,8 +605,9 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
         .collect();
     assert_eq!(
         vault_doors.len(),
-        3,
-        "the Vault owns exactly three byte doors: the document's bytes, the anonymous listing document's and the signer's"
+        5,
+        "the Vault owns exactly five byte doors: the document's bytes, the anonymous listing document's, the signer's \
+         document, the signer's sealed copy and the completion email's files"
     );
     assert_eq!(
         vault_doors
@@ -588,8 +631,16 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
             .iter()
             .filter(|door| door.action == "vault.signingDocument.read")
             .count(),
+        2,
+        "the signer's two doors (the document, the signed copy) must ask for their own reserved action, never `vault.read`"
+    );
+    assert_eq!(
+        vault_doors
+            .iter()
+            .filter(|door| door.action == "vault.completionArtifacts.read")
+            .count(),
         1,
-        "the signer's door must ask for its own reserved action, never `vault.read`"
+        "the completion email's door must ask for its own reserved action"
     );
 
     // 7. THE DEBT, NAMED. The doors that are not the Vault's are the weaker ones, and the two `media` readers beneath

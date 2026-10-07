@@ -51,6 +51,26 @@ pub struct OutgoingMail {
     pub text: String,
     pub html: Option<String>,
     pub reply_to: Option<String>,
+    pub attachments: Vec<MailAttachment>,
+}
+
+/// One file sent with a message (the signed document, its certificate).
+#[derive(Clone, PartialEq, Eq)]
+pub struct MailAttachment {
+    pub filename: String,
+    pub content_type: String,
+    pub bytes: Vec<u8>,
+}
+
+impl std::fmt::Debug for MailAttachment {
+    // The bytes are a customer's document: never printed.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MailAttachment")
+            .field("filename", &self.filename)
+            .field("content_type", &self.content_type)
+            .field("bytes", &format_args!("{} bytes", self.bytes.len()))
+            .finish()
+    }
 }
 
 /// Why a send did not happen, in terms a person can act on.
@@ -166,23 +186,46 @@ pub fn build_message(config: &MailConfig, mail: &OutgoingMail) -> Result<Message
         })?;
         builder = builder.reply_to(reply_to);
     }
-    let built = match mail.html.as_deref() {
-        Some(html) => builder.multipart(
-            MultiPart::alternative()
-                .singlepart(
-                    SinglePart::builder()
-                        .header(ContentType::TEXT_PLAIN)
-                        .body(mail.text.clone()),
-                )
-                .singlepart(
-                    SinglePart::builder()
-                        .header(ContentType::TEXT_HTML)
-                        .body(html.to_string()),
-                ),
-        ),
-        None => builder
-            .header(ContentType::TEXT_PLAIN)
-            .body(mail.text.clone()),
+    let body_parts = |html: &str| {
+        MultiPart::alternative()
+            .singlepart(
+                SinglePart::builder()
+                    .header(ContentType::TEXT_PLAIN)
+                    .body(mail.text.clone()),
+            )
+            .singlepart(
+                SinglePart::builder()
+                    .header(ContentType::TEXT_HTML)
+                    .body(html.to_string()),
+            )
+    };
+    let built = if mail.attachments.is_empty() {
+        match mail.html.as_deref() {
+            Some(html) => builder.multipart(body_parts(html)),
+            None => builder
+                .header(ContentType::TEXT_PLAIN)
+                .body(mail.text.clone()),
+        }
+    } else {
+        // With files the message is `mixed`: the readable body (text, or text + HTML) first, then each attachment.
+        let body = match mail.html.as_deref() {
+            Some(html) => body_parts(html),
+            None => MultiPart::alternative().singlepart(
+                SinglePart::builder()
+                    .header(ContentType::TEXT_PLAIN)
+                    .body(mail.text.clone()),
+            ),
+        };
+        let mut mixed = MultiPart::mixed().multipart(body);
+        for attachment in &mail.attachments {
+            let content_type = ContentType::parse(&attachment.content_type)
+                .unwrap_or_else(|_| ContentType::parse("application/octet-stream").expect("a valid type"));
+            mixed = mixed.singlepart(
+                lettre::message::Attachment::new(attachment.filename.clone())
+                    .body(attachment.bytes.clone(), content_type),
+            );
+        }
+        builder.multipart(mixed)
     };
     built.map_err(|error| MailError::Rejected(format!("the message could not be built: {error}")))
 }
@@ -321,6 +364,7 @@ mod tests {
             text: "Hello".into(),
             html: Some("<p>Hello</p>".into()),
             reply_to: Some("lisa@culebraluxe.com".into()),
+            attachments: Vec::new(),
         };
         let raw = String::from_utf8(build_message(&config, &mail).unwrap().formatted()).unwrap();
         assert!(raw.contains("From: CulebraLuxe <lisa@culebraluxe.com>"));

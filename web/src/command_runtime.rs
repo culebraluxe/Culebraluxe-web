@@ -967,6 +967,18 @@ impl DurableCommandHandler for DocumentSignCommand {
                         "alreadyCompleted": finalized.already_completed,
                     }),
                 ));
+                for message_id in &finalized.notification_message_ids {
+                    result.emitted_events.push(command_event(
+                        envelope,
+                        crate::email::EMAIL_DELIVERY_ROUTING_KEY,
+                        "email_message",
+                        message_id,
+                        json!({
+                            "messageId": message_id,
+                            "signatureRequestId": signature_request_id,
+                        }),
+                    ));
+                }
                 Ok(result)
             }
             DocumentSignCommandKind::SweepDue => {
@@ -987,8 +999,18 @@ impl DurableCommandHandler for DocumentSignCommand {
                     json!({
                         "expiredRecipients": swept.expired_recipients,
                         "expiredEnvelopes": swept.expired_envelopes,
+                        "reminders": swept.reminder_message_ids.len(),
                     }),
                 ));
+                for message_id in &swept.reminder_message_ids {
+                    result.emitted_events.push(command_event(
+                        envelope,
+                        crate::email::EMAIL_DELIVERY_ROUTING_KEY,
+                        "email_message",
+                        message_id,
+                        json!({ "messageId": message_id }),
+                    ));
+                }
                 Ok(result)
             }
             DocumentSignCommandKind::ImportFields => {
@@ -1266,19 +1288,39 @@ impl DurableCommandHandler for SignerCommand {
                         )
                     }
                 };
-                if let Err(error) = self
+                let notice_message_ids = match self
                     .document_sign
                     .signer_declined_transactional(
                         tx,
                         &action.signature_request_id,
                         &action.recipient_id,
+                        request.reason.as_deref(),
                         context,
                     )
                     .await
                 {
-                    return core_command_error(envelope, Some(request.recipient_id.clone()), error);
-                }
+                    Ok(ids) => ids,
+                    Err(error) => {
+                        return core_command_error(
+                            envelope,
+                            Some(request.recipient_id.clone()),
+                            error,
+                        )
+                    }
+                };
                 let mut result = signer_result(envelope, &action, "SIGNER_DECLINED", None)?;
+                for message_id in &notice_message_ids {
+                    result.emitted_events.push(command_event(
+                        envelope,
+                        crate::email::EMAIL_DELIVERY_ROUTING_KEY,
+                        "email_message",
+                        message_id,
+                        json!({
+                            "messageId": message_id,
+                            "signatureRequestId": action.signature_request_id,
+                        }),
+                    ));
+                }
                 result.emitted_events.push(command_event(
                     envelope,
                     "DOCUMENT_SIGN_DECLINED",
