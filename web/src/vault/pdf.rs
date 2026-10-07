@@ -362,13 +362,15 @@ impl std::fmt::Write for TextBuffer<'_> {
 /// The drawing operations, in one place so a layout reads as layout.
 #[derive(Debug, Default)]
 pub struct Content {
-    operators: String,
+    /// Bytes, not a `String`: WinAnsi text above 127 (é, ñ, ·) is not UTF-8, and a lossy conversion turns each such
+    /// glyph into U+FFFD.
+    operators: Vec<u8>,
 }
 
 impl Content {
     pub fn new() -> Self {
         Self {
-            operators: String::new(),
+            operators: Vec::new(),
         }
     }
 
@@ -382,9 +384,8 @@ impl Content {
             decimal(x),
             decimal(y)
         );
-        self.operators
-            .push_str(&String::from_utf8_lossy(&escape_bytes(codes)));
-        self.operators.push_str(") Tj ET\n");
+        self.operators.extend_from_slice(&escape_bytes(codes));
+        self.operators.extend_from_slice(b") Tj ET\n");
     }
 
     pub fn line(&mut self, from: (f64, f64), to: (f64, f64), thickness: f64, colour: Rgb) {
@@ -424,7 +425,7 @@ impl Content {
     }
 
     pub fn into_bytes(self) -> Vec<u8> {
-        self.operators.into_bytes()
+        self.operators
     }
 }
 
@@ -531,6 +532,26 @@ mod tests {
         );
         pdf.finish(page_tree, &[page], Some(info))
             .expect("the document serialises")
+    }
+
+    #[test]
+    fn winansi_text_above_127_survives_into_the_content_stream() {
+        // "é" is 0xE9 and "·" is 0xB7 in WinAnsi: neither is valid UTF-8 on its own.
+        let mut content = Content::new();
+        content.text(
+            "F1",
+            10.0,
+            1.0,
+            2.0,
+            Rgb::from_bytes(0, 0, 0),
+            &[b'a', 0xE9, 0xB7],
+        );
+        let bytes = content.into_bytes();
+        assert!(bytes.windows(3).any(|w| w == [b'a', 0xE9, 0xB7]));
+        assert!(
+            !bytes.windows(3).any(|w| w == [0xEF, 0xBF, 0xBD]),
+            "no U+FFFD replacement"
+        );
     }
 
     #[test]
