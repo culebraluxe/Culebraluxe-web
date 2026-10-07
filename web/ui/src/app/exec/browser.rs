@@ -275,3 +275,166 @@ pub(super) fn listen<Msg: 'static>(
 pub(super) fn storage() -> Option<web_sys::Storage> {
     web_sys::window().and_then(|window| window.local_storage().ok().flatten())
 }
+
+/// Call `object.method(...args)` through reflection: the canvas and font APIs are used from this one place, so the
+/// browser-facing surface stays small and no extra web-sys features are needed.
+fn call_method(
+    object: &wasm_bindgen::JsValue,
+    method: &str,
+    args: &[wasm_bindgen::JsValue],
+) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
+    let function = js_sys::Reflect::get(object, &wasm_bindgen::JsValue::from_str(method))?
+        .dyn_into::<js_sys::Function>()?;
+    let arguments = js_sys::Array::new();
+    for arg in args {
+        arguments.push(arg);
+    }
+    function.apply(object, &arguments)
+}
+
+fn set_property(object: &wasm_bindgen::JsValue, key: &str, value: &wasm_bindgen::JsValue) {
+    let _ = js_sys::Reflect::set(object, &wasm_bindgen::JsValue::from_str(key), value);
+}
+
+/// One piece of text on a transparent canvas, as large as fits, in navy: `Ok(data URL)`.
+fn draw_text_png(
+    document: &wasm_bindgen::JsValue,
+    family: &str,
+    text: &str,
+    width: u32,
+    height: u32,
+    centered: bool,
+) -> Result<String, wasm_bindgen::JsValue> {
+    use wasm_bindgen::JsValue;
+    let canvas = call_method(document, "createElement", &[JsValue::from_str("canvas")])?;
+    set_property(&canvas, "width", &JsValue::from_f64(f64::from(width)));
+    set_property(&canvas, "height", &JsValue::from_f64(f64::from(height)));
+    let context = call_method(&canvas, "getContext", &[JsValue::from_str("2d")])?;
+    // Fit by measuring at a reference size, then scaling: a long name shrinks rather than being clipped.
+    let reference = 100.0_f64;
+    set_property(
+        &context,
+        "font",
+        &JsValue::from_str(&format!("{reference}px \"{family}\"")),
+    );
+    let measured = call_method(&context, "measureText", &[JsValue::from_str(text)])?;
+    let measured_width = js_sys::Reflect::get(&measured, &JsValue::from_str("width"))?
+        .as_f64()
+        .unwrap_or(reference * 4.0)
+        .max(1.0);
+    let padding = f64::from(height) * 0.12;
+    let available = f64::from(width) - padding * 2.0;
+    let size = (reference * available / measured_width).min(f64::from(height) * 0.62);
+    set_property(
+        &context,
+        "font",
+        &JsValue::from_str(&format!("{size}px \"{family}\"")),
+    );
+    set_property(&context, "fillStyle", &JsValue::from_str("#041024"));
+    set_property(&context, "textBaseline", &JsValue::from_str("alphabetic"));
+    let x = if centered {
+        set_property(&context, "textAlign", &JsValue::from_str("center"));
+        f64::from(width) / 2.0
+    } else {
+        set_property(&context, "textAlign", &JsValue::from_str("left"));
+        padding
+    };
+    call_method(
+        &context,
+        "fillText",
+        &[
+            JsValue::from_str(text),
+            JsValue::from_f64(x),
+            JsValue::from_f64(f64::from(height) * 0.7),
+        ],
+    )?;
+    let url = call_method(&canvas, "toDataURL", &[JsValue::from_str("image/png")])?;
+    url.as_string()
+        .filter(|url| url.starts_with("data:image/png;base64,"))
+        .ok_or_else(|| JsValue::from_str("the canvas produced no picture"))
+}
+
+/// Draw the signature and the initials, once the chosen face has loaded (a canvas drawn before its font arrives uses a
+/// fallback and the picture would not match what the signer saw). Answered exactly once.
+pub(super) fn render_signature<Msg: 'static>(
+    name: String,
+    style: usize,
+    reply: Box<dyn FnOnce(Result<crate::app::cmd::SignatureArt, ApiError>) -> Msg>,
+    deliver: Callback<Msg>,
+) {
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::JsValue;
+
+    let family = crate::app::cmd::SIGNATURE_FONTS
+        .get(style)
+        .map(|(family, _)| *family)
+        .unwrap_or(crate::app::cmd::SIGNATURE_FONTS[0].0);
+    let reply = std::rc::Rc::new(std::cell::RefCell::new(Some(reply)));
+    let finish: std::rc::Rc<dyn Fn(Result<crate::app::cmd::SignatureArt, ApiError>)> = {
+        let reply = reply.clone();
+        std::rc::Rc::new(move |result| {
+            if let Some(reply) = reply.borrow_mut().take() {
+                deliver.emit(reply(result));
+            }
+        })
+    };
+    let initials = model::forms_applied_signature::format_broker_initials(&name);
+    let draw = {
+        let (finish, family, name, initials) = (
+            finish.clone(),
+            family.to_owned(),
+            name.clone(),
+            initials.clone(),
+        );
+        move || {
+            let document = web_sys::window()
+                .and_then(|window| window.document())
+                .map(JsValue::from);
+            let Some(document) = document else {
+                finish(Err(ApiError::network("The browser page is unavailable.")));
+                return;
+            };
+            let signature = draw_text_png(&document, &family, &name, 1000, 260, false);
+            let initial_marks = draw_text_png(&document, &family, &initials, 420, 260, true);
+            match (signature, initial_marks) {
+                (Ok(signature), Ok(initials)) => finish(Ok(crate::app::cmd::SignatureArt {
+                    signature,
+                    initials,
+                })),
+                _ => finish(Err(ApiError::network(
+                    "Your browser could not draw the signature. Try another browser.",
+                ))),
+            }
+        }
+    };
+    // Ask the font loader for the face, with the text itself so the right glyph ranges come down.
+    let loading = web_sys::window()
+        .and_then(|window| window.document())
+        .map(JsValue::from)
+        .and_then(|document| js_sys::Reflect::get(&document, &JsValue::from_str("fonts")).ok())
+        .filter(|fonts| !fonts.is_undefined() && !fonts.is_null())
+        .and_then(|fonts| {
+            call_method(
+                &fonts,
+                "load",
+                &[
+                    JsValue::from_str(&format!("100px \"{family}\"")),
+                    JsValue::from_str(&format!("{name}{initials}")),
+                ],
+            )
+            .ok()
+        })
+        .and_then(|promise| promise.dyn_into::<js_sys::Promise>().ok());
+    let Some(promise) = loading else {
+        draw();
+        return;
+    };
+    let draw = std::rc::Rc::new(draw);
+    let (on_loaded, on_failed) = (draw.clone(), draw);
+    // A face that fails to load still gets drawn (in the fallback) rather than leaving the signer stuck.
+    let ok = Closure::once(move |_: JsValue| on_loaded());
+    let err = Closure::once(move |_: JsValue| on_failed());
+    let _ = promise.then2(&ok, &err);
+    ok.forget();
+    err.forget();
+}

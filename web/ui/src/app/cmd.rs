@@ -107,6 +107,13 @@ pub enum Cmd<Msg> {
     Listen {
         reply: Box<dyn FnOnce(Result<String, ApiError>) -> Msg>,
     },
+    /// Draw a person's signature and initials in a cursive face (`SIGNATURE_FONTS[style]`) on a canvas and answer both as
+    /// PNG data URLs: what the signer sees is exactly what is sealed into the document.
+    RenderSignature {
+        name: String,
+        style: usize,
+        reply: Box<dyn FnOnce(Result<SignatureArt, ApiError>) -> Msg>,
+    },
     /// Read one value from the device's storage; `None` when absent or storage is unavailable.
     StorageRead {
         key: String,
@@ -147,6 +154,22 @@ pub enum Cmd<Msg> {
         container_id: String,
         reply: Box<dyn FnOnce(Result<(), ApiError>) -> Msg>,
     },
+}
+
+/// The cursive faces a signer chooses between: the CSS family (declared in `app.css`, files in `public/fonts`) and the
+/// words for it. Index = the `style` stored with a signature.
+pub const SIGNATURE_FONTS: [(&str, &str); 4] = [
+    ("CL Signature Great Vibes", "Elegant"),
+    ("CL Signature Allura", "Flowing"),
+    ("CL Signature Dancing Script", "Casual"),
+    ("CL Signature Sacramento", "Light"),
+];
+
+/// A signature and the initials in the same hand, as PNG data URLs (transparent background).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SignatureArt {
+    pub signature: String,
+    pub initials: String,
 }
 
 /// A file sent in pieces, so no single request reaches the gateway's body limit: `init` declares it (the executor adds
@@ -274,6 +297,18 @@ impl<Msg: 'static> Cmd<Msg> {
         }
     }
 
+    pub fn render_signature(
+        name: impl Into<String>,
+        style: usize,
+        to_msg: impl FnOnce(Result<SignatureArt, ApiError>) -> Msg + 'static,
+    ) -> Self {
+        Cmd::RenderSignature {
+            name: name.into(),
+            style,
+            reply: Box::new(to_msg),
+        }
+    }
+
     pub fn storage_read(
         key: impl Into<String>,
         to_msg: impl FnOnce(Option<String>) -> Msg + 'static,
@@ -389,6 +424,11 @@ impl<Msg: 'static> Cmd<Msg> {
             Cmd::Listen { reply } => Cmd::Listen {
                 reply: Box::new(move |answer| f(reply(answer))),
             },
+            Cmd::RenderSignature { name, style, reply } => Cmd::RenderSignature {
+                name,
+                style,
+                reply: Box::new(move |answer| f(reply(answer))),
+            },
             Cmd::StorageRead { key, reply } => Cmd::StorageRead {
                 key,
                 reply: Box::new(move |value| f(reply(value))),
@@ -446,6 +486,9 @@ impl<Msg> std::fmt::Debug for Cmd<Msg> {
             Cmd::ReplacePath(path) => write!(f, "ReplacePath({path})"),
             Cmd::SharePdf { filename, .. } => write!(f, "SharePdf({filename})"),
             Cmd::Listen { .. } => write!(f, "Listen"),
+            Cmd::RenderSignature { name, style, .. } => {
+                write!(f, "RenderSignature({name}, style {style})")
+            }
             Cmd::PostForm { path, .. } => write!(f, "PostForm({path})"),
             Cmd::InitMap { lat, lng, .. } => write!(f, "InitMap({lat},{lng})"),
             Cmd::StorageRead { key, .. } => write!(f, "StorageRead({key})"),

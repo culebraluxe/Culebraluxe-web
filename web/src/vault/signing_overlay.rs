@@ -26,6 +26,80 @@ pub struct OverlayField {
     /// The small line under a signature ("Electronically signed 2026-10-07").
     pub caption: Option<String>,
     pub text: String,
+    /// The signer's own signature, initials or mark as a PNG (what they saw on the signing page): drawn instead of the
+    /// typeset `text`, fitted into the block. A PNG that cannot be read falls back to the text.
+    pub image: Option<Vec<u8>>,
+    /// Draw the signature rule and caption under an image. A block the TEMPLATE placed already prints its own line;
+    /// one placed by default has nothing printed under it.
+    pub ruled: bool,
+}
+
+/// The largest signature picture the seal accepts, in pixels: a drawn or typed mark never needs more.
+pub const MAX_SIGNATURE_PIXELS: (u32, u32) = (2400, 1000);
+
+/// Check that `bytes` are a PNG of a sensible size and decode them. Used at the door (a signer's answer) and at the
+/// seal, so what is stored is always something the seal can draw.
+pub fn decode_signature_png(bytes: &[u8]) -> Result<image::RgbaImage, String> {
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("the signature picture is not a PNG".into());
+    }
+    let decoded = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
+        .map_err(|error| format!("the signature picture could not be read: {error}"))?
+        .to_rgba8();
+    let (width, height) = decoded.dimensions();
+    if width == 0
+        || height == 0
+        || width > MAX_SIGNATURE_PIXELS.0
+        || height > MAX_SIGNATURE_PIXELS.1
+    {
+        return Err(format!(
+            "the signature picture is {width}x{height}; at most {}x{} is accepted",
+            MAX_SIGNATURE_PIXELS.0, MAX_SIGNATURE_PIXELS.1
+        ));
+    }
+    Ok(decoded)
+}
+
+/// Add a decoded signature picture to the document as an image with a soft mask (its transparency), returning the
+/// object and its pixel size.
+fn embed_signature_image(
+    document: &mut Document,
+    decoded: &image::RgbaImage,
+) -> (lopdf::ObjectId, u32, u32) {
+    let (width, height) = decoded.dimensions();
+    let mut colour = Vec::with_capacity((width * height * 3) as usize);
+    let mut alpha = Vec::with_capacity((width * height) as usize);
+    for pixel in decoded.pixels() {
+        colour.extend_from_slice(&pixel.0[0..3]);
+        alpha.push(pixel.0[3]);
+    }
+    let mut mask = Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Image",
+            "Width" => i64::from(width),
+            "Height" => i64::from(height),
+            "ColorSpace" => "DeviceGray",
+            "BitsPerComponent" => 8,
+        },
+        alpha,
+    );
+    let _ = mask.compress();
+    let mask_id = document.add_object(Object::Stream(mask));
+    let mut image = Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Image",
+            "Width" => i64::from(width),
+            "Height" => i64::from(height),
+            "ColorSpace" => "DeviceRGB",
+            "BitsPerComponent" => 8,
+            "SMask" => Object::Reference(mask_id),
+        },
+        colour,
+    );
+    let _ = image.compress();
+    (document.add_object(Object::Stream(image)), width, height)
 }
 
 /// How many pages a PDF has, or `None` when the bytes are not a readable PDF.
@@ -69,6 +143,20 @@ pub fn overlay_fields(original: &[u8], fields: &[OverlayField]) -> Result<Vec<u8
         let page_id = pages[&(*page_number as u32)];
         let (width, height) = page_size(&document, page_id)?;
         let mut operations: Vec<u8> = Vec::new();
+        // The pictures this page needs, embedded once each and named for the content stream.
+        let mut page_images: Vec<(String, lopdf::ObjectId)> = Vec::new();
+        let mut placed: std::collections::BTreeMap<usize, (String, u32, u32)> =
+            std::collections::BTreeMap::new();
+        for index in indices {
+            if let Some(bytes) = fields[*index].image.as_deref() {
+                if let Ok(decoded) = decode_signature_png(bytes) {
+                    let (id, w, h) = embed_signature_image(&mut document, &decoded);
+                    let name = format!("DSIm{index}");
+                    page_images.push((name.clone(), id));
+                    placed.insert(*index, (name, w, h));
+                }
+            }
+        }
         for index in indices {
             let field = &fields[*index];
             let x = field.x_percent.clamp(0.0, 100.0) / 100.0 * width;
@@ -77,7 +165,59 @@ pub fn overlay_fields(original: &[u8], fields: &[OverlayField]) -> Result<Vec<u8
             let box_width = field.width_percent.clamp(0.0, 100.0) / 100.0 * width;
             let box_height = field.height_percent.clamp(0.0, 100.0) / 100.0 * height;
             let text = encoded(&field.text);
-            if field.signature && box_width > 0.0 && box_height > 0.0 {
+            if let (Some((name, px_w, px_h)), true) =
+                (placed.get(index), box_width > 0.0 && box_height > 0.0)
+            {
+                // The signer's own picture, as large as the block allows without distortion, standing on the line.
+                let bottom = top - box_height;
+                let aspect = f64::from(*px_w) / f64::from(*px_h);
+                let mut draw_h = box_height;
+                let mut draw_w = draw_h * aspect;
+                if draw_w > box_width {
+                    draw_w = box_width;
+                    draw_h = draw_w / aspect;
+                }
+                let lift = if field.ruled {
+                    4.0
+                } else {
+                    (box_height - draw_h) / 2.0
+                };
+                operations.extend_from_slice(
+                    format!(
+                        "q {} 0 0 {} {} {} cm /{name} Do Q\n",
+                        point(draw_w),
+                        point(draw_h),
+                        point(x + 1.0),
+                        point(bottom + lift),
+                    )
+                    .as_bytes(),
+                );
+                if field.ruled {
+                    operations.extend_from_slice(
+                        format!(
+                            "{} RG 0.6 w {} {} m {} {} l S\n",
+                            navy(),
+                            point(x),
+                            point(bottom + 3.0),
+                            point(x + box_width),
+                            point(bottom + 3.0),
+                        )
+                        .as_bytes(),
+                    );
+                    let caption =
+                        encoded(field.caption.as_deref().unwrap_or("Electronically signed"));
+                    operations.extend_from_slice(
+                        format!(
+                            "BT /DSF1 6 Tf 0.45 0.5 0.58 rg {} {} Td (",
+                            point(x + 2.0),
+                            point(bottom - 4.0),
+                        )
+                        .as_bytes(),
+                    );
+                    operations.extend_from_slice(&crate::vault::pdf::escape_bytes(&caption));
+                    operations.extend_from_slice(b") Tj ET\n");
+                }
+            } else if field.signature && box_width > 0.0 && box_height > 0.0 {
                 let bottom = top - box_height;
                 let size = (box_height * 0.6).clamp(12.0, 20.0);
                 // The rule, the name above it, a caption below it.
@@ -143,7 +283,7 @@ pub fn overlay_fields(original: &[u8], fields: &[OverlayField]) -> Result<Vec<u8
         }
         let stream_id =
             document.add_object(Object::Stream(Stream::new(dictionary! {}, operations)));
-        append_content(&mut document, page_id, stream_id)?;
+        append_content(&mut document, page_id, stream_id, &page_images)?;
     }
 
     let mut out = Vec::new();
@@ -189,6 +329,7 @@ fn append_content(
     document: &mut Document,
     page_id: lopdf::ObjectId,
     stream_id: lopdf::ObjectId,
+    images: &[(String, lopdf::ObjectId)],
 ) -> Result<(), String> {
     // Ensure the page sees Helvetica as /DSF1, merging with whatever the
     // original Resources already carry. Reads happen before any mutation
@@ -222,54 +363,28 @@ fn append_content(
             id
         }
     };
-    let font_dict_id = {
-        let resources = document
-            .get_object(resources_id)
-            .map_err(|_| "resources vanished".to_string())?;
-        let resources = resources
-            .as_dict()
-            .map_err(|_| "resources are not a dictionary".to_string())?;
-        match resources.get(b"Font") {
-            Ok(Object::Reference(id)) => Some(*id),
-            _ => None,
-        }
-    };
-    match font_dict_id {
-        Some(id) => {
-            let font_dict = document
-                .get_object_mut(id)
-                .map_err(|_| "font dictionary vanished".to_string())?;
-            font_dict
-                .as_dict_mut()
-                .map_err(|_| "font dictionary is not a dictionary".to_string())?
-                .set("DSF1", font_ref);
-            document
-                .get_object_mut(id)
-                .map_err(|_| "font dictionary vanished".to_string())?
-                .as_dict_mut()
-                .map_err(|_| "font dictionary is not a dictionary".to_string())?
-                .set("DSF2", signature_font_ref);
-            document
-                .get_object_mut(id)
-                .map_err(|_| "font dictionary vanished".to_string())?
-                .as_dict_mut()
-                .map_err(|_| "font dictionary is not a dictionary".to_string())?
-                .set("DSF3", bold_signature_font_ref);
-        }
-        None => {
-            let id = document.add_object(Object::Dictionary(dictionary! {
-                "DSF1" => font_ref,
-                "DSF2" => signature_font_ref,
-                "DSF3" => bold_signature_font_ref,
-            }));
-            let resources = document
-                .get_object_mut(resources_id)
-                .map_err(|_| "resources vanished".to_string())?;
-            resources
-                .as_dict_mut()
-                .map_err(|_| "resources are not a dictionary".to_string())?
-                .set("Font", Object::Reference(id));
-        }
+    // The fonts the overlay draws with are ADDED to the page's own `/Font` dictionary (in whatever form the original wrote
+    // it: indirect or inline). Replacing it would take the document's own fonts away, and every original word with them.
+    merge_resource_entries(
+        document,
+        resources_id,
+        "Font",
+        vec![
+            ("DSF1".to_owned(), font_ref),
+            ("DSF2".to_owned(), signature_font_ref),
+            ("DSF3".to_owned(), bold_signature_font_ref),
+        ],
+    )?;
+    if !images.is_empty() {
+        merge_resource_entries(
+            document,
+            resources_id,
+            "XObject",
+            images
+                .iter()
+                .map(|(name, id)| (name.clone(), Object::Reference(*id)))
+                .collect(),
+        )?;
     }
     // Append our stream to the page's Contents, whatever shape it has.
     let page = document
@@ -301,6 +416,69 @@ fn append_content(
             Ok(())
         }
     }
+}
+
+/// Add `entries` to the resource sub-dictionary `key` (`Font`, `XObject`), keeping everything the original already named
+/// there. The sub-dictionary may be an indirect object, an inline dictionary, or absent; each is handled in place.
+fn merge_resource_entries(
+    document: &mut Document,
+    resources_id: lopdf::ObjectId,
+    key: &str,
+    entries: Vec<(String, Object)>,
+) -> Result<(), String> {
+    enum Slot {
+        Indirect(lopdf::ObjectId),
+        Inline(lopdf::Dictionary),
+        Absent,
+    }
+    let slot = {
+        let resources = document
+            .get_object(resources_id)
+            .map_err(|_| "resources vanished".to_string())?
+            .as_dict()
+            .map_err(|_| "resources are not a dictionary".to_string())?;
+        match resources.get(key.as_bytes()) {
+            Ok(Object::Reference(id)) => Slot::Indirect(*id),
+            Ok(Object::Dictionary(inline)) => Slot::Inline(inline.clone()),
+            _ => Slot::Absent,
+        }
+    };
+    match slot {
+        Slot::Indirect(id) => {
+            let dictionary = document
+                .get_object_mut(id)
+                .map_err(|_| format!("{key} dictionary vanished"))?
+                .as_dict_mut()
+                .map_err(|_| format!("{key} dictionary is not a dictionary"))?;
+            for (name, object) in entries {
+                dictionary.set(name, object);
+            }
+        }
+        Slot::Inline(mut dictionary) => {
+            for (name, object) in entries {
+                dictionary.set(name, object);
+            }
+            document
+                .get_object_mut(resources_id)
+                .map_err(|_| "resources vanished".to_string())?
+                .as_dict_mut()
+                .map_err(|_| "resources are not a dictionary".to_string())?
+                .set(key, Object::Dictionary(dictionary));
+        }
+        Slot::Absent => {
+            let mut dictionary = lopdf::Dictionary::new();
+            for (name, object) in entries {
+                dictionary.set(name, object);
+            }
+            document
+                .get_object_mut(resources_id)
+                .map_err(|_| "resources vanished".to_string())?
+                .as_dict_mut()
+                .map_err(|_| "resources are not a dictionary".to_string())?
+                .set(key, Object::Dictionary(dictionary));
+        }
+    }
+    Ok(())
 }
 
 /// A base-14 font object every touched page shares. Created once per call;
@@ -375,6 +553,8 @@ mod tests {
                 style: 2,
                 caption: Some("Electronically signed 2026-10-07".into()),
                 text: "María Rivera".into(),
+                image: None,
+                ruled: true,
             }],
         )
         .expect("overlays");
@@ -407,6 +587,8 @@ mod tests {
                 style: 0,
                 caption: None,
                 text: "x".into(),
+                image: None,
+                ruled: false,
             }],
         )
         .expect_err("page 9 does not exist");
@@ -416,5 +598,124 @@ mod tests {
     #[test]
     fn overlay_refuses_unreadable_bytes() {
         assert!(overlay_fields(b"not a pdf", &[]).is_err());
+    }
+
+    /// A small PNG with a transparent background and one dark stroke: stands in for a typed or drawn signature.
+    fn signature_png(width: u32, height: u32) -> Vec<u8> {
+        let mut canvas = image::RgbaImage::from_pixel(width, height, image::Rgba([0, 0, 0, 0]));
+        for x in 0..width {
+            canvas.put_pixel(x, height / 2, image::Rgba([3, 15, 35, 255]));
+        }
+        let mut out = Vec::new();
+        canvas
+            .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+            .expect("encodes");
+        out
+    }
+
+    #[test]
+    fn a_signature_picture_is_embedded_as_an_image_with_a_soft_mask() {
+        let bytes = original();
+        let field = |image: Option<Vec<u8>>, ruled: bool| OverlayField {
+            page_number: 1,
+            x_percent: 10.0,
+            y_percent: 70.0,
+            width_percent: 40.0,
+            height_percent: 5.0,
+            signature: true,
+            style: 0,
+            caption: Some("Electronically signed July 3, 2026".into()),
+            text: "María Rivera".into(),
+            image,
+            ruled,
+        };
+        let out = overlay_fields(&bytes, &[field(Some(signature_png(600, 150)), true)])
+            .expect("overlays");
+        let document = Document::load_mem(&out).expect("reparses");
+        let page = *document.get_pages().get(&1).unwrap();
+        let images: Vec<_> = document
+            .get_page_images(page)
+            .expect("the page lists its images");
+        assert_eq!(
+            images.len(),
+            1,
+            "the signature is a real picture on the page"
+        );
+        assert_eq!((images[0].width, images[0].height), (600, 150));
+        // With no picture the typeset fallback still draws, and nothing is embedded.
+        let plain = overlay_fields(&bytes, &[field(None, true)]).expect("overlays");
+        let plain = Document::load_mem(&plain).unwrap();
+        assert!(plain
+            .get_page_images(*plain.get_pages().get(&1).unwrap())
+            .unwrap()
+            .is_empty());
+        // A picture that is not a PNG falls back to the text rather than failing the seal.
+        let broken = overlay_fields(&bytes, &[field(Some(b"not a png".to_vec()), true)]).unwrap();
+        let broken = Document::load_mem(&broken).unwrap();
+        assert!(broken
+            .get_page_images(*broken.get_pages().get(&1).unwrap())
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn the_door_refuses_what_is_not_a_sensible_png() {
+        assert!(decode_signature_png(&signature_png(600, 150)).is_ok());
+        assert!(decode_signature_png(b"GIF89a....")
+            .unwrap_err()
+            .contains("not a PNG"));
+        let huge = signature_png(MAX_SIGNATURE_PIXELS.0 + 1, 10);
+        assert!(decode_signature_png(&huge).unwrap_err().contains("at most"));
+        // A PNG header with garbage after it does not decode.
+        let mut truncated = signature_png(60, 20);
+        truncated.truncate(40);
+        assert!(decode_signature_png(&truncated).is_err());
+    }
+
+    /// The seal ADDS fonts and pictures to the page; it must never take the original's own away. The original's text
+    /// ("Original", in /F1) has to still resolve its font afterwards — a replaced font dictionary printed a signed
+    /// agreement with every word of the agreement missing.
+    #[test]
+    fn the_originals_own_fonts_survive_the_seal() {
+        let bytes = original();
+        let out = overlay_fields(
+            &bytes,
+            &[OverlayField {
+                page_number: 1,
+                x_percent: 10.0,
+                y_percent: 70.0,
+                width_percent: 40.0,
+                height_percent: 5.0,
+                signature: true,
+                style: 0,
+                caption: None,
+                text: "María Rivera".into(),
+                image: Some(signature_png(600, 150)),
+                ruled: true,
+            }],
+        )
+        .expect("overlays");
+        let document = Document::load_mem(&out).expect("reparses");
+        let page = *document.get_pages().get(&1).unwrap();
+        let fonts: Vec<String> = document
+            .get_page_fonts(page)
+            .expect("the page lists its fonts")
+            .keys()
+            .map(|name| String::from_utf8_lossy(name).into_owned())
+            .collect();
+        assert!(
+            fonts.contains(&"F1".to_owned()),
+            "the original's font is still there: {fonts:?}"
+        );
+        assert!(
+            fonts.contains(&"DSF1".to_owned()),
+            "and the overlay's was added beside it: {fonts:?}"
+        );
+        // The page's own text is still readable through a parser.
+        let text = document.extract_text(&[1]).unwrap_or_default();
+        assert!(
+            text.contains("Original"),
+            "the original's words survive: {text:?}"
+        );
     }
 }

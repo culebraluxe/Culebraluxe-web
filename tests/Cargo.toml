@@ -17,6 +17,7 @@ publish.workspace = true
 apis = { path = "../middle/apis" }
 async-trait.workspace = true
 axum.workspace = true
+base64.workspace = true
 chrono.workspace = true
 # `db` is named `database` inside this crate; the module path is `test_harness::database`.
 db = { path = "../db" }

@@ -110,6 +110,9 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
         Cmd::Listen { reply } => {
             listen(reply, deliver.clone());
         }
+        Cmd::RenderSignature { name, style, reply } => {
+            render_signature(name, style, reply, deliver.clone());
+        }
         Cmd::StorageRead { key, reply } => {
             let value = storage().and_then(|storage| storage.get_item(&key).ok().flatten());
             deliver.emit(reply(value));

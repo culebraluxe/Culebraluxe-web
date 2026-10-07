@@ -706,6 +706,11 @@ impl DocumentSignDao {
     /// The template anchor blocks recorded on the issued document's
     /// Vault snapshot, if the issuing template declared any. Raw JSON —
     /// parsing and validation belong to the service, not the row read.
+    /// The signature blocks the signers still have to fill: the issuing template's anchors, minus any block an applied
+    /// signature already satisfied (Lisa's pre-signature is drawn into the PDF at issuance, so her block is done).
+    ///
+    /// Forms writes them under `source_snapshot.render` (`signatureAnchors`, `appliedSignatures`); an older shape kept
+    /// the anchors at the top level, and is still read. `None` when the document carries no anchors at all.
     pub async fn template_anchors_tx(
         &self,
         tx: &mut DbTransaction,
@@ -713,11 +718,27 @@ impl DocumentSignDao {
     ) -> DbResult<Option<serde_json::Value>> {
         sqlx::query_scalar::<_, Option<serde_json::Value>>(
             r#"
-            select d.source_snapshot -> 'signatureAnchors'
-              from transaction_document d
-              join signature_request sr on sr.transaction_document_id = d.id
-             where sr.id = $1::uuid
-             limit 1
+            with doc as (
+                select coalesce(d.source_snapshot -> 'render' -> 'signatureAnchors',
+                                d.source_snapshot -> 'signatureAnchors') as anchors,
+                       coalesce(d.source_snapshot -> 'render' -> 'appliedSignatures', '[]'::jsonb) as applied
+                  from transaction_document d
+                  join signature_request sr on sr.transaction_document_id = d.id
+                 where sr.id = $1::uuid
+                 limit 1
+            )
+            select case when doc.anchors is null or jsonb_typeof(doc.anchors) <> 'array' then null
+                        else (
+                            select coalesce(jsonb_agg(a order by ord), '[]'::jsonb)
+                              from jsonb_array_elements(doc.anchors) with ordinality as t(a, ord)
+                             where not exists (
+                                 select 1
+                                   from jsonb_array_elements(doc.applied) p
+                                  where p ->> 'role' = a ->> 'role'
+                                    and (p ->> 'slotId') is not distinct from (a ->> 'slotId'))
+                        )
+                   end
+              from doc
             "#,
         )
         .bind(signature_request_id)
