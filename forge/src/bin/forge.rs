@@ -253,6 +253,31 @@ fn main() {
             std::process::exit(2);
         }
     }
+    // THE WRITER IS CONNECTED BEFORE ANY STORY MUTATION — before the packet read, before the claim is opened, before
+    // the base commit is stamped. A run without a production writer would silently drop every `mark_story_*`, hold,
+    // artifact and spend row (`NullWriter` answers `Ok` to everything), so writer-absent on the production path is
+    // refused here with exit 2, the same shape as the target refusal above. `NullWriter` exists only for the
+    // explicitly named local dry run (`FORGE_STORE=memory`), never for a production drive.
+    let use_memory = env::var("FORGE_STORE")
+        .map(|value| value.trim().eq_ignore_ascii_case("memory"))
+        .unwrap_or(false);
+    let writer: Arc<dyn ForgeStateWriter> = match DbForgeStateWriter::connect_env() {
+        Ok(w) => {
+            eprintln!("story writer=neon");
+            Arc::new(w)
+        }
+        Err(e) if use_memory => {
+            eprintln!("story writer=null (FORGE_STORE=memory; local dry run only: {e})");
+            Arc::new(NullWriter)
+        }
+        Err(e) => {
+            let reason =
+                format!("story writer: {e}; refusing to run without a production story writer");
+            reject_configuration(work_item.as_deref(), &reason);
+            eprintln!("{reason}");
+            std::process::exit(2);
+        }
+    };
     // Only now is this run real, so only now does it go `Running`. If the claim cannot be opened the run must not
     // start at all: a story driven without a claim is exactly the unowned dispatch this seam exists to remove.
     //
@@ -588,25 +613,14 @@ fn main() {
         budget.statement_timeout_ms, budget.connect_timeout_ms
     );
 
-    let writer: Arc<dyn ForgeStateWriter> = match DbForgeStateWriter::connect_env() {
-        Ok(w) => {
-            eprintln!("story writer=neon");
-            Arc::new(w)
-        }
-        Err(e) => {
-            eprintln!("story writer=null ({e})");
-            Arc::new(NullWriter)
-        }
-    };
-    // THE STORE IS NEON UNLESS ASKED FOR BY NAME. The guard above has already refused anything that is not a
+    // THE STORE IS NEON UNLESS ASKED FOR BY NAME. (`writer` and `use_memory` were bound before the claim: a run
+    // without a production writer is refused there with exit 2, so by the time this branch runs the production path
+    // always carries a real writer.) The guard above has already refused anything that is not a
     // production run, so the store was never really optional — and keying it off `APP_ENV` being *set* was its own
     // hazard: an environment that declared `EXECUTION_ENV=PROD` while leaving `APP_ENV` unset would read a memory
     // store while the story writer below wrote the production row. Two stores, one run, and the one that answered
     // the engine's questions was not the one holding the record. `FORGE_STORE=memory` keeps the local dry run
     // reachable, deliberately, by name.
-    let use_memory = env::var("FORGE_STORE")
-        .map(|value| value.trim().eq_ignore_ascii_case("memory"))
-        .unwrap_or(false);
     let result = if use_memory {
         eprintln!("workflow store=memory (FORGE_STORE=memory; local dry run only)");
         drive(
@@ -780,6 +794,15 @@ fn drive_with_shared_runtime(
     contract_assay_commands: Vec<String>,
     contract_acceptance_mapped: bool,
 ) -> Result<DriveSummary, WorkflowError> {
+    // Fail closed: the shared runtime IS the production drive, so a writer that records nothing must never reach it.
+    // The binary's main path already refuses writer-absent with exit 2 before any story mutation; this is the second
+    // door, so no future caller can drive the shared runtime on a silent-drop writer by accident.
+    if !writer.is_production_writer() {
+        let message = "refusing to drive the shared runtime without a production story writer \
+            (DATABASE_URL_PROD is not set; Forge writes story state in production only)";
+        eprintln!("{message}");
+        return Err(WorkflowError::generic(message));
+    }
     let rt = shared_forge_runtime(
         writer.clone(),
         Some(release.clone()),

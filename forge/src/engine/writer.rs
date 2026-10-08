@@ -28,6 +28,16 @@ pub trait ForgeStateWriter: Send + Sync {
         run_id: &str,
         usage: &crate::engine::harness::HarnessUsage,
     ) -> Result<(), String>;
+
+    /// Whether this writer records durable story state.
+    ///
+    /// The production binary refuses to drive the shared (Neon) runtime with a writer that answers `false`: a run
+    /// without durable writes would silently drop every `mark_story_*`, hold, artifact and spend row. `NullWriter`
+    /// is the only production-crate writer that answers `false`; it exists for the explicitly named local dry run
+    /// (`FORGE_STORE=memory`) and unit tests, never for a production drive.
+    fn is_production_writer(&self) -> bool {
+        true
+    }
 }
 
 /// Release-critical command-nodes (publish / migrate / verify).
@@ -40,10 +50,19 @@ pub trait ForgeEvidenceReader: Send + Sync {
     fn read(&self, story_id: &str) -> crate::engine::facts::ForgeGateEvidence;
 }
 
+/// Explicitly non-production: drops every write and answers `Ok` to everything.
+///
+/// The only writer with `is_production_writer() == false`. It may be constructed solely in explicitly named
+/// non-production contexts — the `FORGE_STORE=memory` local dry run and unit tests — and the production binary
+/// refuses to drive the shared runtime with it. Constructing it on a production path would silently discard every
+/// story mutation, which is the failure this marker exists to prevent.
 #[derive(Default)]
 pub struct NullWriter;
 
 impl ForgeStateWriter for NullWriter {
+    fn is_production_writer(&self) -> bool {
+        false
+    }
     fn mark_story_human_hold(&self, _s: &str, _r: &str) -> Result<(), String> {
         Ok(())
     }
