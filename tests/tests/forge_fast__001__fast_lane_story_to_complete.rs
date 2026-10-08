@@ -157,12 +157,12 @@ fn drive_fast(qa_passes: bool) -> Run {
         forge_sdlc_definition(),
     )
     .expect("the production definition seeds");
-    let harness = FastHarness {
+    let harness = Arc::new(FastHarness {
         calls: Mutex::new(Vec::new()),
         qa_passes,
-    };
-    let runner =
-        ProductionRoleRunner::new(&harness, fast_evidence()).with_evidence_reader(Some(reader));
+    });
+    let runner = ProductionRoleRunner::new(harness.clone(), fast_evidence())
+        .with_evidence_reader(Some(reader));
     let lanes = ForgeLaneServices::new(&runner);
     let registry = lanes.registry().expect("the production lane composition");
     let jobs = WorkflowJobService::new(rt.engine());

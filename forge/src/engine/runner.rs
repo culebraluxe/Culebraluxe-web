@@ -7,6 +7,7 @@ use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::harness::{HarnessUsage, TurnTermination};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::writer::{ForgeEvidenceReader, ForgeStateWriter};
+use std::sync::Arc;
 use workflow::{Result, WorkflowError};
 
 pub struct HarnessOutput {
@@ -94,10 +95,10 @@ pub trait RoleHarness: Send + Sync {
 }
 
 /// Control-plane runner: harness produces raw output; collect + gates decide evidence.
-pub struct ProductionRoleRunner<'a> {
-    pub harness: &'a dyn RoleHarness,
+pub struct ProductionRoleRunner {
+    pub harness: Arc<dyn RoleHarness>,
     pub current: ForgeGateEvidence,
-    pub writer: Option<&'a dyn ForgeStateWriter>,
+    pub writer: Option<Arc<dyn ForgeStateWriter>>,
     /// The Story Run this lane is executing (the row a claim opened). Every artifact the lane produces is keyed to
     /// it, so a later reader can see which execution a reading came out of instead of re-deriving it.
     pub story_run_id: Option<String>,
@@ -114,7 +115,7 @@ pub struct ProductionRoleRunner<'a> {
     pub require_prod: bool,
     /// The durable evidence each turn starts from. Without it every turn of a process saw `current` — the evidence
     /// the process was WOKEN with — and never what earlier turns produced (candidate, decision, published commit).
-    pub evidence_reader: Option<std::sync::Arc<dyn ForgeEvidenceReader>>,
+    pub evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
 }
 
 /// The envelope a turn runs under, as whoever hosts it exposes it.
@@ -125,6 +126,10 @@ pub struct ProductionRoleRunner<'a> {
 /// runner names its ports, and neither has to know the other's shape.
 pub trait ForgeTurnPorts {
     fn harness(&self) -> &dyn RoleHarness;
+    /// An owned handle to the harness for callbacks that outlive the runner borrow
+    /// (FIX-006-SOUNDNESS: the interrupt handle is `'static`, so it clones this
+    /// `Arc` instead of transmuting a short borrow).
+    fn harness_arc(&self) -> Arc<dyn RoleHarness>;
     fn current(&self) -> &ForgeGateEvidence;
     fn writer(&self) -> Option<&dyn ForgeStateWriter>;
     fn story_run_id(&self) -> Option<&str>;
@@ -143,9 +148,13 @@ pub trait ForgeTurnPorts {
     }
 }
 
-impl ForgeTurnPorts for ProductionRoleRunner<'_> {
+impl ForgeTurnPorts for ProductionRoleRunner {
     fn harness(&self) -> &dyn RoleHarness {
-        self.harness
+        self.harness.as_ref()
+    }
+
+    fn harness_arc(&self) -> Arc<dyn RoleHarness> {
+        Arc::clone(&self.harness)
     }
 
     fn current(&self) -> &ForgeGateEvidence {
@@ -153,7 +162,7 @@ impl ForgeTurnPorts for ProductionRoleRunner<'_> {
     }
 
     fn writer(&self) -> Option<&dyn ForgeStateWriter> {
-        self.writer
+        self.writer.as_deref()
     }
 
     fn story_run_id(&self) -> Option<&str> {
@@ -199,8 +208,8 @@ impl ForgeTurnPorts for ProductionRoleRunner<'_> {
     }
 }
 
-impl<'a> ProductionRoleRunner<'a> {
-    pub fn new(harness: &'a dyn RoleHarness, current: ForgeGateEvidence) -> Self {
+impl ProductionRoleRunner {
+    pub fn new(harness: Arc<dyn RoleHarness>, current: ForgeGateEvidence) -> Self {
         Self {
             harness,
             current,
@@ -231,7 +240,7 @@ impl<'a> ProductionRoleRunner<'a> {
     /// A lane that records nothing looks exactly like a lane that had nothing to record, which is why this stayed
     /// invisible until a real run was watched from launch to artifact. The writer itself was never missing: the
     /// same `Arc` is handed to the runtime one line above, and only the runner was left holding `None`.
-    pub fn with_writer(mut self, writer: &'a dyn ForgeStateWriter) -> Self {
+    pub fn with_writer(mut self, writer: Arc<dyn ForgeStateWriter>) -> Self {
         self.writer = Some(writer);
         self
     }
@@ -253,10 +262,7 @@ impl<'a> ProductionRoleRunner<'a> {
         self
     }
 
-    pub fn with_evidence_reader(
-        mut self,
-        reader: Option<std::sync::Arc<dyn ForgeEvidenceReader>>,
-    ) -> Self {
+    pub fn with_evidence_reader(mut self, reader: Option<Arc<dyn ForgeEvidenceReader>>) -> Self {
         self.evidence_reader = reader;
         self
     }
@@ -274,7 +280,7 @@ impl<'a> ProductionRoleRunner<'a> {
 /// service that owns the node and lets that service run the shared lifecycle with its own reading. No role
 /// policy lives here any more: no node name, no lane name and no reading appears in this file. Which node
 /// belongs to which lane is `role_mapping`'s answer, applied by `AbstractForgeService::supports_node`.
-impl ForgeRoleRunner for ProductionRoleRunner<'_> {
+impl ForgeRoleRunner for ProductionRoleRunner {
     fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
         crate::roles::service::ForgeLaneServices::new(self).run(node_id, task)
     }
@@ -368,10 +374,10 @@ mod tests {
     /// own — and the measurement this lane exists for would have been described by a model instead of taken.
     #[test]
     fn the_compatibility_runner_hands_the_turn_to_the_lane_service() {
-        let harness = CountingHarness::new();
-        let writer = RecordingWriter::default();
-        let runner = ProductionRoleRunner::new(&harness, ForgeGateEvidence::default())
-            .with_writer(&writer)
+        let harness = Arc::new(CountingHarness::new());
+        let writer = Arc::new(RecordingWriter::default());
+        let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default())
+            .with_writer(writer.clone())
             .with_test_mode(Some("RUST_CONTRACT".into()))
             .with_contract_assay_commands(vec!["cargo test".into()]);
 
@@ -395,8 +401,8 @@ mod tests {
     /// and still gets it once per attempt under the shared lifecycle.
     #[test]
     fn a_lane_whose_work_is_a_model_turn_still_gets_one() {
-        let harness = CountingHarness::new();
-        let runner = ProductionRoleRunner::new(&harness, ForgeGateEvidence::default());
+        let harness = Arc::new(CountingHarness::new());
+        let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default());
 
         let _ = ForgeRoleRunner::run(&runner, "smith", &role_task("smith"));
 

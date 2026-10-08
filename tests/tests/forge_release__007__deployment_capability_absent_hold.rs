@@ -39,6 +39,8 @@
 //!   cargo test --manifest-path Cargo.toml -p test-harness \
 //!     --test forge_release__007__deployment_capability_absent_hold
 
+use std::sync::Arc;
+
 use forge::engine::assay::CommandResult;
 use forge::engine::definition::forge_sdlc_definition;
 use forge::engine::executor::ForgeRoleRunner;
@@ -145,10 +147,10 @@ fn run_deploy(
     Vec<(String, String)>,
     Vec<(String, String, String)>,
 ) {
-    let harness = ScriptedDeployHarness { raw: raw.into() };
-    let writer = RecordingWriter::default();
-    let mut runner = ProductionRoleRunner::new(&harness, incoming);
-    runner.writer = Some(&writer as &dyn ForgeStateWriter);
+    let harness = Arc::new(ScriptedDeployHarness { raw: raw.into() });
+    let writer = Arc::new(RecordingWriter::default());
+    let mut runner = ProductionRoleRunner::new(harness.clone(), incoming);
+    runner.writer = Some(writer.clone());
     let outcome = ForgeRoleRunner::run(&runner, "deploy", &deploy_task())
         .expect("the deploy lane completes its turn; the boundary decides Hold through evidence, not an error");
     let holds = writer.holds.lock().unwrap().clone();

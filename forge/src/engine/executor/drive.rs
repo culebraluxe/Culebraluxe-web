@@ -11,7 +11,7 @@ use crate::engine::executor::lane_failure::{
 use crate::engine::executor::wave::{plan_wave, WaveLane};
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::job::{
-    execute_claimed_job_unsettled, ForgeJobBridge, ForgeJobLease, JobService, InterruptHandle,
+    execute_claimed_job_unsettled, ForgeJobBridge, ForgeJobLease, InterruptHandle, JobService,
 };
 use crate::engine::role_slice::forge_lane_surface;
 use crate::engine::runner::ForgeTurnPorts;
@@ -297,14 +297,19 @@ fn drive_forge_story_inner<S: TxStore>(
                         Err(err) => return Err(err),
                     };
                     // Get interrupt handle from runner if available.
-                    let interrupt_handle = opts.runner.as_ref().and_then(|r| r.turn_ports()).map(|ports| {
-                        let harness = ports.harness();
-                        let harness_ref: &'static dyn crate::engine::runner::RoleHarness =
-                            unsafe { std::mem::transmute(harness) };
-                        Arc::new(move |reason: &str| {
-                            let _ = harness_ref.interrupt_execution(reason);
-                        }) as InterruptHandle
-                    });
+                    //
+                    // FIX-006-SOUNDNESS: the handle is `'static`, so the closure clones the
+                    // runner's owned `Arc` instead of transmuting a short harness borrow.
+                    let interrupt_handle =
+                        opts.runner
+                            .as_ref()
+                            .and_then(|r| r.turn_ports())
+                            .map(|ports| {
+                                let harness = ports.harness_arc();
+                                Arc::new(move |reason: &str| {
+                                    let _ = harness.interrupt_execution(reason);
+                                }) as InterruptHandle
+                            });
                     // Get turn ceiling from environment (same logic as opencode harness).
                     let turn_ceiling = crate::engine::opencode::turn_ceiling(
                         std::env::var(crate::engine::opencode::TURN_CEILING_ENV)

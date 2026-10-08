@@ -1,6 +1,6 @@
 //! The self-heal retry must carry the corrective directive — the port built it and threw it away.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use forge::engine::*;
 use workflow::Result;
@@ -64,10 +64,10 @@ impl runner::RoleHarness for DirectiveRecordingHarness {
 #[test]
 fn the_retry_carries_the_corrective_directive() {
     std::env::set_var("FORGE_DELIVERABLE_RETRIES", "1");
-    let harness = DirectiveRecordingHarness {
+    let harness = Arc::new(DirectiveRecordingHarness {
         seen: Mutex::new(vec![]),
-    };
-    let role = runner::ProductionRoleRunner::new(&harness, ForgeGateEvidence::default());
+    });
+    let role = runner::ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default());
     let task = runtime::ActiveForgeRoleTask {
         task_id: "t".into(),
         process_instance_id: "p".into(),

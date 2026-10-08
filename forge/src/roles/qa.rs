@@ -321,6 +321,7 @@ mod tests {
     use crate::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};
     use crate::engine::writer::RecordingWriter;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     /// A harness that runs whatever it is told and counts any turn it is asked for. Its commands pass or fail
     /// on demand, so the lane's verdict can be traced back to the measurement rather than to a model.
@@ -402,10 +403,13 @@ mod tests {
     }
 
     /// Run the measurement lane once and read back what it recorded: (model turns spent, verdict, summary).
-    fn measure(harness: &MeasurementHarness, acceptance_mapped: bool) -> (usize, String, String) {
-        let writer = RecordingWriter::default();
-        let runner = ProductionRoleRunner::new(harness, ForgeGateEvidence::default())
-            .with_writer(&writer)
+    fn measure(
+        harness: &Arc<MeasurementHarness>,
+        acceptance_mapped: bool,
+    ) -> (usize, String, String) {
+        let writer = Arc::new(RecordingWriter::default());
+        let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default())
+            .with_writer(writer.clone())
             .with_test_mode(Some("RUST_CONTRACT".into()))
             .with_contract_assay_commands(vec!["cargo check --all-targets".into()])
             .with_contract_acceptance_mapped(acceptance_mapped);
@@ -431,7 +435,7 @@ mod tests {
     /// measured, which is why UNPROVEN is an answer of its own.
     #[test]
     fn the_verdict_is_the_measurement_and_not_a_models_description() {
-        let passing = MeasurementHarness::new(true);
+        let passing = Arc::new(MeasurementHarness::new(true));
         let (turns, verdict, summary) = measure(&passing, false);
         assert_eq!(turns, 0, "the measurement lane spends no model turn");
         assert_eq!(
@@ -440,7 +444,7 @@ mod tests {
         );
         assert!(summary.contains("acceptance mapping"), "{summary}");
 
-        let failing = MeasurementHarness::new(false);
+        let failing = Arc::new(MeasurementHarness::new(false));
         let (turns, verdict, summary) = measure(&failing, true);
         assert_eq!(turns, 0, "a failing measurement still needs no model turn");
         assert_eq!(
@@ -462,10 +466,10 @@ mod tests {
             "the review lane reviews; it does not measure"
         );
 
-        let harness = MeasurementHarness::new(true);
-        let writer = RecordingWriter::default();
-        let runner =
-            ProductionRoleRunner::new(&harness, ForgeGateEvidence::default()).with_writer(&writer);
+        let harness = Arc::new(MeasurementHarness::new(true));
+        let writer = Arc::new(RecordingWriter::default());
+        let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default())
+            .with_writer(writer.clone());
 
         let _ = AssayService::new(&runner).execute("qa_verify", &qa_task());
 
@@ -487,11 +491,12 @@ mod tests {
     #[test]
     fn a_non_contract_story_maps_acceptance_from_the_row() {
         fn run(acceptance_mapped: bool) -> (String, String) {
-            let harness =
-                MeasurementHarness::new(true).with_commands(&["cargo check --all-targets"]);
-            let writer = RecordingWriter::default();
-            let runner = ProductionRoleRunner::new(&harness, ForgeGateEvidence::default())
-                .with_writer(&writer)
+            let harness = Arc::new(
+                MeasurementHarness::new(true).with_commands(&["cargo check --all-targets"]),
+            );
+            let writer = Arc::new(RecordingWriter::default());
+            let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default())
+                .with_writer(writer.clone())
                 .with_contract_assay_commands(vec!["cargo check --all-targets".into()])
                 .with_contract_acceptance_mapped(acceptance_mapped);
 

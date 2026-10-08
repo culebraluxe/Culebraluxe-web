@@ -496,6 +496,7 @@ mod tests {
     use crate::engine::harness::HarnessUsage;
     use crate::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};
     use crate::engine::runtime::ActiveForgeRoleTask;
+    use std::sync::Arc;
 
     /// The bug this test exists for: every previous record of a candidate was a *pointer* into git
     /// (`candidate_sha`), so the night the objects went, the work went with them. The row has to carry the
@@ -728,9 +729,9 @@ mod tests {
             refusal: Some(format!("uncommitted work remains after candidate {head}")),
             base: base.clone(),
         };
-        let writer = crate::engine::writer::RecordingWriter::default();
-        let runner =
-            ProductionRoleRunner::new(&harness, ForgeGateEvidence::default()).with_writer(&writer);
+        let writer = Arc::new(crate::engine::writer::RecordingWriter::default());
+        let runner = ProductionRoleRunner::new(Arc::new(harness), ForgeGateEvidence::default())
+            .with_writer(writer.clone());
         let _ = SmithService::new(&runner).execute("smith", &smith_task());
 
         let artifacts = writer.artifacts.lock().unwrap();
@@ -784,9 +785,9 @@ mod tests {
             refusal: None,
             base: base.clone(),
         };
-        let writer = crate::engine::writer::RecordingWriter::default();
-        let runner =
-            ProductionRoleRunner::new(&harness, ForgeGateEvidence::default()).with_writer(&writer);
+        let writer = Arc::new(crate::engine::writer::RecordingWriter::default());
+        let runner = ProductionRoleRunner::new(Arc::new(harness), ForgeGateEvidence::default())
+            .with_writer(writer.clone());
         let _ = SmithService::new(&runner).execute("smith", &smith_task());
 
         let artifacts = writer.artifacts.lock().unwrap();

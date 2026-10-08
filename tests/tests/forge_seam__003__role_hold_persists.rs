@@ -4,6 +4,7 @@
 mod support;
 
 use std::path::Path;
+use std::sync::Arc;
 
 use forge::engine::assay::CommandResult;
 use forge::engine::facts::ForgeGateEvidence;
@@ -57,7 +58,7 @@ impl RoleHarness for HoldHarness {
 
 #[test]
 fn role_hold_keeps_uuid_task_and_process_identity_and_human_story_id() {
-    let writer = SeamWriter::default();
+    let writer = Arc::new(SeamWriter::default());
     let task_id = Uuid::new_v4().to_string();
     let process_instance_id = Uuid::new_v4().to_string();
     let story_id = "ENG-FORGE-SEAM-HOLD-003";
@@ -72,13 +73,13 @@ fn role_hold_keeps_uuid_task_and_process_identity_and_human_story_id() {
         candidates: vec![],
     };
     let runner = ProductionRoleRunner::new(
-        &HoldHarness,
+        Arc::new(HoldHarness),
         ForgeGateEvidence {
             work_type: Some("FEATURE".into()),
             ..Default::default()
         },
     )
-    .with_writer(&writer)
+    .with_writer(writer.clone())
     .with_story_run(Some("run-hold-003".into()));
 
     let outcome = LeadService::new(&runner)
