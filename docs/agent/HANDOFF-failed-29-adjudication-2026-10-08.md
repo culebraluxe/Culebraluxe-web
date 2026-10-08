@@ -7,7 +7,7 @@ fix the repo chain, rewrite the bad specs, write the rest, defer BoldSign, build
 
 | # | Fact | How to check it |
 | --- | --- | --- |
-| S1 | 11 `TST-%` stories are still `Failed`; 18 of the original 29 are `Complete` | `psql "$DATABASE_URL_PROD" -c "select id from storyboard_story where id like 'TST-%' and status='Failed' order by id"` |
+| S1 | 9 `TST-%` stories are still `Failed`; 20 of the original 29 are `Complete` | `psql "$DATABASE_URL_PROD" -c "select id from storyboard_story where id like 'TST-%' and status='Failed' order by id"` |
 | S2 | The migration chain rebuilds from an EMPTY schema: 250 files apply, 0 failures | `cargo test -p test-harness --test db_migration__001__migrations_apply_cleanly_from_empty_schema -- --ignored` → `ok … 113.88s` |
 | S3 | The 19-file from-empty failure set is gone: its cause was a hand-built Forge base no migration created | `db/migrations/000_forge_base_schema.sql` (its header) |
 | S4 | Migration numbers are unique and the ledger agrees with the repo in both directions on DEV | `db_migration__004` ok 4.72s, `db_migration__005` ok 1.08s |
@@ -34,8 +34,7 @@ fix the repo chain, rewrite the bad specs, write the rest, defer BoldSign, build
 | TST-FORGE-ENVELOPE-003 | `tests/tests/forge_envelope__003__model_profile.rs` | **H4 — re-scope first** |
 | TST-FORGE-ENVELOPE-006 | `tests/tests/forge_envelope__006__special_instructions.rs` | envelope `special_instructions` |
 | TST-FORGE-ENVELOPE-010 | `tests/tests/forge_envelope__010__runtime_adapter.rs` | **H4 — re-scope first** |
-| TST-FORGE-LAUNCH-INTENT-001 | `tests/tests/forge_launch_intent__001__solo_caps_lead_to_solo.rs` | SOLO caps Lead to solo — `forge/src/roles/lead.rs` |
-| TST-FORGE-LAUNCH-INTENT-002 | `tests/tests/forge_launch_intent__002__smith_forbids_split.rs` | SMITH forbids SPLIT |
+| TST-FORGE-LAUNCH-INTENT-001/002 | **done** — `tests/tests/forge_launch_intent__00X__*.rs` | L1 pure, `forge::engine::role_slice::bench_intent_errors`: the whole 4x4 intent/decision lattice, plus the no-intent and no-decision rails |
 | TST-FORGE-STORY-RUN-008 | `tests/tests/forge_story_run__008__artifact_attaches_to_correct_run.rs` | `forge_tool_artifact` attaches to the right run |
 | TST-SEC-ENTITLEMENT-008 | `tests/tests/sec_entitlement__008__tech.rs` | the TECH entitlement class — `web/src/api/tech_page.rs` |
 | TST-SEC-REDIRECT-002/005/009/011 | **done** — `tests/tests/sec_redirect__00X__*.rs` | L0 pure, `SecurityHarness::redirect_target`; siblings 001/003/004/006/007/008/010 were the templates |
@@ -49,6 +48,8 @@ may be committed and completed with the red result recorded as product evidence 
 | Commit | What it changed | The gate that ran |
 | --- | --- | --- |
 | `ebb291f35` | `db/migrations/000_forge_base_schema.sql`; `209` indexes made idempotent; 099→201, 159→202, 214→218; DEV+PROD ledger rows for 224-228; the phantom `260_…` row reconciled; `db/src/boot_gate.rs` + the `web/src/http_runtime.rs` boot refusal | `db_migration__001` ok 113.88s · `004` ok 4.72s · `005` ok 1.08s |
+| `f438d7a68` | four L0 redirect contracts: 002 (absolute same-origin falls back), 005 (encoded `%2F`/`%5C` carried, literal `\` refused), 009 (malformed Unicode stays a valid Location header), 011 (the policy is idempotent; the fallback cannot re-enter `/api/auth`) | each `ok · 0.00s`, exit 0 |
+| `a65ed717a` | this hand-off | pushed, exit 0 |
 | `8e7e4e3c0` | the seven rewritten specs (catchup 002/003/006 renamed to their canonical files, client 001 → `directory_pagination` + isolated, client 002/003 isolated, concurrency 011 on the `service_mutation` path) and `db_migration__007` rewritten to prove the gate discriminates | `crm_client__001` ok 12.32s · `002` ok 9.59s · `003` ok 7.44s · `db_concurrency__011` ok 22.90s · `crm_catchup__002` ok 20.59s · `003` ok 8.12s · `006` ok 6.96s · `db_migration__007` ok 15.93s |
 
 Both commits are on `origin/main`; the push hook ran and reported `68ba004de..8e7e4e3c0 HEAD -> main`, exit 0. The hook
@@ -58,7 +59,7 @@ item; `cargo check -p web` was run separately for the `http_runtime` edit.
 
 ## 5. NOT VERIFIED — the honest gaps
 
-- The 11 stories still marked *to write* in §3: no test file written, nothing run (the four `SEC-REDIRECT` ones have since landed — see §4).
+- The 7 stories still marked *to write* in §3 and the 2 blocked on H4: no test file, nothing run. The four `SEC-REDIRECT` and the two `FORGE-LAUNCH-INTENT` ones have since landed (see §4).
 - `TST-SIG-WEBHOOK-004` / `-005` (BoldSign `text[]` vs JSON): **not in this Failed 29**, never adjudicated this session.
 - The three `ARCH-ROUTE-MAP` stories are marked Complete on a `rc=0 · 1 passed` run from earlier the same day; they were
   not re-run after the chain commit. The chain commit touches migrations and `db`, not route classification.
@@ -89,7 +90,7 @@ item; `cargo check -p web` was run separately for the `http_runtime` edit.
 | TST-CRM-CLIENT-001/002/003 | bad spec, **rewritten** | `total == 1` was asserted against the whole live directory (5-6 people named "alice"); phones derived from `ns.len()` collided with real identities; `client_003` seeded `status='archived'`, which `person_status_check` refuses (archiving is `archived_at`) |
 | TST-ARCH-ROUTE-MAP-002/003/004 | stale status | canonical files exist; each `rc=0 · 1 passed` |
 | TST-SEC-REDIRECT-002/005/009/011 | **done** (authored) | L0 pure against `safe_next`: absolute (even same-origin) URLs fall back to the dashboard; encoded `%2F`/`%5C` are carried as on-site paths while literal `\\` is refused; malformed/Unicode text stays a valid `Location` header; the policy is idempotent and its fallback cannot re-enter `/api/auth` |
-| TST-CRM-CLIENT-004/005, TST-CRM-PERSON-002, TST-FORGE-ENVELOPE-006, TST-FORGE-LAUNCH-INTENT-001/002, TST-FORGE-STORY-RUN-008, TST-SEC-ENTITLEMENT-008, TST-UI-MODEL-007 | to write | no test file on disk; the canonical name is in each row's `scope` |
+| TST-CRM-CLIENT-004/005, TST-CRM-PERSON-002, TST-FORGE-ENVELOPE-006, TST-FORGE-STORY-RUN-008, TST-SEC-ENTITLEMENT-008, TST-UI-MODEL-007 | to write | no test file on disk; the canonical name is in each row's `scope` |
 | TST-FORGE-ENVELOPE-003/010 | to write, **blocked on re-scoping** | `model_profile` / `runtime_adapter` appear in 0 files repo-wide |
 
 The seven `SEC-REDIRECT` stories that are not in this list (`001/003/004/006/007/008/010`) have contracts on disk from a
