@@ -107,7 +107,11 @@ pub fn adjudicate_qa(
     }
     for c in commands {
         if !c.passed {
-            blockers.push(if c.unmeasurable {
+            blockers.push(if crate::engine::assay::is_cmd_timeout(c) {
+                // A ceiling kill reads as a kill, not as a generic unmeasurable command: the claim was
+                // held until the ceiling fired, and the story requeues on this blocker (FORGE-FIX-005).
+                format!("CMD_TIMEOUT {}", c.command)
+            } else if c.unmeasurable {
                 format!("CMD_UNMEASURABLE {}", c.command)
             } else {
                 format!("CMD_FAIL {}", c.command)
