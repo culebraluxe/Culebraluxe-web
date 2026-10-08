@@ -21,6 +21,11 @@ RUST_UI_PROFILE=release bash scripts/site-build.sh
 
 echo
 echo 'built:'
-echo "  server  ${CARGO_TARGET_DIR:-target}/release/web"
+# Where those artifacts landed: ask cargo rather than guess (2026-10-07). The target dir is per checkout — named by
+# the checkout's .cargo/config.toml (build/rust-lane-<name>, or build/rust-main here) — so `${CARGO_TARGET_DIR:-target}`
+# stopped being the right answer the day one shared directory was retired.
+target_dir="$(cargo metadata --format-version 1 --no-deps 2>/dev/null \
+  | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p' || true)"
+echo "  server  ${target_dir:-target}/release/web"
 echo "  wasm    public/rust-ui/ui_bg.wasm + ui.js"
 echo "  css     public/app.css"

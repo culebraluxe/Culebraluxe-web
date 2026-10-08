@@ -16,14 +16,20 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 js_out="$root/public/rust-ui"
 wasm_out="$root/public/rust-ui"
-# Where cargo may write, in order: an explicit UI override, the shared workspace target every lane reuses, then cargo's
-# own answer — a `[build] target-dir` from a config file (this Mac: ~/.cargo/config.toml -> /Users/Shared/dev/build/rust),
-# else <root>/target. `/target` is the container's build root (Dockerfile, devops/Dockerfile.build) and stays the last
-# resort, which is the one place it applies: the container sets neither the override nor a config file.
+# Where cargo may write, in order: an explicit UI override, the checkout's own configured target dir, then cargo's
+# own answer — a `[build] target-dir` from a config file, which since 2026-10-07 is per checkout (a lane's own
+# .cargo/config.toml -> /Users/Shared/dev/build/rust-lane-<name>; the machine fallback in ~/.cargo/config.toml ->
+# build/rust-main, for the main checkout and the launchd jobs), else <root>/target. `/target` is the container's
+# build root (Dockerfile, devops/Dockerfile.build) and stays the last resort, which is the one place it applies:
+# the container sets neither the override nor a config file.
 #
 # Cargo has to be asked rather than assumed because the `--target-dir` below is explicit, so it overrides cargo's config
-# file — and on a developer Mac the old `/target` default is read-only. A shell without CARGO_TARGET_DIR used to die with
-# `Read-only file system (os error 30) at path "/targetXXXXXX"` before compiling a line (2026-10-04).
+# file — and because this script reads "cargo's answer is <root>/target" as "we are in the container", where `/target`
+# is what the Dockerfile copies from. On a developer Mac that reading is wrong and used to be fatal: a shell without
+# CARGO_TARGET_DIR died with `Read-only file system (os error 30) at path "/targetXXXXXX"` before compiling a line
+# (2026-10-04). That is exactly why the per-checkout directory is named by a config file rather than by removing the
+# rule and letting cargo fall back to its own default (2026-10-07): the default is the one answer this script maps
+# to /target.
 target_dir="${RUST_UI_TARGET_DIR:-${CARGO_TARGET_DIR:-}}"
 if [ -z "$target_dir" ]; then
   # `|| resolved=""` is load-bearing, and it is what made the 2026-10-05 deploy failure invisible: under
