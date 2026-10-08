@@ -94,10 +94,29 @@ const TREE_FIELD_TOKENS: [&str; 4] = [
 /// is referenced by nothing outside its own tests and the module is reachable only through
 /// `pub mod worker_lanes;`. The baseline makes the capability visible instead of silent; retire the
 /// module when a story owns it.
-const WORKTREE_CAPABILITY_FILES: [&str; 4] = [
+///
+/// `scripts/lane-cargo-config.sh` creates no worktree. It matches this scan because its prose names
+/// `git worktree add` while explaining which kind of checkout gets which target directory
+/// (`docs/agent/LAYOUT.md`, "One target directory per checkout"): a lane gets
+/// `/Users/Shared/dev/build/rust-lane-<name>`, a sandbox builds inside its own tree, the main checkout
+/// is refused. That prose is load-bearing — its heredoc delimiter is quoted because an unquoted body
+/// *executed* what it described, so on 2026-10-08 writing a sandbox's config ran `git worktree add`,
+/// `pnpm ui:build` and `cargo check` on the way out. The scan is textual, so the file is recorded here
+/// with its reason (`bless`, 2026-10-08) rather than reworded to hide the phrase.
+///
+/// `scripts/verify-checkout-build-dir.sh` does create worktrees: three detached probes under
+/// `${TMPDIR:-/tmp}`, timed, asserted against, and removed in its own `cleanup` trap. That is the shape
+/// AGENTS.md:151 exempts by name — "Scratch that a command creates and consumes inside itself is fine;
+/// a directory that outlives the command, or that another lane reads, is a tree" — so each probe lives
+/// and dies inside one command, and a probe that only printed would not be a receipt. Recorded here by
+/// the Captain's call (`bless`, 2026-10-08) rather than removed: deleting the probes would delete the
+/// regression guard for the 2026-10-08 checkout bug they were written to catch.
+const WORKTREE_CAPABILITY_FILES: [&str; 6] = [
     "forge/src/engine/worktree.rs",
     "forge/src/pianola/worker_lanes.rs",
+    "scripts/lane-cargo-config.sh",
     "scripts/lane-new.sh",
+    "scripts/verify-checkout-build-dir.sh",
     "tests/src/git.rs",
 ];
 
