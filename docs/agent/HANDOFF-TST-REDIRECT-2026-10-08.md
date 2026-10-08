@@ -1,8 +1,8 @@
 # TST redirect security — 2026-10-08
 
-## Status — blocked before application publication
+## Status — publication authorized by owner
 
-Seven final canonical test binaries pass (one test each, zero ignored), and the application control-character defect is repaired locally. The required T1 gate is blocked by the pre-existing frozen worktree capability guard. No application code from this batch is published and no Neon rows are marked Complete. The reviewable source change is preserved in `docs/agent/proposals/TST-REDIRECT-2026-10-08.patch`.
+Seven final canonical test binaries passed (one test each, zero ignored). Chris explicitly authorized pushing the prepared tree to main on 2026-10-08. The preserved patch is applied on top of current main without replacing peer changes. The prior T1 gate failure remains recorded below; the frozen guard and allowlist are unchanged.
 
 ## Scope
 
@@ -35,3 +35,7 @@ Final gate receipt: T0 compile PASS (45s), FMT rustfmt PASS (2s), T1 sections FA
 AGENTS.md forbids editing a baseline or allow-list to turn a gate green. The next action is to resolve that existing worktree policy mismatch, then apply the preserved patch, rerun the unchanged section gate, publish the application change, and update the seven Neon rows with the successful receipt. BoldSign stays Deferred.
 
 After the gate built all targets, directly executed the seven final canonical test binaries: each returned `test result: ok. 1 passed; 0 failed; 0 ignored` with exit 0. No live database or provider was exercised.
+
+## Publication receipt
+
+Owner authorization: “I authorize you to push your tree to main.” Applied the exact preserved ten-file patch against main at `80e5f7d04c9eba7a8aff35590f52c95cfdc2f723`, checking all existing hunk contexts and confirming new paths are absent. Subsequent verification documented in `docs/agent/HANDOFF-TST-RED-LANDING-2026-10-08.md` reports seven canonical assays plus ten web Google-auth tests passing against `877d1f6f6`. The earlier scratch executor is unavailable in this turn, so no fresh build or test execution is claimed. Publish via the GitHub API with an expected-head lease; no force push, gate edits or deployment. Neon completion notes distinguish the targeted passing evidence from the non-green section gate.

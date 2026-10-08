@@ -74,10 +74,17 @@ fn redirect_uri(headers: &HeaderMap) -> String {
 ///
 /// `\` is refused as well as `//`: every browser reads `/\evil.example` as `//evil.example` when it follows
 /// the `Location` header, so a backslash after the leading `/` is an off-site redirect.
-fn safe_next(next: Option<&str>) -> String {
-    next.filter(|path| path.starts_with('/') && !path.starts_with("//") && !path.starts_with("/\\"))
-        .unwrap_or("/portal/dashboard")
-        .to_owned()
+/// Absolute URLs (including same-origin URLs) deliberately fall back to the dashboard.
+/// Reject control characters before Axum builds a `Location` header, which otherwise returns HTTP 500 on CR/LF.
+pub fn safe_next(next: Option<&str>) -> String {
+    next.filter(|path| {
+        path.starts_with('/')
+            && !path.starts_with("//")
+            && !path.starts_with("/\\")
+            && !path.chars().any(char::is_control)
+    })
+    .unwrap_or("/portal/dashboard")
+    .to_owned()
 }
 
 fn set_cookie(response: &mut Response, name: &str, value: &str, max_age: i64) {
