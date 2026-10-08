@@ -32,6 +32,42 @@ pub struct HostMsg<M> {
     msg: M,
 }
 
+/// Whether an answer asked for under `asked` may land while the host is on `current`.
+///
+/// This is the whole staleness rule, and it lives here rather than in a screen because a screen cannot forget to
+/// apply it: a message carries the generation it was created under, the host moves on when another record is opened
+/// ([`classify_change`]), and an answer to the previous record's request is dropped at [`ScreenHost::update`].
+pub fn answer_lands(current: u64, asked: u64) -> bool {
+    current == asked
+}
+
+/// What a changed URL means for the mounted screen. `ScreenHost::changed` acts on this and nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UrlChange {
+    /// The context is identical: nothing changed, and nothing is re-drawn.
+    Same,
+    /// Another record — path, id or actor: start the screen over and retire the generation, so answers to the
+    /// previous record's requests are dropped.
+    AnotherRecord,
+    /// Only the query changed (a tab, a selection): keep the state and let the screen decide (`Screen::url_changed`).
+    Query,
+    /// Only the grants arrived (or changed): re-draw what the view offers; nothing to read.
+    Grants,
+}
+
+/// Classify a context change. One decision, made here, so no screen re-decides what "another record" means.
+pub fn classify_change(old: &ScreenCtx, new: &ScreenCtx) -> UrlChange {
+    if new == old {
+        UrlChange::Same
+    } else if new.path != old.path || new.id != old.id || new.actor != old.actor {
+        UrlChange::AnotherRecord
+    } else if new.query != old.query {
+        UrlChange::Query
+    } else {
+        UrlChange::Grants
+    }
+}
+
 impl<S: Screen> ScreenHost<S> {
     fn run(&self, ctx: &Context<Self>, cmd: crate::app::cmd::Cmd<S::Msg>) {
         let generation = self.generation;
@@ -55,7 +91,7 @@ impl<S: Screen> Component for ScreenHost<S> {
     }
 
     fn update(&mut self, ctx: &Context<Self>, message: Self::Message) -> bool {
-        if message.generation != self.generation {
+        if !answer_lands(self.generation, message.generation) {
             return false;
         }
         let cmd = S::update(&mut self.model, message.msg, &ctx.props().ctx);
@@ -68,19 +104,16 @@ impl<S: Screen> Component for ScreenHost<S> {
     /// keeps the state and asks the screen what to do.
     fn changed(&mut self, ctx: &Context<Self>, old: &Self::Properties) -> bool {
         let (new, old) = (&ctx.props().ctx, &old.ctx);
-        if new == old {
-            return false;
-        }
-        let cmd = if new.path != old.path || new.id != old.id || new.actor != old.actor {
-            self.generation += 1;
-            let (model, cmd) = S::init(new);
-            self.model = model;
-            cmd
-        } else if new.query != old.query {
-            S::url_changed(&mut self.model, new)
-        } else {
-            // Only the grants arrived (or changed): the view re-draws what it offers; nothing to read.
-            crate::app::cmd::Cmd::none()
+        let cmd = match classify_change(old, new) {
+            UrlChange::Same => return false,
+            UrlChange::AnotherRecord => {
+                self.generation += 1;
+                let (model, cmd) = S::init(new);
+                self.model = model;
+                cmd
+            }
+            UrlChange::Query => S::url_changed(&mut self.model, new),
+            UrlChange::Grants => crate::app::cmd::Cmd::none(),
         };
         self.run(ctx, cmd);
         true
