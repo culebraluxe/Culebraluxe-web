@@ -167,6 +167,15 @@ rule takes effect for the next worktree only once it is committed, and whatever 
 hook; the heredocs there are quoted delimiters now, and unquoting one to "let a variable expand" would restore the
 bug. The one value that must expand is appended by `printf`.
 
+The proof for all of it is `scripts/verify-checkout-build-dir.sh`, run from any checkout as
+`bash scripts/verify-checkout-build-dir.sh`. Eighteen asserting checks, not a print-out: the hook fires in the new
+worktree and that checkout is fast; the config it writes is `<tree>/.cargo-target` at mode 600; the directory is
+git-ignored and leaves nothing dirty; cargo's own answer *standing inside the sandbox* is neither `/target` (the
+`rust-ui-build.sh` trap) nor `build/rust-main`; two sandboxes get two different directories; a `lane-*` checkout is
+treated as a lane; the main checkout is refused rather than given a second answer, and a checkout that already has one
+keeps it; and a branch switch inside a sandbox leaves the config byte-identical and says nothing. It measures the
+worktree it creates, so it is the regression guard for the 32 s bug above as much as the receipt for the rule.
+
 **Why the shared directory went (2026-10-07), in two measurements.** One: it never held one copy of anything — cargo
 keys an artifact by the feature/target combination it was built for, and that directory held 865 rlibs for 261 crates
 (2026-10-03) — `libsyn` sixteen times, `libsqlx_postgres` **forty-five** times by 2026-10-07, `serde` eleven, `yew` nine
