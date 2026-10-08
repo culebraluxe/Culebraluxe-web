@@ -76,6 +76,9 @@ fn redirect_uri(headers: &HeaderMap) -> String {
 /// the `Location` header, so a backslash after the leading `/` is an off-site redirect.
 /// Absolute URLs (including same-origin URLs) deliberately fall back to the dashboard.
 /// Reject control characters before Axum builds a `Location` header, which otherwise returns HTTP 500 on CR/LF.
+///
+/// Public as the smallest honest seam for the PROP.PROPERTY_BASED contract test
+/// (`TST-PROP-PROPERTY-BASED-006`): the harness exercises this exact filter, not a copy of it.
 pub fn safe_next(next: Option<&str>) -> String {
     next.filter(|path| {
         path.starts_with('/')
@@ -233,7 +236,7 @@ async fn callback(
     response
 }
 
-fn percent_decode(text: &str) -> String {
+pub fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;

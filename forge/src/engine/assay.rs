@@ -19,6 +19,46 @@ pub enum AssayVerdict {
     Unproven,
 }
 
+/// A measured command failure that is a BUILD failure, not a test failure.
+///
+/// WHY THIS EXISTS. A lane that cannot compile cannot run its tests, and recording that as
+/// `CMD_FAIL` sends a toolchain fault down the product-repair road (FORGE-FIX-003, rescoped
+/// 2026-10-08: the batch-45 Failed-without-assays class). The blocker is distinct so the story
+/// is never marked Failed for it; the QA verdict reads it as UNPROVEN (escalate), not FAIL.
+pub const CMD_BUILD_FAIL: &str = "CMD_BUILD_FAIL";
+
+/// Lines of evidence kept in a [`CommandResult`] excerpt by the harness runners.
+/// Parity with the pianola executor's `ASSAY_EXCERPT_LINES`: the excerpt is what artifact rows
+/// carry, so both runners keep the same window.
+pub const COMMAND_EXCERPT_LINES: usize = 500;
+
+/// True when command output shows the Rust toolchain failing to BUILD rather than a test
+/// failing: a rustc diagnostic (`error[E0308]`, ...) or cargo's own verdict
+/// (`error: could not compile ...`). Checked against the COMBINED stdout+stderr output — cargo
+/// prints diagnostics on stderr, so a stream-dropping capture would never see them (the
+/// evidence-preservation half of FORGE-FIX-003).
+pub fn is_build_failure_output(output: &str) -> bool {
+    output.lines().any(|line| {
+        let trimmed = line.trim_start();
+        trimmed.starts_with("error[") || line.contains("could not compile")
+    })
+}
+
+/// Combine the two process streams into the one evidence string a [`CommandResult`] carries.
+/// Stdout first, stderr appended — cargo diagnostics print to stderr while test harnesses print
+/// to stdout, and keeping only one silently discards the compiler error (FORGE-FIX-003). Same
+/// rule as the pianola executor; the harness runners share it from here.
+pub fn combine_command_output(stdout: &str, stderr: &str) -> String {
+    let mut combined = stdout.to_string();
+    if !stderr.trim().is_empty() {
+        if !combined.is_empty() && !combined.ends_with('\n') {
+            combined.push('\n');
+        }
+        combined.push_str(stderr);
+    }
+    combined
+}
+
 #[derive(Debug, Clone)]
 pub struct AssayReport {
     pub verdict: AssayVerdict,
@@ -43,9 +83,32 @@ pub fn adjudicate_assay(
         };
     }
     if results.iter().any(|r| !r.passed) {
+        // A build failure is measured, but it is NOT a test failure: the toolchain never ran the
+        // tests. It gets its own blocker and an UNPROVEN reading (escalate, not repair) so the
+        // story is never marked Failed for it. A genuine assertion failure still reads CMD_FAIL.
+        let mut test_failed = false;
+        let mut build_failed = false;
+        for result in results.iter().filter(|r| !r.passed) {
+            if is_build_failure_output(&result.output) || is_build_failure_output(&result.excerpt) {
+                build_failed = true;
+            } else {
+                test_failed = true;
+            }
+        }
+        let mut blockers = Vec::new();
+        if test_failed {
+            blockers.push("CMD_FAIL");
+        }
+        if build_failed {
+            blockers.push(CMD_BUILD_FAIL);
+        }
         return AssayReport {
-            verdict: AssayVerdict::Fail,
-            blockers: vec!["CMD_FAIL"],
+            verdict: if test_failed {
+                AssayVerdict::Fail
+            } else {
+                AssayVerdict::Unproven
+            },
+            blockers,
         };
     }
     if !acceptance_mapped {
@@ -450,5 +513,87 @@ mod rust_contract_tests {
             .as_deref()
             .unwrap_or_default()
             .contains("authoring checks failed"));
+    }
+}
+
+#[cfg(test)]
+mod build_fail_tests {
+    use super::*;
+
+    fn failed_result(command: &str, output: &str) -> CommandResult {
+        CommandResult {
+            command: command.into(),
+            exit_code: 101,
+            passed: false,
+            excerpt: output.into(),
+            unmeasurable: false,
+            output: output.into(),
+        }
+    }
+
+    const COMPILE_ERROR: &str = "   Compiling untouched-crate v0.1.0\n\
+         error[E0308]: mismatched types\n\
+         error: could not compile `untouched-crate` (lib) due to 1 previous error";
+
+    #[test]
+    fn rustc_diagnostics_and_cargo_verdicts_read_as_build_failures() {
+        assert!(is_build_failure_output("error[E0308]: mismatched types"));
+        assert!(is_build_failure_output(
+            "error: could not compile `some-crate` (lib) due to 3 previous errors"
+        ));
+        assert!(is_build_failure_output(COMPILE_ERROR));
+    }
+
+    #[test]
+    fn assertion_failures_are_not_build_failures() {
+        assert!(!is_build_failure_output(
+            "test probe::works ... FAILED\ntest result: FAILED. 0 passed; 1 failed"
+        ));
+        assert!(!is_build_failure_output(""));
+        assert!(!is_build_failure_output("ok. 12 passed; 0 failed"));
+    }
+
+    #[test]
+    fn a_build_failure_is_unproven_not_failed() {
+        let command = "cargo test -p untouched-crate".to_string();
+        let report = adjudicate_assay(
+            &[command.clone()],
+            &[failed_result(&command, COMPILE_ERROR)],
+            true,
+        );
+        assert_eq!(report.verdict, AssayVerdict::Unproven);
+        assert!(report.blockers.contains(&CMD_BUILD_FAIL));
+        assert!(
+            !report.blockers.contains(&"CMD_FAIL"),
+            "a build failure must never borrow the test-failure token: {:?}",
+            report.blockers
+        );
+    }
+
+    #[test]
+    fn a_genuine_assertion_failure_still_fails() {
+        let command = "cargo test -p probe".to_string();
+        let report = adjudicate_assay(
+            &[command.clone()],
+            &[failed_result(
+                &command,
+                "assertion failed: `(left == right)`",
+            )],
+            true,
+        );
+        assert_eq!(report.verdict, AssayVerdict::Fail);
+        assert!(report.blockers.contains(&"CMD_FAIL"));
+    }
+
+    #[test]
+    fn both_streams_survive_the_combine() {
+        let combined = combine_command_output("test result: ok", "warning: unused\n");
+        assert!(combined.contains("test result: ok"));
+        assert!(combined.contains("warning: unused"));
+        assert_eq!(
+            combine_command_output("only-stdout", "   \n"),
+            "only-stdout"
+        );
+        assert_eq!(combine_command_output("", "only-stderr"), "only-stderr");
     }
 }

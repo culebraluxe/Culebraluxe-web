@@ -26,15 +26,13 @@ fn now_millis() -> i64 {
 
 fn engine() -> WorkflowEngine<NeonStore> {
     let store = NeonStore::connect_from_env().expect("neon");
-    let writer = DbForgeStateWriter::connect_env().ok();
-    let port = ForgeApplicationPort::new(
-        match writer {
-            Some(w) => Arc::new(w),
-            None => Arc::new(forge::engine::writer::NullWriter),
-        },
-        None,
-        None,
-    );
+    // Fail closed like the store above: a mutation door with no production writer would silently drop every story
+    // write, so writer-absent exits 2 rather than falling back to a writer that records nothing.
+    let writer = DbForgeStateWriter::connect_env().unwrap_or_else(|e| {
+        eprintln!("story writer: {e}; refusing to run without a production story writer");
+        std::process::exit(2);
+    });
+    let port = ForgeApplicationPort::new(Arc::new(writer), None, None);
     let eng = WorkflowEngine::new(
         store,
         EngineOptions {

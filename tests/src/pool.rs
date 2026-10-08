@@ -86,6 +86,14 @@ pub enum PoolFault {
     ConnectionExhausted,
     /// A unique-key violation: SQLSTATE `23505` — a work failure, not a timeout.
     ConstraintViolation,
+    /// The connection died mid-use: the driver's I/O error, shaped exactly as the pool's own regression test
+    /// builds it (`db/src/pool.rs`: `Broken pipe (os error 32)`). No SQLSTATE arrives on this path — the
+    /// socket is gone — so the production taxonomy reads the message (`db/src/error.rs:118-131`).
+    DroppedConnection,
+    /// The server terminated the session by administrator command: SQLSTATE `57P01`. Like the crash-shutdown
+    /// `57P02` the taxonomy already names, the work is fine and the session is gone — `DatabaseUnavailable`,
+    /// not a `Timeout`.
+    ServerShutdown,
     /// A missing relation: SQLSTATE `42P01` — a work failure, not a timeout.
     SchemaMismatch,
 }
@@ -107,6 +115,17 @@ impl PoolFault {
                 "terminating connection due to idle-in-transaction timeout",
             )),
             Self::ConnectionExhausted => Some(sqlstate("53300", "sorry, too many clients already")),
+            // The socket is gone: no SQLSTATE, just the driver's I/O error. Shaped exactly as the pool's own
+            // regression test builds it (`db/src/pool.rs`), so the taxonomy reads the same message production
+            // reads on a real drop.
+            Self::DroppedConnection => Some(sqlx::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "Broken pipe (os error 32)",
+            ))),
+            Self::ServerShutdown => Some(sqlstate(
+                "57P01",
+                "terminating connection due to administrator command",
+            )),
             Self::ConstraintViolation => Some(sqlstate(
                 "23505",
                 "duplicate key value violates unique constraint \"pool_fault_key\"",
@@ -234,5 +253,25 @@ mod tests {
             .expect_err("a constraint fails");
         assert_eq!(failure.kind, DbFailureKind::Constraint);
         assert!(!failure.retryable);
+    }
+
+    #[test]
+    fn a_dropped_connection_is_the_drivers_own_io_error() {
+        let error = PoolFault::DroppedConnection.driver_error().expect("a drop");
+        assert_eq!(
+            error.to_string(),
+            "error communicating with database: Broken pipe (os error 32)"
+        );
+        let failure = DbFailure::from_sqlx("db.acquire", &error);
+        assert_eq!(failure.kind, DbFailureKind::DatabaseUnavailable);
+        assert!(failure.retryable);
+    }
+
+    #[test]
+    fn an_administrator_shutdown_is_a_connection_failure_not_a_timeout() {
+        let harness = DbPoolFaultHarness::always(PoolFault::ServerShutdown);
+        let failure = harness.acquire("db.acquire").expect_err("a shutdown fails");
+        assert_eq!(failure.kind, DbFailureKind::DatabaseUnavailable);
+        assert!(failure.retryable);
     }
 }

@@ -620,17 +620,24 @@ impl RoleHarness for MaestroHarness {
             .output()
         {
             Ok(out) => {
-                let excerpt = String::from_utf8_lossy(&out.stdout);
-                let err = String::from_utf8_lossy(&out.stderr);
-                let text = if excerpt.is_empty() { err } else { excerpt };
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                // BOTH streams are evidence: cargo diagnostics print to stderr while test
+                // harnesses print to stdout, and keeping only one silently discards the
+                // compiler error (FORGE-FIX-003).
+                let text = crate::engine::assay::combine_command_output(&stdout, &stderr);
                 let code = out.status.code().unwrap_or(1);
                 CommandResult {
                     command: command.into(),
                     exit_code: code,
                     passed: code == 0,
-                    excerpt: text.chars().take(240).collect(),
+                    excerpt: text
+                        .lines()
+                        .take(crate::engine::assay::COMMAND_EXCERPT_LINES)
+                        .collect::<Vec<_>>()
+                        .join("\n"),
                     unmeasurable: false,
-                    output: text.to_string(),
+                    output: text,
                 }
             }
             Err(e) => CommandResult {

@@ -39,10 +39,18 @@ workflow = { path = "../middle/workflow" }
 web = { path = "../web" }
 
 [dev-dependencies]
+# The Mux configuration boundary under test (TST-INT-MUX-001): `MuxConfig::from_env`
+# is the production config reader the video routes build their client from. Test-only,
+# so the harness's own modules never link a provider edge — the read is the same one
+# `web::api::routes::bodies::mux_video` performs, not a re-declared copy of it.
+apis = { path = "../middle/apis" }
 # The Forge definition boundary under test (TST-WF-DEFINITION-013): the production XML parser
 # (`forge::engine::xml`) and the pure definition policies it feeds (`version_policy`, `commands`, `topology`).
 # Test-only, so the harness's own modules never link the Forge runtime — the parse is the same one the deploy path
 # (`forge::engine::deploy::deploy_xml`) and the engine binary use, not a re-declared copy of it.
 forge = { path = "../forge" }
+# Property-based contract tests (PROP.PROPERTY_BASED, TST-PROP-PROPERTY-BASED-001..010): the ProptestHarness
+# strategy runner. Test-only; production crates never depend on it.
+proptest = { workspace = true }
 # Used by one migrated test for `CancellationToken`-shaped shutdown, never by the harness's own modules.
 tokio-util.workspace = true
