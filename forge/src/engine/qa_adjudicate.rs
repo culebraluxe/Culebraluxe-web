@@ -1,6 +1,7 @@
 //! Remainder of workflow_app/forge/agents/qa/run.ts — acceptance + negative control.
 
-use crate::engine::assay::{AssayVerdict, CommandResult};
+use crate::engine::assay::CMD_BUILD_FAIL;
+use crate::engine::assay::{is_build_failure_output, AssayVerdict, CommandResult};
 use crate::engine::qa_assert::{assertion_resolution, AssertionResolution};
 
 #[derive(Debug, Clone, Default)]
@@ -109,6 +110,10 @@ pub fn adjudicate_qa(
         if !c.passed {
             blockers.push(if c.unmeasurable {
                 format!("CMD_UNMEASURABLE {}", c.command)
+            } else if is_build_failure_output(&c.output) || is_build_failure_output(&c.excerpt) {
+                // A build failure is measured, but it is NOT a test failure: the toolchain never
+                // ran the tests. Distinct blocker so it never records as one (FORGE-FIX-003).
+                format!("{CMD_BUILD_FAIL} {}", c.command)
             } else {
                 format!("CMD_FAIL {}", c.command)
             });
@@ -229,13 +234,16 @@ pub fn adjudicate_qa(
     }
 
     let command_failure = blockers.iter().any(|b| {
-        b.starts_with("CMD_")
+        (b.starts_with("CMD_") && !b.starts_with(CMD_BUILD_FAIL))
             || b.starts_with("ASSAY_COMMAND_SUBSTITUTED")
             || b.starts_with("ARCH ")
             || b == "NO_ASSAY_COMMANDS"
             || b == "ASSAY_COMMAND_DRIFT"
     });
     let negative_failure = negative_missing || negative_unmeasurable;
+    // A build failure is not a test failure: it escalates (UNPROVEN) instead of failing the
+    // story or burning the repair budget on a toolchain fault (FORGE-FIX-003).
+    let build_failure = blockers.iter().any(|b| b.starts_with(CMD_BUILD_FAIL));
     let verdict = if command_failure
         || migration_failure
         || !failed_conditions.is_empty()
@@ -243,6 +251,7 @@ pub fn adjudicate_qa(
     {
         AssayVerdict::Fail
     } else if !unproven.is_empty()
+        || build_failure
         || blockers.iter().any(|b| b == "ACCEPTANCE_MAP_CHANGED")
         || negative_survived
     {
