@@ -25,7 +25,7 @@ model = { path = "../middle/model" }
 serde.workspace = true
 serde_json.workspace = true
 services = { path = "../middle/services" }
-sqlx.workspace = true
+sqlx = { workspace = true, features = ["uuid"] }
 thiserror.workspace = true
 tokio.workspace = true
 tower.workspace = true
@@ -54,3 +54,9 @@ forge = { path = "../forge" }
 proptest = { workspace = true }
 # Used by one migrated test for `CancellationToken`-shaped shutdown, never by the harness's own modules.
 tokio-util.workspace = true
+# Used by deploy tests for temp directories and futures executor
+tempfile.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+libc.workspace = true
+tower-http.workspace = true

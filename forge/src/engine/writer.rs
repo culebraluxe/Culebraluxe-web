@@ -46,8 +46,15 @@ pub trait ForgeReleaseExecutor: Send + Sync {
 }
 
 /// Durable gate evidence keyed by story. Neon implementation stays put.
+///
+/// Returns `Err(DbFailure)` when the database cannot be reached, so callers can distinguish
+/// "database down" (retryable engine fault) from "no evidence yet" (empty evidence proceeds).
+/// The `DbFailure` has already announced itself through `db::capture::notify` when constructed.
 pub trait ForgeEvidenceReader: Send + Sync {
-    fn read(&self, story_id: &str) -> crate::engine::facts::ForgeGateEvidence;
+    fn read(
+        &self,
+        story_id: &str,
+    ) -> Result<crate::engine::facts::ForgeGateEvidence, db::DbFailure>;
 }
 
 /// Explicitly non-production: drops every write and answers `Ok` to everything.

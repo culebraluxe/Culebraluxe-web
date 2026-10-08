@@ -243,8 +243,8 @@ impl RoleHarness for SeamHarness {
 struct LedgerEvidence(Arc<MemoryLedger>);
 
 impl ForgeEvidenceReader for LedgerEvidence {
-    fn read(&self, story_id: &str) -> ForgeGateEvidence {
-        self.0.evidence_for(story_id).unwrap_or_default()
+    fn read(&self, story_id: &str) -> Result<ForgeGateEvidence, db::DbFailure> {
+        Ok(self.0.evidence_for(story_id).unwrap_or_default())
     }
 }
 

@@ -834,6 +834,7 @@ checksum = "9a31d2a3fbaaeb2af2368bbdd904aa8e812d3c04a1ee10d3171f52d556e5d0a3"
 dependencies = [
  "futures-channel",
  "futures-core",
+ "futures-executor",
  "futures-io",
  "futures-sink",
  "futures-task",
@@ -2863,6 +2864,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -2928,6 +2930,7 @@ dependencies = [
  "sqlx-core",
  "thiserror 2.0.20",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -2963,6 +2966,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.20",
  "tracing",
+ "uuid",
  "whoami",
 ]
 
@@ -2989,6 +2993,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -3096,16 +3101,21 @@ dependencies = [
  "chrono",
  "db",
  "forge",
+ "futures",
+ "libc",
  "model",
  "proptest",
+ "reqwest",
  "serde",
  "serde_json",
  "services",
  "sqlx",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",
  "tower",
+ "tower-http",
  "ui",
  "uuid",
  "web",

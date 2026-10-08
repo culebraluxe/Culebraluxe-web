@@ -7,7 +7,7 @@ use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::harness::{HarnessUsage, TurnTermination};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::writer::{ForgeEvidenceReader, ForgeStateWriter};
-use workflow::Result;
+use workflow::{Result, WorkflowError};
 
 pub struct HarnessOutput {
     pub raw: String,
@@ -135,8 +135,11 @@ pub trait ForgeTurnPorts {
     fn require_prod(&self) -> bool;
     /// The evidence a turn on `story_id` starts from: the story's latest durable evidence over the wake evidence.
     /// The default is the wake evidence alone, for hosts with no durable store behind them.
-    fn current_for(&self, _story_id: &str) -> ForgeGateEvidence {
-        self.current().clone()
+    ///
+    /// Returns `Err(WorkflowError::Unavailable)` when the database cannot be reached, which the engine classifies
+    /// as an engine fault (retryable). Returns `Err(WorkflowError::Generic)` for other database errors.
+    fn current_for(&self, story_id: &str) -> Result<ForgeGateEvidence> {
+        Ok(self.current().clone())
     }
 }
 
@@ -177,10 +180,21 @@ impl ForgeTurnPorts for ProductionRoleRunner<'_> {
         self.require_prod
     }
 
-    fn current_for(&self, story_id: &str) -> ForgeGateEvidence {
+    fn current_for(&self, story_id: &str) -> Result<ForgeGateEvidence> {
         match &self.evidence_reader {
-            Some(reader) => reader.read(story_id).merge_over(&self.current),
-            None => self.current.clone(),
+            Some(reader) => {
+                let evidence = reader.read(story_id).map_err(|db_failure| {
+                    // Convert DbFailure to WorkflowError: connection failures become Unavailable (retryable),
+                    // others become Generic.
+                    if db_failure.retryable {
+                        WorkflowError::unavailable(db_failure.to_string())
+                    } else {
+                        WorkflowError::generic(db_failure.to_string())
+                    }
+                })?;
+                Ok(evidence.merge_over(&self.current))
+            }
+            None => Ok(self.current.clone()),
         }
     }
 }

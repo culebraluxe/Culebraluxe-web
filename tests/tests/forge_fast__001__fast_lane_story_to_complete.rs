@@ -115,12 +115,12 @@ struct Reader {
 }
 
 impl ForgeEvidenceReader for Reader {
-    fn read(&self, story_id: &str) -> ForgeGateEvidence {
+    fn read(&self, story_id: &str) -> Result<ForgeGateEvidence, db::DbFailure> {
         let mut roles = self.ledger.evidence_for(story_id).unwrap_or_default();
         // The story's repair counter, as production's reader now loads it from `storyboard_story`.
         roles.repair_attempts = Some(self.ledger.repairs(story_id));
         roles.replan_attempts = Some(self.ledger.replans(story_id));
-        self.release.lock().unwrap().merge_over(&roles)
+        Ok(self.release.lock().unwrap().merge_over(&roles))
     }
 }
 
