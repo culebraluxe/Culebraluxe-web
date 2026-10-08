@@ -178,3 +178,62 @@ at the cutover (0 live executions, 0 `Claimed`/`Running` items, nothing touched 
 - `forge:clean` was deliberately **not** run (production-mutating, needs the Captain's go); the DB-backed
   tests were run against the DEV target their harness asserts.
 
+---
+
+## 10. The three red targets in §9.1 are repaired and landed — `lane/deep`, 2026-10-08
+
+The Captain directed the two repairs in §9.4 to this lane. They landed on `main` as three commits and
+`origin/main` moved `7b93c3e5a..23a950ca3`. None of the three needed a fix from §3–§7, and the harness
+rename was still not required.
+
+1. **`abdc89512` — `docs_vault__007__pdf_byte_handling`.** Main's copy was the stale call: a six-argument
+   `render_completion_certificate` where `web/src/vault/signing_certificate.rs:279` now takes
+   `&Certificate<'_>`, plus a missing `FinalizeEvent.recipient_id` (`db/src/signer.rs:81`) and
+   `FinalizeRecipient.completed_at` (`:56`). This is **not a rewrite**: it is a cherry-pick of Muse's
+   already-authored `b95adc28c` on `lane/muse`, authorship preserved, resolved as the add/add conflict it
+   was (his lane branched before main's copy landed) in favour of his rebuild. That his version is the
+   current one was verified mechanically, not by eye: `git diff --cached b95adc28c -- <path>` is empty, so
+   the landed file is byte-identical to his commit.
+2. **`0a88d98f0` — the redirect seam.** `origin` and `redirect_uri` are now `pub`. The brief circulating for
+   this work said `pub(crate)`, and **`pub(crate)` cannot work**: `TST-SEC-REDIRECT-003`/`-005` live in
+   `tests/tests/`, which is the separate `test-harness` crate (`use web::api::google_auth::{origin,
+   redirect_uri}`), and `pub(crate)` is invisible outside `web` — that change would have reproduced
+   `E0603`. The file's own precedent agrees: `pub fn safe_next` (`:82`) and `pub fn percent_decode` (`:239`)
+   are public in this file for exactly these contract tests. Both functions are pure reads of request
+   headers; each carries a doc comment naming the consuming tests.
+3. **`23a950ca3` — the defect the seam exposed.** With the target compiling for the first time, `003` ran
+   and failed on one assertion: `origin(&[("host", "[::1]:3000")])` returned `https://[::1]:3000` where the
+   contract test asserts `http://[::1]:3000`. The predicate recognised only `localhost` and `127.0.0.1` as
+   loopback, so an IPv6 loopback dev origin was handed `https` while the browser sat on `http` — a
+   redirect-URI mismatch in local dev. One line added: `host.starts_with("[::1]")`. A public IPv6 literal
+   (`[2001:db8::1]`) still resolves to `https`, which the same test also asserts. Neither the story's
+   proposal patch (`docs/agent/proposals/TST-REDIRECT-2026-10-08.patch`, which is about control characters)
+   nor `main` carried this fix, so the gap was unowned.
+
+**Do not redo this work.** `lane/fledge` was briefed on the same seam and has nothing pushed on it
+(`lane/fledge` still sits at `b19c1fd3c`, and no ref anywhere carries a seam change); a second copy of
+`web/src/api/google_auth.rs` landing after this one is the collision §2 of this queue was written to stop.
+
+### 10.1 Verification on the pushed content
+
+- Target build (this is T0 for the change): `cargo check -p test-harness --test docs_vault__007__pdf_byte_handling
+  --test sec_redirect__003__host_injection --test sec_redirect__005__fragment_handling` → `exit=0`, 0 errors.
+  The only warning in those targets is `non_snake_case` on the test fn names, which is this suite's own
+  convention (116 occurrences across the workspace).
+- The tests themselves: `cargo test -p test-harness --no-fail-fast` over the same three targets →
+  `docs_vault__007 ... ok`, `sec_redirect__003 ... ok`, `sec_redirect__005 ... ok`, three ×
+  `1 passed; 0 failed`, `exit=0`.
+- The crate behind the changed file: `cargo test -p web google_auth` → `10 passed; 0 failed`, `exit=0`.
+- Workspace T0: `cargo check --workspace --all-targets --keep-going` → `EXIT=0`, the first fully green
+  workspace check of this landing (the earlier push today carried
+  `CULEBRALUXE_SKIP_BUILD_CHECK=1` because of these three targets; **this push used no skip flag and the
+  hook did not refuse it**).
+
+### 10.2 Still open
+
+- **FIX-009** (§9.4): unchanged — authored nowhere, awaiting the Captain's commission or drop.
+- **rustfmt drift** (~150 files: `crm_*`, `wf_*`, `ui_*`, `forge_assay_*`): pre-existing, wants one quiet-trunk commit.
+- **`forge/src/engine/executor/drive.rs:303`**: `unsafe { std::mem::transmute(harness) }` to
+  `&'static dyn RoleHarness` inside a closure that outlives its `Arc` — a latent soundness bug, not repaired here.
+- **Not verified here**: no T2 full-suite run (that stays CI's, per the tiered rule), and no `pnpm slice:check`.
+
