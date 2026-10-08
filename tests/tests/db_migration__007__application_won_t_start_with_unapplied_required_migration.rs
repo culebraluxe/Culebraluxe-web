@@ -6,14 +6,18 @@
 //! EMPTY — every migration is unapplied there — and connects through the production
 //! [`db::Database`] type, the same handle the server boots with.
 //!
-//! The detection half of this contract exists in production today and is exercised here:
+//! The detection half of this contract exists in production and is exercised here:
 //! `forge::engine::migration_guard::assess_migration_applied` reports a changed migration
 //! file with no ledger row as unapplied, and `migration_applied_refusal` renders the
-//! refusal. What is missing is the enforcement half: neither the web boot
-//! (`web/src/bin/web.rs`, `web/src/http_runtime.rs`) nor any startup path consults the
-//! `schema_migration` ledger before serving, so the connection below succeeds against a
-//! database with nothing applied. The final assertion pins the required behavior; while
-//! enforcement is absent, it fails and names the gap — a faithful red, not a weak test.
+//! refusal. The enforcement half is `db::boot_gate::assert_boot_ready` — called by
+//! `web/src/http_runtime.rs` before it binds a socket — so a database whose ledger does not
+//! name every required migration is refused by name, and the refused process leaves an
+//! `app_error` row behind through the capture framework.
+//!
+//! The proof runs against a database that starts EMPTY and then writes a ledger of its own:
+//! refused with nothing applied, refused by name when one required row is missing, accepted
+//! when every required file is recorded. That is what keeps the gate honest — a gate that
+//! only ever refuses would pass a single-assertion test vacuously.
 //!
 //! Level: L2 Persistence — a real disposable database on the DEV cluster, created and
 //! dropped by this test. The harness refuses PRODUCTION before any socket is opened.
@@ -86,14 +90,105 @@ async fn proof(database: &Database) -> Result<(), String> {
         return Err("the empty database holds no ledger — nothing is applied".to_string());
     }
 
-    // 3. THE REQUIREMENT: the application must not start here. The connection above is the
-    //    same handle the server boots with, and it succeeded against a database with no
-    //    ledger and no migration applied — no boot path consulted the ledger first.
-    Err(
-        "the application started with every required migration unapplied — \
-         no boot gate consults schema_migration before serving (web boot performs no ledger check)"
-            .to_string(),
+    // 3. THE REQUIREMENT, NOW ENFORCED: the boot gate refuses this database. `web/src/http_runtime.rs`
+    //    calls `db::assert_boot_ready` before it binds a socket, so the same handle the server boots with
+    //    can no longer be served a schema-less database. The refusal must name what is missing.
+    let refusal = match db::assert_boot_ready(database).await {
+        Ok(()) => {
+            return Err(
+                "the boot gate accepted a database with every required migration unapplied — \
+                 a gate that never refuses is not a gate"
+                    .to_string(),
+            )
+        }
+        Err(failure) => failure,
+    };
+    if refusal.kind != db::DbFailureKind::SchemaMismatch {
+        return Err(format!(
+            "a boot refusal is a SchemaMismatch, not {:?}",
+            refusal.kind
+        ));
+    }
+    let refusal_text = refusal.to_string();
+    if !refusal_text.contains("269_forge_work_queue.sql") {
+        return Err(format!(
+            "the refusal names an unapplied required migration: {refusal_text}"
+        ));
+    }
+    if !refusal_text.contains("unapplied on dev") {
+        return Err(format!(
+            "the refusal names the target it refused (the gate reads db.target()): {refusal_text}"
+        ));
+    }
+
+    // 4. DISCRIMINATION — the same database, one ledger row away from serving. A gate that only ever
+    //    refuses would pass step 3 vacuously, so the ledger is built here from its own migration (the file
+    //    production applies) and filled through the production DAO, with every required migration recorded
+    //    EXCEPT the last: the gate must refuse, and must name exactly that one.
+    let ledger_sql = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../db/migrations/144_schema_migration_ledger.sql"),
     )
+    .map_err(|error| format!("the ledger migration reads: {error}"))?;
+    database
+        .run_text(&ledger_sql)
+        .await
+        .map_err(|error| format!("the ledger migration applies: {error}"))?;
+    let ledger = SchemaMigrationDao::new(database.clone());
+    let (last, recorded) = db::REQUIRED_BOOT_MIGRATIONS
+        .split_last()
+        .ok_or_else(|| "the required-migration list is not empty".to_string())?;
+    let last: &str = *last;
+    for name in recorded.iter().copied() {
+        ledger
+            .record(
+                name,
+                "sha256:db_migration__007",
+                DbTarget::Dev,
+                Some("db_migration__007 proof"),
+            )
+            .await
+            .map_err(|error| format!("recording {name} reads: {error}"))?;
+    }
+    match db::assert_boot_ready(database).await {
+        Ok(()) => {
+            return Err(format!(
+                "a required migration with no ledger row ({last}) was accepted — the gate is blind to a gap"
+            ))
+        }
+        Err(failure) => {
+            let text = failure.to_string();
+            if !text.contains(last) {
+                return Err(format!(
+                    "the refusal names the one missing migration {last}: {text}"
+                ));
+            }
+            if text.contains(recorded[0]) {
+                return Err(format!(
+                    "the refusal names only what is missing, not what is recorded ({0} is recorded): {text}",
+                    recorded[0]
+                ));
+            }
+        }
+    }
+
+    // 5. THE POSITIVE: record the last one and the same build boots. Together with step 3 this proves the
+    //    gate discriminates — refused with nothing applied, refused by name when one row is missing,
+    //    accepted when the ledger names every required file.
+    ledger
+        .record(
+            last,
+            "sha256:db_migration__007",
+            DbTarget::Dev,
+            Some("db_migration__007 proof"),
+        )
+        .await
+        .map_err(|error| format!("recording {last} reads: {error}"))?;
+    if let Err(failure) = db::assert_boot_ready(database).await {
+        return Err(format!(
+            "a database that records every required migration passes the gate: {failure}"
+        ));
+    }
+    Ok(())
 }
 
 #[tokio::test]

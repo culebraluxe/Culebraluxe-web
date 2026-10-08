@@ -8,9 +8,10 @@
 //! Requires DEV (`DATABASE_URL_DEV`); ignored otherwise.
 //!
 //! Run with:
-//!   cargo test --manifest-path Cargo.toml -p test-harness --test crm_client__001__directory -- --ignored
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test crm_client__001__directory_pagination -- --ignored
 
 use db::DbTarget;
+use uuid::Uuid;
 use model::{ClientDirectoryPageRequest, ClientSummary};
 use test_harness::ClientHarness;
 
@@ -48,7 +49,7 @@ fn dir_request(search: &str, page: i64, page_size: i64) -> ClientDirectoryPageRe
 #[tokio::test]
 #[ignore = "needs DATABASE_URL_DEV (a disposable DEV branch); ClientHarness refuses PROD before any socket"]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-CRM-CLIENT-001); the file and the assay use it.
-async fn crm_client_001__directory() {
+async fn crm_client_001__directory_pagination() {
     // 0. L3 boundary: an isolated disposable DEV/Neon target, never PRODUCTION.
     let harness = connect_dev().await;
     assert_eq!(
@@ -58,7 +59,7 @@ async fn crm_client_001__directory() {
     );
     let ctx = harness.test_context();
     let ns = harness.namespace().to_string();
-    let marker = format!("TST-CRMCLIENT001-{ns}");
+    let marker = format!("TST-CRMCLIENT001-{ns}-{}", &Uuid::new_v4().to_string()[..8]);
 
     // Seed three test clients with distinct names.
     // We need to seed persons directly since there's no seed method on ClientHarness.
@@ -94,7 +95,7 @@ async fn crm_client_001__directory() {
         "insert into person_identity (person_id, identity_type, identity_value, is_primary) values ($1::uuid, 'email', $2, true)"
     )
     .bind(&alice_id)
-    .bind(format!("alice-{ns}@example.test"))
+    .bind(format!("alice-{marker}@example.test"))
     .execute(pool)
     .await
     .expect("alice email");
@@ -103,7 +104,7 @@ async fn crm_client_001__directory() {
         "insert into person_identity (person_id, identity_type, identity_value, is_primary) values ($1::uuid, 'email', $2, true)"
     )
     .bind(&bob_id)
-    .bind(format!("bob-{ns}@example.test"))
+    .bind(format!("bob-{marker}@example.test"))
     .execute(pool)
     .await
     .expect("bob email");
@@ -112,7 +113,7 @@ async fn crm_client_001__directory() {
         "insert into person_identity (person_id, identity_type, identity_value, is_primary) values ($1::uuid, 'email', $2, true)"
     )
     .bind(&charlie_id)
-    .bind(format!("charlie-{ns}@example.test"))
+    .bind(format!("charlie-{marker}@example.test"))
     .execute(pool)
     .await
     .expect("charlie email");
@@ -128,7 +129,7 @@ async fn crm_client_001__directory() {
     // -----------------------------------------------------------------------------------------------------------
     let result = harness
         .service()
-        .directory(&dir_request("alice", 1, 50), &ctx)
+        .directory(&dir_request(&format!("{marker}-alice"), 1, 50), &ctx)
         .await
         .expect("directory search runs");
     assert_eq!(
@@ -148,7 +149,7 @@ async fn crm_client_001__directory() {
     // -----------------------------------------------------------------------------------------------------------
     let result = harness
         .service()
-        .directory(&dir_request("bob", 1, 50), &ctx)
+        .directory(&dir_request(&format!("{marker}-bob"), 1, 50), &ctx)
         .await
         .expect("directory search runs");
     assert_eq!(
@@ -168,7 +169,7 @@ async fn crm_client_001__directory() {
     // -----------------------------------------------------------------------------------------------------------
     let result = harness
         .service()
-        .directory(&dir_request("charlie", 1, 50), &ctx)
+        .directory(&dir_request(&format!("{marker}-charlie"), 1, 50), &ctx)
         .await
         .expect("directory search runs");
     assert_eq!(
@@ -188,7 +189,7 @@ async fn crm_client_001__directory() {
     // -----------------------------------------------------------------------------------------------------------
     let result = harness
         .service()
-        .directory(&dir_request("SMITH", 1, 50), &ctx)
+        .directory(&dir_request(&format!("{}-alice-smith", marker).to_uppercase(), 1, 50), &ctx)
         .await
         .expect("directory search runs");
     assert_eq!(
@@ -205,7 +206,7 @@ async fn crm_client_001__directory() {
     // -----------------------------------------------------------------------------------------------------------
     let result = harness
         .service()
-        .directory(&dir_request("char", 1, 50), &ctx)
+        .directory(&dir_request(&format!("{marker}-char"), 1, 50), &ctx)
         .await
         .expect("directory search runs");
     assert_eq!(
@@ -222,7 +223,7 @@ async fn crm_client_001__directory() {
     // -----------------------------------------------------------------------------------------------------------
     let result = harness
         .service()
-        .directory(&dir_request("xyz", 1, 50), &ctx)
+        .directory(&dir_request(&format!("{marker}-nobody"), 1, 50), &ctx)
         .await
         .expect("directory search runs");
     assert_eq!(result.total, 0, "{HARNESS}: search 'xyz' returns zero");
@@ -236,7 +237,7 @@ async fn crm_client_001__directory() {
     // -----------------------------------------------------------------------------------------------------------
     let result = harness
         .service()
-        .directory(&dir_request("", 1, 2), &ctx)
+        .directory(&dir_request(&marker, 1, 2), &ctx)
         .await
         .expect("directory search runs");
     assert_eq!(result.total, 3, "{HARNESS}: empty search returns all three");
@@ -246,7 +247,7 @@ async fn crm_client_001__directory() {
 
     let result2 = harness
         .service()
-        .directory(&dir_request("", 2, 2), &ctx)
+        .directory(&dir_request(&marker, 2, 2), &ctx)
         .await
         .expect("directory search page 2 runs");
     assert_eq!(

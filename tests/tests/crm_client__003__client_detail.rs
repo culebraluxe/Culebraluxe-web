@@ -12,6 +12,7 @@
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test crm_client__003__client_detail -- --ignored
 
 use db::DbTarget;
+use uuid::Uuid;
 use model::{ClientDetail, ClientPropertyInterest};
 use test_harness::ClientHarness;
 
@@ -48,7 +49,7 @@ async fn crm_client_003__client_detail() {
     );
     let ctx = harness.test_context();
     let ns = harness.namespace().to_string();
-    let marker = format!("TST-CRMCLIENT003-{ns}");
+    let marker = format!("TST-CRMCLIENT003-{ns}-{}", &Uuid::new_v4().to_string()[..8]);
 
     // Seed a test client with full detail data.
     let pool = harness.pool();
@@ -68,7 +69,7 @@ async fn crm_client_003__client_detail() {
         "insert into person_identity (person_id, identity_type, identity_value, is_primary) values ($1::uuid, 'email', $2, true)"
     )
     .bind(&person_id)
-    .bind(format!("detail-{ns}@example.test"))
+    .bind(format!("detail-{marker}@example.test"))
     .execute(pool)
     .await
     .expect("email");
@@ -77,7 +78,7 @@ async fn crm_client_003__client_detail() {
         "insert into person_identity (person_id, identity_type, identity_value, is_primary) values ($1::uuid, 'phone', $2, true)"
     )
     .bind(&person_id)
-    .bind(format!("1{:010}", ns.len() * 111222333 % 10_000_000_000))
+    .bind(format!("1{:010}", Uuid::new_v4().as_u128() as u64 % 10_000_000_000))
     .execute(pool)
     .await
     .expect("phone");
@@ -273,7 +274,7 @@ async fn crm_client_003__client_detail() {
     // 3. Fetch detail for archived person - should return None (archived_at is not null).
     // -----------------------------------------------------------------------------------------------------------
     let archived_id = sqlx::query_scalar::<_, String>(
-        "insert into person (display_name, role, status, archived_at) values ($1, 'buyer', 'archived', now()) returning id::text"
+        "insert into person (display_name, role, status, archived_at) values ($1, 'buyer', 'active', now()) returning id::text"
     )
     .bind(format!("{marker}-archived"))
     .fetch_one(pool)
