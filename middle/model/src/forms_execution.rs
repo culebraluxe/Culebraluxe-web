@@ -5,6 +5,7 @@
 //! which slots still need a provider. A slot id built differently on two paths would either double-sign a line or skip
 //! one, so the construction lives here, once.
 
+use crate::forms::FormSignerPerson;
 use serde::{Deserialize, Serialize};
 
 /// The authoritative PR-PNS required-role set (CRM-27 participant-cardinality policy).
@@ -21,6 +22,31 @@ pub struct IssuedExecutionSlot {
     pub email: Option<String>,
     pub required: bool,
     pub order: usize,
+}
+
+/// The execution slots a list of signer rows occupies: one per row that carries an immutable `ROLE:sequence` slot,
+/// in the order the rows arrived, each `required`.
+///
+/// A signer with no slot yet contributes NO slot — they are not an execution participant, and a slot built for them
+/// would be a line nobody assigned. This is the single construction both issuance and the browser preview build their
+/// slots from (`db/src/vault/bind_form_to_contract.rs`), so the draft on screen and the issued record can never
+/// disagree about which line a signature belongs to.
+pub fn slots_from_signers(signers: &[FormSignerPerson]) -> Vec<IssuedExecutionSlot> {
+    signers
+        .iter()
+        .enumerate()
+        .filter_map(|(order, person)| {
+            person.slot_id.clone().map(|slot_id| IssuedExecutionSlot {
+                slot_id,
+                role: person.role.clone(),
+                person_id: person.person_id.clone(),
+                name: person.name.clone(),
+                email: person.email.clone(),
+                required: true,
+                order,
+            })
+        })
+        .collect()
 }
 
 /// A participant as it arrives from the signer list — the input to canonicalization.
@@ -127,6 +153,50 @@ mod tests {
             name: name.to_string(),
             email: email.map(|value| value.to_string()),
         }
+    }
+
+    fn signer(
+        role: &str,
+        person_id: Option<&str>,
+        name: &str,
+        slot_id: Option<&str>,
+    ) -> FormSignerPerson {
+        FormSignerPerson {
+            person_id: person_id.map(|value| value.to_string()),
+            name: name.to_string(),
+            email: None,
+            role: role.to_string(),
+            slot_id: slot_id.map(|value| value.to_string()),
+        }
+    }
+
+    #[test]
+    fn signer_rows_become_their_own_slots_and_a_slotless_row_becomes_no_slot_at_all() {
+        let slots = slots_from_signers(&[
+            signer("SELLER", Some("s-1"), "Ana Seller", Some("SELLER:1")),
+            // A draft broker line carrying no execution slot yet: no slot, so no line a signature could claim.
+            signer("SELLER_BROKER", None, "Lisa Penfield", None),
+            signer("SELLER", Some("s-2"), "Beto Seller", Some("SELLER:2")),
+        ]);
+        assert_eq!(
+            slots
+                .iter()
+                .map(|slot| slot.slot_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["SELLER:1", "SELLER:2"]
+        );
+        // The order is the row's position in the list it arrived in, so a slotless row leaves a gap and never shifts
+        // the slots after it — the numbering issuance has always written, kept identical for the preview.
+        assert_eq!(
+            slots.iter().map(|slot| slot.order).collect::<Vec<_>>(),
+            vec![0, 2]
+        );
+        assert_eq!(slots[1].name, "Beto Seller");
+        assert_eq!(slots[1].role, "SELLER");
+        assert!(
+            slots.iter().all(|slot| slot.required),
+            "every resolved slot is required of its signer"
+        );
     }
 
     #[test]

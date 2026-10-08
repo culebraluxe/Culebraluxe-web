@@ -156,41 +156,41 @@ impl VaultDao {
             let issued_version = prior.as_ref().map_or(1, |(_, version)| version + 1);
             let supersedes_id = prior.as_ref().map(|(id, _)| id.clone());
             let participants = list_signers_on(tx.connection(), &form.id).await?;
+            let form_values = string_map(form.field_values.clone());
+
+            // ONE RENDER REQUEST, built before the signature is resolved and carried into both halves. The resolution
+            // reads exactly the values, participants and issuance instant that will be rendered, so a signature can
+            // never be placed against a document the caller did not ask for.
+            let mut render_request = VaultRenderRequest {
+                form_instance_id: form.id.clone(),
+                contract_id: form.contract_id.clone(),
+                template_id: form.template_id.clone(),
+                template_version: form.template_version,
+                field_values: form_values.clone(),
+                sections: string_map(form.sections.clone()),
+                issued_version,
+                participants: participants.clone(),
+                actor_app_user_id: request.actor_app_user_id.clone(),
+                issued_at: request.issued_at.clone(),
+                applied_signatures: Vec::new(),
+            };
 
             // THE BROKER'S PRE-SIGNATURE. Where the document names Lisa as the brokerage's signer and the person issuing is
             // her (or a ROOT delegate), her signature, initials and date are drawn into the PDF NOW, so the sellers
             // receive a document she has already signed. Nothing here is optional for the policy: a template with no
-            // policy, or a broker line that is not hers, simply yields no signature.
-            let form_values = string_map(form.field_values.clone());
-            let slots: Vec<model::forms_execution::IssuedExecutionSlot> = participants
-                .iter()
-                .enumerate()
-                .filter_map(|(order, person)| {
-                    person.slot_id.clone().map(|slot_id| {
-                        model::forms_execution::IssuedExecutionSlot {
-                            slot_id,
-                            role: person.role.clone(),
-                            person_id: person.person_id.clone(),
-                            name: person.name.clone(),
-                            email: person.email.clone(),
-                            required: true,
-                            order,
-                        }
-                    })
-                })
-                .collect();
-            let applied_signatures = match crate::broker_signature::resolve_for_issuance(
-                tx.connection(),
-                &form.template_id,
-                &form_values,
-                &slots,
-                request.actor_app_user_id.as_deref(),
-                request.issued_at.as_deref(),
-                // The slot is optional here: a document whose participants carry no execution slot is still signed by
-                // her at her own block (matched by role), rather than refused.
-                false,
-            )
-            .await
+            // policy, or a broker line that is not hers, simply yields no signature — while a policy this document
+            // cannot satisfy (no issuance instant, no authority) stops the issuance rather than issuing it unsigned.
+            //
+            // Resolved through the DAO's own method, which is the same one the browser preview calls: ONE
+            // implementation of the policy, the declared-signer check, the slot mapping and the authority rule, so the
+            // draft on screen and the document that is issued cannot disagree about her line.
+            let applied_signatures = match self
+                .resolve_applied_signatures_in(
+                    tx.connection(),
+                    &render_request,
+                    model::forms_broker_signature::SignatureAuthority::ApplyingActor,
+                )
+                .await
             {
                 Ok(applied) => applied,
                 Err(failure) => {
@@ -212,22 +212,9 @@ impl VaultDao {
                     ));
                 }
             };
+            render_request.applied_signatures = applied_signatures;
 
-            let artifact = match render(VaultRenderRequest {
-                form_instance_id: form.id.clone(),
-                contract_id: form.contract_id.clone(),
-                template_id: form.template_id.clone(),
-                template_version: form.template_version,
-                field_values: form_values.clone(),
-                sections: string_map(form.sections.clone()),
-                issued_version,
-                participants: participants.clone(),
-                actor_app_user_id: request.actor_app_user_id.clone(),
-                issued_at: request.issued_at.clone(),
-                applied_signatures,
-            })
-            .await
-            {
+            let artifact = match render(render_request).await {
                 Ok(artifact) => artifact,
                 Err(failure) => {
                     finalize_receipt(
@@ -407,5 +394,64 @@ impl VaultDao {
                 Err(error)
             }
         }
+    }
+    /// THE BROKER'S PRE-SIGNATURE, resolved against a render request: the ONE implementation of the policy.
+    ///
+    /// Both halves of the feature call this — the issuance path above, inside its transaction and with the receipt it
+    /// has to finalize on refusal, and the browser preview. A preview can therefore only ever show what issuance would
+    /// apply: the same template policy, the same declared-signer check, the same slot mapping, the same authority rule.
+    ///
+    /// The slot is optional (`false` below): a participant row whose `slotId` is null is still matched at her own block
+    /// by role rather than refused, which is the behaviour the issued record has always had.
+    ///
+    /// An `Err` here is a REFUSAL, never an empty answer — policy refuses to issue unsigned, and a caller that drew
+    /// nothing would hide the defect that makes the document unissuable. What a refusal COSTS is the caller's decision
+    /// at its own seam: the issuance path finalizes a refused receipt (`PreconditionFailure` for rows it could not
+    /// reach, `ValidationFailure`/`Unauthorized` for policy), and the preview's service method maps the first to
+    /// infrastructure and the rest to a business refusal (`web/src/vault/mod.rs::resolve_applied_signatures`).
+    pub(crate) async fn resolve_applied_signatures_in(
+        &self,
+        connection: &mut PgConnection,
+        request: &VaultRenderRequest,
+        authority: model::forms_broker_signature::SignatureAuthority,
+    ) -> Result<Vec<model::forms_applied_signature::FormAppliedSignature>, VaultArtifactFailure>
+    {
+        crate::broker_signature::resolve_for_issuance(
+            connection,
+            &request.template_id,
+            &request.field_values,
+            &model::forms_execution::slots_from_signers(&request.participants),
+            request.actor_app_user_id.as_deref(),
+            authority,
+            request.issued_at.as_deref(),
+            false,
+        )
+        .await
+    }
+
+    /// The same resolution for a caller that has no transaction to be part of: it takes its own connection.
+    ///
+    /// The preview is not an issuance, and it must not be handed a connection it never asked for, so it acquires one
+    /// here instead (`self.db`, the process's pool).
+    ///
+    /// It resolves under `OwnerByConstruction`: a preview applies nothing, so it is asked for no application authority,
+    /// while every other rule — the template policy, the declared-signer check, the slot mapping, the protected asset —
+    /// is the one issuance obeys.
+    pub async fn resolve_applied_signatures(
+        &self,
+        request: &VaultRenderRequest,
+    ) -> Result<Vec<model::forms_applied_signature::FormAppliedSignature>, VaultArtifactFailure>
+    {
+        let mut connection = self
+            .db
+            .connection()
+            .await
+            .map_err(crate::broker_signature::precondition_failure)?;
+        self.resolve_applied_signatures_in(
+            &mut connection,
+            request,
+            model::forms_broker_signature::SignatureAuthority::OwnerByConstruction,
+        )
+        .await
     }
 }

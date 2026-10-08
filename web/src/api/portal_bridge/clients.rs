@@ -275,3 +275,14 @@ pub(super) fn failed(
 ) -> impl Fn(CoreServiceError) -> ApiError + '_ {
     move |error| correlate(ApiError::from(error), resolved)
 }
+
+/// THE ISSUANCE INSTANT: the moment the operator asked for issuance. It is the document's deterministic issuance
+/// date, and the date Lisa's standing pre-signature carries.
+///
+/// Taken HERE, once, at the command boundary rather than inside the vault, because the pre-signature is dated from
+/// the command's `requestedAt` (`db/src/broker_signature.rs`): a caller that passes nothing gets a REFUSED issuance
+/// ("requires the command requestedAt timestamp as its deterministic issuance date") rather than a document
+/// pre-signed with an invented date. The preview resolves the same instant, so the pane and the issued record agree.
+pub(super) fn issued_at_now() -> Option<String> {
+    Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+}

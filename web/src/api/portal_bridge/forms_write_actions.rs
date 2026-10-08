@@ -479,7 +479,10 @@ pub(super) async fn send_signature(
                 command_id: uuid::Uuid::new_v4().to_string(),
                 form_instance_id: form_id.to_owned(),
                 actor_app_user_id: Some(resolved.acting_user.app_user_id.clone()),
-                issued_at: None,
+                // The issuance instant, taken here at the command boundary: it is the document's deterministic
+                // issuance date and the date Lisa's standing signature carries. Passing `None` is what made issuance
+                // of a form whose broker line names her fail outright.
+                issued_at: issued_at_now(),
             },
             &resolved.service,
         )
@@ -678,7 +681,9 @@ pub(super) async fn save_or_issue(
                     command_id: uuid::Uuid::new_v4().to_string(),
                     form_instance_id: form_id.to_owned(),
                     actor_app_user_id: Some(resolved.acting_user.app_user_id.clone()),
-                    issued_at: None,
+                    // The operator's issuance instant, taken at this command boundary — never `None`, which the
+                    // broker-signature policy refuses rather than dating a signature from an invented moment.
+                    issued_at: issued_at_now(),
                 },
                 &resolved.service,
             )

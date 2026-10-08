@@ -393,21 +393,36 @@ pub(super) async fn forms_preview(
         .map(|document| document.issued_version.max(1))
         .unwrap_or(1);
 
+    // THE PREVIEW RENDERS WHAT ISSUANCE WOULD: the same template version, the same draft values, the same participants,
+    // and the same broker pre-signature the issued document carries. The resolution goes through the vault's own path
+    // and is never re-implemented here — a pane that resolved her signature for itself drifted from the document,
+    // which is exactly what the operator saw: an unsigned broker line on screen, her signature and initials in the
+    // issued PDF.
+    let render_request = model::VaultRenderRequest {
+        form_instance_id: form.id.clone(),
+        contract_id: form.contract_id.clone(),
+        template_id: form.template_id.clone(),
+        template_version: form.template_version,
+        field_values: body.field_values,
+        sections: body.sections,
+        issued_version,
+        participants,
+        actor_app_user_id: Some(resolved.acting_user.app_user_id.clone()),
+        issued_at: issued_at_now(),
+        applied_signatures: Vec::new(),
+    };
+    let applied_signatures = services
+        .vault()
+        .resolve_applied_signatures(&render_request, &resolved.service)
+        .await
+        .map_err(failed(&resolved))?;
+
     let artifact = services
         .vault()
         .render_form_preview(
             model::VaultRenderRequest {
-                form_instance_id: form.id.clone(),
-                contract_id: form.contract_id.clone(),
-                template_id: form.template_id.clone(),
-                template_version: form.template_version,
-                field_values: body.field_values,
-                sections: body.sections,
-                issued_version,
-                participants,
-                actor_app_user_id: Some(resolved.acting_user.app_user_id.clone()),
-                issued_at: None,
-                applied_signatures: Vec::new(),
+                applied_signatures,
+                ..render_request
             },
             &resolved.service,
         )

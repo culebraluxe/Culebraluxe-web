@@ -60,6 +60,22 @@ pub fn requires_execution_slot(template_id: &str) -> bool {
     matches!(template_id, "PR-PNS" | "LISTING-01")
 }
 
+/// WHOSE authority a resolution is made under.
+///
+/// Both answers ask the policy the same question — is this her line, and what does her block carry — and differ in one
+/// thing only: whether the person asking must be allowed to APPLY it. It is an explicit choice rather than a boolean so
+/// that an issuance path cannot quietly ask for the weaker answer: naming `OwnerByConstruction` there would be visible
+/// in the call, and `ApplyingActor` is what issuance passes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureAuthority {
+    /// AN ISSUANCE: the signature is being applied to a document that is about to go to a provider, so the actor named
+    /// by the command must be her or a ROOT delegate. A mismatch REFUSES the resolution — never a silent omission.
+    ApplyingActor,
+    /// A PREVIEW: nothing is being applied and nobody is signing. The person looking at the draft is not the person who
+    /// will sign it, so no application authority is checked, and the resolution is exactly what issuance would apply.
+    OwnerByConstruction,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrokerSignatureConfig {
     pub enabled: bool,

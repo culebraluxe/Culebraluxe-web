@@ -13,7 +13,7 @@ use model::forms_applied_signature::{
 };
 use model::forms_broker_signature::{
     declared_signer_matches, normalized, policy_for_template, requires_execution_slot,
-    BrokerSignatureConfig, DEFAULT_BROKER_SIGNATURE_PURPOSE,
+    BrokerSignatureConfig, SignatureAuthority, DEFAULT_BROKER_SIGNATURE_PURPOSE,
 };
 use model::forms_execution::IssuedExecutionSlot;
 use model::security::{resolve_security_level, SecurityLevel};
@@ -46,7 +46,15 @@ fn unauthorized(detail: impl AsRef<str>) -> VaultArtifactFailure {
 
 /// A read that failed is a precondition failure: without the rows, no signature can be shown to be authorized.
 fn failed_read(error: sqlx::Error) -> VaultArtifactFailure {
-    let failure = DbFailure::from_sqlx(OPERATION, &error);
+    precondition_failure(DbFailure::from_sqlx(OPERATION, &error))
+}
+
+/// The same refusal, for a read that failed before it was ever a query — a connection that could not be taken.
+///
+/// Shared with the preview's resolution, which acquires its own connection rather than running inside an issuance
+/// transaction (`db/src/vault/bind_form_to_contract.rs`). A caller must not read this as policy: policy is
+/// `ValidationFailure`/`Unauthorized`, and this is the rows being unreachable.
+pub(crate) fn precondition_failure(failure: DbFailure) -> VaultArtifactFailure {
     VaultArtifactFailure {
         outcome: VaultCommandOutcome::PreconditionFailure,
         message: format!("document.issue failed: {failure}"),
@@ -61,12 +69,17 @@ struct BrokerRows {
 }
 
 /// Resolve the material, or nothing at all when this document's broker role is not the configured signer's.
+///
+/// `authority` decides whether the actor named by the caller must be allowed to APPLY the signature: `ApplyingActor`
+/// for an issuance (a refusal fails the document), `OwnerByConstruction` for a preview that only shows what issuance
+/// would apply (`model::forms_broker_signature::SignatureAuthority`).
 pub async fn resolve_for_issuance(
     connection: &mut PgConnection,
     template_id: &str,
     field_values: &BTreeMap<String, String>,
     slots: &[IssuedExecutionSlot],
     actor_app_user_id: Option<&str>,
+    authority: SignatureAuthority,
     issued_at: Option<&str>,
     require_execution_slot: bool,
 ) -> Result<Vec<FormAppliedSignature>, VaultArtifactFailure> {
@@ -86,11 +99,6 @@ pub async fn resolve_for_issuance(
     if !declared_signer_matches(policy, field_values, &config) {
         return Ok(Vec::new());
     }
-    let Some(actor) = actor_app_user_id.filter(|value| !value.trim().is_empty()) else {
-        return Err(unauthorized(
-            "an authenticated application user is required to apply the broker pre-signature.",
-        ));
-    };
     let Some(issued_at) = issued_at.filter(|value| !value.trim().is_empty()) else {
         return Err(invalid_configuration(
             "requires the command requestedAt timestamp as its deterministic issuance date.",
@@ -106,10 +114,21 @@ pub async fn resolve_for_issuance(
         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
     let rows = resolve_broker_rows(connection, &config).await?;
-    if !actor_may_apply(connection, actor, &rows.app_user_id).await? {
-        return Err(unauthorized(
-            "the authenticated actor is neither the configured broker signature owner nor a ROOT delegate.",
-        ));
+
+    // WHO is applying it. An issuance has to prove the actor may apply her signature — her, or a ROOT delegate — and
+    // refuse rather than issue unsigned. A preview applies nothing: it shows the document, so it is not asked for that
+    // authority, and it is not the person who will sign.
+    if authority == SignatureAuthority::ApplyingActor {
+        let Some(actor) = actor_app_user_id.filter(|value| !value.trim().is_empty()) else {
+            return Err(unauthorized(
+                "an authenticated application user is required to apply the broker pre-signature.",
+            ));
+        };
+        if !actor_may_apply(connection, actor, &rows.app_user_id).await? {
+            return Err(unauthorized(
+                "the authenticated actor is neither the configured broker signature owner nor a ROOT delegate.",
+            ));
+        }
     }
 
     let role_slots: Vec<&IssuedExecutionSlot> = slots

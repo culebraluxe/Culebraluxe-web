@@ -98,7 +98,7 @@ pub struct SignerSession {
     pub document_title: Option<String>,
     #[serde(default)]
     pub subject: Option<String>,
-/// The sender's note to the signers.
+    /// The sender's note to the signers.
     #[serde(default)]
     pub message: Option<String>,
     /// Ids of this recipient's fields that already have an answer.
