@@ -14,7 +14,7 @@
 
 use db::{FinalizeEvent, FinalizeField, FinalizeRecipient};
 use web::vault::pdf::escape_text;
-use web::vault::signing_certificate::render_completion_certificate;
+use web::vault::signing_certificate::{render_completion_certificate, Certificate};
 
 fn recipient(name: &str) -> FinalizeRecipient {
     FinalizeRecipient {
@@ -28,36 +28,45 @@ fn recipient(name: &str) -> FinalizeRecipient {
         consent_version: None,
         consent_sha256: None,
         consent_accepted_at: None,
+        completed_at: None,
     }
 }
 
 fn render(name: &str) -> Vec<u8> {
-    render_completion_certificate(
-        "request-1",
-        "document-1",
-        &[recipient(name)],
-        &[FinalizeField {
-            field_key: "signature-1".to_string(),
-            field_type: "signature".to_string(),
-            label: None,
-            page_number: 1,
-            recipient_id: "recipient-1".to_string(),
-            required: true,
-            position_x: 100.0,
-            position_y: 200.0,
-            width: 150.0,
-            height: 24.0,
-            value: None,
-            completed_at: Some("2026-10-01T12:00:00Z".to_string()),
-        }],
-        &[FinalizeEvent {
-            event_type: "signed".to_string(),
-            occurred_at: "2026-10-01T12:00:00Z".to_string(),
-            actor_id: Some("recipient-1".to_string()),
-            evidence: serde_json::json!({}),
-        }],
-        "2026-10-01T12:00:00Z",
-    )
+    let recipients = [recipient(name)];
+    let fields = [FinalizeField {
+        field_key: "signature-1".to_string(),
+        field_type: "signature".to_string(),
+        label: None,
+        page_number: 1,
+        recipient_id: "recipient-1".to_string(),
+        required: true,
+        position_x: 100.0,
+        position_y: 200.0,
+        width: 150.0,
+        height: 24.0,
+        value: None,
+        completed_at: Some("2026-10-01T12:00:00Z".to_string()),
+    }];
+    let events = [FinalizeEvent {
+        event_type: "signed".to_string(),
+        occurred_at: "2026-10-01T12:00:00Z".to_string(),
+        actor_id: Some("recipient-1".to_string()),
+        recipient_id: Some("recipient-1".to_string()),
+        evidence: serde_json::json!({}),
+    }];
+    render_completion_certificate(&Certificate {
+        signature_request_id: "request-1",
+        transaction_document_id: "document-1",
+        document_title: None,
+        recipients: &recipients,
+        fields: &fields,
+        events: &events,
+        finalized_at: "2026-10-01T12:00:00Z",
+        original_sha256: None,
+        sealed_sha256: None,
+        page_count: None,
+    })
     .expect("the certificate renders")
 }
 
