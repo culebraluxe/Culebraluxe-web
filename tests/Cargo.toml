@@ -60,3 +60,8 @@ futures.workspace = true
 reqwest.workspace = true
 libc.workspace = true
 tower-http.workspace = true
+# The SIG.WEBHOOK canonical tests mint their own `t=<ts>, s0=<hmac>` headers with the same
+# HMAC-SHA256-over-`{timestamp}.{raw_body}` construction the BoldSign contract specifies, so the
+# oracle is independent of the verifier under test (`apis::boldsign::verify_webhook_signature`).
+hmac.workspace = true
+sha2.workspace = true

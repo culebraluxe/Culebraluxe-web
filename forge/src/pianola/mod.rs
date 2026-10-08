@@ -1,8 +1,9 @@
 //! Pianola supervisor core.
 //!
-//! Pianola is a supervisor/manager, not a new workflow engine. It watches two
-//! worker lanes, enforces the exact experimental batch size of
-//! 2 workers x 2 stories = 4 total, keeps workers moving on green-path
+//! Pianola is a supervisor/manager, not a new workflow engine. It watches N
+//! worker lanes (the default experiment runs 2 workers x 2 stories = 4
+//! total; fleet runs scale to any N via [`PianolaConfig::for_fleet`] and
+//! [`batch::discover_worker_batches`]), keeps workers moving on green-path
 //! continuations, detects stalled workers, and surfaces escalations to the
 //! captain.
 //!
@@ -20,6 +21,8 @@ use db::{
     ForgeStoryReceiptRow, ForgeStoryStatusRow, StoryPacketRow,
 };
 
+use self::batch::{PIANOLA_EXPERIMENT_CAP, PIANOLA_STORIES_PER_WORKER, PIANOLA_WORKER_COUNT};
+
 pub mod batch;
 pub mod escalation;
 pub mod status;
@@ -32,15 +35,18 @@ pub mod worker_lanes;
 #[cfg(test)]
 mod tests;
 
-/// Hard-coded experiment caps. These prevent auto-scaling by construction:
-/// the supervisor never dispatches beyond the first 4 stories.
+/// Fleet batch caps. The defaults seed the original 2x2 experiment;
+/// fleet runs scale to any N via [`PianolaConfig::for_fleet`]. `total_cap`
+/// is a safety bound (growing a batch past it needs HITL captain
+/// approval), never the batch shape — the supervisor warns past the bound
+/// but never truncates the batch to fit it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PianolaConfig {
     /// Maximum concurrent worker lanes.
     pub max_workers: usize,
     /// Stories per worker lane.
     pub stories_per_worker: usize,
-    /// Total experiment cap (`max_workers * stories_per_worker`).
+    /// Total safety-bound cap (`max_workers * stories_per_worker`).
     pub total_cap: usize,
     /// Poll interval between supervisor ticks.
     pub poll_interval_ms: u64,
@@ -51,9 +57,9 @@ pub struct PianolaConfig {
 impl Default for PianolaConfig {
     fn default() -> Self {
         Self {
-            max_workers: 2,
-            stories_per_worker: 2,
-            total_cap: 4,
+            max_workers: PIANOLA_WORKER_COUNT,
+            stories_per_worker: PIANOLA_STORIES_PER_WORKER,
+            total_cap: PIANOLA_EXPERIMENT_CAP,
             poll_interval_ms: 30_000,
             stall_threshold_ms: 300_000,
         }
@@ -61,10 +67,35 @@ impl Default for PianolaConfig {
 }
 
 impl PianolaConfig {
-    /// The one blessed configuration. Callers that need a different shape are
-    /// asking to scale the experiment, which requires explicit captain review.
+    /// The default experiment configuration (2 workers x 2 stories = 4).
     pub fn experiment() -> Self {
         Self::default()
+    }
+
+    /// Fleet configuration for N workers. The cap derives from the shape
+    /// (`max_workers * stories_per_worker`) and is checked here at runtime —
+    /// the load-bearing replacement for the old compile-time equality
+    /// assert, which could only ever name the number 4.
+    ///
+    /// Raising `total_cap` above the default experiment bound is a cap
+    /// change: it requires explicit captain approval, enforced at runtime by
+    /// `batch::require_hitl_to_continue`, not by refusing to construct.
+    pub fn for_fleet(max_workers: usize, stories_per_worker: usize) -> Result<Self, String> {
+        if max_workers == 0 {
+            return Err("pianola fleet needs at least one worker lane".to_string());
+        }
+        if stories_per_worker == 0 {
+            return Err("pianola fleet needs at least one story per worker".to_string());
+        }
+        let total_cap = max_workers.checked_mul(stories_per_worker).ok_or_else(|| {
+            "pianola fleet cap overflows: max_workers * stories_per_worker".to_string()
+        })?;
+        Ok(Self {
+            max_workers,
+            stories_per_worker,
+            total_cap,
+            ..Self::default()
+        })
     }
 }
 
@@ -144,30 +175,29 @@ pub enum PianolaDecision {
     },
     /// Needs a human: one of the guard conditions fired.
     Escalate { story_id: String, reason: String },
-    /// All 4 experiment stories reached a terminal state.
+    /// All batch stories reached a terminal state.
     BatchComplete,
     /// Park the story until the captain rules (hold, ambiguity, prod touch).
     HoldForCaptain { story_id: String, reason: String },
 }
 
-/// Validate and return the exact 4-story experiment batch.
+/// Validate and return one fleet batch.
 ///
 /// * `story_ids` must already have been dispatched via Forge
 ///   (`ForgeEngineDao::ensure_story_dispatched` or the dispatch trigger) —
 ///   this function queues nothing and creates no queue table.
-/// * Rejects: wrong count, duplicate story IDs, overlapping target paths
+/// * Guards (kept intact at any N): non-empty batch, no duplicate story
+///   IDs, one story packet per story id, no overlapping target paths
 ///   detected by inspecting `assay_commands` and story scope text
 ///   (`goal` / `architect_brief` / `acceptance_criteria`).
+/// * Size bounds are the caller's cap (`batch::validate_fleet_batch`), not
+///   this loader: it never truncates the batch it is given.
 pub fn load_batch_for_experiment(
     story_ids: &[String],
     packets: &[StoryPacketRow],
 ) -> Result<Vec<String>, String> {
-    if story_ids.len() != PianolaConfig::default().total_cap {
-        return Err(format!(
-            "pianola batch must hold exactly {} stories, got {}",
-            PianolaConfig::default().total_cap,
-            story_ids.len()
-        ));
+    if story_ids.is_empty() {
+        return Err("pianola batch needs at least one story".to_string());
     }
     let mut seen = HashSet::new();
     for id in story_ids {

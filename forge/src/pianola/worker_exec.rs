@@ -106,24 +106,11 @@ use crate::engine::worktree::git_binary;
 /// Lines of output kept in a [`CommandResult`] excerpt.
 pub const ASSAY_EXCERPT_LINES: usize = 500;
 
-/// Default per-command timeout (seconds), overridden by
-/// `FORGE_ASSAY_TIMEOUT_SECS` when it parses.
-pub const DEFAULT_ASSAY_TIMEOUT_SECS: u64 = 1200;
-
 /// Keep the first `max` lines of `output`. The excerpt is what the artifact
 /// row carries; the full output stays on the [`CommandResult`] the caller
 /// holds for this run.
 pub fn excerpt_lines(output: &str, max: usize) -> String {
     output.lines().take(max).collect::<Vec<_>>().join("\n")
-}
-
-fn assay_timeout() -> Duration {
-    let secs = std::env::var("FORGE_ASSAY_TIMEOUT_SECS")
-        .ok()
-        .and_then(|raw| raw.trim().parse::<u64>().ok())
-        .filter(|secs| *secs > 0)
-        .unwrap_or(DEFAULT_ASSAY_TIMEOUT_SECS);
-    Duration::from_secs(secs)
 }
 
 /// Run one shell command scoped to the lane directory, with a timeout.
@@ -133,24 +120,28 @@ fn assay_timeout() -> Duration {
 /// against the lane checkout and never against the primary checkout.
 /// Stdout and stderr are combined: assay output is evidence either way.
 pub fn execute_command_scoped(worktree_path: &Path, command: &str) -> CommandResult {
-    execute_command_scoped_with_timeout(worktree_path, command, assay_timeout())
+    execute_command_scoped_with_timeout(
+        worktree_path,
+        command,
+        crate::engine::assay::assay_timeout(),
+    )
 }
 
 /// Timeout-parameterized half of [`execute_command_scoped`]. The parameter
 /// exists so tests can use seconds while workers use the env default.
+///
+/// Bounded (FORGE-FIX-005): on expiry the command's tree is killed and the result carries `CMD_TIMEOUT`
+/// with `unmeasurable: true`, so the story fails closed and requeues instead of holding its claim. The
+/// kill is real — the pre-fix code returned while the `sh` child kept running.
 pub fn execute_command_scoped_with_timeout(
     worktree_path: &Path,
     command: &str,
     timeout: Duration,
 ) -> CommandResult {
-    let child = match Command::new("sh")
-        .arg("-c")
-        .arg(command)
-        .current_dir(worktree_path)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
+    use crate::engine::assay::{
+        spawn_scoped_shell, wait_with_ceiling, CeilingOutcome, CMD_TIMEOUT_CODE, CMD_TIMEOUT_EXIT,
+    };
+    let child = match spawn_scoped_shell(command, worktree_path) {
         Err(error) => {
             return CommandResult {
                 command: command.to_string(),
@@ -163,24 +154,20 @@ pub fn execute_command_scoped_with_timeout(
         }
         Ok(child) => child,
     };
-    let (sender, receiver) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let output = child.wait_with_output();
-        let _ = sender.send(output);
-    });
-    match receiver.recv_timeout(timeout) {
-        Err(_) => CommandResult {
+    match wait_with_ceiling(child, timeout) {
+        CeilingOutcome::TimedOut(hit) => CommandResult {
             command: command.to_string(),
-            exit_code: 124,
+            exit_code: CMD_TIMEOUT_EXIT,
             passed: false,
             excerpt: format!(
-                "assay command timed out after {}s and was killed: {command}",
-                timeout.as_secs()
+                "{CMD_TIMEOUT_CODE}: assay command timed out after {}s and was killed (pid {}): {command}",
+                hit.ceiling.as_secs(),
+                hit.pid
             ),
-            unmeasurable: false,
+            unmeasurable: true,
             output: String::new(),
         },
-        Ok(Err(error)) => CommandResult {
+        CeilingOutcome::Finished(Err(error)) => CommandResult {
             command: command.to_string(),
             exit_code: -1,
             passed: false,
@@ -188,7 +175,7 @@ pub fn execute_command_scoped_with_timeout(
             unmeasurable: true,
             output: String::new(),
         },
-        Ok(Ok(output)) => {
+        CeilingOutcome::Finished(Ok(output)) => {
             let code = output.status.code().unwrap_or(-1);
             let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -714,6 +701,37 @@ mod tests {
         assert!(!res.passed);
         assert!(!res.unmeasurable);
         assert_ne!(res.exit_code, 0);
+        let _ = std::fs::remove_dir_all(&lane);
+    }
+
+    #[test]
+    fn a_hung_assay_command_is_killed_at_its_ceiling_with_cmd_timeout() {
+        // FORGE-FIX-005: the sleep-style assay with a tiny ceiling. The command must die at the ceiling
+        // (not hold the claim for the sleep's 30s), report `CMD_TIMEOUT` with `unmeasurable: true`, and
+        // adjudicate to the `CMD_TIMEOUT` blocker so the story fails closed and requeues.
+        use crate::engine::assay::{CMD_TIMEOUT_CODE, CMD_TIMEOUT_EXIT};
+        let lane = tmp_lane("timeout");
+        let started = std::time::Instant::now();
+        let res = execute_command_scoped_with_timeout(&lane, "sleep 30", Duration::from_secs(1));
+        let elapsed = started.elapsed();
+        assert!(!res.passed);
+        assert!(
+            res.unmeasurable,
+            "a killed command measured nothing: {res:?}"
+        );
+        assert_eq!(res.exit_code, CMD_TIMEOUT_EXIT);
+        assert!(
+            res.excerpt.contains(CMD_TIMEOUT_CODE),
+            "the receipt names the kill: {}",
+            res.excerpt
+        );
+        assert!(
+            elapsed < Duration::from_secs(20),
+            "returned near the ceiling, not at the sleep: {elapsed:?}"
+        );
+        let report = adjudicate_assay(&[res.command.clone()], &[res], true);
+        assert_eq!(report.verdict, crate::engine::assay::AssayVerdict::Fail);
+        assert!(report.blockers.contains(&"CMD_TIMEOUT"));
         let _ = std::fs::remove_dir_all(&lane);
     }
 

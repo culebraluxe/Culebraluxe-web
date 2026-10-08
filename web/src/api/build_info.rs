@@ -64,24 +64,35 @@ fn trimmed_env(name: &str) -> String {
 }
 
 /// A resolved build stamp: what to serve, and why a candidate was refused.
+///
+/// TEST SEAM (TST-RUNTIME-DEPLOY-001/002): `pub` so the contract-test harness (`test-harness`) can drive the exact
+/// resolution the `build_info` route serves. Visibility only — the route calls this same function, and no behavior
+/// changes with the wider visibility.
 #[derive(Debug, PartialEq, Eq)]
-struct Stamp {
-    sha: String,
-    version: String,
-    note: Option<String>,
+pub struct Stamp {
+    pub sha: String,
+    pub version: String,
+    pub note: Option<String>,
 }
 
 /// Longest abbreviation git itself produces; anything longer is not a commit sha.
-const MAX_SHA: usize = 40;
+///
+/// TEST SEAM (TST-RUNTIME-DEPLOY-002): part of the commit-sha contract the harness pins.
+pub const MAX_SHA: usize = 40;
 /// Shortest abbreviation `git rev-parse --short` returns today, and what `cockpitBuildLabel()` used to serve.
-const MIN_SHA: usize = 7;
+///
+/// TEST SEAM (TST-RUNTIME-DEPLOY-002): part of the commit-sha contract the harness pins.
+pub const MIN_SHA: usize = 7;
 
 /// Resolve the first stamped candidate that IS a commit sha.
+///
+/// TEST SEAM (TST-RUNTIME-DEPLOY-001): `pub` so the harness exercises the production resolution (precedence,
+/// refusal without fall-through, never-invented stamp) instead of a copy of it.
 ///
 /// Candidates are `(variable name, value)` in precedence order. A candidate that is set but not a sha does not fall
 /// through to the next one — that would let a tag in `VERCEL_GIT_COMMIT_SHA` quietly outrank the real stamp in
 /// `CULEBRALUXE_BUILD_SHA` — it is refused with the reason named.
-fn resolve_stamp(candidates: &[(&str, Option<String>)]) -> Stamp {
+pub fn resolve_stamp(candidates: &[(&str, Option<String>)]) -> Stamp {
     let mut refusal: Option<String> = None;
     for (name, value) in candidates {
         let Some(value) = value.as_deref().map(str::trim).filter(|v| !v.is_empty()) else {

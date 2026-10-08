@@ -57,7 +57,12 @@ pub struct OpenCodeStartOptions<'a> {
     pub agent: Option<&'a str>,
     /// The turn's wall-clock ceiling. Silence is never a verdict (a long tool call is silent and healthy), but a
     /// turn with no ceiling at all is one hung vendor away from holding its claim and its worker slot forever — the
-    /// spend cap can only stop a turn that is still emitting usage. `None` is unbounded.
+    /// spend cap can only stop a turn that is still emitting usage. `None` is unbounded, and is only ever
+    /// passed by an operator who named it (`FORGE_TURN_TIMEOUT_MINUTES=0/off/none`) or by a test for a
+    /// stand-in that terminates itself. Both starters honor it: the buffered one stops the tree at the
+    /// ceiling, the streamed one stops mid-flight AND bounds its disconnected reap (reaping an
+    /// explicitly-unbounded turn still ends at `UNBOUNDED_REAP_FALLBACK` — running unbounded is the
+    /// operator's choice, reaping forever is not).
     pub max_turn: Option<Duration>,
 }
 
@@ -327,6 +332,12 @@ fn spawn_run(opts: &OpenCodeStartOptions<'_>) -> std::io::Result<Child> {
     cmd.spawn()
 }
 
+/// The reap fallback: a process that closed its output is exiting, and waiting for it is reaping, not
+/// running. Reaping is always bounded — even when the turn itself runs unbounded by explicit operator
+/// choice (`FORGE_TURN_TIMEOUT_MINUTES=off`) — so a descendant that outlives its parent cannot hold the
+/// claim forever. Same 120 minutes as `engine::opencode::DEFAULT_TURN_CEILING_MINUTES`.
+pub const UNBOUNDED_REAP_FALLBACK: Duration = Duration::from_secs(120 * 60);
+
 pub fn start_opencode_run(opts: OpenCodeStartOptions<'_>) -> OpenCodeRunResult {
     match spawn_run(&opts) {
         Err(err) => OpenCodeRunResult {
@@ -335,46 +346,100 @@ pub fn start_opencode_run(opts: OpenCodeStartOptions<'_>) -> OpenCodeRunResult {
             stdout: String::new(),
             stderr: err.to_string(),
         },
-        Ok(mut child) => {
-            // Both pipes are drained CONCURRENTLY. Reading stdout to EOF before touching stderr deadlocks as
-            // soon as the child fills the stderr pipe buffer (~64 KiB) — and V2 makes that likely: `--format
-            // json` emits a line per event including tool output, while `--standalone` logs a private server's
-            // startup to stderr. The V1 adapter read them in sequence and only survived because its output was
-            // small; this is the same adapter, so the fix belongs here.
-            let stdout_reader = child.stdout.take().map(|mut out| {
-                std::thread::spawn(move || {
-                    let mut buf = String::new();
-                    let _ = out.read_to_string(&mut buf);
-                    buf
-                })
+        Ok(child) => {
+            let pid = child.id();
+            let ceiling = opts.max_turn;
+            // The blocking section — pipe drains plus reap — runs on its own thread so the ceiling below
+            // can stop it. Waiting for EOF on a pipe an orphan holds, or for a child that never exits,
+            // is otherwise forever, and this buffered path is exactly the wait FORGE-FIX-005 bounds.
+            // `None` is the operator's explicitly-named unbounded choice; production turns use the
+            // streamed path, and this buffered starter has no production callers.
+            let (tx, rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                let mut child = child;
+                // Both pipes are drained CONCURRENTLY. Reading stdout to EOF before touching stderr deadlocks as
+                // soon as the child fills the stderr pipe buffer (~64 KiB) — and V2 makes that likely: `--format
+                // json` emits a line per event including tool output, while `--standalone` logs a private server's
+                // startup to stderr. The V1 adapter read them in sequence and only survived because its output was
+                // small; this is the same adapter, so the fix belongs here.
+                let stdout_reader = child.stdout.take().map(|mut out| {
+                    std::thread::spawn(move || {
+                        let mut buf = String::new();
+                        let _ = out.read_to_string(&mut buf);
+                        buf
+                    })
+                });
+                let stderr_reader = child.stderr.take().map(|mut err| {
+                    std::thread::spawn(move || {
+                        let mut buf = String::new();
+                        let _ = err.read_to_string(&mut buf);
+                        buf
+                    })
+                });
+                let stdout = stdout_reader
+                    .and_then(|handle| handle.join().ok())
+                    .unwrap_or_default();
+                let stderr = stderr_reader
+                    .and_then(|handle| handle.join().ok())
+                    .unwrap_or_default();
+                let status = child.wait();
+                let _ = tx.send((stdout, stderr, status.map(|status| status.code())));
             });
-            let stderr_reader = child.stderr.take().map(|mut err| {
-                std::thread::spawn(move || {
-                    let mut buf = String::new();
-                    let _ = err.read_to_string(&mut buf);
-                    buf
-                })
-            });
-            let stdout = stdout_reader
-                .and_then(|handle| handle.join().ok())
-                .unwrap_or_default();
-            let stderr = stderr_reader
-                .and_then(|handle| handle.join().ok())
-                .unwrap_or_default();
-            match child.wait() {
-                Ok(status) => {
-                    let code = status.code();
-                    OpenCodeRunResult {
-                        status: if code == Some(0) {
-                            OpenCodeRunStatus::Success
+            let (stdout, stderr, code) = match ceiling {
+                Some(limit) => match rx.recv_timeout(limit) {
+                    Ok((stdout, stderr, code)) => (stdout, stderr, code),
+                    Err(_) => {
+                        // Past the ceiling: stop the tree the way every other stop stops it, then collect
+                        // whatever the pipes held. The reap after a terminate is bounded — the tree is dead —
+                        // so this second wait cannot hang the claim the first one was about to.
+                        let _ = RunningTurn { pid }.terminate();
+                        let (stdout, stderr, _) = rx.recv().unwrap_or_else(|_| {
+                            (
+                                String::new(),
+                                String::new(),
+                                Err(std::io::Error::other(
+                                    "the run thread ended without reporting",
+                                )),
+                            )
+                        });
+                        let timeout_note = format!(
+                            "{TURN_TIMEOUT_CODE}: the run ran past its wall-clock ceiling of {} minute(s) and was stopped",
+                            limit.as_secs().div_ceil(60)
+                        );
+                        let stderr = if stderr.trim().is_empty() {
+                            timeout_note
                         } else {
-                            OpenCodeRunStatus::Failed
-                        },
-                        exit_code: code,
-                        stdout,
-                        stderr,
+                            format!("{timeout_note}\n{stderr}")
+                        };
+                        return OpenCodeRunResult {
+                            status: OpenCodeRunStatus::Failed,
+                            exit_code: None,
+                            stdout,
+                            stderr,
+                        };
                     }
-                }
+                },
+                None => rx.recv().unwrap_or_else(|_| {
+                    (
+                        String::new(),
+                        String::new(),
+                        Err(std::io::Error::other(
+                            "the run thread ended without reporting",
+                        )),
+                    )
+                }),
+            };
+            match code {
+                Ok(code) => OpenCodeRunResult {
+                    status: if code == Some(0) {
+                        OpenCodeRunStatus::Success
+                    } else {
+                        OpenCodeRunStatus::Failed
+                    },
+                    exit_code: code,
+                    stdout,
+                    stderr,
+                },
                 Err(err) => OpenCodeRunResult {
                     status: OpenCodeRunStatus::Failed,
                     exit_code: None,
@@ -722,16 +787,19 @@ pub fn start_opencode_run_streaming(
                 }
             }
             // stdout closed. Usually the process is exiting; a process that closed its output and kept running
-            // would make the reap below wait forever, so it is watched against the same ceiling.
+            // would make the reap below wait forever, so it is watched against the same ceiling — falling back
+            // to `UNBOUNDED_REAP_FALLBACK` when the turn itself runs explicitly unbounded (running unbounded
+            // is the operator's choice; reaping forever is not).
             Err(RecvTimeoutError::Disconnected) => {
+                let reap_ceiling = max_turn.or(Some(UNBOUNDED_REAP_FALLBACK));
                 loop {
                     match child.try_wait() {
                         Ok(Some(status)) => {
                             exit_code = status.code();
                             break;
                         }
-                        Ok(None) if past_ceiling(started, max_turn) => {
-                            stop = max_turn.map(turn_ceiling_stop);
+                        Ok(None) if past_ceiling(started, reap_ceiling) => {
+                            stop = reap_ceiling.map(turn_ceiling_stop);
                             break;
                         }
                         Ok(None) => std::thread::sleep(Duration::from_millis(100)),
@@ -818,7 +886,8 @@ sleep 30"#,
                 session: None,
                 continue_session: false,
                 agent: Some("forge-scout"),
-                max_turn: None,
+                // Explicitly bounded (FORGE-FIX-005): the backstop only — no `max_turn: None` caller goes unnamed.
+                max_turn: Some(Duration::from_secs(30)),
             },
             &mut |_line| {
                 lines_seen += 1;
@@ -882,7 +951,8 @@ exit 0"#,
                 session: None,
                 continue_session: false,
                 agent: Some("forge-scout"),
-                max_turn: None,
+                // Explicitly bounded (FORGE-FIX-005): the backstop only — no `max_turn: None` caller goes unnamed.
+                max_turn: Some(Duration::from_secs(30)),
             },
             &mut |_line| None,
             &live_turn_slot(),
@@ -994,6 +1064,40 @@ sleep 60"#,
         );
         assert!(result.stop.is_none(), "{:?}", result.stop);
         assert_eq!(result.status, OpenCodeRunStatus::Success);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The buffered starter honors its ceiling too: a hung vendor is stopped at the ceiling with the
+    /// `TURN_TIMEOUT` code instead of holding the caller past it (FORGE-FIX-005).
+    #[test]
+    fn a_buffered_run_is_stopped_at_its_ceiling() {
+        let dir = workspace("buffered-ceiling");
+        let bin = fake_cli(&dir, "sleep 60");
+        let started = Instant::now();
+        let result = start_opencode_run(OpenCodeStartOptions {
+            cli_bin: &bin,
+            cwd: &dir.to_string_lossy(),
+            model: "deepseek/deepseek-flash",
+            task: "a task the fake vendor ignores",
+            env: None,
+            auto_approve: true,
+            session: None,
+            continue_session: false,
+            agent: Some("forge-smith"),
+            // Explicitly bounded: the backstop under test.
+            max_turn: Some(Duration::from_secs(1)),
+        });
+        let elapsed = started.elapsed();
+        assert_eq!(result.status, OpenCodeRunStatus::Failed);
+        assert!(
+            result.stderr.contains(TURN_TIMEOUT_CODE),
+            "the timeout carries its code, not just a dead process: {}",
+            result.stderr
+        );
+        assert!(
+            elapsed < Duration::from_secs(20),
+            "stopped near the ceiling, not at the script's silence: {elapsed:?}"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }

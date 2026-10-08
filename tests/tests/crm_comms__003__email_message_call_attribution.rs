@@ -14,7 +14,9 @@
 //!   channel. `source_dto` (`:341-362`) puts that channel on the DTO the panel renders, and the
 //!   committed counts come from `CommsDao::sources` (`db/src/comms.rs:310-332`) over
 //!   `mv_client_relationship_channels`, which only admits `review_state = 'exact_linked'` rows that
-//!   are neither bulk nor organization traffic (migration `094`, `comm` CTE).
+//!   are neither bulk nor organization traffic, and which presents the unified Email
+//!   channel as source `'email'` — `gmail`/`gmail_contacts`/`icloud_mail` normalize into
+//!   one Person × Email row (migration `100`, the unified Email relationship channel).
 //! - **Moment attribution** (one interaction's channel): `moment_dto`
 //!   (`middle/model/src/comms.rs:364-387`) maps a stored channel to its taxonomy, and reclassifies
 //!   a `call` as FaceTime only when the row's provenance says so (`is_facetime_interaction`,
@@ -86,9 +88,9 @@ async fn seed_evidence(
             is_automated_or_bulk)
          values ($1, $8, $2, $2, $3, $4::uuid, $5, $6,
                  coalesce($5, 0) > 0 and coalesce($6, 0) > 0,
-                 '2026-09-01T12:00:00+00:00', '2026-10-01T12:00:00+00:00',
-                 case when coalesce($5,0) > 0 then '2026-10-01T12:00:00+00:00' else null end,
-                 case when coalesce($6,0) > 0 then '2026-10-01T11:00:00+00:00' else null end,
+                 '2026-09-01T12:00:00+00:00'::timestamptz, '2026-10-01T12:00:00+00:00'::timestamptz,
+                 case when coalesce($5,0) > 0 then '2026-10-01T12:00:00+00:00'::timestamptz else null end,
+                 case when coalesce($6,0) > 0 then '2026-10-01T11:00:00+00:00'::timestamptz else null end,
                  $7)",
     )
     .bind(source)
@@ -326,7 +328,7 @@ async fn crm_comms_003__email_message_call_attribution() {
         "{HARNESS}: messages both ways are two-way"
     );
 
-    let mail = by_source(&sources, "gmail");
+    let mail = by_source(&sources, "email");
     assert_eq!(
         (mail.inbound_count, mail.outbound_count, mail.total_count),
         (1, 0, 1),
@@ -382,7 +384,7 @@ async fn crm_comms_003__email_message_call_attribution() {
         vec![
             ("apple_calls".to_owned(), "apple_calls".to_owned()),
             ("apple_messages".to_owned(), "imessage".to_owned()),
-            ("gmail".to_owned(), "email".to_owned()),
+            ("email".to_owned(), "email".to_owned()),
         ],
         "{HARNESS}: the committed read model attributes each source to its channel"
     );

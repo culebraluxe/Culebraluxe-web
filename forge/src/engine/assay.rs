@@ -1,5 +1,12 @@
 //! Port of agents/qa/run.ts adjudicate + assay-collect.ts (no SHA conjunct).
 
+use std::collections::HashMap;
+use std::io;
+use std::path::Path;
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
+
 use crate::engine::facts::ForgeGateEvidence;
 
 #[derive(Debug, Clone)]
@@ -76,6 +83,12 @@ pub fn adjudicate_assay(
             blockers: vec!["NO_ASSAY_COMMANDS"],
         };
     }
+    if results.iter().any(is_cmd_timeout) {
+        return AssayReport {
+            verdict: AssayVerdict::Fail,
+            blockers: vec!["CMD_TIMEOUT"],
+        };
+    }
     if results.iter().any(|r| r.unmeasurable) {
         return AssayReport {
             verdict: AssayVerdict::Fail,
@@ -120,6 +133,160 @@ pub fn adjudicate_assay(
     AssayReport {
         verdict: AssayVerdict::Pass,
         blockers: vec![],
+    }
+}
+
+/// The blocker for an assay command that outlived its ceiling and was killed. It is deliberately NOT
+/// `COMMAND_UNMEASURABLE`: a timeout held the story claim until the ceiling fired, and the receipt must say
+/// the command was killed, not merely that nothing could be measured.
+pub const CMD_TIMEOUT_CODE: &str = "CMD_TIMEOUT";
+
+/// The exit code a killed assay command reports. Matches `timeout(1)`'s 124, so a reader that has seen a
+/// coreutils timeout already knows what this one is.
+pub const CMD_TIMEOUT_EXIT: i32 = 124;
+
+/// The operator's per-command assay ceiling, in minutes. New for FORGE-FIX-005: a hung assay held the story
+/// claim indefinitely because the `sh -c` shells had no deadline at all.
+pub const ASSAY_TIMEOUT_ENV_MINUTES: &str = "FORGE_ASSAY_TIMEOUT_MINUTES";
+
+/// The older per-command assay ceiling, in seconds. Kept as a fallback so existing lanes keep their bound;
+/// `FORGE_ASSAY_TIMEOUT_MINUTES` wins when it parses.
+pub const ASSAY_TIMEOUT_ENV_SECS: &str = "FORGE_ASSAY_TIMEOUT_SECS";
+
+/// The ceiling when the operator set none: long enough for any suite measured so far, short enough that a
+/// hung command cannot hold a claim and a worker slot overnight. Same 20 minutes `pianola::worker_exec`
+/// already used via `FORGE_ASSAY_TIMEOUT_SECS`.
+pub const DEFAULT_ASSAY_TIMEOUT_SECS: u64 = 1200;
+
+fn default_assay_timeout() -> Duration {
+    Duration::from_secs(DEFAULT_ASSAY_TIMEOUT_SECS)
+}
+
+/// The ceiling one assay command runs under. Unset or unreadable is the default. `0`/`off`/`none` is ALSO
+/// the default, never unbounded: a hung assay holds the story claim, and no claim may be held forever.
+/// That is the deliberate difference from the turn ceiling, where `off` is the operator's explicit
+/// unbounded choice for a model turn that is still emitting.
+pub fn assay_timeout() -> Duration {
+    if let Ok(raw) = std::env::var(ASSAY_TIMEOUT_ENV_MINUTES) {
+        if let Ok(minutes) = raw.trim().parse::<u64>() {
+            if minutes > 0 {
+                return Duration::from_secs(minutes * 60);
+            }
+        }
+    }
+    if let Ok(raw) = std::env::var(ASSAY_TIMEOUT_ENV_SECS) {
+        if let Ok(secs) = raw.trim().parse::<u64>() {
+            if secs > 0 {
+                return Duration::from_secs(secs);
+            }
+        }
+    }
+    default_assay_timeout()
+}
+
+/// True when the result is a killed-at-ceiling assay command: unmeasurable, the timeout exit, and the
+/// `CMD_TIMEOUT` marker in the excerpt. The marker is what distinguishes a kill from any other
+/// unmeasurable command; the exit alone could be a command that chose 124 for itself.
+pub fn is_cmd_timeout(result: &CommandResult) -> bool {
+    result.unmeasurable
+        && result.exit_code == CMD_TIMEOUT_EXIT
+        && (result.excerpt.contains(CMD_TIMEOUT_CODE) || result.output.contains(CMD_TIMEOUT_CODE))
+}
+
+/// Spawn one assay line as `sh -c <command>` scoped to the lane directory, with the pipes open and stdin
+/// closed.
+///
+/// The child is its own process group (unix), so the ceiling kill below reaches the whole command tree.
+/// Stdin is null: a command that reads stdin would otherwise block forever on a terminal that never
+/// answers, and an assay must never wait on anything but its own ceiling.
+pub fn spawn_scoped_shell(command: &str, cwd: &Path) -> io::Result<Child> {
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c")
+        .arg(command)
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    cmd.spawn()
+}
+
+/// Spawn one assay line as `sh -c <command>` exactly like [`spawn_scoped_shell`], but with a
+/// caller-supplied environment instead of the inherited one.
+///
+/// WHY THIS EXISTS. Three fixes meet in the assay shell: FIX-007 isolates each worker with a
+/// sanitized environment (no secrets) plus its own `CARGO_TARGET_DIR`, FIX-005 bounds the wait
+/// with a ceiling that kills the whole process tree, and FIX-003 keeps both output streams as
+/// evidence. The inherited-environment spawn cannot carry FIX-007's env into the bounded wait,
+/// so the harnesses build the assay env and hand it here; the environment is cleared first so
+/// nothing the caller filtered out leaks back in through inheritance.
+pub fn spawn_scoped_shell_with_env(
+    command: &str,
+    cwd: &Path,
+    env: &HashMap<String, String>,
+) -> io::Result<Child> {
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c")
+        .arg(command)
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env_clear()
+        .envs(env);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    cmd.spawn()
+}
+
+/// What a ceiling kill leaves behind: which child was stopped, and which ceiling stopped it. The pid is
+/// what the assay test asserts is dead — a timeout that returns while the command keeps running has not
+/// released anything.
+pub struct CeilingHit {
+    pub pid: u32,
+    pub ceiling: Duration,
+}
+
+/// What waiting for an assay child produced: either the wait finished (with whatever the OS said about
+/// it), or the ceiling fired and the tree was killed. The two are kept apart on purpose: a wait that
+/// failed on its own is an observation failure, while a ceiling kill is a `CMD_TIMEOUT` — collapsing them
+/// would let a dead pid read as a hung command.
+pub enum CeilingOutcome {
+    Finished(io::Result<std::process::Output>),
+    TimedOut(CeilingHit),
+}
+
+/// Wait for an assay child up to `timeout`, then kill its tree and return.
+///
+/// The wait runs on its own thread (`wait_with_output` drains both pipes, so a chatty command cannot
+/// deadlock a full pipe buffer) while the caller waits on the channel with the ceiling. On expiry the
+/// turn's own stop primitive (`RunningTurn::terminate`: TERM the tree, re-enumerate, escalate to KILL)
+/// runs, and the timeout returns at once — the reader thread is deliberately NOT joined, the same posture
+/// as the streamed turn: a pipe an orphan holds is not part of this command any more, and the claim is
+/// released by returning, not by waiting for the orphan.
+pub fn wait_with_ceiling(child: Child, timeout: Duration) -> CeilingOutcome {
+    let pid = child.id();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let output = child.wait_with_output();
+        let _ = tx.send(output);
+    });
+    match rx.recv_timeout(timeout) {
+        Ok(output) => CeilingOutcome::Finished(output),
+        Err(_) => {
+            let _ = crate::engine::opencode_client::RunningTurn { pid }.terminate();
+            CeilingOutcome::TimedOut(CeilingHit {
+                pid,
+                ceiling: timeout,
+            })
+        }
     }
 }
 
@@ -382,6 +549,7 @@ pub fn collect_assay_evidence(
 #[cfg(test)]
 mod rust_contract_tests {
     use super::*;
+    use std::time::Instant;
 
     fn result(command: &str, passed: bool) -> CommandResult {
         CommandResult {
@@ -513,6 +681,120 @@ mod rust_contract_tests {
             .as_deref()
             .unwrap_or_default()
             .contains("authoring checks failed"));
+    }
+
+    fn timed_out_result(command: &str) -> CommandResult {
+        CommandResult {
+            command: command.into(),
+            exit_code: CMD_TIMEOUT_EXIT,
+            passed: false,
+            excerpt: format!(
+                "{CMD_TIMEOUT_CODE}: assay command timed out after 1s and was killed (pid 1234): {command}"
+            ),
+            unmeasurable: true,
+            output: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_killed_assay_reports_cmd_timeout_not_generic_unmeasurable() {
+        // FORGE-FIX-005: a hung command killed at its ceiling must read as a kill in the receipt, so the
+        // story requeues on `CMD_TIMEOUT` instead of a generic measurement failure.
+        let command = "sleep 30".to_string();
+        assert!(is_cmd_timeout(&timed_out_result(&command)));
+        let report = adjudicate_assay(&[command], &[timed_out_result("sleep 30")], true);
+        assert_eq!(report.verdict, AssayVerdict::Fail);
+        assert_eq!(report.blockers, vec!["CMD_TIMEOUT"]);
+    }
+
+    #[test]
+    fn a_finished_command_never_wears_the_timeout_marker() {
+        assert!(!is_cmd_timeout(&result("sleep 30", true)));
+        assert!(!is_cmd_timeout(&result("sleep 30", false)));
+        // Exit 124 on its own is not a timeout either: the marker is what names the kill.
+        let chosen_124 = CommandResult {
+            exit_code: 124,
+            ..result("sleep 30", false)
+        };
+        assert!(!is_cmd_timeout(&chosen_124));
+    }
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn assay_ceiling_minutes_win_secs_win_default_and_never_unbounded() {
+        let _guard = ENV_LOCK.lock().expect("assay env lock");
+        let prior_minutes = std::env::var(ASSAY_TIMEOUT_ENV_MINUTES).ok();
+        let prior_secs = std::env::var(ASSAY_TIMEOUT_ENV_SECS).ok();
+        std::env::remove_var(ASSAY_TIMEOUT_ENV_MINUTES);
+        std::env::remove_var(ASSAY_TIMEOUT_ENV_SECS);
+        assert_eq!(
+            assay_timeout(),
+            Duration::from_secs(DEFAULT_ASSAY_TIMEOUT_SECS)
+        );
+        std::env::set_var(ASSAY_TIMEOUT_ENV_SECS, "90");
+        assert_eq!(assay_timeout(), Duration::from_secs(90));
+        std::env::set_var(ASSAY_TIMEOUT_ENV_MINUTES, "3");
+        assert_eq!(assay_timeout(), Duration::from_secs(180));
+        // `off`/`0` for an ASSAY is the default, never unbounded: a hung assay holds the story claim.
+        std::env::remove_var(ASSAY_TIMEOUT_ENV_SECS);
+        std::env::set_var(ASSAY_TIMEOUT_ENV_MINUTES, "off");
+        assert_eq!(
+            assay_timeout(),
+            Duration::from_secs(DEFAULT_ASSAY_TIMEOUT_SECS)
+        );
+        match prior_minutes {
+            Some(value) => std::env::set_var(ASSAY_TIMEOUT_ENV_MINUTES, value),
+            None => std::env::remove_var(ASSAY_TIMEOUT_ENV_MINUTES),
+        }
+        match prior_secs {
+            Some(value) => std::env::set_var(ASSAY_TIMEOUT_ENV_SECS, value),
+            None => std::env::remove_var(ASSAY_TIMEOUT_ENV_SECS),
+        }
+    }
+
+    fn assay_workspace(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("forge-assay-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp assay workspace");
+        dir
+    }
+
+    fn process_exists(pid: u32) -> bool {
+        Command::new("sh")
+            .arg("-c")
+            .arg(format!("kill -0 {pid} 2>/dev/null"))
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    /// A hung assay shell is killed at its ceiling and the pid is really dead (FORGE-FIX-005: the claim
+    /// is released by returning, and returning while the command keeps running releases nothing).
+    #[test]
+    fn a_hung_assay_shell_is_killed_at_its_ceiling() {
+        let dir = assay_workspace("ceiling-kills");
+        let child = spawn_scoped_shell("sleep 30", &dir).expect("spawn sleep");
+        let pid = child.id();
+        let started = Instant::now();
+        let outcome = wait_with_ceiling(child, Duration::from_secs(1));
+        let elapsed = started.elapsed();
+        let hit = match outcome {
+            CeilingOutcome::TimedOut(hit) => hit,
+            CeilingOutcome::Finished(_) => {
+                panic!("a 30s sleep must not finish inside a 1s ceiling")
+            }
+        };
+        assert_eq!(hit.pid, pid);
+        assert!(
+            elapsed < Duration::from_secs(20),
+            "the kill returns near the ceiling, not at the sleep: {elapsed:?}"
+        );
+        assert!(
+            !process_exists(pid),
+            "the assay child must be dead after the ceiling kill"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

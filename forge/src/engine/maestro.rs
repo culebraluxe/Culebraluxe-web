@@ -612,19 +612,51 @@ impl RoleHarness for MaestroHarness {
     }
 
     fn run_command(&self, command: &str) -> CommandResult {
+        use crate::engine::assay::{
+            assay_timeout, spawn_scoped_shell, CeilingOutcome, CMD_TIMEOUT_CODE, CMD_TIMEOUT_EXIT,
+        };
         let cwd = self.assay_cwd();
-        match Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .current_dir(cwd)
-            .output()
-        {
-            Ok(out) => {
+        // FIX-005: bounded, same contract as the OpenCode harness — a hung assay must kill its tree
+        // at the ceiling and return `CMD_TIMEOUT` so the claim is released and the story requeues.
+        let child = match spawn_scoped_shell(command, cwd) {
+            Ok(child) => child,
+            Err(e) => {
+                return CommandResult {
+                    command: command.into(),
+                    exit_code: -1,
+                    passed: false,
+                    excerpt: e.to_string(),
+                    unmeasurable: true,
+                    output: String::new(),
+                };
+            }
+        };
+        match crate::engine::assay::wait_with_ceiling(child, assay_timeout()) {
+            CeilingOutcome::TimedOut(hit) => CommandResult {
+                command: command.into(),
+                exit_code: CMD_TIMEOUT_EXIT,
+                passed: false,
+                excerpt: format!(
+                    "{CMD_TIMEOUT_CODE}: assay command timed out after {}s and was killed (pid {}): {command}",
+                    hit.ceiling.as_secs(),
+                    hit.pid
+                ),
+                unmeasurable: true,
+                output: String::new(),
+            },
+            CeilingOutcome::Finished(Err(e)) => CommandResult {
+                command: command.into(),
+                exit_code: -1,
+                passed: false,
+                excerpt: format!("could not observe assay command: {e}"),
+                unmeasurable: true,
+                output: String::new(),
+            },
+            CeilingOutcome::Finished(Ok(out)) => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                // BOTH streams are evidence: cargo diagnostics print to stderr while test
-                // harnesses print to stdout, and keeping only one silently discards the
-                // compiler error (FORGE-FIX-003).
+                // FIX-003: BOTH streams are evidence — cargo diagnostics print to stderr while test
+                // harnesses print to stdout, and keeping only one silently discards the compiler error.
                 let text = crate::engine::assay::combine_command_output(&stdout, &stderr);
                 let code = out.status.code().unwrap_or(1);
                 CommandResult {
@@ -640,14 +672,6 @@ impl RoleHarness for MaestroHarness {
                     output: text,
                 }
             }
-            Err(e) => CommandResult {
-                command: command.into(),
-                exit_code: -1,
-                passed: false,
-                excerpt: e.to_string(),
-                unmeasurable: true,
-                output: String::new(),
-            },
         }
     }
 }
@@ -1479,8 +1503,16 @@ mod tests {
     #[test]
     fn maestro_process_failures_stay_failures() {
         // Spawn failure: a missing binary is a harness execution error, never a fake output.
-        let err = run_maestro_streaming("/nonexistent/maestro-cli-xyz", ".", &[], None, None, None)
-            .expect_err("a missing binary cannot produce a turn");
+        let err = run_maestro_streaming(
+            "/nonexistent/maestro-cli-xyz",
+            ".",
+            &[],
+            None,
+            None,
+            // Explicitly bounded (FORGE-FIX-005): spawn fails before any wait, the ceiling is vacuous here.
+            Some(Duration::from_secs(60)),
+        )
+        .expect_err("a missing binary cannot produce a turn");
         assert!(err.to_string().contains("failed to spawn"), "{err}");
 
         // Non-zero exit and timeout/spend-cap live in one shared runner, exercised with a fake CLI:
@@ -1498,8 +1530,16 @@ mod tests {
         };
 
         let fail = write_script("fail.sh", "echo 'agent is busy' >&2\nexit 3");
-        let result = run_maestro_streaming(fail.to_str().unwrap(), ".", &[], None, None, None)
-            .expect("the process ran and reported its exit");
+        let result = run_maestro_streaming(
+            fail.to_str().unwrap(),
+            ".",
+            &[],
+            None,
+            None,
+            // Explicitly bounded (FORGE-FIX-005): the script exits at once, the ceiling is vacuous here.
+            Some(Duration::from_secs(60)),
+        )
+        .expect("the process ran and reported its exit");
         assert_eq!(result.exit_code, Some(3));
         assert!(result.stderr.contains("agent is busy"), "{}", result.stderr);
 

@@ -15,7 +15,8 @@
 //! keeps a live claim out of `stale_agent_work`'s reach while its run is in
 //! flight. `supervisor_tick` maps each worker lane to a [`PianolaDecision`]
 //! and writes one structured log line per lane; it never auto-queues stories
-//! beyond the experiment cap of 4.
+//! past the batch cap, and an over-cap tick warns that the cap change owes
+//! HITL captain approval.
 
 use std::collections::{HashMap, HashSet};
 
@@ -271,9 +272,10 @@ pub async fn heartbeat_via_engine(engine: &ForgeEngineDao, work_item_id: &str) -
 
 /// Run one supervisor poll cycle and return the per-lane decisions:
 ///
-/// 1. Load the read-only snapshot for at most `config.total_cap` stories
-///    (extra ids are ignored and logged; the supervisor never grows the
-///    batch it was given).
+/// 1. Load the read-only snapshot for the given stories. The cap is a
+///    safety bound, not the batch shape: an over-cap tick proceeds with
+///    the full list and logs the HITL captain approval the cap change
+///    owes — it never truncates the batch to fit.
 /// 2. Split active work for those stories into stalled vs fresh via
 ///    `detect_stall_at`.
 /// 3. Heartbeat each fresh `Claimed`/`Running` item through the engine;
@@ -288,16 +290,15 @@ pub async fn supervisor_tick(
     config: &PianolaConfig,
     story_ids: &[String],
 ) -> DbResult<Vec<PianolaDecision>> {
-    let capped: Vec<String> = story_ids.iter().take(config.total_cap).cloned().collect();
     if story_ids.len() > config.total_cap {
         tracing::warn!(
             target: "pianola::supervisor",
             requested = story_ids.len(),
-            capped = capped.len(),
-            "pianola supervisor_tick refuses to grow the batch past the experiment cap"
+            safety_cap = config.total_cap,
+            "pianola supervisor_tick runs past the safety cap; growing the batch requires HITL captain approval"
         );
     }
-    let state = SupervisorState::load(read, &capped, 50).await?;
+    let state = SupervisorState::load(read, story_ids, 50).await?;
     let stalled_ids: HashSet<String> = detect_stall_at(
         &state.active_work,
         config.stall_threshold_ms,
@@ -311,7 +312,7 @@ pub async fn supervisor_tick(
     for item in state
         .active_work
         .iter()
-        .filter(|item| capped.iter().any(|id| id == &item.story_id))
+        .filter(|item| story_ids.iter().any(|id| id == &item.story_id))
     {
         let decision = if stalled_ids.contains(&item.id) {
             PianolaDecision::StallDetected {

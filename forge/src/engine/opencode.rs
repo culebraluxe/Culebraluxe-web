@@ -884,32 +884,63 @@ impl RoleHarness for OpenCodeHarness {
     }
 
     fn run_command(&self, command: &str) -> CommandResult {
+        use crate::engine::assay::{
+            assay_timeout, is_cmd_timeout, spawn_scoped_shell_with_env, CeilingOutcome,
+            CMD_TIMEOUT_CODE, CMD_TIMEOUT_EXIT,
+        };
         let cwd = self.assay_cwd();
-        // Derive per-worktree CARGO_TARGET_DIR for build isolation
+        // FIX-007: per-worktree CARGO_TARGET_DIR for build isolation, sanitized env (no secrets).
         let cargo_target_dir = derive_cargo_target_dir(cwd);
-        // Sanitize environment: remove secrets, preserve toolchain vars
         let mut assay_env = sanitize_assay_env(std::env::vars().collect());
         assay_env.insert(
             "CARGO_TARGET_DIR".into(),
             cargo_target_dir.to_string_lossy().to_string(),
         );
-        match Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .current_dir(cwd)
-            .env_clear()
-            .envs(&assay_env)
-            .output()
-        {
-            Ok(out) => {
+        // FIX-005: bounded — a hung assay held the story claim indefinitely because this shell had
+        // no deadline. The ceiling kills the command's tree; the claim is released by returning, and the
+        // story requeues on the `CMD_TIMEOUT` blocker the adjudicator reads from the excerpt.
+        let child = match spawn_scoped_shell_with_env(command, cwd, &assay_env) {
+            Ok(child) => child,
+            Err(e) => {
+                return CommandResult {
+                    command: command.into(),
+                    exit_code: -1,
+                    passed: false,
+                    excerpt: e.to_string(),
+                    unmeasurable: true,
+                    output: String::new(),
+                };
+            }
+        };
+        match crate::engine::assay::wait_with_ceiling(child, assay_timeout()) {
+            CeilingOutcome::TimedOut(hit) => CommandResult {
+                command: command.into(),
+                exit_code: CMD_TIMEOUT_EXIT,
+                passed: false,
+                excerpt: format!(
+                    "{CMD_TIMEOUT_CODE}: assay command timed out after {}s and was killed (pid {}): {command}",
+                    hit.ceiling.as_secs(),
+                    hit.pid
+                ),
+                unmeasurable: true,
+                output: String::new(),
+            },
+            CeilingOutcome::Finished(Err(e)) => CommandResult {
+                command: command.into(),
+                exit_code: -1,
+                passed: false,
+                excerpt: format!("could not observe assay command: {e}"),
+                unmeasurable: true,
+                output: String::new(),
+            },
+            CeilingOutcome::Finished(Ok(out)) => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                // BOTH streams are evidence: cargo diagnostics print to stderr while test
-                // harnesses print to stdout, and keeping only one silently discards the
-                // compiler error (FORGE-FIX-003).
+                // FIX-003: BOTH streams are evidence — cargo diagnostics print to stderr while test
+                // harnesses print to stdout, and keeping only one silently discards the compiler error.
                 let text = crate::engine::assay::combine_command_output(&stdout, &stderr);
                 let code = out.status.code().unwrap_or(1);
-                CommandResult {
+                let result = CommandResult {
                     command: command.into(),
                     exit_code: code,
                     passed: code == 0,
@@ -920,16 +951,13 @@ impl RoleHarness for OpenCodeHarness {
                         .join("\n"),
                     unmeasurable: false,
                     output: text,
-                }
+                };
+                debug_assert!(
+                    !is_cmd_timeout(&result),
+                    "a finished command must not wear the timeout marker"
+                );
+                result
             }
-            Err(e) => CommandResult {
-                command: command.into(),
-                exit_code: -1,
-                passed: false,
-                excerpt: e.to_string(),
-                unmeasurable: true,
-                output: String::new(),
-            },
         }
     }
 }
