@@ -666,3 +666,29 @@ Short facts that are expensive to rediscover.
   records and parked copies, 13 GB reclaimed, `df` 951 Gi → 965 Gi free on 2026-10-08. The rule and its reasoning now
   live in `docs/agent/LAYOUT.md`, "One target directory per checkout".
 
+
+- **2026-10-08 (a migration that was on `main` for a week had never been applied anywhere, and nothing in the delivery
+  chain noticed, because the code half and the schema half are checked by different things).** Chasing "I cannot see
+  Claude's Listing Agreement changes in production" ended in the `offer` table rather than in the forms screen:
+  `db/migrations/251_offer_room_terms.sql` landed in `c7a4afdc5` (`feat(offer-room): add structured offer terms`) and
+  the code that selects those columns — `db/src/deal_portal/workspace.rs:331-345` (`o.financing_type`,
+  `o.deposit_amount`, `o.inspection_days`, `o.seller_credits`, `o.proposed_closing_date`, `o.contingencies`,
+  `o.expires_at`) — was live in the prod build `c483e8f81`, while **both** DEV and PROD still had the original 11-column
+  `offer` table. Every read of one deal's workspace (`/portal/deals/<id>`, `GET /v1/deals/{id}`) therefore failed with
+  `ERROR: column o.financing_type does not exist`, which is a `DbFailure` from `deal.workspace.offers` and a 5xx on the
+  page; `select count(*) from offer` is 0 on both databases, so the offer room had never once worked, in either
+  environment. **Applied on 2026-10-08 the recorded way — `debug/cli db-tool apply db/migrations/251_offer_room_terms.sql
+  dev` then `prod`, each printing its own `database: target=…` line** — and verified on both: 7 columns, the 3 guarded
+  check constraints (`offer_inspection_days_range`, `offer_deposit_nonnegative`, `offer_seller_credits_nonnegative`), a
+  `schema_migration` row per target, the deployed query now planning and returning 0 rows instead of erroring, and
+  `db-tool parity` reporting column drift 0, fk drift 0, check drift 0. **No deploy was needed and none was made:** the
+  half that was missing was schema, and the half that ships in the image was already live — a deploy receipt that names a
+  sha does not say anything about whether the migrations that sha's code needs were applied, because the pre-push hook
+  checks `Cargo.lock` and the wasm build and the deploy script checks a sha and a page, and none of them looks at the
+  ledger. **Two rows left open and named rather than fixed:** `224_person_civil_status`, `225_property_golden_from_regrid`,
+  `226_wbs_planned_dates` and `227_wbs_dependency` have their effects present in both databases but no row in
+  `schema_migration` (so `db:migrations` reports them unrecorded, honestly) — they were deliberately *not* re-run to
+  backfill a row, because 225 is an unguarded `UPDATE property` rather than an `if not exists`; and `db-tool parity`
+  still ends `DRIFT FOUND` on two DEV-only test artifacts, `chaos_service_test_writes` and `crm_lead_projection` with
+  their primary keys, which no migration in the repo creates.
+
