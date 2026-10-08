@@ -31,12 +31,16 @@ tokio.workspace = true
 tower.workspace = true
 # The MVI boundary: the harness drives real `Screen` implementations (`ui::app::Screen`), so the contract it makes
 # executable is the one the browser runs, not a re-declared copy of it.
-ui = { path = "../web/ui" }
+ui = { path = "../web/ui", optional = true }
 uuid.workspace = true
 workflow = { path = "../middle/workflow" }
 # The CRM harness module in `src/crm.rs` drives `web::clients::ClientService`, so `web` must be a real
 # dependency of the lib target, not only a dev-dependency of the integration tests.
 web = { path = "../web" }
+
+[features]
+default = []
+mvi = ["ui"]
 
 [dev-dependencies]
 # The Forge definition boundary under test (TST-WF-DEFINITION-013): the production XML parser

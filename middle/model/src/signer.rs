@@ -98,7 +98,7 @@ pub struct SignerSession {
     pub document_title: Option<String>,
     #[serde(default)]
     pub subject: Option<String>,
-    /// The sender's note to the signers.
+/// The sender's note to the signers.
     #[serde(default)]
     pub message: Option<String>,
     /// Ids of this recipient's fields that already have an answer.
@@ -120,7 +120,8 @@ pub struct SignerParty {
 }
 
 /// What the session needs beyond the recipient's own rows (read in one place so the screen draws one truth).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignerSessionContext {
     pub envelope_status: String,
     pub document_title: Option<String>,

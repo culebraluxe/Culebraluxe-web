@@ -34,6 +34,7 @@
 #![forbid(unsafe_code)]
 
 pub mod accounting;
+#[cfg(feature = "mvi")]
 pub mod actors;
 pub mod barrier;
 pub mod clock;
@@ -48,6 +49,7 @@ pub mod http;
 pub mod ids;
 pub mod level;
 pub mod migration_probe;
+#[cfg(feature = "mvi")]
 pub mod mvi;
 pub mod pool;
 pub mod providers;
