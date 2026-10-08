@@ -8,6 +8,7 @@
 mod agreement_execution;
 mod app_error;
 mod apple_ods;
+mod boot_gate;
 // LISA'S PRE-SIGNATURE IS PORTED AND NOT YET WIRED, AND THAT IS WHY THIS MODULE IS ALLOWED TO BE UNUSED.
 //
 // `broker_signature.rs` holds the rows, the authority and the drawing its port produced, and nothing calls it: the
@@ -93,6 +94,7 @@ pub use app_error::AppErrorDao;
 pub use apple_ods::{
     AppleMailLanding, EmailLanding, IntakeCheckpoint, IntakeCheckpointUpdate, InteractionDraft,
 };
+pub use boot_gate::{assert_boot_ready, missing_required_migrations, REQUIRED_BOOT_MIGRATIONS};
 pub use calendar::CalendarDao;
 pub use capture::{has_sink, on_failure};
 pub use catch_up::CatchUpDao;

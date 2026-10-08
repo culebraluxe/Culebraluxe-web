@@ -12,6 +12,39 @@ pub async fn run_http_server() -> Result<(), Box<dyn Error>> {
     let _ = db::shared::install(db.clone());
     let config = ApiConfig::from_env().map_err(std::io::Error::other)?;
     error_capture::install(db.clone());
+    // THE BOOT GATE — A NAMED REFUSAL BEFORE THE SOCKET, NOT A 500 AFTER IT (TST-DB-MIGRATION-007).
+    //
+    // `db::assert_boot_ready` reads the `schema_migration` ledger and refuses when a required migration is
+    // unapplied on the database this process resolved (DEV or PROD — `db.target()` says which). Without it a
+    // build pointed at a database that does not match it serves screens whose first query dies on a missing
+    // column: an outage with no named cause. The refusal is a `DbFailure`, announced through `db::capture`
+    // from its constructor, and the error sink was installed on the line above — so a refused boot leaves an
+    // `app_error` row behind as well as a non-zero exit.
+    //
+    // BREAK-GLASS: `CULEBRALUXE_SKIP_BOOT_MIGRATION_GATE=1` starts anyway and says so in the log. It exists
+    // because this gate runs inside a deploy — a false refusal takes production down, and an operator has to
+    // be able to raise the site and then fix the ledger rather than wait on a code change to do either. Its
+    // use is announced, never silent.
+    if let Err(refusal) = db::assert_boot_ready(&db).await {
+        let skipped = std::env::var("CULEBRALUXE_SKIP_BOOT_MIGRATION_GATE")
+            .map(|value| value.trim() == "1")
+            .unwrap_or(false);
+        if !skipped {
+            tracing::error!(
+                target: "culebraluxe::server",
+                database_target = %db.target().as_str(),
+                %refusal,
+                "refusing to serve: the database does not match this build"
+            );
+            return Err(refusal.into());
+        }
+        tracing::error!(
+            target: "culebraluxe::server",
+            database_target = %db.target().as_str(),
+            %refusal,
+            "boot migration gate REFUSED and was overridden by CULEBRALUXE_SKIP_BOOT_MIGRATION_GATE=1 — serving anyway"
+        );
+    }
     let infrastructure = crate::service_bootstrap::production_service_infrastructure(&db).await?;
     let (app, service_harness) = build_application(db.clone(), infrastructure, config);
     service_harness

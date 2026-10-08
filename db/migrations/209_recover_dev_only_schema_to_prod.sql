@@ -142,8 +142,8 @@ ALTER TABLE regrid_culebra_parcel ADD COLUMN IF NOT EXISTS usecode text;  -- ord
 ALTER TABLE regrid_culebra_parcel ADD COLUMN IF NOT EXISTS usedesc text;  -- ordinal 51
 
 -- ---- D. the two indexes over the new property columns --------------------------------------
-CREATE UNIQUE INDEX idx_property_regrid_ll_uuid_unique ON public.property USING btree (regrid_ll_uuid) WHERE (regrid_ll_uuid IS NOT NULL);
-CREATE INDEX idx_property_regrid_parcel_number ON public.property USING btree (regrid_parcel_number) WHERE (regrid_parcel_number IS NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_property_regrid_ll_uuid_unique ON public.property USING btree (regrid_ll_uuid) WHERE (regrid_ll_uuid IS NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_property_regrid_parcel_number ON public.property USING btree (regrid_parcel_number) WHERE (regrid_parcel_number IS NOT NULL);
 
 -- ---- E. the relation-type check, widened to the vocabulary DEV already enforces --------------
 --
