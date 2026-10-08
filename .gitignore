@@ -160,6 +160,13 @@ skills-lock.json
 # is the repository's own manifest now — one `git add -A` away from being committed.
 /target/
 
+# A DISPOSABLE checkout's build output — a Forge/Maestro sandbox, the detached integration proof — inside its own
+# tree on purpose, so it is deleted with the checkout it belonged to instead of outliving it the way a shared
+# directory did. Named `.cargo-target`, never `target`: scripts/rust-ui-build.sh reads cargo's answer
+# `<checkout>/target` as "we are in the container" and would send `pnpm ui:build` to /target, read-only on macOS.
+# Written by scripts/lane-cargo-config.sh; the same name is ignored by scripts/wip-snapshot.sh. 2026-10-08.
+/.cargo-target/
+
 # The per-checkout cargo config: it names an absolute target dir on this Mac, written by
 # scripts/lane-cargo-config.sh (which scripts/lane-new.sh calls for every new lane) — machine setup on this Mac,
 # never code, and otherwise one `git add -A` in any lane away from being committed. 2026-10-07.

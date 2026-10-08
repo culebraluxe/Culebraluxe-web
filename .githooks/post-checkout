@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# LAYOUT.md, enforced at checkout time: every checkout builds into a target directory of its own.
+#
+# WHY A HOOK AND NOT A LINE IN THE CREATOR
+#   Worktrees are not made in one place: `scripts/lane-new.sh` makes a lane, `forge/src/engine/worktree.rs`
+#   makes a story sandbox (`create_worker_workspace`) and a detached proof checkout (`with_detached_checkout`),
+#   and Maestro makes its own. A rule written into four creators is three rules that can be forgotten — and the
+#   sandboxes were exactly the checkouts still building into a shared dir. git runs this hook in the NEW
+#   worktree, so one file covers every creator, present and future, and a human typing `git worktree add`.
+#
+# WHY IT IS SAFE
+#   It never fails a checkout (always exit 0), never rewrites a config that exists (a lane's build dir is named
+#   by hand, and the first run of this hook names a sandbox), never touches the main checkout (that one takes
+#   the machine fallback — ~/.cargo/config.toml -> build/rust-main), and writes only an untracked, git-ignored
+#   .cargo/config.toml. post-checkout also fires on every branch switch, so the common case must be cheap: two
+#   file tests and no subprocess before it decides there is nothing to do.
+#
+# The naming rule lives in scripts/lane-cargo-config.sh — this hook only calls it, so the rule has one writer.
+# The rule, the measurements and the three kinds of checkout: docs/agent/LAYOUT.md, "One target directory per
+# checkout".
+#
+# IT RUNS THE COPY IN THE CHECKOUT IT IS CREATING, which has one consequence worth knowing before debugging it:
+# a change to scripts/lane-cargo-config.sh takes effect for the NEXT worktree only once it is committed, and
+# whatever is wrong at HEAD is what every `git worktree add` runs. On 2026-10-08 an unquoted heredoc in that
+# script executed the backtick-quoted commands its own prose quotes — `git worktree add`, `pnpm ui:build`,
+# `cargo check` — so creating one sandbox took 30 s instead of 0.6 s and printed git's usage text into this
+# hook. The heredocs there are quoted delimiters now; do not unquote them to "make a variable expand".
+set -u
+
+# post-checkout passes <prev-head> <new-head> <branch-flag>; none of the three matter here.
+root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$root" ] || exit 0
+
+# The main checkout is named once, by the machine fallback. Skipping it here also keeps ordinary branch
+# switches in /Users/Shared/dev/src/Culebraluxe-web silent.
+[ -d "$root/.git" ] && exit 0
+
+# A checkout that already says where it builds keeps that answer: a lane's config is hand-named
+# (rust-lane-<name>) and this hook must not replace it with its own default. Existence is the whole test.
+[ -e "$root/.cargo/config.toml" ] && exit 0
+
+script="$root/scripts/lane-cargo-config.sh"
+[ -f "$script" ] || exit 0
+
+if out="$(bash "$script" --at "$root" 2>&1)"; then
+  echo "post-checkout: $out" >&2
+  echo "post-checkout: this checkout's own build dir — no two checkouts share one (LAYOUT.md, \"One target directory per checkout\")." >&2
+else
+  echo "post-checkout: could not name this checkout's build dir: $out" >&2
+fi
+
+# A checkout is never failed over where its build output went.
+exit 0

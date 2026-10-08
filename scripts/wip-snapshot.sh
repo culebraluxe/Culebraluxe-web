@@ -54,6 +54,9 @@ cat > "$IGNORES" <<'IGNORE_EOF'
 node_modules
 **/node_modules
 **/target
+# A disposable checkout's cargo output (scripts/lane-cargo-config.sh): in-tree on purpose, and never
+# snapshotted — it is gigabytes of compiler output belonging to a worktree that is about to be removed.
+**/.cargo-target
 **/dist
 **/build
 .next
