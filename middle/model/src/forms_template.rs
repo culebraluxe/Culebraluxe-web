@@ -131,13 +131,13 @@ mod tests {
     fn a_persisted_version_resolves_to_that_exact_version() {
         let library = library();
         // The reason versions are files rather than one mutable active template: live records point at exact versions.
-        for version in [2, 3, 4] {
+        for version in [2, 3, 4, 5] {
             let template = library
                 .version("LISTING-01", version)
                 .unwrap_or_else(|| panic!("LISTING-01 v{version} is not loadable"));
             assert_eq!(template.version, version);
         }
-        assert_eq!(library.newest("LISTING-01").map(|t| t.version), Some(4));
+        assert_eq!(library.newest("LISTING-01").map(|t| t.version), Some(5));
         assert!(library.version("LISTING-01", 99).is_none());
     }
 
@@ -150,7 +150,7 @@ mod tests {
         let library = library();
         for (id, approved) in [
             ("OFFER-01", 2),
-            ("LISTING-01", 4),
+            ("LISTING-01", 5),
             ("PR-PNS", 3),
             ("PR-PNS-AMD", 1),
             ("SHOW-INFO", 1),

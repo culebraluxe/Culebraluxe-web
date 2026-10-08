@@ -70,6 +70,8 @@ pub struct Model {
     preview_filename: String,
     preview_loading: bool,
     generation: u32,
+    /// The money field being typed in: it shows its raw digits until it loses focus, then reads `$X,XXX,XXX.XX`.
+    money_editing: Option<String>,
 }
 
 #[derive(Debug)]
@@ -85,6 +87,8 @@ pub enum Msg {
         name: String,
         value: String,
     },
+    MoneyFocus(String),
+    MoneyBlur,
     DetailsChanged(String),
     AutosaveDue(u32),
     DraftSaved {
@@ -333,7 +337,10 @@ mod tests {
 
     #[test]
     fn money_is_shown_with_grouping_without_changing_the_saved_value() {
-        assert_eq!(format_money("2100000"), "2,100,000");
-        assert_eq!(format_money("425000.50"), "425,000.50");
+        assert_eq!(
+            model::forms_format::format_money("2100000"),
+            "$2,100,000.00"
+        );
+        assert_eq!(model::forms_format::format_money("425000.5"), "$425,000.50");
     }
 }

@@ -158,6 +158,14 @@ pub(super) fn update(model: &mut Model, msg: Msg, _ctx: &ScreenCtx) -> Cmd<Msg> 
             }
             local_edit(model)
         }
+        Msg::MoneyFocus(name) => {
+            model.money_editing = Some(name);
+            Cmd::none()
+        }
+        Msg::MoneyBlur => {
+            model.money_editing = None;
+            Cmd::none()
+        }
         Msg::DetailsChanged(value) => {
             model.details_text = value;
             model.body_edited = true;

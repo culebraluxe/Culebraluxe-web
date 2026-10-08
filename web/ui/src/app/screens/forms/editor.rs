@@ -191,14 +191,6 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                         <div class="flex flex-wrap items-center gap-2">
                             <button
                                 type="button"
-                                disabled={working || !ctx.can("vault.issue")}
-                                onclick={link.callback(|_: MouseEvent| Msg::SavePdf)}
-                                class={PRIMARY_BUTTON}
-                            >
-                                { if working { "Working…" } else { "Save" } }
-                            </button>
-                            <button
-                                type="button"
                                 disabled={working || model.preview_uri.is_none()}
                                 onclick={link.callback(|_: MouseEvent| Msg::Share)}
                                 class={GHOST_BUTTON}
@@ -213,9 +205,9 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                             >
                                 {
                                     if signature_active {
-                                        "Sent for signature"
+                                        "Docusign sent"
                                     } else {
-                                        "Send for signature"
+                                        "Docusign"
                                     }
                                 }
                             </button>
@@ -226,6 +218,14 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                                 class={GHOST_BUTTON}
                             >
                                 {"Cancel"}
+                            </button>
+                            <button
+                                type="button"
+                                disabled={working || !ctx.can("vault.issue")}
+                                onclick={link.callback(|_: MouseEvent| Msg::SavePdf)}
+                                class={PRIMARY_BUTTON}
+                            >
+                                { if working { "Working…" } else { "Save" } }
                             </button>
                         </div>
                     </div>
@@ -267,8 +267,14 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                                 for template
                                     .fields
                                     .iter()
+                                    .filter(|field| field.fixed.is_none())
                                     .filter(|field| when_visible(field.when.as_ref(), &model.values))
-                                    .map(|field| field_control(field, &model.values, link))
+                                    .map(|field| field_control(
+                                        field,
+                                        &model.values,
+                                        model.money_editing.as_deref(),
+                                        link,
+                                    ))
                             }
                         </div>
 
