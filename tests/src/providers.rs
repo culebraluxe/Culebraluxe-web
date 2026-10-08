@@ -44,6 +44,8 @@ pub struct FakeSignatureProvider {
     status: SignatureRequestStatus,
     cancel_ok: bool,
     artifact: SignatureArtifactDownload,
+    webhook: SignatureWebhookVerification,
+    fail: Option<String>,
     calls: Arc<Mutex<Vec<ProviderCall>>>,
     count: Arc<AtomicU64>,
 }
@@ -65,9 +67,57 @@ impl FakeSignatureProvider {
                 filename: "signed.pdf".into(),
                 mime_type: "application/pdf".into(),
             },
+            webhook: SignatureWebhookVerification {
+                event: SignatureProviderEvent::Sent,
+                signature_request_id: "fake-request".into(),
+            },
+            fail: None,
             calls: Arc::new(Mutex::new(Vec::new())),
             count: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    /// Whether this fake's `cancel` succeeds.
+    pub fn with_cancel_ok(mut self, cancel_ok: bool) -> Self {
+        self.cancel_ok = cancel_ok;
+        self
+    }
+
+    /// A provider whose configured artifact payload is `bytes`/`filename`/`mime_type`.
+    pub fn with_artifact(mut self, bytes: Vec<u8>, filename: &str, mime_type: &str) -> Self {
+        self.artifact = SignatureArtifactDownload {
+            bytes,
+            filename: filename.into(),
+            mime_type: mime_type.into(),
+        };
+        self
+    }
+
+    /// The status this fake answers to `status` calls.
+    pub fn with_status(mut self, status: SignatureRequestStatus) -> Self {
+        self.status = status;
+        self
+    }
+
+    /// Every call then fails at the port boundary with `error` — the provider-side fault mapping under test needs
+    /// the `Err` arm, not the `ok: false` arm.
+    pub fn failing_calls(error: impl Into<String>) -> Self {
+        let mut fake = Self::accepting();
+        fake.fail = Some(error.into());
+        fake
+    }
+
+    /// The event and request id this fake answers to `verify_webhook` calls.
+    pub fn with_webhook(
+        mut self,
+        event: SignatureProviderEvent,
+        signature_request_id: &str,
+    ) -> Self {
+        self.webhook = SignatureWebhookVerification {
+            event,
+            signature_request_id: signature_request_id.to_owned(),
+        };
+        self
     }
 
     /// A fake whose `send` fails with `error`.
@@ -149,6 +199,9 @@ impl SignatureProvider for FakeSignatureProvider {
         request: SignatureProviderSendRequest,
     ) -> Result<SignatureProviderSendResult, String> {
         self.record(ProviderCall::Send(request));
+        if let Some(error) = &self.fail {
+            return Err(error.clone());
+        }
         Ok(self.send.clone())
     }
 
@@ -157,6 +210,9 @@ impl SignatureProvider for FakeSignatureProvider {
         signature_request_id: &str,
     ) -> Result<SignatureProviderStatusResult, String> {
         self.record(ProviderCall::Status(signature_request_id.to_owned()));
+        if let Some(error) = &self.fail {
+            return Err(error.clone());
+        }
         Ok(SignatureProviderStatusResult {
             status: self.status,
         })
@@ -167,6 +223,9 @@ impl SignatureProvider for FakeSignatureProvider {
         signature_request_id: &str,
     ) -> Result<SignatureProviderActionResult, String> {
         self.record(ProviderCall::Cancel(signature_request_id.to_owned()));
+        if let Some(error) = &self.fail {
+            return Err(error.clone());
+        }
         Ok(SignatureProviderActionResult {
             ok: self.cancel_ok,
             error: (!self.cancel_ok).then(|| "fake cancel refusal".into()),
@@ -182,10 +241,10 @@ impl SignatureProvider for FakeSignatureProvider {
             raw_payload: raw_payload.to_owned(),
             signature: signature.to_owned(),
         });
-        Ok(SignatureWebhookVerification {
-            event: SignatureProviderEvent::Sent,
-            signature_request_id: "fake-request".into(),
-        })
+        if let Some(error) = &self.fail {
+            return Err(error.clone());
+        }
+        Ok(self.webhook.clone())
     }
 
     async fn download_signed_artifact(
@@ -195,6 +254,9 @@ impl SignatureProvider for FakeSignatureProvider {
         self.record(ProviderCall::DownloadArtifact(
             signature_request_id.to_owned(),
         ));
+        if let Some(error) = &self.fail {
+            return Err(error.clone());
+        }
         Ok(self.artifact.clone())
     }
 
@@ -205,6 +267,9 @@ impl SignatureProvider for FakeSignatureProvider {
         self.record(ProviderCall::DownloadAuditTrail(
             signature_request_id.to_owned(),
         ));
+        if let Some(error) = &self.fail {
+            return Err(error.clone());
+        }
         Ok(None)
     }
 }
