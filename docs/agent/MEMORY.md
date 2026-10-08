@@ -729,3 +729,43 @@ Short facts that are expensive to rediscover.
   as such: that the portal *renders* it. Nothing session-free on prod loads the template library (the vault's
   `/v1/vault/contracts/{c}/templates/{t}/prior` is a pure DB read), so the render check is a human click on the form.
 
+- **2026-10-08 (the version stamp never moves, so "convert the old forms to the new template" can only mean a NEW form —
+  and the tool that does it is now `db-tool carry-forward`, not a one-off UPDATE).** The Captain's ask: prod's six
+  LISTING-01 agreements (five at v4, one at v3, all `issued` and out to clients) must "work in new format V5" while the
+  old ones "stay saved in vault". Three facts decide the shape, and all three were read rather than assumed:
+  `template_version` is written once by the create path and no edit re-stamps it (entry above); an issued form is
+  LOCKED in the editor (`web/ui/src/app/screens/forms/editor.rs:35`, `listing_locked = page.issued.is_some() ||
+  form.status == "issued"`), so re-stamping the six would leave them just as uneditable; and the vault's
+  `transaction_document` rows carry their own `template_version` plus the snapshot and the PDF, so a form re-stamped to
+  v5 would contradict the evidence it produced. The v5 template says the same thing in its own header ("Forms already
+  issued on v4 keep v4; new forms are v5"). **So a conversion creates the newer form BESIDE the older one and touches
+  neither the old row nor the vault.**
+  **The rule is `model::forms_carry_forward` (pure, 10 unit tests) and the operator tool is `cli` `db-tool
+  carry-forward <template-id> <to-version> [prod|dev] [--from N] [--apply]`** — dry run by default, idempotent (a
+  target-version form for the same seller+property is FILLED rather than duplicated; an `issued` one is refused
+  outright). Four sentences carry it: (1) the older form's value travels and WINS over the newer draft's, and every
+  value it replaces is named in the report — the first dry run is why that reversed: the one newer draft that existed
+  was the app's own prefill, so "never overwrite" would have kept a +90-day default `endDate` over the signed
+  agreement's real term; (2) a field the older VERSION did not have (v5's `sellerEmail`) takes the email the signing
+  flow resolves (`FormDao::list_signer_people`: `is_primary desc, created_at asc`), so one rule answers the seller's
+  address; (3) a `fixed` field holds the template's value, exactly as `save_form_values` enforces for `brokerName`; (4)
+  the whole-document `body` travels only when the two versions PRINT THE SAME SECTIONS (v4→v5 is byte-identical prose
+  apart from the field list; v3→v4 rewrote forfeited-escrow and full-price-offer, so a v3 body is stale prose and is
+  regenerated instead) and only when `bodyEdited=true`, the marker `resolve_document_body` requires.
+  **What ran on prod, and what it produced:** PROD, `cargo run -p cli -- db-tool carry-forward
+  LISTING-01 5 prod --apply` → `created 5, filled 1, skipped 0`. Created `abc53b1b` (v3 Valarie), `9e45c477` (v4 Juan),
+  `fe29894e` (v4 Jessica), `8e305cb6` (v4 Roberto), `153d0269` (v4 Julio); filled the pre-existing empty v5 draft
+  `93a806f5` (v4 Fransico — the same seller+property, so no second draft). `sellerEmail` came from the person record for
+  the three who have one (Juan, Jessica, Roberto) and stays empty for the three who do not (Valarie, Julio, Fransico —
+  v5 declares it `required="false"`); the three edited bodies carried byte-for-byte (8737/8719/8737); the fill named
+  four replacements, including `startDate 2026-10-08 → 2026-09-22` and `endDate 2027-01-06 → 2027-03-31` (the prefill's
+  defaults losing to the signed term) and `sellerName Fransico → Francisco` (the draft's spelling from the person record
+  losing to the agreement's — if the agreement is the typo, that is the Captain's call, not the tool's). **Verified by
+  query:** the six issued rows keep their status, values and `updated_at`; the vault still holds its 38 LISTING-01
+  documents at v3/v4 only, all still bound to the six issued forms. **No migration applies** — this is rows, not schema —
+  so the reproducer is the committed tool. **Unproven by a command, and named as such:** that the portal *renders* the
+  six v5 drafts (the composer is client-side from the template payload; nothing session-free loads the library on prod),
+  so the check is a human click on each — and the six now sort to the top of the Forms screen, where
+  `preferred_form_id` (`web/ui/src/app/screens/forms/document.rs:6-26`) already prefers a LISTING-01 form at the active
+  version that is not issued.
+
