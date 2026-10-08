@@ -628,7 +628,7 @@ fn main() {
             release,
             writer.clone(),
             None,
-            &*harness,
+            Arc::new(harness),
             &story,
             &work_type,
             stop_after.clone(),
@@ -644,7 +644,7 @@ fn main() {
             release,
             writer.clone(),
             Some(Arc::new(DbForgeEvidenceReader)),
-            &*harness,
+            Arc::new(harness),
             &story,
             &work_type,
             stop_after.clone(),
@@ -735,7 +735,7 @@ fn drive<S: TxStore>(
     release: Arc<dyn ForgeReleaseExecutor>,
     writer: Arc<dyn ForgeStateWriter>,
     evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
-    harness: &dyn RoleHarness,
+    harness: Arc<dyn RoleHarness>,
     story: &str,
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
@@ -784,7 +784,7 @@ fn drive_with_shared_runtime(
     release: Arc<dyn ForgeReleaseExecutor>,
     writer: Arc<dyn ForgeStateWriter>,
     evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
-    harness: &dyn RoleHarness,
+    harness: Arc<dyn RoleHarness>,
     story: &str,
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
@@ -832,7 +832,7 @@ fn drive_with_runtime<S: TxStore>(
     release: Arc<dyn ForgeReleaseExecutor>,
     writer: Arc<dyn ForgeStateWriter>,
     evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
-    harness: &dyn RoleHarness,
+    harness: Arc<dyn RoleHarness>,
     story: &str,
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
@@ -852,7 +852,7 @@ fn drive_with_runtime<S: TxStore>(
         .map(|run_id| format!("forge:{run_id}"))
         .unwrap_or_else(|| format!("forge:{story}"));
     let runner = ProductionRoleRunner::new(harness, evidence.clone())
-        .with_writer(writer.as_ref())
+        .with_writer(writer)
         .with_story_run(story_run_id)
         .with_bench_intent(bench_intent)
         .with_test_mode(test_mode)

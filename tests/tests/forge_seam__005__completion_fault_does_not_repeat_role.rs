@@ -128,9 +128,9 @@ fn completion_fault_does_not_repeat_smith_or_change_candidate_identity() {
     assert_eq!(smith.node_id.as_deref(), Some("fast_smith"));
     store.watch(&smith.task_id);
 
-    let harness = SeamHarness::default();
-    let runner = ProductionRoleRunner::new(&harness, fast_evidence())
-        .with_writer(writer.as_ref())
+    let harness = Arc::new(SeamHarness::default());
+    let runner = ProductionRoleRunner::new(harness.clone(), fast_evidence())
+        .with_writer(writer.clone())
         .with_story_run(Some("run-forge-seam-005".into()));
     let lanes = ForgeLaneServices::new(&runner);
     let registry = lanes.registry().expect("all production services register");

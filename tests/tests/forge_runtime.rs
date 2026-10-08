@@ -663,7 +663,7 @@ fn production_runner_holds_architect_without_handoff() {
         mapped: false,
         cmd_ok: true,
     };
-    let role = runner::ProductionRoleRunner::new(&h, ForgeGateEvidence::default());
+    let role = runner::ProductionRoleRunner::new(Arc::new(h), ForgeGateEvidence::default());
     let task = runtime::ActiveForgeRoleTask {
         task_id: "t".into(),
         process_instance_id: "p".into(),
@@ -698,9 +698,9 @@ fn a_held_lane_writes_the_story_id_not_the_instance_uuid() {
         mapped: false,
         cmd_ok: true,
     };
-    let writer = RecordingWriter::default();
-    let mut role = runner::ProductionRoleRunner::new(&h, ForgeGateEvidence::default());
-    role.writer = Some(&writer as &dyn ForgeStateWriter);
+    let writer = Arc::new(RecordingWriter::default());
+    let mut role = runner::ProductionRoleRunner::new(Arc::new(h), ForgeGateEvidence::default());
+    role.writer = Some(writer.clone());
     let task = runtime::ActiveForgeRoleTask {
         task_id: "t".into(),
         process_instance_id: "p".into(),
@@ -733,9 +733,9 @@ fn a_role_task_without_a_story_id_is_refused() {
         mapped: false,
         cmd_ok: true,
     };
-    let writer = RecordingWriter::default();
-    let mut role = runner::ProductionRoleRunner::new(&h, ForgeGateEvidence::default());
-    role.writer = Some(&writer as &dyn ForgeStateWriter);
+    let writer = Arc::new(RecordingWriter::default());
+    let mut role = runner::ProductionRoleRunner::new(Arc::new(h), ForgeGateEvidence::default());
+    role.writer = Some(writer.clone());
     let task = runtime::ActiveForgeRoleTask {
         task_id: "t".into(),
         process_instance_id: "p".into(),
@@ -796,9 +796,9 @@ fn a_hold_that_cannot_be_recorded_fails_the_lane() {
         mapped: false,
         cmd_ok: true,
     };
-    let writer = BrokenHold;
-    let mut role = runner::ProductionRoleRunner::new(&h, ForgeGateEvidence::default());
-    role.writer = Some(&writer as &dyn ForgeStateWriter);
+    let writer = Arc::new(BrokenHold);
+    let mut role = runner::ProductionRoleRunner::new(Arc::new(h), ForgeGateEvidence::default());
+    role.writer = Some(writer.clone());
     let task = runtime::ActiveForgeRoleTask {
         task_id: "t".into(),
         process_instance_id: "p".into(),
@@ -832,9 +832,9 @@ fn a_qa_lane_records_its_measurement_as_an_artifact() {
         mapped: true,
         cmd_ok: true,
     };
-    let writer = RecordingWriter::default();
+    let writer = Arc::new(RecordingWriter::default());
     let role = runner::ProductionRoleRunner::new(
-        &h,
+        Arc::new(h),
         ForgeGateEvidence {
             candidate_sha: Some("abc1234".into()),
             ..Default::default()
@@ -842,7 +842,7 @@ fn a_qa_lane_records_its_measurement_as_an_artifact() {
     )
     .with_story_run(Some("11111111-1111-1111-1111-111111111111".into()));
     let mut role = role;
-    role.writer = Some(&writer as &dyn ForgeStateWriter);
+    role.writer = Some(writer.clone());
     let task = runtime::ActiveForgeRoleTask {
         task_id: "t".into(),
         process_instance_id: "p".into(),
@@ -887,9 +887,9 @@ fn the_recorded_verdict_is_the_lanes_own_reading() {
             mapped,
             cmd_ok,
         };
-        let writer = RecordingWriter::default();
-        let mut role = runner::ProductionRoleRunner::new(&h, ForgeGateEvidence::default());
-        role.writer = Some(&writer as &dyn ForgeStateWriter);
+        let writer = Arc::new(RecordingWriter::default());
+        let mut role = runner::ProductionRoleRunner::new(Arc::new(h), ForgeGateEvidence::default());
+        role.writer = Some(writer.clone());
         let task = runtime::ActiveForgeRoleTask {
             task_id: "t".into(),
             process_instance_id: "p".into(),
@@ -952,9 +952,9 @@ fn an_artifact_that_cannot_be_recorded_fails_the_lane() {
         mapped: true,
         cmd_ok: true,
     };
-    let writer = BrokenArtifact;
-    let mut role = runner::ProductionRoleRunner::new(&h, ForgeGateEvidence::default());
-    role.writer = Some(&writer as &dyn ForgeStateWriter);
+    let writer = Arc::new(BrokenArtifact);
+    let mut role = runner::ProductionRoleRunner::new(Arc::new(h), ForgeGateEvidence::default());
+    role.writer = Some(writer.clone());
     let task = runtime::ActiveForgeRoleTask {
         task_id: "t".into(),
         process_instance_id: "p".into(),

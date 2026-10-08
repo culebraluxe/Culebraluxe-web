@@ -253,7 +253,7 @@ pub struct SeamFixture {
     pub memory: MemoryStore,
     pub writer: Arc<SeamWriter>,
     pub ledger: Arc<MemoryLedger>,
-    pub harness: SeamHarness,
+    pub harness: Arc<SeamHarness>,
 }
 
 pub fn initial_evidence() -> ForgeGateEvidence {
@@ -289,7 +289,7 @@ impl SeamFixture {
             memory,
             writer,
             ledger,
-            harness: SeamHarness::default(),
+            harness: Arc::new(SeamHarness::default()),
         }
     }
 
@@ -303,8 +303,9 @@ impl SeamFixture {
     /// The next invocation rehydrates the role runner from the completion ledger produced by the previous turn.
     pub fn drive_one_role(&self) -> WorkflowResult<DriveForgeStoryResult> {
         let current = self.current_evidence();
-        let runner = ProductionRoleRunner::new(&self.harness, current)
-            .with_writer(self.writer.as_ref())
+        let harness: Arc<dyn RoleHarness> = self.harness.clone();
+        let runner = ProductionRoleRunner::new(harness, current)
+            .with_writer(self.writer.clone())
             .with_story_run(Some(STORY_RUN.to_string()));
         let lanes = ForgeLaneServices::new(&runner);
         let registry = lanes.registry()?;
@@ -414,8 +415,9 @@ pub fn enqueue_ready_task(
     task: &ActiveForgeRoleTask,
 ) -> WorkflowResult<(String, String)> {
     let current = fixture.current_evidence();
-    let runner = ProductionRoleRunner::new(&fixture.harness, current)
-        .with_writer(fixture.writer.as_ref())
+    let harness: Arc<dyn RoleHarness> = fixture.harness.clone();
+    let runner = ProductionRoleRunner::new(harness, current)
+        .with_writer(fixture.writer.clone())
         .with_story_run(Some(STORY_RUN.to_string()));
     let lanes = ForgeLaneServices::new(&runner);
     let registry = lanes.registry()?;
