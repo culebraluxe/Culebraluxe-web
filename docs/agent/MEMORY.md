@@ -627,3 +627,33 @@ Short facts that are expensive to rediscover.
   product, because a green suite and a broken suite look identical from the outside — only a named, dated, owned row
   does.
 
+
+- **2026-10-07 (the Captain retires the one shared cargo target dir; each checkout now builds into its own).** Verbatim
+  direction: *"ok i can live with that size redo the build file so each has their own ... once you are done i can remove
+  build dir from each and they can have build in their lane."* The plan had been gated on his call between a per-lane fix
+  and a jobs-only patch; the ruling is the per-lane fix. **What it reverses:** the 2026-10-03 decision recorded above —
+  one shared `build/rust`, with `~/.cargo/config.toml` added so the documented layout held for every invocation.
+  **Why it did not hold, measured rather than argued:** cargo takes an *exclusive* lock on `<target>/.cargo-lock` for the
+  length of a build, so with fifteen lanes on one target the second cargo of the day did not run slowly, it did not run —
+  24 of 24 samples over 24 s showed the lock held with no idle gap between the bots' compiles and two waiting cargos with
+  no children, load 10.2 on 10 cores — and the sharing deduplicated nothing: 9.9 GB held 45 copies of `sqlx_postgres`,
+  865 rlibs for 261 crates, because cargo keys an artifact by feature/target/profile and not by path. **What landed, so
+  the next agent can audit it:** the two dotfiles no longer export `CARGO_TARGET_DIR` (an environment value outranks every
+  config file, so repointing would not have been enough — and the running agents carry no `CARGO_TARGET_DIR` at all, which
+  is why a *file*, not an export, is the mechanism); `~/.cargo/config.toml` keeps the machine-wide facts (fallback
+  `build/rust-main` for the main checkout and the launchd jobs, and `jobs = 4`, because fifteen lanes × cargo's default
+  ten jobs on 10 cores and 32 GB is a thrashing box rather than a queue); each of the 15 lanes carries
+  `.cargo/config.toml` naming `build/rust-lane-<name>`, written by one new one-writer script,
+  `scripts/lane-cargo-config.sh`, which `scripts/lane-new.sh` calls for every new lane (and which a copied or renamed lane
+  re-runs); that file is git-ignored in the repo *and* in the machine-wide exclude file, because in any lane it was one
+  `git add -A` away from being committed with an absolute machine path in it. The three lanes that had hand-exported their
+  own dirs (claude, muse-2, spacebunny) keep those warm caches under the same names. **The one shape that was rejected,
+  and why it matters:** letting cargo fall back to its own default (`<checkout>/target`) looks simpler and needs no files
+  at all, but `scripts/rust-ui-build.sh` maps cargo's default answer to `/target`, which is read-only on macOS — so that
+  path would have broken `pnpm ui:build` and the deploy while looking green in `cargo metadata`. Verified: all 15 lanes
+  resolve to 15 distinct directories with no environment variable set, the main checkout resolves to `rust-main`, and a
+  fresh login shell exports no `CARGO_*`. Open: Forge/Maestro sandboxes have no config of their own and share the
+  `rust-main` fallback (better than the old shared dir, not yet per-checkout), and deleting the retired `build/rust`
+  (9.9 GB) plus the orphan `build/rust-b39` (3.0 GB) is the Captain's call. The rule now lives in `docs/agent/LAYOUT.md`,
+  "One target directory per checkout".
+

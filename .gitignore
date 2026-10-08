@@ -160,6 +160,11 @@ skills-lock.json
 # is the repository's own manifest now — one `git add -A` away from being committed.
 /target/
 
+# The per-checkout cargo config: it names an absolute target dir on this Mac, written by
+# scripts/lane-cargo-config.sh (which scripts/lane-new.sh calls for every new lane) — machine setup on this Mac,
+# never code, and otherwise one `git add -A` in any lane away from being committed. 2026-10-07.
+.cargo/config.toml
+
 # Built by scripts/site-build.sh (pnpm dev, the container dry run, the deploy) — never committed, so a build
 # never blocks a pull.
 /public/app.css
