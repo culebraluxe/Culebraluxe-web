@@ -42,12 +42,12 @@ async fn sweep(db: &Database, doc_id: &str) {
 async fn create_document(db: &Database, doc_id: &str) {
     sqlx::query(
         r#"
-        insert into transaction_document (id, deal_id, state, source_snapshot, created_at, updated_at)
-        values ($1::uuid, $2::uuid, 'draft', '{}', now(), now())
+        insert into transaction_document (id, deal_id, document_type, source, state, source_snapshot, created_at, updated_at)
+        values ($1::uuid, $2::uuid, 'agreement', 'upload', 'draft', null, now(), now())
         "#,
     )
     .bind(doc_id)
-    .bind(Uuid::new_v4().to_string())
+    .bind(sqlx::query_scalar::<_, Option<String>>("select id::text from deal limit 1").fetch_one(db.pool()).await.unwrap())
     .execute(db.pool())
     .await
     .expect("document fixture");
@@ -88,7 +88,7 @@ async fn db_concurrency_009__two_signature_webhooks() {
         transaction_document_id: doc_id_1.clone(),
         recipients,
         message: Some("Please sign".into()),
-        created_by_user_id: Some(Uuid::new_v4().to_string()),
+        created_by_user_id: None,
     };
 
     let barrier = Arc::new(ConcurrencyBarrier::new(2));
@@ -100,7 +100,9 @@ async fn db_concurrency_009__two_signature_webhooks() {
             barrier_c.arrive_and_wait().await;
             // Use a transaction to test the prepare path
             let mut tx = db_c.begin("signature.prepare").await.unwrap();
-            dao_c.prepare_tx(&mut tx, &request_c).await
+            let result = dao_c.prepare_tx(&mut tx, &request_c).await;
+            if result.is_ok() { tx.commit().await.unwrap(); }
+            result
         }));
     }
 
@@ -149,7 +151,7 @@ async fn db_concurrency_009__two_signature_webhooks() {
             execution_slot_id: None,
         }],
         message: Some("Please sign".into()),
-        created_by_user_id: Some(Uuid::new_v4().to_string()),
+        created_by_user_id: None,
         execution_role: None,
         execution_slot_id: None,
         slot_recipient_email: None,
@@ -211,7 +213,7 @@ async fn db_concurrency_009__two_signature_webhooks() {
             execution_slot_id: None,
         }],
         message: Some("Please sign".into()),
-        created_by_user_id: Some(Uuid::new_v4().to_string()),
+        created_by_user_id: None,
     };
 
     let injector = Arc::new(FaultInjector::scripted(vec![
@@ -234,10 +236,12 @@ async fn db_concurrency_009__two_signature_webhooks() {
                 return Err("crashed".to_string());
             }
             let mut tx = db_c.begin("signature.prepare").await.unwrap();
-            dao_c
+            let result = dao_c
                 .prepare_tx(&mut tx, &fault_request_c)
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(|e| e.to_string());
+            if result.is_ok() { tx.commit().await.unwrap(); }
+            result
         }));
     }
 

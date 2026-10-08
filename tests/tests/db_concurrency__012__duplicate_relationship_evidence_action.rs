@@ -36,12 +36,12 @@ async fn create_evidence(db: &Database, evidence_id: &str) {
             is_automated_or_bulk, is_organization_or_service, known_apple_contact,
             has_email, has_phone, coverage_note, evidence_fingerprint, review_state
         ) values (
-            $1::uuid, 'test', 'account', 'key', 'label',
+            $1::uuid, 'test', 'account', left($1, 12), 'label',
             'Test Name', 'Test Org', '[]'::jsonb, '[]'::jsonb,
             now(), now(), now(), now(),
             1, 1, true, true,
             false, false, false,
-            false, false, 'note', 'fingerprint', 'pending'
+            false, false, 'note', left($1, 16), 'unresolved'
         )
         "#,
     )

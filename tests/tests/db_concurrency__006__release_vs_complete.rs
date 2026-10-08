@@ -36,8 +36,8 @@ async fn sweep(db: &Database, story_id: &str) {
 async fn create_story(db: &Database, story_id: &str, initial_status: &str) {
     sqlx::query(
         r#"
-        insert into storyboard_story (id, title, status, work_type, created_at, updated_at)
-        values ($1, 'Concurrency Test', $2, 'FEATURE', now(), now())
+        insert into storyboard_story (id, title, status, work_type, workstream, priority, created_at, updated_at)
+        values ($1, 'Concurrency Test', $2, 'FEATURE', 'ADMIN', 'Medium', now(), now())
         "#,
     )
     .bind(story_id)

@@ -19,12 +19,17 @@ use test_harness::fault::{Fault, FaultInjector};
 use uuid::Uuid;
 
 async fn sweep(db: &Database, project_id: &str) {
-    sqlx::query("delete from wbs_dependency where project_id = $1::uuid")
+    sqlx::query("delete from project where id = $1")
         .bind(project_id)
         .execute(db.pool())
         .await
         .ok();
-    sqlx::query("delete from wbs_item where project_id = $1::uuid")
+    sqlx::query("delete from wbs_dependency where project_id = $1")
+        .bind(project_id)
+        .execute(db.pool())
+        .await
+        .ok();
+    sqlx::query("delete from wbs_item where project_id = $1")
         .bind(project_id)
         .execute(db.pool())
         .await
@@ -33,20 +38,33 @@ async fn sweep(db: &Database, project_id: &str) {
 
 async fn create_project(db: &Database, project_id: &str) {
     sqlx::query(
-        r#"
-        insert into wbs_item (id, project_id, title, category, status, created_at, updated_at)
-        values ($1::uuid, $2::uuid, 'Project Root', 'project', 'open', now(), now())
-        "#,
+        "insert into project (id, name, status, description, areas, created_at, updated_at) \
+         values ($1, 'TST-013', 'open', 'concurrency fixture', '{}', now(), now())",
     )
-    .bind(Uuid::new_v4().to_string())
     .bind(project_id)
     .execute(db.pool())
     .await
     .expect("project fixture");
 }
 
+async fn create_item(db: &Database, project_id: &str) -> String {
+    let item_id = Uuid::new_v4().to_string();
+    sqlx::query(
+        r#"
+        insert into wbs_item (id, project_id, title, category, status, created_at, updated_at)
+        values ($1, $2, 'Item', 'task', 'open', now(), now())
+        "#,
+    )
+    .bind(&item_id)
+    .bind(project_id)
+    .execute(db.pool())
+    .await
+    .expect("item fixture");
+    item_id
+}
+
 async fn count_dependencies(db: &Database, project_id: &str) -> i64 {
-    sqlx::query_scalar("select count(*)::bigint from wbs_dependency where project_id = $1::uuid")
+    sqlx::query_scalar("select count(*)::bigint from wbs_dependency where project_id = $1")
         .bind(project_id)
         .fetch_one(db.pool())
         .await
@@ -64,10 +82,11 @@ async fn db_concurrency_013__simultaneous_wbs_dependency_edit() {
     sweep(&db, &project_id_1).await;
     create_project(&db, &project_id_1).await;
 
+    let (source_1, target_1) = (create_item(&db, &project_id_1).await, create_item(&db, &project_id_1).await);
     let edge = WbsDependency {
         project_id: project_id_1.clone(),
-        source_id: Uuid::new_v4().to_string(),
-        target_id: Uuid::new_v4().to_string(),
+        source_id: source_1,
+        target_id: target_1,
         kind: "finish_to_start".into(),
     };
 
@@ -102,16 +121,18 @@ async fn db_concurrency_013__simultaneous_wbs_dependency_edit() {
     sweep(&db, &project_id_2).await;
     create_project(&db, &project_id_2).await;
 
+    let (source_2a, target_2a) = (create_item(&db, &project_id_2).await, create_item(&db, &project_id_2).await);
+    let (source_2b, target_2b) = (create_item(&db, &project_id_2).await, create_item(&db, &project_id_2).await);
     let edge_a = WbsDependency {
         project_id: project_id_2.clone(),
-        source_id: Uuid::new_v4().to_string(),
-        target_id: Uuid::new_v4().to_string(),
+        source_id: source_2a,
+        target_id: target_2a,
         kind: "finish_to_start".into(),
     };
     let edge_b = WbsDependency {
         project_id: project_id_2.clone(),
-        source_id: Uuid::new_v4().to_string(),
-        target_id: Uuid::new_v4().to_string(),
+        source_id: source_2b,
+        target_id: target_2b,
         kind: "finish_to_start".into(),
     };
 
@@ -149,10 +170,11 @@ async fn db_concurrency_013__simultaneous_wbs_dependency_edit() {
     sweep(&db, &project_id_3).await;
     create_project(&db, &project_id_3).await;
 
+    let (source_3, target_3) = (create_item(&db, &project_id_3).await, create_item(&db, &project_id_3).await);
     let edge_3 = WbsDependency {
         project_id: project_id_3.clone(),
-        source_id: Uuid::new_v4().to_string(),
-        target_id: Uuid::new_v4().to_string(),
+        source_id: source_3,
+        target_id: target_3,
         kind: "finish_to_start".into(),
     };
 
