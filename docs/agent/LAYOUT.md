@@ -25,7 +25,8 @@ Written 2026-10-01, when the tree moved out of `~/Documents`. This is the machin
 │   ├── lane-nemotron-lightning/  git worktree,  branch lane/nemotron-lightning
 │   └── lane-spacebunny/     git worktree,    branch lane/spacebunny
 └── build/
-    ├── rust/                CARGO_TARGET_DIR, shared by every worktree
+    ├── rust-main/           cargo target dir for the main checkout and the launchd jobs
+    ├── rust-lane-<name>/    cargo target dir for one lane, one per lane (made on first build)
     └── logs/                launchd job logs (wip-snapshot.log, wip-snapshot.err.log)
 ```
 
@@ -85,13 +86,16 @@ git worktree add ../lane-<name> -b lane/<name> origin/main
 cd ../lane-<name>
 ln -sfn /Users/Shared/dev/.env.local     .env.local        # a symlink, never a copy
 ln -sfn /Users/Shared/dev/.env.scheduler .env.scheduler
+bash /Users/Shared/dev/src/Culebraluxe-web/scripts/lane-cargo-config.sh --at .   # this lane's own build dir
 git branch --unset-upstream                                # a bare `git push` must not aim at main
 chmod -R go-rwx .                                          # a fresh worktree lands 755 inside the 700 tree
 # pnpm install --frozen-lockfile   # ONLY in a lane that must build the website or run tailwind
 ```
 
-**A lane is 84 MB of code: the recipe is `git worktree add` plus two symlinks plus the modes, and `pnpm install` is not
-part of it (2026-10-03).** Measured that day: a plain lane is 84 MB on disk, and creating six of them moved `df` by
+**A lane is 84 MB of code: the recipe is `git worktree add`, two symlinks, one line of cargo config and the modes, and
+`pnpm install` is not part of it (2026-10-03; the cargo-config line arrived 2026-10-07).** That 84 MB has never included
+build output and still does not: the lane's target directory lives outside the tree, at `build/rust-lane-<name>` — see
+"One target directory per checkout" below. Measured that day: a plain lane is 84 MB on disk, and creating six of them moved `df` by
 0.56 GB (813.21 → 813.77 GB used) — 93 MB each, of which 74 MB is `public/images`, which every checkout materialises
 because it is tracked. A second lane's `pnpm install --frozen-lockfile` (3.9 s, rc=0) cost **30 MB** of disk while
 adding **847 MB** of `node_modules`, because pnpm imports by APFS clone and the blocks stay shared: `du` counts that
@@ -103,8 +107,10 @@ test, commit and land. `pnpm build`, tailwind and `pnpm dev` are what need it.
 
 **Taken further the same day, on the Captain's instruction: a lane is code and nothing else, and only the main checkout
 carries the weight.** The seven lanes that had a `node_modules` had it removed (847 MB of `du`, 30 MB of `df`, each);
-`pnpm lane:new <name>` is now the recipe as a script; and the cargo estate stays in the main checkout, as "One shared
-target directory" below describes. A lane that wants the website back runs `pnpm install` in that lane, at 30 MB.
+`pnpm lane:new <name>` is now the recipe as a script; and the cargo estate sits one directory per checkout, as "One
+target directory per checkout" below describes — rewritten on the Captain's instruction 2026-10-07, when the shared
+`build/rust` this sentence used to point at was retired. A lane that wants the website back runs `pnpm install` in that
+lane, at 30 MB.
 
 
 **One env, symlinked, never copied (2026-10-03).** `.env.local` (53 keys, including `DATABASE_URL_PROD` and the
@@ -125,18 +131,26 @@ in; check in with `git push origin lane/<name>:main`, which is fast-forward-only
 refused instead of merged. Nobody commits on the main checkout; it follows the trunk with `git pull --ff-only`.
 No lane reads another lane's tree — work crosses lanes only through `main` (`AGENTS.md`,
 the 2026-10-03 lane exception to NO TREES). Lanes are worktrees, so they share history and one object store — that is the point.
-`CARGO_TARGET_DIR` is shared too — `/Users/Shared/dev/build/rust`, set by `~/.cargo/config.toml` rather than by a shell
-export, so it holds for every invocation — which is why no checkout carries a target of its own; the cost is that two
-simultaneous `cargo` runs serialize on the target lock instead of running in parallel.
+**One target directory per checkout (2026-10-07).** The cargo target directory is per checkout, not shared:
+`/Users/Shared/dev/build/rust-lane-<name>` for a lane, `/Users/Shared/dev/build/rust-main` for the main checkout and the
+launchd jobs. It is named by a checkout-local `.cargo/config.toml` (written by `scripts/lane-cargo-config.sh`, which
+`scripts/lane-new.sh` calls for every new lane), *not* by a shell export: the agents running on this Mac carry no
+`CARGO_TARGET_DIR` at all, and an exported value outranks every config file — which is why the two exports that used to
+name the shared directory (`~/.zshenv`, `~/.zshrc`) were removed rather than repointed. `~/.cargo/config.toml` keeps the
+machine-wide facts: the fallback `rust-main` for a checkout with no config of its own, and `jobs = 4` — fifteen lanes can
+now build at once, and fifteen times cargo's default of ten jobs would be 150 rustc processes on 10 cores and 32 GB,
+trading an idle queue for a thrashing box.
 
-**What the shared directory does NOT do is hold one copy of everything: cargo keys an artifact by the feature/target
-combination it was built for, and the directory held 865 rlibs for 261 crates (2026-10-03) — `libsyn` sixteen times,
-`libsqlx_postgres` fifteen, `serde` eleven — because `-p <crate>`, `--all-targets`, `--features wasm` and the wasm target
-each key their own.** (The earlier note here blamed the workspace root; the counts say feature and target, not root: the
-same crate appears once per flag set that asked for it.) So the model is one builder and one command: build from the
-main checkout with `cargo check --workspace --all-targets` — the command CI and `.githooks/pre-push` run — and a lane's
-identical command reuses those artifacts. Vary the flags and you pay for a second copy of the world, which is what
-those 865 rlibs were.
+**Why the shared directory went (2026-10-07), in two measurements.** One: it never held one copy of anything — cargo
+keys an artifact by the feature/target combination it was built for, and that directory held 865 rlibs for 261 crates
+(2026-10-03) — `libsyn` sixteen times, `libsqlx_postgres` **forty-five** times by 2026-10-07, `serde` eleven, `yew` nine
+— because `-p <crate>`, `--all-targets`, `--features wasm` and the wasm target each key their own. So the sharing paid
+for one directory and bought no deduplication at all. Two: cargo takes an *exclusive* lock on `<target>/.cargo-lock` for
+the length of a build, so with fifteen lanes on one target the second `cargo` of the day did not run slowly, it did not
+run: 24 of 24 samples over 24 s showed the lock held with no idle gap between the bots' compiles and two waiting cargos
+with no children, while load sat at 10.2 on 10 cores. A queue in front of an idle CPU is the failure this layout
+removes; it also removes the cross-lane staleness that a shared directory causes (below), and the 9.9 GB that directory
+held comes back when it is deleted.
 
 Measured that day, `build/rust` held **63 GB**: 34 GB `debug/deps`, 23 GB `debug/incremental`, 1.3 GB `release`, 463 MB
 `wasm32-unknown-unknown`. The incremental directory is the part that regrows by itself — it went 16 GB → 23 GB inside one
@@ -149,16 +163,20 @@ one:
 2. `[profile.dev] incremental = false` + `debug = "line-tables-only"` in the workspace `Cargo.toml` — **done**: the
    23 GB cannot grow back, and backtraces keep file and line. It re-fingerprints everything once, so it is a full
    rebuild; both lines carry their own comment, including how to raise `debug` again for a debugging session.
-3. `cargo clean` + one build from the main checkout — the standing lever, and the one that took `build/rust` down from
-   36 GB to what it holds now: `cargo clean` removes *every* root's and every flag set's copies, and the single
-   canonical check that follows repopulates only what that command needs.
+3. `cargo clean` in the checkout whose directory is large — the standing lever, and now a *smaller* one than it was:
+   with one directory per checkout, `cargo clean` in a lane throws away that lane's artifacts and nothing else, where it
+   used to remove every root's and every flag set's copies in one go (which is how the shared `build/rust` came down from
+   36 GB to 9.9 GB, and why a `cargo clean` used to be a machine-wide event to be scheduled rather than a local tidy-up).
 
-Retiring a lane is its own lever: `git worktree remove ../lane-<name>` and `git branch -d lane/<name>` take the 84 MB
-back, but that lane's artifacts stay in the shared target until one of the three above runs. Fewer *building* lanes, not
-fewer lanes, is what keeps `build/rust` small.
+Retiring a lane has three lines now, not two: `git worktree remove ../lane-<name>`, `git branch -d lane/<name>`, and
+`rm -rf /Users/Shared/dev/build/rust-lane-<name>` — the third is new on 2026-10-07 and it is the one that takes that
+lane's build output back, immediately and without touching any other lane. (Before, a lane's artifacts stayed inside the
+one shared directory until somebody ran one of the levers above.)
 
-A shared target has a second failure mode, and it costs more than the lock: **a lane can be handed a stale artifact and
-lose an hour to an impossible error (2026-10-03).** `cargo check --workspace --all-targets` in `lane-deep` reported
+A shared target had a second failure mode, and it cost more than the lock: **a lane could be handed a stale artifact and
+lose an hour to an impossible error (2026-10-03).** One directory per checkout closes that path — nothing a lane compiles
+beside can have come from another lane's build — but a stale artifact *inside* your own directory is still possible, so
+the rule this pair of paragraphs ends with still stands. `cargo check --workspace --all-targets` in `lane-deep` reported
 `E0599` twice — `reset_forge_attempts` and `story_repair_counts` "not found" on `ForgeEngineDao`, both defined in
 `db/src/forge_engine.rs` at HEAD (`db_ledger.rs:98`, `db_writer.rs:17`) — reproducibly, while `cargo check -p forge
 --all-targets` passed and the same commit was green in the main checkout against the same target dir. `cargo clean -p db
@@ -175,8 +193,10 @@ fields and the string `signed_media_id` exists in no model source in either chec
 beside it stayed "fresh" by mtime from another lane's build: the recompile answered about *that* lane's struct. `touch
 middle/model/src/document_sign.rs web/src/document_sign/mod.rs` — no `cargo clean` needed — and the identical command
 went green in 13.6s. So the rule generalizes to any symbol: **when a compile error names a method, field, type or variant
-that the file you are reading does not have, you are compiling another lane's artifact; bump the mtime of the files that
-define it, fall back to `cargo clean -p <crate>`, and never report the red.** That afternoon already read as "trunk is
+that the file you are reading does not have, you are compiling a stale artifact; bump the mtime of the files that define
+it, fall back to `cargo clean -p <crate>`, and never report the red.** (Until 2026-10-07 that stale artifact could be
+another lane's, because one target directory served them all; now it can only be your own — a build interrupted
+mid-flight, or a checkout that changed under it — which is why the rule stands but the cross-lane blame does not.) That afternoon already read as "trunk is
 broken, and the other agent's commit did it" — worth a lane's window and a wrong accusation — one paragraph after the
 sentence that bans exactly that report, written the day before.
 
@@ -191,7 +211,7 @@ sentence that bans exactly that report, written the day before.
    a new lane or build directory is created as `mode & ~umask`, which is how a fresh `git worktree add` under a default
    `022` shell lands at `755` inside the `700` tree: `chmod -R go-rwx /Users/Shared/dev` puts it back (never `-R 700`
    or `-R 600` — the first adds an execute bit to every file, the second strips it from every script and binary in
-   `node_modules` and `build/rust`), and `umask 077` stops it recurring. The `700` on `dev/` is what actually gates
+   `node_modules` and `build/`), and `umask 077` stops it recurring. The `700` on `dev/` is what actually gates
    access — nothing inside is reachable by the other account while it holds — so this is defence in depth, not the door.
 4. **Never run a command that pages or waits for an editor.** `core.pager` is `cat` machine-wide for a reason — see below.
 5. **Uncommitted work is snapshotted, not lost.** `scripts/wip-snapshot.sh` writes every dirty worktree to
@@ -201,10 +221,11 @@ sentence that bans exactly that report, written the day before.
    git --no-pager diff HEAD refs/wip/lane-gpt --stat    # what the snapshot holds
    git show refs/wip/lane-gpt:path/to/file              # a specific file
    ```
-6. **A lane holds code and nothing else.** No `node_modules`, no `target` of its own, and no `pnpm install` "to be
-   safe": the cargo estate is the one shared `build/rust` and `pnpm install` is the per-lane call of a lane that must
-   build the website (30 MB, `--with-website`). `pnpm lane:new <name>` is the whole recipe, and it leaves the upstream
-   unset so a bare `git push` in a lane cannot aim at `main`.
+6. **A lane holds code and nothing else.** No `node_modules`, no `target` inside the tree, and no `pnpm install` "to be
+   safe": a lane's cargo output goes to `build/rust-lane-<name>`, outside the checkout (see "One target directory per
+   checkout" above), and `pnpm install` is the per-lane call of a lane that must build the website (30 MB,
+   `--with-website`). `pnpm lane:new <name>` is the whole recipe — it writes the lane's own cargo config too — and it
+   leaves the upstream unset so a bare `git push` in a lane cannot aim at `main`.
 
 ## Why here
 
@@ -245,11 +266,13 @@ Three of the four below closed on 2026-10-02/03. They are kept with the date rat
   plus the lanes, no estate: `/private/tmp/ocwt` is no longer registered (nor is its `refs/wip/ocwt`
   snapshot), and neither `~/Documents/Culebraluxe-web-roles` (33 GB, clean, HEAD `30b53b5d` — present in main) nor
   the orphan `~/Documents/Culebraluxe-web-claude` appears at all.
-- **`build/rust` was 63 GB and is now held down (2026-10-03).** The cold compile has been paid, so a `cargo` invocation
-  reuses what is there; what made it 63 GB was 23 GB of `incremental` scratch plus a copy of every crate per flag set
-  (865 rlibs for 261 crates). Both causes are dealt with — `incremental = false` in `Cargo.toml`, then `cargo clean` and
-  one canonical build from the main checkout — and the numbers, with the `df` readings, are in "One shared target
-  directory" above. The `4.5 GB` this line claimed until 2026-10-03 was a guess, and a wrong one.
+- **The target dir was 63 GB, then held down, then split per checkout (2026-10-03 → 2026-10-07).** The cold compile has
+  been paid; what made it 63 GB was 23 GB of `incremental` scratch plus a copy of every crate per flag set (865 rlibs for
+  261 crates). The first cause is closed in the repo (`incremental = false`, `debug = "line-tables-only"` in `Cargo.toml`);
+  the second was never a thing sharing could fix, so on 2026-10-07 the one directory became one per checkout — a lane
+  keeps `build/rust-lane-<name>` (made on its first build, removed with the lane) and the machine-wide fallback is
+  `build/rust-main`. The numbers, with the `df` readings, are in "One target directory per checkout" above; the `4.5 GB`
+  this line claimed until 2026-10-03 was a guess, and a wrong one.
 - **Maestro writes into the lanes (found and closed 2026-10-03).** The coworking MCP app (`Maestro.app`, PID 1181) was
   running with its playbooks under version control: `lane-claude` held six new files in `.maestro/playbooks/Initiation/`,
   and `lane-muse` four renames plus a new `.maestro/playbooks/message-bus/`. The Captain closed it that day and is
