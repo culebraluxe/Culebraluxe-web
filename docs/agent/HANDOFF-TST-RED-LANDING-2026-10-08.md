@@ -76,3 +76,21 @@ FROM storyboard_story s WHERE s.id = :'story';
 - **"land batch 12"** → VAULT-007 + FORGE.ASSAY 001-009 land and are receipted like §4.
   **"no"** → they stay as they are, and VAULT-007's `Complete` stays unsupported.
 - **"all batches"** → the stranded set of §1 S5 is worked batch by batch, assay first, receipt second.
+
+## 8. AMENDMENT — Batch 45 verified against `main` (2026-10-08, later)
+
+| # | Fact | How to check it |
+| --- | --- | --- |
+| A1 | All **11** `TST-SEC-REDIRECT-*` story rows read `Failed`/`completion=0`; only **6** carry a run row (`001, 002, 007, 008, 009, 011`), and every one of those is `result_status='Failed'` with an empty `commit_hash` and NULL `tests_total/tests_passed/commands_total/commands_passed`. `003, 004, 005, 006, 010` have no run row at all | `select s.id, s.status, r.result_status, r.commit_hash, r.tests_total from storyboard_story s left join storyboard_story_run r on r.story_id=s.id where s.id like '%SEC-REDIRECT%'` (PROD) |
+| A2 | So the `Failed` verdicts have **no assay behind them** — "could not run" was recorded as "ran and failed" | A1: every run row's evidence columns are NULL |
+| A3 | The patch re-applies clean against `877d1f6f6` (10 files), and **7/7 assays pass**: `sec_redirect__001/003/004/006/007/008/010` each `rc=0`, `1 passed; 0 failed`; `cargo test -p web google_auth` → `10 passed; 0 failed` | `git apply --check docs/agent/proposals/TST-REDIRECT-2026-10-08.patch`; then one `cargo test -p test-harness --test sec_redirect__<stem>` per case |
+| A4 | The defect the patch repairs is **live on `main`**: `safe_next` (`web/src/api/google_auth.rs:77-81`) rejects `//` and `/\` but not control characters, and `callback` (line 224) pipes a percent-decoded `NEXT_COOKIE` straight into `Redirect::to`, so a `Location` value carrying CR/LF/NUL cannot become a header | `grep -n is_control web/src/api/google_auth.rs` → no match on `main` |
+| A5 | Severity is low and it is **self-inflicted**, not cross-user: the attacker's own `callbackUrl` is the input, and the effect is a broken callback (500 / `rust:panic`) for whoever follows that link — no privilege change, no other user's cookie involved | the path in A4: `encode` at sign-in, `percent_decode` at callback |
+| A6 | Coverage of the ten: `002`, `005`, `009` have **no case anywhere** (not in the patch, not on `main`); `011` has a story row and no case | `ls tests/tests/ \| grep sec_redirect` on `main` → empty; the patch authors 7 |
+
+The verification run left the tree clean: the patch was applied, the eight test binaries were run, and the working
+tree was reverted — so A3 is a measurement of the patch, not a state of the branch.
+
+If §7's answer is **"land redirect"**: apply the patch, run the seven assays, write seven §4-shaped receipts
+(`Complete`) for `001/003/004/006/007/008/010`, and set `002/005/009/011` to `Planned` (their `Failed` is A2's
+unsupported verdict); the six evidence-free `Failed` run rows stay as they are unless the Captain says to remove them.
