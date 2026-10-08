@@ -58,7 +58,7 @@ async fn abandon_cycle(
         .finish_agent_work_run(
             item,
             AgentWorkOutcome::Abandoned,
-            Some("engine fault: host went away"),
+            Some("engine fault: host went away"), None,
         )
         .await
         .expect("the production settle runs")

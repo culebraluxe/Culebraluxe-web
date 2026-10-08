@@ -58,7 +58,7 @@ fn settle_failure() -> (JobStatus, i32, usize) {
     let id = enqueue_ready(engine, &registry, &task);
     let service = jobs(engine);
     let lease = service.claim(WORKER_A, 1).expect("claim").remove(0);
-    let outcome = execute_claimed_job_unsettled(&service, WORKER_A, &lease, &task, &registry);
+    let outcome = execute_claimed_job_unsettled(&service, WORKER_A, &lease, &task, &registry, None, None);
     assert!(outcome.is_err(), "the failure reaches the caller");
     let state = service.inspect(&id).expect("inspect");
     let turns = *runner.turns.lock().expect("turns");

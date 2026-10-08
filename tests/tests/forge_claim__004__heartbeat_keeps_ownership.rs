@@ -83,7 +83,7 @@ async fn forge_claim_004__heartbeat_keeps_ownership() {
     assert!(
         harness
             .engine()
-            .heartbeat_agent_work(&item)
+            .heartbeat_agent_work(&item, OWNER, std::time::Duration::from_secs(300))
             .await
             .expect("the production heartbeat runs"),
         "{HARNESS}: a live `Claimed` claim must be heartbeatable"
@@ -130,7 +130,7 @@ async fn forge_claim_004__heartbeat_keeps_ownership() {
     assert!(
         harness
             .engine()
-            .heartbeat_agent_work(&item)
+            .heartbeat_agent_work(&item, OWNER, std::time::Duration::from_secs(300))
             .await
             .expect("the production heartbeat runs"),
         "{HARNESS}: a `Running` claim stays heartbeatable while its run is in flight"
@@ -139,7 +139,7 @@ async fn forge_claim_004__heartbeat_keeps_ownership() {
     // ── NEGATIVE: a heartbeat touches only a live claim. ─────────────────────
     let missing = harness
         .engine()
-        .heartbeat_agent_work("00000000-0000-0000-0000-000000000000")
+        .heartbeat_agent_work("00000000-0000-0000-0000-000000000000", OWNER, std::time::Duration::from_secs(300))
         .await
         .expect("the production heartbeat runs");
     assert!(
@@ -155,14 +155,14 @@ async fn forge_claim_004__heartbeat_keeps_ownership() {
         .expect("the board confirms the work");
     harness
         .engine()
-        .finish_agent_work_run(&item, db::AgentWorkOutcome::Done, None)
+        .finish_agent_work_run(&item, db::AgentWorkOutcome::Done, None, None)
         .await
         .expect("the production settle runs")
         .expect("Done over a Complete board must settle");
     assert!(
         !harness
             .engine()
-            .heartbeat_agent_work(&item)
+            .heartbeat_agent_work(&item, OWNER, std::time::Duration::from_secs(300))
             .await
             .expect("the production heartbeat runs"),
         "{HARNESS}: a settled (`Done`) claim is no longer heartbeatable — the worker must stop, not revive it"

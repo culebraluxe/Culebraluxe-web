@@ -79,7 +79,7 @@ async fn forge_claim_006__complete_story_never_resurrected() {
         .expect("the board confirms the work landed");
     let settlement = harness
         .engine()
-        .finish_agent_work_run(&item, AgentWorkOutcome::Done, None)
+        .finish_agent_work_run(&item, AgentWorkOutcome::Done, None, None)
         .await
         .expect("the production settle runs")
         .expect("Done over a Complete board must settle");
@@ -96,7 +96,7 @@ async fn forge_claim_006__complete_story_never_resurrected() {
     // Exactly-once: a second settle is a no-op, not a second verdict.
     let second = harness
         .engine()
-        .finish_agent_work_run(&item, AgentWorkOutcome::Done, None)
+        .finish_agent_work_run(&item, AgentWorkOutcome::Done, None, None)
         .await
         .expect("the production settle runs");
     assert_eq!(
@@ -167,7 +167,7 @@ async fn forge_claim_006__complete_story_never_resurrected() {
         .expect("a Claimed item must open its run");
     let refused = harness
         .engine()
-        .finish_agent_work_run(&refused_item, AgentWorkOutcome::Done, None)
+        .finish_agent_work_run(&refused_item, AgentWorkOutcome::Done, None, None)
         .await
         .expect("the production settle runs")
         .expect("the refusal still settles the claim");

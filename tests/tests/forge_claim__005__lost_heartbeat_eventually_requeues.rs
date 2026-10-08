@@ -101,7 +101,7 @@ async fn forge_claim_005__lost_heartbeat_eventually_requeues() {
     assert!(
         harness
             .engine()
-            .heartbeat_agent_work(&live_item)
+            .heartbeat_agent_work(&live_item, LIVE_OWNER, std::time::Duration::from_secs(300))
             .await
             .expect("the production heartbeat runs"),
         "{HARNESS}: the live twin's heartbeat must hold"

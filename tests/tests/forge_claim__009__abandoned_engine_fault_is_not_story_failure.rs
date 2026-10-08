@@ -107,7 +107,7 @@ async fn forge_claim_009__abandoned_engine_fault_is_not_story_failure() {
         .finish_agent_work_run(
             &abandoned_item,
             AgentWorkOutcome::Abandoned,
-            Some("engine fault: host went away"),
+            Some("engine fault: host went away"), None,
         )
         .await
         .expect("the production settle runs")
@@ -167,7 +167,7 @@ async fn forge_claim_009__abandoned_engine_fault_is_not_story_failure() {
         .finish_agent_work_run(
             &error_item,
             AgentWorkOutcome::Error,
-            Some("smith exited 101"),
+            Some("smith exited 101"), None,
         )
         .await
         .expect("the production settle runs")
@@ -205,7 +205,7 @@ async fn forge_claim_009__abandoned_engine_fault_is_not_story_failure() {
         .finish_agent_work_run(
             &landed_item,
             AgentWorkOutcome::Abandoned,
-            Some("engine fault over landed work"),
+            Some("engine fault over landed work"), None,
         )
         .await
         .expect("the production settle runs")

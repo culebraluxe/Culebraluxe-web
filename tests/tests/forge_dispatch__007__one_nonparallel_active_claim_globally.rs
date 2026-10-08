@@ -246,7 +246,7 @@ async fn forge_dispatch_007__one_nonparallel_active_claim_globally() {
     let finish_result = harness.engine().finish_agent_work_run(
         &item1,
         AgentWorkOutcome::Done,
-        Some("Test settlement"),
+        Some("Test settlement"), None,
     ).await;
     assert!(finish_result.is_ok(), "finish_agent_work_run succeeds");
     let finished = finish_result.unwrap();
