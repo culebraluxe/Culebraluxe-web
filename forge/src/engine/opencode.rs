@@ -187,6 +187,24 @@ pub fn sanitize_model_env(mut env: HashMap<String, String>) -> HashMap<String, S
     env
 }
 
+/// Assay environment sanitization: removes secrets but keeps toolchain vars.
+/// Also sets CARGO_TARGET_DIR to a per-worktree directory to avoid lock contention
+/// and feature/target thrash across concurrent workers.
+pub fn sanitize_assay_env(mut env: HashMap<String, String>, worktree_path: Option<&str>) -> HashMap<String, String> {
+    // Remove the same secret keys as model env
+    env.retain(|key, _| !blocked_model_env_key(key));
+    // Disable git push in assay subprocesses
+    env.insert("GIT_CONFIG_COUNT".into(), "1".into());
+    env.insert("GIT_CONFIG_KEY_0".into(), "remote.origin.pushurl".into());
+    env.insert("GIT_CONFIG_VALUE_0".into(), "/dev/null".into());
+    // Set per-worktree CARGO_TARGET_DIR to avoid serialization and thrash
+    if let Some(path) = worktree_path {
+        let target_dir = Path::new(path).join("target");
+        env.insert("CARGO_TARGET_DIR".into(), target_dir.to_string_lossy().to_string());
+    }
+    env
+}
+
 pub fn sanitized_model_env() -> HashMap<String, String> {
     sanitize_model_env(std::env::vars().collect())
 }
@@ -866,10 +884,15 @@ impl RoleHarness for OpenCodeHarness {
 
     fn run_command(&self, command: &str) -> CommandResult {
         let cwd = self.assay_cwd();
+        // Get worktree path for CARGO_TARGET_DIR
+        let worktree_path = self.execution_workspace.as_ref().map(|ws| ws.worktree_path.as_str());
+        let mut env = std::env::vars().collect::<HashMap<String, String>>();
+        env = sanitize_assay_env(env, worktree_path);
         match Command::new("sh")
             .arg("-c")
             .arg(command)
             .current_dir(cwd)
+            .envs(env)
             .output()
         {
             Ok(out) => {

@@ -11,12 +11,75 @@ use crate::engine::job_payload::request_payload;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::registry::ForgeServiceRegistry;
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use workflow::{Job, JobStatus, Result, TaskStatus, TxStore, Value, WorkflowEngine, WorkflowError};
 
 pub const FORGE_ROLE_JOB_TYPE: &str = "forge.role";
 pub const DEFAULT_FORGE_JOB_ATTEMPTS: i32 = 5;
 const FORGE_JOB_HEARTBEAT_INTERVAL_SECS: u64 = 60;
+
+/// Environment variable for the supervisor deadline (turn ceiling + slack).
+/// When set, the supervisor will interrupt a turn that exceeds this ceiling.
+/// Format: same as FORGE_TURN_TIMEOUT_MINUTES (minutes, or "0"/"off"/"none" for unbounded).
+pub const SUPERVISOR_DEADLINE_ENV: &str = "FORGE_SUPERVISOR_DEADLINE_MINUTES";
+/// Default supervisor deadline slack in minutes beyond the turn ceiling.
+/// A turn has a ceiling; the supervisor deadline is ceiling + slack to allow
+/// for heartbeat overhead and cleanup.
+const DEFAULT_SUPERVISOR_SLACK_MINUTES: u64 = 5;
+
+/// Configuration for the lease fence: stops a turn when the database is
+/// unreachable for too long, or when the turn exceeds its supervisor deadline.
+#[derive(Debug, Clone, Copy)]
+pub struct LeaseFenceConfig {
+    /// Maximum consecutive heartbeat intervals with DB connection failure
+    /// before the turn is interrupted. Default: 5 (5 minutes at 60s interval).
+    pub max_consecutive_db_failures: u32,
+    /// Supervisor deadline for the entire turn (work + heartbeat). When
+    /// exceeded, the turn is interrupted and the job is failed as retryable.
+    /// This should be set to the model's max_turn + slack (e.g., 5 minutes).
+    pub supervisor_deadline: Option<Duration>,
+}
+
+impl Default for LeaseFenceConfig {
+    fn default() -> Self {
+        Self {
+            max_consecutive_db_failures: 5,
+            supervisor_deadline: None,
+        }
+    }
+}
+
+/// Parse the supervisor deadline from environment.
+/// Uses FORGE_SUPERVISOR_DEADLINE_MINUTES if set, otherwise derives from
+/// FORGE_TURN_TIMEOUT_MINUTES + DEFAULT_SUPERVISOR_SLACK_MINUTES.
+pub fn parse_supervisor_deadline(turn_ceiling: Option<Duration>) -> Option<Duration> {
+    if let Ok(raw) = std::env::var(SUPERVISOR_DEADLINE_ENV) {
+        let raw = raw.trim();
+        if raw.is_empty() || raw == "0" || raw.eq_ignore_ascii_case("off") || raw.eq_ignore_ascii_case("none") {
+            return None;
+        }
+        if let Ok(minutes) = raw.parse::<u64>() {
+            return Some(Duration::from_secs(minutes * 60));
+        }
+    }
+    // Derive from turn ceiling + slack
+    turn_ceiling.map(|ceiling| ceiling + Duration::from_secs(DEFAULT_SUPERVISOR_SLACK_MINUTES * 60))
+}
+
+/// A thread-safe interrupt handle that can stop a running turn.
+///
+/// The closure is called with a reason string when the lease fence triggers.
+/// It should signal the turn's execution harness to stop (e.g., via LiveTurnSlot).
+pub type InterruptHandle = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// Internal state shared between the heartbeat thread and supervisor.
+struct LeaseFenceState {
+    interrupt: Option<InterruptHandle>,
+    consecutive_db_failures: Mutex<u32>,
+    work_started: Instant,
+    config: LeaseFenceConfig,
+}
 
 #[derive(Debug, Clone)]
 pub struct ForgeJobRequest {
@@ -261,6 +324,8 @@ pub fn execute_claimed_job_unsettled(
     lease: &ForgeJobLease,
     task: &ActiveForgeRoleTask,
     registry: &ForgeServiceRegistry<'_>,
+    interrupt: Option<InterruptHandle>,
+    turn_ceiling: Option<Duration>,
 ) -> Result<ForgeRoleOutcome> {
     if let Err(error) = assert_task_matches_lease(lease, task) {
         jobs.fail(&lease.job_id, worker_id, &error.to_string(), true)?;
@@ -280,7 +345,13 @@ pub fn execute_claimed_job_unsettled(
     // job lease; without this loop another scheduler pass may reclaim live work.
     jobs.heartbeat(&lease.job_id, worker_id)?;
 
-    let service_result = run_with_lease_heartbeat(jobs, worker_id, &lease.job_id, || {
+    // Build the lease fence config with connection failure threshold and supervisor deadline.
+    let config = LeaseFenceConfig {
+        max_consecutive_db_failures: 5,
+        supervisor_deadline: parse_supervisor_deadline(turn_ceiling),
+    };
+
+    let service_result = run_with_lease_heartbeat(jobs, worker_id, &lease.job_id, config, interrupt, || {
         service.execute(&lease.node_id, task)
     });
 
@@ -318,6 +389,8 @@ fn run_with_lease_heartbeat<T>(
     jobs: &dyn JobService,
     worker_id: &str,
     job_id: &str,
+    config: LeaseFenceConfig,
+    interrupt: Option<InterruptHandle>,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
     let turn_outcome = run_with_lease_heartbeat_interval(
@@ -325,6 +398,8 @@ fn run_with_lease_heartbeat<T>(
         worker_id,
         job_id,
         Duration::from_secs(FORGE_JOB_HEARTBEAT_INTERVAL_SECS),
+        config,
+        interrupt,
         work,
     )?;
     if turn_outcome.lease_lost {
@@ -348,24 +423,66 @@ fn run_with_lease_heartbeat_interval<T>(
     worker_id: &str,
     job_id: &str,
     interval: Duration,
+    config: LeaseFenceConfig,
+    interrupt: Option<InterruptHandle>,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<RoleTurnOutcome<T>> {
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
 
-    std::thread::scope(|scope| {
+    let state = Arc::new(LeaseFenceState {
+        interrupt,
+        consecutive_db_failures: Mutex::new(0),
+        work_started: Instant::now(),
+        config,
+    });
+
+    // Heartbeat thread with connection failure counting and supervisor deadline.
+    let heartbeat_state = Arc::clone(&state);
+    let worker_id_owned = worker_id.to_string();
+    let job_id_owned = job_id.to_string();
+    let heartbeat = std::thread::scope(|scope| -> (Option<WorkflowError>, Result<T>) {
         let heartbeat = scope.spawn(move || -> Option<WorkflowError> {
             loop {
+                // Check supervisor deadline first.
+                if let Some(deadline) = heartbeat_state.config.supervisor_deadline {
+                    if heartbeat_state.work_started.elapsed() >= deadline {
+                        if let Some(interrupt) = &heartbeat_state.interrupt {
+                            interrupt("supervisor deadline exceeded");
+                        }
+                        return Some(WorkflowError::generic(format!(
+                            "Forge job {job_id_owned} exceeded supervisor deadline of {:?}",
+                            deadline
+                        )));
+                    }
+                }
+
                 match stop_rx.recv_timeout(interval) {
                     Ok(()) | Err(RecvTimeoutError::Disconnected) => return None,
-                    Err(RecvTimeoutError::Timeout) => match jobs.heartbeat(job_id, worker_id) {
-                        Ok(_) => {}
+                    Err(RecvTimeoutError::Timeout) => match jobs.heartbeat(&job_id_owned, &worker_id_owned) {
+                        Ok(_) => {
+                            // Reset consecutive failures on success.
+                            let mut failures = heartbeat_state.consecutive_db_failures.lock().unwrap();
+                            *failures = 0;
+                        }
                         Err(error) if error.is_connection_failure() => {
-                            // The database was unavailable, not the lease. Keep
-                            // trying; recovery cannot make progress while the
-                            // same database is unreachable either.
+                            let mut failures = heartbeat_state.consecutive_db_failures.lock().unwrap();
+                            *failures += 1;
                             eprintln!(
-                                "forge-job-heartbeat transient failure job={job_id}: {error}"
+                                "forge-job-heartbeat transient failure job={job_id_owned} (consecutive={}): {error}",
+                                *failures
                             );
+                            if *failures >= heartbeat_state.config.max_consecutive_db_failures {
+                                if let Some(interrupt) = &heartbeat_state.interrupt {
+                                    interrupt(&format!(
+                                        "database unavailable for {} consecutive heartbeat intervals",
+                                        *failures
+                                    ));
+                                }
+                                return Some(WorkflowError::generic(format!(
+                                    "Forge job {job_id_owned} lost database connectivity for {} consecutive intervals",
+                                    *failures
+                                )));
+                            }
                         }
                         Err(error) => return Some(error),
                     },
@@ -373,36 +490,40 @@ fn run_with_lease_heartbeat_interval<T>(
             }
         });
 
-        let result = work();
+        // Run the work in the main thread (inside the scope).
+        let work_result = work();
+
+        // Signal heartbeat thread to stop.
         drop(stop_tx);
 
-        let heartbeat_error = heartbeat.join().map_err(|_| {
-            WorkflowError::generic(format!(
-                "Forge job heartbeat thread panicked for job {job_id}"
-            ))
-        })?;
+        // Wait for heartbeat thread to finish.
+        let heartbeat_error = heartbeat.join().ok().flatten();
 
-        // If the heartbeat thread lost the lease, we still return the outcome
-        // but mark lease_lost = true. The caller must reconcile and not advance
-        // the Workflow task under a lease it no longer owns.
-        let lease_lost = heartbeat_error.is_some();
-        if let Some(error) = heartbeat_error {
-            eprintln!(
-                "forge-job: job {job_id} lost its lease after role completed; outcome preserved for reconciliation: {error}"
-            );
-        }
+        (heartbeat_error, work_result)
+    });
 
-        // Fence Workflow completion with one final ownership renewal after the
-        // role returns. If recovery somehow won the race, the caller must not
-        // advance the Workflow task under a lease it no longer owns.
-        // We still attempt the final heartbeat but don't fail if it fails;
-        // the lease_lost flag tells the caller the truth.
-        let _ = jobs.heartbeat(job_id, worker_id);
+    let (heartbeat_error, work_result) = heartbeat;
 
-        Ok(RoleTurnOutcome {
-            outcome: result?,
-            lease_lost,
-        })
+    // If the heartbeat thread lost the lease, we still return the outcome
+    // but mark lease_lost = true. The caller must reconcile and not advance
+    // the Workflow task under a lease it no longer owns.
+    let lease_lost = heartbeat_error.is_some();
+    if let Some(error) = heartbeat_error {
+        eprintln!(
+            "forge-job: job {job_id} lost its lease after role completed; outcome preserved for reconciliation: {error}"
+        );
+    }
+
+    // Fence Workflow completion with one final ownership renewal after the
+    // role returns. If recovery somehow won the race, the caller must not
+    // advance the Workflow task under a lease it no longer owns.
+    // We still attempt the final heartbeat but don't fail if it fails;
+    // the lease_lost flag tells the caller the truth.
+    let _ = jobs.heartbeat(&job_id, &worker_id);
+
+    Ok(RoleTurnOutcome {
+        outcome: work_result?,
+        lease_lost,
     })
 }
 
@@ -418,7 +539,21 @@ pub fn execute_claimed_job(
     task: &ActiveForgeRoleTask,
     registry: &ForgeServiceRegistry<'_>,
 ) -> Result<ForgeRoleOutcome> {
-    let outcome = execute_claimed_job_unsettled(jobs, worker_id, lease, task, registry)?;
+    // Get turn ceiling from environment (same logic as opencode harness).
+    let turn_ceiling = crate::engine::opencode::turn_ceiling(
+        std::env::var(crate::engine::opencode::TURN_CEILING_ENV)
+            .ok()
+            .as_deref(),
+    );
+    let outcome = execute_claimed_job_unsettled(
+        jobs,
+        worker_id,
+        lease,
+        task,
+        registry,
+        None, // No interrupt handle for compatibility callers
+        turn_ceiling,
+    )?;
     jobs.complete(&lease.job_id, worker_id)?;
     Ok(outcome)
 }
@@ -741,7 +876,7 @@ mod tests {
     #[test]
     fn long_running_role_work_renews_the_lease_before_the_turn_returns() {
         let clock = Arc::new(AtomicI64::new(1_000));
-        let engine = engine(clock.clone());
+        let engine = Arc::new(engine(clock.clone()));
         let jobs = WorkflowJobService::new(&engine);
         let runner = RecordingRunner::new();
         let (mut registry, _scout, _architect, _lead, smith, _inspector, _assay, _devops) =
@@ -754,18 +889,23 @@ mod tests {
         jobs.enqueue(&request).expect("enqueue");
         let lease = jobs.claim("worker-a", 1).expect("claim").remove(0);
         let before = lease.locked_until.expect("initial lease");
+        let job_id = lease.job_id.clone();
+        let clock = clock.clone();
+        let engine_for_closure = Arc::clone(&engine);
 
         let during = run_with_lease_heartbeat_interval(
             &jobs,
             "worker-a",
-            &lease.job_id,
+            &job_id.clone(),
             std::time::Duration::from_millis(5),
-            || {
+            LeaseFenceConfig::default(),
+            None,
+            move || {
                 clock.store(61_000, Ordering::SeqCst);
 
                 for _ in 0..50 {
-                    let locked_until = engine
-                        .get_job(&lease.job_id)
+                    let locked_until = engine_for_closure
+                        .get_job(&job_id)
                         .expect("running job")
                         .locked_until
                         .expect("running lease");
