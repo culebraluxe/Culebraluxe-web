@@ -61,9 +61,8 @@ pub fn origin(headers: &HeaderMap) -> String {
         .unwrap_or_else(|| "localhost:3000".into());
     // Loopback, in every spelling the Host header can carry: a name, IPv4, and IPv6 — the last in the
     // RFC 3986 bracket form `[::1]`. Any other IPv6 literal is a real host and stays on HTTPS.
-    let local = host.starts_with("localhost")
-        || host.starts_with("127.0.0.1")
-        || host.starts_with("[::1]");
+    let local =
+        host.starts_with("localhost") || host.starts_with("127.0.0.1") || host.starts_with("[::1]");
     let proto = text("x-forwarded-proto").unwrap_or_else(|| {
         if local {
             "http".into()
