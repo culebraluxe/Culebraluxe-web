@@ -409,7 +409,13 @@ impl PersonDao {
             return Ok(vec![]);
         }
         let limit = request.limit.unwrap_or(8).clamp(1, 100);
-        let pattern = format!("%{query}%");
+        // Search-box input is literal text. Escape LIKE metacharacters and the
+        // explicit escape character while retaining partial, case-insensitive matching.
+        let literal = query
+            .replace('!', "!!")
+            .replace('%', "!%")
+            .replace('_', "!_");
+        let pattern = format!("%{literal}%");
 
         let rows = sqlx::query_as::<_, SearchRow>(
             r#"
@@ -436,10 +442,10 @@ impl PersonDao {
             from person p
             where p.archived_at is null
               and (
-                p.display_name ilike $1
+                p.display_name ilike $1 escape '!'
                 or exists (
                   select 1 from person_identity i
-                  where i.person_id = p.id and i.identity_value ilike $1
+                  where i.person_id = p.id and i.identity_value ilike $1 escape '!'
                 )
               )
             order by p.display_name asc
