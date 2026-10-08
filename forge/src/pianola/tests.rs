@@ -76,13 +76,21 @@ fn assay_output(command: &str, output: &str) -> CommandResult {
     }
 }
 
-// --- batch caps (ported from the supervisor-core slice) ---
+// --- batch guards (fleet shape; the bound lives in `batch`) ---
 
 #[test]
-fn rejects_wrong_batch_size() {
+fn rejects_empty_batch() {
+    let ids: Vec<String> = vec![];
+    let packets: Vec<StoryPacketRow> = vec![];
+    let err = load_batch_for_experiment(&ids, &packets).unwrap_err();
+    assert!(err.contains("at least one story"), "unexpected: {err}");
+}
+
+#[test]
+fn accepts_single_story_batch() {
     let ids = vec!["TST-1".to_string()];
     let packets = vec![packet("TST-1", "forge/src/a.rs")];
-    assert!(load_batch_for_experiment(&ids, &packets).is_err());
+    assert!(load_batch_for_experiment(&ids, &packets).is_ok());
 }
 
 #[test]
@@ -133,7 +141,24 @@ fn experiment_caps_are_two_by_two_equals_four() {
 }
 
 #[test]
-fn rejects_five_story_batch_over_total_cap() {
+fn fleet_config_scales_to_n_workers() {
+    // FIX-010: N=9 needs a config, not a code change.
+    let fleet = PianolaConfig::for_fleet(9, 2).expect("fleet config");
+    assert_eq!(fleet.max_workers, 9);
+    assert_eq!(fleet.stories_per_worker, 2);
+    assert_eq!(fleet.total_cap, 18);
+    assert_eq!(
+        fleet.max_workers * fleet.stories_per_worker,
+        fleet.total_cap
+    );
+    assert!(PianolaConfig::for_fleet(0, 2).is_err());
+    assert!(PianolaConfig::for_fleet(9, 0).is_err());
+}
+
+#[test]
+fn accepts_five_story_batch_without_truncation() {
+    // FIX-010: the loader guards identity and disjointness, never the
+    // count — five disjoint stories load as given.
     let ids = vec![
         "TST-1".to_string(),
         "TST-2".to_string(),
@@ -148,8 +173,10 @@ fn rejects_five_story_batch_over_total_cap() {
         packet("TST-4", "cargo test -p forge --lib d"),
         packet("TST-5", "cargo test -p forge --lib e"),
     ];
-    let err = load_batch_for_experiment(&ids, &packets).unwrap_err();
-    assert!(err.contains("exactly 4"), "unexpected: {err}");
+    assert_eq!(
+        load_batch_for_experiment(&ids, &packets).expect("fleet batch"),
+        ids
+    );
 }
 
 // --- stall detection at the boundary ---
