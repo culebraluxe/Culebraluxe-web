@@ -652,8 +652,17 @@ Short facts that are expensive to rediscover.
   at all, but `scripts/rust-ui-build.sh` maps cargo's default answer to `/target`, which is read-only on macOS — so that
   path would have broken `pnpm ui:build` and the deploy while looking green in `cargo metadata`. Verified: all 15 lanes
   resolve to 15 distinct directories with no environment variable set, the main checkout resolves to `rust-main`, and a
-  fresh login shell exports no `CARGO_*`. Open: Forge/Maestro sandboxes have no config of their own and share the
-  `rust-main` fallback (better than the old shared dir, not yet per-checkout), and deleting the retired `build/rust`
-  (9.9 GB) plus the orphan `build/rust-b39` (3.0 GB) is the Captain's call. The rule now lives in `docs/agent/LAYOUT.md`,
-  "One target directory per checkout".
+  fresh login shell exports no `CARGO_*`. **Closed 2026-10-08, on the Captain's words "fix the build so everyone has
+  their own build":** the gap named here — Forge/Maestro sandboxes had no config of their own and shared the
+  `rust-main` fallback, a dozen sandbox worktrees queueing behind the main checkout and the launchd job — is shut. A
+  sandbox now names its own, in-tree: `<its tree>/.cargo-target`, so it is deleted with the checkout it belongs to.
+  NOT `target`, and that is the load-bearing part: `scripts/rust-ui-build.sh:42` reads cargo's answer
+  `<checkout>/target` as "we are in the container" and builds into `/target`, read-only on macOS — the exact failure
+  this paragraph records — so an in-tree directory called `target` would have kept `cargo check` green while breaking
+  `pnpm ui:build` and the deploy. The rule stays one-writer (`scripts/lane-cargo-config.sh`) and is now applied by a
+  new `.githooks/post-checkout`, which git runs inside every new worktree, so lane-new.sh, the engine's two creators
+  and Maestro are all covered without the rule being copied into any of them. Deleting the retired `build/rust`
+  (10.2 GB) and the orphan `build/rust-b39` (3.0 GB) was the Captain's call and is done — with the dead worktree
+  records and parked copies, 13 GB reclaimed, `df` 951 Gi → 965 Gi free on 2026-10-08. The rule and its reasoning now
+  live in `docs/agent/LAYOUT.md`, "One target directory per checkout".
 
