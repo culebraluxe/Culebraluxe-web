@@ -7,7 +7,7 @@ fix the repo chain, rewrite the bad specs, write the rest, defer BoldSign, build
 
 | # | Fact | How to check it |
 | --- | --- | --- |
-| S1 | 25 of the 29 original stories are `Complete`; 4 of them are still `Failed` — and **6** `TST-%` rows are `Failed` in all, because `TST-WF-TOKEN-006/007` are in the same 2026-10-03 batch and were never part of the 29 (this hand-off's earlier "9" undercounted them; the query below is the truth) | `psql "$DATABASE_URL_PROD" -c "select id from storyboard_story where id like 'TST-%' and status='Failed' order by id"` → `TST-FORGE-ENVELOPE-003`, `-006`, `-010`, `TST-FORGE-STORY-RUN-008`, `TST-WF-TOKEN-006`, `TST-WF-TOKEN-007` |
+| S1 | 25 of the 29 original stories are `Complete`; 4 are still `Failed` — and **6** `TST-%` rows are `Failed` in all, because `TST-WF-TOKEN-006/007` are in the same 2026-10-03 batch and were never part of the 29 (this hand-off's earlier "9" undercounted them; the query below is the truth). The WF-TOKEN pair is **authored elsewhere** since 2026-10-08 (batch 60, `origin/lane/nemotron-2` = `5fdfbf4ae`, "Add WF.TOKEN and WF.TRACE contract tests") and its `Failed` verdict stands — not this lane's to write or to fix | `psql "$DATABASE_URL_PROD" -c "select id from storyboard_story where id like 'TST-%' and status='Failed' order by id"` → `TST-FORGE-ENVELOPE-003`, `-006`, `-010`, `TST-FORGE-STORY-RUN-008`, `TST-WF-TOKEN-006`, `TST-WF-TOKEN-007` |
 | S2 | The migration chain rebuilds from an EMPTY schema: 250 files apply, 0 failures | `cargo test -p test-harness --test db_migration__001__migrations_apply_cleanly_from_empty_schema -- --ignored` → `ok … 113.88s` |
 | S3 | The 19-file from-empty failure set is gone: its cause was a hand-built Forge base no migration created | `db/migrations/000_forge_base_schema.sql` (its header) |
 | S4 | Migration numbers are unique and the ledger agrees with the repo in both directions on DEV | `db_migration__004` ok 4.72s, `db_migration__005` ok 1.08s |
@@ -26,8 +26,9 @@ fix the repo chain, rewrite the bad specs, write the rest, defer BoldSign, build
 | H3 | BoldSign retirement | the Captain | No story owns it; it is a separate piece of work, not a test. Do not delete `middle/apis/src/boldsign/` on the strength of this handoff. |
 | H4 | `TST-FORGE-ENVELOPE-003` / `-010` | the Captain (re-scoping) | `model_profile` and `runtime_adapter` occur in **0 files repo-wide** (`grep -rn model_profile --include='*.rs' .`). They cannot be authored until somebody decides what they mean. |
 | H5 | `TST-FORGE-ENVELOPE-006` / `TST-FORGE-STORY-RUN-008` | the Captain (deferred — their fixtures need the Forge control plane, which the live scheduler holds) | Author them only on his word that Forge is clear. Never drive the engine or stop the scheduler to make a fixture: `pnpm agent:scheduler:stop` is a human gate (`AGENTS.md`, Always/Ask). |
+| H6 | any further Forge work from this lane | the Lead (maestro, 2026-10-08) | HOLD. The fleet had these stories `Failed` with named defects and will reconcile them against the five commits below before its batch notes (2, 3, 43, 53) are updated. Do not start another Forge story, re-mark a row, or edit a batch record. The reconciliation input is in §4. |
 
-## 3. WHERE TO LOOK — the 6 that are left
+## 3. WHERE TO LOOK — the 4 that are left
 
 | Story | Canonical file (from the story's own `scope`) | Subject / harness |
 | --- | --- | --- |
@@ -35,8 +36,13 @@ fix the repo chain, rewrite the bad specs, write the rest, defer BoldSign, build
 | TST-FORGE-ENVELOPE-006 | `tests/tests/forge_envelope__006__special_instructions.rs` | envelope `special_instructions` — deferred under H5 |
 | TST-FORGE-ENVELOPE-010 | `tests/tests/forge_envelope__010__runtime_adapter.rs` | **H4 — re-scope first** |
 | TST-FORGE-STORY-RUN-008 | `tests/tests/forge_story_run__008__artifact_attaches_to_correct_run.rs` | `forge_tool_artifact` attaches to the right run — deferred under H5; already half covered (`forge_story_run__002` pins the work-item run id, `forge_tool_artifact_dev` the ruling cases) |
-| TST-WF-TOKEN-006 | `tests/tests/wf_token__006__optional_branch_cannot_prevent_completion.rs` | an optional branch cannot prevent completion — unfixed and unauthored, and **not part of the 29**; only `wf_token__002__move_uses_cas.rs` exists |
-| TST-WF-TOKEN-007 | `tests/tests/wf_token__007__required_branch_does_prevent_completion.rs` | a required branch does prevent completion — the same |
+
+**Not left to author — `TST-WF-TOKEN-006/007`** (outside the 29, same 2026-10-03 batch). The Lead reports the pair landed
+with faithful `Failed` verdicts in batch 60, and the files are real — but on `origin/lane/nemotron-2` (`5fdfbf4ae`),
+**not** on `origin/main`, where `git ls-tree --name-only origin/main tests/tests/` still matches only
+`wf_token__002__move_uses_cas.rs`. Their rows still read `Failed` in PROD. Nothing here for this lane: the two facts the
+fleet's own records have to settle are (a) the trunk does not carry the files yet while `TST-WF-TOKEN-004/005/008` were
+marked `Complete`, and (b) `006/007` stand `Failed`.
 
 **Landed after §3 was first written** (each was `Failed` then; every canonical file below exists and passes, receipts in §4):
 `crm_client__004__agents`, `crm_client__005__history`, `crm_person__002__merge_duplicates`, `sec_entitlement__008__tech`,
@@ -69,13 +75,27 @@ the workspace compile on a push (that is `gates.yml` on `main`). One blemish, un
 message lost the path `forge::engine::role_slice::bench_intent_errors` to shell substitution — the commit content is
 unaffected and §3 carries the path.
 
+**Reconciliation input for the fleet** (asked for by the Lead, 2026-10-08). None of the five commits above changes
+product behaviour except `web/ui/src/app/host.rs`, and that change is extract-and-call only: `answer_lands` and
+`classify_change` are the comparison the `Component` already ran, with the same two call sites and one place
+incrementing a generation (`ec0c298a5`, 61 lines). The other four are tests plus the `tests/src/crm.rs` seams they
+needed. So these commits **do not fix a product defect**, and the contracts assert the behaviour `main` already had:
+these five rows were `Failed` for a *missing canonical contract*, in their own words — "a TST row is Failed until
+current Rust coverage exists", "prior Hold was a failed/lost RUST-TEST-HARNESS-V1 execution attempt", "CLAIMED for
+canonical test authoring". If a fleet batch record (2, 3, 43, 53) names a *product* defect for one of the five, that
+defect is not fixed by these commits and a green contract does not close it — the reconciliation has to say which of
+the two it is before the rows stand. The fleet's numbered batch records are not in the control-plane tables this lane
+can read (`forge_batch` holds two rows — a doctor smoke and a staging placeholder — and `forge_batch_item` one), so its
+notes are the only side that can settle it.
+
 
 ## 5. NOT VERIFIED — the honest gaps
 
-- The 6 stories still listed in §3 have no test file and nothing has been run for them: `TST-FORGE-ENVELOPE-006` and
-  `TST-FORGE-STORY-RUN-008` are deferred under H5, `TST-FORGE-ENVELOPE-003/010` under H4, and `TST-WF-TOKEN-006/007`
-  (outside the 29) are untouched. The `SEC-REDIRECT`, `FORGE-LAUNCH-INTENT`, CRM and `UI-MODEL` ones have since landed
-  (see §4).
+- The 4 stories still listed in §3 have no test file and nothing has been run for them: `TST-FORGE-ENVELOPE-006` and
+  `TST-FORGE-STORY-RUN-008` under H5, `TST-FORGE-ENVELOPE-003/010` under H4. The `SEC-REDIRECT`, `FORGE-LAUNCH-INTENT`,
+  CRM and `UI-MODEL` ones have since landed (see §4). `TST-WF-TOKEN-006/007` were authored elsewhere (batch 60,
+  `lane/nemotron-2`) and were never run from this lane: their `Failed` verdict is unverified here, and so is the
+  claim that the pair "has faithful verdicts" — the files are not on `origin/main` to read.
 - `crm_client__005__history`'s service half runs against a fixture person with **no committed events**: it proves the
   paging, the clamp and the recent limit, not the projection of real rows. Those come from the materialized read model
   `mv_client_contact_history`, which this test does not seed — refreshing a shared read model is not a test's to
@@ -99,8 +119,9 @@ unaffected and §3 carries the path.
 1. Adjudicate H4 (`TST-FORGE-ENVELOPE-003/010`): re-scope or retire.
 2. On the Captain's word that Forge is clear (H5), author `forge_envelope__006__special_instructions.rs` and
    `forge_story_run__008__artifact_attaches_to_correct_run.rs`.
-3. Adjudicate `TST-WF-TOKEN-006/007` — outside the 29, same `Failed` batch, no file on disk: author them or re-scope
-   them, but do not leave them `Failed` and unmentioned.
+3. Closed by the Lead (2026-10-08): `skip wf-token` — the pair is authored in batch 60 with faithful `Failed` verdicts.
+   Settle the fleet-side facts in §3's note instead (H6), then adjudicate H4, then author under H5 only on the Captain's
+   word.
 4. For anything further: canonical file name and function name exactly as the story's `scope` gives them, fixtures
    marker-scoped with a fresh UUID, cleanup inside the same test — then run it, mark the row `Complete` with the command
    and its exit status in `notes`, and `git fetch origin main && git rebase origin/main && git push origin HEAD:main`.
@@ -121,7 +142,7 @@ unaffected and §3 carries the path.
 | TST-CRM-CLIENT-004/005, TST-CRM-PERSON-002, TST-SEC-ENTITLEMENT-008, TST-UI-MODEL-007 | **done** (authored) | each canonical file on disk and passing (§4). The UI one needed a 6-line non-behavioural extraction first — `answer_lands` / `classify_change` — because the rule it pins was inline inside a Yew `Component` and unreachable from a test |
 | TST-FORGE-ENVELOPE-006, TST-FORGE-STORY-RUN-008 | deferred (H5) | the fixtures need the Forge control plane, which the live scheduler holds; `forge_story_run__008` is already half covered (`forge_story_run__002` pins the work-item run id, `forge_tool_artifact_dev` the ruling cases) |
 | TST-FORGE-ENVELOPE-003/010 | to write, **blocked on re-scoping** | `model_profile` / `runtime_adapter` appear in 0 files repo-wide |
-| TST-WF-TOKEN-006/007 | outside the 29 — same `Failed` batch, never adjudicated before now | no file on disk (`ls tests/tests` matched only `wf_token__002__move_uses_cas.rs`); §6 action 3 |
+| TST-WF-TOKEN-006/007 | outside the 29 — same `Failed` batch; authored elsewhere in batch 60 | files on `origin/lane/nemotron-2` (`5fdfbf4ae`), **not** on `origin/main` as of `f4e180549`; rows still `Failed`; the verdict is unverified from this lane |
 
 The seven `SEC-REDIRECT` stories that are not in this list (`001/003/004/006/007/008/010`) have contracts on disk from a
 sibling lane's work landed the same day (`68ba004de`); their siblings `002/005/009/011` have since been authored here
