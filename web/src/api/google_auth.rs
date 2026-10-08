@@ -45,7 +45,11 @@ pub fn encode(text: &str) -> String {
 }
 
 /// This site's own address, as the browser reached it (the redirect URI must match what Google has registered).
-fn origin(headers: &HeaderMap) -> String {
+///
+/// Public as the smallest honest seam for the SEC.REDIRECT host-injection contract tests
+/// (`TST-SEC-REDIRECT-003`, `TST-SEC-REDIRECT-005`): the harness exercises this exact host
+/// resolution, not a copy of it. It reads request headers and returns a string — no state, no I/O.
+pub fn origin(headers: &HeaderMap) -> String {
     let text = |name: &str| {
         headers
             .get(name)
@@ -66,7 +70,11 @@ fn origin(headers: &HeaderMap) -> String {
     format!("{proto}://{host}")
 }
 
-fn redirect_uri(headers: &HeaderMap) -> String {
+/// The registered Google callback on this site's own origin.
+///
+/// Public for the same reason as [`origin`]: the SEC.REDIRECT contract tests assert the callback the
+/// browser is sent to, and asserting a copy of this format string would prove nothing.
+pub fn redirect_uri(headers: &HeaderMap) -> String {
     format!("{}/api/auth/callback/google", origin(headers))
 }
 
