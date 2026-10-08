@@ -218,7 +218,10 @@ impl CrmHarness {
         .fetch_one(self.pool())
         .await
         .map_err(|error| {
-            HarnessDbError::from(DbFailure::from_sqlx("test-harness.crm.person_exists", &error))
+            HarnessDbError::from(DbFailure::from_sqlx(
+                "test-harness.crm.person_exists",
+                &error,
+            ))
         })?;
         Ok(exists)
     }
@@ -263,19 +266,29 @@ impl CrmHarness {
             .fetch_one(conn)
             .await
             .map_err(|error| {
-                HarnessDbError::from(DbFailure::from_sqlx("test-harness.crm.merge_person", &error))
+                HarnessDbError::from(DbFailure::from_sqlx(
+                    "test-harness.crm.merge_person",
+                    &error,
+                ))
             })
     }
 
     /// The same merge on the pool, where nothing opens a transaction around it — so it commits.
-    pub async fn merge_person(&self, golden: &str, duplicate: &str) -> Result<String, HarnessDbError> {
+    pub async fn merge_person(
+        &self,
+        golden: &str,
+        duplicate: &str,
+    ) -> Result<String, HarnessDbError> {
         sqlx::query_scalar(MERGE_PERSON_SQL)
             .bind(golden)
             .bind(duplicate)
             .fetch_one(self.pool())
             .await
             .map_err(|error| {
-                HarnessDbError::from(DbFailure::from_sqlx("test-harness.crm.merge_person", &error))
+                HarnessDbError::from(DbFailure::from_sqlx(
+                    "test-harness.crm.merge_person",
+                    &error,
+                ))
             })
     }
 }
@@ -481,7 +494,10 @@ impl ClientHarness {
         .fetch_one(self.pool())
         .await
         .map_err(|error| {
-            HarnessDbError::from(DbFailure::from_sqlx("test-harness.client.seed_person", &error))
+            HarnessDbError::from(DbFailure::from_sqlx(
+                "test-harness.client.seed_person",
+                &error,
+            ))
         })?;
         Ok(id)
     }
@@ -492,7 +508,11 @@ impl ClientHarness {
     /// Fixture setup only: the service under test still selects the rows itself. The marker in `display_name` (and in
     /// the unique email) is what [`cleanup_app_users`](Self::cleanup_app_users) keys on, and passing `active = false`
     /// is how a test seeds the row that must **not** be offered.
-    pub async fn seed_app_user(&self, display_name: &str, active: bool) -> Result<String, HarnessDbError> {
+    pub async fn seed_app_user(
+        &self,
+        display_name: &str,
+        active: bool,
+    ) -> Result<String, HarnessDbError> {
         let id = sqlx::query_scalar(
             "insert into app_user (display_name, email, active)
              values ($1, $1 || '@tst-harness.invalid', $2)
@@ -503,7 +523,10 @@ impl ClientHarness {
         .fetch_one(self.pool())
         .await
         .map_err(|error| {
-            HarnessDbError::from(DbFailure::from_sqlx("test-harness.client.seed_app_user", &error))
+            HarnessDbError::from(DbFailure::from_sqlx(
+                "test-harness.client.seed_app_user",
+                &error,
+            ))
         })?;
         Ok(id)
     }

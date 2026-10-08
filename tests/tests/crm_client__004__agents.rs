@@ -53,7 +53,6 @@ async fn connect_dev() -> ClientHarness {
     );
 }
 
-
 #[tokio::test]
 #[ignore = "needs DATABASE_URL_DEV (a disposable DEV branch); ClientHarness refuses PROD before any socket"]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-CRM-CLIENT-004); the file and the assay use it.

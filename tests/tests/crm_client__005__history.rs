@@ -69,7 +69,12 @@ async fn connect_dev() -> ClientHarness {
     );
 }
 
-fn history_request(person_id: &str, page: i64, page_size: i64, recent: bool) -> ClientHistoryRequest {
+fn history_request(
+    person_id: &str,
+    page: i64,
+    page_size: i64,
+    recent: bool,
+) -> ClientHistoryRequest {
     ClientHistoryRequest {
         person_id: person_id.to_owned(),
         page,
@@ -88,7 +93,14 @@ fn twelve_events() -> Vec<ClientHistoryEventRecord> {
         .map(|index| ClientHistoryEventRecord {
             id: format!("event-{index:02}"),
             channel: "email".to_owned(),
-            direction: Some(if index % 2 == 0 { "inbound" } else { "outbound" }.to_owned()),
+            direction: Some(
+                if index % 2 == 0 {
+                    "inbound"
+                } else {
+                    "outbound"
+                }
+                .to_owned(),
+            ),
             occurred_at: format!("2026-09-{:02}T12:00:00+00:00", index + 1),
             title: Some(format!("Message {index}")),
             summary: Some(format!("Summary {index}")),
@@ -168,7 +180,10 @@ async fn crm_client_005__history() {
         recent.total, 12,
         "{HARNESS}: the recent view still reports the whole count it was given, not the rows it shows"
     );
-    assert!(recent.recent, "{HARNESS}: the read is echoed as the recent one");
+    assert!(
+        recent.recent,
+        "{HARNESS}: the read is echoed as the recent one"
+    );
 
     // B. The service, on the real pool: the request is normalised before it reaches the read model.
     let harness = connect_dev().await;
@@ -212,7 +227,10 @@ async fn crm_client_005__history() {
         .history(&history_request(&person_id, 1, 5000, true), &ctx)
         .await
         .expect("proof: a recent history read must answer on the composed service");
-    assert!(recent.recent, "{HARNESS}: the read is echoed as the recent one");
+    assert!(
+        recent.recent,
+        "{HARNESS}: the read is echoed as the recent one"
+    );
     assert_eq!(
         recent.page_size, CLIENT_RECENT_HISTORY_LIMIT,
         "{HARNESS}: `recent` forces the small page whatever size the caller asked for"
@@ -254,4 +272,3 @@ async fn crm_client_005__history() {
         "{HARNESS}: DEV must be left as it was found — zero fixture rows remain"
     );
 }
-

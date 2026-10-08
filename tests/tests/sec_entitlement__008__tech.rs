@@ -54,7 +54,10 @@ fn actor(
     Actor {
         level: Some(level),
         account_type: account_type.to_owned(),
-        authority_codes: authority_codes.iter().map(|code| (*code).to_owned()).collect(),
+        authority_codes: authority_codes
+            .iter()
+            .map(|code| (*code).to_owned())
+            .collect(),
         entitlement_codes: entitlement_codes
             .iter()
             .map(|code| (*code).to_owned())
@@ -85,7 +88,12 @@ fn sec_entitlement_008__tech() {
 
     // 2. ROOT alone is not enough: the authority code is the first half of the gate. The control is actor 1 — the
     //    same actor one code richer.
-    let root_without_the_code = actor(Level::Root, "internal", &["settings.read"], &["tech.access"]);
+    let root_without_the_code = actor(
+        Level::Root,
+        "internal",
+        &["settings.read"],
+        &["tech.access"],
+    );
     assert!(
         !visible_surfaces(&root_without_the_code).contains(&Surface::Tech),
         "{HARNESS}: a ROOT who holds the tech.access *entitlement* but not the authority code must not reach TECH \
@@ -108,12 +116,7 @@ fn sec_entitlement_008__tech() {
         !visible_surfaces(&power_user).contains(&Surface::Tech),
         "{HARNESS}: a BusinessPowerUser holding tech.access (authority and entitlement) must not reach TECH"
     );
-    let power_user_lifted = actor(
-        Level::Root,
-        "internal",
-        &["tech.access"],
-        &["tech.access"],
-    );
+    let power_user_lifted = actor(Level::Root, "internal", &["tech.access"], &["tech.access"]);
     assert!(
         visible_surfaces(&power_user_lifted).contains(&Surface::Tech),
         "{HARNESS}: the same actor at ROOT does reach TECH — the level is the only difference and it is decisive"

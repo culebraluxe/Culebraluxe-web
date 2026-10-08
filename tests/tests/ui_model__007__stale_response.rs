@@ -74,7 +74,6 @@ fn grants() -> PortalEntitlements {
     }
 }
 
-
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-UI-MODEL-007); the file and the assay use it.
 fn ui_model_007__stale_response() {
@@ -101,9 +100,21 @@ fn ui_model_007__stale_response() {
     );
 
     // 3. What retires the generation: another record. Another *actor* is another record at the same URL.
-    let record_a = ctx("/portal/clients/one", Some("one"), actor(Level::User, "internal"));
-    let record_b = ctx("/portal/clients/two", Some("two"), actor(Level::User, "internal"));
-    let same_url_other_actor = ctx("/portal/clients/one", Some("one"), actor(Level::Root, "internal"));
+    let record_a = ctx(
+        "/portal/clients/one",
+        Some("one"),
+        actor(Level::User, "internal"),
+    );
+    let record_b = ctx(
+        "/portal/clients/two",
+        Some("two"),
+        actor(Level::User, "internal"),
+    );
+    let same_url_other_actor = ctx(
+        "/portal/clients/one",
+        Some("one"),
+        actor(Level::Root, "internal"),
+    );
 
     assert_eq!(
         classify_change(&record_a, &record_a),
@@ -124,7 +135,11 @@ fn ui_model_007__stale_response() {
     assert_eq!(
         classify_change(
             &record_a,
-            &ctx("/portal/clients/one", Some("one"), actor(Level::User, "internal"))
+            &ctx(
+                "/portal/clients/one",
+                Some("one"),
+                actor(Level::User, "internal")
+            )
         ),
         UrlChange::Same,
         "{HARNESS}: an equal context is equal, fields and all"
@@ -132,7 +147,11 @@ fn ui_model_007__stale_response() {
 
     // 4. What does not: a query-only change is the screen's business, and grants arriving only re-draw.
     let tab = {
-        let mut ctx = ctx("/portal/clients/one", Some("one"), actor(Level::User, "internal"));
+        let mut ctx = ctx(
+            "/portal/clients/one",
+            Some("one"),
+            actor(Level::User, "internal"),
+        );
         ctx.query = BTreeMap::from([("tab".to_owned(), "history".to_owned())]);
         ctx
     };
