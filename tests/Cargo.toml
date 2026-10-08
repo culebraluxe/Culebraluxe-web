@@ -46,3 +46,8 @@ web = { path = "../web" }
 forge = { path = "../forge" }
 # Used by one migrated test for `CancellationToken`-shaped shutdown, never by the harness's own modules.
 tokio-util.workspace = true
+# The SIG.WEBHOOK canonical tests mint their own `t=<ts>, s0=<hmac>` headers with the same
+# HMAC-SHA256-over-`{timestamp}.{raw_body}` construction the BoldSign contract specifies, so the
+# oracle is independent of the verifier under test (`apis::boldsign::verify_webhook_signature`).
+hmac.workspace = true
+sha2.workspace = true
