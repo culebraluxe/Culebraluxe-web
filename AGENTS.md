@@ -13,14 +13,16 @@ stalling on privacy prompts:
 |---|---|---|
 | `src/Culebraluxe-web` | this checkout (the handbook you are reading) | `main` |
 | `src/lane-<name>` (11 on 2026-10-03) | per-agent worktrees (rule 4); the roster is `git worktree list` | `lane/<name>` |
-| `build/rust` | shared `CARGO_TARGET_DIR` for every worktree | — |
+| `build/rust-lane-<name>`, `build/rust-main` | one cargo target dir per checkout: a lane's own, then the fallback | — |
 | `build/logs` | launchd logs, including `wip-snapshot.log` | — |
 
-To add a lane: `pnpm lane:new <name>` (`scripts/lane-new.sh`: worktree, two env symlinks, `--unset-upstream`, modes —
-`docs/agent/LAYOUT.md` has the recipe it embodies). **A lane is code and nothing else: ~84 MB, no `node_modules`, no
-target of its own** — the cargo estate is the one shared `build/rust`, built from the main checkout with
-`cargo check --workspace --all-targets`, and a lane running the same command reuses those artifacts. `pnpm install` is
-the per-lane call of a lane that must build the website (`--with-website`). Then never work in
+To add a lane: `pnpm lane:new <name>` (`scripts/lane-new.sh`: worktree, two env symlinks, the lane's own cargo config,
+`--unset-upstream`, modes — `docs/agent/LAYOUT.md` has the recipe it embodies). **A lane is code and nothing else:
+~84 MB, no `node_modules`, and a build directory of its own outside the tree** — `build/rust-lane-<name>` for a lane,
+`build/rust-main` for the main checkout and the launchd jobs, and no two checkouts share one. A shared `build/rust` was
+retired on 2026-10-07: cargo holds an exclusive lock on a target directory for the length of a build, so with fifteen
+lanes on it every build after the first queued while the CPU sat idle, and it deduplicated nothing anyway. `pnpm install`
+is the per-lane call of a lane that must build the website (`--with-website`). Then never work in
 `/tmp` or `~/Documents` again: macOS purges the first and iCloud resurrects deletions in the second, and both leave dead
 `git worktree` records that make `git worktree list` lie about what work exists (two such records — one in `/tmp`, one
 33 GB in `~/Documents` — were still registered on 2026-10-01). Full layout, lane recipe and reasoning:
@@ -272,15 +274,21 @@ Never
   Derive it, never look it up and never keep it: `basename "$(git rev-parse --show-toplevel)"` is the identity,
   `git rev-parse --abbrev-ref HEAD` is `lane/<name>`, and `git worktree list` is the roster. No lane carries a
   card, a note or a config naming itself, and none is needed: a copy of a lane inherits the previous lane's
-  card, which is how a tree got glued to another lane's `HEAD` on 2026-10-03. The trunk is
+  card, which is how a tree got glued to another lane's `HEAD` on 2026-10-03. (The one file a lane carries that
+  names it is machine setup rather than identity — `.cargo/config.toml` names the lane's own build dir — and a
+  lane that is copied or renamed fixes it with `bash scripts/lane-cargo-config.sh`.) The trunk is
   `origin/main` (Forge publishes there directly). A lane syncs by rebasing onto `origin/main`, never by merging
   `main` in; it lands by fast-forward push (`git push origin lane/<name>:main`), and nobody commits in the main
   checkout directly — it only follows the trunk (`git pull --ff-only`). A
   lane never reads, edits or builds in another lane's tree — work crosses between lanes only through `main`.
   No lane adds a second tree of its own: a new lane is the Captain's call and goes in `docs/agent/LAYOUT.md`
-  first. **A lane is code only: no `node_modules`, no target of its own — the cargo estate is the one shared
-  `build/rust` and the main checkout is the builder** (`cargo check --workspace --all-targets`; a lane running the
-  same command reuses those artifacts, a lane varying the flags pays for its own copies). Lanes hold code, not
+  first. **A lane is code only: no `node_modules`, and its build directory is its own, outside the tree** —
+  `build/rust-lane-<name>`, written into the lane's `.cargo/config.toml` by `scripts/lane-cargo-config.sh`
+  (`build/rust-main` is the fallback for the main checkout and the launchd jobs). One shared `build/rust` was
+  retired on 2026-10-07: cargo holds an exclusive lock on a target directory for the length of a build, so every
+  lane after the first waited on it, and it deduplicated nothing. A lane builds the tier it owes
+  (`cargo check -p <touched>`, then `pnpm slice:check`); `cargo check --workspace --all-targets` is the push-time
+  check, not a lane's habit. Lanes hold code, not
   workflow — Neon is still the only workflow and control-plane authority, and a
   lane's verdicts are about the code on its branch, never about the tree. Setup and rules: `docs/agent/LAYOUT.md`.
   guard: cli/src/forge/repo_guards.rs

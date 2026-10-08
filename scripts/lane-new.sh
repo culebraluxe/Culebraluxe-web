@@ -12,16 +12,21 @@
 #   needs no website). This script is that recipe with the four traps closed.
 #
 # WHAT A LANE IS
-#   Code only. ~84 MB, no node_modules, no target directory: cargo builds into the
-#   one shared CARGO_TARGET_DIR (/Users/Shared/dev/build/rust, from
-#   ~/.cargo/config.toml) and `pnpm install` is a per-lane decision, not part of
-#   setup — a lane without node_modules still compiles, tests, commits and lands.
+#   Code only. ~84 MB, no node_modules, plus a build directory of its own outside the
+#   tree (/Users/Shared/dev/build/rust-lane-<name>, from the lane-local
+#   .cargo/config.toml this script writes): cargo holds an exclusive lock on a target
+#   directory for the length of a build, so one shared directory queues every lane on
+#   the machine behind whichever lane happens to be compiling. `pnpm install` is a
+#   per-lane decision, not part of setup — a lane without node_modules still compiles,
+#   tests, commits and lands.
 #
 # WHAT IT DOES
 #   1. git worktree add <sibling>/lane-<name> -b lane/<name> origin/main
 #   2. ln -sfn the two shared env files into the lane root
-#   3. git branch --unset-upstream
-#   4. chmod -R go-rwx the lane (umask 077 is set first, so new files start closed)
+#   3. write the lane's own cargo config (scripts/lane-cargo-config.sh owns that rule
+#      and its text; this recipe only calls it)
+#   4. git branch --unset-upstream
+#   5. chmod -R go-rwx the lane (umask 077 is set first, so new files start closed)
 #
 # WHAT IT DOES NOT DO
 #   No `pnpm install` (pass --with-website for that), no build, no commit, no push,
@@ -34,6 +39,10 @@
 #   bash scripts/lane-new.sh mistral --dry-run   # print, change nothing
 # ---------------------------------------------------------------------------
 set -u
+
+# scripts/lane-cargo-config.sh lives beside this script, and this script must be callable from any working
+# directory, so the path is derived rather than assumed.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 usage() {
   cat <<'USAGE'
@@ -110,6 +119,10 @@ fi
 run git -C "$main_root" worktree add "$lane_path" -b "$branch" origin/main || exit 1
 run ln -sfn "$env_local" "$lane_path/.env.local"
 run ln -sfn "$env_scheduler" "$lane_path/.env.scheduler"
+# The lane's own build dir, so no two lanes queue on one cargo lock. The rule and the text live in
+# scripts/lane-cargo-config.sh; this recipe only calls it, and it needs the lane to exist, which is
+# why it comes after `worktree add`.
+run bash "$script_dir/lane-cargo-config.sh" --at "$lane_path"
 run git -C "$lane_path" branch --unset-upstream
 run chmod -R go-rwx "$lane_path"
 if [ "$with_website" -eq 1 ]; then
