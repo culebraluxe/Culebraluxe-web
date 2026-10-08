@@ -36,6 +36,9 @@ pub(super) fn prefill_form_values(
         {
             value = date_default(&field.name);
         }
+        if let Some(fixed) = field.fixed.as_deref() {
+            value = fixed.to_owned();
+        }
         values.insert(field.name.clone(), value);
     }
     values
@@ -55,7 +58,7 @@ pub(super) async fn save_form_values(
     state: &ApiState,
     resolved: &ResolvedRequestContext,
     form_id: &str,
-    field_values: std::collections::BTreeMap<String, String>,
+    mut field_values: std::collections::BTreeMap<String, String>,
     sections: std::collections::BTreeMap<String, String>,
 ) -> Result<model::FormInstance, ApiError> {
     let services = state.services();
@@ -89,6 +92,13 @@ pub(super) async fn save_form_values(
                 resolved,
             )
         })?;
+
+    // A fixed field holds the template's value whatever the client sent.
+    for field in &template.fields {
+        if let Some(fixed) = field.fixed.as_deref() {
+            field_values.insert(field.name.clone(), fixed.to_owned());
+        }
+    }
 
     let updated = forms
         .update_instance(
@@ -147,6 +157,50 @@ pub(super) async fn save_form_values(
                                 email: None,
                                 phone: None,
                                 // A civil-status edit is not the hold: leave it as it is.
+                                manual_override: None,
+                            },
+                            &resolved.service,
+                        )
+                        .await
+                        .map_err(failed(resolved))?;
+                    services.clients().update_cached_person(&updated_person);
+                }
+            }
+        }
+    }
+
+    if template.field("sellerEmail").is_some() {
+        let desired = field_values
+            .get("sellerEmail")
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        if let (Some(person_id), Some(desired)) = (current.person_id.as_deref(), desired) {
+            let known = forms
+                .list_signer_people(form_id, &resolved.service)
+                .await
+                .map_err(failed(resolved))?
+                .into_iter()
+                .find(|signer| signer.person_id.as_deref() == Some(person_id))
+                .and_then(|signer| signer.email);
+            if known.as_deref().map(str::trim) != Some(desired.as_str()) {
+                if let Some(person) = services
+                    .person()
+                    .get(person_id, &resolved.service)
+                    .await
+                    .map_err(failed(resolved))?
+                {
+                    let updated_person = services
+                        .person()
+                        .update_admin(
+                            &model::UpdatePersonAdminRequest {
+                                person_id: person.id,
+                                display_name: person.display_name,
+                                civil_status: person.civil_status,
+                                status: person.status,
+                                company: person.company,
+                                location: None,
+                                email: Some(desired),
+                                phone: None,
                                 manual_override: None,
                             },
                             &resolved.service,

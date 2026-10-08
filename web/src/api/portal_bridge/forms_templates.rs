@@ -38,7 +38,7 @@ pub(super) const ACTIVE_FORM_TEMPLATE_VERSIONS: &[(&str, i32)] = &[
     ("OFFER-01", 2),
     ("PR-PNS", 3),
     ("PR-PNS-AMD", 1),
-    ("LISTING-01", 4),
+    ("LISTING-01", 5),
     ("SHOW-INFO", 1),
     ("SHOW-RPT", 1),
 ];
@@ -70,6 +70,7 @@ pub(super) fn form_presentation(
 pub(super) fn form_field_type(value: model::forms_template::TemplateFieldType) -> &'static str {
     match value {
         model::forms_template::TemplateFieldType::Text => "text",
+        model::forms_template::TemplateFieldType::Email => "email",
         model::forms_template::TemplateFieldType::Money => "money",
         model::forms_template::TemplateFieldType::Date => "date",
         model::forms_template::TemplateFieldType::Textarea => "textarea",
@@ -99,6 +100,8 @@ pub(super) fn form_template_payload(
                 "required": field.required,
                 "options": field.options,
                 "when": when_payload(field.when.as_ref()),
+                // A fixed field is the template's own fact; the screen does not show it.
+                "fixed": field.fixed,
             })
         })
         .collect();
@@ -327,6 +330,25 @@ pub(super) async fn forms_page(
         .list_signer_people(form_id, &resolved.service)
         .await
         .map_err(failed(resolved))?;
+    if template.field("sellerEmail").is_some() {
+        // The person's own email is canonical; the form shows it, and the signing link goes there.
+        let seller_email = form.person_id.as_deref().and_then(|person_id| {
+            signers
+                .iter()
+                .find(|signer| signer.person_id.as_deref() == Some(person_id))
+                .and_then(|signer| signer.email.as_deref())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        });
+        if let Some(email) = seller_email {
+            field_values.insert("sellerEmail".into(), email.to_owned());
+        }
+    }
+    for field in &template.fields {
+        if let Some(fixed) = field.fixed.as_deref() {
+            field_values.insert(field.name.clone(), fixed.to_owned());
+        }
+    }
     let issued = services
         .vault()
         .issued_for_form_instance(form_id, &resolved.service)

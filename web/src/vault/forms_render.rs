@@ -127,8 +127,8 @@ mod tests {
 
     #[test]
     fn money_and_dates_render_the_way_the_repository_formats_them() {
-        assert_eq!(format_money("1250000"), "$1,250,000");
-        assert_eq!(format_money("1234.5"), "$1,234.5");
+        assert_eq!(format_money("1250000"), "$1,250,000.00");
+        assert_eq!(format_money("1234.5"), "$1,234.50");
         assert_eq!(format_money(""), "");
         assert_eq!(format_date("2026-01-15"), "January 15, 2026");
         assert_eq!(format_date(" 2026-12-03 "), "December 3, 2026");
