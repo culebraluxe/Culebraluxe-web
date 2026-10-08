@@ -74,7 +74,10 @@ fn redirect_uri(headers: &HeaderMap) -> String {
 ///
 /// `\` is refused as well as `//`: every browser reads `/\evil.example` as `//evil.example` when it follows
 /// the `Location` header, so a backslash after the leading `/` is an off-site redirect.
-fn safe_next(next: Option<&str>) -> String {
+///
+/// `pub` is the RED Team contract-test seam (TST-SEC-REDIRECT-*): the redirect-loop and open-redirect taxonomy
+/// drives the same filter production uses, in `tests/tests/sec_redirect__*.rs`. Visibility only; no behaviour change.
+pub fn safe_next(next: Option<&str>) -> String {
     next.filter(|path| path.starts_with('/') && !path.starts_with("//") && !path.starts_with("/\\"))
         .unwrap_or("/portal/dashboard")
         .to_owned()
@@ -226,7 +229,11 @@ async fn callback(
     response
 }
 
-fn percent_decode(text: &str) -> String {
+/// `pub` beside `safe_next`: the callback percent-decodes the `next` cookie BEFORE filtering
+/// (`callback`, below), and that order is load-bearing — the RED Team redirect taxonomy
+/// (`tests/tests/sec_redirect__*.rs`) proves the round trip against the same decoder production uses.
+/// Visibility only; no behaviour change.
+pub fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;
