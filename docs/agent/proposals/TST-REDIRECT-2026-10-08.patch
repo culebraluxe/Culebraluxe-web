@@ -1,0 +1,253 @@
+diff --git a/tests/src/lib.rs b/tests/src/lib.rs
+index c70336f..de7d46a 100644
+--- a/tests/src/lib.rs
++++ b/tests/src/lib.rs
+@@ -53,6 +53,7 @@ pub mod pool;
+ pub mod providers;
+ pub mod race;
+ pub mod runtime;
++pub mod security;
+ pub mod snapshot;
+ pub mod source;
+ 
+@@ -70,3 +71,4 @@ pub use level::TestLevel;
+ pub use pool::{DbPoolFaultHarness, PoolFault};
+ pub use race::RaceHarness;
+ pub use runtime::RuntimeHarness;
++pub use security::SecurityHarness;
+diff --git a/tests/src/security.rs b/tests/src/security.rs
+new file mode 100644
+index 0000000..f3bd0b8
+--- /dev/null
++++ b/tests/src/security.rs
+@@ -0,0 +1,9 @@
++//! L0 security boundary: delegates to the same redirect policy used by Google login and callback.
++
++pub struct SecurityHarness;
++
++impl SecurityHarness {
++    pub fn redirect_target(next: Option<&str>) -> String {
++        web::api::google_auth::safe_next(next)
++    }
++}
+diff --git a/tests/tests/sec_redirect__001__relative_path_allowed.rs b/tests/tests/sec_redirect__001__relative_path_allowed.rs
+new file mode 100644
+index 0000000..35f44ba
+--- /dev/null
++++ b/tests/tests/sec_redirect__001__relative_path_allowed.rs
+@@ -0,0 +1,23 @@
++//! TST-SEC-REDIRECT-001: relative path allowed.
++//! L0 Pure, SecurityHarness; exercises the production Google login/callback policy.
++
++use test_harness::SecurityHarness;
++
++#[test]
++#[allow(non_snake_case)]
++fn sec_redirect_001__relative_path_allowed() {
++    for input in [
++        "/",
++        "/portal/clients?x=1",
++        "/portal/Casa-Luar-áé",
++        "/portal/100%",
++    ] {
++        let target = SecurityHarness::redirect_target(Some(input));
++        assert_eq!(target, input, "input: {input:?}");
++        // The accepted target must also be a valid Location header.
++        let response =
++            axum::response::IntoResponse::into_response(axum::response::Redirect::to(&target));
++        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
++        assert_eq!(response.headers()[axum::http::header::LOCATION], target);
++    }
++}
+diff --git a/tests/tests/sec_redirect__003__evil.rs b/tests/tests/sec_redirect__003__evil.rs
+new file mode 100644
+index 0000000..0488f69
+--- /dev/null
++++ b/tests/tests/sec_redirect__003__evil.rs
+@@ -0,0 +1,22 @@
++//! TST-SEC-REDIRECT-003: evil.
++//! L0 Pure, SecurityHarness; exercises the production Google login/callback policy.
++
++use test_harness::SecurityHarness;
++
++#[test]
++#[allow(non_snake_case)]
++fn sec_redirect_003__evil() {
++    for input in [
++        "//evil.example",
++        "///evil.example",
++        "//portal.example@evil.example",
++    ] {
++        let target = SecurityHarness::redirect_target(Some(input));
++        assert_eq!(target, "/portal/dashboard", "input: {input:?}");
++        // The accepted target must also be a valid Location header.
++        let response =
++            axum::response::IntoResponse::into_response(axum::response::Redirect::to(&target));
++        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
++        assert_eq!(response.headers()[axum::http::header::LOCATION], target);
++    }
++}
+diff --git a/tests/tests/sec_redirect__004__evil.rs b/tests/tests/sec_redirect__004__evil.rs
+new file mode 100644
+index 0000000..572456b
+--- /dev/null
++++ b/tests/tests/sec_redirect__004__evil.rs
+@@ -0,0 +1,18 @@
++//! TST-SEC-REDIRECT-004: evil.
++//! L0 Pure, SecurityHarness; exercises the production Google login/callback policy.
++
++use test_harness::SecurityHarness;
++
++#[test]
++#[allow(non_snake_case)]
++fn sec_redirect_004__evil() {
++    for input in ["/\\evil.example", "/\\\\evil.example"] {
++        let target = SecurityHarness::redirect_target(Some(input));
++        assert_eq!(target, "/portal/dashboard", "input: {input:?}");
++        // The accepted target must also be a valid Location header.
++        let response =
++            axum::response::IntoResponse::into_response(axum::response::Redirect::to(&target));
++        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
++        assert_eq!(response.headers()[axum::http::header::LOCATION], target);
++    }
++}
+diff --git a/tests/tests/sec_redirect__006__userinfo_tricks.rs b/tests/tests/sec_redirect__006__userinfo_tricks.rs
+new file mode 100644
+index 0000000..a95558c
+--- /dev/null
++++ b/tests/tests/sec_redirect__006__userinfo_tricks.rs
+@@ -0,0 +1,22 @@
++//! TST-SEC-REDIRECT-006: userinfo tricks.
++//! L0 Pure, SecurityHarness; exercises the production Google login/callback policy.
++
++use test_harness::SecurityHarness;
++
++#[test]
++#[allow(non_snake_case)]
++fn sec_redirect_006__userinfo_tricks() {
++    for input in [
++        "https://portal.example@evil.example/portal",
++        "//portal.example@evil.example/portal",
++        "https://evil.example@portal.example/portal",
++    ] {
++        let target = SecurityHarness::redirect_target(Some(input));
++        assert_eq!(target, "/portal/dashboard", "input: {input:?}");
++        // The accepted target must also be a valid Location header.
++        let response =
++            axum::response::IntoResponse::into_response(axum::response::Redirect::to(&target));
++        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
++        assert_eq!(response.headers()[axum::http::header::LOCATION], target);
++    }
++}
+diff --git a/tests/tests/sec_redirect__007__port_changes.rs b/tests/tests/sec_redirect__007__port_changes.rs
+new file mode 100644
+index 0000000..27f08e5
+--- /dev/null
++++ b/tests/tests/sec_redirect__007__port_changes.rs
+@@ -0,0 +1,22 @@
++//! TST-SEC-REDIRECT-007: port changes.
++//! L0 Pure, SecurityHarness; exercises the production Google login/callback policy.
++
++use test_harness::SecurityHarness;
++
++#[test]
++#[allow(non_snake_case)]
++fn sec_redirect_007__port_changes() {
++    for input in [
++        "https://portal.example:444/portal",
++        "http://localhost:4000/portal",
++        "//portal.example:443/portal",
++    ] {
++        let target = SecurityHarness::redirect_target(Some(input));
++        assert_eq!(target, "/portal/dashboard", "input: {input:?}");
++        // The accepted target must also be a valid Location header.
++        let response =
++            axum::response::IntoResponse::into_response(axum::response::Redirect::to(&target));
++        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
++        assert_eq!(response.headers()[axum::http::header::LOCATION], target);
++    }
++}
+diff --git a/tests/tests/sec_redirect__008__scheme_changes.rs b/tests/tests/sec_redirect__008__scheme_changes.rs
+new file mode 100644
+index 0000000..f966803
+--- /dev/null
++++ b/tests/tests/sec_redirect__008__scheme_changes.rs
+@@ -0,0 +1,23 @@
++//! TST-SEC-REDIRECT-008: scheme changes.
++//! L0 Pure, SecurityHarness; exercises the production Google login/callback policy.
++
++use test_harness::SecurityHarness;
++
++#[test]
++#[allow(non_snake_case)]
++fn sec_redirect_008__scheme_changes() {
++    for input in [
++        "http://portal.example/portal",
++        "https://portal.example/portal",
++        "javascript:alert(1)",
++        "data:text/html,test",
++    ] {
++        let target = SecurityHarness::redirect_target(Some(input));
++        assert_eq!(target, "/portal/dashboard", "input: {input:?}");
++        // The accepted target must also be a valid Location header.
++        let response =
++            axum::response::IntoResponse::into_response(axum::response::Redirect::to(&target));
++        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
++        assert_eq!(response.headers()[axum::http::header::LOCATION], target);
++    }
++}
+diff --git a/tests/tests/sec_redirect__010__crlf.rs b/tests/tests/sec_redirect__010__crlf.rs
+new file mode 100644
+index 0000000..3a817c5
+--- /dev/null
++++ b/tests/tests/sec_redirect__010__crlf.rs
+@@ -0,0 +1,23 @@
++//! TST-SEC-REDIRECT-010: crlf.
++//! L0 Pure, SecurityHarness; exercises the production Google login/callback policy.
++
++use test_harness::SecurityHarness;
++
++#[test]
++#[allow(non_snake_case)]
++fn sec_redirect_010__crlf() {
++    for input in [
++        "/portal/clients\r\nLocation: https://evil.example",
++        "/portal/\rclients",
++        "/portal/\nclients",
++        "/portal/\0clients",
++    ] {
++        let target = SecurityHarness::redirect_target(Some(input));
++        assert_eq!(target, "/portal/dashboard", "input: {input:?}");
++        // The accepted target must also be a valid Location header.
++        let response =
++            axum::response::IntoResponse::into_response(axum::response::Redirect::to(&target));
++        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
++        assert_eq!(response.headers()[axum::http::header::LOCATION], target);
++    }
++}
+diff --git a/web/src/api/google_auth.rs b/web/src/api/google_auth.rs
+index 4d65901..a09298a 100644
+--- a/web/src/api/google_auth.rs
++++ b/web/src/api/google_auth.rs
+@@ -74,10 +74,17 @@ fn redirect_uri(headers: &HeaderMap) -> String {
+ ///
+ /// `\` is refused as well as `//`: every browser reads `/\evil.example` as `//evil.example` when it follows
+ /// the `Location` header, so a backslash after the leading `/` is an off-site redirect.
+-fn safe_next(next: Option<&str>) -> String {
+-    next.filter(|path| path.starts_with('/') && !path.starts_with("//") && !path.starts_with("/\\"))
+-        .unwrap_or("/portal/dashboard")
+-        .to_owned()
++/// Absolute URLs (including same-origin URLs) deliberately fall back to the dashboard.
++/// Reject control characters before Axum builds a `Location` header, which otherwise returns HTTP 500 on CR/LF.
++pub fn safe_next(next: Option<&str>) -> String {
++    next.filter(|path| {
++        path.starts_with('/')
++            && !path.starts_with("//")
++            && !path.starts_with("/\\")
++            && !path.chars().any(char::is_control)
++    })
++    .unwrap_or("/portal/dashboard")
++    .to_owned()
+ }
+ 
+ fn set_cookie(response: &mut Response, name: &str, value: &str, max_age: i64) {
