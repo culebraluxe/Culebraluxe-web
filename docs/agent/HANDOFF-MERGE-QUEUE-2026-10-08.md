@@ -107,3 +107,74 @@ Ask its author to push the branch; do not count it as terminal on the strength o
 - Batch 38's absence is git-wide; a record of the work could still live outside git (a DB row, an unpushed
   doc) — I did not search there.
 - `lane/deep`'s own work is unaffected and unchanged: this page is analysis, not a merge.
+
+## 9. UPDATE, later the same day: nine of ten fixes are on `main`, and §1's counts are superseded
+
+While this page was being acted on, the coordinator merged four more fixes, each as its own merge on `main`:
+`530903627` (muse: FIX-004 `24d032c9` + FIX-005 `bd1b093f5`), `1a0f60269` (nemotron-2: FIX-006 `32832c57`),
+`8a3b7f950` (fledge: FIX-008 `b19c1fd3`). Ancestry re-checked with `git merge-base --is-ancestor` against
+`origin/main`: `49f1ab1f0`, `015ac0581`, `cb766b802`, `24d032c98`, `bd1b093f5`, `32832c57c`, `a883892c1`,
+`b19c1fd3c`, `f4586f5dc` — **all nine ON MAIN**.
+
+**FIX-009 does not exist.** `git log --all --grep='FIX-009'` is empty on every ref, so it was never authored
+anywhere: it is not "still out", it was never delivered. That needs a commission, not a merge.
+
+The lane's own contribution ended up being the one thing nobody else had done — §9.1 — plus the schema
+obligation in §9.2. FIX-004, FIX-005, FIX-006 and FIX-010 were carried here as cherry-picks and then dropped
+by the rebase, each landing with `patch contents already upstream`.
+
+### 9.1 `abe6513e5` — the call sites three API changes moved, and nothing else
+
+`main` was red at T0 for 16 test targets because three API changes had landed without their callers:
+`execute_claimed_job_unsettled` (FIX-006: +interrupt handle, +turn ceiling), `finish_agent_work_run`
+(FIX-008: +caller idempotency key) and `heartbeat_agent_work` (FIX-008: owner-fenced, +worker_id +lease_ttl).
+`abe6513e5` repairs 21 files (+30/-30): `None, None` for the interrupt handle and the ceiling-derived
+supervisor deadline, `None` for the settlement key, and the owner the test itself claimed with for the
+heartbeat — any other id is refused by the owner fence. Same finding as FIX-006's lane: it changed the
+signature and left its own callers on the old form.
+
+`cargo check --workspace --all-targets --keep-going` on the pushed tree: **3 red targets, none from this
+work** — `docs_vault__007__pdf_byte_handling`, `sec_redirect__003__host_injection`,
+`sec_redirect__005__fragment_handling`. Every file behind those errors is byte-identical to trunk
+(`web/src/api/google_auth.rs` has `origin`/`redirect_uri` private while the tests import them;
+`db/src/signer.rs` grew `Certificate` / `FinalizeRecipient.completed_at` / `FinalizeEvent.recipient_id` after
+the test was written). Unowned trunk red — and the reason the push used `CULEBRALUXE_SKIP_BUILD_CHECK=1`,
+named here as rule 9 requires.
+
+### 9.2 The one schema obligation was paid, DEV and PROD
+
+FIX-008's `db/migrations/277_forge_agent_work_lease.sql` was applied to **PROD** through the recorded path
+(`cargo run -p cli -- db-tool apply … prod`): ledger row `2026-10-08 18:54:50`, checksum
+`sha256:61ce9891ae47e523b92ae39f4a5ec2798727b354848a3d61e1f5e6ff993bc89a` — the digest DEV already held, and
+the same bytes `main` carries. `db-tool parity` after it: column drift 0, fk drift 0, check drift 0; the only
+drift is two DEV-only tables (`chaos_service_test_writes`, `crm_lead_projection`) with their pkeys, both
+pre-existing. 277 is additive apart from two `drop function if exists` lines that retire the **old
+signatures** of `forge_finish_agent_work_run` and `forge_record_tool_artifact` — old code and the new schema
+are mutually exclusive by construction, which is why code and migration had to land together. PROD was idle
+at the cutover (0 live executions, 0 `Claimed`/`Running` items, nothing touched in the previous hour).
+
+### 9.3 What was run (T1, DEV, on the pushed tree)
+
+- `cargo test -p forge --lib` → **382 passed, 0 failed, 2 ignored**.
+- `forge_queue__001__fenced_claim`, `db_concurrency__007__stale_claim_vs_live_heartbeat`,
+  `forge_receipt__001__template_rejected`, `forge_fleet__001__nine_way_split`, `forge_claim__004`,
+  `forge_claim__005`, `forge_job__014` (`--include-ignored`) → **15 passed, 0 failed**.
+
+### 9.4 Still open after this landing
+
+- **FIX-009** (quarantine/requeue): authored nowhere; needs a decision.
+- The **3 red targets** in §9.1: `sec_redirect__003`/`__005` are a visibility change in
+  `web/src/api/google_auth.rs` (or a test that goes through the public route); `docs_vault__007` needs the
+  certificate fixture rewritten against the current `signer.rs`. Both belong to their stories, not to this
+  queue.
+- §3 (the harness rename), §6 (the line-880 sweep scope) and §7 (batch 38) are unchanged — and worth noting:
+  **no fix ever needed the harness resolved.** All nine landed without touching it.
+
+### 9.5 Not verified here
+
+- The 3 red targets were not repaired, only named; the exact fixture values `docs_vault__007` needs were not
+  designed.
+- No full-suite run (T2): only the crates and targets named in §9.3.
+- `forge:clean` was deliberately **not** run (production-mutating, needs the Captain's go); the DB-backed
+  tests were run against the DEV target their harness asserts.
+
