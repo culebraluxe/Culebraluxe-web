@@ -48,13 +48,16 @@ may be committed and completed with the red result recorded as product evidence 
 | Commit | What it changed | The gate that ran |
 | --- | --- | --- |
 | `ebb291f35` | `db/migrations/000_forge_base_schema.sql`; `209` indexes made idempotent; 099→201, 159→202, 214→218; DEV+PROD ledger rows for 224-228; the phantom `260_…` row reconciled; `db/src/boot_gate.rs` + the `web/src/http_runtime.rs` boot refusal | `db_migration__001` ok 113.88s · `004` ok 4.72s · `005` ok 1.08s |
+| `08221f9a1` | the two L1 launch-intent contracts: the SOLO cap plus the whole 4x4 intent/decision lattice, and SMITH refusing SPLIT while no intent lets the Lead split | both `ok · 0.00s`, exit 0 |
 | `f438d7a68` | four L0 redirect contracts: 002 (absolute same-origin falls back), 005 (encoded `%2F`/`%5C` carried, literal `\` refused), 009 (malformed Unicode stays a valid Location header), 011 (the policy is idempotent; the fallback cannot re-enter `/api/auth`) | each `ok · 0.00s`, exit 0 |
 | `a65ed717a` | this hand-off | pushed, exit 0 |
 | `8e7e4e3c0` | the seven rewritten specs (catchup 002/003/006 renamed to their canonical files, client 001 → `directory_pagination` + isolated, client 002/003 isolated, concurrency 011 on the `service_mutation` path) and `db_migration__007` rewritten to prove the gate discriminates | `crm_client__001` ok 12.32s · `002` ok 9.59s · `003` ok 7.44s · `db_concurrency__011` ok 22.90s · `crm_catchup__002` ok 20.59s · `003` ok 8.12s · `006` ok 6.96s · `db_migration__007` ok 15.93s |
 
-Both commits are on `origin/main`; the push hook ran and reported `68ba004de..8e7e4e3c0 HEAD -> main`, exit 0. The hook
-does not run the workspace compile (that is `gates.yml` on `main`), so `cargo check --workspace --all-targets` is a CI
-item; `cargo check -p web` was run separately for the `http_runtime` edit.
+Every commit above is on `origin/main`; each push reported exit 0 (`68ba004de..8e7e4e3c0`, then `a65ed717a`, `f438d7a68`,
+`08221f9a1`). The hook does not run the workspace compile (that is `gates.yml` on `main`), so
+`cargo check --workspace --all-targets` is a CI item; `cargo check -p web` was run here for the `http_runtime` edit and
+returned 0. One blemish: `08221f9a1`'s message lost the path `forge::engine::role_slice::bench_intent_errors` to shell
+substitution — the commit content is unaffected and the row in §3 carries the path.
 
 
 ## 5. NOT VERIFIED — the honest gaps
