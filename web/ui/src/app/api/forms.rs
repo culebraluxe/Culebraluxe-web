@@ -76,6 +76,8 @@ pub struct FormTemplateField {
     pub required: bool,
     pub options: Vec<String>,
     pub when: Option<FormWhen>,
+    /// The template's own value; the screen does not ask for it.
+    pub fixed: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]

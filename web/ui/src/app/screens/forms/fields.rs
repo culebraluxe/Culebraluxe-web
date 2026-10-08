@@ -6,6 +6,7 @@ use super::*;
 pub(super) fn field_control(
     field: &FormTemplateField,
     values: &BTreeMap<String, String>,
+    money_editing: Option<&str>,
     link: &Link<Msg>,
 ) -> Html {
     let value = values.get(&field.name).cloned().unwrap_or_default();
@@ -34,16 +35,18 @@ pub(super) fn field_control(
         }
         "select" => {
             let name = field.name.clone();
-            let changed = link.callback(move |event: InputEvent| Msg::FieldChanged {
+            let changed = link.callback(move |event: Event| Msg::FieldChanged {
                 name: name.clone(),
                 value: crate::app::exec::select_value(&event),
             });
+            // `selected` is what makes the saved choice show on load; `value` on a <select> is applied before its
+            // options exist and the last option wins.
             html! {
-                <select value={value} oninput={changed} class={INPUT_CLASS}>
-                    <option value="">{"—"}</option>
+                <select onchange={changed} class={INPUT_CLASS}>
+                    <option value="" selected={value.is_empty()}>{"—"}</option>
                     {
                         for field.options.iter().map(|option| html! {
-                            <option value={option.clone()}>{ option }</option>
+                            <option value={option.clone()} selected={*option == value}>{ option }</option>
                         })
                     }
                 </select>
@@ -57,11 +60,21 @@ pub(super) fn field_control(
                     .replace('$', "")
                     .replace(',', ""),
             });
+            let focus_name = field.name.clone();
+            let focused = link.callback(move |_: FocusEvent| Msg::MoneyFocus(focus_name.clone()));
+            let blurred = link.callback(|_: FocusEvent| Msg::MoneyBlur);
+            let shown = if money_editing == Some(field.name.as_str()) {
+                value.clone()
+            } else {
+                model::forms_format::format_money(&value)
+            };
             html! {
                 <input
                     inputmode="decimal"
-                    value={format_money(&value)}
+                    value={shown}
                     oninput={changed}
+                    onfocus={focused}
+                    onblur={blurred}
                     class={INPUT_CLASS}
                 />
             }
@@ -79,6 +92,16 @@ pub(super) fn field_control(
                     oninput={changed}
                     class={format!("{INPUT_CLASS} appearance-auto [color-scheme:light]")}
                 />
+            }
+        }
+        "email" => {
+            let name = field.name.clone();
+            let changed = link.callback(move |event: InputEvent| Msg::FieldChanged {
+                name: name.clone(),
+                value: crate::app::exec::input_value(&event),
+            });
+            html! {
+                <input type="email" inputmode="email" value={value} oninput={changed} class={INPUT_CLASS} />
             }
         }
         _ => {

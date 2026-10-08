@@ -30,6 +30,8 @@ impl std::error::Error for TemplateXmlError {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TemplateFieldType {
     Text,
+    /// An email address: a text input the browser checks the shape of, and the address a signing link goes to.
+    Email,
     Money,
     Date,
     Textarea,
@@ -40,6 +42,7 @@ impl TemplateFieldType {
     pub(super) fn parse(value: &str) -> Option<Self> {
         match value {
             "text" => Some(Self::Text),
+            "email" => Some(Self::Email),
             "money" => Some(Self::Money),
             "date" => Some(Self::Date),
             "textarea" => Some(Self::Textarea),
@@ -66,6 +69,10 @@ pub struct TemplateFieldDefinition {
     pub binding: Option<String>,
     pub options: Vec<String>,
     pub when: Option<TemplateWhen>,
+    /// A value the TEMPLATE sets and nobody edits (`fixed="Lisa Penfield"`): the field is not shown, and every form made
+    /// from this version holds exactly this, whatever was typed or saved before. A fixed fact lives in the template, not
+    /// in a screen that hides it.
+    pub fixed: Option<String>,
 }
 
 /// One run of a section's prose: literal text, or the value of a field.
@@ -575,6 +582,16 @@ pub(super) fn parse_field(
         Vec::new()
     };
     let when = parse_when(element.attr("when"), &format!("Field \"{name}\""))?;
+    let fixed = element
+        .attr("fixed")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if fixed.is_some() && field_type == TemplateFieldType::Select {
+        return Err(TemplateXmlError::new(format!(
+            "Field \"{name}\" is fixed, so it cannot be a select."
+        )));
+    }
     Ok(TemplateFieldDefinition {
         name,
         label,
@@ -583,5 +600,6 @@ pub(super) fn parse_field(
         binding,
         options,
         when,
+        fixed,
     })
 }

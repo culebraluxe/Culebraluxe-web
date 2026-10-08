@@ -133,38 +133,10 @@ pub(super) fn document_body_text(
 
 pub(super) fn format_field_value(field: &FormTemplateField, value: &str) -> String {
     if field.field_type == "money" {
-        format_money(value)
+        model::forms_format::format_money(value)
     } else {
         value.to_owned()
     }
-}
-
-pub(super) fn format_money(value: &str) -> String {
-    let raw = value.trim().trim_start_matches('$').replace(',', "");
-    if raw.is_empty() {
-        return String::new();
-    }
-    let (whole, fraction) = raw.split_once('.').unwrap_or((&raw, ""));
-    let negative = whole.starts_with('-');
-    let digits = whole.trim_start_matches('-');
-    let mut out = String::new();
-    for (index, ch) in digits.chars().rev().enumerate() {
-        if index > 0 && index % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    let grouped = out.chars().rev().collect::<String>();
-    let mut result = if negative {
-        format!("-{grouped}")
-    } else {
-        grouped
-    };
-    if !fraction.is_empty() {
-        result.push('.');
-        result.push_str(fraction);
-    }
-    result
 }
 
 pub(super) fn when_visible(when: Option<&FormWhen>, values: &BTreeMap<String, String>) -> bool {
