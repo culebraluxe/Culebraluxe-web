@@ -45,7 +45,7 @@ pub fn encode(text: &str) -> String {
 }
 
 /// This site's own address, as the browser reached it (the redirect URI must match what Google has registered).
-fn origin(headers: &HeaderMap) -> String {
+pub(crate) fn origin(headers: &HeaderMap) -> String {
     let text = |name: &str| {
         headers
             .get(name)
@@ -66,7 +66,7 @@ fn origin(headers: &HeaderMap) -> String {
     format!("{proto}://{host}")
 }
 
-fn redirect_uri(headers: &HeaderMap) -> String {
+pub(crate) fn redirect_uri(headers: &HeaderMap) -> String {
     format!("{}/api/auth/callback/google", origin(headers))
 }
 
@@ -74,7 +74,7 @@ fn redirect_uri(headers: &HeaderMap) -> String {
 ///
 /// `\` is refused as well as `//`: every browser reads `/\evil.example` as `//evil.example` when it follows
 /// the `Location` header, so a backslash after the leading `/` is an off-site redirect.
-fn safe_next(next: Option<&str>) -> String {
+pub(crate) fn safe_next(next: Option<&str>) -> String {
     next.filter(|path| path.starts_with('/') && !path.starts_with("//") && !path.starts_with("/\\"))
         .unwrap_or("/portal/dashboard")
         .to_owned()
@@ -226,7 +226,7 @@ async fn callback(
     response
 }
 
-fn percent_decode(text: &str) -> String {
+pub(crate) fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;
