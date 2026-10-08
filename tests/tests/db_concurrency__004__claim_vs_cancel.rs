@@ -99,6 +99,7 @@ async fn db_concurrency_004__claim_vs_cancel() {
             &item_a,
             AgentWorkOutcome::Cancelled,
             Some("aimed at unclaimed work"),
+            None,
         )
         .await
         .expect("the cancel answers rather than erroring");
@@ -146,6 +147,7 @@ async fn db_concurrency_004__claim_vs_cancel() {
             &item_a,
             AgentWorkOutcome::Cancelled,
             Some("cancelled by the proof"),
+            None,
         )
         .await
         .expect("the cancel answers rather than erroring")
@@ -195,6 +197,7 @@ async fn db_concurrency_004__claim_vs_cancel() {
             &item_a,
             AgentWorkOutcome::Cancelled,
             Some("a second cancel"),
+            None,
         )
         .await
         .expect("the second cancel answers rather than erroring");
@@ -237,6 +240,7 @@ async fn db_concurrency_004__claim_vs_cancel() {
                             &item,
                             AgentWorkOutcome::Cancelled,
                             Some("racing cancel"),
+                            None,
                         )
                         .await
                         .expect("a cancel answers rather than erroring");

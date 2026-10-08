@@ -86,7 +86,7 @@ fn settle_work_item(
     let Some(item) = work_item else {
         return Ok(None);
     };
-    match agent_work::finish_agent_work_run(item, outcome, reason) {
+    match agent_work::finish_agent_work_run(item, outcome, reason, None) {
         Ok(Some(settled)) => {
             eprintln!("work_item={item} state={}", settled.item_state);
             if let Some(status) = &settled.story_status {

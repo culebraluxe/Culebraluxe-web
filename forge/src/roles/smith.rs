@@ -358,6 +358,7 @@ pub fn smith_candidate_artifact(
             "patch": patch,
         })),
         sha: Some(candidate_sha.to_string()),
+        idempotency_key: None,
     }
 }
 

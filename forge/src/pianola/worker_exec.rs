@@ -323,6 +323,7 @@ pub fn assay_artifact(
         summary: Some(tests_summary_line(tests_summary)),
         detail: Some(detail),
         sha: None,
+        idempotency_key: None,
     }
 }
 

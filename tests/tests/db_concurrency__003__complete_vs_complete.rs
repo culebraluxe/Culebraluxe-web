@@ -149,7 +149,7 @@ async fn db_concurrency_003__complete_vs_complete() {
             async move {
                 harness
                     .engine()
-                    .finish_agent_work_run(&item, AgentWorkOutcome::Done, None)
+                    .finish_agent_work_run(&item, AgentWorkOutcome::Done, None, None)
                     .await
                     .expect("a settle answers rather than erroring")
                     .map(|settlement| (index, settlement))
@@ -217,6 +217,7 @@ async fn db_concurrency_003__complete_vs_complete() {
             &item,
             AgentWorkOutcome::Error,
             Some("a late duplicate settling"),
+            None,
         )
         .await
         .expect("the late settle answers rather than erroring");
@@ -255,7 +256,7 @@ async fn db_concurrency_003__complete_vs_complete() {
     complete_the_board(&harness, &story_id).await;
     let again = harness
         .engine()
-        .finish_agent_work_run(&item, AgentWorkOutcome::Done, None)
+        .finish_agent_work_run(&item, AgentWorkOutcome::Done, None, None)
         .await
         .expect("the repeat settle answers rather than erroring");
     assert!(

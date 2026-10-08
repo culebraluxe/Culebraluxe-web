@@ -165,6 +165,7 @@ async fn engine_fault_clears_the_pair_and_rules_nothing() {
             &item,
             AgentWorkOutcome::Abandoned,
             Some("DatabaseUnavailable during workflow.step (sqlstate 25P03)"),
+            None,
         )
         .await
         .unwrap()
@@ -290,7 +291,12 @@ async fn retry_exhaustion_terminates_the_pair() {
             .unwrap()
             .expect("begin");
         let settled = engine
-            .finish_agent_work_run(&item, AgentWorkOutcome::Abandoned, Some("still broken"))
+            .finish_agent_work_run(
+                &item,
+                AgentWorkOutcome::Abandoned,
+                Some("still broken"),
+                None,
+            )
             .await
             .unwrap()
             .expect("settle");
@@ -330,7 +336,7 @@ async fn retry_exhaustion_terminates_the_pair() {
     );
     assert!(
         engine
-            .finish_agent_work_run(&item, AgentWorkOutcome::Abandoned, Some("again"))
+            .finish_agent_work_run(&item, AgentWorkOutcome::Abandoned, Some("again"), None)
             .await
             .unwrap()
             .is_none(),

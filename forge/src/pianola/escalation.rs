@@ -504,6 +504,7 @@ pub fn escalation_artifact(
         )),
         detail: Some(detail),
         sha: None,
+        idempotency_key: None,
     }
 }
 

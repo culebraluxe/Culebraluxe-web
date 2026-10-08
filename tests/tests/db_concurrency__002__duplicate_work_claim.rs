@@ -238,7 +238,8 @@ async fn db_concurrency_002__duplicate_work_claim() {
             .finish_agent_work_run(
                 &settled,
                 AgentWorkOutcome::Cancelled,
-                Some("settled by the proof")
+                Some("settled by the proof"),
+                None,
             )
             .await
             .expect("the settle answers")

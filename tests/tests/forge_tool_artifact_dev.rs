@@ -70,6 +70,7 @@ async fn a_tool_artifact_carries_its_run_ruling_and_never_a_second_opinion() {
         summary: summary.map(str::to_string),
         detail: None,
         sha: None,
+        idempotency_key: None,
     };
 
     // 1. A run that is still unruled lends its artifact no verdict: nothing was ruled, so nothing can agree.

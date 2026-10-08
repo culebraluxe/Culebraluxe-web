@@ -265,8 +265,15 @@ pub fn check_overlapping_targets(assigned_stories: &[StoryPacketRow]) -> Result<
 /// Pianola heartbeat table, and there must never be one. Returns false when
 /// the row is no longer claimable (settled or reassigned), which the caller
 /// treats as "stop and escalate", never as an error.
-pub async fn heartbeat_via_engine(engine: &ForgeEngineDao, work_item_id: &str) -> DbResult<bool> {
-    engine.heartbeat_agent_work(work_item_id).await
+pub async fn heartbeat_via_engine(
+    engine: &ForgeEngineDao,
+    work_item_id: &str,
+    worker_id: &str,
+    lease_ttl: std::time::Duration,
+) -> DbResult<bool> {
+    engine
+        .heartbeat_agent_work(work_item_id, worker_id, lease_ttl)
+        .await
 }
 
 /// Run one supervisor poll cycle and return the per-lane decisions:
@@ -319,7 +326,14 @@ pub async fn supervisor_tick(
                 work_item_id: item.id.clone(),
             }
         } else if item.state == "Claimed" || item.state == "Running" {
-            match heartbeat_via_engine(engine, &item.id).await? {
+            match heartbeat_via_engine(
+                engine,
+                &item.id,
+                item.lease_owner.as_deref().unwrap_or(""),
+                std::time::Duration::from_secs(300),
+            )
+            .await?
+            {
                 true => PianolaDecision::ContinueWorker {
                     story_id: item.story_id.clone(),
                 },

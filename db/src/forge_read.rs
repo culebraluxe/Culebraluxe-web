@@ -133,10 +133,17 @@ pub struct ForgeQueueWorkRow {
     pub id: String,
     pub story_id: String,
     pub state: String,
-    pub claimed_by: Option<String>,
     pub error_text: Option<String>,
     pub queued_at: Option<String>,
     pub updated_at: Option<String>,
+    /// Retry accounting surfaces on the queue row (migration 277): a bounded queue must show its budget.
+    pub attempts: Option<i32>,
+    pub max_attempts: Option<i32>,
+    /// The claim holder, named for the lease — `agent_work_item.claimed_by`. This is the fence the heartbeat
+    /// checks, so the queue row's owner and the heartbeat's owner read as one fact.
+    pub lease_owner: Option<String>,
+    pub heartbeat_at: Option<String>,
+    pub lease_expires_at: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -443,9 +450,13 @@ impl ForgeReadDao {
     /// states the Cockpit has always shown as in flight; a `Ready` item is in the table, not running.
     pub async fn active_agent_work(&self, limit: i64) -> DbResult<Vec<ForgeQueueWorkRow>> {
         let sql = format!(
-            "select id::text as id, story_id, state, claimed_by, error_text,
+            "select id::text as id, story_id, state, error_text,
                     to_char(queued_at at time zone 'UTC', '{ISO_UTC}') as queued_at,
-                    to_char(updated_at at time zone 'UTC', '{ISO_UTC}') as updated_at
+                    to_char(updated_at at time zone 'UTC', '{ISO_UTC}') as updated_at,
+                    attempts, max_attempts,
+                    claimed_by as lease_owner,
+                    to_char(heartbeat_at at time zone 'UTC', '{ISO_UTC}') as heartbeat_at,
+                    to_char(lease_expires_at at time zone 'UTC', '{ISO_UTC}') as lease_expires_at
              from agent_work_item
              where state in ('Claimed', 'Running', 'Paused')
              order by updated_at desc

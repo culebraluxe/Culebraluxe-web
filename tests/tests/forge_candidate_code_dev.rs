@@ -33,6 +33,7 @@ fn capture(story: &str, patch: &str, sha: &str) -> NewToolArtifact {
             "patch": patch,
         })),
         sha: Some(sha.to_string()),
+        idempotency_key: None,
     }
 }
 

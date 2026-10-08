@@ -69,9 +69,9 @@ async fn begin_work(db: &Database, work_item_id: &str) -> Option<db::BeginAgentW
     dao.begin_agent_work_run(work_item_id).await.expect("begin")
 }
 
-async fn heartbeat(db: &Database, work_item_id: &str) -> bool {
+async fn heartbeat(db: &Database, work_item_id: &str, worker_id: &str) -> bool {
     let dao = ForgeEngineDao::new(db.clone());
-    dao.heartbeat_agent_work(work_item_id)
+    dao.heartbeat_agent_work(work_item_id, worker_id, std::time::Duration::from_secs(300))
         .await
         .expect("heartbeat")
 }
@@ -85,11 +85,12 @@ async fn seed_execution(
     work_item_id: &str,
     worker_id: &str,
 ) -> (String, String) {
-    let process_instance_id: String =
-        sqlx::query_scalar("select id::text from process_instances order by started_at desc limit 1")
-            .fetch_one(db.pool())
-            .await
-            .expect("process instance");
+    let process_instance_id: String = sqlx::query_scalar(
+        "select id::text from process_instances order by started_at desc limit 1",
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("process instance");
     let task_id = Uuid::new_v4().to_string();
     let token_id = Uuid::new_v4().to_string();
     sqlx::query(
@@ -148,7 +149,12 @@ async fn age_heartbeat(db: &Database, task_id: &str) {
     .expect("age heartbeat");
 }
 
-async fn stale_recovery(db: &Database, task_id: &str, process_instance_id: &str, work_item_id: &str) -> bool {
+async fn stale_recovery(
+    db: &Database,
+    task_id: &str,
+    process_instance_id: &str,
+    work_item_id: &str,
+) -> bool {
     sqlx::query_scalar::<_, bool>(
         "select forge_recover_stale_engine_claim($1::uuid, $2::uuid, $3::uuid, 10)",
     )
@@ -232,13 +238,16 @@ async fn db_concurrency_007__stale_claim_vs_live_heartbeat() {
     let (task_id_1, pi_1) = seed_execution(&db, &story_id_1, &work_item_id, "worker-1").await;
 
     // Heartbeat the running claim
-    let heartbeated = heartbeat(&db, &work_item_id).await;
+    let heartbeated = heartbeat(&db, &work_item_id, "worker-1").await;
     assert!(heartbeated, "heartbeat must succeed on running claim");
     refresh_heartbeat(&db, &task_id_1).await;
 
     // Recovery must NOT interrupt a claim whose heartbeat is live
     let recovered = stale_recovery(&db, &task_id_1, &pi_1, &work_item_id).await;
-    assert!(!recovered, "a recently heartbeated claim must not be recovered as stale");
+    assert!(
+        !recovered,
+        "a recently heartbeated claim must not be recovered as stale"
+    );
 
     let state: String = sqlx::query_scalar("select state from agent_work_item where id = $1::uuid")
         .bind(&work_item_id)
@@ -256,7 +265,10 @@ async fn db_concurrency_007__stale_claim_vs_live_heartbeat() {
         .fetch_one(db.pool())
         .await
         .expect("state");
-    assert_eq!(state, "Ready", "the released claim returns the item to Ready");
+    assert_eq!(
+        state, "Ready",
+        "the released claim returns the item to Ready"
+    );
 
     // Test 2: Concurrent heartbeat and stale recovery race
     let story_id_2 = format!("db-007-race-{}", Uuid::new_v4());
@@ -288,7 +300,7 @@ async fn db_concurrency_007__stale_claim_vs_live_heartbeat() {
     );
     handles.push(tokio::spawn(async move {
         barrier_hb.arrive_and_wait().await;
-        let hb = heartbeat(&db_hb, &work_item_id_hb).await;
+        let hb = heartbeat(&db_hb, &work_item_id_hb, "worker-2").await;
         refresh_heartbeat(&db_hb, &task_id_hb).await;
         RaceOutcome::Heartbeat(hb)
     }));
@@ -303,7 +315,9 @@ async fn db_concurrency_007__stale_claim_vs_live_heartbeat() {
     );
     handles.push(tokio::spawn(async move {
         barrier_rec.arrive_and_wait().await;
-        RaceOutcome::Recovered(stale_recovery(&db_rec, &task_id_rec, &pi_2_rec, &work_item_id_rec).await)
+        RaceOutcome::Recovered(
+            stale_recovery(&db_rec, &task_id_rec, &pi_2_rec, &work_item_id_rec).await,
+        )
     }));
 
     let mut heartbeat_result = false;
@@ -325,12 +339,13 @@ async fn db_concurrency_007__stale_claim_vs_live_heartbeat() {
             .fetch_one(db.pool())
             .await
             .expect("state");
-    let exec_status: String =
-        sqlx::query_scalar("select status from forge_engine_task_execution where task_id = $1::uuid")
-            .bind(&task_id_2)
-            .fetch_one(db.pool())
-            .await
-            .expect("exec status");
+    let exec_status: String = sqlx::query_scalar(
+        "select status from forge_engine_task_execution where task_id = $1::uuid",
+    )
+    .bind(&task_id_2)
+    .fetch_one(db.pool())
+    .await
+    .expect("exec status");
     match (final_state.as_str(), exec_status.as_str()) {
         ("Running", "running") => assert!(!recovered_result, "a fresh claim must not be recovered"),
         ("Ready", "interrupted") => {}
@@ -372,7 +387,7 @@ async fn db_concurrency_007__stale_claim_vs_live_heartbeat() {
             if injector.next_fault().is_failure() {
                 return Err("crashed".to_string());
             }
-            heartbeat(&db_h, &work_item_id_h).await;
+            heartbeat(&db_h, &work_item_id_h, "worker-3").await;
             refresh_heartbeat(&db_h, &task_id_h).await;
             Ok(())
         }));
@@ -393,7 +408,10 @@ async fn db_concurrency_007__stale_claim_vs_live_heartbeat() {
     .fetch_one(db.pool())
     .await
     .expect("rows");
-    assert_eq!(state_3, "Running", "the survivor's heartbeat keeps the claim running");
+    assert_eq!(
+        state_3, "Running",
+        "the survivor's heartbeat keeps the claim running"
+    );
     assert_eq!(exec_3, "running", "the execution is not interrupted");
     // And the heartbeat is live, so a fresh recovery still finds nothing to do:
     let recovered_3 = stale_recovery(&db, &task_id_3, &pi_3, &work_item_id_3).await;
