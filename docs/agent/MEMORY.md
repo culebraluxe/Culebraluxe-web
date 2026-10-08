@@ -692,3 +692,40 @@ Short facts that are expensive to rediscover.
   still ends `DRIFT FOUND` on two DEV-only test artifacts, `chaos_service_test_writes` and `crm_lead_projection` with
   their primary keys, which no migration in the repo creates.
 
+- **2026-10-08 (a form template version is stamped at creation, so a new version of a document changes nothing until
+  somebody makes a new form — and the active version is a code constant, not a directory scan).** The other half of "I
+  cannot see Claude's Listing Agreement changes in production": prod's ten forms were `LISTING-01` ×6 (five at **v4**,
+  one at v3), `OFFER-01` v2, `PR-PNS` v3, `SHOW-RPT` v1 — every one of them created before v5 existed (the newest,
+  `75d0347a`, on 2026-09-22), so none could carry v5 and none ever would: `document_form_instance.template_version` is
+  written once by the create path (`db/src/forms/database.rs:15-48`), and a later edit never re-stamps it. The version a
+  *new* form gets is not the newest file on disk either — it is `ACTIVE_FORM_TEMPLATE_VERSIONS` in
+  `web/src/api/portal_bridge/forms_templates.rs:37-44` (`("LISTING-01", 5)`), read by `active_form_template`; a template
+  file is authoring, this constant is the switch. And v5 was already live: the deployed sha `c483e8f81` **is** the commit
+  that added `middle/model/forms/templates/LISTING-01.v5.xml` (`feat(forms): Listing Agreement v5 — seller email, fixed
+  broker, …`). Templates are read at RUNTIME and never compiled in (`middle/model/src/forms_template.rs:1-13`), so what
+  ships is the *directory*: `devops/Dockerfile.runtime` copies it to `/app/templates` and sets `FORMS_TEMPLATES_DIR`.
+
+  **Created one v5 form on PROD, on the Captain's word:** `93a806f5-ac88-443c-bba3-10fa197fee77` — `LISTING-01` v5,
+  draft, seller `509db220-…` (Fransico Maria Fuentes Coste), property `f17dd79e-…` (Windward Bay Estate), which is the
+  same seller+property as the newest v4 form, so v4 and v5 sit side by side. `list_instances`
+  (`db/src/forms/database.rs:130-154`) is **not** actor-scoped and orders `updated_at desc`, so it is at the top of the
+  Forms screen for every portal user.
+
+  **How, and this is the reusable part — the product's own API, session-free.** `POST /v1/forms` on
+  `https://www.culebraluxe.com` with `x-culebra-internal-key` = hex `sha256("culebraluxe-rust-bridge:v1:" + AUTH_SECRET)`
+  (`docs/rust-contributing.md`, "Calling the API by hand"; derived in `web/src/api/mod.rs:31-59`) plus
+  `x-culebra-auth-provider` + `x-culebra-auth-sub`, which resolve through `auth_identity` — `google` +
+  `104033509608344385707` is **CulebraLuxe Root**, so the row's `created_by_user_id` is the system account and not a
+  person. The obvious path is the wrong one here: the portal bridge's create (`POST /api/portal/rust-ui/forms`,
+  `action=create`, `web/src/api/portal_bridge/forms_write.rs:18`) is the one that *prefills*, but it needs the signed
+  session cookie and its only non-cookie identity is the dev stub, which `ui_auth::stub_enabled` refuses whenever the
+  environment says production (`web/src/api/ui_auth.rs:26-35`). So the prefilled values were supplied explicitly,
+  computed by the app's own rules: `prefill_form_values` (`web/src/api/portal_bridge/forms_values.rs:6-46`, binding →
+  `form_default` → `person.civil_status` → `date_default` → `fixed`), `form_default`/`date_default`
+  (`forms_templates.rs:378-404`), `binding_value` + `format_property_address` (`forms_templates.rs:406-491`), and
+  `empty_form_sections`. Two details that only reading the code gives you: `startDate` takes today and `endDate` +90
+  days because `date_default` matches on the *field name* containing `end`, and `propertyLocation` comes from
+  `p.address_line1` (a two-line value joined by `", "`), not from `p.location`. Still unproven by a command, and named
+  as such: that the portal *renders* it. Nothing session-free on prod loads the template library (the vault's
+  `/v1/vault/contracts/{c}/templates/{t}/prior` is a pure DB read), so the render check is a human click on the form.
+
