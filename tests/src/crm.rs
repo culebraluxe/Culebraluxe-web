@@ -392,4 +392,79 @@ impl ClientHarness {
             })?;
         Ok(count)
     }
+
+    /// Insert one canonical `person`, committed, under a caller-supplied `display_name` marker; returns its id.
+    ///
+    /// Fixture setup only, and the counterpart of [`cleanup`](Self::cleanup): this harness's cleanup removes fixture
+    /// persons by marker, so it must also be able to make them. The client service under test still reads the rows
+    /// itself.
+    pub async fn seed_person(&self, display_name: &str) -> Result<String, HarnessDbError> {
+        let id = sqlx::query_scalar(
+            "insert into person (display_name, role, status)
+             values ($1, 'buyer', 'new')
+             returning id::text",
+        )
+        .bind(display_name)
+        .fetch_one(self.pool())
+        .await
+        .map_err(|error| {
+            HarnessDbError::from(DbFailure::from_sqlx("test-harness.client.seed_person", &error))
+        })?;
+        Ok(id)
+    }
+
+    /// Insert one `app_user` — the table the production `assignable_agents` reads (`db/src/client/detail.rs:145-156`)
+    /// — committed, under a caller-supplied `display_name` marker; returns its id.
+    ///
+    /// Fixture setup only: the service under test still selects the rows itself. The marker in `display_name` (and in
+    /// the unique email) is what [`cleanup_app_users`](Self::cleanup_app_users) keys on, and passing `active = false`
+    /// is how a test seeds the row that must **not** be offered.
+    pub async fn seed_app_user(&self, display_name: &str, active: bool) -> Result<String, HarnessDbError> {
+        let id = sqlx::query_scalar(
+            "insert into app_user (display_name, email, active)
+             values ($1, $1 || '@tst-harness.invalid', $2)
+             returning id::text",
+        )
+        .bind(display_name)
+        .bind(active)
+        .fetch_one(self.pool())
+        .await
+        .map_err(|error| {
+            HarnessDbError::from(DbFailure::from_sqlx("test-harness.client.seed_app_user", &error))
+        })?;
+        Ok(id)
+    }
+
+    /// Delete every `app_user` this run seeded under `marker`.
+    pub async fn cleanup_app_users(&self, marker: &str) -> Result<u64, HarnessDbError> {
+        let pattern = format!("{marker}%");
+        let removed = sqlx::query("delete from app_user where display_name like $1")
+            .bind(&pattern)
+            .execute(self.pool())
+            .await
+            .map_err(|error| {
+                HarnessDbError::from(DbFailure::from_sqlx(
+                    "test-harness.client.cleanup_app_users",
+                    &error,
+                ))
+            })?
+            .rows_affected();
+        Ok(removed)
+    }
+
+    /// How many `app_user` rows this run seeded under `marker` still remain.
+    pub async fn app_user_leftover_count(&self, marker: &str) -> Result<i64, HarnessDbError> {
+        let pattern = format!("{marker}%");
+        let count = sqlx::query_scalar("select count(*) from app_user where display_name like $1")
+            .bind(&pattern)
+            .fetch_one(self.pool())
+            .await
+            .map_err(|error| {
+                HarnessDbError::from(DbFailure::from_sqlx(
+                    "test-harness.client.app_user_leftover_count",
+                    &error,
+                ))
+            })?;
+        Ok(count)
+    }
 }
