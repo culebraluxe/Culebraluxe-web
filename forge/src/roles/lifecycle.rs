@@ -112,7 +112,7 @@ pub fn run_lane_turn(
     match runner.turn_ports() {
         Some(ports) => {
             // Each turn starts from the story's evidence as it stands NOW, not as the process was woken with.
-            let mut current = ports.current_for(&task.story_id);
+            let mut current = ports.current_for(&task.story_id)?;
             // A rejection is the verdict on the turn that produced it. Carried into the next turn's starting
             // evidence it reads as this turn's own refusal: a repair Smith after a QA FAIL was re-prompted and paid
             // twice before it had answered once.

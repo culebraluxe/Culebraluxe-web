@@ -56,7 +56,15 @@ impl ApplicationPort for ForgeApplicationPort {
         let durable = self
             .evidence
             .as_ref()
-            .map(|r| r.read(&subject.subject_id))
+            .map(|r| {
+                r.read(&subject.subject_id).unwrap_or_else(|db_failure| {
+                    eprintln!(
+                        "forge facts read failed for {}: {}",
+                        subject.subject_id, db_failure
+                    );
+                    ForgeGateEvidence::default()
+                })
+            })
             .unwrap_or_default();
         let pending = self.pending.lock().unwrap().clone();
         let merged = match pending {
@@ -70,12 +78,13 @@ impl ApplicationPort for ForgeApplicationPort {
 pub struct MapEvidence(pub std::sync::Mutex<std::collections::BTreeMap<String, ForgeGateEvidence>>);
 
 impl ForgeEvidenceReader for MapEvidence {
-    fn read(&self, story_id: &str) -> ForgeGateEvidence {
-        self.0
+    fn read(&self, story_id: &str) -> Result<ForgeGateEvidence, db::DbFailure> {
+        Ok(self
+            .0
             .lock()
             .unwrap()
             .get(story_id)
             .cloned()
-            .unwrap_or_default()
+            .unwrap_or_default())
     }
 }

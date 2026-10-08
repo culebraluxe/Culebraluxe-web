@@ -7,8 +7,10 @@ use db::ForgeEngineDao;
 
 /// Read evidence for a story. Database errors propagate as `DbFailure` which
 /// announces through `db::capture::notify` and lands in `app_error` if a sink
-/// is installed. On error, returns a default evidence with the error logged.
-pub fn read_story_evidence(story_id: &str) -> ForgeGateEvidence {
+/// is installed. Returns `Err(DbFailure)` on database failure so callers can
+/// distinguish "database down" (retryable engine fault) from "no evidence yet"
+/// (empty evidence proceeds).
+pub fn read_story_evidence(story_id: &str) -> Result<ForgeGateEvidence, db::DbFailure> {
     let result = with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
@@ -25,18 +27,19 @@ pub fn read_story_evidence(story_id: &str) -> ForgeGateEvidence {
                 evidence.repair_attempts = Some(repairs.max(0) as u32);
                 evidence.replan_attempts = Some(replans.max(0) as u32);
             }
-            evidence
+            Ok(evidence)
         }
         Ok(Err(db_failure)) => {
             // The DbFailure has already announced itself through db::capture::notify
-            // when it was constructed in the DAO. We log and return default.
-            eprintln!("forge evidence read failed for {story_id}: {db_failure}");
-            ForgeGateEvidence::default()
+            // when it was constructed in the DAO. Propagate the error to the caller.
+            Err(db_failure)
         }
         Err(string_error) => {
-            // with_shared error (e.g., connection failed)
-            eprintln!("forge evidence read failed for {story_id}: {string_error}");
-            ForgeGateEvidence::default()
+            // with_shared error (e.g., connection failed) — wrap as DbFailure.
+            Err(db::DbFailure::configuration(
+                "forge_evidence_read",
+                format!("connection failed: {string_error}"),
+            ))
         }
     }
 }
@@ -64,7 +67,7 @@ fn evidence_from_row(row: db::ForgeEvidencePatch) -> ForgeGateEvidence {
 pub struct DbForgeEvidenceReader;
 
 impl ForgeEvidenceReader for DbForgeEvidenceReader {
-    fn read(&self, story_id: &str) -> ForgeGateEvidence {
+    fn read(&self, story_id: &str) -> Result<ForgeGateEvidence, db::DbFailure> {
         read_story_evidence(story_id)
     }
 }

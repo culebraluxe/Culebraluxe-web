@@ -253,7 +253,10 @@ pub struct DbReleaseEvidenceStore;
 
 impl EvidenceStore for DbReleaseEvidenceStore {
     fn read(&self, story_id: &str) -> ForgeGateEvidence {
-        crate::engine::db_writer::read_story_evidence(story_id)
+        crate::engine::db_writer::read_story_evidence(story_id).unwrap_or_else(|db_failure| {
+            eprintln!("forge release evidence read failed for {story_id}: {db_failure}");
+            ForgeGateEvidence::default()
+        })
     }
 
     fn merge(&self, process_instance_id: &str, story_id: &str, patch: ForgeGateEvidence) {
