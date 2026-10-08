@@ -1,4 +1,5 @@
-//! Operator tool for the control-plane databases: migration ledger status, migration apply, schema parity.
+//! Operator tool for the control-plane databases: migration ledger status, migration apply, schema parity, and
+//! carrying saved forms forward to a newer template version.
 //!
 //! Rust replacement for the retired TypeScript scripts behind `pnpm db:migrations`, `pnpm db:migrate` and
 //! `pnpm db:parity` (`scripts/migration-status.mjs`, `scripts/apply-migration.mjs`,
@@ -10,6 +11,7 @@
 //!   cargo run -p cli -- db-tool status
 //!   cargo run -p cli -- db-tool apply <sql-file> [prod|dev] [--force] [--note "…"]
 //!   cargo run -p cli -- db-tool parity
+//!   cargo run -p cli -- db-tool carry-forward <template-id> <to-version> [prod|dev] [--from N] [--apply]
 //!
 //! Exit codes are part of the contract, because CI and the SOP read them:
 //!   0 success (including "already applied, checksum matches"), 1 drift or refused, 2 configuration/usage.
@@ -19,7 +21,13 @@
 //! DIFFERENT checksum is REFUSED unless `--force` is passed. Nothing here decides schema truth — it
 //! executes a reviewed SQL file and records that it ran.
 
-use db::{schema_parity, Database, DbTarget, MigrationLedgerRow, SchemaMigrationDao};
+use db::{schema_parity, Database, DbTarget, FormDao, MigrationLedgerRow, SchemaMigrationDao};
+use model::forms_carry_forward::{carried_sections, carried_values, CarriedBody};
+use model::forms_template::TemplateLibrary;
+use model::{
+    CreateFormInstanceRequest, FormInstanceStatus, UpdateFormInstanceInput,
+    UpdateFormInstanceRequest,
+};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io;
@@ -42,6 +50,7 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         "status" => status().await,
         "apply" => apply(&args[1..]).await,
         "parity" => parity().await,
+        "carry-forward" => carry_forward(&args[1..]).await,
         _ => {
             usage();
             Ok(2)
@@ -54,6 +63,9 @@ pub fn usage() {
     eprintln!("  cargo run -p cli -- db-tool status");
     eprintln!("  cargo run -p cli -- db-tool apply <sql-file> [prod|dev] [--force] [--note \"…\"]");
     eprintln!("  cargo run -p cli -- db-tool parity");
+    eprintln!(
+        "  cargo run -p cli -- db-tool carry-forward <template-id> <to-version> [prod|dev] [--from N] [--apply]"
+    );
 }
 
 /// A failure that carries the exit code the scripts' contract gives it.
@@ -412,6 +424,313 @@ async fn apply(args: &[String]) -> Result<u8, Failure> {
 
     println!("applied {file} -> {which} control plane (recorded in schema_migration)");
     Ok(0)
+}
+
+/// `carry-forward` — put the forms saved on an older template version onto a newer one, as new forms.
+///
+/// WHY A NEW FORM AND NOT A RE-STAMP. An instance's `template_version` is stamped once, at creation, and it is the
+/// version the composer renders that document from — so moving the stamp would make a row claim a version it was never
+/// authored or issued under. Everything else in this repository already reads that way: the v5 template's own header
+/// says "Forms already issued on v4 keep v4; new forms are v5", an issued form is LOCKED in the editor
+/// (`web/ui/src/app/screens/forms/editor.rs`), and the issued PDF with its snapshot sits in the vault under its own
+/// template version. So this creates the newer form BESIDE the older one and touches neither the older row nor the
+/// vault.
+///
+/// SAFE TO RUN TWICE. A form already on the target version for the same seller and property is FILLED instead of
+/// duplicated — the older agreement's values win, the newer draft keeps what the older form has nothing for, and every
+/// value the fill replaces is named in the report. `model::forms_carry_forward` owns that rule and states it. An
+/// `issued` form on the target version is refused outright: an issued form is evidence, never a draft to edit.
+///
+/// DRY RUN BY DEFAULT, because this writes business rows: pass `--apply` to write them.
+async fn carry_forward(args: &[String]) -> Result<u8, Failure> {
+    let mut template_id: Option<String> = None;
+    let mut to_version: Option<i32> = None;
+    let mut from_version: Option<i32> = None;
+    let mut apply = false;
+    let mut explicit: Option<DbTarget> = None;
+
+    let mut index = 0;
+    while index < args.len() {
+        let arg = args[index].as_str();
+        match arg {
+            "--apply" => apply = true,
+            "--from" => {
+                from_version = args
+                    .get(index + 1)
+                    .and_then(|value| value.parse::<i32>().ok());
+                index += 1;
+            }
+            "dev" => explicit = Some(DbTarget::Dev),
+            "prod" => explicit = Some(DbTarget::Prod),
+            other if !other.starts_with("--") && template_id.is_none() => {
+                template_id = Some(other.to_string())
+            }
+            other if !other.starts_with("--") && to_version.is_none() => {
+                let Ok(parsed) = other.parse::<i32>() else {
+                    return Err(Failure::Usage(format!(
+                        "{other} is not a template version — pass the version to carry forward TO, e.g. `carry-forward LISTING-01 5`"
+                    )));
+                };
+                to_version = Some(parsed);
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+
+    let (Some(template_id), Some(to_version)) = (template_id, to_version) else {
+        usage();
+        return Err(Failure::Usage(
+            "carry-forward requires a template id and the version to carry forward TO, e.g. `carry-forward LISTING-01 5`"
+                .to_string(),
+        ));
+    };
+
+    let target = explicit.unwrap_or_else(default_target);
+    require_env(&[target])?;
+
+    // The templates are authoring FILES read at runtime, so "does v5 exist" is a question for the directory, never for
+    // a constant — and a version that is not there is a usage error, not an empty run.
+    let library = TemplateLibrary::load_default().map_err(|error| {
+        Failure::Configuration(format!("the form templates did not load: {error}"))
+    })?;
+    let Some(newer) = library.version(&template_id, to_version) else {
+        let known: Vec<String> = library
+            .families()
+            .iter()
+            .filter(|(id, _)| *id == template_id)
+            .map(|(_, version)| format!("v{version}"))
+            .collect();
+        return Err(Failure::Usage(format!(
+            "{template_id} v{to_version} is not in the template directory (it has {})",
+            join_or_none(&known)
+        )));
+    };
+    let to_version = newer.version;
+
+    let database = connect(target).await?;
+    let forms = FormDao::new(database);
+    let instances = forms.list_instances().await?;
+
+    let mut sources: Vec<usize> = instances
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| {
+            let form = &item.instance;
+            let from_matches = match from_version {
+                Some(from) => form.template_version == from,
+                None => true,
+            };
+            form.template_id == template_id && form.template_version < to_version && from_matches
+        })
+        .map(|(index, _)| index)
+        .collect();
+    // Oldest version first: the report reads in the order the versions were authored, not in the list's updated_at order.
+    sources.sort_by(|left, right| {
+        let left = &instances[*left].instance;
+        let right = &instances[*right].instance;
+        (left.template_version, left.updated_at.as_str())
+            .cmp(&(right.template_version, right.updated_at.as_str()))
+    });
+
+    println!(
+        "{template_id} v{to_version}: {} form(s) saved on an older version",
+        sources.len()
+    );
+    if sources.is_empty() {
+        return Ok(0);
+    }
+    if !apply {
+        println!("dry run — nothing is written; pass --apply to carry them forward");
+    }
+
+    let empty: BTreeMap<String, String> = BTreeMap::new();
+    let (mut creates, mut fills, mut skips) = (0, 0, 0);
+
+    for index in sources {
+        let item = &instances[index];
+        let source = &item.instance;
+        println!(
+            "\n  {} v{} {}   {} / {}",
+            source.template_id,
+            source.template_version,
+            short_id(&source.id),
+            item.client_name.as_deref().unwrap_or("(no seller)"),
+            item.property_label.as_deref().unwrap_or("(no property)")
+        );
+
+        // Without the older version on disk there is nothing to compare its prose against, and a copy of a document
+        // nobody can render is not a conversion. Named, not guessed.
+        let Some(older) = library.version(&source.template_id, source.template_version) else {
+            println!(
+                "    SKIPPED — v{} is not in the template directory, so what it prints cannot be compared",
+                source.template_version
+            );
+            skips += 1;
+            continue;
+        };
+
+        let existing = instances.iter().map(|item| &item.instance).find(|other| {
+            other.template_id == template_id
+                && other.template_version == to_version
+                && other.person_id.is_some()
+                && other.person_id == source.person_id
+                && other.property_id.is_some()
+                && other.property_id == source.property_id
+        });
+        let (existing_values, existing_sections) = match existing {
+            Some(other) if other.status == FormInstanceStatus::Issued => {
+                println!(
+                    "    SKIPPED — v{to_version} {} is already issued for this seller and property; an issued form is evidence",
+                    short_id(&other.id)
+                );
+                skips += 1;
+                continue;
+            }
+            Some(other) => (&other.field_values, &other.sections),
+            None => (&empty, &empty),
+        };
+
+        // The email the product itself resolves for this form's own signer — the same rule the signing flow uses
+        // (`FormDao::list_signer_people`), so a filled address is the address a signing link would go to.
+        let derived_email = forms
+            .list_signer_people(&source.id)
+            .await?
+            .into_iter()
+            .find(|person| person.person_id.as_deref() == source.person_id.as_deref())
+            .and_then(|person| person.email)
+            .map(|email| email.trim().to_string())
+            .filter(|email| !email.is_empty());
+
+        let carried = carried_values(
+            older,
+            newer,
+            &source.field_values,
+            existing_values,
+            derived_email.as_deref(),
+        );
+        let (sections, body) = carried_sections(older, newer, &source.sections, existing_sections);
+
+        let action = if existing.is_some() { "fill" } else { "create" };
+        let email_note = match carried.derived_email.as_deref() {
+            Some(field) => format!("{field} from the person's record"),
+            None => "no field the older form could not know".to_string(),
+        };
+        let body_note = match body {
+            CarriedBody::CarriedTheOlderProse => format!(
+                "carries the v{} edited prose (v{} and v{to_version} print the same sections)",
+                source.template_version, source.template_version
+            ),
+            CarriedBody::KeptTheNewerEdit => format!("keeps the v{to_version} form's own edit"),
+            CarriedBody::Regenerated => format!(
+                "composed from v{to_version} (no edit to carry, or v{} does not print what v{to_version} prints)",
+                source.template_version
+            ),
+        };
+        println!(
+            "    would {action} v{to_version}: {} value(s) filled, {email_note}, body {body_note}",
+            carried
+                .values
+                .values()
+                .filter(|value| !value.trim().is_empty())
+                .count()
+        );
+        if !carried.dropped.is_empty() {
+            println!(
+                "      not carried (v{to_version} declares no such field): {}",
+                carried.dropped.join(", ")
+            );
+        }
+        for (field, previous) in &carried.replaced {
+            println!(
+                "      replaces {field}: {previous} → {}",
+                carried
+                    .values
+                    .get(field)
+                    .map(String::as_str)
+                    .unwrap_or_default()
+            );
+        }
+        if source.contract_id.is_some() {
+            println!(
+                "      note: the contract lineage stays on the v{} form {}",
+                source.template_version,
+                short_id(&source.id)
+            );
+        }
+
+        match existing {
+            Some(other) => {
+                fills += 1;
+                if !apply {
+                    continue;
+                }
+                let updated = forms
+                    .update_instance(&UpdateFormInstanceRequest {
+                        form_instance_id: other.id.clone(),
+                        input: UpdateFormInstanceInput {
+                            field_values: Some(carried.values),
+                            sections: Some(sections),
+                            status: None,
+                            contract_id: None,
+                        },
+                    })
+                    .await?;
+                match updated {
+                    Some(form) => println!("    filled v{} {}", form.template_version, form.id),
+                    None => {
+                        println!(
+                            "    NOT FOUND: {} disappeared between the read and the write",
+                            other.id
+                        );
+                        skips += 1;
+                    }
+                }
+            }
+            None => {
+                creates += 1;
+                if !apply {
+                    continue;
+                }
+                // `contract_id` is deliberately NOT carried: it is the lineage of the form that was ISSUED, and this
+                // new draft has issued nothing. The context check needs one of contract/deal/person/property, and the
+                // seller and the property do travel.
+                let created = forms
+                    .create_instance(&CreateFormInstanceRequest {
+                        template_id: template_id.clone(),
+                        template_version: to_version,
+                        deal_id: source.deal_id.clone(),
+                        person_id: source.person_id.clone(),
+                        property_id: source.property_id.clone(),
+                        field_values: carried.values,
+                        sections,
+                        created_by_user_id: source.created_by_user_id.clone(),
+                    })
+                    .await?;
+                println!(
+                    "    created v{} {} (draft) for {} / {}",
+                    created.template_version,
+                    created.id,
+                    item.client_name.as_deref().unwrap_or("(no seller)"),
+                    item.property_label.as_deref().unwrap_or("(no property)")
+                );
+            }
+        }
+    }
+
+    if apply {
+        println!("\ncreated {creates}, filled {fills}, skipped {skips}");
+    } else {
+        println!(
+            "\ndry run — nothing written: {creates} would be created, {fills} filled, {skips} skipped"
+        );
+    }
+    Ok(0)
+}
+
+/// The first eight characters of a uuid: enough to name a row in a report, short enough to read.
+fn short_id(id: &str) -> &str {
+    id.get(..8).unwrap_or(id)
 }
 
 /// An explicit target argument wins. Otherwise the declared environment decides, as the script did
