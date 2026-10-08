@@ -54,6 +54,7 @@ pub mod providers;
 pub mod race;
 pub mod runtime;
 pub mod security;
+pub mod signature;
 pub mod snapshot;
 pub mod source;
 
@@ -72,3 +73,4 @@ pub use pool::{DbPoolFaultHarness, PoolFault};
 pub use race::RaceHarness;
 pub use runtime::RuntimeHarness;
 pub use security::{CommittedAuditRow, SecurityHarness};
+pub use signature::SignatureHarness;

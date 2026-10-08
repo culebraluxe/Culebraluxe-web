@@ -82,9 +82,11 @@ pub fn in_flight_runs() -> usize {
 /// alone, and a role turn touches nothing on the item, so without a beat a run longer than the window would be
 /// requeued **while it was still running** and the next tick would start a second engine over the same story.
 /// A beat that comes back `Ok(false)` means the claim is no longer ours; the thread stops and says so.
-fn spawn_heartbeat(work_item_id: String, interval: Duration) -> Arc<AtomicBool> {
+fn spawn_heartbeat(work_item_id: String, worker_id: String, interval: Duration) -> Arc<AtomicBool> {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
+    // The lease outlives three missed beats before it can be read as dead; one missed beat is a hiccup.
+    let lease_ttl = interval * 3;
     std::thread::spawn(move || {
         loop {
             // Sleep in one-second slices so the child finishing is noticed promptly.
@@ -94,7 +96,7 @@ fn spawn_heartbeat(work_item_id: String, interval: Duration) -> Arc<AtomicBool> 
                 }
                 std::thread::sleep(Duration::from_secs(1));
             }
-            match agent_work::heartbeat_agent_work(&work_item_id) {
+            match agent_work::heartbeat_agent_work(&work_item_id, &worker_id, lease_ttl) {
                 Ok(true) => {}
                 Ok(false) => {
                     eprintln!(
@@ -442,6 +444,7 @@ fn run_claimed_dispatch(
             &dispatch.work_item_id,
             AgentWorkOutcome::Abandoned,
             Some(&reason),
+            None,
         ) {
             Ok(Some(settled)) => eprintln!(
                 "forge-worker: settled {} as {} (story {})",
@@ -462,7 +465,11 @@ fn run_claimed_dispatch(
     }
 
     // The claim is only worth holding if it stays fresh for as long as the run lasts.
-    let heartbeat = spawn_heartbeat(dispatch.work_item_id.clone(), worker_cfg.heartbeat_interval);
+    let heartbeat = spawn_heartbeat(
+        dispatch.work_item_id.clone(),
+        worker_id.clone(),
+        worker_cfg.heartbeat_interval,
+    );
 
     let mut command = Command::new("cargo");
     command.args([
@@ -532,6 +539,7 @@ fn run_claimed_dispatch(
                 &dispatch.work_item_id,
                 AgentWorkOutcome::Abandoned,
                 Some(&reason),
+                None,
             ) {
                 Ok(Some(settled)) => eprintln!(
                     "forge-worker: settled {} as {} (story {})",
@@ -577,6 +585,7 @@ fn run_claimed_dispatch(
                         &dispatch.work_item_id,
                         AgentWorkOutcome::Abandoned,
                         Some(&reason),
+                        None,
                     ) {
                         Ok(Some(settled)) => eprintln!(
                             "forge-worker: settled {} as {} (story {})",
@@ -637,6 +646,7 @@ fn run_claimed_dispatch(
             &dispatch.work_item_id,
             AgentWorkOutcome::Abandoned,
             Some(&reason),
+            None,
         ) {
             Ok(Some(settled)) => eprintln!(
                 "forge-worker: settled {} as {} with the board ({reason})",

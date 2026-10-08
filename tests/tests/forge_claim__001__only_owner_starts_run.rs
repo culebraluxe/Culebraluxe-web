@@ -491,6 +491,7 @@ async fn forge_claim_001__only_owner_starts_run() {
             &owned_item,
             AgentWorkOutcome::Cancelled,
             Some("proof cleanup"),
+            None,
         )
         .await
         .unwrap()

@@ -109,6 +109,9 @@ pub struct NewToolArtifact {
     pub summary: Option<String>,
     pub detail: Option<Value>,
     pub sha: Option<String>,
+    /// The caller's idempotency key. A retry with the same key returns the FIRST row instead of writing a
+    /// duplicate (migration 277): a re-submitted artifact is the same fact, not a second row.
+    pub idempotency_key: Option<String>,
 }
 
 /// A written `forge_tool_artifact` row, as the schema holds it.
@@ -335,20 +338,29 @@ impl ForgeEngineDao {
         Ok(())
     }
 
-    /// Keep a live claim out of `stale_agent_work`'s reach while its run is in flight.
+    /// Keep a live claim out of `stale_agent_work`'s reach while its run is in flight, fenced to the owner.
     ///
-    /// `stale_agent_work` decides staleness on `updated_at` alone, and nothing else touches an item's `updated_at`
-    /// during a role turn — so without this a run longer than the stale window would be requeued **while it was
-    /// still running**, and the next tick would launch a second engine over the same story. That is the
-    /// double-dispatch this whole slice exists to prevent, so the heartbeat is not optional: the worker holds it for
-    /// the life of the child. Returns false when the row is no longer claimable (already settled or reassigned),
-    /// which the worker treats as "stop heartbeating", never as an error.
-    pub async fn heartbeat_agent_work(&self, work_item_id: &str) -> DbResult<bool> {
+    /// The heartbeat is the lease's renewal: it moves `updated_at` and `heartbeat_at` forward and re-opens
+    /// `lease_expires_at` for `lease_ttl`. It is owner-fenced — `claimed_by` must be `worker_id` — so a peer
+    /// (or a supervisor beating on someone else's item through a stale snapshot) cannot freshen a claim it
+    /// does not hold, and a stale owner whose lease was reclaimed no-ops here instead of double-driving.
+    /// False = no longer claimable (settled, reassigned or not ours), which the worker treats as "stop
+    /// heartbeating", never as an error.
+    pub async fn heartbeat_agent_work(
+        &self,
+        work_item_id: &str,
+        worker_id: &str,
+        lease_ttl: std::time::Duration,
+    ) -> DbResult<bool> {
+        let lease_secs = lease_ttl.as_secs_f64();
         let result = sqlx::query(
-            "update agent_work_item set updated_at=now()
-             where id=$1::uuid and state in ('Claimed','Running')",
+            "update agent_work_item set updated_at=now(), heartbeat_at=now(),
+             lease_expires_at = now() + make_interval(secs => $3)
+             where id=$1::uuid and claimed_by=$2 and state in ('Claimed','Running')",
         )
         .bind(work_item_id)
+        .bind(worker_id)
+        .bind(lease_secs)
         .execute(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_engine.heartbeat_agent_work", &error))?;
@@ -368,13 +380,15 @@ impl ForgeEngineDao {
         work_item_id: &str,
         outcome: AgentWorkOutcome,
         error_text: Option<&str>,
+        idempotency_key: Option<&str>,
     ) -> DbResult<Option<AgentWorkSettlement>> {
         sqlx::query_as::<_, AgentWorkSettlement>(
-            "select item_state, story_status, reason from forge_finish_agent_work_run($1::uuid, $2, $3)",
+            "select item_state, story_status, reason from forge_finish_agent_work_run($1::uuid, $2, $3, $4)",
         )
         .bind(work_item_id)
         .bind(outcome.as_str())
         .bind(error_text)
+        .bind(idempotency_key)
         .fetch_optional(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_engine.finish_agent_work_run", &error))
@@ -578,7 +592,7 @@ impl ForgeEngineDao {
     pub async fn record_tool_artifact(&self, input: &NewToolArtifact) -> DbResult<ToolArtifactRow> {
         sqlx::query_as::<_, ToolArtifactRow>(
             "select id, story_id, story_run_id, tool, kind, verdict, summary, sha, created_at
-               from forge_record_tool_artifact($1, $2::uuid, $3, $4, $5, $6, $7, $8)",
+               from forge_record_tool_artifact($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9)",
         )
         .bind(&input.story_id)
         .bind(input.story_run_id.as_deref())
@@ -588,6 +602,7 @@ impl ForgeEngineDao {
         .bind(input.summary.as_deref())
         .bind(input.detail.as_ref())
         .bind(input.sha.as_deref())
+        .bind(input.idempotency_key.as_deref())
         .fetch_one(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_engine.record_tool_artifact", &error))

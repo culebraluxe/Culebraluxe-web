@@ -141,7 +141,12 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
             "two workers must never hold one story: the queue is serial per story, not per system"
         );
         engine
-            .finish_agent_work_run(&peer.id, AgentWorkOutcome::Abandoned, Some("proof borrow"))
+            .finish_agent_work_run(
+                &peer.id,
+                AgentWorkOutcome::Abandoned,
+                Some("proof borrow"),
+                None,
+            )
             .await
             .expect("a borrowed DEV claim must be put back");
     }
@@ -264,7 +269,14 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
 
     tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
     assert!(
-        engine.heartbeat_agent_work(&claimed.id).await.unwrap(),
+        engine
+            .heartbeat_agent_work(
+                &claimed.id,
+                "proof-worker",
+                std::time::Duration::from_secs(300)
+            )
+            .await
+            .unwrap(),
         "a running claim must accept a heartbeat"
     );
     let after: String =
@@ -292,7 +304,7 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         .await
         .expect("board: the story completed");
     let settled = engine
-        .finish_agent_work_run(&claimed.id, AgentWorkOutcome::Done, None)
+        .finish_agent_work_run(&claimed.id, AgentWorkOutcome::Done, None, None)
         .await
         .unwrap()
         .expect("the first settle must land");
@@ -334,7 +346,8 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
             .finish_agent_work_run(
                 &claimed.id,
                 AgentWorkOutcome::Error,
-                Some("late second verdict")
+                Some("late second verdict"),
+                None,
             )
             .await
             .unwrap()
@@ -378,7 +391,7 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     .await
     .expect("insert a running item over a story the board says is being worked");
     let refused = engine
-        .finish_agent_work_run(&stuck_item, AgentWorkOutcome::Done, None)
+        .finish_agent_work_run(&stuck_item, AgentWorkOutcome::Done, None, None)
         .await
         .unwrap()
         .expect("a run that ends must still settle its claim");
@@ -431,7 +444,14 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
          dispatched by nothing, which is the strand migration 258 repaired eight of"
     );
     assert!(
-        !engine.heartbeat_agent_work(&busy_item).await.unwrap(),
+        !engine
+            .heartbeat_agent_work(
+                &busy_item,
+                "proof-worker",
+                std::time::Duration::from_secs(300)
+            )
+            .await
+            .unwrap(),
         "a terminal item is not claimable and must not accept a heartbeat"
     );
 
@@ -581,6 +601,7 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
             &stranded_item,
             AgentWorkOutcome::Abandoned,
             Some("DatabaseUnavailable during workflow.step (sqlstate 25P03)"),
+            None,
         )
         .await
         .unwrap()
@@ -643,6 +664,7 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
             &stranded_item,
             AgentWorkOutcome::Abandoned,
             Some("still broken"),
+            None,
         )
         .await
         .unwrap()

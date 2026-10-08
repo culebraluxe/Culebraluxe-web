@@ -200,6 +200,7 @@ async fn a_second_story_is_claimed_while_a_peer_runs_and_one_story_still_cannot_
                 &claim.id,
                 db::AgentWorkOutcome::Abandoned,
                 Some("proof cleanup"),
+                None,
             )
             .await
             .expect("the proof must be able to put its own claims back");

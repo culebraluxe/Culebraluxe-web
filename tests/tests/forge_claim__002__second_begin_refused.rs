@@ -266,6 +266,7 @@ async fn forge_claim_002__second_begin_refused() {
             &item_a,
             AgentWorkOutcome::Error,
             Some("contract proof settle"),
+            None,
         )
         .await
         .expect("the production settle runs")

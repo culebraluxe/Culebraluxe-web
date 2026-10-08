@@ -244,6 +244,7 @@ pub fn assay_tool_artifact(
             .or_else(|| evidence.last_failure.clone()),
         detail: None,
         sha: evidence.candidate_sha.clone(),
+        idempotency_key: None,
     }
 }
 

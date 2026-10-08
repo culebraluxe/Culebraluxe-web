@@ -136,11 +136,12 @@ pub fn finish_agent_work_run(
     work_item_id: &str,
     outcome: db::AgentWorkOutcome,
     error_text: Option<&str>,
+    idempotency_key: Option<&str>,
 ) -> Result<Option<db::AgentWorkSettlement>, String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
-            dao.finish_agent_work_run(work_item_id, outcome, error_text)
+            dao.finish_agent_work_run(work_item_id, outcome, error_text, idempotency_key)
                 .await
                 .map_err(|error| error.to_string())
         })
@@ -185,11 +186,15 @@ mod execution_policy_tests {
 }
 
 /// Touch the claim so `stale_agent_work` does not requeue a run that is still alive. False = no longer claimable.
-pub fn heartbeat_agent_work(work_item_id: &str) -> Result<bool, String> {
+pub fn heartbeat_agent_work(
+    work_item_id: &str,
+    worker_id: &str,
+    lease_ttl: std::time::Duration,
+) -> Result<bool, String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
-            dao.heartbeat_agent_work(work_item_id)
+            dao.heartbeat_agent_work(work_item_id, worker_id, lease_ttl)
                 .await
                 .map_err(|error| error.to_string())
         })

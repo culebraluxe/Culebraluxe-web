@@ -150,6 +150,7 @@ async fn db_concurrency_005__complete_vs_cancel() {
             &item_a,
             AgentWorkOutcome::Cancelled,
             Some("cancelled before the child reported"),
+            None,
         )
         .await
         .expect("the cancel answers rather than erroring")
@@ -162,7 +163,7 @@ async fn db_concurrency_005__complete_vs_cancel() {
     // NEGATIVE: the late `Done` must not overwrite it.
     let late_done = harness
         .engine()
-        .finish_agent_work_run(&item_a, AgentWorkOutcome::Done, None)
+        .finish_agent_work_run(&item_a, AgentWorkOutcome::Done, None, None)
         .await
         .expect("the late Done answers rather than erroring");
     assert!(
@@ -198,7 +199,7 @@ async fn db_concurrency_005__complete_vs_cancel() {
 
     let done_first = harness
         .engine()
-        .finish_agent_work_run(&item_b, AgentWorkOutcome::Done, None)
+        .finish_agent_work_run(&item_b, AgentWorkOutcome::Done, None, None)
         .await
         .expect("the Done answers rather than erroring")
         .expect("a Done against a board that reads Complete is legal");
@@ -214,6 +215,7 @@ async fn db_concurrency_005__complete_vs_cancel() {
             &item_b,
             AgentWorkOutcome::Cancelled,
             Some("a cancel that arrived too late"),
+            None,
         )
         .await
         .expect("the late cancel answers rather than erroring");
@@ -264,7 +266,7 @@ async fn db_concurrency_005__complete_vs_cancel() {
                 };
                 let settled = harness
                     .engine()
-                    .finish_agent_work_run(&item, outcome, None)
+                    .finish_agent_work_run(&item, outcome, None, None)
                     .await
                     .expect("a settle answers rather than erroring");
                 (outcome, settled.map(|answer| answer.item_state))
