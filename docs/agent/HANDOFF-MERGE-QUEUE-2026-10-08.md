@@ -182,8 +182,8 @@ at the cutover (0 live executions, 0 `Claimed`/`Running` items, nothing touched 
 
 ## 10. The three red targets in §9.1 are repaired and landed — `lane/deep`, 2026-10-08
 
-The Captain directed the two repairs in §9.4 to this lane. They landed on `main` as three commits and
-`origin/main` moved `7b93c3e5a..23a950ca3`. None of the three needed a fix from §3–§7, and the harness
+The Captain directed the two repairs in §9.4 to this lane. They landed on `main` as five commits and
+`origin/main` moved `7b93c3e5a..9d12c571f`. None of the three needed a fix from §3–§7, and the harness
 rename was still not required.
 
 1. **`abdc89512` — `docs_vault__007__pdf_byte_handling`.** Main's copy was the stale call: a six-argument
@@ -228,6 +228,16 @@ rename was still not required.
   workspace check of this landing (the earlier push today carried
   `CULEBRALUXE_SKIP_BUILD_CHECK=1` because of these three targets; **this push used no skip flag and the
   hook did not refuse it**).
+- FMT: `rustfmt --edition 2021 --check web/src/api/google_auth.rs` → `exit=0`, **after** a repair this
+  slice needed: that same check exits 0 on the file at `7b93c3e5a` and exited 1 on it at `23a950ca3`, so
+  the drift was this slice's own and `9d12c571f` fixes it. Recorded because the gate mislabelled it: see below.
+- `pnpm slice:check` → `RESULT the slice may be handed over (T0 + FMT + T1 green; T2 belongs to CI)`,
+  `EXIT=0`; T0 PASS (52s), FMT PASS (4s), T1 `sections to run: (none)`. Its **T1 selection is empty by
+  construction** here — it measures the slice since its merge-base with `origin/main`, and by then this
+  slice *was* `origin/main`, so it found no source file to select. The sections were therefore run by hand,
+  above. For the same reason its FMT stage printed `web/src/api/google_auth.rs` among "pre-existing, NOT
+  this slice", which was **wrong about my own drift** — a label that only the direct file-level check
+  caught. A gate that measures a slice already on trunk reports green over its own content.
 
 ### 10.2 Still open
 
@@ -235,5 +245,6 @@ rename was still not required.
 - **rustfmt drift** (~150 files: `crm_*`, `wf_*`, `ui_*`, `forge_assay_*`): pre-existing, wants one quiet-trunk commit.
 - **`forge/src/engine/executor/drive.rs:303`**: `unsafe { std::mem::transmute(harness) }` to
   `&'static dyn RoleHarness` inside a closure that outlives its `Arc` — a latent soundness bug, not repaired here.
-- **Not verified here**: no T2 full-suite run (that stays CI's, per the tiered rule), and no `pnpm slice:check`.
+- **Not verified here**: no T2 full-suite run (that stays CI's, per the tiered rule), and `pnpm slice:check`'s
+  T1 stage had nothing left to select because this slice was already trunk by the time it ran (§10.1).
 
