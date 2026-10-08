@@ -29,10 +29,13 @@ use services::{
     CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceContext,
     ServiceInfrastructure,
 };
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use std::sync::Arc;
 
 use crate::database::{HarnessDbError, TestDatabase};
+
+/// The production merge statement (migration 228), named once so both call seams below run the same one.
+const MERGE_PERSON_SQL: &str = "select merge_person($1::uuid, $2::uuid)::text";
 
 /// The production CRM person DAO on an isolated, disposable DEV database.
 #[derive(Clone)]
@@ -204,6 +207,76 @@ impl CrmHarness {
                 ))
             })?;
         Ok(count)
+    }
+
+    /// Whether one canonical person row still exists, read back from the pool.
+    pub async fn person_exists(&self, person_id: &str) -> Result<bool, HarnessDbError> {
+        let exists = sqlx::query_scalar::<_, bool>(
+            "select exists (select 1 from person where id = $1::uuid)",
+        )
+        .bind(person_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(|error| {
+            HarnessDbError::from(DbFailure::from_sqlx("test-harness.crm.person_exists", &error))
+        })?;
+        Ok(exists)
+    }
+
+    /// One person's committed `display_name` and `notes` — the pair that proves the golden record's own values win
+    /// the merge and what it lacked was filled. `None` when the row is gone.
+    pub async fn person_name_and_notes(
+        &self,
+        person_id: &str,
+    ) -> Result<Option<(String, Option<String>)>, HarnessDbError> {
+        let row = sqlx::query_as::<_, (String, Option<String>)>(
+            "select display_name, notes from person where id = $1::uuid",
+        )
+        .bind(person_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|error| {
+            HarnessDbError::from(DbFailure::from_sqlx(
+                "test-harness.crm.person_name_and_notes",
+                &error,
+            ))
+        })?;
+        Ok(row)
+    }
+
+    /// Ask the production `merge_person` (migration 228) to fold `duplicate` into `golden`, inside the caller's
+    /// transaction, and answer what the function answered: `{"moved": n, "dropped": n}` as text.
+    ///
+    /// There is no Rust caller of this function in production yet — the Records screen and the duplicate-cleanup load
+    /// call it as SQL — so the boundary under test *is* the function, reached here through the same statement the
+    /// caller would run, on a connection the test owns. Nothing opens a transaction for it: that is the caller's job,
+    /// which is exactly what the rollback half of the test asserts.
+    pub async fn merge_person_on(
+        &self,
+        conn: &mut PgConnection,
+        golden: &str,
+        duplicate: &str,
+    ) -> Result<String, HarnessDbError> {
+        sqlx::query_scalar(MERGE_PERSON_SQL)
+            .bind(golden)
+            .bind(duplicate)
+            .fetch_one(conn)
+            .await
+            .map_err(|error| {
+                HarnessDbError::from(DbFailure::from_sqlx("test-harness.crm.merge_person", &error))
+            })
+    }
+
+    /// The same merge on the pool, where nothing opens a transaction around it — so it commits.
+    pub async fn merge_person(&self, golden: &str, duplicate: &str) -> Result<String, HarnessDbError> {
+        sqlx::query_scalar(MERGE_PERSON_SQL)
+            .bind(golden)
+            .bind(duplicate)
+            .fetch_one(self.pool())
+            .await
+            .map_err(|error| {
+                HarnessDbError::from(DbFailure::from_sqlx("test-harness.crm.merge_person", &error))
+            })
     }
 }
 
