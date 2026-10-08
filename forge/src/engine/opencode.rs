@@ -187,6 +187,25 @@ pub fn sanitize_model_env(mut env: HashMap<String, String>) -> HashMap<String, S
     env
 }
 
+/// Assay environment: same secret filtering as `sanitize_model_env` but without git push disable.
+/// Toolchain vars (PATH, RUSTUP_HOME, CARGO_HOME, etc.) are preserved by `blocked_model_env_key`.
+pub fn sanitize_assay_env(mut env: HashMap<String, String>) -> HashMap<String, String> {
+    env.retain(|key, _| !blocked_model_env_key(key));
+    env
+}
+
+/// Derive a per-worktree `CARGO_TARGET_DIR` from the worktree path.
+/// Uses the same story+run identity as `worktree::derive_worktree_path` to ensure isolation.
+pub fn derive_cargo_target_dir(worktree_path: &Path) -> PathBuf {
+    // Extract the worktree directory name (e.g., "forge-fix-007-run-abc123")
+    let worktree_name = worktree_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown-worktree");
+    // Place under the shared build root, namespaced by worktree identity
+    PathBuf::from("/Users/Shared/dev/build").join(format!("rust-{}", worktree_name))
+}
+
 pub fn sanitized_model_env() -> HashMap<String, String> {
     sanitize_model_env(std::env::vars().collect())
 }
@@ -866,10 +885,20 @@ impl RoleHarness for OpenCodeHarness {
 
     fn run_command(&self, command: &str) -> CommandResult {
         let cwd = self.assay_cwd();
+        // Derive per-worktree CARGO_TARGET_DIR for build isolation
+        let cargo_target_dir = derive_cargo_target_dir(cwd);
+        // Sanitize environment: remove secrets, preserve toolchain vars
+        let mut assay_env = sanitize_assay_env(std::env::vars().collect());
+        assay_env.insert(
+            "CARGO_TARGET_DIR".into(),
+            cargo_target_dir.to_string_lossy().to_string(),
+        );
         match Command::new("sh")
             .arg("-c")
             .arg(command)
             .current_dir(cwd)
+            .env_clear()
+            .envs(&assay_env)
             .output()
         {
             Ok(out) => {

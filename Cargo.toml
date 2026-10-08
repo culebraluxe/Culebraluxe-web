@@ -62,18 +62,17 @@ futures = "0.3"
 nix = "0.28"
 libc = "0.2"
 
-# ONE shared target directory, held down. Every worktree builds into /Users/Shared/dev/build/rust (set by
-# `~/.cargo/config.toml`, so it holds for every invocation and not only for shells that inherited an export).
-# On 2026-10-03 that directory reached 63 GB — 34 GB `debug/deps` plus 23 GB `debug/incremental` — with 865
-# rlibs for 261 crates, because each distinct feature/target combination keeps its own copy of a crate
-# (`libsyn` appeared 16 times). Lanes hold code only; the cargo estate is this one directory, so the two dev
-# defaults that make it grow are turned down here:
+# Per-worker target directories. Each Forge worktree builds into its own isolated directory under
+# /Users/Shared/dev/build/rust-<worktree-name> (set via CARGO_TARGET_DIR in `run_command`,
+# `forge/src/engine/opencode.rs`). This eliminates target-dir lock serialization and feature/target
+# thrash (`libsyn` x16) that occurred with a single shared directory. The workspace profile settings
+# below apply to each per-worker directory independently:
 #
-#   incremental = false         # 23 GB of per-run scratch, which regrew 16 GB -> 23 GB inside a single
-#                               # session of three cargo commands. Turning it off costs one rebuild.
-#   debug = "line-tables-only"  # backtraces still carry file and line; full debuginfo on 865 rlibs does not.
+#   incremental = false         # Per-worker scratch space; avoids 23 GB of incremental regrowth.
+#   debug = "line-tables-only"  # Backtraces retain file/line; full debuginfo on many rlibs is wasteful.
 #
-# For a debugging session, put `debug = 2` (and/or `incremental = true`) back and expect one full rebuild.
+# For a debugging session, put `debug = 2` (and/or `incremental = true`) back and expect one full rebuild
+# in the active worktree's target directory.
 [profile.dev]
 incremental = false
 debug = "line-tables-only"
