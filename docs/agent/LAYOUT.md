@@ -27,8 +27,13 @@ Written 2026-10-01, when the tree moved out of `~/Documents`. This is the machin
 └── build/
     ├── rust-main/           cargo target dir for the main checkout and the launchd jobs
     ├── rust-lane-<name>/    cargo target dir for one lane, one per lane (made on first build)
+    ├── playbooks/           the Master copy of the Maestro playbooks (each lane carries its own copy)
     └── logs/                launchd job logs (wip-snapshot.log, wip-snapshot.err.log)
 ```
+
+A Forge/Maestro sandbox — any checkout a command makes and removes — is the one kind of checkout with no directory
+here: it builds into `<its own tree>/.cargo-target`, so its output dies with it. See "One target directory per
+checkout".
 
 Nothing else belongs in `src/`: no exports, no caches, no second copies of the repo.
 
@@ -141,6 +146,27 @@ machine-wide facts: the fallback `rust-main` for a checkout with no config of it
 now build at once, and fifteen times cargo's default of ten jobs would be 150 rustc processes on 10 cores and 32 GB,
 trading an idle queue for a thrashing box.
 
+**A disposable checkout builds inside its own tree (2026-10-08).** The one exception to that layout is the shape
+`git worktree add` makes and `git worktree remove` takes away — a Forge/Maestro sandbox, or the detached checkout
+`forge/src/engine/worktree.rs` uses to prove an integration commit — and it is deliberate: those are not lanes, and
+their build output is `<their own tree>/.cargo-target`, so it is deleted with the checkout that owned it. Until
+2026-10-08 they shared the `rust-main` fallback, which serialised a dozen sandbox worktrees against the main checkout
+and the launchd job exactly the way the shared directory used to. The name is `.cargo-target` and *not* `target` on
+purpose: `scripts/rust-ui-build.sh` reads cargo's answer `<checkout>/target` as "we are in the container" and builds
+into `/target`, read-only on macOS — so an in-tree directory called `target` makes `cargo check` green while
+`pnpm ui:build` and the deploy die, which is the trap the paragraph below records. A lane still builds into
+`build/rust-lane-<name>`, outside its tree: a lane is not disposable and its output is something a human manages.
+The naming rule lives in one place, `scripts/lane-cargo-config.sh`, and is applied by `.githooks/post-checkout`,
+which git runs inside each new worktree — one hook covers every creator (lane-new.sh, the engine, Maestro, a human
+typing `git worktree add`) instead of the same rule copied into four of them. The hook calls the script **from the
+checkout it is creating**, so the copy that runs is the one at the commit being checked out: a change to the naming
+rule takes effect for the next worktree only once it is committed, and whatever is wrong at `HEAD` is what every
+`git worktree add` pays. That is worth remembering before blaming the hook for slowness — on 2026-10-08 an
+**unquoted** heredoc in that script ran the backtick-quoted commands its own prose quotes (`git worktree add`,
+`pnpm ui:build`, `cargo check`), so one sandbox took 30 s instead of 0.6 s and git's usage text appeared inside the
+hook; the heredocs there are quoted delimiters now, and unquoting one to "let a variable expand" would restore the
+bug. The one value that must expand is appended by `printf`.
+
 **Why the shared directory went (2026-10-07), in two measurements.** One: it never held one copy of anything — cargo
 keys an artifact by the feature/target combination it was built for, and that directory held 865 rlibs for 261 crates
 (2026-10-03) — `libsyn` sixteen times, `libsqlx_postgres` **forty-five** times by 2026-10-07, `serde` eleven, `yew` nine
@@ -223,7 +249,8 @@ sentence that bans exactly that report, written the day before.
    ```
 6. **A lane holds code and nothing else.** No `node_modules`, no `target` inside the tree, and no `pnpm install` "to be
    safe": a lane's cargo output goes to `build/rust-lane-<name>`, outside the checkout (see "One target directory per
-   checkout" above), and `pnpm install` is the per-lane call of a lane that must build the website (30 MB,
+   checkout" above — a *sandbox* is not a lane and has no directory there at all: it builds into its own tree, because
+   it dies with it), and `pnpm install` is the per-lane call of a lane that must build the website (30 MB,
    `--with-website`). `pnpm lane:new <name>` is the whole recipe — it writes the lane's own cargo config too — and it
    leaves the upstream unset so a bare `git push` in a lane cannot aim at `main`.
 
