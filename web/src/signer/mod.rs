@@ -458,6 +458,12 @@ impl<R: SignerRepository> SignerService<R> {
                 consented,
                 is_turn,
                 expires_at: access.expires_at.to_rfc3339(),
+                envelope_status: String::new(),
+                document_title: None,
+                subject: None,
+                message: None,
+                answered_field_ids: Vec::new(),
+                parties: Vec::new(),
             })
         }
         .await;

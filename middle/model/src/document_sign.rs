@@ -254,6 +254,9 @@ pub struct ImportAnchorFieldsResult {
 pub struct DocumentSignSweepResult {
     pub expired_recipients: Vec<String>,
     pub expired_envelopes: Vec<String>,
+    /// Reminders queued for signers whose turn it is and who have not acted (one message each).
+    #[serde(default)]
+    pub reminder_message_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -263,6 +266,9 @@ pub struct DocumentSignFinalizeResult {
     pub audit_media_id: Option<String>,
     pub signed_media_id: Option<String>,
     pub already_completed: bool,
+    /// The completion notices queued (signers, the copy list, and the sender), each with the signed document attached.
+    #[serde(default)]
+    pub notification_message_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

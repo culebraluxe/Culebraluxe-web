@@ -1285,6 +1285,7 @@ where
                 audit_media_id: audit_media_id.clone(),
                 signed_media_id: audit_media_id,
                 already_completed: true,
+                notification_message_ids: Vec::new(),
             });
         }
         if status != SignatureRequestStatus::Signed.as_str() {
@@ -1353,6 +1354,7 @@ where
             audit_media_id: Some(audit_media_id.clone()),
             signed_media_id: Some(audit_media_id),
             already_completed: false,
+            notification_message_ids: Vec::new(),
         })
     }
 
@@ -1398,6 +1400,7 @@ where
         Ok(DocumentSignSweepResult {
             expired_recipients,
             expired_envelopes,
+            reminder_message_ids: Vec::new(),
         })
     }
 }

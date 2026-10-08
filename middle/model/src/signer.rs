@@ -90,6 +90,42 @@ pub struct SignerSession {
     pub consented: bool,
     pub is_turn: bool,
     pub expires_at: String,
+    /// The canonical envelope status (`sent`, `viewed`, `signed`, `completed`, …): the signer's page offers the sealed
+    /// copy only once it is `completed`.
+    #[serde(default)]
+    pub envelope_status: String,
+    #[serde(default)]
+    pub document_title: Option<String>,
+    #[serde(default)]
+    pub subject: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub answered_field_ids: Vec<String>,
+    #[serde(default)]
+    pub parties: Vec<SignerParty>,
+}
+
+/// One person on the envelope, as another signer may see them: a name, a role and how far they are. No address.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignerParty {
+    pub name: String,
+    pub role: String,
+    pub state: String,
+    pub is_you: bool,
+}
+
+/// What the session needs beyond the recipient's own rows (read in one place so the screen draws one truth).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignerSessionContext {
+    pub envelope_status: String,
+    pub document_title: Option<String>,
+    pub subject: Option<String>,
+    pub message: Option<String>,
+    pub answered_field_ids: Vec<String>,
+    pub parties: Vec<SignerParty>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
