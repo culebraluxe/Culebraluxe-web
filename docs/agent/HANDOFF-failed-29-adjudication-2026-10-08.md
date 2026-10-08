@@ -7,7 +7,7 @@ fix the repo chain, rewrite the bad specs, write the rest, defer BoldSign, build
 
 | # | Fact | How to check it |
 | --- | --- | --- |
-| S1 | 15 `TST-%` stories are still `Failed`; the other 14 of the original 29 are `Complete` | `psql "$DATABASE_URL_PROD" -c "select id from storyboard_story where id like 'TST-%' and status='Failed' order by id"` |
+| S1 | 11 `TST-%` stories are still `Failed`; 18 of the original 29 are `Complete` | `psql "$DATABASE_URL_PROD" -c "select id from storyboard_story where id like 'TST-%' and status='Failed' order by id"` |
 | S2 | The migration chain rebuilds from an EMPTY schema: 250 files apply, 0 failures | `cargo test -p test-harness --test db_migration__001__migrations_apply_cleanly_from_empty_schema -- --ignored` → `ok … 113.88s` |
 | S3 | The 19-file from-empty failure set is gone: its cause was a hand-built Forge base no migration created | `db/migrations/000_forge_base_schema.sql` (its header) |
 | S4 | Migration numbers are unique and the ledger agrees with the repo in both directions on DEV | `db_migration__004` ok 4.72s, `db_migration__005` ok 1.08s |
@@ -38,7 +38,7 @@ fix the repo chain, rewrite the bad specs, write the rest, defer BoldSign, build
 | TST-FORGE-LAUNCH-INTENT-002 | `tests/tests/forge_launch_intent__002__smith_forbids_split.rs` | SMITH forbids SPLIT |
 | TST-FORGE-STORY-RUN-008 | `tests/tests/forge_story_run__008__artifact_attaches_to_correct_run.rs` | `forge_tool_artifact` attaches to the right run |
 | TST-SEC-ENTITLEMENT-008 | `tests/tests/sec_entitlement__008__tech.rs` | the TECH entitlement class — `web/src/api/tech_page.rs` |
-| TST-SEC-REDIRECT-002/005/009/011 | `tests/tests/sec_redirect__00X__*.rs` | sibling contracts for 001/003/004/006/007/008/010 exist as templates |
+| TST-SEC-REDIRECT-002/005/009/011 | **done** — `tests/tests/sec_redirect__00X__*.rs` | L0 pure, `SecurityHarness::redirect_target`; siblings 001/003/004/006/007/008/010 were the templates |
 | TST-UI-MODEL-007 | `tests/tests/ui_model__007__stale_response.rs` | stale response handling — `web/ui/src/app/` |
 
 Every one is a TEST-AUTHORING story: it owns the test artifact, not the production fix. A test that exposes a real defect
@@ -58,7 +58,7 @@ item; `cargo check -p web` was run separately for the `http_runtime` edit.
 
 ## 5. NOT VERIFIED — the honest gaps
 
-- The 15 stories in §3: no test file written, nothing run.
+- The 11 stories still marked *to write* in §3: no test file written, nothing run (the four `SEC-REDIRECT` ones have since landed — see §4).
 - `TST-SIG-WEBHOOK-004` / `-005` (BoldSign `text[]` vs JSON): **not in this Failed 29**, never adjudicated this session.
 - The three `ARCH-ROUTE-MAP` stories are marked Complete on a `rc=0 · 1 passed` run from earlier the same day; they were
   not re-run after the chain commit. The chain commit touches migrations and `db`, not route classification.
@@ -88,7 +88,8 @@ item; `cargo check -p web` was run separately for the `http_runtime` edit.
 | TST-CRM-CATCHUP-002/003/006 | bad spec, **rewritten** | the files tested lead projection, identity conflict and phone-only intake — three other stories' subjects (001 owns lead projection); the stories own due-date calculation, completed-task exclusion and follow-up behaviour, and their assay commands named files that did not exist |
 | TST-CRM-CLIENT-001/002/003 | bad spec, **rewritten** | `total == 1` was asserted against the whole live directory (5-6 people named "alice"); phones derived from `ns.len()` collided with real identities; `client_003` seeded `status='archived'`, which `person_status_check` refuses (archiving is `archived_at`) |
 | TST-ARCH-ROUTE-MAP-002/003/004 | stale status | canonical files exist; each `rc=0 · 1 passed` |
-| TST-CRM-CLIENT-004/005, TST-CRM-PERSON-002, TST-FORGE-ENVELOPE-006, TST-FORGE-LAUNCH-INTENT-001/002, TST-FORGE-STORY-RUN-008, TST-SEC-ENTITLEMENT-008, TST-SEC-REDIRECT-002/005/009/011, TST-UI-MODEL-007 | to write | no test file on disk; the canonical name is in each row's `scope` |
+| TST-SEC-REDIRECT-002/005/009/011 | **done** (authored) | L0 pure against `safe_next`: absolute (even same-origin) URLs fall back to the dashboard; encoded `%2F`/`%5C` are carried as on-site paths while literal `\\` is refused; malformed/Unicode text stays a valid `Location` header; the policy is idempotent and its fallback cannot re-enter `/api/auth` |
+| TST-CRM-CLIENT-004/005, TST-CRM-PERSON-002, TST-FORGE-ENVELOPE-006, TST-FORGE-LAUNCH-INTENT-001/002, TST-FORGE-STORY-RUN-008, TST-SEC-ENTITLEMENT-008, TST-UI-MODEL-007 | to write | no test file on disk; the canonical name is in each row's `scope` |
 | TST-FORGE-ENVELOPE-003/010 | to write, **blocked on re-scoping** | `model_profile` / `runtime_adapter` appear in 0 files repo-wide |
 
 The seven `SEC-REDIRECT` stories that are not in this list (`001/003/004/006/007/008/010`) have contracts on disk from a
