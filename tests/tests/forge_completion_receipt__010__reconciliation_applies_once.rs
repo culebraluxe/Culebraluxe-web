@@ -63,12 +63,14 @@ fn feature_story() -> ForgeGateEvidence {
 fn forge_completion_receipt_010__reconciliation_applies_once() {
     // Unit door: the same unit, seen twice, applies once.
     let ledger = MemoryLedger::new();
-    assert!(
+    assert_eq!(
         apply_completion_unit(&ledger, record("task-9")).expect("unit applies"),
+        CompletionApply::Applied,
         "the first application owns the unit"
     );
-    assert!(
-        !apply_completion_unit(&ledger, record("task-9")).expect("unit answers"),
+    assert_eq!(
+        apply_completion_unit(&ledger, record("task-9")).expect("unit answers"),
+        CompletionApply::AlreadyApplied,
         "the second look applies nothing: the receipt is final"
     );
 
@@ -77,7 +79,7 @@ fn forge_completion_receipt_010__reconciliation_applies_once() {
     let shared: Arc<MemoryLedger> = Arc::new(MemoryLedger::new());
     let task_id = {
         let writer = Arc::new(RecordingWriter::default());
-        let mut rt = ForgeRuntime::from_store(
+        let rt = ForgeRuntime::from_store(
             store.clone(),
             writer,
             None,
@@ -101,7 +103,7 @@ fn forge_completion_receipt_010__reconciliation_applies_once() {
         task.task_id
     };
 
-    let mut rt2 = compact_runtime(store.clone(), shared.clone());
+    let rt2 = compact_runtime(store.clone(), shared.clone());
     assert_eq!(
         rt2.reconcile_completions("story-1").expect("reconcile"),
         1,
@@ -112,7 +114,7 @@ fn forge_completion_receipt_010__reconciliation_applies_once() {
         .expect("watermark answers")
         .expect("the heal finalizes, and finals move the watermark");
 
-    let mut rt3 = compact_runtime(store.clone(), shared.clone());
+    let rt3 = compact_runtime(store.clone(), shared.clone());
     assert_eq!(
         rt3.reconcile_completions("story-1").expect("reconcile"),
         0,

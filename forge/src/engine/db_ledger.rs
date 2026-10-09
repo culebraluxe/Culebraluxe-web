@@ -8,18 +8,29 @@
 //! once per process that ever looked. The receipt exists in the schema for exactly this
 //! (`workflow_command_receipt`, `forge.completion:{taskId}`) and was unused.
 //!
+//! ONE WRITE, NOT FOUR (FORGE-B1 slice 2). The claim, the evidence merge, the budget spend and the
+//! finalize used to be four separate calls, and a process that died between them left spent counters and
+//! merged evidence with no receipt — which every later process then re-applied. They are now one call to
+//! `ForgeEngineDao::apply_completion`: one transaction, so a receipt that exists is a unit that happened,
+//! and one that does not is the crash window the resume reconciles.
+//!
 //! FAILURE IS NOT ABSENCE. Every method returns `Result`: a database that cannot answer must stop the
-//! caller, because `false` from `claim` means "someone already applied this unit" and reporting a lost
-//! connection that way would silently drop the evidence and the counters.
+//! caller, because "someone already applied this unit" is an answer only a committed receipt may give, and
+//! reporting a lost connection that way would silently drop the evidence and the counters. A conflicting
+//! or in-flight receipt is an error too, never `AlreadyApplied`: the caller must not treat a unit it did
+//! not apply as its own.
 
 use std::sync::Arc;
 
-use db::{ForgeEngineDao, WorkflowReceiptClaim};
+use db::{CompletionApply as DbApply, CompletionSpend as DbSpend, CompletionUnit, ForgeEngineDao};
 use workflow::{Result, WorkflowError};
 
-use crate::engine::completion::{CompletionLedger, CompletionRecord};
+use crate::engine::completion::{
+    CompletionApply, CompletionLedger, CompletionRecord, CompletionSpend,
+};
 use crate::engine::evidence_store::evidence_patch;
 use crate::engine::neon_sql::RECEIPT_PREFIX;
+use crate::engine::runtime::completion_receipt_id;
 use crate::engine::vendor_session::with_shared;
 
 /// The ledger the engine binary installs (`ForgeRuntime::durable`). No fields: the state is the rows.
@@ -34,37 +45,56 @@ fn failed(operation: &str, error: impl std::fmt::Display) -> WorkflowError {
     WorkflowError::generic(format!("completion ledger {operation}: {error}"))
 }
 
-impl CompletionLedger for DbCompletionLedger {
-    fn claim(&self, receipt_id: &str) -> Result<bool> {
-        let command_id = receipt_id.to_string();
-        // The receipt's actor column is a uuid (`actor_app_user_id`); a role task has no app-user
-        // identity and inventing one would be a second identity for the same fact.
-        let actor: Option<&str> = None;
-        with_shared(|db, rt| {
-            let dao = ForgeEngineDao::new(db.clone());
-            rt.block_on(async {
-                dao.claim_workflow_receipt(&command_id, actor)
-                    .await
-                    .map(|claim| matches!(claim, WorkflowReceiptClaim::Acquired))
-                    .map_err(|error| error.to_string())
-            })
-        })
-        .map_err(|error| failed("claim", error))?
-        .map_err(|error| failed(&command_id, error))
+/// The one budget a completion may spend, in the durable vocabulary.
+fn db_spend(spend: CompletionSpend) -> DbSpend {
+    match spend {
+        CompletionSpend::Repair => DbSpend::Repair,
+        CompletionSpend::Replan => DbSpend::Replan,
     }
+}
 
-    fn finalize(&self, receipt_id: &str) -> Result<()> {
-        let command_id = receipt_id.to_string();
-        with_shared(|db, rt| {
+impl CompletionLedger for DbCompletionLedger {
+    fn apply(&self, rec: &CompletionRecord) -> Result<CompletionApply> {
+        // One mapping, one writer: the same `evidence_patch` the workflow-evidence port uses, so the
+        // ledger and the port cannot disagree about which column a field lands in.
+        let patch = evidence_patch(&rec.evidence);
+        let command_id = completion_receipt_id(&rec.task_id);
+        let fingerprint = rec.fingerprint();
+        // `apply_completion` owns the transaction: the receipt, the story-locked budget spend and the
+        // evidence merge commit together, or none of them do.
+        let unit = CompletionUnit {
+            command_id: &command_id,
+            process_instance_id: &rec.process_instance_id,
+            story_id: &rec.story_id,
+            node_id: rec.node_id.as_deref(),
+            evidence: &patch,
+            spend: rec.spend().map(db_spend),
+            fingerprint: &fingerprint,
+        };
+        let outcome = with_shared(|db, rt| {
             let dao = ForgeEngineDao::new(db.clone());
             rt.block_on(async {
-                dao.finalize_workflow_receipt(&command_id, "success", None, None)
+                dao.apply_completion(&unit)
                     .await
                     .map_err(|error| error.to_string())
             })
         })
-        .map_err(|error| failed("finalize", error))?
-        .map_err(|error| failed(&command_id, error))
+        .map_err(|error| failed("apply", error))?
+        .map_err(|error| failed(&command_id, error))?;
+        match outcome {
+            DbApply::Applied => Ok(CompletionApply::Applied),
+            DbApply::AlreadyApplied => Ok(CompletionApply::AlreadyApplied),
+            // Neither of these is "applied": a receipt left by another story, or a peer mid-write, is an
+            // answer only a human can act on — and the caller must not replay its unit over it.
+            DbApply::Conflict { stored } => Err(failed(
+                &command_id,
+                format!("receipt holds {stored}, not {fingerprint}"),
+            )),
+            DbApply::Busy => Err(failed(
+                &command_id,
+                "another process holds this unit mid-write",
+            )),
+        }
     }
 
     fn has_final(&self, receipt_id: &str) -> Result<bool> {
@@ -82,14 +112,6 @@ impl CompletionLedger for DbCompletionLedger {
         .map_err(|error| failed(&command_id, error))
     }
 
-    fn merge_evidence(&self, rec: &CompletionRecord) -> Result<()> {
-        self.merge(rec)
-    }
-
-    fn increment_repair(&self, story_id: &str) -> Result<()> {
-        self.increment(story_id, "repair")
-    }
-
     fn reset_budget(&self, story_id: &str) -> Result<()> {
         let id = story_id.to_string();
         with_shared(|db, rt| {
@@ -102,10 +124,6 @@ impl CompletionLedger for DbCompletionLedger {
         })
         .map_err(|error| failed("reset_budget", error))?
         .map_err(|error| failed(&format!("reset_budget({story_id})"), error))
-    }
-
-    fn increment_replan(&self, story_id: &str) -> Result<()> {
-        self.increment(story_id, "replan")
     }
 
     fn watermark(&self, prefix: &str) -> Result<Option<i64>> {
@@ -127,41 +145,4 @@ impl CompletionLedger for DbCompletionLedger {
 /// (`neon_sql::RECEIPT_PREFIX`) instead of each holding its own literal.
 pub fn completion_receipt_prefix() -> &'static str {
     RECEIPT_PREFIX
-}
-
-impl DbCompletionLedger {
-    fn merge(&self, rec: &CompletionRecord) -> Result<()> {
-        // One mapping, one writer: the same `evidence_patch` the workflow-evidence port uses, so the
-        // ledger and the port cannot disagree about which column a field lands in.
-        let patch = evidence_patch(&rec.evidence);
-        let instance_id = rec.process_instance_id.clone();
-        let story_id = rec.story_id.clone();
-        with_shared(|db, rt| {
-            let dao = ForgeEngineDao::new(db.clone());
-            rt.block_on(async {
-                dao.merge_workflow_evidence(&instance_id, &story_id, &patch, false)
-                    .await
-                    .map_err(|error| error.to_string())
-            })
-        })
-        .map_err(|error| failed("merge_evidence", error))?
-        .map_err(|error| failed(&format!("merge_evidence({story_id})"), error))
-    }
-
-    fn increment(&self, story_id: &str, which: &str) -> Result<()> {
-        let story_id = story_id.to_string();
-        with_shared(|db, rt| {
-            let dao = ForgeEngineDao::new(db.clone());
-            rt.block_on(async {
-                let result = if which == "repair" {
-                    dao.increment_forge_repair_attempts(&story_id).await
-                } else {
-                    dao.increment_forge_replan_attempts(&story_id).await
-                };
-                result.map_err(|error| error.to_string())
-            })
-        })
-        .map_err(|error| failed(which, error))?
-        .map_err(|error| failed(&format!("{which}({story_id})"), error))
-    }
 }

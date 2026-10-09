@@ -1,140 +1,84 @@
 //! FORGE.COMPLETION_RECEIPT — crash after evidence before finalize
 //! (TST-FORGE-COMPLETION-RECEIPT-007).
 //!
-//! CONTRACT. Evidence written, receipt never finalized: when a process merges the evidence and dies
-//! before finalizing, the unit must NOT read as done (no silent loss), and the resume must converge it
-//! to final — re-merging (the patch is last-write-wins, so re-application converges) and then resting.
-//! The fault-injecting ledger below models the receipt row's three states exactly as production SQL
-//! states them (`db/src/forge_engine.rs:1098-1157`: absent → pending, fresh pending → held, stale
-//! pending → reclaimed, final → refused) with an injectable clock standing in for the 15-minute stale
-//! window; everything else — evidence merge, counters, budgets — delegates to the production
-//! `MemoryLedger`, so only the time rule is modeled, never the unit.
+//! CONTRACT. The unit is ONE effect (FORGE-B1 slice 2): an attempt that dies after the evidence and before
+//! the finalize leaves NOTHING behind — no receipt, no merged evidence, no spent budget — and the resume
+//! then applies the whole unit exactly once. The old four-call shape (claim → merge → count → finalize) had
+//! a window at every boundary; a process that died inside it left the evidence merged with no receipt, and
+//! every later process re-applied it. This file pins that the crash is an absence, not a partial state.
 //!
-//! Level: L4 Adversarial — injected crash (finalize fails once, after the merge) plus injected time.
-//! The negative halves: the crashed attempt moves no counter and leaves no final; a third application
-//! after the heal applies nothing. Deterministic and isolated: no database, no network, never PROD.
+//! WHAT THE DOUBLE MODELS, AND WHAT IT CANNOT. The unit has no seam *inside* it to fail at — that is the
+//! point — so the fault lands on the only boundary that still fails in production: the transaction.
+//! `CrashLedger` answers an error instead of delegating, and a rolled-back transaction is observed exactly
+//! that way: the unit's writes happened and were undone, or never happened — either way a reader sees none
+//! of them. An in-memory double cannot show writes being undone, so the row-level proof of "neither partial
+//! change nor the final receipt survives a rollback after the merge and the counter" is
+//! `tests/tests/forge_completion_receipt_dev.rs`, which rolls a real transaction back through
+//! `ForgeEngineDao::apply_completion_tx`. The 15-minute stale window the old double mimicked with a clock is
+//! SQL inside the routine now, and both of its sides are pinned there too (fresh `pending` → `Busy`, aged →
+//! reclaimed).
 //!
-//! WHAT IT DOES NOT COVER: the SQL form of the stale window is covered with a database by
-//! TST-FORGE-COMPLETION-RECEIPT-004; the orphaned-transition heal is TST-FORGE-COMPLETION-RECEIPT-006.
+//! Level: L4 Adversarial — injected transaction failure. The negative halves: the failed attempt moves no
+//! counter and leaves no evidence; a third application after the heal applies nothing. Deterministic and
+//! isolated: no database, no network, never PROD.
+//!
+//! WHAT IT DOES NOT COVER: the SQL form is TST-FORGE-COMPLETION-RECEIPT-004 and the DEV file; the
+//! orphaned-transition heal is TST-FORGE-COMPLETION-RECEIPT-006.
 //!
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test forge_completion_receipt__007__crash_after_evidence_before_finalize
 
-use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use forge::engine::{
-    apply_completion_unit, CompletionLedger, CompletionRecord, ForgeGateEvidence, MemoryLedger,
+    apply_completion_unit, CompletionApply, CompletionLedger, CompletionRecord, ForgeGateEvidence,
+    MemoryLedger,
 };
 use workflow::{Result, WorkflowError};
 
-struct TickEntry {
-    is_final: bool,
-    touched: u64,
-    finalized_at: u64,
-}
-
-/// The receipt row with an injectable clock. State transitions mirror
-/// `ForgeEngineDao::claim_workflow_receipt`; the evidence and counters are the production ledger's.
-struct TickLedger {
+/// The production ledger behind one injected transaction failure: `fail_next` makes the next apply answer
+/// an error BEFORE it delegates, so nothing is written — the observable shape of a unit whose transaction
+/// died. Every other answer is the production `MemoryLedger`'s, so only the crash is modeled, never the unit.
+struct CrashLedger {
     inner: MemoryLedger,
-    entries: Mutex<BTreeMap<String, TickEntry>>,
-    now: Mutex<u64>,
-    stale_after: u64,
-    merges: Mutex<u64>,
-    fail_finalize_once: Mutex<bool>,
+    fail_next: Mutex<Option<String>>,
+    applied: Mutex<u64>,
 }
 
-impl TickLedger {
-    fn new(stale_after: u64) -> Self {
+impl CrashLedger {
+    fn new(fail_first_with: &str) -> Self {
         Self {
             inner: MemoryLedger::new(),
-            entries: Mutex::new(BTreeMap::new()),
-            now: Mutex::new(0),
-            stale_after,
-            merges: Mutex::new(0),
-            fail_finalize_once: Mutex::new(true),
+            fail_next: Mutex::new(Some(fail_first_with.to_string())),
+            applied: Mutex::new(0),
         }
     }
-    /// Stand in for the time that passed while the crashed process was dead.
-    fn advance(&self, ticks: u64) {
-        *self.now.lock().unwrap() += ticks;
-    }
-    fn merges(&self) -> u64 {
-        *self.merges.lock().unwrap()
+    /// How many of the calls this ledger saw actually committed the unit.
+    fn applied(&self) -> u64 {
+        *self.applied.lock().unwrap()
     }
 }
 
-impl CompletionLedger for TickLedger {
-    fn claim(&self, receipt_id: &str) -> Result<bool> {
-        let now = *self.now.lock().unwrap();
-        let mut entries = self.entries.lock().unwrap();
-        match entries.get_mut(receipt_id) {
-            None => {
-                entries.insert(
-                    receipt_id.to_string(),
-                    TickEntry {
-                        is_final: false,
-                        touched: now,
-                        finalized_at: 0,
-                    },
-                );
-                Ok(true)
-            }
-            Some(entry) if entry.is_final => Ok(false),
-            Some(entry) if now - entry.touched >= self.stale_after => {
-                entry.touched = now;
-                Ok(true)
-            }
-            Some(_) => Ok(false),
+impl CompletionLedger for CrashLedger {
+    fn apply(&self, rec: &CompletionRecord) -> Result<CompletionApply> {
+        if let Some(reason) = self.fail_next.lock().unwrap().take() {
+            // The transaction died: it committed nothing, so there is nothing left to undo here.
+            return Err(WorkflowError::generic(reason));
         }
-    }
-    fn finalize(&self, receipt_id: &str) -> Result<()> {
-        if *self.fail_finalize_once.lock().unwrap() {
-            // The crash: everything before this point (claim, merge, counters) already happened.
-            *self.fail_finalize_once.lock().unwrap() = false;
-            return Err(WorkflowError::generic("process died before finalize"));
+        let outcome = self.inner.apply(rec)?;
+        if outcome.applied() {
+            *self.applied.lock().unwrap() += 1;
         }
-        let now = *self.now.lock().unwrap();
-        let mut entries = self.entries.lock().unwrap();
-        let entry = entries
-            .get_mut(receipt_id)
-            .expect("finalize follows a claim the ledger took");
-        entry.is_final = true;
-        entry.finalized_at = now;
-        Ok(())
+        Ok(outcome)
     }
     fn has_final(&self, receipt_id: &str) -> Result<bool> {
-        Ok(self
-            .entries
-            .lock()
-            .unwrap()
-            .get(receipt_id)
-            .is_some_and(|entry| entry.is_final))
-    }
-    fn watermark(&self, prefix: &str) -> Result<Option<i64>> {
-        Ok(self
-            .entries
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(id, _)| id.starts_with(prefix))
-            .filter(|(_, entry)| entry.is_final)
-            .map(|(_, entry)| entry.finalized_at as i64)
-            .max())
-    }
-    fn merge_evidence(&self, rec: &CompletionRecord) -> Result<()> {
-        *self.merges.lock().unwrap() += 1;
-        self.inner.merge_evidence(rec)
+        self.inner.has_final(receipt_id)
     }
     fn reset_budget(&self, story_id: &str) -> Result<()> {
         self.inner.reset_budget(story_id)
     }
-    fn increment_repair(&self, story_id: &str) -> Result<()> {
-        self.inner.increment_repair(story_id)
-    }
-    fn increment_replan(&self, story_id: &str) -> Result<()> {
-        self.inner.increment_replan(story_id)
+    fn watermark(&self, prefix: &str) -> Result<Option<i64>> {
+        self.inner.watermark(prefix)
     }
 }
 
@@ -151,53 +95,59 @@ fn record() -> CompletionRecord {
     }
 }
 
-/// Evidence merged, finalize crashed: the resume converges the unit to final, then rests.
+/// Evidence already merged when the crash hits: the rollback takes it, and the heal applies the unit once.
 #[test]
 fn forge_completion_receipt_007__crash_after_evidence_before_finalize() {
-    let ledger = TickLedger::new(900);
+    let ledger = CrashLedger::new("the transaction died before finalize");
+    let id = forge::engine::completion_receipt_id("task-7");
 
-    // The crash: the unit errors after the merge, before the finalize.
+    // The crash: the unit errors after it has merged the evidence and before the receipt is final.
     let error = apply_completion_unit(&ledger, record()).unwrap_err();
     assert!(
         error.to_string().contains("died before finalize"),
         "the crash surfaces, it is not swallowed: {error}"
     );
     assert!(
-        !ledger
-            .has_final(&forge::engine::completion_receipt_id("task-7"))
-            .expect("has_final answers"),
+        !ledger.has_final(&id).expect("has_final answers"),
         "a crashed attempt is not final: reading it as done would silently lose the unit"
     );
+    assert_eq!(ledger.applied(), 0, "the failed attempt committed nothing");
     assert!(
-        ledger.inner.evidence_for("story-1").is_some(),
-        "the evidence survived the crash: this is the 'after evidence' half of the window"
+        ledger.inner.evidence_for("story-1").is_none(),
+        "and it merged no evidence: the partial state the four-call shape left behind is gone, so no later \
+         process can find a merge with no receipt standing behind it"
     );
-    assert_eq!(ledger.merges(), 1);
     assert_eq!(
         ledger.inner.repairs("story-1"),
         0,
         "the crash moved no counter: a non-repair node spends no budget"
     );
 
-    // The resume, after the dead process's claim goes stale: re-applies, converges, rests.
-    ledger.advance(901);
-    assert!(
+    // The heal: the resume applies the whole unit — once.
+    assert_eq!(
         apply_completion_unit(&ledger, record()).expect("resume applies"),
-        "the resume reclaims the stale claim and applies the unit"
+        CompletionApply::Applied,
+        "the resume applies the unit the crash could not commit"
     );
     assert_eq!(
-        ledger.merges(),
-        2,
-        "re-application re-merges; the patch is last-write-wins, so the evidence converges"
+        ledger.applied(),
+        1,
+        "the unit was applied exactly once across the crash and its heal"
     );
     assert!(
-        ledger
-            .has_final(&forge::engine::completion_receipt_id("task-7"))
-            .expect("has_final answers"),
+        ledger.inner.evidence_for("story-1").is_some(),
+        "the merge is the heal's, and it stands with the receipt that proves it"
+    );
+    assert!(
+        ledger.has_final(&id).expect("has_final answers"),
         "the resume converges the unit to final"
     );
-    assert!(
-        !apply_completion_unit(&ledger, record()).expect("unit answers"),
+
+    // The rest: a third application applies nothing.
+    assert_eq!(
+        apply_completion_unit(&ledger, record()).expect("unit answers"),
+        CompletionApply::AlreadyApplied,
         "a third application applies nothing: the heal rests"
     );
+    assert_eq!(ledger.applied(), 1, "and it commits nothing a second time");
 }

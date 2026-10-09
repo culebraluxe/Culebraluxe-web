@@ -1,4 +1,4 @@
-use crate::{Database, DbFailure, DbResult, DbTarget};
+use crate::{Database, DbFailure, DbResult, DbTarget, DbTransaction};
 use serde_json::Value;
 use sqlx::FromRow;
 
@@ -1069,6 +1069,96 @@ pub enum WorkflowReceiptClaim {
     AlreadyFinal(WorkflowCommandReceiptRow),
 }
 
+/// The one statement that merges a workflow-evidence patch (migration 109/112 columns). Two callers execute it —
+/// the workflow-evidence port ([`ForgeEngineDao::merge_workflow_evidence`], on the pool) and the completion unit
+/// ([`ForgeEngineDao::apply_completion_tx`], on its own transaction) — and the `coalesce` rules ARE the unit's
+/// behaviour, so the statement is written once and both run it: a second copy would drift on the first column
+/// nobody added to it.
+const WORKFLOW_EVIDENCE_UPSERT_SQL: &str = "\
+insert into forge_workflow_evidence (
+    process_instance_id, story_id, work_type, scout_required, lead_decision,
+    qa_review_required, qa_review_passed, qa_passed, failure_class, failed_release_stage,
+    last_failure, publish_succeeded, candidate_sha, qa_verified_sha, published_sha
+ ) values (
+    $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+ )
+ on conflict (process_instance_id) do update set
+    work_type=coalesce(excluded.work_type,forge_workflow_evidence.work_type),
+    scout_required=coalesce(excluded.scout_required,forge_workflow_evidence.scout_required),
+    lead_decision=coalesce(excluded.lead_decision,forge_workflow_evidence.lead_decision),
+    qa_review_required=coalesce(excluded.qa_review_required,forge_workflow_evidence.qa_review_required),
+    qa_review_passed=coalesce(excluded.qa_review_passed,forge_workflow_evidence.qa_review_passed),
+    qa_passed=coalesce(excluded.qa_passed,forge_workflow_evidence.qa_passed),
+    failure_class=case when $16 then null else coalesce(excluded.failure_class,forge_workflow_evidence.failure_class) end,
+    failed_release_stage=case when $16 then null else coalesce(excluded.failed_release_stage,forge_workflow_evidence.failed_release_stage) end,
+    last_failure=case when $16 then null else coalesce(excluded.last_failure,forge_workflow_evidence.last_failure) end,
+    publish_succeeded=coalesce(excluded.publish_succeeded,forge_workflow_evidence.publish_succeeded),
+    candidate_sha=coalesce(excluded.candidate_sha,forge_workflow_evidence.candidate_sha),
+    qa_verified_sha=coalesce(excluded.qa_verified_sha,forge_workflow_evidence.qa_verified_sha),
+    published_sha=coalesce(excluded.published_sha,forge_workflow_evidence.published_sha),
+    updated_at=now()";
+
+/// Which budget a completion unit spends on the story row — the legacy `INC_REPAIR` / `INC_REPLAN`
+/// observers, now written by the unit instead of a second call. Which NODE spends which budget is the
+/// domain's answer (`CompletionRecord::spend`, `forge/src/engine/completion.rs`); this enum only
+/// names the column the unit writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompletionSpend {
+    Repair,
+    Replan,
+}
+
+/// One completion unit as the row-level routine takes it (FORGE-B1 slice 2).
+///
+/// The unit is built by the durable completion ledger (`forge/src/engine/db_ledger.rs`), which owns the
+/// mapping from a completion record to these columns; this routine owns the one transaction they commit in.
+#[derive(Debug, Clone)]
+pub struct CompletionUnit<'a> {
+    /// `forge.completion:{taskId}` — the receipt key. One task completes once.
+    pub command_id: &'a str,
+    /// The process instance whose evidence row is merged (`forge_workflow_evidence.process_instance_id`).
+    pub process_instance_id: &'a str,
+    /// The canonical story row the unit's counters live on, and the receipt's aggregate.
+    pub story_id: &'a str,
+    /// The workflow node that accepted the completion (`repair_smith`, `qa`, …), recorded on the receipt so a
+    /// row read by hand says which role — and therefore which budget — the unit belonged to.
+    pub node_id: Option<&'a str>,
+    pub evidence: &'a ForgeEvidencePatch,
+    /// The budget this unit spends, or `None` for a node that spends none.
+    pub spend: Option<CompletionSpend>,
+    /// The identity of the unit's *key*: which story this completion receipt belongs to. A committed
+    /// receipt for this key carries the same fingerprint; a differing one is a different unit claiming a
+    /// spent key, which is refused rather than replayed.
+    pub fingerprint: &'a str,
+}
+
+/// What [`ForgeEngineDao::apply_completion`] found, and the four answers it must keep apart.
+///
+/// `Busy` and `Conflict` are not `AlreadyApplied`: reporting them as applied would drop the unit's effects
+/// on the floor, which is the failure this routine exists to remove.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompletionApply {
+    /// This call wrote the unit. Receipt, evidence merge and budget spend are committed together.
+    Applied,
+    /// A committed receipt for this task already holds this unit, fingerprint and all. Nothing was written.
+    AlreadyApplied,
+    /// A committed receipt for this task holds a DIFFERENT unit (the stored fingerprint is returned).
+    Conflict { stored: String },
+    /// Another process is mid-unit on this receipt (a `pending` row younger than the stale window).
+    Busy,
+}
+
+/// The state of a receipt that already exists, read inside the unit's transaction and held under
+/// `for update` so a concurrent unit on the same key waits instead of racing.
+#[derive(Debug, Clone, FromRow)]
+struct CompletionReceiptState {
+    outcome: String,
+    request_fingerprint: Option<String>,
+    /// `updated_at` inside the engine's stale window (15 minutes, `AGENTS.md`), the same window
+    /// [`ForgeEngineDao::claim_workflow_receipt`] reclaims on.
+    fresh: bool,
+}
+
 impl ForgeEngineDao {
     pub async fn workflow_evidence_for_story(
         &self,
@@ -1106,49 +1196,28 @@ impl ForgeEngineDao {
         evidence: &ForgeEvidencePatch,
         release_failure_resolved: bool,
     ) -> DbResult<()> {
-        sqlx::query(
-            "insert into forge_workflow_evidence (
-                process_instance_id, story_id, work_type, scout_required, lead_decision,
-                qa_review_required, qa_review_passed, qa_passed, failure_class, failed_release_stage,
-                last_failure, publish_succeeded, candidate_sha, qa_verified_sha, published_sha
-             ) values (
-                $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
-             )
-             on conflict (process_instance_id) do update set
-                work_type=coalesce(excluded.work_type,forge_workflow_evidence.work_type),
-                scout_required=coalesce(excluded.scout_required,forge_workflow_evidence.scout_required),
-                lead_decision=coalesce(excluded.lead_decision,forge_workflow_evidence.lead_decision),
-                qa_review_required=coalesce(excluded.qa_review_required,forge_workflow_evidence.qa_review_required),
-                qa_review_passed=coalesce(excluded.qa_review_passed,forge_workflow_evidence.qa_review_passed),
-                qa_passed=coalesce(excluded.qa_passed,forge_workflow_evidence.qa_passed),
-                failure_class=case when $16 then null else coalesce(excluded.failure_class,forge_workflow_evidence.failure_class) end,
-                failed_release_stage=case when $16 then null else coalesce(excluded.failed_release_stage,forge_workflow_evidence.failed_release_stage) end,
-                last_failure=case when $16 then null else coalesce(excluded.last_failure,forge_workflow_evidence.last_failure) end,
-                publish_succeeded=coalesce(excluded.publish_succeeded,forge_workflow_evidence.publish_succeeded),
-                candidate_sha=coalesce(excluded.candidate_sha,forge_workflow_evidence.candidate_sha),
-                qa_verified_sha=coalesce(excluded.qa_verified_sha,forge_workflow_evidence.qa_verified_sha),
-                published_sha=coalesce(excluded.published_sha,forge_workflow_evidence.published_sha),
-                updated_at=now()",
-        )
-        .bind(process_instance_id)
-        .bind(story_id)
-        .bind(evidence.work_type.as_deref())
-        .bind(evidence.scout_required)
-        .bind(evidence.lead_decision.as_deref())
-        .bind(evidence.qa_review_required)
-        .bind(evidence.qa_review_passed)
-        .bind(evidence.qa_passed)
-        .bind(evidence.failure_class.as_deref())
-        .bind(evidence.failed_release_stage.as_deref())
-        .bind(evidence.last_failure.as_deref())
-        .bind(evidence.publish_succeeded)
-        .bind(evidence.candidate_sha.as_deref())
-        .bind(evidence.qa_verified_sha.as_deref())
-        .bind(evidence.published_sha.as_deref())
-        .bind(release_failure_resolved)
-        .execute(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("forge_engine.merge_workflow_evidence", &error))?;
+        sqlx::query(WORKFLOW_EVIDENCE_UPSERT_SQL)
+            .bind(process_instance_id)
+            .bind(story_id)
+            .bind(evidence.work_type.as_deref())
+            .bind(evidence.scout_required)
+            .bind(evidence.lead_decision.as_deref())
+            .bind(evidence.qa_review_required)
+            .bind(evidence.qa_review_passed)
+            .bind(evidence.qa_passed)
+            .bind(evidence.failure_class.as_deref())
+            .bind(evidence.failed_release_stage.as_deref())
+            .bind(evidence.last_failure.as_deref())
+            .bind(evidence.publish_succeeded)
+            .bind(evidence.candidate_sha.as_deref())
+            .bind(evidence.qa_verified_sha.as_deref())
+            .bind(evidence.published_sha.as_deref())
+            .bind(release_failure_resolved)
+            .execute(self.db.pool())
+            .await
+            .map_err(|error| {
+                DbFailure::from_sqlx("forge_engine.merge_workflow_evidence", &error)
+            })?;
         Ok(())
     }
 
@@ -1337,10 +1406,10 @@ impl ForgeEngineDao {
         Ok(watermark)
     }
 
-    /// The canonical story row's repair observer (legacy `INC_REPAIR`). One writer, one fact: the counter
     /// The story's repair and replan counters (`forge_repair_attempts` / `forge_replan_attempts`, migration 114), as
-    /// the QA failure route must read them. Written by the completion ledger and, until 2026-10-03, read by nothing:
-    /// every QA route saw 0 attempts, so a REPAIR disposition could never exhaust its budget.
+    /// the QA failure route must read them. Written by the completion unit (`apply_completion`, FORGE-B1 slice 2)
+    /// and, until 2026-10-03, read by nothing: every QA route saw 0 attempts, so a REPAIR disposition could never
+    /// exhaust its budget.
     pub async fn story_repair_counts(&self, story_id: &str) -> DbResult<Option<(i32, i32)>> {
         sqlx::query_as::<_, (i32, i32)>(
             "select coalesce(forge_repair_attempts,0), coalesce(forge_replan_attempts,0)
@@ -1363,50 +1432,6 @@ impl ForgeEngineDao {
         .await
         .map(|_| ())
         .map_err(|error| DbFailure::from_sqlx("forge_engine.reset_forge_attempts", &error))
-    }
-
-    /// lives on `storyboard_story` (`forge_repair_attempts`, migration 114), never in a process.
-    pub async fn increment_forge_repair_attempts(&self, story_id: &str) -> DbResult<()> {
-        let result = sqlx::query(
-            "update storyboard_story
-                set forge_repair_attempts = coalesce(forge_repair_attempts,0) + 1
-              where id = $1",
-        )
-        .bind(story_id)
-        .execute(self.db.pool())
-        .await
-        .map_err(|error| {
-            DbFailure::from_sqlx("forge_engine.increment_forge_repair_attempts", &error)
-        })?;
-        if result.rows_affected() != 1 {
-            return Err(DbFailure::schema_mismatch(
-                "forge_engine.increment_forge_repair_attempts",
-                format!("no storyboard_story row for {story_id}"),
-            ));
-        }
-        Ok(())
-    }
-
-    /// The canonical story row's replan observer (legacy `INC_REPLAN`).
-    pub async fn increment_forge_replan_attempts(&self, story_id: &str) -> DbResult<()> {
-        let result = sqlx::query(
-            "update storyboard_story
-                set forge_replan_attempts = coalesce(forge_replan_attempts,0) + 1
-              where id = $1",
-        )
-        .bind(story_id)
-        .execute(self.db.pool())
-        .await
-        .map_err(|error| {
-            DbFailure::from_sqlx("forge_engine.increment_forge_replan_attempts", &error)
-        })?;
-        if result.rows_affected() != 1 {
-            return Err(DbFailure::schema_mismatch(
-                "forge_engine.increment_forge_replan_attempts",
-                format!("no storyboard_story row for {story_id}"),
-            ));
-        }
-        Ok(())
     }
 
     /// Finalize a claimed receipt. `updated_at` moves with it (migration 223) because the stale-window
@@ -1440,4 +1465,257 @@ impl ForgeEngineDao {
         }
         Ok(())
     }
+    /// Apply ONE completion unit — the receipt, the evidence merge and the budget spend — in ONE
+    /// transaction (FORGE-B1 slice 2, defect #2).
+    ///
+    /// The engine used to write the three effects in separate statements on the pool
+    /// (`claim_workflow_receipt` → `merge_workflow_evidence` → `increment_forge_*_attempts` →
+    /// `finalize_workflow_receipt`). A process that died inside that window left the evidence merged and
+    /// the budget spent with NO receipt — so the resume re-ran the unit and spent the budget a second
+    /// time, and the repair budget could be exhausted by crashes alone. The receipt was the only proof of
+    /// the unit, and it was the one thing the window could lose.
+    ///
+    /// Now the receipt and the effects commit together or not at all, and the receipt is the unit's
+    /// idempotence key: a committed receipt for this task answers [`CompletionApply::AlreadyApplied`]
+    /// without touching the evidence or the counters again.
+    ///
+    /// Lock order — the only order this routine takes, and the order every other writer of these rows
+    /// must agree with: **receipt → story → evidence**. The story row is locked before anything is spent,
+    /// so a spend serializes with the story's own writers; the evidence row comes last, matching the
+    /// cascade `storyboard_story → forge_workflow_evidence`. The receipt is first because it is the claim:
+    /// whoever owns the receipt owns the unit.
+    pub async fn apply_completion(&self, unit: &CompletionUnit<'_>) -> DbResult<CompletionApply> {
+        let mut tx = self.db.begin("forge_engine.apply_completion").await?;
+        match self.apply_completion_tx(&mut tx, unit).await {
+            Ok(CompletionApply::Applied) => {
+                tx.commit().await?;
+                Ok(CompletionApply::Applied)
+            }
+            Ok(rest) => {
+                // Nothing was written (already applied, busy, or a conflicting unit), so there is no work
+                // to make durable: end the transaction and release the row lock it holds.
+                tx.rollback().await?;
+                Ok(rest)
+            }
+            Err(failure) => {
+                // The unit's own failure is the report. A rollback that ALSO fails is a second failure and
+                // it is not lost by not replacing the first: `DbFailure` announces itself to the capture
+                // sink when it is built (`db/src/capture.rs`).
+                if let Err(rollback) = tx.rollback().await {
+                    let _ = rollback;
+                }
+                Err(failure)
+            }
+        }
+    }
+
+    /// The unit's body, on a caller's transaction: claim → spend → merge evidence → prove.
+    ///
+    /// Separate from [`Self::apply_completion`] so a caller that is already inside a transaction (a
+    /// service mutation) applies the unit in THAT transaction rather than nesting one. `apply_completion`
+    /// is the door for everyone else.
+    pub async fn apply_completion_tx(
+        &self,
+        tx: &mut DbTransaction,
+        unit: &CompletionUnit<'_>,
+    ) -> DbResult<CompletionApply> {
+        // Claim first, with the unit's own identity. `on conflict do nothing` is what makes the receipt
+        // the unit's idempotence key: exactly one caller inserts it, and that caller owns the unit.
+        let claimed = sqlx::query_scalar::<_, String>(
+            "insert into workflow_command_receipt (
+                command_id, outcome, aggregate_id, message,
+                command_type, request_fingerprint, aggregate_type, updated_at
+             ) values ($1, 'pending', $2, $3, 'forge.completion', $4, 'story', now())
+             on conflict (command_id) do nothing
+             returning command_id",
+        )
+        .bind(unit.command_id)
+        .bind(unit.story_id)
+        .bind(COMPLETION_RECEIPT_MESSAGE)
+        .bind(unit.fingerprint)
+        .fetch_optional(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.completion_claim", &error))?;
+
+        if claimed.is_none() {
+            // A receipt for this task exists. `for update` holds the row for the rest of the unit, so a
+            // concurrent unit on the same key waits HERE instead of interleaving with us.
+            let state = sqlx::query_as::<_, CompletionReceiptState>(
+                "select outcome, request_fingerprint,
+                        coalesce(updated_at, created_at) > now() - interval '15 minutes' as fresh
+                   from workflow_command_receipt
+                  where command_id = $1
+                    for update",
+            )
+            .bind(unit.command_id)
+            .fetch_optional(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_engine.completion_read", &error))?
+            .ok_or_else(|| {
+                DbFailure::schema_mismatch(
+                    "forge_engine.completion_read",
+                    format!(
+                        "receipt {} vanished between the claim and the read",
+                        unit.command_id
+                    ),
+                )
+            })?;
+
+            if state.outcome != "pending" {
+                // Final: the unit it proves was committed, effects and all.
+                return Ok(match state.request_fingerprint {
+                    // A receipt written before the unit carried a fingerprint (every completion receipt
+                    // predating this routine). Its effects are committed — finalizing it was the last
+                    // write — so it is applied. There is no identity to compare, and inventing one would
+                    // replay a unit that already ran.
+                    None => CompletionApply::AlreadyApplied,
+                    Some(stored) if stored == unit.fingerprint => CompletionApply::AlreadyApplied,
+                    // A committed receipt for this task holding a DIFFERENT unit. Refuse: replaying our
+                    // evidence over it would rewrite a settled unit, and reporting it as applied would
+                    // drop ours.
+                    Some(stored) => CompletionApply::Conflict { stored },
+                });
+            }
+
+            if state.fresh {
+                // A `pending` row inside the stale window: another process is mid-unit. Refuse — never
+                // treat an unfinished unit as applied.
+                return Ok(CompletionApply::Busy);
+            }
+            // A `pending` row past the window: a predecessor died holding it (the shape a pre-unit claim
+            // left behind). Take it over on the same window `claim_workflow_receipt` reclaims on, and
+            // record OUR fingerprint while doing it, so the row names the unit that owns it now.
+            let reclaimed = sqlx::query_scalar::<_, String>(
+                "update workflow_command_receipt
+                    set request_fingerprint = $2, updated_at = now()
+                  where command_id = $1
+                    and outcome = 'pending'
+                    and coalesce(updated_at, created_at) < now() - interval '15 minutes'
+                  returning command_id",
+            )
+            .bind(unit.command_id)
+            .bind(unit.fingerprint)
+            .fetch_optional(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_engine.completion_reclaim", &error))?;
+            if reclaimed.is_none() {
+                // The window closed under us while we waited on the row lock: a peer owns it now.
+                return Ok(CompletionApply::Busy);
+            }
+        }
+
+        // The spend, before the evidence merge. The story row is locked first so the counter and the
+        // story's own writers serialize, and a story that does not exist is a schema error rather than a
+        // silently unspent budget.
+        if let Some(spend) = unit.spend {
+            let locked = sqlx::query_scalar::<_, String>(
+                "select id from storyboard_story where id = $1 for update",
+            )
+            .bind(unit.story_id)
+            .fetch_optional(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_engine.completion_story_lock", &error))?;
+            if locked.is_none() {
+                return Err(DbFailure::schema_mismatch(
+                    "forge_engine.completion_story_lock",
+                    format!("no storyboard_story row for {}", unit.story_id),
+                ));
+            }
+            let statement = match spend {
+                CompletionSpend::Repair => {
+                    "update storyboard_story
+                        set forge_repair_attempts = coalesce(forge_repair_attempts,0) + 1
+                      where id = $1"
+                }
+                CompletionSpend::Replan => {
+                    "update storyboard_story
+                        set forge_replan_attempts = coalesce(forge_replan_attempts,0) + 1
+                      where id = $1"
+                }
+            };
+            let spent = sqlx::query(statement)
+                .bind(unit.story_id)
+                .execute(tx.connection())
+                .await
+                .map_err(|error| DbFailure::from_sqlx("forge_engine.completion_spend", &error))?;
+            if spent.rows_affected() != 1 {
+                return Err(DbFailure::schema_mismatch(
+                    "forge_engine.completion_spend",
+                    format!("no storyboard_story row for {}", unit.story_id),
+                ));
+            }
+        }
+
+        // The evidence merge, on the same transaction: the same statement the workflow-evidence port runs,
+        // so the coalesce rules cannot drift between the two callers.
+        sqlx::query(WORKFLOW_EVIDENCE_UPSERT_SQL)
+            .bind(unit.process_instance_id)
+            .bind(unit.story_id)
+            .bind(unit.evidence.work_type.as_deref())
+            .bind(unit.evidence.scout_required)
+            .bind(unit.evidence.lead_decision.as_deref())
+            .bind(unit.evidence.qa_review_required)
+            .bind(unit.evidence.qa_review_passed)
+            .bind(unit.evidence.qa_passed)
+            .bind(unit.evidence.failure_class.as_deref())
+            .bind(unit.evidence.failed_release_stage.as_deref())
+            .bind(unit.evidence.last_failure.as_deref())
+            .bind(unit.evidence.publish_succeeded)
+            .bind(unit.evidence.candidate_sha.as_deref())
+            .bind(unit.evidence.qa_verified_sha.as_deref())
+            .bind(unit.evidence.published_sha.as_deref())
+            // A completion unit never resolves a release failure: that is the release path's own write
+            // (`Self::merge_workflow_evidence` with `release_failure_resolved = true`).
+            .bind(false)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_engine.completion_evidence", &error))?;
+
+        // Proof last, and only for what this call claimed: a lost claim must not read as applied.
+        let proof = sqlx::query(
+            "update workflow_command_receipt
+                set outcome = 'success', aggregate_id = $2, message = $3,
+                    result_payload = $4, updated_at = now()
+              where command_id = $1 and outcome = 'pending'",
+        )
+        .bind(unit.command_id)
+        .bind(unit.story_id)
+        .bind(COMPLETION_RECEIPT_MESSAGE)
+        .bind(completion_proof(unit))
+        .execute(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.completion_finalize", &error))?;
+        if proof.rows_affected() != 1 {
+            return Err(DbFailure::schema_mismatch(
+                "forge_engine.completion_finalize",
+                format!(
+                    "no claimed completion receipt for {} to finalize",
+                    unit.command_id
+                ),
+            ));
+        }
+        Ok(CompletionApply::Applied)
+    }
+}
+
+/// The one line a completion receipt carries in `message`, so a row read by hand says which routine wrote
+/// it and what it committed.
+const COMPLETION_RECEIPT_MESSAGE: &str =
+    "forge.completion applied (receipt, evidence and budget in one transaction)";
+
+/// The unit's proof, stored on the receipt (`result_payload`). It is read by a person diagnosing a
+/// completion, never by the engine: the engine's answer is the receipt's EXISTENCE.
+fn completion_proof(unit: &CompletionUnit<'_>) -> Value {
+    serde_json::json!({
+        "task_receipt": unit.command_id,
+        "story_id": unit.story_id,
+        "process_instance_id": unit.process_instance_id,
+        "node_id": unit.node_id,
+        "spend": match unit.spend {
+            Some(CompletionSpend::Repair) => Some("repair"),
+            Some(CompletionSpend::Replan) => Some("replan"),
+            None => None,
+        },
+        "fingerprint": unit.fingerprint,
+    })
 }

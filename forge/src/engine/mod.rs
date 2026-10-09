@@ -90,7 +90,10 @@ pub mod writer;
 pub mod xml;
 
 pub use commands::is_routed as forge_command_is_routed;
-pub use completion::{apply_completion_unit, CompletionLedger, CompletionRecord, MemoryLedger};
+pub use completion::{
+    apply_completion_unit, CompletionApply, CompletionLedger, CompletionRecord, CompletionSpend,
+    MemoryLedger,
+};
 pub use db_ledger::{durable_completion_ledger, DbCompletionLedger};
 pub use db_writer::DbForgeStateWriter;
 pub use definition::{forge_sdlc_compact_definition, forge_sdlc_definition, forge_sdlc_graph};

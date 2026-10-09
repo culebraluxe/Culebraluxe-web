@@ -89,8 +89,8 @@ fn claim_fence_from_args(args: &[String], work_item: &str) -> Result<db::ClaimFe
         return Err(format!(
             "--work-item {work_item} without --claim-owner cannot be fenced (migration 278).\n\
              A claim's authority is (owner, generation) and only the process that took the claim has it.\n\
-             Read it with:\n\
-             \x20 select claimed_by, claim_generation from agent_work_item where id = '{work_item}';\n\
+             Read the item row's claimed_by and claim_generation columns — `pnpm forge:doctor` prints the owner,\n\
+             and psql against the control-plane database prints both —\n\
              then pass --claim-owner <claimed_by> --claim-generation <claim_generation>.\n\
              To run a story with no queue claim at all, drop --work-item."
         ));

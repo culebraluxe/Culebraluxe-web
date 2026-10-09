@@ -3,7 +3,7 @@
 //! CONTRACT. A `pending` receipt younger than the stale window is held (`HeldByAnother`); a `pending`
 //! receipt older than the window belonged to a dead process and is reclaimable (`Acquired` again), and
 //! the reclaim never forks the row. This is the one requirement of the batch whose owning boundary is
-//! SQL — the 15-minute window lives in `db/src/forge_engine.rs:1118-1133` — so, like the chaos-forge
+//! SQL — the 15-minute window lives in `db/src/forge_engine.rs:1307-1366` — so, like the chaos-forge
 //! precedent (`tests/tests/chaos_forge__007__..._state.rs`) and the DEV receipt walk
 //! (`tests/tests/forge_completion_receipt_dev.rs` step 5), it runs against DEV and is ignored otherwise.
 //! The in-memory `MemoryLedger` has no clock and promises no reclamation; asserting a time window of a
