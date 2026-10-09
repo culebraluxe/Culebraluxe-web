@@ -509,3 +509,71 @@ a test edit), and row 4 is one rebase — `lane/longcat`'s `3b32cc4ff`.
 
 
 
+
+## 16. The deploy WAS gated by the test suite; it is not any more (`lane/deep`, 2026-10-08)
+
+The Captain asked whether the red rows could "blow up" a build, and then said what he wanted: *"i dont want tests to
+block my deploy i dont know how that ever got in there … tests should be my choice to run not a gun to my head to do a
+deploy."* He was right, and it was one script deep in the release path:
+
+    $ grep -rlnE 'cargo (nextest|test)|pnpm test|slice:check' scripts/ .githooks/ vercel.json
+    scripts/rust-dev-boot-smoke.sh
+    scripts/build-all.sh
+    scripts/ops/gate/slice-check.sh
+    .githooks/pre-push
+    $ grep -nE 'bash scripts/' scripts/release-record.sh
+    135:  bash scripts/release-ci-check.sh "$CHECK_SHA"; CI_CHECK_RC="$?"
+
+`pnpm release` → `scripts/release-record.sh:137-147` read `gates.yml` for HEAD and **exited 1** unless that workflow
+completed `success`; `gates.yml:360-362` is `cargo nextest run --workspace --profile ci`, so a single authored-red
+harness target refused every release. It arrived as `d5505faa2` (2026-09-18, "FORGE-LOCAL-RELEASE-CI-CHECK-01, Astra
+feature 4") — a reviewer's hardening, not the Captain's rule — and had stood for twenty days.
+
+**What changed (ruling, not preference): the read stays, the refusal moves behind a name.** `release-ci-check.sh` now
+defaults to `RELEASE_CI_CHECK=read`: it prints the verdict for the exact sha — green, red, pending, no run, unreadable —
+and exits 0 on every one of them. `require` is the opt-in gun (the old behaviour, byte for byte, behind a word);
+`skip` reads nothing; an unknown value warns and is treated as `read`, so a typo cannot acquire a power the default
+declines. One classifier serves both modes, so `read` and `require` can never disagree about what CI said — only about
+what is done with it. Also fixed while in there: the verdict line was glued to the next log line (`$( )` strips the
+trailing newline) and `workflow's success` in a node string inside a bash single-quoted block was a **syntax error** —
+the file did not parse until that apostrophe left. `bash -n` clean, `shellcheck -S warning` clean.
+
+Receipts — every mode, driven through the script's own offline reader (`RELEASE_CI_CMD`, which exists for this):
+
+    ### read + CI RED (the captain ships anyway)        EXIT=0   "…did not succeed for deadbeef1234: run 8 attempt 1
+                                                                (completed/failure) (informational: this does not stop
+                                                                the release)"
+    ### read + CI GREEN                                 EXIT=0   "green — gates.yml completed successfully…"
+    ### read + NO RUN for this sha                      EXIT=0   "…has no run for deadbeef1234 (an unrelated workflow
+                                                                success is not a substitute) (informational…)"
+    ### read + UNREADABLE (reader exits non-zero)       EXIT=0   "UNREADABLE — could not read CI results…"
+    ### read + PENDING                                   EXIT=0
+    ### require + RED                                    EXIT=1   stderr: "REFUSED — the required workflow gates.yml did
+                                                                not succeed…"
+    ### require + UNREADABLE                             EXIT=1   stderr: "REFUSED — could not read CI results…"
+    ### skip                                             EXIT=0   "MODE skip — CI will not be read at all…"
+    ### typo (RELEASE_CI_CHECK=reqiure)                  EXIT=0   "WARNING — unknown … treating as read"
+
+**What did NOT change, stated so nobody re-derives it:** the build and the sha-named live probe still decide what a
+release row may claim; `pnpm deploy:prod` (`scripts/deploy-prod.sh`) never read CI or a test at all — it is Vercel
+build + deploy; the pre-push hook runs only the `Cargo.lock` check and the wasm compile; `pnpm test:deploy-gate` is
+`db:parity && test:app && test:forge:engine` and contains no harness. The ruling is written into `AGENTS.md` ("The gate
+is tiered") and `docs/agent/MEMORY.md`, because the failure mode is an agent adding such a gate *as a feature*.
+
+### 16.1 My triage of what is left after row 1 — put to the Captain, not acted on
+
+Asked which rows I would fix, table or delete. My recommendation, in that order:
+
+1. **Fix now, mechanical, no decision needed:** row 10 `runtime_deploy__004` (the test omits clearing the child's
+   environment and sleeps a fixed 500 ms; the server's refusal is correct) and row 4 (`arch_boundary__011:924`, the
+   assertion pins a rustfmt line-wrap spelling; `lane/longcat` `3b32cc4ff` already has the fix).
+2. **Fix, but only after one sentence from him:** rows 1 and 2 — the guard caught a real boundary change (a process
+   spawn in the QA engine module, `assay.rs`, so a wait can be bounded; the job layer reaching `opencode::turn_ceiling`),
+   and the question is whether the rule widens to "no git door, any process" or the code moves. Both guards predate the
+   code, so the guard did its job; neither is a user-visible fault.
+3. **Table:** row 5 and the duplicate-id estate (17 SEC.REDIRECT files for 11 ids) — real, but nobody is blocked.
+4. **Delete:** nothing, yet. The brittle assertion (row 4) should be *rewritten*, not deleted: a guard deleted for being
+   inconvenient is how a written rule stops being enforced, and this repo has already paid for that once. If the
+   Captain wants `slice:check` unblocked before rows 1/2 are ruled on, the honest move is a **named, dated quarantine
+   list the gate reads** — never a green-washed baseline.
+

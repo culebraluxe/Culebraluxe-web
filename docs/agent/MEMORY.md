@@ -769,3 +769,22 @@ Short facts that are expensive to rediscover.
   `preferred_form_id` (`web/ui/src/app/screens/forms/document.rs:6-26`) already prefers a LISTING-01 form at the active
   version that is not issued.
 
+
+- **2026-10-08 (a test that gates a deploy is not a stronger gate — it is a veto held by whoever wrote the test, and the
+  Captain abolished one he found).** His words, twice in one session: *"i dont want tests to block my deploy i dont know
+  how that ever got in there"* and *"tests should be my choice to run not a gun to my head to do a deploy"*, under the
+  standing grant *"you can have any level of tests or checks or tooling or scripting you need to keep the Pirate ship
+  afloat"*. **What he actually had:** `pnpm release` (`scripts/release-record.sh:137-147`) read `gates.yml` for HEAD via
+  `scripts/release-ci-check.sh` and **exited 1** on a red, pending, missing or unreadable run — and `gates.yml:360-362`
+  runs `cargo nextest run --workspace --profile ci`, so the six authored-red harness targets recorded in
+  `docs/agent/TECH-DEBT.md` stood between him and production. It got in as `d5505faa2` (2026-09-18, "Astra feature 4"),
+  reasoning that a red `main` should not be releasable by hand: a reviewer's good-faith hardening that nobody asked for,
+  that no hand-off afterwards mentioned again, and that read as diligence for twenty days. **The ruling's shape:** the
+  read stays — he still sees the verdict — and the refusal moves behind a name. `RELEASE_CI_CHECK=read` is the default
+  and never refuses anything; `require` is the opt-in gun; `skip` reads nothing; an unknown value is reported and
+  treated as `read`, so a typo cannot acquire a power the default declines. Build, deploy and the sha-named live probe
+  are untouched and still decide what a release row may claim, and `pnpm deploy:prod` never read CI or a test at all.
+  Written into `AGENTS.md` ("The gate is tiered") because the failure mode is an agent *adding* such a gate as a feature,
+  and into both scripts' headers with the ruling quoted. **Generalised: the tier belongs to the work; the ship is the
+  Captain's.** A gate that can stop a deploy must be something he switches on, never something a slice inherits.
+

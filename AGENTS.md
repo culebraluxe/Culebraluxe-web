@@ -114,6 +114,18 @@ T2 is a named, dated, owned row rather than a mystery nobody can reproduce, and 
 owner + expiry), not some worker's window. `pnpm slice:check --full` runs T2 here when the moment deserves it (a
 release, a suspicious landing), and `Ask first` still governs a deliberate FULL regression.
 
+**The suite informs the release; it never holds it.** The tiers above gate the *work* — a slice owes T0 and T1, and T2
+belongs to the runner's clock. None of them gates a **deploy**. The Captain's ruling (2026-10-08): *"tests should be my
+choice to run, not a gun to my head to do a deploy."* `pnpm release` reads CI for the sha it is about to ship and
+**prints** the verdict — green, red, pending, no run, unreadable — then ships on every one of them; what decides a
+release is the artifact, through its own build and the live probe (`scripts/release-record.sh`,
+`scripts/release-ci-check.sh`). A refusal happens only when it is asked for, by name (`RELEASE_CI_CHECK=require`);
+`RELEASE_CI_CHECK=skip` does not read CI at all, and an unknown value is reported and treated as `read` so a typo cannot
+acquire a power the default declines. Two consequences. A red test on `main` is a dated, owned row in
+`docs/agent/TECH-DEBT.md` and never a reason the Captain cannot ship. And **a check you add reports, or it is opt-in —
+none may become a silent new condition on a deploy.** The precedent is on the record: `d5505faa2` (2026-09-18, an Astra
+review "feature") made a red CI run refuse every release, which read as diligence and worked as a gun for twenty days.
+
 ## Rust First — the application is Rust
 
 The whole application is Rust: the website and the portal are one Yew app (`web/ui`) served by the Rust server, and the
