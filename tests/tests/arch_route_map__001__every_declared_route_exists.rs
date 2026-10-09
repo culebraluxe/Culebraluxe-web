@@ -73,7 +73,10 @@ fn arch_route_map_001__every_declared_route_exists() {
     );
     for segment in &bridge_segments {
         assert!(
-            bridge.contains(&format!("/api/portal/rust-ui/{segment}\"")),
+            // A segment may be the first level of a nested bridge route, such as
+            // `signing/dispatch` or `projects/calendar`; checking for a closing quote here
+            // mistakes those valid full paths for an escape from the rust-ui prefix.
+            bridge.contains(&format!("/api/portal/rust-ui/{segment}")),
             "bridge route {segment} must stay under the /api/portal/rust-ui/ prefix"
         );
     }
