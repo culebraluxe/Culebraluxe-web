@@ -64,9 +64,9 @@ const TREE_FIELD_TOKENS: [&str; 4] = [
 
 /// The files allowed to carry a worktree-CREATION capability, frozen. Growth fails the test: remove
 /// the capability, or add the file here WITH the reason it may exist. `forge/src/engine/worktree.rs`
-/// is the sole Rust file that invokes `git worktree add`; it is under an active engine audit
-/// (`H3` in `docs/agent/HANDOFF-ts-guards-to-rust-2026-09-29.md`), so this guard baselines it rather
-/// than editing it.
+/// owns low-level worktree commands; `forge/src/engine/executor/drive.rs` is the Batch 2 orchestration
+/// caller that provisions per-run isolation worktrees through that module. Both are under the
+/// disposable worker-worktree exception, while this guard keeps the capability surface explicit.
 ///
 /// `tests/src/git.rs` is the contract-test suite's disposable-worktree helper. It is
 /// allowed because it is the one shape AGENTS.md:151 exempts by name — "Scratch that a command creates
@@ -111,7 +111,8 @@ const TREE_FIELD_TOKENS: [&str; 4] = [
 /// and dies inside one command, and a probe that only printed would not be a receipt. Recorded here by
 /// the Captain's call (`bless`, 2026-10-08) rather than removed: deleting the probes would delete the
 /// regression guard for the 2026-10-08 checkout bug they were written to catch.
-const WORKTREE_CAPABILITY_FILES: [&str; 6] = [
+const WORKTREE_CAPABILITY_FILES: [&str; 7] = [
+    "forge/src/engine/executor/drive.rs",
     "forge/src/engine/worktree.rs",
     "forge/src/pianola/worker_lanes.rs",
     "scripts/lane-cargo-config.sh",
@@ -223,7 +224,9 @@ const TABLE_WRITERS_BASELINE: [(&str, &[&str]); 3] = [
     ),
     (
         "storyboard_story_run",
-        &["db/src/forge_control.rs", "db/src/forge_engine.rs"],
+        // The learning DAO removed its unused story-run writer during Batch 4; the active writer
+        // remains in the Forge Engine DAO.
+        &["db/src/forge_engine.rs"],
     ),
     ("forge_workflow_evidence", &["db/src/forge_engine.rs"]),
 ];
