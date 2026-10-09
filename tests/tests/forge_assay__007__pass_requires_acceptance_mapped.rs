@@ -18,6 +18,7 @@ fn passing(command: &str) -> CommandResult {
     CommandResult {
         command: command.into(),
         exit_code: 0,
+        cancelled: false,
         passed: true,
         excerpt: "ok".into(),
         unmeasurable: false,

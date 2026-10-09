@@ -231,7 +231,7 @@ pub fn drive(
             runner: None,
             max_steps,
             worker_id: WORKER,
-            split_concurrency: 1,
+            within_story_concurrency: 1,
             stop_after: None,
             turn_cap: 40,
         },
@@ -293,6 +293,7 @@ impl RoleHarness for ScriptedHarness {
         CommandResult {
             command: command.into(),
             exit_code: 0,
+            cancelled: false,
             passed: true,
             excerpt: String::new(),
             unmeasurable: false,
@@ -311,6 +312,7 @@ pub fn task(story: &str, node: &str) -> ActiveForgeRoleTask {
         status: workflow::TaskStatus::Ready,
         assignee: None,
         candidates: vec![node.into()],
+        write_surface: None,
     }
 }
 

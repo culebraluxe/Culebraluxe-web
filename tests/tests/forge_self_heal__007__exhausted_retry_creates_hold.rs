@@ -47,6 +47,7 @@ fn stub_command(command: &str) -> CommandResult {
     CommandResult {
         command: command.into(),
         exit_code: 1,
+        cancelled: false,
         passed: false,
         excerpt: "not run by this harness".into(),
         unmeasurable: true,
@@ -113,6 +114,7 @@ fn role_task(task_id: &str, story_id: &str) -> ActiveForgeRoleTask {
         status: TaskStatus::Ready,
         assignee: None,
         candidates: vec!["architect".into()],
+        write_surface: None,
     }
 }
 
@@ -131,6 +133,8 @@ fn forge_self_heal_007__exhausted_retry_creates_hold() {
     let task = role_task("task-007", "TST-RED-B24-007");
     let ctx = ForgeRoleContext {
         harness: &harness,
+        execution_id: None,
+        write_surface: None,
         current: &current,
         writer: Some(&writer),
         story_run_id: None,
@@ -139,6 +143,7 @@ fn forge_self_heal_007__exhausted_retry_creates_hold() {
         contract_assay_commands: &[],
         contract_acceptance_mapped: false,
         require_prod: false,
+        model_attempt_control: None,
     };
     let outcome = run_forge_role_turn(&ctx, "architect", &task, &hooks).expect("turn runs");
 
@@ -193,6 +198,8 @@ fn forge_self_heal_007__exhausted_retry_creates_hold() {
     let task = role_task("task-007-clean", "TST-RED-B24-007-CLEAN");
     let ctx = ForgeRoleContext {
         harness: &delivers,
+        execution_id: None,
+        write_surface: None,
         current: &current,
         writer: Some(&clean_writer),
         story_run_id: None,
@@ -201,6 +208,7 @@ fn forge_self_heal_007__exhausted_retry_creates_hold() {
         contract_assay_commands: &[],
         contract_acceptance_mapped: false,
         require_prod: false,
+        model_attempt_control: None,
     };
     let outcome = run_forge_role_turn(&ctx, "architect", &task, &hooks).expect("turn runs");
     assert!(

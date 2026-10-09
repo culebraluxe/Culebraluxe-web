@@ -65,6 +65,8 @@ impl RoleHarness for ScriptedGit {
             },
             unmeasurable: false,
             output: if ok { output } else { String::new() },
+
+            cancelled: false,
         }
     }
 }
@@ -79,6 +81,8 @@ fn smith_task() -> ActiveForgeRoleTask {
         status: TaskStatus::Ready,
         assignee: None,
         candidates: vec!["smith".into()],
+
+        write_surface: None,
     }
 }
 
@@ -116,6 +120,10 @@ fn forge_assay_011__artifact_written_before_lane_loses_result() {
         contract_assay_commands: &no_commands,
         contract_acceptance_mapped: false,
         require_prod: false,
+
+        execution_id: None,
+        write_surface: None,
+        model_attempt_control: None,
     };
     let turn = ForgeRoleTurn {
         node_id: "smith",
@@ -176,6 +184,10 @@ fn forge_assay_011__artifact_written_before_lane_loses_result() {
         contract_assay_commands: &no_commands,
         contract_acceptance_mapped: false,
         require_prod: false,
+
+        execution_id: None,
+        write_surface: None,
+        model_attempt_control: None,
     };
     let broken_turn = ForgeRoleTurn {
         node_id: "smith",

@@ -20,6 +20,15 @@ pub fn request_payload(request: &ForgeJobRequest) -> Value {
     );
     payload.insert("storyId", Value::from(request.task.story_id.as_str()));
     payload.insert("tokenId", Value::from(request.task.token_id.clone()));
+    payload.insert(
+        "writeSurface",
+        request
+            .task
+            .write_surface
+            .as_ref()
+            .map(|paths| Value::Array(paths.iter().cloned().map(Value::from).collect()))
+            .unwrap_or(Value::Null),
+    );
     payload
 }
 
@@ -64,6 +73,7 @@ mod tests {
             status: TaskStatus::Ready,
             assignee: None,
             candidates: vec![],
+            write_surface: None,
         }
     }
 
@@ -97,6 +107,25 @@ mod tests {
         assert_eq!(
             payload.get("tokenId").and_then(Value::as_str),
             Some("token-789")
+        );
+        assert_eq!(payload.get("writeSurface"), Some(&Value::Null));
+    }
+
+    #[test]
+    fn payload_carries_the_task_surface_used_for_scheduling_and_scope_checks() {
+        let mut task = sample_task();
+        task.write_surface = Some(vec!["src/a.rs".into(), "tests/".into()]);
+        let payload = request_payload(&ForgeJobRequest {
+            service_key: "forge.smith".into(),
+            node_id: "smith".into(),
+            task,
+        });
+        assert_eq!(
+            payload.get("writeSurface"),
+            Some(&Value::Array(vec![
+                Value::from("src/a.rs"),
+                Value::from("tests/")
+            ]))
         );
     }
 }

@@ -157,7 +157,7 @@ fn the_drivers_runner_field_is_not_a_second_path() {
             runner: Some(&forbidden),
             max_steps: 40,
             worker_id: WORKER,
-            split_concurrency: 1,
+            within_story_concurrency: 1,
             stop_after: None,
             turn_cap: 32,
         },

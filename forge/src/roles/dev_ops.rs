@@ -279,6 +279,7 @@ mod production_check_tests {
             status: workflow::TaskStatus::Ready,
             assignee: None,
             candidates: vec![],
+            write_surface: None,
         }
     }
 
@@ -290,6 +291,8 @@ mod production_check_tests {
     ) -> Option<workflow::Result<ForgeRoleOutcome>> {
         let ctx = ForgeRoleContext {
             harness: prod,
+            execution_id: None,
+            write_surface: None,
             current,
             writer: Some(writer),
             story_run_id: None,
@@ -298,6 +301,7 @@ mod production_check_tests {
             contract_assay_commands: &[],
             contract_acceptance_mapped: false,
             require_prod: false,
+            model_attempt_control: None,
         };
         DevOpsHooks.turn_without_model(&ctx, node, &task(node))
     }

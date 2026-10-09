@@ -24,6 +24,8 @@ fn failed(command: &str) -> CommandResult {
         excerpt: "assertion failed".into(),
         unmeasurable: false,
         output: "assertion failed".into(),
+
+        cancelled: false,
     }
 }
 
@@ -35,6 +37,8 @@ fn unmeasurable(command: &str) -> CommandResult {
         excerpt: "could not observe assay command".into(),
         unmeasurable: true,
         output: String::new(),
+
+        cancelled: false,
     }
 }
 
@@ -46,6 +50,8 @@ fn passing(command: &str) -> CommandResult {
         excerpt: "ok".into(),
         unmeasurable: false,
         output: "ok".into(),
+
+        cancelled: false,
     }
 }
 

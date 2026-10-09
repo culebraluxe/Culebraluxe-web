@@ -71,6 +71,8 @@ impl RoleHarness for ThenDeliversHarness {
             excerpt: "not run by this harness".into(),
             unmeasurable: true,
             output: String::new(),
+
+            cancelled: false,
         }
     }
 }
@@ -94,6 +96,8 @@ fn forge_self_heal_006__second_success_clears_rejection() {
         status: TaskStatus::Ready,
         assignee: None,
         candidates: vec!["architect".into()],
+
+        write_surface: None,
     };
     let ctx = ForgeRoleContext {
         harness: &harness,
@@ -105,6 +109,10 @@ fn forge_self_heal_006__second_success_clears_rejection() {
         contract_assay_commands: &[],
         contract_acceptance_mapped: false,
         require_prod: false,
+
+        execution_id: None,
+        write_surface: None,
+        model_attempt_control: None,
     };
     let outcome = run_forge_role_turn(&ctx, "architect", &task, &NoRoleHooks).expect("turn runs");
 

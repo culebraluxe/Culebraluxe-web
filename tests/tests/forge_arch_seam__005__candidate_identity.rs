@@ -205,6 +205,8 @@ impl RoleHarness for Workspace {
             excerpt: String::new(),
             unmeasurable: false,
             output,
+
+            cancelled: false,
         }
     }
 }
@@ -238,6 +240,10 @@ fn assay_measures_the_reviewed_candidate_not_the_workspace_head() {
         contract_assay_commands: &commands,
         contract_acceptance_mapped: true,
         require_prod: false,
+
+        execution_id: None,
+        write_surface: None,
+        model_attempt_control: None,
     };
     let task = ActiveForgeRoleTask {
         task_id: "t-assay".into(),
@@ -248,6 +254,8 @@ fn assay_measures_the_reviewed_candidate_not_the_workspace_head() {
         status: workflow::TaskStatus::Ready,
         assignee: None,
         candidates: vec![],
+
+        write_surface: None,
     };
     let turn = AssayHooks
         .turn_without_model(&ctx, "qa_verify", &task)

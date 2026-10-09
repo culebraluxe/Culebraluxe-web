@@ -31,6 +31,8 @@ pub struct ActiveForgeRoleTask {
     pub status: TaskStatus,
     pub assignee: Option<String>,
     pub candidates: Vec<String>,
+    /// Authoritative declared write surface from the workflow task form data.
+    pub write_surface: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -586,6 +588,7 @@ impl<S: TxStore> ForgeRuntime<S> {
 /// was rejected by the foreign key and the rejection was discarded: a rejected deliverable left no row and no
 /// error. The story id is known one boundary away and is never reconstructed from anything else.
 fn map_role_task(t: Task, tokens: &[workflow::Token], story_id: &str) -> ActiveForgeRoleTask {
+    let write_surface = crate::engine::role_slice::forge_lane_surface(Some(&t.form_data));
     let node_id = t.node_id.clone().or_else(|| {
         t.token_id.as_ref().and_then(|id| {
             tokens
@@ -603,6 +606,7 @@ fn map_role_task(t: Task, tokens: &[workflow::Token], story_id: &str) -> ActiveF
         status: t.status,
         assignee: t.assignee,
         candidates: t.candidates,
+        write_surface,
     }
 }
 
@@ -658,5 +662,19 @@ mod role_task_identity_tests {
         let b = map_role_task(fixture_task(), &[], "ENG-02");
         assert_eq!(a.story_id, "ENG-01");
         assert_eq!(b.story_id, "ENG-02");
+    }
+
+    #[test]
+    fn a_mapped_role_task_carries_its_authoritative_declared_surface() {
+        let mut task = fixture_task();
+        task.form_data = Value::Object(std::collections::BTreeMap::from([(
+            "surface".into(),
+            Value::Array(vec![Value::from("src/forge.rs"), Value::from("tests/")]),
+        )]));
+        let mapped = map_role_task(task, &[], "ENG-03");
+        assert_eq!(
+            mapped.write_surface,
+            Some(vec!["src/forge.rs".into(), "tests/".into()])
+        );
     }
 }

@@ -77,6 +77,13 @@ impl<'a> ForgeServiceRegistry<'a> {
 
         Ok(service)
     }
+
+    /// Registered services for capability validation at the scheduling
+    /// boundary. This exposes no role dispatch logic; keys remain owned by
+    /// the canonical service registry.
+    pub fn registered(&self) -> impl Iterator<Item = &'a dyn AbstractForgeService> + '_ {
+        self.services.values().copied()
+    }
 }
 
 impl Default for ForgeServiceRegistry<'_> {

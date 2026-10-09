@@ -47,6 +47,8 @@ fn failed(command: &str, output: &str) -> CommandResult {
         excerpt: output.into(),
         unmeasurable: false,
         output: output.into(),
+
+        cancelled: false,
     }
 }
 
@@ -58,6 +60,8 @@ fn unmeasurable(command: &str) -> CommandResult {
         excerpt: "could not spawn assay command".into(),
         unmeasurable: true,
         output: String::new(),
+
+        cancelled: false,
     }
 }
 
@@ -69,6 +73,8 @@ fn passing(command: &str) -> CommandResult {
         excerpt: "test result: ok. 1 passed; 0 failed".into(),
         unmeasurable: false,
         output: "test result: ok. 1 passed; 0 failed".into(),
+
+        cancelled: false,
     }
 }
 

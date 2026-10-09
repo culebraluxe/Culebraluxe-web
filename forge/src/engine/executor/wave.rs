@@ -4,10 +4,6 @@
 //! groups them into lanes, detects surface conflicts, and packs compatible
 //! lanes into batches up to the concurrency cap.
 
-use std::collections::BTreeMap;
-
-use crate::engine::path::{file_of, overlap};
-
 /// A lane of work with its associated surface paths.
 /// Used by `plan_wave` to detect conflicts and pack batches.
 #[derive(Debug, Clone)]
@@ -36,152 +32,128 @@ pub struct WavePlan<T> {
 fn has_surface<T>(lane: &WaveLane<T>) -> bool {
     lane.surface
         .as_ref()
-        .map(|s| !s.is_empty())
+        .map(|s| !s.is_empty() && s.iter().all(|path| canonical_surface(path).is_some()))
         .unwrap_or(false)
 }
 
-/// Trie node for efficient surface path overlap detection.
-/// Each node represents a path component and tracks which lane owns it.
-#[derive(Default)]
-struct SurfaceTrie {
-    children: BTreeMap<String, SurfaceTrie>,
-    owner: Option<String>,
+/// Surface syntax is explicit: `dir/` declares a tree, while `file` (including
+/// extensionless names) declares one exact path. Invalid and unsupported paths
+/// are unknown, so their lane runs alone.
+fn canonical_surface(raw: &str) -> Option<(String, bool)> {
+    let raw = raw.trim();
+    if raw.is_empty()
+        || raw.starts_with('/')
+        || raw
+            .chars()
+            .any(|ch| matches!(ch, '*' | '?' | '[' | ']' | '{' | '}' | '\\'))
+        || raw.chars().any(char::is_control)
+    {
+        return None;
+    }
+    let tree = raw.ends_with('/');
+    let mut parts = Vec::new();
+    for part in raw.trim_start_matches("./").split('/') {
+        match part {
+            "" | "." => continue,
+            ".." => return None,
+            other => parts.push(other),
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some((parts.join("/"), tree))
+    }
 }
 
-impl SurfaceTrie {
-    fn new() -> Self {
-        Self {
-            children: BTreeMap::new(),
-            owner: None,
-        }
-    }
+fn surfaces_conflict(left: &str, right: &str) -> bool {
+    let (Some((left, left_tree)), Some((right, right_tree))) =
+        (canonical_surface(left), canonical_surface(right))
+    else {
+        return true;
+    };
+    left == right
+        || (left_tree && right.starts_with(&format!("{left}/")))
+        || (right_tree && left.starts_with(&format!("{right}/")))
+}
 
-    /// Insert a path into the trie, returning any conflicting lane.
-    /// A conflict occurs if the path overlaps with a path from a different lane.
-    fn insert(&mut self, path: &str, lane: &str) -> Option<String> {
-        let file = file_of(path)?;
-        let components: Vec<&str> = file.split('/').collect();
-        let mut node = self;
-        for comp in components {
-            node = node.children.entry(comp.to_string()).or_default();
-            if let Some(owner) = &node.owner {
-                if owner != lane {
-                    // Found overlap with different lane
-                    return Some(owner.clone());
-                }
-            } else {
-                node.owner = Some(lane.to_string());
-            }
-        }
-        None
-    }
+/// Whether a repository path is contained by one declared surface. A trailing slash
+/// on a declaration is the explicit tree marker; an exact declaration owns one file.
+pub fn surface_contains(surface: &[String], changed_path: &str) -> bool {
+    let Some((changed, _)) = canonical_surface(changed_path) else {
+        return false;
+    };
+    surface.iter().any(|declared| {
+        canonical_surface(declared).is_some_and(|(path, tree)| {
+            path == changed || (tree && changed.starts_with(&format!("{path}/")))
+        })
+    })
+}
 
-    /// Check if a path conflicts with any path in the trie from a different lane.
-    fn check_conflict(&self, path: &str, lane: &str) -> Option<String> {
-        let file = file_of(path)?;
-        let components: Vec<&str> = file.split('/').collect();
-        let mut node = self;
-        for comp in components {
-            if let Some(child) = node.children.get(comp) {
-                node = child;
-                if let Some(owner) = &node.owner {
-                    if owner != lane {
-                        return Some(owner.clone());
+fn lane_conflict<T>(left: &WaveLane<T>, right: &WaveLane<T>) -> Option<String> {
+    let (Some(left_paths), Some(right_paths)) = (&left.surface, &right.surface) else {
+        return None;
+    };
+    if left_paths.is_empty() || right_paths.is_empty() {
+        return None;
+    }
+    for a in left_paths {
+        for b in right_paths {
+            if surfaces_conflict(a, b) {
+                return Some(match (canonical_surface(a), canonical_surface(b)) {
+                    (None, _) => a.clone(),
+                    (_, None) => b.clone(),
+                    (Some((left, left_tree)), Some((right, right_tree))) => {
+                        if left == right {
+                            left
+                        } else if left_tree {
+                            right
+                        } else if right_tree {
+                            left
+                        } else {
+                            right
+                        }
                     }
-                }
-            } else {
-                return None;
+                });
             }
         }
-        None
     }
+    None
 }
 
 /// Plan one scheduling wave: pack lanes into conflict-free batches up to `cap`.
 ///
-/// Phase 1: Detect all pairwise conflicts using a trie (O(total_paths) instead of O(n²)).
-/// Phase 2: Greedily pack lanes into batches respecting conflicts and capacity.
+/// Plan with a pairwise oracle. Lane counts are deliberately small; keeping
+/// path semantics obvious is safer than a trie that conflates directory
+/// prefixes with file ownership.
 pub fn plan_wave<T: Clone>(lanes: &[WaveLane<T>], cap: usize) -> WavePlan<T> {
     let limit = cap.max(1);
     let mut refusals = Vec::new();
-
-    // Phase 1: Detect all pairwise conflicts using a trie
-    let mut trie = SurfaceTrie::new();
-    let mut seen_conflicts = std::collections::BTreeSet::new();
-
-    for lane in lanes {
-        if lane.fanout || !has_surface(lane) {
-            continue;
-        }
-        if let Some(surfaces) = &lane.surface {
-            for path in surfaces {
-                if let Some(conflicting_lane) = trie.check_conflict(path, &lane.lane) {
-                    // Record conflict pair in canonical order to avoid duplicates
-                    let pair = if lane.lane < conflicting_lane {
-                        (lane.lane.clone(), conflicting_lane)
-                    } else {
-                        (conflicting_lane, lane.lane.clone())
-                    };
-                    if seen_conflicts.insert(pair.clone()) {
-                        refusals.push(WaveRefusal {
-                            lanes: pair,
-                            path: path.clone(),
-                        });
-                    }
-                }
-            }
-            // Insert this lane's paths into the trie for future lanes
-            for path in surfaces {
-                let _ = trie.insert(path, &lane.lane);
+    for i in 0..lanes.len() {
+        for j in (i + 1)..lanes.len() {
+            if let Some(path) = lane_conflict(&lanes[i], &lanes[j]) {
+                refusals.push(WaveRefusal {
+                    lanes: (lanes[i].lane.clone(), lanes[j].lane.clone()),
+                    path,
+                });
             }
         }
     }
 
-    // Phase 2: Pack lanes into batches respecting conflicts and capacity
     let mut batches: Vec<Vec<WaveLane<T>>> = Vec::new();
     for lane in lanes {
-        if !lane.fanout && !has_surface(lane) {
+        if !has_surface(lane) {
             batches.push(vec![lane.clone()]);
             continue;
         }
-        let mut placed = false;
-        for batch in batches.iter_mut() {
-            if batch.len() >= limit {
-                continue;
-            }
-            let compatible = batch.iter().all(|member| {
-                if lane.fanout {
-                    return member.fanout;
-                }
-                if member.fanout || !has_surface(member) {
-                    return false;
-                }
-                // Check conflict using trie - build a temporary trie for this batch
-                let mut batch_trie = SurfaceTrie::new();
-                for m in batch.iter() {
-                    if let Some(surfaces) = &m.surface {
-                        for p in surfaces {
-                            let _ = batch_trie.insert(p, &m.lane);
-                        }
-                    }
-                }
-                if let Some(surfaces) = &lane.surface {
-                    for p in surfaces {
-                        if batch_trie.check_conflict(p, &lane.lane).is_some() {
-                            return false;
-                        }
-                    }
-                }
-                true
-            });
-            if !compatible {
-                continue;
-            }
+        if let Some(batch) = batches.iter_mut().find(|batch| {
+            batch.len() < limit
+                && batch
+                    .iter()
+                    .all(|member| has_surface(member) && lane_conflict(member, lane).is_none())
+        }) {
             batch.push(lane.clone());
-            placed = true;
-            break;
-        }
-        if !placed {
+        } else {
             batches.push(vec![lane.clone()]);
         }
     }
@@ -200,6 +172,62 @@ mod tests {
 
     fn file_path() -> impl Strategy<Value = String> {
         prop::collection::vec(path_component(), 1..5).prop_map(|parts| parts.join("/"))
+    }
+
+    fn surface_syntax() -> impl Strategy<Value = String> {
+        prop_oneof![
+            file_path(),
+            file_path().prop_map(|path| format!("././{path}//")),
+            file_path().prop_map(|path| format!("{path}/./leaf")),
+            Just("../escape".to_string()),
+            Just("/absolute/path".to_string()),
+            Just("src/**".to_string()),
+            Just("src/[ab].rs".to_string()),
+            Just("".to_string()),
+        ]
+    }
+
+    fn canonical_oracle(raw: &str) -> Option<(String, bool)> {
+        let value = raw.trim().trim_start_matches("./");
+        if value.is_empty()
+            || value.starts_with('/')
+            || value
+                .chars()
+                .any(|ch| matches!(ch, '*' | '?' | '[' | ']' | '{' | '}' | '\\') || ch.is_control())
+        {
+            return None;
+        }
+        let tree = value.ends_with('/');
+        let mut normalized = Vec::new();
+        for part in value.split('/') {
+            match part {
+                "" | "." => {}
+                ".." => return None,
+                segment => normalized.push(segment),
+            }
+        }
+        (!normalized.is_empty()).then(|| (normalized.join("/"), tree))
+    }
+
+    fn oracle_conflict(left: &str, right: &str) -> Option<String> {
+        let a = canonical_oracle(left);
+        let b = canonical_oracle(right);
+        match (a, b) {
+            (None, _) => Some(left.to_string()),
+            (_, None) => Some(right.to_string()),
+            (Some((a, a_tree)), Some((b, b_tree)))
+                if a == b
+                    || (a_tree && b.starts_with(&format!("{a}/")))
+                    || (b_tree && a.starts_with(&format!("{b}/"))) =>
+            {
+                Some(if a == b || a_tree {
+                    left.to_string()
+                } else {
+                    right.to_string()
+                })
+            }
+            _ => None,
+        }
     }
 
     fn wave_lane<T: Clone + Debug + 'static>(value: T) -> impl Strategy<Value = WaveLane<T>> {
@@ -248,14 +276,11 @@ mod tests {
                     for j in i+1..batch.len() {
                         let lane_i = &batch[i];
                         let lane_j = &batch[j];
-                        if lane_i.fanout || lane_j.fanout {
-                            continue;
-                        }
                         let surf_i = lane_i.surface.as_deref().unwrap_or(&[]);
                         let surf_j = lane_j.surface.as_deref().unwrap_or(&[]);
                         for a in surf_i {
                             for b in surf_j {
-                                if overlap(a, b) {
+                                if surfaces_conflict(a, b) {
                                     prop_assert!(false, "Conflicting surfaces in same batch: {} vs {}", a, b);
                                 }
                             }
@@ -276,7 +301,7 @@ mod tests {
             for lane in &lanes {
                 let is_placed = placed.iter().any(|l| l.lane == lane.lane);
                 let is_refused = refused.contains(&lane.lane);
-                if lane.surface.is_none() || !lane.surface.as_deref().map_or(false, |s| !s.is_empty()) || lane.fanout {
+                if lane.surface.is_none() || !lane.surface.as_deref().map_or(false, |s| !s.is_empty()) {
                     prop_assert!(is_placed, "Lane {} should be placed", lane.lane);
                 } else {
                     prop_assert!(is_placed || is_refused, "Lane {} should be placed or refused", lane.lane);
@@ -314,5 +339,89 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn sibling_files_do_not_conflict_but_explicit_tree_prefix_does() {
+        let lane = |id: &str, path: &str| WaveLane {
+            lane: id.into(),
+            surface: Some(vec![path.into()]),
+            fanout: false,
+            task: (),
+        };
+        assert_eq!(
+            plan_wave(&[lane("a", "src/a.rs"), lane("b", "src/b.rs")], 2).batches[0].len(),
+            2
+        );
+        assert_eq!(
+            plan_wave(&[lane("a", "src/a.rs"), lane("b", "src/a.rs")], 2).batches[0].len(),
+            1
+        );
+        assert_eq!(
+            plan_wave(&[lane("a", "src/"), lane("b", "src/a.rs")], 2).batches[0].len(),
+            1
+        );
+        assert_eq!(
+            plan_wave(&[lane("a", "src/a"), lane("b", "src/ab")], 2).batches[0].len(),
+            2
+        );
+    }
+
+    #[test]
+    fn surface_containment_uses_exact_files_and_explicit_tree_prefixes() {
+        assert!(surface_contains(&["src/a.rs".into()], "src/a.rs"));
+        assert!(!surface_contains(&["src/a.rs".into()], "src/a/b.rs"));
+        assert!(surface_contains(&["src/".into()], "src/a/b.rs"));
+        assert!(!surface_contains(&["src/".into()], "src-old/a.rs"));
+        assert!(surface_contains(&["./src//".into()], "src/a.rs"));
+    }
+
+    proptest! {
+        #[test]
+        fn two_lane_decisions_match_independent_pairwise_oracle(
+            a in surface_syntax(),
+            b in surface_syntax(),
+            a_tree in any::<bool>(),
+            b_tree in any::<bool>(),
+        ) {
+            let a = if a_tree { format!("{a}/") } else { a };
+            let b = if b_tree { format!("{b}/") } else { b };
+            let lanes = [
+                WaveLane { lane: "a".into(), surface: Some(vec![a.clone()]), fanout: false, task: 1 },
+                WaveLane { lane: "b".into(), surface: Some(vec![b.clone()]), fanout: false, task: 2 },
+            ];
+            let plan = plan_wave(&lanes, 2);
+            let share_batch = plan.batches.iter().any(|batch| batch.len() == 2);
+            prop_assert_eq!(share_batch, oracle_conflict(&a, &b).is_none(), "{:?} versus {:?}", a, b);
+        }
+    }
+
+    #[test]
+    fn unknown_and_invalid_surfaces_are_serialized_even_when_fanout_is_set() {
+        let lanes = vec![
+            WaveLane {
+                lane: "known".into(),
+                surface: Some(vec!["src/a.rs".into()]),
+                fanout: true,
+                task: 1,
+            },
+            WaveLane {
+                lane: "unknown".into(),
+                surface: None,
+                fanout: true,
+                task: 2,
+            },
+            WaveLane {
+                lane: "invalid".into(),
+                surface: Some(vec!["../escape".into()]),
+                fanout: true,
+                task: 3,
+            },
+        ];
+        let plan = plan_wave(&lanes, 4);
+        assert_eq!(plan.batches.len(), 3);
+        assert!(plan.batches.iter().all(|batch| batch.len() == 1));
+        assert!(canonical_surface("src/**").is_none());
+        assert!(canonical_surface("src/[ab].rs").is_none());
     }
 }

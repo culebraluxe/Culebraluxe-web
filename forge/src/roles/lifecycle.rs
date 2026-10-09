@@ -48,6 +48,8 @@ use workflow::{Result, WorkflowError};
 /// they already live instead of taking ownership of them.
 pub struct ForgeRoleContext<'a> {
     pub harness: &'a dyn RoleHarness,
+    pub execution_id: Option<&'a str>,
+    pub write_surface: Option<&'a [String]>,
     pub current: &'a ForgeGateEvidence,
     pub writer: Option<&'a dyn ForgeStateWriter>,
     /// The Story Run this lane is executing (the row a claim opened). `None` on the hand-run lane
@@ -58,6 +60,7 @@ pub struct ForgeRoleContext<'a> {
     pub contract_assay_commands: &'a [String],
     pub contract_acceptance_mapped: bool,
     pub require_prod: bool,
+    pub model_attempt_control: Option<&'a dyn crate::engine::turn_budget::ModelAttemptControl>,
 }
 
 impl<'a> ForgeRoleContext<'a> {
@@ -69,6 +72,8 @@ impl<'a> ForgeRoleContext<'a> {
     pub fn from_ports(ports: &'a dyn ForgeTurnPorts) -> Self {
         Self {
             harness: ports.harness(),
+            execution_id: None,
+            write_surface: None,
             current: ports.current(),
             writer: ports.writer(),
             story_run_id: ports.story_run_id(),
@@ -77,6 +82,7 @@ impl<'a> ForgeRoleContext<'a> {
             contract_assay_commands: ports.contract_assay_commands(),
             contract_acceptance_mapped: ports.contract_acceptance_mapped(),
             require_prod: ports.require_prod(),
+            model_attempt_control: ports.model_attempt_control(),
         }
     }
 }
@@ -109,6 +115,26 @@ pub fn run_lane_turn(
     task: &ActiveForgeRoleTask,
     hooks: &dyn ForgeRoleHooks,
 ) -> Result<ForgeRoleOutcome> {
+    run_lane_turn_inner(runner, node_id, task, hooks, None)
+}
+
+pub fn run_lane_turn_scoped(
+    runner: &dyn ForgeRoleRunner,
+    node_id: &str,
+    task: &ActiveForgeRoleTask,
+    hooks: &dyn ForgeRoleHooks,
+    execution_id: &str,
+) -> Result<ForgeRoleOutcome> {
+    run_lane_turn_inner(runner, node_id, task, hooks, Some(execution_id))
+}
+
+fn run_lane_turn_inner(
+    runner: &dyn ForgeRoleRunner,
+    node_id: &str,
+    task: &ActiveForgeRoleTask,
+    hooks: &dyn ForgeRoleHooks,
+    execution_id: Option<&str>,
+) -> Result<ForgeRoleOutcome> {
     match runner.turn_ports() {
         Some(ports) => {
             // Each turn starts from the story's evidence as it stands NOW, not as the process was woken with.
@@ -119,11 +145,16 @@ pub fn run_lane_turn(
             current.deliverable_rejection = None;
             let ctx = ForgeRoleContext {
                 current: &current,
+                execution_id,
+                write_surface: task.write_surface.as_deref(),
                 ..ForgeRoleContext::from_ports(ports)
             };
             run_forge_role_turn(&ctx, node_id, task, hooks)
         }
-        None => runner.run(node_id, task),
+        None => match execution_id {
+            Some(id) => runner.run_scoped(id, node_id, task),
+            None => runner.run(node_id, task),
+        },
     }
 }
 
@@ -207,7 +238,31 @@ pub fn run_forge_role_turn(
     }
 
     for attempt in 0..budget {
-        let mut out = ctx.harness.run_role(node_id, task, self_heal.as_deref())?;
+        let permit = reserve_model_attempt(ctx, task, attempt)?;
+        finish_model_attempt(ctx, permit.as_ref(), "launched", None)?;
+        let run_turn = match ctx.execution_id {
+            Some(execution_id) => {
+                ctx.harness
+                    .run_role_scoped(execution_id, node_id, task, self_heal.as_deref())
+            }
+            None => ctx.harness.run_role(node_id, task, self_heal.as_deref()),
+        };
+        let mut out = match run_turn {
+            Ok(out) => out,
+            Err(error) => {
+                let detail = error.to_string();
+                let status = if detail.contains(crate::engine::opencode::TURN_INTERRUPTED_CODE) {
+                    "cancelled"
+                } else if crate::engine::engine_fault::is_engine_fault_error(&error) {
+                    "uncertain"
+                } else {
+                    "failed"
+                };
+                let _ = finish_model_attempt(ctx, permit.as_ref(), status, Some(&detail));
+                return Err(error);
+            }
+        };
+        finish_model_attempt(ctx, permit.as_ref(), "completed", None)?;
         // The harness reported facts; the lane judges them before anything below reads them.
         hooks.judge_output(ctx, node_id, &mut out);
         // Recorded per attempt, the moment it is known: a later attempt that errors out must not take the
@@ -354,6 +409,37 @@ pub fn run_forge_role_turn(
     })
 }
 
+fn reserve_model_attempt(
+    ctx: &ForgeRoleContext<'_>,
+    task: &ActiveForgeRoleTask,
+    role_attempt: u32,
+) -> Result<Option<crate::engine::turn_budget::ModelAttemptPermit>> {
+    ctx.model_attempt_control
+        .map(|control| control.reserve(&task.task_id, role_attempt))
+        .transpose()
+        .map_err(|reason| {
+            if reason.starts_with(crate::engine::turn_budget::MODEL_TURN_CAP_CODE) {
+                WorkflowError::conflict(crate::engine::turn_budget::MODEL_TURN_CAP_CODE, reason)
+            } else {
+                WorkflowError::generic(reason)
+            }
+        })
+}
+
+fn finish_model_attempt(
+    ctx: &ForgeRoleContext<'_>,
+    permit: Option<&crate::engine::turn_budget::ModelAttemptPermit>,
+    status: &str,
+    detail: Option<&str>,
+) -> Result<()> {
+    match (ctx.model_attempt_control, permit) {
+        (Some(control), Some(permit)) => control
+            .finish(permit, status, detail)
+            .map_err(WorkflowError::generic),
+        _ => Ok(()),
+    }
+}
+
 /// Record a rejected deliverable as the story's hold: the board's `Hold` and a `DELIVERABLE_REJECTED` hold record,
 /// against the story the task was listed for. One home for the write every lane makes when it refuses a turn —
 /// the lifecycle's own gate, Assay's model-free road, DevOps' production check.
@@ -458,6 +544,47 @@ mod tests {
         turns: AtomicUsize,
     }
 
+    #[derive(Default)]
+    struct CountingAttemptControl {
+        reserved: std::sync::Mutex<Vec<String>>,
+        finished: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl crate::engine::turn_budget::ModelAttemptControl for CountingAttemptControl {
+        fn reserve(
+            &self,
+            task_id: &str,
+            role_attempt: u32,
+        ) -> std::result::Result<crate::engine::turn_budget::ModelAttemptPermit, String> {
+            let attempt_key = format!("{task_id}:{role_attempt}");
+            let mut reserved = self.reserved.lock().unwrap();
+            reserved.push(attempt_key.clone());
+            Ok(crate::engine::turn_budget::ModelAttemptPermit {
+                attempt_key,
+                used: reserved.len() as u32,
+                cap: 10,
+            })
+        }
+        fn finish(
+            &self,
+            permit: &crate::engine::turn_budget::ModelAttemptPermit,
+            status: &str,
+            _: Option<&str>,
+        ) -> std::result::Result<(), String> {
+            self.finished
+                .lock()
+                .unwrap()
+                .push(format!("{}:{status}", permit.attempt_key));
+            Ok(())
+        }
+        fn generation_id(&self) -> &str {
+            "test-generation"
+        }
+        fn cap(&self) -> u32 {
+            10
+        }
+    }
+
     impl CountingHarness {
         fn new(raw: &str, candidate_sha: Option<&str>) -> Self {
             Self {
@@ -518,6 +645,7 @@ mod tests {
             status: workflow::TaskStatus::Ready,
             assignee: None,
             candidates: vec![node_id.into()],
+            write_surface: None,
         }
     }
 
@@ -528,6 +656,8 @@ mod tests {
     ) -> ForgeRoleContext<'a> {
         ForgeRoleContext {
             harness,
+            execution_id: None,
+            write_surface: None,
             current,
             writer,
             story_run_id: None,
@@ -536,6 +666,7 @@ mod tests {
             contract_assay_commands: &[],
             contract_acceptance_mapped: false,
             require_prod: false,
+            model_attempt_control: None,
         }
     }
     /// THE PROPERTY THIS WHOLE EXTRACTION RESTS ON: a lane that overrides no hook gets the shared
@@ -552,6 +683,9 @@ mod tests {
         let current = ForgeGateEvidence::default();
         let task = role_task("smith", "ENG-STORY-1");
         let context = context(&harness, &current, Some(&writer));
+        let control = CountingAttemptControl::default();
+        let mut context = context;
+        context.model_attempt_control = Some(&control);
 
         struct NoHooks;
         impl ForgeRoleHooks for NoHooks {}
@@ -622,7 +756,9 @@ mod tests {
         let writer = RecordingWriter::default();
         let current = ForgeGateEvidence::default();
         let task = role_task("architect", "ENG-STORY-1");
-        let context = context(&harness, &current, Some(&writer));
+        let mut context = context(&harness, &current, Some(&writer));
+        let control = CountingAttemptControl::default();
+        context.model_attempt_control = Some(&control);
         let calls = AtomicUsize::new(0);
 
         struct Refuses<'a> {
@@ -659,6 +795,24 @@ mod tests {
             calls.load(Ordering::SeqCst),
             1,
             "one reading for {turns} turns: the lane sees the merged turn, not each attempt"
+        );
+        assert_eq!(
+            control.reserved.lock().unwrap().len(),
+            turns,
+            "every initial and corrective harness invocation reserves one attempt"
+        );
+        let finished = control.finished.lock().unwrap();
+        assert_eq!(
+            finished.len(),
+            turns * 2,
+            "each authorization is recorded as launched then completed"
+        );
+        assert!(
+            finished
+                .iter()
+                .filter(|entry| entry.ends_with(":completed"))
+                .count()
+                == turns
         );
         assert_eq!(
             outcome.evidence.deliverable_rejection.as_deref(),
@@ -803,6 +957,8 @@ mod tests {
         let task = role_task("smith", "TST-CAPTURE-001");
         let context = ForgeRoleContext {
             harness: &harness,
+            execution_id: None,
+            write_surface: None,
             current: &current,
             writer: Some(&writer),
             story_run_id: Some("11111111-2222-3333-4444-555555555555"),
@@ -811,6 +967,7 @@ mod tests {
             contract_assay_commands: &[],
             contract_acceptance_mapped: false,
             require_prod: false,
+            model_attempt_control: None,
         };
 
         let _ = run_forge_role_turn(&context, "smith", &task, &NoRoleHooks);

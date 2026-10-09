@@ -51,7 +51,7 @@ impl ForgeRoleHooks for SmithHooks {
     }
 
     fn judge_output(&self, ctx: &ForgeRoleContext<'_>, node_id: &str, out: &mut HarnessOutput) {
-        judge_delivered_candidate(ctx.harness, node_id, out);
+        judge_delivered_candidate_in_surface(ctx.harness, node_id, out, ctx.write_surface);
     }
 
     fn interpret_turn(
@@ -76,17 +76,27 @@ pub fn judge_delivered_candidate(
     node_id: &str,
     out: &mut HarnessOutput,
 ) {
+    judge_delivered_candidate_in_surface(harness, node_id, out, None);
+}
+
+pub fn judge_delivered_candidate_in_surface(
+    harness: &dyn RoleHarness,
+    node_id: &str,
+    out: &mut HarnessOutput,
+    surface: Option<&[String]>,
+) {
     if !delivers_code(node_id) {
         return;
     }
     let Some(probe) = harness.candidate_probe() else {
         return;
     };
-    let rejection = candidate_rejection(
+    let rejection = candidate_rejection_in_surface(
         node_id,
         out.execution_base.as_deref(),
         out.candidate_sha.as_deref(),
         probe,
+        surface,
     );
     if let Some(reason) = rejection.as_deref() {
         out.candidate_sha = None;
@@ -99,11 +109,12 @@ pub fn judge_delivered_candidate(
 /// Why `after` is not an acceptable candidate on `base`, or `None` when it is: a new, full commit that descends from
 /// the execution base, leaves a clean tree, changes at least one file, and — under `RUST_CONTRACT` — touches no
 /// production code.
-fn candidate_rejection(
+fn candidate_rejection_in_surface(
     node_id: &str,
     base: Option<&str>,
     after: Option<&str>,
     probe: &dyn CandidateProbe,
+    surface: Option<&[String]>,
 ) -> Option<String> {
     let refuse = |why: String| Some(format!("Smith candidate refused for {node_id}: {why}"));
     let Some(base) = base else {
@@ -150,6 +161,25 @@ fn candidate_rejection(
         {
             refuse(format!(
                 "RUST_CONTRACT candidate modified production code across {range}"
+            ))
+        }
+        Some(changed)
+            if surface.is_some_and(|declared| {
+                changed
+                    .lines()
+                    .any(|path| !crate::engine::executor::wave::surface_contains(declared, path))
+            }) =>
+        {
+            let outside = changed
+                .lines()
+                .filter(|path| {
+                    !crate::engine::executor::wave::surface_contains(surface.unwrap_or(&[]), path)
+                })
+                .take(8)
+                .collect::<Vec<_>>()
+                .join(", ");
+            refuse(format!(
+                "candidate changed paths outside its declared surface [{outside}]"
             ))
         }
         Some(_) => None,
@@ -714,6 +744,7 @@ mod tests {
             status: workflow::TaskStatus::Ready,
             assignee: None,
             candidates: vec!["smith".into()],
+            write_surface: None,
         }
     }
 
@@ -888,7 +919,16 @@ mod candidate_judgement_tests {
     }
 
     fn reject(repo: &Repo, base: Option<&str>, after: Option<&str>) -> Option<String> {
-        candidate_rejection("smith", base, after, repo)
+        candidate_rejection_in_surface("smith", base, after, repo, None)
+    }
+
+    fn reject_in_surface(
+        repo: &Repo,
+        base: Option<&str>,
+        after: Option<&str>,
+        surface: &[String],
+    ) -> Option<String> {
+        candidate_rejection_in_surface("smith", base, after, repo, Some(surface))
     }
 
     fn output(after: Option<&str>) -> HarnessOutput {
@@ -906,6 +946,22 @@ mod candidate_judgement_tests {
     #[test]
     fn a_clean_descending_commit_that_changes_files_is_accepted() {
         assert_eq!(reject(&Repo::healthy(), Some(BASE), Some(AFTER)), None);
+    }
+
+    #[test]
+    fn candidate_changes_must_stay_inside_the_declared_surface() {
+        let allowed_tree = vec!["tests/".to_string()];
+        assert_eq!(
+            reject_in_surface(&Repo::healthy(), Some(BASE), Some(AFTER), &allowed_tree),
+            None,
+            "an explicit tree contains its descendants"
+        );
+
+        let wrong_file = vec!["tests/other.rs".to_string()];
+        let reason = reject_in_surface(&Repo::healthy(), Some(BASE), Some(AFTER), &wrong_file)
+            .expect("a changed file outside its exact declared path is refused");
+        assert!(reason.contains("outside its declared surface"), "{reason}");
+        assert!(reason.contains("tests/tests/new_contract.rs"), "{reason}");
     }
 
     #[test]

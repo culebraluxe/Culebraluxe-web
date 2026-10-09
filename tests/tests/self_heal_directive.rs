@@ -45,6 +45,7 @@ impl runner::RoleHarness for DirectiveRecordingHarness {
         assay::CommandResult {
             command: command.into(),
             exit_code: 0,
+            cancelled: false,
             passed: true,
             excerpt: String::new(),
             unmeasurable: false,
@@ -77,6 +78,7 @@ fn the_retry_carries_the_corrective_directive() {
         status: workflow::TaskStatus::Ready,
         assignee: None,
         candidates: vec!["architect".into()],
+        write_surface: None,
     };
     let out = executor::ForgeRoleRunner::run(&role, "architect", &task).unwrap();
 

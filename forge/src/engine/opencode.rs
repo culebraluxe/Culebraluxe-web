@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 
 use crate::engine::assay::CommandResult;
 use crate::engine::harness::{HarnessUsage, TurnTermination};
@@ -386,6 +387,9 @@ pub struct OpenCodeHarness {
     /// all qualify — and every one of them needs the same primitive: signal the real process tree. This is where a
     /// caller finds it while the turn is running.
     pub live_turn: LiveTurnSlot,
+    /// Active turns keyed by the durable job lease. A separate slot per execution keeps a
+    /// deadline or cancellation from signalling a sibling model process.
+    pub execution_turns: std::sync::Arc<std::sync::Mutex<HashMap<String, LiveTurnSlot>>>,
     /// The cap on what ONE turn may spend, in USD. `None` is "no cap configured", which is NOT the same as a cap
     /// of zero: Forge does not invent a dollar ceiling for work it was asked to do.
     ///
@@ -401,6 +405,30 @@ pub struct OpenCodeHarness {
 }
 
 impl OpenCodeHarness {
+    pub fn fork_for_workspace(&self, workspace: ExecutionWorkspace) -> Result<Self> {
+        if self.start_run.is_some() {
+            return Err(WorkflowError::generic(
+                "custom OpenCode start_run hooks cannot be used in concurrent lane worktrees",
+            ));
+        }
+        Ok(Self {
+            cli_bin: self.cli_bin.clone(),
+            workspace: PathBuf::from(&workspace.worktree_path),
+            model: self.model.clone(),
+            env: self.env.clone(),
+            auto_approve: self.auto_approve,
+            start_run: None,
+            live_turn: live_turn_slot(),
+            execution_turns: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            spend_cap_usd: self.spend_cap_usd,
+            assay_commands: self.assay_commands.clone(),
+            acceptance_mapped: self.acceptance_mapped,
+            packet: self.packet.clone(),
+            execution_workspace: Some(workspace),
+            story_id: self.story_id.clone(),
+        })
+    }
+
     /// The lane's harness, with the model the **row** names (migration 179 `model_policy`).
     ///
     /// `OPENCODE_MODEL` wins when it is set: that is an explicit, attended configuration, and an empty one is
@@ -434,6 +462,7 @@ impl OpenCodeHarness {
             auto_approve: true,
             start_run: None,
             live_turn: live_turn_slot(),
+            execution_turns: Arc::new(std::sync::Mutex::new(HashMap::new())),
             spend_cap_usd: spend_cap::parse_forge_spend_cap_usd(
                 std::env::var(SPEND_CAP_ENV).ok().as_deref(),
             ),
@@ -530,12 +559,25 @@ impl crate::engine::runner::ProductionProbe for OpenCodeHarness {
     }
 }
 
-impl RoleHarness for OpenCodeHarness {
-    fn run_role(
+impl OpenCodeHarness {
+    fn execution_slot(&self, execution_id: &str) -> Result<LiveTurnSlot> {
+        let mut slots = self
+            .execution_turns
+            .lock()
+            .map_err(|_| WorkflowError::generic("execution interrupt registry is poisoned"))?;
+        Ok(Arc::clone(
+            slots
+                .entry(execution_id.to_string())
+                .or_insert_with(live_turn_slot),
+        ))
+    }
+
+    fn run_role_with_slot(
         &self,
         node_id: &str,
         task: &ActiveForgeRoleTask,
         self_heal: Option<&str>,
+        live_turn: &LiveTurnSlot,
     ) -> Result<HarnessOutput> {
         let cwd = self.workspace.to_string_lossy().to_string();
         if !self.workspace.exists() {
@@ -639,7 +681,7 @@ impl RoleHarness for OpenCodeHarness {
         );
         // A FRESH turn owns the slot: a reason left over from the previous turn would be reported against work it
         // never touched.
-        if let Ok(mut slot) = self.live_turn.lock() {
+        if let Ok(mut slot) = live_turn.lock() {
             *slot = crate::engine::opencode_client::LiveTurn::default();
         }
         // The live spend cap, read per turn the way the runner reads its own knobs: a cap is an operator decision,
@@ -676,8 +718,8 @@ impl RoleHarness for OpenCodeHarness {
             }
         };
         let result = match &self.start_run {
-            Some(start) => start(opts, &mut on_line, &self.live_turn),
-            None => start_opencode_run_streaming(opts, &mut on_line, &self.live_turn),
+            Some(start) => start(opts, &mut on_line, &live_turn),
+            None => start_opencode_run_streaming(opts, &mut on_line, &live_turn),
         };
         drop(on_line);
         // The heartbeat Forge actually observed. Recorded, never acted on: the loop counts the intervals in which
@@ -698,11 +740,17 @@ impl RoleHarness for OpenCodeHarness {
         // A stop from OUTSIDE the turn leaves no `stop` in the result: the process simply died, and without this it
         // would be reported as a crash with no stderr. The reason was stored with the turn precisely so it survives
         // to here.
-        let interrupt_reason = self.live_turn.lock().ok().and_then(|mut slot| {
+        let interrupt_reason = live_turn.lock().ok().and_then(|mut slot| {
             let reason = slot.interrupt_reason.clone();
             *slot = crate::engine::opencode_client::LiveTurn::default();
             reason
         });
+        if let Some(reason) = interrupt_reason.as_deref() {
+            eprintln!(
+                "opencode-harness interrupt_observed=true process_reaped=true exit_code={:?} reason={reason}",
+                result.exit_code
+            );
+        }
         let stop = result.stop.clone().or_else(|| {
             interrupt_reason.map(|reason| StreamStop {
                 code: TURN_INTERRUPTED_CODE.to_string(),
@@ -826,6 +874,52 @@ impl RoleHarness for OpenCodeHarness {
             usage,
         })
     }
+}
+
+impl RoleHarness for OpenCodeHarness {
+    fn run_role(
+        &self,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> Result<HarnessOutput> {
+        self.run_role_with_slot(node_id, task, self_heal, &self.live_turn)
+    }
+
+    fn run_role_scoped(
+        &self,
+        execution_id: &str,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> Result<HarnessOutput> {
+        let slot = self.execution_slot(execution_id)?;
+        if slot
+            .lock()
+            .map_err(|_| WorkflowError::generic("execution interrupt slot is poisoned"))?
+            .interrupt_reason
+            .is_some()
+        {
+            return Err(WorkflowError::generic(format!(
+                "{}: execution was cancelled before model launch",
+                crate::engine::opencode::TURN_INTERRUPTED_CODE
+            )));
+        }
+        self.run_role_with_slot(node_id, task, self_heal, &slot)
+    }
+
+    fn fork_for_workspace(
+        &self,
+        workspace: ExecutionWorkspace,
+    ) -> Result<Option<Arc<dyn RoleHarness>>> {
+        Ok(Some(Arc::new(OpenCodeHarness::fork_for_workspace(
+            self, workspace,
+        )?)))
+    }
+
+    fn begin_execution(&self, execution_id: &str) -> Result<()> {
+        self.execution_slot(execution_id).map(|_| ())
+    }
 
     /// Stop the turn this harness is running, if it is running one.
     ///
@@ -851,6 +945,41 @@ impl RoleHarness for OpenCodeHarness {
             running.pid, termination.existed, termination.killed, termination.signalled
         );
         Ok(Some(termination))
+    }
+
+    fn interrupt_execution_scoped(
+        &self,
+        execution_id: &str,
+        reason: &str,
+    ) -> Result<Option<TurnTermination>> {
+        let slot = self.execution_slot(execution_id)?;
+        let running = {
+            let mut turn = slot
+                .lock()
+                .map_err(|_| WorkflowError::generic("execution interrupt slot is poisoned"))?;
+            turn.interrupt_reason = Some(reason.to_string());
+            turn.running
+        };
+        let Some(running) = running else {
+            eprintln!("forge-interrupt execution={execution_id} requested=true delivered=pending reason={reason}");
+            return Ok(None);
+        };
+        let termination = running.terminate();
+        eprintln!(
+            "forge-interrupt execution={execution_id} requested=true delivered=true pid={} existed={} killed={} signalled={:?} reason={reason}",
+            running.pid, termination.existed, termination.killed, termination.signalled
+        );
+        Ok(Some(termination))
+    }
+
+    fn finish_execution(&self, execution_id: &str) {
+        if let Ok(mut slots) = self.execution_turns.lock() {
+            slots.remove(execution_id);
+        }
+    }
+
+    fn supports_interrupt(&self) -> bool {
+        true
     }
 
     fn exists_on_base_ref(&self, base_ref: &str, path: &str) -> bool {
@@ -881,6 +1010,10 @@ impl RoleHarness for OpenCodeHarness {
         self.execution_workspace
             .as_ref()
             .map(|workspace| workspace.base_commit.as_str())
+    }
+
+    fn execution_workspace(&self) -> Option<&ExecutionWorkspace> {
+        self.execution_workspace.as_ref()
     }
 
     fn run_command(&self, command: &str) -> CommandResult {
@@ -1052,6 +1185,7 @@ mod tests {
             status: workflow::TaskStatus::Ready,
             assignee: None,
             candidates: vec![],
+            write_surface: None,
         }
     }
 
@@ -1092,6 +1226,7 @@ mod tests {
                 }
             })),
             live_turn: live_turn_slot(),
+            execution_turns: Arc::new(std::sync::Mutex::new(HashMap::new())),
             // No dollar cap: the cap tests set the field directly, and a streamed Scout turn has no spend to cap.
             spend_cap_usd: None,
             assay_commands: vec![],
@@ -1356,10 +1491,14 @@ sleep 30"#,
         let interrupter = {
             let harness = Arc::clone(&harness);
             std::thread::spawn(move || {
+                harness
+                    .begin_execution("job-lease-1")
+                    .expect("register execution before launch");
                 // An interrupt can only reach a process that exists, so wait for the turn to publish itself.
                 for _ in 0..400 {
                     let published = harness
-                        .live_turn
+                        .execution_slot("job-lease-1")
+                        .expect("execution slot")
                         .lock()
                         .map(|slot| slot.running.is_some())
                         .unwrap_or(false);
@@ -1368,12 +1507,16 @@ sleep 30"#,
                     }
                     std::thread::sleep(Duration::from_millis(25));
                 }
-                harness.interrupt_execution("the test supervisor stopped this turn")
+                harness.interrupt_execution_scoped(
+                    "job-lease-1",
+                    "the test supervisor stopped this turn",
+                )
             })
         };
 
         let started = Instant::now();
-        let err = match harness.run_role("feature_scout", &role_task(), None) {
+        let err = match harness.run_role_scoped("job-lease-1", "feature_scout", &role_task(), None)
+        {
             Ok(_) => panic!("a stopped turn must not be read as an answer"),
             Err(error) => error.to_string(),
         };
@@ -1404,6 +1547,73 @@ sleep 30"#,
             elapsed < Duration::from_secs(20),
             "the turn must not have waited out the script's 30 seconds: {elapsed:?}"
         );
+        harness.finish_execution("job-lease-1");
+        let _ = fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn scoped_interrupt_stops_only_the_named_execution() {
+        use std::process::Command;
+
+        let workspace =
+            std::env::temp_dir().join(format!("forge-v2-scoped-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&workspace);
+        fs::create_dir_all(&workspace).expect("temp workspace");
+        let harness = harness_with_stream(&workspace, V2_STREAM);
+        harness.begin_execution("job-a").expect("register A");
+        harness.begin_execution("job-b").expect("register B");
+        let mut b = Command::new("sleep").arg("30").spawn().expect("sleep B");
+        harness
+            .execution_slot("job-a")
+            .expect("slot A")
+            .lock()
+            .unwrap()
+            .running = Some(crate::engine::opencode_client::RunningTurn { pid: u32::MAX });
+        harness
+            .execution_slot("job-b")
+            .expect("slot B")
+            .lock()
+            .unwrap()
+            .running = Some(crate::engine::opencode_client::RunningTurn { pid: b.id() });
+
+        let receipt = harness
+            .interrupt_execution_scoped("job-a", "cancel lane A")
+            .expect("interrupt A")
+            .expect("A was running");
+        assert!(
+            !receipt.existed,
+            "the test PID is absent, but the exact slot was addressed"
+        );
+        assert!(b.try_wait().expect("poll B").is_none(), "B remains running");
+        let _ = b.kill();
+        let _ = b.wait();
+        harness.finish_execution("job-a");
+        harness.finish_execution("job-b");
+        let _ = fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn cancellation_latched_before_launch_prevents_model_start() {
+        let workspace =
+            std::env::temp_dir().join(format!("forge-v2-prelaunch-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&workspace);
+        fs::create_dir_all(&workspace).expect("temp workspace");
+        let harness = harness_with_stream(&workspace, V2_STREAM);
+        harness
+            .begin_execution("job-before-launch")
+            .expect("register execution");
+        assert!(harness
+            .interrupt_execution_scoped("job-before-launch", "lease lost before launch")
+            .expect("interrupt before launch")
+            .is_none());
+        let error =
+            match harness.run_role_scoped("job-before-launch", "feature_scout", &role_task(), None)
+            {
+                Ok(_) => panic!("a prelaunch cancellation must refuse to start a model"),
+                Err(error) => error,
+            };
+        assert!(error.to_string().contains(TURN_INTERRUPTED_CODE));
+        harness.finish_execution("job-before-launch");
         let _ = fs::remove_dir_all(&workspace);
     }
 

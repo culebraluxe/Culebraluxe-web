@@ -67,6 +67,22 @@ pub trait AbstractForgeService: Send + Sync {
         run_lane_turn(self.runner(), node_id, task, self.hooks())
     }
 
+    fn execute_scoped(
+        &self,
+        execution_id: &str,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+    ) -> Result<ForgeRoleOutcome> {
+        self.assert_supports_node(node_id)?;
+        crate::roles::lifecycle::run_lane_turn_scoped(
+            self.runner(),
+            node_id,
+            task,
+            self.hooks(),
+            execution_id,
+        )
+    }
+
     fn supports_node(&self, node_id: &str) -> bool {
         service_for_node(node_id)
             .ok()
@@ -123,6 +139,20 @@ impl ForgeRoleRunner for ForgeServiceRouter<'_> {
             ))
         })?;
         service.execute(node_id, task)
+    }
+
+    fn run_scoped(
+        &self,
+        execution_id: &str,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+    ) -> Result<ForgeRoleOutcome> {
+        let service = self.service_for(node_id).ok_or_else(|| {
+            WorkflowError::generic(format!(
+                "no registered Forge service owns workflow node {node_id:?}"
+            ))
+        })?;
+        service.execute_scoped(execution_id, node_id, task)
     }
 }
 
@@ -197,6 +227,15 @@ impl ForgeRoleRunner for ForgeLaneServices<'_> {
     fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
         self.router().run(node_id, task)
     }
+
+    fn run_scoped(
+        &self,
+        execution_id: &str,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+    ) -> Result<ForgeRoleOutcome> {
+        self.router().run_scoped(execution_id, node_id, task)
+    }
 }
 
 #[cfg(test)]
@@ -249,6 +288,7 @@ mod tests {
             status: workflow::TaskStatus::Ready,
             assignee: None,
             candidates: vec![],
+            write_surface: None,
         }
     }
 

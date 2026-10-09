@@ -145,7 +145,7 @@ fn completion_fault_does_not_repeat_smith_or_change_candidate_identity() {
             runner: None,
             max_steps: 1,
             worker_id: WORKER,
-            split_concurrency: 1,
+            within_story_concurrency: 1,
             stop_after: None,
             turn_cap: 4,
         },

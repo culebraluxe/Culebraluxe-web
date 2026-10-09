@@ -109,7 +109,7 @@ fn drive_failing_turn(make: fn() -> WorkflowError) -> Outcome {
             runner: None,
             max_steps: 1,
             worker_id: WORKER,
-            split_concurrency: 1,
+            within_story_concurrency: 1,
             stop_after: None,
             turn_cap: 8,
         },

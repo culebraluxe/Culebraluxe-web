@@ -80,7 +80,7 @@ fn drive_twice(fail: fn() -> WorkflowError) -> (String, String, usize, Option<Pr
                 runner: None,
                 max_steps: 1,
                 worker_id: worker,
-                split_concurrency: 1,
+                within_story_concurrency: 1,
                 stop_after: None,
                 turn_cap: 8,
             },

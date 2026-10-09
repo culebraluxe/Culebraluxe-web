@@ -96,6 +96,7 @@ impl RoleHarness for ScriptedDeployHarness {
         CommandResult {
             command: command.to_string(),
             exit_code: 0,
+            cancelled: false,
             passed: true,
             excerpt: String::new(),
             unmeasurable: false,
@@ -115,6 +116,7 @@ fn deploy_task() -> ActiveForgeRoleTask {
         status: TaskStatus::Ready,
         assignee: None,
         candidates: vec!["dev_ops".into()],
+        write_surface: None,
     }
 }
 

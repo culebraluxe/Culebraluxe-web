@@ -60,6 +60,7 @@ impl RoleHarness for PreviousAnswerHarness {
         CommandResult {
             command: command.into(),
             exit_code: 1,
+            cancelled: false,
             passed: false,
             excerpt: "not run by this harness".into(),
             unmeasurable: true,
@@ -86,9 +87,12 @@ fn forge_self_heal_002__previous_answer_embedded() {
         status: TaskStatus::Ready,
         assignee: None,
         candidates: vec!["architect".into()],
+        write_surface: None,
     };
     let ctx = ForgeRoleContext {
         harness: &harness,
+        execution_id: None,
+        write_surface: None,
         current: &current,
         writer: None,
         story_run_id: None,
@@ -97,6 +101,7 @@ fn forge_self_heal_002__previous_answer_embedded() {
         contract_assay_commands: &[],
         contract_acceptance_mapped: false,
         require_prod: false,
+        model_attempt_control: None,
     };
     run_forge_role_turn(&ctx, "architect", &task, &NoRoleHooks).expect("turn runs");
 

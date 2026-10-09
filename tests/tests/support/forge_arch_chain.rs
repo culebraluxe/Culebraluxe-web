@@ -268,7 +268,7 @@ pub fn drive<S: TxStore>(
             runner: None,
             max_steps,
             worker_id: WORKER,
-            split_concurrency: 1,
+            within_story_concurrency: 1,
             stop_after: None,
             turn_cap: 32,
         },

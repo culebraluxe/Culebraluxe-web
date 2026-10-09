@@ -77,6 +77,8 @@ impl RoleHarness for FastHarness {
             excerpt: String::new(),
             unmeasurable: false,
             output: String::new(),
+
+            cancelled: false,
         }
     }
 }
@@ -175,7 +177,7 @@ fn drive_fast(qa_passes: bool) -> Run {
             runner: None,
             max_steps: 40,
             worker_id: "forge-fast-worker",
-            split_concurrency: 1,
+            within_story_concurrency: 1,
             stop_after: None,
             turn_cap: 40,
         },
