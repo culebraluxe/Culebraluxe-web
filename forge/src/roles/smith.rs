@@ -16,6 +16,7 @@ use crate::engine::writer::ForgeStateWriter;
 use crate::roles::hooks::ForgeRoleHooks;
 use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleTurn};
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
+use std::sync::Arc;
 use workflow::{Result, WorkflowError};
 
 pub use crate::engine::graph::SmithWorkNode;
@@ -721,18 +722,22 @@ mod tests {
     fn refused_smith_work_is_captured_whole_without_touching_the_index() {
         let (repo, base, head) = smith_left_a_mess("refused");
         let status_before = git(&repo, &["status", "--porcelain"]);
-        let harness = GitHarness {
+        let harness_impl = GitHarness {
             repo: repo.clone(),
             candidate: None,
             refusal: Some(format!("uncommitted work remains after candidate {head}")),
             base: base.clone(),
         };
-        let writer = crate::engine::writer::RecordingWriter::default();
+        let harness_impl = Arc::new(harness_impl);
+        let harness: Arc<dyn RoleHarness> = Arc::clone(&harness_impl) as Arc<dyn RoleHarness>;
+        let writer_impl = Arc::new(crate::engine::writer::RecordingWriter::default());
+        let writer: Arc<dyn ForgeStateWriter> = Arc::clone(&writer_impl) as Arc<dyn ForgeStateWriter>;
         let runner =
-            ProductionRoleRunner::new(&harness, ForgeGateEvidence::default()).with_writer(&writer);
+            ProductionRoleRunner::new(harness, ForgeGateEvidence::default())
+                .with_writer(writer);
         let _ = SmithService::new(&runner).execute("smith", &smith_task());
 
-        let artifacts = writer.artifacts.lock().unwrap();
+        let artifacts = writer_impl.artifacts.lock().unwrap();
         let capture = artifacts
             .iter()
             .find(|a| a.kind == "candidate-code")
@@ -777,18 +782,21 @@ mod tests {
         let (repo, base, head) = smith_left_a_mess("accepted");
         git(&repo, &["checkout", "-q", "--", "tracked.rs"]);
         std::fs::remove_file(repo.join("untracked.rs")).expect("clean tree");
-        let harness = GitHarness {
+        let harness_impl = Arc::new(GitHarness {
             repo: repo.clone(),
             candidate: Some(head.clone()),
             refusal: None,
             base: base.clone(),
-        };
-        let writer = crate::engine::writer::RecordingWriter::default();
+        });
+        let harness: Arc<dyn RoleHarness> = Arc::clone(&harness_impl) as Arc<dyn RoleHarness>;
+        let writer_impl = Arc::new(crate::engine::writer::RecordingWriter::default());
+        let writer: Arc<dyn ForgeStateWriter> = Arc::clone(&writer_impl) as Arc<dyn ForgeStateWriter>;
         let runner =
-            ProductionRoleRunner::new(&harness, ForgeGateEvidence::default()).with_writer(&writer);
+            ProductionRoleRunner::new(harness, ForgeGateEvidence::default())
+                .with_writer(writer);
         let _ = SmithService::new(&runner).execute("smith", &smith_task());
 
-        let artifacts = writer.artifacts.lock().unwrap();
+        let artifacts = writer_impl.artifacts.lock().unwrap();
         let capture = artifacts
             .iter()
             .find(|a| a.kind == "candidate-code")

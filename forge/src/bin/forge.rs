@@ -26,6 +26,7 @@ use forge::engine::git_publish::{publish_switch_off, GitReleaseOps, HostReleaseE
 use forge::engine::job::WorkflowJobService;
 use forge::engine::packet::{ExecutionWorkspace, StoryPacket};
 use forge::engine::re_runtime::shared_forge_runtime;
+use forge::engine::harness::ForgeHarness;
 use forge::engine::runner::ProductionRoleRunner;
 use forge::engine::runner::RoleHarness;
 use forge::engine::runtime::ForgeRuntime;
@@ -420,8 +421,8 @@ fn main() {
         assay_commands: contract_assay_commands.clone(),
         acceptance_mapped: contract_acceptance_mapped,
     };
-    let mut harness = match forge::engine::harness::create_harness(harness_backend, harness_context)
-    {
+    // Create Arc early so we can convert to trait object later; use get_mut for provisioning
+    let mut harness_arc: Arc<ForgeHarness> = Arc::new(match forge::engine::harness::create_harness(harness_backend, harness_context) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("{e}");
@@ -436,7 +437,9 @@ fn main() {
             }
             std::process::exit(2);
         }
-    };
+    });
+    // Use get_mut for provisioning (we have unique ownership at this point)
+    let harness = Arc::get_mut(&mut harness_arc).expect("unique ownership");
     eprintln!(
         "harness_backend={:?} model={} model_policy={}",
         harness_backend,
@@ -614,7 +617,7 @@ fn main() {
             release,
             writer.clone(),
             None,
-            &*harness,
+            harness_arc.clone() as Arc<dyn RoleHarness>,
             &story,
             &work_type,
             stop_after.clone(),
@@ -630,7 +633,7 @@ fn main() {
             release,
             writer.clone(),
             Some(Arc::new(DbForgeEvidenceReader)),
-            &*harness,
+            harness_arc.clone() as Arc<dyn RoleHarness>,
             &story,
             &work_type,
             stop_after.clone(),
@@ -721,7 +724,7 @@ fn drive<S: TxStore>(
     release: Arc<dyn ForgeReleaseExecutor>,
     writer: Arc<dyn ForgeStateWriter>,
     evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
-    harness: &dyn RoleHarness,
+    harness: Arc<dyn RoleHarness>,
     story: &str,
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
@@ -770,7 +773,7 @@ fn drive_with_shared_runtime(
     release: Arc<dyn ForgeReleaseExecutor>,
     writer: Arc<dyn ForgeStateWriter>,
     evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
-    harness: &dyn RoleHarness,
+    harness: Arc<dyn RoleHarness>,
     story: &str,
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
@@ -809,7 +812,7 @@ fn drive_with_runtime<S: TxStore>(
     release: Arc<dyn ForgeReleaseExecutor>,
     writer: Arc<dyn ForgeStateWriter>,
     evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
-    harness: &dyn RoleHarness,
+    harness: Arc<dyn RoleHarness>,
     story: &str,
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
@@ -829,7 +832,7 @@ fn drive_with_runtime<S: TxStore>(
         .map(|run_id| format!("forge:{run_id}"))
         .unwrap_or_else(|| format!("forge:{story}"));
     let runner = ProductionRoleRunner::new(harness, evidence.clone())
-        .with_writer(writer.as_ref())
+        .with_writer(writer)
         .with_story_run(story_run_id)
         .with_bench_intent(bench_intent)
         .with_test_mode(test_mode)
