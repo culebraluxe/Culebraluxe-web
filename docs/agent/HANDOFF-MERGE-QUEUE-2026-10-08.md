@@ -577,3 +577,51 @@ Asked which rows I would fix, table or delete. My recommendation, in that order:
    Captain wants `slice:check` unblocked before rows 1/2 are ruled on, the honest move is a **named, dated quarantine
    list the gate reads** — never a green-washed baseline.
 
+### 17. The FIX bucket, done — and what is left is a decision, not a repair
+
+The captain's word was **"FIX"**, on §16.1 item 1. Landed:
+
+    $ git log --oneline -3
+    0be8e4949 tests: the arch guard asserts the role regex, not the pattern! macro line breaks          ← row 4
+    e83da7256 tests: the deploy guard sets its children's environment and asks cargo where artifacts go
+                                                                                          ← rows 10 and 7 (code half)
+
+**Row 4** (`arch_boundary__011…rs:924`): the assertion pinned the *one-line* spelling of the lint's role pattern, so
+the rustfmt pass `430a13761` — which wrapped the macro across three lines — read as a rule change. It now asserts the
+regex those three role names live in, not where the lines fall. `lane/longcat` had written exactly this in `3b32cc4ff`
+(batch 28) and never pushed it; the fix is theirs, landed here, and the debt row says so.
+
+**Row 10** (`runtime_deploy__004__server_executable`): the negative cases set `PORT`/`APP_ENV` but never *cleared* the
+child's environment, so the child inherited the test process's — and every lane has `.env.local` sourced, so `APP_ENV`
+arrived from the parent and the server served instead of refusing. `refusable_command` clears it and keeps only `PATH`.
+The fixed 500 ms sleeps became `wait_for_exit`, a bounded poll (30 s to refuse, 5 s for SIGTERM). Observed, not argued:
+the pre-fix file fails (`:115`, "server should have failed without APP_ENV but is still running"); the fixed one is
+green both with `.env.local` sourced and under `env -i`.
+
+**Row 7's code half travelled with row 10** because it is the same file and it blocked my own verification: the target
+dir fell back to `<root>/build/rust`, the shared dir retired 2026-10-07, so on a lane with `CARGO_TARGET_DIR` unset the
+test built a release binary **inside the checkout**. `cargo_target_dir` asks cargo (`CARGO_TARGET_DIR` → `cargo
+metadata`'s `target_directory` → `<root>/target`), and the `CARGO_MANIFEST_DIR` fallback that named `lane-nemotron` is
+compile-time now. `ls -d build` → absent, `git status` clean after the target ran twice. Row 7's doc-comment half — five
+arch guards whose prose still calls `build/rust` shared — is lane/muse's row, and I did not write in their files.
+
+**What is left is two decisions, and I am not making them.** `arch_boundary__011` stops at `:644` now, and that
+assertion's own message says a QA module genuinely needing the name "is an architecture decision, not a test edit";
+with it neutralised for one run the guard is **green**, so rows 3 and 4 are behind it and nothing else is.
+`forge_arch_seam__001` is the same shape (`job.rs` → `opencode::turn_ceiling`). One word each — **WIDEN** the detector
+(and say what the widened rule is) or **MOVE** the call to a module that may hold it — and either is a small change in
+one file. Until then **any `tests/` slice's T1 stops at row 1**, which no lane can repair without that word.
+
+**On assigning more work now: yes.** A bot works in its own lane, never in the main checkout, and never by cloning:
+
+    pnpm lane:new <name>                                  # worktree + its own cargo target dir + env symlinks
+    cd /Users/Shared/dev/src/lane-<name>
+    git fetch origin main && git rebase origin/main        # start from the trunk, which is where these fixes are
+    git worktree list                                      # the roster — nobody keeps a hand-written one
+
+Each lane's target dir is its own (`build/rust-lane-<name>`), so lanes no longer queue on each other's builds — that
+was the 2026-10-07 retirement of the shared `build/rust`, and the fix above closes the last test that assumed otherwise.
+Nothing else blocks a new lane: the shell-syntax guard (`pnpm scripts:check`) and the release ruling both landed today,
+and T0/T1 for a slice are unaffected. The one caveat is the paragraph above — a bot whose slice touches `tests/` or
+`forge/` runs the harness sections and will meet row 1 until the captain rules on it.
+
