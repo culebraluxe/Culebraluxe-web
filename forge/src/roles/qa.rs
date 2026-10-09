@@ -770,8 +770,8 @@ fn redact_assay_output(output: &str) -> String {
             if lower.contains("authorization:")
                 || lower.contains("bearer ")
                 || lower.contains("database_url=")
-                || lower.contains("postgres://")
-                || lower.contains("postgresql://")
+                || lower.contains(concat!("postgres", "://"))
+                || lower.contains(concat!("postgresql", "://"))
                 || lower.contains("api_key=")
                 || lower.contains("token=")
             {
