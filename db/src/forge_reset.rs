@@ -25,7 +25,7 @@
 //! THE DATABASE TARGET IS NOT A CHOICE this layer makes: the pool decides it, and the CLI refuses anything but
 //! PROD plus an explicit `--force`. See `cli/src/forge/reset.rs`.
 
-use crate::{Database, DbFailure, DbResult};
+use crate::{Database, DbFailure, DbResult, StaleRecoveryResult};
 use sqlx::FromRow;
 
 /// How much one mode changed, in the order it was printed.
@@ -139,15 +139,8 @@ impl ForgeResetDao {
             .await?;
         steps.push(("released tasks to ready", tasks));
 
-        let items = self
-            .execute(
-                "update agent_work_item set state='Cancelled', claimed_by=null, started_at=null,
-                        finished_at=now(), updated_at=now()
-                 where story_id=$1 and state in ('Claimed','Running')",
-                story_id,
-            )
-            .await?;
-        steps.push(("cancelled stale running work items", items));
+        let items = self.recover_story_stale_work(story_id, 15).await?;
+        steps.push(("recovered stale running work items", items));
 
         Ok(ResetReport {
             steps,
@@ -203,20 +196,8 @@ impl ForgeResetDao {
             .await?;
         steps.push(("obsoleted open tasks under terminal instances", tasks));
 
-        // e. The mop-up for claims the heartbeat-bounded, paginated recovery above did not reach. This is what
-        //    makes `clean` a guarantee rather than a best effort.
-        let orphans = self
-            .execute_plain(
-                "update forge_engine_task_execution
-                    set status='interrupted', last_error='clean sweep', updated_at=now()
-                  where status in ('claimed','running')
-                    and process_instance_id in (
-                      select id from process_instances
-                      where status not in ('active','running','reserved','suspended')
-                    )",
-            )
-            .await?;
-        steps.push(("interrupted orphaned engine claims", orphans));
+        // Unmatched/legacy engine rows are left visible for operator review. A broad mop-up here used to interrupt
+        // executions after their item authority had changed, bypassing the exact-generation recovery fence.
 
         Ok(ResetReport {
             steps,
@@ -242,18 +223,32 @@ impl ForgeResetDao {
         #[derive(FromRow)]
         struct StaleClaim {
             task_id: String,
-            process_instance_id: String,
             work_item_id: String,
+            story_id: String,
+            worker_id: String,
+            claim_generation: i64,
+            item_state: String,
+            item_updated_at: String,
+            item_heartbeat_at: Option<String>,
+            item_lease_expires_at: Option<String>,
+            execution_status: String,
+            heartbeat_at: String,
         }
 
         // Candidates first (not under lock), newest heartbeat last so the oldest is handled first.
         let stale = sqlx::query_as::<_, StaleClaim>(
-            "select task_id::text as task_id, process_instance_id::text as process_instance_id,
-                    work_item_id::text as work_item_id
-             from forge_engine_task_execution
-             where status in ('claimed', 'running')
-               and heartbeat_at <= now() - ($1::text || ' minutes')::interval
-             order by heartbeat_at asc
+            "select e.task_id::text as task_id, e.work_item_id::text as work_item_id,
+                    i.story_id, i.claimed_by as worker_id, i.claim_generation,
+                    i.state as item_state, i.updated_at::text as item_updated_at,
+                    i.heartbeat_at::text as item_heartbeat_at,
+                    i.lease_expires_at::text as item_lease_expires_at,
+                    e.status as execution_status, e.heartbeat_at::text as heartbeat_at
+             from forge_engine_task_execution e join agent_work_item i on i.id=e.work_item_id
+             where e.status in ('claimed', 'running')
+               and e.claim_generation=i.claim_generation and e.worker_id=i.claimed_by
+               and i.state in ('Claimed','Running','Paused')
+               and e.heartbeat_at <= now() - ($1::text || ' minutes')::interval
+             order by e.heartbeat_at asc
              limit $2",
         )
         .bind(stale_minutes.max(1).to_string())
@@ -264,21 +259,32 @@ impl ForgeResetDao {
 
         let mut recovered = 0u64;
         let mut skipped = 0u64;
-        // Each recovery is its OWN statement, so its own transaction: a failure in one never rolls back another, and
-        // a claim that went fresh in the meantime is re-read under the engine's lock order and left alone — in
-        // `forge_recover_stale_engine_claim` (migration 266).
+        // Each recovery is its own transaction. Migration 279 locks and validates item, story and exact execution.
         for claim in stale {
-            let was_recovered: bool = sqlx::query_scalar(
-                "select forge_recover_stale_engine_claim($1::uuid, $2::uuid, $3::uuid, $4)",
+            let result: String = sqlx::query_scalar(
+                "select forge_recover_stale_work($1::uuid,$2,$3,$4,$5,$6::timestamptz,$7::timestamptz,$8::timestamptz,$9,$10,$11,$12::uuid,$13,$14::timestamptz)",
             )
-            .bind(&claim.task_id)
-            .bind(&claim.process_instance_id)
             .bind(&claim.work_item_id)
+            .bind(&claim.story_id)
+            .bind(&claim.worker_id)
+            .bind(claim.claim_generation)
+            .bind(&claim.item_state)
+            .bind(&claim.item_updated_at)
+            .bind(&claim.item_heartbeat_at)
+            .bind(&claim.item_lease_expires_at)
             .bind(stale_minutes.max(1) as i32)
+            .bind("stale engine claim recovered")
+            .bind("ENGINE_RUNTIME_INTERRUPTED")
+            .bind(&claim.task_id)
+            .bind(&claim.execution_status)
+            .bind(&claim.heartbeat_at)
             .fetch_one(self.db.pool())
             .await
             .map_err(|error| DbFailure::from_sqlx("forge_reset.recover_stale_claim", &error))?;
-            if was_recovered {
+            if matches!(
+                StaleRecoveryResult::from_db(&result)?,
+                StaleRecoveryResult::Recovered | StaleRecoveryResult::TerminalPreserved
+            ) {
                 recovered += 1;
             } else {
                 skipped += 1;
@@ -309,6 +315,39 @@ impl ForgeResetDao {
         .map_err(|error| DbFailure::from_sqlx("forge_reset.remaining_for_story", &error))
     }
 
+    async fn recover_story_stale_work(&self, story_id: &str, stale_minutes: i64) -> DbResult<u64> {
+        let candidates = sqlx::query_as::<_, crate::StaleAgentWorkRow>(
+            "select id::text as id, story_id, role, attempts, max_attempts,
+                    story_run_id::text as story_run_id, updated_at::text as updated_at,
+                    claimed_by, claim_generation, state, heartbeat_at::text as heartbeat_at,
+                    lease_expires_at::text as lease_expires_at
+               from forge_reapable_claims($1::integer) where story_id=$2",
+        )
+        .bind(stale_minutes as i32)
+        .bind(story_id)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_reset.recover_story.stale_list", &error))?;
+        let mut recovered = 0u64;
+        for row in candidates {
+            let result: String = sqlx::query_scalar(
+                "select forge_recover_stale_work($1::uuid,$2,$3,$4,$5,$6::timestamptz,$7::timestamptz,$8::timestamptz,$9,$10,$11)",
+            ).bind(&row.id).bind(&row.story_id).bind(&row.claimed_by)
+             .bind(row.claim_generation).bind(&row.state).bind(&row.updated_at)
+             .bind(&row.heartbeat_at).bind(&row.lease_expires_at)
+             .bind(stale_minutes as i32).bind("stale story claim recovered")
+             .bind("ENGINE_RUNTIME_INTERRUPTED").fetch_one(self.db.pool()).await
+             .map_err(|error| DbFailure::from_sqlx("forge_reset.recover_story.stale_item", &error))?;
+            if matches!(
+                StaleRecoveryResult::from_db(&result)?,
+                StaleRecoveryResult::Recovered | StaleRecoveryResult::TerminalPreserved
+            ) {
+                recovered += 1;
+            }
+        }
+        Ok(recovered)
+    }
+
     /// What is still open across the whole control plane, after a `clean`.
     async fn remaining_control_plane(&self) -> DbResult<RemainingCounts> {
         sqlx::query_as::<_, RemainingCounts>(
@@ -337,61 +376,47 @@ impl ForgeResetDao {
             .map_err(|error| DbFailure::from_sqlx("forge_reset.execute", &error))
     }
 
-    /// One update whose only parameter is the stale window.
-    /// Cancel the stale open work items and hold the stories that were still waiting on them, in one transaction.
-    ///
-    /// Two statements, one transaction, deliberately: this is the write that stranded eight stories on 2026-09-29.
-    /// The story ids come from the rows this transaction just cancelled — not from a re-derived time window — so the
-    /// two halves cannot drift apart between them, and `Hold` is the honest board state: the run was swept away, so
-    /// a human decides what happens next (`forge:story:reset` returns it to `Planned`).
+    /// Snapshot stale open items, then cancel each under a generation/state/timestamp CAS and lock item before story.
     async fn cancel_stale_open_items(&self, stale_minutes: i64) -> DbResult<(u64, u64)> {
-        let mut tx = self.db.begin("forge_reset.clean.open_work_items").await?;
-        let result = async {
-            let story_ids = sqlx::query_scalar::<_, String>(
-                "update agent_work_item
-                    set state='Cancelled', claimed_by=null, started_at=null,
-                        finished_at=now(), updated_at=now()
-                  where state in ('Ready','Claimed','Running','Paused')
-                    and coalesce(updated_at, created_at) <= now() - ($1::text || ' minutes')::interval
-                  returning story_id",
-            )
-            .bind(stale_minutes.max(1).to_string())
-            .fetch_all(tx.connection())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("forge_reset.clean.open_work_items", &error))?;
-            let cancelled = story_ids.len() as u64;
-            let mut targets = story_ids;
-            targets.sort();
-            targets.dedup();
-            let held = if targets.is_empty() {
-                0
-            } else {
-                sqlx::query(
-                    "update storyboard_story
-                        set status='Hold', completed_at=null, updated_at=now()
-                      where id = any($1::text[]) and status in ('Ready','In Progress')",
-                )
-                .bind(&targets)
-                .execute(tx.connection())
-                .await
-                .map_err(|error| {
-                    DbFailure::from_sqlx("forge_reset.clean.hold_stories", &error)
-                })?
-                .rows_affected()
-            };
-            Ok::<(u64, u64), DbFailure>((cancelled, held))
+        #[derive(FromRow)]
+        struct Candidate {
+            id: String,
+            story_id: String,
+            claimed_by: Option<String>,
+            claim_generation: i64,
+            state: String,
+            updated_at: String,
+            heartbeat_at: Option<String>,
+            lease_expires_at: Option<String>,
         }
-        .await;
-        match result {
-            Ok(counts) => {
-                tx.commit().await?;
-                Ok(counts)
-            }
-            Err(error) => {
-                let _ = tx.rollback().await;
-                Err(error)
+        let rows = sqlx::query_as::<_, Candidate>(
+            "select id::text as id, story_id, claimed_by, claim_generation, state,
+                    updated_at::text as updated_at, heartbeat_at::text as heartbeat_at,
+                    lease_expires_at::text as lease_expires_at
+               from agent_work_item where state in ('Ready','Claimed','Running','Paused')
+                and coalesce(updated_at,created_at) <= now()-($1::text || ' minutes')::interval
+               order by updated_at asc",
+        )
+        .bind(stale_minutes.max(1).to_string())
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_reset.clean.open_work_items.list", &error))?;
+        let mut cancelled = 0u64;
+        let mut held = 0u64;
+        for row in rows {
+            let result: String = sqlx::query_scalar(
+                "select forge_cancel_stale_open_work($1::uuid,$2,$3,$4,$5,$6::timestamptz,$7::timestamptz,$8::timestamptz,$9)",
+            ).bind(&row.id).bind(&row.story_id).bind(&row.claimed_by)
+             .bind(row.claim_generation).bind(&row.state).bind(&row.updated_at)
+             .bind(&row.heartbeat_at).bind(&row.lease_expires_at)
+             .bind(stale_minutes.max(1) as i32).fetch_one(self.db.pool()).await
+             .map_err(|error| DbFailure::from_sqlx("forge_reset.clean.open_work_items.recover", &error))?;
+            if result == "recovered" {
+                cancelled += 1;
+                held += 1;
             }
         }
+        Ok((cancelled, held))
     }
 
     async fn execute_with_stale_minutes(&self, sql: &'static str, minutes: i64) -> DbResult<u64> {

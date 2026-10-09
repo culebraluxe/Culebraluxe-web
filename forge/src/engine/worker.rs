@@ -6,14 +6,14 @@
 use crate::engine::agent_work;
 use crate::engine::config::{ChildConfig, WorkerConfig};
 use crate::engine::learn::run_learn_pass;
-use crate::engine::routing_brain::{parse_forge_routing_brain, ForgeRoutingBrain};
+use crate::engine::routing_brain::{ForgeRoutingBrain, parse_forge_routing_brain};
 use crate::engine::vendor_session::with_shared;
 use crate::engine::worktree::cleanup_worker_workspace;
 use db::{AgentWorkOutcome, ForgeControlDao};
 use std::path::Path;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -186,38 +186,40 @@ fn spawn_heartbeat(
     std::thread::spawn(move || {
         // A panic in this thread must not be silent: the child keeps running, and an un-beaten claim is one the
         // sweep will reclaim from under it.
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| loop {
-            // Sleep in one-second slices so the child finishing is noticed promptly.
-            for _ in 0..interval.as_secs().max(1) {
-                if flag.load(Ordering::Relaxed) {
-                    return;
-                }
-                std::thread::sleep(Duration::from_secs(1));
-            }
-            match agent_work::heartbeat_agent_work(&work_item_id, &claim, lease_ttl) {
-                Ok(true) => {
-                    if let Ok(mut state) = shared.lock() {
-                        state.beats += 1;
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            loop {
+                // Sleep in one-second slices so the child finishing is noticed promptly.
+                for _ in 0..interval.as_secs().max(1) {
+                    if flag.load(Ordering::Relaxed) {
+                        return;
                     }
+                    std::thread::sleep(Duration::from_secs(1));
                 }
-                Ok(false) => {
-                    eprintln!(
-                        "forge-worker: heartbeat lost for work item {work_item_id} (owner={} generation={}); \
+                match agent_work::heartbeat_agent_work(&work_item_id, &claim, lease_ttl) {
+                    Ok(true) => {
+                        if let Ok(mut state) = shared.lock() {
+                            state.beats += 1;
+                        }
+                    }
+                    Ok(false) => {
+                        eprintln!(
+                            "forge-worker: heartbeat lost for work item {work_item_id} (owner={} generation={}); \
                          the claim is no longer ours",
-                        claim.owner, claim.generation
-                    );
-                    if let Ok(mut state) = shared.lock() {
-                        state.lost_authority = true;
+                            claim.owner, claim.generation
+                        );
+                        if let Ok(mut state) = shared.lock() {
+                            state.lost_authority = true;
+                        }
+                        return;
                     }
-                    return;
-                }
-                // A transient failure is reported (through the capture seam in `db::capture`) and retried on the
-                // next beat: `updated_at` is still fresh inside the stale window. It is kept, not swallowed: a beat
-                // that has been failing for a whole lease is the run's real status.
-                Err(error) => {
-                    eprintln!("forge-worker-heartbeat-failed: {error}");
-                    if let Ok(mut state) = shared.lock() {
-                        state.last_error = Some(error);
+                    // A transient failure is reported (through the capture seam in `db::capture`) and retried on the
+                    // next beat: `updated_at` is still fresh inside the stale window. It is kept, not swallowed: a beat
+                    // that has been failing for a whole lease is the run's real status.
+                    Err(error) => {
+                        eprintln!("forge-worker-heartbeat-failed: {error}");
+                        if let Ok(mut state) = shared.lock() {
+                            state.last_error = Some(error);
+                        }
                     }
                 }
             }
@@ -268,6 +270,7 @@ fn work_type_for_item(declared: Option<&str>, kind: Option<&str>) -> &'static st
     }
 }
 
+#[cfg(test)]
 fn assay_terminal_role(role: Option<&str>) -> bool {
     matches!(
         role.unwrap_or("").trim().to_ascii_lowercase().as_str(),
@@ -309,8 +312,6 @@ pub fn recover_stale_agent_work(stale_after_minutes: i64) -> Result<u64, String>
                     "stale worker: no heartbeat since {}; process/host presumed terminated",
                     row.updated_at
                 );
-                let hold =
-                    assay_terminal_role(row.role.as_deref()) || row.attempts >= row.max_attempts;
                 let failure_code = match row
                     .role
                     .as_deref()
@@ -323,22 +324,16 @@ pub fn recover_stale_agent_work(stale_after_minutes: i64) -> Result<u64, String>
                     _ => "HUMAN_DECISION_REQUIRED",
                 };
 
-                if let Some(run_id) = row.story_run_id.as_deref() {
-                    dao.interrupt_story_run(run_id, failure_code, &reason)
-                        .await
-                        .map_err(|error| error.to_string())?;
+                let result = dao
+                    .recover_stale_work(&row, stale_after_minutes, &reason, failure_code)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                if matches!(
+                    result,
+                    db::StaleRecoveryResult::Recovered | db::StaleRecoveryResult::TerminalPreserved
+                ) {
+                    recovered += 1;
                 }
-
-                if hold {
-                    dao.hold_stale_work(&row.id, &row.story_id, &reason)
-                        .await
-                        .map_err(|error| error.to_string())?;
-                } else {
-                    dao.requeue_stale_work(&row.id, &row.story_id)
-                        .await
-                        .map_err(|error| error.to_string())?;
-                }
-                recovered += 1;
             }
             Ok::<u64, String>(recovered)
         })
