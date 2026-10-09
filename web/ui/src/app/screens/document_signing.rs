@@ -804,7 +804,7 @@ mod tests {
     fn desk_reads_live_and_selects_detail() {
         let (mut model, cmd) = DocumentSigning::init(&ScreenCtx::default());
         let request = cmd.into_requests().remove(0);
-        assert_eq!(request.path, "/v1/services/dispatch");
+        assert_eq!(request.path, "/api/portal/rust-ui/signing/dispatch");
 
         let rows = vec![crate::model::SigningEnvelopeSummary {
             signature_request_id: "req-1".into(),
@@ -823,13 +823,13 @@ mod tests {
         // First row auto-selects and reads its detail.
         assert_eq!(model.selected_id.as_deref(), Some("req-1"));
         let request = cmd.into_requests().remove(0);
-        assert_eq!(request.path, "/v1/services/dispatch");
+        assert_eq!(request.path, "/api/portal/rust-ui/signing/dispatch");
 
         // Actions address the durable dispatcher with verified ids.
         model.seq = 7;
         let cmd = DocumentSigning::update(&mut model, Msg::VoidEnvelope, &ScreenCtx::default());
         let request = cmd.into_requests().remove(0);
-        assert_eq!(request.path, "/v1/commands/dispatch");
+        assert_eq!(request.path, "/api/portal/rust-ui/signing/command");
     }
 
     #[test]
@@ -839,7 +839,7 @@ mod tests {
         model.seq = 3;
         let cmd = DocumentSigning::update(&mut model, Msg::ImportFields, &ScreenCtx::default());
         let request = cmd.into_requests().remove(0);
-        assert_eq!(request.path, "/v1/commands/dispatch");
+        assert_eq!(request.path, "/api/portal/rust-ui/signing/command");
     }
 
     #[test]
@@ -869,7 +869,7 @@ mod tests {
         assert_eq!(model.compose.as_ref().unwrap().stage, Stage::Sending);
         let requests = cmd.into_requests();
         assert_eq!(requests.len(), 1, "one command, not a chain");
-        assert_eq!(requests[0].path, "/v1/commands/dispatch");
+        assert_eq!(requests[0].path, "/api/portal/rust-ui/signing/command");
 
         let sent = serde_json::json!({ "outcome": "success", "value": { "issued": {} } });
         DocumentSigning::update(&mut model, Msg::ComposeStepped(Ok(sent)), &ctx);
