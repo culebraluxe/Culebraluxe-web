@@ -283,9 +283,72 @@ ways. The existing convention in this suite agrees — `RegistryHarness`, `Signa
 
 **Scope of the rename.** 32 code files, 34 with this page and the TST-REDIRECT hand-off: the module, the export
 line, the 17 `sec_redirect__*` cases, the four `sec_audit__00[1-4]` cases, and the assertion-message `const HARNESS`
-in the remaining security cases. That last
-group is worth a line: `sec_audit__005` and the eight `sec_entitlement__*` L2 cases drive the production
+in the remaining security cases. That last group is worth a line: `sec_audit__005` and the eight
+`sec_entitlement__*` L2 cases drive the production
 `SecurityService`/`DurableSecurityAuditPort` over `TestDatabase` and never held the audit harness's type, so their
 message now names the harness they actually use (`TestDatabase/L2 Persistence`) instead of borrowing a name that
 belonged to a different harness.
+
+## 12. The rename's receipts — and two red rows it did not create
+
+Measured 2026-10-08 in `lane/deep`, `.env.local` sourced (`APP_ENV=development`, so the harness resolves
+its DEV target; the harness refuses PRODUCTION before any socket opens).
+
+    cargo check -p test-harness --all-targets                     EXIT=0, 0 errors
+    cargo test -p test-harness --test <each of the 17 sec_redirect binaries>
+                                                                  EXIT=0, 17 x "1 passed; 0 failed"
+    cargo test -p test-harness sec_audit -- --ignored             EXIT=0, four L2 cases ok (001-004), DEV
+    cargo test -p test-harness --test sec_audit__005__...         EXIT=0, 1 passed, DEV
+    cargo test -p test-harness sec_entitlement                    EXIT=0, eight L2 cases ok (001-007, 009), DEV
+    rustfmt --edition 2021 --check tests/src/{security,lib}.rs    EXIT=0
+
+**Two SEC.REDIRECT cases were already red on trunk, and the rename only made them visible.** Both files come
+from `b3ce7fef9` ("TST RED batch 45", authored with the web crate uncompilable, so nothing had run them), and
+neither case's assertion is about the harness:
+
+    sec_redirect__001__path_traversal:106    at 28ab66997 -> EXIT=101, left "/portal/dashboard",
+                                             right "%2F%5Cevil.example"; after repair EXIT=0, 1 passed
+    sec_redirect__004__percent_encoding:170  at 28ab66997 -> EXIT=101, `encode(" ")` (= "%20") failed a
+                                             letters-only predicate; after repair EXIT=0, 1 passed
+
+Both are fixture mistakes, not production defects: `encode` (`web/src/api/google_auth.rs:36`) is this site's
+URI-component encoder and *should* encode `/` for the `client_id`, `redirect_uri`, scope and `back` values it
+builds. Repaired in `7b293fb83`, with the receipts in that commit's message.
+
+**rustfmt.** 18 of the 32 files this slice touched were already unformatted on `origin/main`, and T1's FMT
+stage fails on any file a slice changed — it cannot tell dirt the slice did not create. Two numbers worth
+keeping: the estate holds **201** drifted files and **199 of them are under `tests/`** — the SEC/CRM/workflow
+batches wrote multi-line `assert_eq!`s and never ran rustfmt. `38d005b16` formats the 18 this slice touches
+(formatting only; the 17 redirect binaries re-ran green after it). The other 181 are the quiet-trunk pass
+§10.2 asks for, and they will block the next slice that touches one of them: a gate row with no owner.
+
+**This slice's `pnpm slice:check`** (`.env.local` sourced, base = `c8b4f2aae`):
+
+    T0 compile    PASS (cargo check --workspace --all-targets)
+    FMT rustfmt   PASS (after 38d005b16; before it, 18 files this slice touched)
+    T1 sections   FAIL — it stops at the first failing target, and that target is not one of this slice's:
+                  arch_boundary__011__qa_cannot_own_git_mutations
+                  tests/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs:632
+                  "forge/src/engine/assay.rs names `Command::new`"
+    T2 full suite not run here (CI's tier)
+
+**That red is a landed fix colliding with a guard, not this slice.** `Command::new` reached
+`forge/src/engine/assay.rs` in `bd1b093f5` (FORGE-FIX-005, "bound every wait", landed on `main` via `530903627`),
+and the QA sweep treats that file as QA surface (`arch_boundary__011:625-640`). It is on `origin/main` too. It is
+an architecture decision — give the assay surface a bounded-wait door through the engine's command port, or take
+the file out of the QA sweep — and §6's two other breaks in the same guard (lines 880 and 910) are still open.
+Not repaired here: no slice may decide that, and it is not a test edit.
+
+Because `slice:check` stops at the first failing target, the section was also run with `--no-fail-fast`
+(`cargo test -p cli -p test-harness --no-fail-fast`, DEV sourced). Over the first **373** of the crate's ~600 test
+binaries it found **two** red targets, both pre-existing and both about `forge/`, neither about a security file:
+
+    arch_boundary__011__qa_cannot_own_git_mutations     forge/src/engine/assay.rs names `Command::new`
+                                                        (bd1b093f5, above; :632, with §6's :880/:910 behind it)
+    forge_arch_seam__001__canonical_execution_chain     the_job_layer_and_registry_know_no_role_no_node_and_no_vendor,
+                                                        :281 — `forge/src/engine/job.rs` names `opencode`
+
+The enumeration was stopped there deliberately: it is a survey, not this slice's gate, and it holds the lane's
+target-dir lock while the push needs it. Whoever owns the queue should re-run it to the end (`cargo test -p cli -p
+test-harness --no-fail-fast`) rather than trust these two numbers as complete.
 
