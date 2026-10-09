@@ -27,8 +27,9 @@
 - `forge::engine::opencode` and `forge::engine::maestro` are used by the Forge binary and integration tests for explicit adapter construction, CLI/model resolution, contract checks, and harness tests. Narrow incidental internals only after consumer inventory; retain these supported entry points.
 - `forge::engine::opencode_client`, `opencode_events`, and `opencode_agents` already divide transport, event, and agent concerns. Reuse these modules instead of duplicating them.
 - `db::ForgeEngineDao` is re-exported from the private `db::forge_engine` implementation module. Preserve the DAO facade and public DTOs required by separately compiled tests and Forge.
-- `forge::engine::learn` is currently a public module. Confirm actual callers before narrowing it; the work order requires real workspace/binary/integration compilation as the visibility test.
-- `forge::engine::mod.rs` currently declares most engine modules public. Batch 4 will make only consumer-verified implementation modules private or crate-visible; it will not use visibility changes to hide architecture checks.
+- `forge::engine::learn` is private after Slice 3; only the in-crate worker calls its pass.
+- `job_payload`, `model_aliases`, and `opencode_events` are private implementation modules after Slice 3. Source search found no external-crate consumers; the Forge binary and all integration targets compile against the retained facade.
+- `forge::engine::mod.rs` still has other public declarations. Slice 3 narrows only the four consumer-verified modules above; it does not use visibility changes to hide architecture checks.
 
 ## Extraction sequence and protected behavior
 
@@ -45,5 +46,11 @@
 - `forge/src/engine/job/workflow_service.rs` now owns the Workflow-backed `JobService`; `forge::engine::job::WorkflowJobService` remains the same public construction point.
 - `db/src/forge_engine/model_attempt_budget.rs` now owns generation budget SQL operations. DTOs and `ForgeEngineDao` remain at the existing db facade, and SQL has not moved out of `db`.
 - No vendor launch behavior, job policy, SQL behavior, or public call path was intentionally changed.
+
+## Slice 3 API record
+
+- `learn` and `run_learn_pass` are no longer part of the external Forge API; the worker remains the sole caller.
+- `job_payload`, `model_aliases`, and `opencode_events` are private implementation modules. Their remaining uses are inside `forge`.
+- `cargo check -p test-harness --all-targets` passed after these visibility changes, covering independently compiled integration tests and the Forge binary.
 
 No behavior correction is included in move-only changes. A newly discovered bug gets a separate change and evidence.

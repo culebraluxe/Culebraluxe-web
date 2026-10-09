@@ -325,7 +325,10 @@ fn file_candidate(candidate: &Candidate) -> Result<String, String> {
     })?
 }
 
-pub fn run_learn_pass(root: &Path, stale_after_minutes: i64) -> Result<Option<String>, String> {
+pub(crate) fn run_learn_pass(
+    root: &Path,
+    stale_after_minutes: i64,
+) -> Result<Option<String>, String> {
     let now = now_secs();
     let floor = now.saturating_sub(WINDOW_HOURS * 3600);
     let since = read_anchor_secs(root).unwrap_or(floor).max(floor);
