@@ -83,7 +83,7 @@ fn forge_assay_005__qa_cannot_modify_git() {
     assert!(lane_path.is_file(), "the QA lane module moved: {QA_LANE}");
     let lane_code = code_of(&source::read(&lane_path));
     assert!(
-        lane_code.contains("run_rust_contract_qa"),
+        lane_code.contains("run_frozen_assay"),
         "the scan must read the real lane module, not an empty file"
     );
     for token in GIT_DOOR_TOKENS {
