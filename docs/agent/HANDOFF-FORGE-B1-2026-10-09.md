@@ -1,6 +1,9 @@
 # Handoff — FORGE-B1 (durable completion and claim ownership), 2026-10-09
 
-Work order: `FORGE-B1` (three batches were written; Batch 1 is the one authorized). Lane: `lane/deep`.
+Work order: `FORGE-B1` — **`~/Downloads/Forge-Batch-1-Work-Order.md`** (229 lines; Slice 2 is §6, and §10–§12 carry the
+rollout, the checklist and the decisions to close early). Three batches were written and Batch 1 is the one authorized.
+The file lives with the captain and is deliberately **not** copied into the repo — one fact, one writer — so read it from
+there; this hand-off is the state, the work order is the requirement. Lane: `lane/deep`.
 Four slices. **Slice 1 is landed and verified. Slices 2–4 are not started.** This file is the state between them.
 
 ## 1. STATUS — what is true right now
