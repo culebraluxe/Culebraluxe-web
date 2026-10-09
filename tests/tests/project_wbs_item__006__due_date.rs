@@ -56,7 +56,9 @@ async fn query_due_items(
 
 #[tokio::test]
 async fn project_wbs_item_006__due_date() {
-    let db = Database::connect_target(DbTarget::Dev).await.expect("connect to DEV database");
+    let db = Database::connect_target(DbTarget::Dev)
+        .await
+        .expect("connect to DEV database");
     let project_id = create_test_project(&db).await;
     let dao = WbsDao::new(db.clone());
 
@@ -152,7 +154,9 @@ async fn project_wbs_item_006__due_date() {
     .await
     .expect("create done item");
     // Set to done
-    dao.set_status(&done_id, WbsStatus::Done).await.expect("set done");
+    dao.set_status(&done_id, WbsStatus::Done)
+        .await
+        .expect("set done");
 
     // 3. Create a dismissed item with due date (should NOT appear in list_due)
     let dismissed_id = Uuid::new_v4().to_string();
@@ -172,7 +176,9 @@ async fn project_wbs_item_006__due_date() {
     })
     .await
     .expect("create dismissed item");
-    dao.set_status(&dismissed_id, WbsStatus::Dismissed).await.expect("set dismissed");
+    dao.set_status(&dismissed_id, WbsStatus::Dismissed)
+        .await
+        .expect("set dismissed");
 
     // 4. list_due with no category filter - should return open/doing items ordered by due_at nulls last
     let due_items = query_due_items(&db, &project_id, None).await;
@@ -235,7 +241,10 @@ async fn project_wbs_item_006__due_date() {
         .await
         .expect("update due_at")
         .expect("item exists");
-    assert_eq!(updated.due_at.as_ref().map(|s| s.replace("+00:00", "Z")), Some("2026-01-01T00:00:00Z".into()));
+    assert_eq!(
+        updated.due_at.as_ref().map(|s| s.replace("+00:00", "Z")),
+        Some("2026-01-01T00:00:00Z".into())
+    );
 
     let due_items = query_due_items(&db, &project_id, None).await;
 
@@ -261,7 +270,10 @@ async fn project_wbs_item_006__due_date() {
         })
         .await;
     // DAO will fail at database level with invalid timestamptz
-    assert!(result.is_err(), "invalid due_at format must fail at DB level");
+    assert!(
+        result.is_err(),
+        "invalid due_at format must fail at DB level"
+    );
 
     // 8. list_due excludes items with status Done/Dismissed
     let all_open_doing = query_due_items(&db, &project_id, None).await;

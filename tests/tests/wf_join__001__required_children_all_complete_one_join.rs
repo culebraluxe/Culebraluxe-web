@@ -161,11 +161,7 @@ fn history(harness: &EngineHarness, instance: &str) -> Vec<ProcessEvent> {
         .expect("the instance history reads")
 }
 
-fn events_of_type(
-    harness: &EngineHarness,
-    instance: &str,
-    event_type: &str,
-) -> Vec<ProcessEvent> {
+fn events_of_type(harness: &EngineHarness, instance: &str, event_type: &str) -> Vec<ProcessEvent> {
     history(harness, instance)
         .into_iter()
         .filter(|event| event.event_type == event_type)
@@ -260,8 +256,8 @@ fn wf_join_001__required_children_all_complete_one_join() {
         "{HARNESS}: the join drives the process to completion"
     );
     // One downstream token only; re-entering either spent branch cannot fire a second join.
-    let replay = complete(&harness, &main_task.id)
-        .expect_err("a spent branch cannot re-enter the join");
+    let replay =
+        complete(&harness, &main_task.id).expect_err("a spent branch cannot re-enter the join");
     assert_eq!(
         replay.code(),
         "TASK_ALREADY_COMPLETED",

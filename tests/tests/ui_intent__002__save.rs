@@ -69,7 +69,11 @@ fn ui_intent_002__save() {
     });
     let save = harness.update(Msg::DealCreateRequested);
     let request = save.into_requests();
-    assert_eq!(request.len(), 1, "a complete save sends exactly one request");
+    assert_eq!(
+        request.len(),
+        1,
+        "a complete save sends exactly one request"
+    );
     assert_eq!(request[0].path, "/api/portal/rust-ui/deals");
     assert_eq!(request[0].body.clone().unwrap()["propertyId"], "p-1");
     assert_eq!(request[0].body.clone().unwrap()["clientPersonId"], "c-1");
@@ -95,10 +99,7 @@ fn ui_intent_002__save() {
         vec![screen::CommandKind::None],
         "a failed save navigates nowhere"
     );
-    assert_eq!(
-        harness.model().error.as_deref(),
-        Some("deals unavailable")
-    );
+    assert_eq!(harness.model().error.as_deref(), Some("deals unavailable"));
 
     // NEGATIVE: an operator who may not write deals cannot save, even with a complete form.
     let unprivileged = ScreenCtx::default();

@@ -15,12 +15,12 @@
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test wf_trace__001__process_started
 
 use test_harness::database::{HarnessDbError, TestDatabase};
+use workflow::neon::NeonStore;
 use workflow::{
     DefinitionStatus, EngineOptions, NodeDefinition, ProcessDefinition, ProcessGraph,
-    ProcessInstance, ProcessOutcome, ProcessStatus, StartProcessParams,
-    TransitionDefinition, TxStore, Value, WorkflowEngine,
+    ProcessInstance, ProcessOutcome, ProcessStatus, StartProcessParams, TransitionDefinition,
+    TxStore, Value, WorkflowEngine,
 };
-use workflow::neon::NeonStore;
 
 /// The canonical harness label for this level.
 const HARNESS: &str = "WorkflowHarness/L2 Persistence";
@@ -164,19 +164,23 @@ fn wf_trace_001__process_started() -> Result<(), HarnessDbError> {
     // The linear definition (start -> service -> end) completes immediately
     // because there's no task node to park at. The process status is Completed.
     assert_eq!(
-        instance.status, ProcessStatus::Completed,
+        instance.status,
+        ProcessStatus::Completed,
         "{HARNESS}: instance status is Completed for linear definition"
     );
     assert_eq!(
-        instance.outcome, Some(ProcessOutcome::Completed),
+        instance.outcome,
+        Some(ProcessOutcome::Completed),
         "{HARNESS}: instance outcome is Completed"
     );
     assert_eq!(
-        instance.started_by, Some(STARTED_BY.to_string()),
+        instance.started_by,
+        Some(STARTED_BY.to_string()),
         "{HARNESS}: started_by recorded"
     );
     assert_eq!(
-        instance.root_token_id, Some(root_token_id.clone()),
+        instance.root_token_id,
+        Some(root_token_id.clone()),
         "{HARNESS}: root_token_id linked"
     );
     assert_eq!(instance.variables, Value::object());
@@ -189,8 +193,15 @@ fn wf_trace_001__process_started() -> Result<(), HarnessDbError> {
     assert_eq!(token.id, root_token_id);
     assert_eq!(token.process_instance_id, instance_id);
     assert_eq!(token.parent_token_id, None, "root token has no parent");
-    assert_eq!(token.node_id, END_NODE, "root token at end node after completion");
-    assert_eq!(token.status, workflow::TokenStatus::Completed, "root token completed");
+    assert_eq!(
+        token.node_id, END_NODE,
+        "root token at end node after completion"
+    );
+    assert_eq!(
+        token.status,
+        workflow::TokenStatus::Completed,
+        "root token completed"
+    );
     assert_eq!(token.outcome, Some(workflow::TokenOutcome::Completed));
     assert!(token.required, "root token is required");
     // Version: start(v1) -> work(v2) -> end(v3) + completion(v4) = 4

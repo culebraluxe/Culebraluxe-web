@@ -53,7 +53,10 @@ fn forge_assay_006__candidate_sha_and_qa_sha_must_match() {
     // ── 4. NEGATIVE: A FAIL, NOTHING, OR NOBODY IS NEVER A MATCH. ────────────
     let failed = qa_fail(CANDIDATE);
     let (eligible, blockers) = promotion_eligibility(Some(CANDIDATE), &failed);
-    assert!(!eligible, "a QA FAIL promotes nothing, matching SHAs or not");
+    assert!(
+        !eligible,
+        "a QA FAIL promotes nothing, matching SHAs or not"
+    );
     assert!(
         blockers.contains(&"QA_FAIL"),
         "the refusal must name the QA failure: {blockers:?}"
@@ -65,7 +68,10 @@ fn forge_assay_006__candidate_sha_and_qa_sha_must_match() {
         "the refusal must name the missing evidence: {blockers:?}"
     );
     let (eligible, blockers) = promotion_eligibility(None, &qa_pass(CANDIDATE, CANDIDATE));
-    assert!(!eligible, "no candidate is never a match, however clean the evidence");
+    assert!(
+        !eligible,
+        "no candidate is never a match, however clean the evidence"
+    );
     assert!(
         blockers.contains(&"NO_CANDIDATE"),
         "the refusal must name the missing candidate: {blockers:?}"

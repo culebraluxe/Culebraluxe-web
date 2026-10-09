@@ -17,12 +17,15 @@
 //!     --test sig_domain__005__immutable_signer_slot -- --ignored
 
 use db::{Database, SignatureDao};
-use model::{PrepareSignatureRequest, SignatureRecipientRole, PreparedSignatureRecipient};
-use services::{ServiceActor, ServiceActorKind, ServiceContext, ServiceInfrastructure, DefaultAuthorizationPort, CapturingAuditPort, CapturingDomainEventPort};
-use test_harness::providers::FakeSignatureProvider;
+use model::{PrepareSignatureRequest, PreparedSignatureRecipient, SignatureRecipientRole};
+use services::{
+    CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
+    ServiceActorKind, ServiceContext, ServiceInfrastructure,
+};
 use std::sync::Arc;
+use test_harness::providers::FakeSignatureProvider;
 
-use test_harness::database::{TestDatabase, HarnessDbError};
+use test_harness::database::{HarnessDbError, TestDatabase};
 
 const HARNESS: &str = "SignatureDao/L2 Persistence";
 
@@ -87,7 +90,11 @@ async fn sig_domain_005__immutable_signer_slot() {
     let tx_doc_id = create_transaction_document(&database, &ns).await;
 
     // 2. Create a signature request with one signer with execution_slot_id.
-    let mut tx = database.database().begin("sig-domain-005.prepare").await.expect("tx");
+    let mut tx = database
+        .database()
+        .begin("sig-domain-005.prepare")
+        .await
+        .expect("tx");
     let result = signature_dao
         .prepare_tx(
             &mut tx,
@@ -119,11 +126,19 @@ async fn sig_domain_005__immutable_signer_slot() {
     .fetch_one(database.database().pool())
     .await
     .expect("slot must read");
-    assert_eq!(slot_id, Some("buyer:slot-1".into()), "{HARNESS}: signer must have correct execution_slot_id");
+    assert_eq!(
+        slot_id,
+        Some("buyer:slot-1".into()),
+        "{HARNESS}: signer must have correct execution_slot_id"
+    );
 
     // 4. Attempt to add a second signer with the same execution_slot_id - must be rejected by unique constraint.
     //    We use replace_recipients_tx to replace the recipient list with two signers having the same slot.
-    let mut tx2 = database.database().begin("sig-domain-005.duplicate_slot").await.expect("tx2");
+    let mut tx2 = database
+        .database()
+        .begin("sig-domain-005.duplicate_slot")
+        .await
+        .expect("tx2");
     let result = signature_dao
         .replace_recipients_tx(
             &mut tx2,
@@ -158,7 +173,9 @@ async fn sig_domain_005__immutable_signer_slot() {
     let error = result.unwrap_err();
     let error_str = error.to_string().to_lowercase();
     assert!(
-        error_str.contains("duplicate") || error_str.contains("unique") || error_str.contains("already"),
+        error_str.contains("duplicate")
+            || error_str.contains("unique")
+            || error_str.contains("already"),
         "{HARNESS}: rejection must mention duplicate/unique/already, got {error}"
     );
     tx2.rollback().await.expect("rollback");
@@ -171,7 +188,11 @@ async fn sig_domain_005__immutable_signer_slot() {
     .fetch_one(database.database().pool())
     .await
     .expect("slot must read");
-    assert_eq!(slot_id, Some("buyer:slot-1".into()), "{HARNESS}: signer slot must remain unchanged");
+    assert_eq!(
+        slot_id,
+        Some("buyer:slot-1".into()),
+        "{HARNESS}: signer slot must remain unchanged"
+    );
 
     // 6. Cleanup.
     sqlx::query("delete from transaction_document where source_external_id like $1")

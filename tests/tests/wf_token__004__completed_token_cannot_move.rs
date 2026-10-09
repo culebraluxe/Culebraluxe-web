@@ -51,7 +51,14 @@ const CAS_THIRD: &str = "elsewhere";
 const CAS_ABSENT: &str = "tok-absent";
 
 /// Seed one active token row directly through the production `Store`.
-fn seed_token(store: &MemoryStore, id: &str, node: &str, version: i32, status: TokenStatus, outcome: Option<TokenOutcome>) {
+fn seed_token(
+    store: &MemoryStore,
+    id: &str,
+    node: &str,
+    version: i32,
+    status: TokenStatus,
+    outcome: Option<TokenOutcome>,
+) {
     let token = Token {
         id: id.to_string(),
         tenant_id: None,
@@ -191,7 +198,14 @@ fn wf_token_004__completed_token_cannot_move() {
     let store = MemoryStore::new();
     // Seed a token already in Completed state with version 5.
     // Note: The store's move_token does NOT check token status, only version.
-    seed_token(&store, CAS_TOKEN, DONE_NODE, 5, TokenStatus::Completed, Some(TokenOutcome::Completed));
+    seed_token(
+        &store,
+        CAS_TOKEN,
+        DONE_NODE,
+        5,
+        TokenStatus::Completed,
+        Some(TokenOutcome::Completed),
+    );
 
     // At the store level, a move with the current version (5) SUCCEEDS even for a completed token,
     // because move_token only checks version equality, not status.
@@ -204,8 +218,14 @@ fn wf_token_004__completed_token_cannot_move() {
         "{HARNESS}: store-level move_token with current version succeeds regardless of status"
     );
     let after_move = read_token(&store, CAS_TOKEN);
-    assert_eq!(after_move.node_id, CAS_TO, "{HARNESS}: store move updates node_id");
-    assert_eq!(after_move.version, 6, "{HARNESS}: store move advances version");
+    assert_eq!(
+        after_move.node_id, CAS_TO,
+        "{HARNESS}: store move updates node_id"
+    );
+    assert_eq!(
+        after_move.version, 6,
+        "{HARNESS}: store move advances version"
+    );
 
     // But a move with a STALE version is refused (this is the CAS guarantee).
     let refused = store
@@ -297,7 +317,14 @@ fn wf_token_004__completed_token_cannot_move() {
     // A subsequent move_token call with the pre-completion version is refused.
     let store = MemoryStore::new();
     // Simulate a token that went through the engine: 3 moves (v1->v2->v3->v4) + completion (v4->v5) = version 5
-    seed_token(&store, CAS_TOKEN, DONE_NODE, 5, TokenStatus::Completed, Some(TokenOutcome::Completed));
+    seed_token(
+        &store,
+        CAS_TOKEN,
+        DONE_NODE,
+        5,
+        TokenStatus::Completed,
+        Some(TokenOutcome::Completed),
+    );
 
     // A move carrying the version that the caller THINKS is current (5) but which was actually
     // the version BEFORE completion... wait, the version IS 5 after completion.

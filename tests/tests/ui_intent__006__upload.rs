@@ -83,5 +83,8 @@ fn ui_intent_006__upload() {
         "the notice names the failure, got: {}",
         notice.message
     );
-    assert!(!harness.model().uploading, "the failure releases the upload lock");
+    assert!(
+        !harness.model().uploading,
+        "the failure releases the upload lock"
+    );
 }

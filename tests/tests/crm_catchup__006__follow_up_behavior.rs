@@ -77,7 +77,10 @@ async fn item_for(dao: &CatchUpDao, person_id: &str) -> Option<CatchUpItem> {
 }
 
 /// The disposition row for this person and reason: (handled_at is set, snoozed_until).
-async fn disposition(harness: &CrmHarness, person_id: &str) -> Option<(bool, Option<chrono::DateTime<chrono::Utc>>)> {
+async fn disposition(
+    harness: &CrmHarness,
+    person_id: &str,
+) -> Option<(bool, Option<chrono::DateTime<chrono::Utc>>)> {
     sqlx::query_as::<_, (bool, Option<chrono::DateTime<chrono::Utc>>)>(
         "select handled_at is not null, snoozed_until from catch_up_disposition \
          where person_id = $1::uuid and reason_code = $2",
@@ -113,7 +116,10 @@ async fn crm_catchup_006__follow_up_behavior() {
         "{HARNESS}: the follow-up proof runs only on an isolated DEV target"
     );
     let ns = harness.namespace().to_string();
-    let marker = format!("TST-CRMCATCHUP006-{ns}-{}", &Uuid::new_v4().to_string()[..8]);
+    let marker = format!(
+        "TST-CRMCATCHUP006-{ns}-{}",
+        &Uuid::new_v4().to_string()[..8]
+    );
     let dao = CatchUpDao::new(harness.database().database().clone());
 
     let person = seed_catchup_person(&harness, &format!("{marker}-g")).await;
@@ -128,7 +134,10 @@ async fn crm_catchup_006__follow_up_behavior() {
         "{HARNESS}: an unanswered inbound message reads as {REASON}, not {}",
         item.reason_code
     );
-    assert_eq!(item.priority, 100, "{HARNESS}: an unanswered inbound message outranks everything else");
+    assert_eq!(
+        item.priority, 100,
+        "{HARNESS}: an unanswered inbound message outranks everything else"
+    );
 
     // 2. Handling it takes the row off the queue and records the handling.
     dao.handle(&person, REASON)
@@ -192,7 +201,10 @@ async fn crm_catchup_006__follow_up_behavior() {
 
     sweep(&harness, &marker).await;
     assert_eq!(
-        harness.leftover_count(&marker).await.expect("leftover count"),
+        harness
+            .leftover_count(&marker)
+            .await
+            .expect("leftover count"),
         0,
         "{HARNESS}: the run's persons and messages are gone"
     );

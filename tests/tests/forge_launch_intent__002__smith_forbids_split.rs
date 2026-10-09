@@ -14,11 +14,7 @@ use forge::engine::role_slice::bench_intent_errors;
 fn forge_launch_intent_002__smith_forbids_split() {
     // The case the story names.
     let errors = bench_intent_errors(Some("SMITH"), Some("SPLIT"));
-    assert_eq!(
-        errors.len(),
-        1,
-        "a SMITH bench refuses SPLIT: {errors:?}"
-    );
+    assert_eq!(errors.len(), 1, "a SMITH bench refuses SPLIT: {errors:?}");
     assert!(
         errors[0].contains("Bench intent is SMITH"),
         "the refusal names the intent: {errors:?}"

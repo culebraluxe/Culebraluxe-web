@@ -197,13 +197,12 @@ struct Fixture {
 async fn seed(pool: &PgPool, db: &Database, marker: &str) -> Fixture {
     // The service receipts attribute commands to this actor (`claim_receipt` binds it as a uuid
     // with a hard foreign key to `app_user`), so the fixture actor is a real row, not a string.
-    let actor_id: String = sqlx::query_scalar(
-        "insert into app_user (display_name) values ($1) returning id::text",
-    )
-    .bind(format!("{marker}-actor"))
-    .fetch_one(pool)
-    .await
-    .expect("the fixture actor seeds");
+    let actor_id: String =
+        sqlx::query_scalar("insert into app_user (display_name) values ($1) returning id::text")
+            .bind(format!("{marker}-actor"))
+            .fetch_one(pool)
+            .await
+            .expect("the fixture actor seeds");
     let person_id: String = sqlx::query_scalar(
         "insert into person (display_name, role, status) values ($1, 'buyer', 'warm') returning id::text",
     )
@@ -320,13 +319,11 @@ async fn sweep(pool: &PgPool, fixture: &Fixture, marker: &str) {
     // rows are deleted AFTER the document — deleting a signed media row while the document still
     // references it would trip `transaction_document_signed_pair` via `on delete set null`.
     let state = document_state(pool, &fixture.document_id).await;
-    sqlx::query(
-        "delete from signature_envelope_recipient where signature_request_id = $1::uuid",
-    )
-    .bind(&fixture.request_id)
-    .execute(pool)
-    .await
-    .expect("recipient sweep");
+    sqlx::query("delete from signature_envelope_recipient where signature_request_id = $1::uuid")
+        .bind(&fixture.request_id)
+        .execute(pool)
+        .await
+        .expect("recipient sweep");
     sqlx::query("delete from signature_request where id = $1::uuid")
         .bind(&fixture.request_id)
         .execute(pool)
@@ -345,12 +342,9 @@ async fn sweep(pool: &PgPool, fixture: &Fixture, marker: &str) {
         .execute(pool)
         .await
         .expect("document sweep");
-    for media_id in [
-        state.signed_media_id,
-        state.signed_audit_media_id,
-    ]
-    .into_iter()
-    .flatten()
+    for media_id in [state.signed_media_id, state.signed_audit_media_id]
+        .into_iter()
+        .flatten()
     {
         sqlx::query("delete from media where id = $1::uuid")
             .bind(&media_id)
@@ -528,11 +522,12 @@ async fn sig_webhook_009__terminal_replay() {
         replay_state.state, "signed",
         "{HARNESS}: the document must remain signed"
     );
-    let status_text: String = sqlx::query_scalar("select status from signature_request where id = $1::uuid")
-        .bind(&fixture.request_id)
-        .fetch_one(pool)
-        .await
-        .expect("the request status reads");
+    let status_text: String =
+        sqlx::query_scalar("select status from signature_request where id = $1::uuid")
+            .bind(&fixture.request_id)
+            .fetch_one(pool)
+            .await
+            .expect("the request status reads");
     assert_eq!(
         status_text, "completed",
         "{HARNESS}: the request must remain completed"

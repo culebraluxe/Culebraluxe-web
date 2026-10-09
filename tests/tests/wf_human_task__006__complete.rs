@@ -23,9 +23,9 @@ use std::collections::BTreeMap;
 
 use test_harness::{EngineHarness, TestClock};
 use workflow::{
-    CompleteTaskParams, DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessEvent,
+    json, CompleteTaskParams, DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessEvent,
     ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams, Task, TaskStatus,
-    TransitionDefinition, Value, json,
+    TransitionDefinition, Value,
 };
 
 const HARNESS: &str = "WorkflowHarness/L3 Composition";
@@ -244,7 +244,10 @@ fn wf_human_task_006__complete() {
         "{HARNESS}: the completion emits exactly one task.completed event"
     );
     assert_eq!(completed_events[0].actor, ALICE);
-    assert_eq!(completed_events[0].task_id.as_deref(), Some(parked.id.as_str()));
+    assert_eq!(
+        completed_events[0].task_id.as_deref(),
+        Some(parked.id.as_str())
+    );
     assert_eq!(
         completed_events[0]
             .data
@@ -344,7 +347,10 @@ fn wf_human_task_006__complete() {
     let completed3 = task_by_id(&harness, &parked3.id);
     assert_eq!(completed3.status, TaskStatus::Completed);
     assert_eq!(completed3.assignee.as_deref(), Some(ALICE));
-    assert_eq!(instance_status(&harness, &instance3), ProcessStatus::Completed);
+    assert_eq!(
+        instance_status(&harness, &instance3),
+        ProcessStatus::Completed
+    );
 
     // ── 6. POSITIVE CONTROL — OPEN TASK (NO ASSIGNEE) CAN BE COMPLETED BY ANYONE ──────────────────────────────
     // The assignee check only applies if there IS an assignee. For open tasks, anyone can complete.
@@ -362,5 +368,8 @@ fn wf_human_task_006__complete() {
     let completed4 = task_by_id(&harness, &parked4.id);
     assert_eq!(completed4.status, TaskStatus::Completed);
     assert_eq!(completed4.assignee.as_deref(), Some(BOB));
-    assert_eq!(instance_status(&harness, &instance4), ProcessStatus::Completed);
+    assert_eq!(
+        instance_status(&harness, &instance4),
+        ProcessStatus::Completed
+    );
 }

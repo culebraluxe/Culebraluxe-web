@@ -47,8 +47,7 @@ fn forge_model_policy_004__policy_survives_parent_child_process_boundary() {
     // ── 1. THE ROW'S POLICY RECOMPUTES IDENTICALLY IN THE CHILD. ────────────
     for policy in [Some("cheap"), Some("judgment"), None] {
         let parent = context_with(policy, None);
-        let parent_selection =
-            ModelSelection::from_parts(parent.model_policy.as_deref(), None);
+        let parent_selection = ModelSelection::from_parts(parent.model_policy.as_deref(), None);
         // The child inherits the context (row re-read), not the parent's process.
         let child = context_with(policy, None);
         assert_eq!(

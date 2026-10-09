@@ -318,7 +318,9 @@ fn wf_command_004__result_success_advances() {
     );
     portless
         .engine()
-        .seed_definition(transitionless_definition("TST-WF-COMMAND-004-NO-TRANSITION"))
+        .seed_definition(transitionless_definition(
+            "TST-WF-COMMAND-004-NO-TRANSITION",
+        ))
         .expect("the transitionless definition registers");
     let refusal = portless
         .engine()

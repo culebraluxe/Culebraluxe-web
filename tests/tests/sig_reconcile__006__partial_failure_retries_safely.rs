@@ -213,13 +213,12 @@ struct Fixture {
 async fn seed(pool: &PgPool, db: &Database, marker: &str) -> Fixture {
     // The service receipts attribute commands to this actor (`claim_receipt` binds it as a uuid
     // with a hard foreign key to `app_user`), so the fixture actor is a real row, not a string.
-    let actor_id: String = sqlx::query_scalar(
-        "insert into app_user (display_name) values ($1) returning id::text",
-    )
-    .bind(format!("{marker}-actor"))
-    .fetch_one(pool)
-    .await
-    .expect("the fixture actor seeds");
+    let actor_id: String =
+        sqlx::query_scalar("insert into app_user (display_name) values ($1) returning id::text")
+            .bind(format!("{marker}-actor"))
+            .fetch_one(pool)
+            .await
+            .expect("the fixture actor seeds");
     let person_id: String = sqlx::query_scalar(
         "insert into person (display_name, role, status) values ($1, 'buyer', 'warm') returning id::text",
     )
@@ -341,13 +340,11 @@ async fn sweep(pool: &PgPool, fixture: &Fixture, marker: &str) {
     .fetch_one(pool)
     .await
     .expect("the audit media id reads");
-    sqlx::query(
-        "delete from signature_envelope_recipient where signature_request_id = $1::uuid",
-    )
-    .bind(&fixture.request_id)
-    .execute(pool)
-    .await
-    .expect("recipient sweep");
+    sqlx::query("delete from signature_envelope_recipient where signature_request_id = $1::uuid")
+        .bind(&fixture.request_id)
+        .execute(pool)
+        .await
+        .expect("recipient sweep");
     sqlx::query("delete from signature_request where id = $1::uuid")
         .bind(&fixture.request_id)
         .execute(pool)
@@ -496,8 +493,7 @@ async fn sig_reconcile_006__partial_failure_retries_safely() {
 
     // 3. NO PARTIAL DURABLE STATE: the document is unsigned — same state, no signed media, no
     // signed timestamp — and no marker media row exists. The failed attempt minted nothing.
-    let (state, signed_media_id, has_signed_at) =
-        document_state(pool, &fixture.document_id).await;
+    let (state, signed_media_id, has_signed_at) = document_state(pool, &fixture.document_id).await;
     assert_eq!(
         state, "draft",
         "{HARNESS}: the failed delivery must not advance the document"

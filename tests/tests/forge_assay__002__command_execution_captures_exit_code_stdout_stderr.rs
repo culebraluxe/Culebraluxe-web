@@ -18,8 +18,7 @@ use forge::pianola::worker_exec::{execute_command_scoped_with_timeout, ASSAY_EXC
 /// A scratch lane: a real directory the executor scopes into, removed afterwards. The assay
 /// commands under test never touch the real checkout.
 fn scratch_lane(name: &str) -> std::path::PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("forge-assay-002-{name}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("forge-assay-002-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("scratch lane");
     dir
@@ -61,7 +60,10 @@ fn forge_assay_002__command_execution_captures_exit_code_stdout_stderr() {
     let three = run(&lane, "exit 3");
     assert!(!three.passed, "exit 3 must not read as passed: {three:?}");
     assert_eq!(three.exit_code, 3, "the exact code is captured: {three:?}");
-    assert!(!three.unmeasurable, "a process that ran is measured: {three:?}");
+    assert!(
+        !three.unmeasurable,
+        "a process that ran is measured: {three:?}"
+    );
 
     // ── 4. NEGATIVE: FAILURE IS FAILED, NOT UNMEASURABLE AND NOT PASSED. ────
     let failed = run(&lane, "false");
@@ -84,7 +86,11 @@ fn forge_assay_002__command_execution_captures_exit_code_stdout_stderr() {
         &lane,
         "i=1; while [ $i -le 600 ]; do echo line-$i; i=$((i+1)); done",
     );
-    assert!(long.passed, "unexpected: {:?}", long.excerpt.lines().count());
+    assert!(
+        long.passed,
+        "unexpected: {:?}",
+        long.excerpt.lines().count()
+    );
     let lines: Vec<&str> = long.excerpt.lines().collect();
     assert_eq!(
         lines.len(),

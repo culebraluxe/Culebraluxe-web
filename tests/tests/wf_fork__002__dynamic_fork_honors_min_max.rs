@@ -27,8 +27,8 @@ use std::collections::BTreeMap;
 
 use test_harness::{EngineHarness, TestClock};
 use workflow::{
-    DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessEvent, ProcessGraph, ProcessOutcome,
-    StartProcessParams, Value,
+    DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessEvent, ProcessGraph,
+    ProcessOutcome, StartProcessParams, Value,
 };
 
 /// The canonical harness label for this level.
@@ -179,7 +179,12 @@ fn wf_fork_002__dynamic_fork_honors_min_max() {
     let harness = EngineHarness::new(clock);
     harness
         .engine()
-        .seed_definition(dynamic_definition(BOUNDED_KEY, Some(2), Some(5), WORKER_NODE))
+        .seed_definition(dynamic_definition(
+            BOUNDED_KEY,
+            Some(2),
+            Some(5),
+            WORKER_NODE,
+        ))
         .expect("the bounded dynamic fork registers");
     harness
         .engine()
@@ -192,11 +197,7 @@ fn wf_fork_002__dynamic_fork_honors_min_max() {
 
     // ── 1. ABOVE THE MAXIMUM CLAMPS ──────────────────────────────────────────────────────────────────────────
     // `n = 10` against maximum 5 spawns exactly 5: the fan-out is bounded no matter what the variable asks for.
-    let (tasks, forked) = spawned(
-        &harness,
-        BOUNDED_KEY,
-        count_is(Value::from(10)),
-    );
+    let (tasks, forked) = spawned(&harness, BOUNDED_KEY, count_is(Value::from(10)));
     assert_eq!(
         (tasks, forked),
         (5, 5),
@@ -205,11 +206,7 @@ fn wf_fork_002__dynamic_fork_honors_min_max() {
 
     // ── 2. BELOW THE MINIMUM CLAMPS ──────────────────────────────────────────────────────────────────────────
     // `n = 1` against minimum 2 spawns exactly 2: the fan-out never collapses below its lower bound.
-    let (tasks, forked) = spawned(
-        &harness,
-        BOUNDED_KEY,
-        count_is(Value::from(1)),
-    );
+    let (tasks, forked) = spawned(&harness, BOUNDED_KEY, count_is(Value::from(1)));
     assert_eq!(
         (tasks, forked),
         (2, 2),
@@ -219,11 +216,7 @@ fn wf_fork_002__dynamic_fork_honors_min_max() {
     // ── 3. INSIDE THE RANGE PASSES THROUGH ───────────────────────────────────────────────────────────────────
     // `n = 3` inside [2, 5] spawns exactly 3: clamping only binds outside the range, it never rewrites a legal
     // count.
-    let (tasks, forked) = spawned(
-        &harness,
-        BOUNDED_KEY,
-        count_is(Value::from(3)),
-    );
+    let (tasks, forked) = spawned(&harness, BOUNDED_KEY, count_is(Value::from(3)));
     assert_eq!(
         (tasks, forked),
         (3, 3),
@@ -238,11 +231,7 @@ fn wf_fork_002__dynamic_fork_honors_min_max() {
         tasks, 2,
         "{HARNESS}: a missing count spawns exactly the minimum"
     );
-    let (tasks, _) = spawned(
-        &harness,
-        BOUNDED_KEY,
-        count_is(Value::from("many")),
-    );
+    let (tasks, _) = spawned(&harness, BOUNDED_KEY, count_is(Value::from("many")));
     assert_eq!(
         tasks, 2,
         "{HARNESS}: a non-numeric count spawns exactly the minimum"
@@ -251,11 +240,7 @@ fn wf_fork_002__dynamic_fork_honors_min_max() {
     // ── 5. DEFAULT BOUNDS — the production 2/8 rule ──────────────────────────────────────────────────────────
     // With no declared bounds, `n = 100` spawns exactly 8 and a missing count spawns exactly 2: the defaults in
     // the production code are the bounds, not a suggestion.
-    let (tasks, _) = spawned(
-        &harness,
-        DEFAULT_KEY,
-        count_is(Value::from(100)),
-    );
+    let (tasks, _) = spawned(&harness, DEFAULT_KEY, count_is(Value::from(100)));
     assert_eq!(
         tasks, 8,
         "{HARNESS}: undeclared bounds cap the fan-out at the production default maximum of 8"
@@ -271,10 +256,7 @@ fn wf_fork_002__dynamic_fork_honors_min_max() {
     // it cannot address, so a typo in the fan-out cannot silently fan nowhere.
     let refused = harness
         .engine()
-        .start_process(start_with(
-            GHOST_KEY,
-            count_is(Value::from(3)),
-        ))
+        .start_process(start_with(GHOST_KEY, count_is(Value::from(3))))
         .expect_err("a dynamic fork with no valid branch target must refuse the start");
     assert!(
         refused.to_string().contains("no valid branch"),

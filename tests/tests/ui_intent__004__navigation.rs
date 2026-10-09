@@ -68,14 +68,11 @@ fn ui_intent_004__navigation() {
         vec![screen::CommandKind::None],
         "a failed create navigates nowhere"
     );
-    assert_eq!(
-        harness.model().error.as_deref(),
-        Some("deals unavailable")
-    );
+    assert_eq!(harness.model().error.as_deref(), Some("deals unavailable"));
 
     // NEGATIVE: a navigation never carries a blank id — the answer without one is a failure.
     let (mut harness, request) = saving(&ctx);
-    let answered = harness.update(request.respond(Ok(json!({})))); 
+    let answered = harness.update(request.respond(Ok(json!({}))));
     assert_eq!(
         screen::classify(&answered),
         vec![screen::CommandKind::None],

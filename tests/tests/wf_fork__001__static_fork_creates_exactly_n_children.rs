@@ -27,8 +27,9 @@ use std::collections::BTreeMap;
 
 use test_harness::{EngineHarness, TestClock};
 use workflow::{
-    DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessEvent, ProcessGraph, ProcessOutcome,
-    ProcessStatus, StartProcessParams, Task, TaskStatus, TokenStatus, TransitionDefinition, Value,
+    DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessEvent, ProcessGraph,
+    ProcessOutcome, ProcessStatus, StartProcessParams, Task, TaskStatus, TokenStatus,
+    TransitionDefinition, Value,
 };
 
 /// The canonical harness label for this level.
@@ -178,9 +179,7 @@ fn wf_fork_001__static_fork_creates_exactly_n_children() {
     for (name, target) in BRANCHES {
         let event = forked
             .iter()
-            .find(|event| {
-                event.data.get("transition").and_then(Value::as_str) == Some(name)
-            })
+            .find(|event| event.data.get("transition").and_then(Value::as_str) == Some(name))
             .unwrap_or_else(|| panic!("a token.forked event names transition '{name}'"));
         assert_eq!(
             event.data.get("parentTokenId").and_then(Value::as_str),

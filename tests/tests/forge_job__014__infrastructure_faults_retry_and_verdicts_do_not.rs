@@ -326,7 +326,8 @@ fn a_malformed_envelope_is_terminal_rather_than_retried() {
     if let Ok(lease) = jobs.claim_one(&id, WORKER_A) {
         let task = ready("t-broken", "fast_smith");
         assert!(
-            execute_claimed_job_unsettled(&jobs, WORKER_A, &lease, &task, &registry, None, None).is_err(),
+            execute_claimed_job_unsettled(&jobs, WORKER_A, &lease, &task, &registry, None, None)
+                .is_err(),
             "an envelope with no service key cannot run"
         );
     }

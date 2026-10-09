@@ -78,8 +78,8 @@ fn fork_optional_definition() -> ProcessDefinition {
             id: FORK_NODE.to_string(),
             node_type: "fork".to_string(),
             transitions: Some(vec![
-                transition(TO_REQ, REQ_BRANCH, Some(true)),   // required branch
-                transition(TO_OPT, OPT_BRANCH, Some(false)),  // optional branch
+                transition(TO_REQ, REQ_BRANCH, Some(true)), // required branch
+                transition(TO_OPT, OPT_BRANCH, Some(false)), // optional branch
             ]),
             ..Default::default()
         },
@@ -202,15 +202,27 @@ fn wf_token_006__optional_branch_cannot_prevent_completion() {
     let req_id = req_token.id.clone();
     let opt_id = opt_token.id.clone();
 
-    assert!(req_token.required, "{HARNESS}: req token must be required=true");
-    assert!(!opt_token.required, "{HARNESS}: opt token must be required=false");
+    assert!(
+        req_token.required,
+        "{HARNESS}: req token must be required=true"
+    );
+    assert!(
+        !opt_token.required,
+        "{HARNESS}: opt token must be required=false"
+    );
 
     // Both tokens start at their branch service nodes, then move to their task nodes.
     let after_fork_req = read_token(harness.store(), &req_id);
     let after_fork_opt = read_token(harness.store(), &opt_id);
 
-    assert_eq!(after_fork_req.node_id, REQ_TASK, "{HARNESS}: req token at req-task");
-    assert_eq!(after_fork_opt.node_id, OPT_TASK, "{HARNESS}: opt token at opt-task");
+    assert_eq!(
+        after_fork_req.node_id, REQ_TASK,
+        "{HARNESS}: req token at req-task"
+    );
+    assert_eq!(
+        after_fork_opt.node_id, OPT_TASK,
+        "{HARNESS}: opt token at opt-task"
+    );
     assert_eq!(after_fork_req.status, TokenStatus::Active);
     assert_eq!(after_fork_opt.status, TokenStatus::Active);
 
@@ -235,7 +247,8 @@ fn wf_token_006__optional_branch_cannot_prevent_completion() {
     // The required token reaches the end node and completes.
     let req_done = read_token(harness.store(), &req_id);
     assert_eq!(
-        req_done.status, TokenStatus::Completed,
+        req_done.status,
+        TokenStatus::Completed,
         "{HARNESS}: required token completes at end node"
     );
     assert_eq!(req_done.node_id, END_NODE);
@@ -243,7 +256,8 @@ fn wf_token_006__optional_branch_cannot_prevent_completion() {
     // The optional token is STILL ACTIVE at its task (opt-task).
     let opt_still_active = read_token(harness.store(), &opt_id);
     assert_eq!(
-        opt_still_active.status, TokenStatus::Active,
+        opt_still_active.status,
+        TokenStatus::Active,
         "{HARNESS}: optional token remains active at its task"
     );
     assert_eq!(opt_still_active.node_id, OPT_TASK);

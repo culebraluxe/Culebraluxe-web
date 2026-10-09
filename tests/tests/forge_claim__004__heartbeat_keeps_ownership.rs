@@ -139,7 +139,11 @@ async fn forge_claim_004__heartbeat_keeps_ownership() {
     // ── NEGATIVE: a heartbeat touches only a live claim. ─────────────────────
     let missing = harness
         .engine()
-        .heartbeat_agent_work("00000000-0000-0000-0000-000000000000", OWNER, std::time::Duration::from_secs(300))
+        .heartbeat_agent_work(
+            "00000000-0000-0000-0000-000000000000",
+            OWNER,
+            std::time::Duration::from_secs(300),
+        )
         .await
         .expect("the production heartbeat runs");
     assert!(

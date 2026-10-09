@@ -85,7 +85,7 @@ async fn all_serial_items(pool: &PgPool, story_id: &str) -> Vec<(String,)> {
     sqlx::query_as(
         "select state from agent_work_item
          where story_id=$1 and parallel_group_id is null
-         order by queued_at, id"
+         order by queued_at, id",
     )
     .bind(story_id)
     .fetch_all(pool)
@@ -139,14 +139,16 @@ async fn verify_board_queue_consistency(pool: &PgPool, prefix: &str, ns: &str) {
                select 1 from process_instances p
                where p.subject_type = 'story' and p.subject_id = s.id
                  and p.status in ('active', 'running', 'reserved', 'suspended')
-           )"
+           )",
     )
     .bind(format!("{prefix}%-{ns}"))
     .fetch_all(pool)
     .await
     .expect("check In Progress consistency");
-    assert!(inconsistent_in_progress.is_empty(),
-        "{HARNESS}: found In Progress stories without run or active item");
+    assert!(
+        inconsistent_in_progress.is_empty(),
+        "{HARNESS}: found In Progress stories without run or active item"
+    );
 
     // 2. No Ready story without serial Ready item.
     let inconsistent_ready: Vec<(String,)> = sqlx::query_as(
@@ -157,14 +159,16 @@ async fn verify_board_queue_consistency(pool: &PgPool, prefix: &str, ns: &str) {
                select 1 from agent_work_item w
                where w.story_id = s.id and w.parallel_group_id is null
                  and w.state in ('Ready', 'Claimed', 'Running', 'Paused')
-           )"
+           )",
     )
     .bind(format!("{prefix}%-{ns}"))
     .fetch_all(pool)
     .await
     .expect("check Ready consistency");
-    assert!(inconsistent_ready.is_empty(),
-        "{HARNESS}: found Ready stories without serial item");
+    assert!(
+        inconsistent_ready.is_empty(),
+        "{HARNESS}: found Ready stories without serial item"
+    );
 
     // 3. No serial Ready/Claimed/Running/Paused item for story not in Ready/In Progress.
     let inconsistent_items: Vec<(String,)> = sqlx::query_as(
@@ -175,14 +179,16 @@ async fn verify_board_queue_consistency(pool: &PgPool, prefix: &str, ns: &str) {
            and not exists (
                select 1 from storyboard_story s
                where s.id = w.story_id and s.status in ('Ready', 'In Progress')
-           )"
+           )",
     )
     .bind(format!("{prefix}%-{ns}"))
     .fetch_all(pool)
     .await
     .expect("check item consistency");
-    assert!(inconsistent_items.is_empty(),
-        "{HARNESS}: found serial items for stories not expecting a run");
+    assert!(
+        inconsistent_items.is_empty(),
+        "{HARNESS}: found serial items for stories not expecting a run"
+    );
 }
 
 #[tokio::test]
@@ -217,18 +223,22 @@ async fn forge_dispatch_011__board_and_queue_always_settle_together() {
         .execute(pool)
         .await
         .expect("insert open run for stranded story");
-    assert!(serial_work_items(pool, &stranded_in_progress).await.is_empty());
+    assert!(serial_work_items(pool, &stranded_in_progress)
+        .await
+        .is_empty());
     assert_eq!(open_runs(pool, &stranded_in_progress).await, 1);
 
     // B. READY ORPHAN — story at Ready, trigger fired but item went Done.
     insert_story(pool, &ready_orphan, "Ready").await;
     assert_eq!(serial_work_items(pool, &ready_orphan).await.len(), 1);
-    sqlx::query("update agent_work_item set state='Done', finished_at=now(), updated_at=now()
-                 where story_id=$1 and parallel_group_id is null")
-        .bind(&ready_orphan)
-        .execute(pool)
-        .await
-        .expect("mark item Done");
+    sqlx::query(
+        "update agent_work_item set state='Done', finished_at=now(), updated_at=now()
+                 where story_id=$1 and parallel_group_id is null",
+    )
+    .bind(&ready_orphan)
+    .execute(pool)
+    .await
+    .expect("mark item Done");
     assert!(serial_work_items(pool, &ready_orphan).await.is_empty());
 
     // C. STALE READY — story moved to Planned, Ready item remains.
@@ -353,7 +363,10 @@ async fn forge_dispatch_011__board_and_queue_always_settle_together() {
     assert_eq!(story_status(pool, &claimed_run_ended).await, "In Progress");
     let d_all = all_serial_items(pool, &claimed_run_ended).await;
     assert_eq!(d_all.len(), 1);
-    assert_eq!(d_all[0].0, "Claimed", "{HARNESS}: Claimed item remains Claimed; settlement is for forge_work_queue only");
+    assert_eq!(
+        d_all[0].0, "Claimed",
+        "{HARNESS}: Claimed item remains Claimed; settlement is for forge_work_queue only"
+    );
 
     // E: Consistent Ready -> unchanged.
     assert_eq!(story_status(pool, &consistent_ready).await, "Ready");
@@ -362,7 +375,10 @@ async fn forge_dispatch_011__board_and_queue_always_settle_together() {
     assert_eq!(e_items[0].0, "Ready");
 
     // F: Consistent In Progress -> unchanged.
-    assert_eq!(story_status(pool, &consistent_in_progress).await, "In Progress");
+    assert_eq!(
+        story_status(pool, &consistent_in_progress).await,
+        "In Progress"
+    );
     let f_items = serial_work_items(pool, &consistent_in_progress).await;
     assert_eq!(f_items.len(), 1);
     assert_eq!(f_items[0].0, "Claimed");

@@ -45,7 +45,9 @@ async fn db_concurrency_015__duplicate_guest_code_redemption() {
 
     // Negative case: redeeming an unknown code id is refused, not an error.
     assert!(
-        !dao.consume_code(&Uuid::new_v4().to_string()).await.expect("consume"),
+        !dao.consume_code(&Uuid::new_v4().to_string())
+            .await
+            .expect("consume"),
         "an unknown code id must not be redeemable"
     );
 
@@ -133,9 +135,7 @@ async fn db_concurrency_015__duplicate_guest_code_redemption() {
             if injector.next_fault().is_failure() {
                 return Err("crashed".to_string());
             }
-            dao.consume_code(&code_id)
-                .await
-                .map_err(|e| e.to_string())
+            dao.consume_code(&code_id).await.map_err(|e| e.to_string())
         }));
     }
 

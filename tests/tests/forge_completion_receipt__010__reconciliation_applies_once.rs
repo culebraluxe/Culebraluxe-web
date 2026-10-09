@@ -134,7 +134,8 @@ fn forge_completion_receipt_010__reconciliation_applies_once() {
 
     // Negative: a story the engine never saw reconciles to nothing.
     assert_eq!(
-        rt3.reconcile_completions("story-never-seen").expect("reconcile"),
+        rt3.reconcile_completions("story-never-seen")
+            .expect("reconcile"),
         0,
         "no instance, no applications"
     );

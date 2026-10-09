@@ -244,10 +244,22 @@ fn wf_token_008__process_completes_only_when_no_required_active_token_remains() 
     );
 
     // Identify tokens by required flag and node.
-    let req_a = tokens.iter().find(|t| t.required && t.node_id == REQ_A_TASK).expect("req-a at task");
-    let req_b = tokens.iter().find(|t| t.required && t.node_id == REQ_B_TASK).expect("req-b at task");
-    let opt_c = tokens.iter().find(|t| !t.required && t.node_id == OPT_C_TASK).expect("opt-c at task");
-    let opt_d = tokens.iter().find(|t| !t.required && t.node_id == OPT_D_TASK).expect("opt-d at task");
+    let req_a = tokens
+        .iter()
+        .find(|t| t.required && t.node_id == REQ_A_TASK)
+        .expect("req-a at task");
+    let req_b = tokens
+        .iter()
+        .find(|t| t.required && t.node_id == REQ_B_TASK)
+        .expect("req-b at task");
+    let opt_c = tokens
+        .iter()
+        .find(|t| !t.required && t.node_id == OPT_C_TASK)
+        .expect("opt-c at task");
+    let opt_d = tokens
+        .iter()
+        .find(|t| !t.required && t.node_id == OPT_D_TASK)
+        .expect("opt-d at task");
 
     let id_a = req_a.id.clone();
     let id_b = req_b.id.clone();
@@ -261,7 +273,12 @@ fn wf_token_008__process_completes_only_when_no_required_active_token_remains() 
     assert!(!opt_d.required, "opt-d optional");
 
     // All four tokens are active at their tasks.
-    for (id, expected_node) in [(&id_a, REQ_A_TASK), (&id_b, REQ_B_TASK), (&id_c, OPT_C_TASK), (&id_d, OPT_D_TASK)] {
+    for (id, expected_node) in [
+        (&id_a, REQ_A_TASK),
+        (&id_b, REQ_B_TASK),
+        (&id_c, OPT_C_TASK),
+        (&id_d, OPT_D_TASK),
+    ] {
         let t = read_token(harness.store(), id);
         assert_eq!(t.node_id, expected_node, "token at correct task");
         assert_eq!(t.status, TokenStatus::Active, "token active");
@@ -269,18 +286,31 @@ fn wf_token_008__process_completes_only_when_no_required_active_token_remains() 
 
     // Process is active.
     assert_eq!(
-        harness.store().with_tx(|tx| tx.get_instance(&instance)).unwrap().status,
+        harness
+            .store()
+            .with_tx(|tx| tx.get_instance(&instance))
+            .unwrap()
+            .status,
         ProcessStatus::Active
     );
 
     // ── Step 1: Complete optional C only ──────────────────────────────────────────────────────────────
-    let task_c = harness.store().with_tx(|tx| tx.open_tasks_for_token(&id_c)).unwrap().into_iter().next().unwrap();
-    harness.engine().complete_task(CompleteTaskParams {
-        task_id: task_c.id,
-        user_id: STARTED_BY.to_string(),
-        form_data: Value::object(),
-        transition_name: Some(FINISH_C.to_string()),
-    }).unwrap();
+    let task_c = harness
+        .store()
+        .with_tx(|tx| tx.open_tasks_for_token(&id_c))
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    harness
+        .engine()
+        .complete_task(CompleteTaskParams {
+            task_id: task_c.id,
+            user_id: STARTED_BY.to_string(),
+            form_data: Value::object(),
+            transition_name: Some(FINISH_C.to_string()),
+        })
+        .unwrap();
 
     let c_done = read_token(harness.store(), &id_c);
     assert_eq!(c_done.status, TokenStatus::Completed);
@@ -288,19 +318,32 @@ fn wf_token_008__process_completes_only_when_no_required_active_token_remains() 
 
     // Process STILL ACTIVE (required A and B still active).
     assert_eq!(
-        harness.store().with_tx(|tx| tx.get_instance(&instance)).unwrap().status,
+        harness
+            .store()
+            .with_tx(|tx| tx.get_instance(&instance))
+            .unwrap()
+            .status,
         ProcessStatus::Active,
         "{HARNESS}: process active - required A and B still outstanding"
     );
 
     // ── Step 2: Complete optional D only ──────────────────────────────────────────────────────────────
-    let task_d = harness.store().with_tx(|tx| tx.open_tasks_for_token(&id_d)).unwrap().into_iter().next().unwrap();
-    harness.engine().complete_task(CompleteTaskParams {
-        task_id: task_d.id,
-        user_id: STARTED_BY.to_string(),
-        form_data: Value::object(),
-        transition_name: Some(FINISH_D.to_string()),
-    }).unwrap();
+    let task_d = harness
+        .store()
+        .with_tx(|tx| tx.open_tasks_for_token(&id_d))
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    harness
+        .engine()
+        .complete_task(CompleteTaskParams {
+            task_id: task_d.id,
+            user_id: STARTED_BY.to_string(),
+            form_data: Value::object(),
+            transition_name: Some(FINISH_D.to_string()),
+        })
+        .unwrap();
 
     let d_done = read_token(harness.store(), &id_d);
     assert_eq!(d_done.status, TokenStatus::Completed);
@@ -308,19 +351,32 @@ fn wf_token_008__process_completes_only_when_no_required_active_token_remains() 
 
     // Process STILL ACTIVE (required A and B still active).
     assert_eq!(
-        harness.store().with_tx(|tx| tx.get_instance(&instance)).unwrap().status,
+        harness
+            .store()
+            .with_tx(|tx| tx.get_instance(&instance))
+            .unwrap()
+            .status,
         ProcessStatus::Active,
         "{HARNESS}: process active - required A and B still outstanding after both optionals done"
     );
 
     // ── Step 3: Complete required A ──────────────────────────────────────────────────────────────────
-    let task_a = harness.store().with_tx(|tx| tx.open_tasks_for_token(&id_a)).unwrap().into_iter().next().unwrap();
-    harness.engine().complete_task(CompleteTaskParams {
-        task_id: task_a.id,
-        user_id: STARTED_BY.to_string(),
-        form_data: Value::object(),
-        transition_name: Some(FINISH_A.to_string()),
-    }).unwrap();
+    let task_a = harness
+        .store()
+        .with_tx(|tx| tx.open_tasks_for_token(&id_a))
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    harness
+        .engine()
+        .complete_task(CompleteTaskParams {
+            task_id: task_a.id,
+            user_id: STARTED_BY.to_string(),
+            form_data: Value::object(),
+            transition_name: Some(FINISH_A.to_string()),
+        })
+        .unwrap();
 
     let a_done = read_token(harness.store(), &id_a);
     assert_eq!(a_done.status, TokenStatus::Completed);
@@ -328,19 +384,32 @@ fn wf_token_008__process_completes_only_when_no_required_active_token_remains() 
 
     // Process STILL ACTIVE (required B still active).
     assert_eq!(
-        harness.store().with_tx(|tx| tx.get_instance(&instance)).unwrap().status,
+        harness
+            .store()
+            .with_tx(|tx| tx.get_instance(&instance))
+            .unwrap()
+            .status,
         ProcessStatus::Active,
         "{HARNESS}: process active - required B still outstanding"
     );
 
     // ── Step 4: Complete required B (last required) ──────────────────────────────────────────────────
-    let task_b = harness.store().with_tx(|tx| tx.open_tasks_for_token(&id_b)).unwrap().into_iter().next().unwrap();
-    harness.engine().complete_task(CompleteTaskParams {
-        task_id: task_b.id,
-        user_id: STARTED_BY.to_string(),
-        form_data: Value::object(),
-        transition_name: Some(FINISH_B.to_string()),
-    }).unwrap();
+    let task_b = harness
+        .store()
+        .with_tx(|tx| tx.open_tasks_for_token(&id_b))
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    harness
+        .engine()
+        .complete_task(CompleteTaskParams {
+            task_id: task_b.id,
+            user_id: STARTED_BY.to_string(),
+            form_data: Value::object(),
+            transition_name: Some(FINISH_B.to_string()),
+        })
+        .unwrap();
 
     let b_done = read_token(harness.store(), &id_b);
     assert_eq!(b_done.status, TokenStatus::Completed);
@@ -352,7 +421,8 @@ fn wf_token_008__process_completes_only_when_no_required_active_token_remains() 
         .with_tx(|tx| tx.get_instance(&instance))
         .expect("the instance reads");
     assert_eq!(
-        final_instance.status, ProcessStatus::Completed,
+        final_instance.status,
+        ProcessStatus::Completed,
         "{HARNESS}: process completes exactly when last required token completes"
     );
     assert_eq!(final_instance.outcome, Some(ProcessOutcome::Completed));
@@ -374,7 +444,10 @@ fn wf_token_008__process_completes_only_when_no_required_active_token_remains() 
         .store()
         .with_tx(|tx| tx.count_active_tokens(&instance))
         .expect("active count reads");
-    assert_eq!(active_count, 0, "store count_active_tokens is 0 when all tokens completed");
+    assert_eq!(
+        active_count, 0,
+        "store count_active_tokens is 0 when all tokens completed"
+    );
 
     // The required tokens at each step:
     // After fork: 2 required active (A, B), 2 optional active (C, D)

@@ -12,9 +12,9 @@
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test crm_client__003__client_detail -- --ignored
 
 use db::DbTarget;
-use uuid::Uuid;
 use model::{ClientDetail, ClientPropertyInterest};
 use test_harness::ClientHarness;
+use uuid::Uuid;
 
 const HARNESS: &str = "ClientHarness/L3 Composition";
 

@@ -18,9 +18,11 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test service_registry__003__unknown_domain_rejected
 
-use services::{ServiceActor, ServiceActorKind, ServiceContext, ServiceEnvelope, ServiceInfrastructure};
-use web::ServiceHarness;
+use services::{
+    ServiceActor, ServiceActorKind, ServiceContext, ServiceEnvelope, ServiceInfrastructure,
+};
 use std::sync::Arc;
+use web::ServiceHarness;
 
 const HARNESS: &str = "ServiceHarness/L1 Component";
 
@@ -79,7 +81,9 @@ async fn service_registry_003__unknown_domain_rejected() {
 
     // 2. The error names the domain that was not found.
     assert!(
-        error.to_string().contains("this-domain-does-not-exist-in-any-registry"),
+        error
+            .to_string()
+            .contains("this-domain-does-not-exist-in-any-registry"),
         "{HARNESS}: the refusal names the missing domain, got {error}"
     );
 
@@ -104,5 +108,8 @@ async fn service_registry_003__unknown_domain_rejected() {
     );
 
     // 4. Shutdown cleanly.
-    harness.shutdown().await.expect("harness shuts down cleanly");
+    harness
+        .shutdown()
+        .await
+        .expect("harness shuts down cleanly");
 }

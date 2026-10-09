@@ -26,8 +26,8 @@ use std::collections::BTreeMap;
 use test_harness::{EngineHarness, TestClock};
 use workflow::{
     CompleteTaskParams, DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessEvent,
-    ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams, Token,
-    TransitionDefinition, Value,
+    ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams, Token, TransitionDefinition,
+    Value,
 };
 
 /// The canonical harness label for this level.
@@ -163,11 +163,7 @@ fn history(harness: &EngineHarness, instance: &str) -> Vec<ProcessEvent> {
         .expect("the instance history reads")
 }
 
-fn events_of_type(
-    harness: &EngineHarness,
-    instance: &str,
-    event_type: &str,
-) -> Vec<ProcessEvent> {
+fn events_of_type(harness: &EngineHarness, instance: &str, event_type: &str) -> Vec<ProcessEvent> {
     history(harness, instance)
         .into_iter()
         .filter(|event| event.event_type == event_type)
@@ -249,11 +245,7 @@ fn wf_join_008__fork_parent_relationships_preserved() {
     }
     // The durable record agrees with the rows: each `token.forked` event names the same fork parent.
     let forked = events_of_type(&harness, &instance, "token.forked");
-    assert_eq!(
-        forked.len(),
-        2,
-        "{HARNESS}: one forked event per branch"
-    );
+    assert_eq!(forked.len(), 2, "{HARNESS}: one forked event per branch");
     for event in &forked {
         assert_eq!(
             event.data.get("parentTokenId").and_then(Value::as_str),

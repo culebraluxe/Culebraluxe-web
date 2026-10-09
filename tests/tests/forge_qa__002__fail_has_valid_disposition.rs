@@ -57,9 +57,8 @@ fn qa_fail_verdict_sets_repair_disposition() {
         workflow::Value::from("89abcdef0123456789abcdef0123456789abcdef"),
     );
 
-    let commands = vec![
-        "cargo test --manifest-path Cargo.toml -p test-harness --test failing".to_string(),
-    ];
+    let commands =
+        vec!["cargo test --manifest-path Cargo.toml -p test-harness --test failing".to_string()];
 
     // WHEN: The assay evidence is collected with a failing command
     let assay_evidence = collect_assay_evidence(
@@ -88,7 +87,11 @@ fn qa_fail_verdict_sets_repair_disposition() {
         assay_evidence.evidence.deliverable_rejection.is_some(),
         "FAIL verdict has deliverable rejection"
     );
-    let rejection = assay_evidence.evidence.deliverable_rejection.as_deref().unwrap();
+    let rejection = assay_evidence
+        .evidence
+        .deliverable_rejection
+        .as_deref()
+        .unwrap();
     assert!(
         rejection.contains("CMD_FAIL"),
         "rejection mentions CMD_FAIL blocker: {}",
@@ -143,9 +146,8 @@ fn qa_unproven_verdict_sets_escalate_disposition() {
         workflow::Value::from("89abcdef0123456789abcdef0123456789abcdef"),
     );
 
-    let commands = vec![
-        "cargo test --manifest-path Cargo.toml -p test-harness --test example".to_string(),
-    ];
+    let commands =
+        vec!["cargo test --manifest-path Cargo.toml -p test-harness --test example".to_string()];
 
     // WHEN: The assay evidence is collected with passing commands but no acceptance mapping
     let assay_evidence = collect_assay_evidence(
@@ -260,7 +262,13 @@ fn qa_fail_tool_artifact_has_correct_structure() {
     assert_eq!(tool_artifact.verdict, Some("FAIL".to_string()));
     assert_eq!(tool_artifact.story_id, "test-story");
     assert_eq!(tool_artifact.story_run_id, Some("test-run".to_string()));
-    assert_eq!(tool_artifact.sha, Some("0123456789abcdef0123456789abcdef01234567".to_string()));
+    assert_eq!(
+        tool_artifact.sha,
+        Some("0123456789abcdef0123456789abcdef01234567".to_string())
+    );
     assert!(tool_artifact.summary.is_some());
-    assert_eq!(tool_artifact.summary.as_deref(), Some("QA FAIL: test failed"));
+    assert_eq!(
+        tool_artifact.summary.as_deref(),
+        Some("QA FAIL: test failed")
+    );
 }

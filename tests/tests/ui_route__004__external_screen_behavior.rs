@@ -17,7 +17,7 @@
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test ui_route__004__external_screen_behavior
 
 use ui::app::chrome::in_app;
-use ui::app::registry::{resolve, by_key, ENTRIES, Kind};
+use ui::app::registry::{by_key, resolve, Kind, ENTRIES};
 
 const HARNESS: &str = "MviHarness/L1 Component";
 /// The portal island an external entry can never navigate within.
@@ -48,8 +48,7 @@ fn ui_route_004__external_screen_behavior() {
         coexistence_params.is_empty(),
         "{HARNESS}: an external entry carries no screen params"
     );
-    let (portal_root, root_params) =
-        resolve("/portal").expect("the portal root external resolves");
+    let (portal_root, root_params) = resolve("/portal").expect("the portal root external resolves");
     assert_eq!(
         portal_root.key, "portal-root",
         "{HARNESS}: /portal resolves to its own entry"
@@ -59,8 +58,7 @@ fn ui_route_004__external_screen_behavior() {
         "{HARNESS}: the portal root carries no screen params"
     );
     assert!(
-        matches!(coexistence.kind, Kind::External)
-            && matches!(portal_root.kind, Kind::External),
+        matches!(coexistence.kind, Kind::External) && matches!(portal_root.kind, Kind::External),
         "{HARNESS}: both resolve as External, never as a Screen mount"
     );
 
@@ -90,7 +88,8 @@ fn ui_route_004__external_screen_behavior() {
         assert!(
             !in_app(external.path, PORTAL_SCREEN),
             "{HARNESS}: leaving external '{}' must load the document, even to {}",
-            external.key, PORTAL_SCREEN
+            external.key,
+            PORTAL_SCREEN
         );
         assert!(
             !in_app(external.path, external.path),

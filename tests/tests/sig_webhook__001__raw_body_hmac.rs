@@ -76,7 +76,10 @@ fn sig_webhook_001__raw_body_hmac() {
     let reparsed: serde_json::Value =
         serde_json::from_str(body).expect("the fixture body is valid JSON");
     let reserialized = serde_json::to_string_pretty(&reparsed).expect("re-serialization works");
-    assert_ne!(reserialized, body, "the re-serialization must differ byte-wise");
+    assert_ne!(
+        reserialized, body,
+        "the re-serialization must differ byte-wise"
+    );
     assert!(
         verify_webhook_signature(&reserialized, &header, SECRET, now, TOLERANCE_SECONDS).is_err(),
         "a verifier that parsed-then-reserialized would accept this; production must verify raw bytes"
@@ -98,9 +101,8 @@ fn sig_webhook_001__raw_body_hmac() {
 
     // 3. The secret is load-bearing: another secret's header is rejected.
     let foreign_header = mint_header(body, "a-different-integration-secret", now);
-    let error =
-        verify_webhook_signature(body, &foreign_header, SECRET, now, TOLERANCE_SECONDS)
-            .expect_err("a foreign-secret signature must be rejected");
+    let error = verify_webhook_signature(body, &foreign_header, SECRET, now, TOLERANCE_SECONDS)
+        .expect_err("a foreign-secret signature must be rejected");
     assert!(
         error.contains("HMAC mismatch"),
         "a wrong-secret rejection must say mismatch, got: {error}"

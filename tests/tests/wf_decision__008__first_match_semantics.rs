@@ -187,7 +187,11 @@ fn wf_decision_008__first_match_semantics() {
             ("status != \"closed\"", "second"),
             ("status != \"archived\"", "third"),
         ],
-        &[("third", "end_third"), ("second", "end_second"), ("first", "end_first")],
+        &[
+            ("third", "end_third"),
+            ("second", "end_second"),
+            ("first", "end_first"),
+        ],
     );
     let all_match = start_with(&triple, TRIPLE_KEY, open.clone()).expect("three arms match");
     assert_eq!(
@@ -224,7 +228,11 @@ fn wf_decision_008__first_match_semantics() {
             ("status != \"closed\"", "second"),
             ("status == \"open\"", "first"),
         ],
-        &[("third", "end_third"), ("second", "end_second"), ("first", "end_first")],
+        &[
+            ("third", "end_third"),
+            ("second", "end_second"),
+            ("first", "end_first"),
+        ],
     );
     let flipped = start_with(&reordered, REORDERED_KEY, open.clone())
         .expect("the reordered arms still all match");
@@ -245,7 +253,11 @@ fn wf_decision_008__first_match_semantics() {
             ("status == \"archived\"", "second"),
             ("status == \"open\"", "third"),
         ],
-        &[("first", "end_first"), ("second", "end_second"), ("third", "end_third")],
+        &[
+            ("first", "end_first"),
+            ("second", "end_second"),
+            ("third", "end_third"),
+        ],
     );
     let late = start_with(&scan, SCAN_KEY, open.clone()).expect("the late arm matches alone");
     assert_eq!(
@@ -271,10 +283,14 @@ fn wf_decision_008__first_match_semantics() {
             ("status == \"open\"", "first"),
             ("status != \"closed\"", "second"),
         ],
-        &[("broken", "end_broken"), ("first", "end_first"), ("second", "end_second")],
+        &[
+            ("broken", "end_broken"),
+            ("first", "end_first"),
+            ("second", "end_second"),
+        ],
     );
-    let past_fault = start_with(&fault, FAULT_KEY, open.clone())
-        .expect("the scan survives the fault arm");
+    let past_fault =
+        start_with(&fault, FAULT_KEY, open.clone()).expect("the scan survives the fault arm");
     assert_eq!(
         decision_transition(&fault, &past_fault.process_instance_id).as_deref(),
         Some("first"),

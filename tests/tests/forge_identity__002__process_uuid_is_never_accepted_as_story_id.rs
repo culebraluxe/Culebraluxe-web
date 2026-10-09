@@ -95,14 +95,16 @@ fn forge_identity_002__process_uuid_is_never_accepted_as_story_id() {
         assert!(
             !task.story_id.starts_with("proc-"),
             "task {} story_id '{}' must not be a process UUID (proc-*)",
-            task.task_id, task.story_id
+            task.task_id,
+            task.story_id
         );
 
         // The story_id must never look like a raw UUID (8-4-4-4-12 hex)
         assert!(
             !is_uuid(&task.story_id),
             "task {} story_id '{}' must not be a raw UUID",
-            task.task_id, task.story_id
+            task.task_id,
+            task.story_id
         );
 
         // The story_id must be the canonical story key
@@ -116,7 +118,8 @@ fn forge_identity_002__process_uuid_is_never_accepted_as_story_id() {
     // Negative case: explicitly verify that substituting the process UUID would fail
     // This test would catch the historical bug where `map_role_task` used the process
     // instance ID instead of the passed story_id parameter.
-    let process_uuid_substitution_would_be_caught = all_tasks.iter().any(|t| t.story_id == instance_id);
+    let process_uuid_substitution_would_be_caught =
+        all_tasks.iter().any(|t| t.story_id == instance_id);
     assert!(
         !process_uuid_substitution_would_be_caught,
         "process UUID substitution for story_id must be caught; this test would fail if it occurred"

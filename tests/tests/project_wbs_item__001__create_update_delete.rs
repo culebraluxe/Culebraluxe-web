@@ -11,7 +11,9 @@
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test project_wbs_item__001__create_update_delete
 
 use db::{Database, DbTarget, WbsDao};
-use model::{CreateWbsItemRequest, SaveWbsItemRequest, WbsCategory, WbsStatus, WbsEntityType, WbsEntityLink};
+use model::{
+    CreateWbsItemRequest, SaveWbsItemRequest, WbsCategory, WbsEntityLink, WbsEntityType, WbsStatus,
+};
 use uuid::Uuid;
 
 async fn create_test_project(db: &Database) -> String {
@@ -32,7 +34,9 @@ async fn create_test_project(db: &Database) -> String {
 
 #[tokio::test]
 async fn project_wbs_item_001__create_update_delete() {
-    let db = Database::connect_target(DbTarget::Dev).await.expect("connect to DEV database");
+    let db = Database::connect_target(DbTarget::Dev)
+        .await
+        .expect("connect to DEV database");
     let project_id = create_test_project(&db).await;
     let dao = WbsDao::new(db.clone());
 
@@ -64,7 +68,10 @@ async fn project_wbs_item_001__create_update_delete() {
     assert_eq!(created.project_id, Some(project_id.clone()));
     assert_eq!(created.status, WbsStatus::Open);
     // Database returns timestamp with offset (+00:00), normalize to Z for comparison
-    assert_eq!(created.due_at.as_ref().map(|s| s.replace("+00:00", "Z")), Some("2026-12-31T23:59:59Z".into()));
+    assert_eq!(
+        created.due_at.as_ref().map(|s| s.replace("+00:00", "Z")),
+        Some("2026-12-31T23:59:59Z".into())
+    );
     assert_eq!(created.planned_start, Some("2026-01-15".into()));
     assert_eq!(created.planned_finish, Some("2026-01-31".into()));
     assert_eq!(created.owner, Some("test-user".into()));
@@ -92,13 +99,20 @@ async fn project_wbs_item_001__create_update_delete() {
         status: Some(WbsStatus::Doing),
     };
 
-    let updated = dao.save(&save_request).await.expect("save item").expect("item exists");
+    let updated = dao
+        .save(&save_request)
+        .await
+        .expect("save item")
+        .expect("item exists");
     assert_eq!(updated.id, item_id);
     assert_eq!(updated.title, "Updated Task");
     assert_eq!(updated.notes, "Updated notes");
     assert_eq!(updated.category, WbsCategory::Accounting);
     assert_eq!(updated.status, WbsStatus::Doing);
-    assert_eq!(updated.due_at.as_ref().map(|s| s.replace("+00:00", "Z")), Some("2027-01-15T23:59:59Z".into()));
+    assert_eq!(
+        updated.due_at.as_ref().map(|s| s.replace("+00:00", "Z")),
+        Some("2027-01-15T23:59:59Z".into())
+    );
     assert_eq!(updated.planned_start, Some("2026-02-01".into()));
     assert_eq!(updated.planned_finish, Some("2026-02-28".into()));
     assert_eq!(updated.owner, Some("updated-user".into()));
@@ -107,14 +121,21 @@ async fn project_wbs_item_001__create_update_delete() {
     assert!(updated.updated_at.is_some());
 
     // 3. GET: Verify the item can be retrieved
-    let retrieved = dao.get(&item_id).await.expect("get item").expect("item exists");
+    let retrieved = dao
+        .get(&item_id)
+        .await
+        .expect("get item")
+        .expect("item exists");
     assert_eq!(retrieved.id, item_id);
     assert_eq!(retrieved.title, "Updated Task");
     assert_eq!(retrieved.status, WbsStatus::Doing);
 
     // 4. DELETE: Not directly supported by DAO, but we can verify status change to Dismissed
     // (which is the production way to "delete" a WBS item)
-    let dismissed = dao.set_status(&item_id, WbsStatus::Dismissed).await.expect("set dismissed");
+    let dismissed = dao
+        .set_status(&item_id, WbsStatus::Dismissed)
+        .await
+        .expect("set dismissed");
     assert!(dismissed.is_some());
     let dismissed = dismissed.unwrap();
     assert_eq!(dismissed.status, WbsStatus::Dismissed);
@@ -142,7 +163,10 @@ async fn project_wbs_item_001__create_update_delete() {
     // The DAO will insert with empty title (trimmed)
     // The service layer rejects this, but DAO doesn't
     // We just verify the DAO behavior is consistent
-    assert!(result.is_ok(), "DAO creates item with empty title; service validates");
+    assert!(
+        result.is_ok(),
+        "DAO creates item with empty title; service validates"
+    );
 
     // 6. Negative case: invalid planned dates (start after finish) - database constraint rejects
     let bad_dates = CreateWbsItemRequest {
@@ -161,11 +185,16 @@ async fn project_wbs_item_001__create_update_delete() {
     };
     let result = dao.create(&bad_dates).await;
     // Database CHECK constraint (migration 226) rejects invalid dates
-    assert!(result.is_err(), "database constraint rejects invalid planned dates");
+    assert!(
+        result.is_err(),
+        "database constraint rejects invalid planned dates"
+    );
     let error = result.unwrap_err();
     let error_str = error.to_string().to_lowercase();
     assert!(
-        error_str.contains("planned") || error_str.contains("check") || error_str.contains("constraint"),
+        error_str.contains("planned")
+            || error_str.contains("check")
+            || error_str.contains("constraint"),
         "error must indicate planned dates constraint violation: {}",
         error
     );

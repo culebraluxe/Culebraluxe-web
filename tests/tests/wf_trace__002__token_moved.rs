@@ -14,12 +14,12 @@
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test wf_trace__002__token_moved
 
 use test_harness::database::{HarnessDbError, TestDatabase};
+use workflow::neon::NeonStore;
 use workflow::{
     CompleteTaskParams, DefinitionStatus, EngineOptions, NodeDefinition, ProcessDefinition,
     ProcessGraph, ProcessInstance, ProcessOutcome, ProcessStatus, StartProcessParams,
     TransitionDefinition, TxStore, Value, WorkflowEngine,
 };
-use workflow::neon::NeonStore;
 
 /// The canonical harness label for this level.
 const HARNESS: &str = "WorkflowHarness/L2 Persistence";
@@ -142,9 +142,13 @@ fn wf_trace_002__token_moved() -> Result<(), HarnessDbError> {
         },
     );
 
-    engine.seed_definition(linear_definition()).expect("{HARNESS}: seed_definition failed");
+    engine
+        .seed_definition(linear_definition())
+        .expect("{HARNESS}: seed_definition failed");
 
-    let started = engine.start_process(start_params()).expect("{HARNESS}: start_process failed");
+    let started = engine
+        .start_process(start_params())
+        .expect("{HARNESS}: start_process failed");
     let instance_id = started.process_instance_id.clone();
     let root_token_id = started.root_token_id.clone();
 
@@ -153,61 +157,115 @@ fn wf_trace_002__token_moved() -> Result<(), HarnessDbError> {
     let assert_store = NeonStore::from_database(db.database().clone()).map_err(wf_err)?;
 
     // Token should be parked at task node (version 3: start->work v2, work->task v3).
-    let token = assert_store.with_tx(|tx| tx.get_token(&root_token_id)).expect("{HARNESS}: get_token failed");
-    assert_eq!(token.node_id, TASK_NODE, "{HARNESS}: token parked at task node");
+    let token = assert_store
+        .with_tx(|tx| tx.get_token(&root_token_id))
+        .expect("{HARNESS}: get_token failed");
+    assert_eq!(
+        token.node_id, TASK_NODE,
+        "{HARNESS}: token parked at task node"
+    );
     assert_eq!(token.version, 3, "{HARNESS}: two moves = version 3");
     assert_eq!(token.status, workflow::TokenStatus::Active);
 
     // Read history for token.moved events.
-    let events = assert_store.with_tx(|tx| tx.history(&instance_id, 20)).expect("{HARNESS}: history failed");
-    let mut moves: Vec<_> = events.into_iter().filter(|e| e.event_type == "token.moved").collect();
+    let events = assert_store
+        .with_tx(|tx| tx.history(&instance_id, 20))
+        .expect("{HARNESS}: history failed");
+    let mut moves: Vec<_> = events
+        .into_iter()
+        .filter(|e| e.event_type == "token.moved")
+        .collect();
     moves.reverse();
 
     assert_eq!(moves.len(), 2, "{HARNESS}: exactly two token.moved events");
-    assert_eq!(moves[0].data.get("from").and_then(Value::as_str), Some(START_NODE));
+    assert_eq!(
+        moves[0].data.get("from").and_then(Value::as_str),
+        Some(START_NODE)
+    );
     assert_eq!(moves[0].node_id, Some(WORK_NODE.to_string()));
-    assert_eq!(moves[0].data.get("transition").and_then(Value::as_str), Some(BEGIN));
-    assert_eq!(moves[1].data.get("from").and_then(Value::as_str), Some(WORK_NODE));
+    assert_eq!(
+        moves[0].data.get("transition").and_then(Value::as_str),
+        Some(BEGIN)
+    );
+    assert_eq!(
+        moves[1].data.get("from").and_then(Value::as_str),
+        Some(WORK_NODE)
+    );
     assert_eq!(moves[1].node_id, Some(TASK_NODE.to_string()));
-    assert_eq!(moves[1].data.get("transition").and_then(Value::as_str), Some(NEXT));
+    assert_eq!(
+        moves[1].data.get("transition").and_then(Value::as_str),
+        Some(NEXT)
+    );
 
     // Complete the task to trigger third move: task -> end via "finish".
-    let task = assert_store.with_tx(|tx| tx.open_tasks_for_token(&root_token_id)).expect("{HARNESS}: open_tasks failed").into_iter().next().expect("one open task");
-    engine.complete_task(CompleteTaskParams {
-        task_id: task.id,
-        user_id: STARTED_BY.to_string(),
-        form_data: Value::object(),
-        transition_name: Some(FINISH.to_string()),
-    }).expect("{HARNESS}: complete_task failed");
+    let task = assert_store
+        .with_tx(|tx| tx.open_tasks_for_token(&root_token_id))
+        .expect("{HARNESS}: open_tasks failed")
+        .into_iter()
+        .next()
+        .expect("one open task");
+    engine
+        .complete_task(CompleteTaskParams {
+            task_id: task.id,
+            user_id: STARTED_BY.to_string(),
+            form_data: Value::object(),
+            transition_name: Some(FINISH.to_string()),
+        })
+        .expect("{HARNESS}: complete_task failed");
 
     // Token now at end node, completed, version 5 (3 moves + completion).
-    let final_token = assert_store.with_tx(|tx| tx.get_token(&root_token_id)).expect("{HARNESS}: get_token failed");
+    let final_token = assert_store
+        .with_tx(|tx| tx.get_token(&root_token_id))
+        .expect("{HARNESS}: get_token failed");
     assert_eq!(final_token.node_id, END_NODE);
     assert_eq!(final_token.status, workflow::TokenStatus::Completed);
     assert_eq!(final_token.outcome, Some(workflow::TokenOutcome::Completed));
-    assert_eq!(final_token.version, 5, "{HARNESS}: 3 moves + completion = version 5");
+    assert_eq!(
+        final_token.version, 5,
+        "{HARNESS}: 3 moves + completion = version 5"
+    );
 
     // Verify third token.moved event.
-    let events2 = assert_store.with_tx(|tx| tx.history(&instance_id, 20)).expect("{HARNESS}: history failed");
-    let mut moves2: Vec<_> = events2.into_iter().filter(|e| e.event_type == "token.moved").collect();
+    let events2 = assert_store
+        .with_tx(|tx| tx.history(&instance_id, 20))
+        .expect("{HARNESS}: history failed");
+    let mut moves2: Vec<_> = events2
+        .into_iter()
+        .filter(|e| e.event_type == "token.moved")
+        .collect();
     moves2.reverse();
     assert_eq!(moves2.len(), 3, "{HARNESS}: three token.moved events total");
-    assert_eq!(moves2[2].data.get("from").and_then(Value::as_str), Some(TASK_NODE));
+    assert_eq!(
+        moves2[2].data.get("from").and_then(Value::as_str),
+        Some(TASK_NODE)
+    );
     assert_eq!(moves2[2].node_id, Some(END_NODE.to_string()));
-    assert_eq!(moves2[2].data.get("transition").and_then(Value::as_str), Some(FINISH));
+    assert_eq!(
+        moves2[2].data.get("transition").and_then(Value::as_str),
+        Some(FINISH)
+    );
 
     // ── NEGATIVE: stale version move is refused ────────────────────────────────────────────────
-    let refused = assert_store.with_tx(|tx| tx.move_token(&root_token_id, 4, WORK_NODE)).expect("{HARNESS}: move_token failed");
+    let refused = assert_store
+        .with_tx(|tx| tx.move_token(&root_token_id, 4, WORK_NODE))
+        .expect("{HARNESS}: move_token failed");
     assert!(!refused, "{HARNESS}: stale version move must be refused");
 
-    let unchanged = assert_store.with_tx(|tx| tx.get_token(&root_token_id)).expect("{HARNESS}: get_token failed");
+    let unchanged = assert_store
+        .with_tx(|tx| tx.get_token(&root_token_id))
+        .expect("{HARNESS}: get_token failed");
     assert_eq!(unchanged.node_id, END_NODE);
     assert_eq!(unchanged.version, 5);
     assert_eq!(unchanged.status, workflow::TokenStatus::Completed);
 
     // No new token.moved event.
-    let events3 = assert_store.with_tx(|tx| tx.history(&instance_id, 20)).expect("{HARNESS}: history failed");
-    let moves3: Vec<_> = events3.into_iter().filter(|e| e.event_type == "token.moved").collect();
+    let events3 = assert_store
+        .with_tx(|tx| tx.history(&instance_id, 20))
+        .expect("{HARNESS}: history failed");
+    let moves3: Vec<_> = events3
+        .into_iter()
+        .filter(|e| e.event_type == "token.moved")
+        .collect();
     assert_eq!(moves3.len(), 3, "{HARNESS}: refused move emits no event");
 
     Ok(())

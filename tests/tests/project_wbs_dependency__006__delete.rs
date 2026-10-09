@@ -90,7 +90,10 @@ async fn project_wbs_dependency_006__delete() {
     assert!(deleted, "delete must return true for existing edge");
 
     // Verify only the remaining edge exists
-    let edges = dao.list_dependencies(&project_id).await.expect("list deps after delete");
+    let edges = dao
+        .list_dependencies(&project_id)
+        .await
+        .expect("list deps after delete");
     assert_eq!(edges.len(), 1, "one dependency must remain");
     assert_eq!(edges[0].source_id, item_b);
     assert_eq!(edges[0].target_id, item_c);
@@ -111,6 +114,9 @@ async fn project_wbs_dependency_006__delete() {
     assert!(!deleted, "delete with wrong project_id must return false");
 
     // The remaining edge should still exist
-    let edges = dao.list_dependencies(&project_id).await.expect("list deps final");
+    let edges = dao
+        .list_dependencies(&project_id)
+        .await
+        .expect("list deps final");
     assert_eq!(edges.len(), 1, "remaining edge must still exist");
 }

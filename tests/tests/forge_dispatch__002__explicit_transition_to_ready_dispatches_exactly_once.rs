@@ -138,9 +138,14 @@ async fn forge_dispatch_002__explicit_transition_to_ready_dispatches_exactly_onc
     );
 
     // Explicitly transition to Ready via the production dispatch verb.
-    let result = harness.engine().ensure_story_dispatched(&explicit_ready).await;
-    assert!(matches!(result, Ok(EnsureDispatch::Queued { .. })),
-        "{HARNESS}: explicit transition to Ready queues exactly one item");
+    let result = harness
+        .engine()
+        .ensure_story_dispatched(&explicit_ready)
+        .await;
+    assert!(
+        matches!(result, Ok(EnsureDispatch::Queued { .. })),
+        "{HARNESS}: explicit transition to Ready queues exactly one item"
+    );
 
     // Read back committed truth: exactly one serial Ready item exists.
     let items = serial_work_items(pool, &explicit_ready).await;
@@ -167,9 +172,14 @@ async fn forge_dispatch_002__explicit_transition_to_ready_dispatches_exactly_onc
     // 2. SECOND EXPLICIT TRANSITION — calling ensure_story_dispatched again on the same Ready story
     //    must NOT duplicate the dispatch. It returns AlreadyQueued with the existing item.
     // -----------------------------------------------------------------------------------------------------------
-    let result2 = harness.engine().ensure_story_dispatched(&explicit_ready).await;
-    assert!(matches!(result2, Ok(EnsureDispatch::AlreadyQueued { .. })),
-        "{HARNESS}: second explicit transition returns AlreadyQueued");
+    let result2 = harness
+        .engine()
+        .ensure_story_dispatched(&explicit_ready)
+        .await;
+    assert!(
+        matches!(result2, Ok(EnsureDispatch::AlreadyQueued { .. })),
+        "{HARNESS}: second explicit transition returns AlreadyQueued"
+    );
 
     // Committed truth unchanged: still exactly one serial item.
     let items2 = serial_work_items(pool, &explicit_ready).await;
@@ -207,8 +217,7 @@ async fn forge_dispatch_002__explicit_transition_to_ready_dispatches_exactly_onc
         .await
         .expect("sweep the DEV queue");
     assert_eq!(
-        report.queued,
-        1,
+        report.queued, 1,
         "{HARNESS}: sweep dispatched exactly one story"
     );
 
@@ -232,8 +241,7 @@ async fn forge_dispatch_002__explicit_transition_to_ready_dispatches_exactly_onc
         .expect("second sweep");
     // The sweep should not queue the explicit_ready story again (AlreadyQueued).
     assert_eq!(
-        report2.queued,
-        0,
+        report2.queued, 0,
         "{HARNESS}: sweep does not re-dispatch story that already has a serial item"
     );
 

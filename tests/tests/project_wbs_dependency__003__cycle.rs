@@ -12,7 +12,7 @@
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test project_wbs_dependency__003__cycle
 
 use db::WbsDao;
-use model::{WbsDependency, dependency_creates_cycle};
+use model::{dependency_creates_cycle, WbsDependency};
 use test_harness::database::TestDatabase;
 use uuid::Uuid;
 
@@ -104,7 +104,10 @@ async fn project_wbs_dependency_003__cycle() {
 
     // Use the DAO directly since we're testing the boundary - the service
     // validation happens in WbsService::add_dependency which uses the same logic
-    let edges = dao.list_dependencies(&project_id).await.expect("list deps before");
+    let edges = dao
+        .list_dependencies(&project_id)
+        .await
+        .expect("list deps before");
     assert!(
         dependency_creates_cycle(&edges, &item_c, &item_a),
         "cycle check still catches it at service boundary"

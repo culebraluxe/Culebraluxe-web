@@ -67,7 +67,10 @@ async fn db_concurrency_014__two_entitlement_updates() {
         .set_role_entitlement(&role_code().await, action, true)
         .await
         .expect("set_role_entitlement");
-    assert!(!missing, "an unknown role must report the change did not apply");
+    assert!(
+        !missing,
+        "an unknown role must report the change did not apply"
+    );
 
     // Test 1: Both workers grant the same entitlement.
     let code_1 = role_code().await;
@@ -87,7 +90,11 @@ async fn db_concurrency_014__two_entitlement_updates() {
             "both workers resolve the same real role and entitlement"
         );
     }
-    assert_eq!(grant_count(&db, &code_1, action).await, 1, "one grant row, never two");
+    assert_eq!(
+        grant_count(&db, &code_1, action).await,
+        1,
+        "one grant row, never two"
+    );
 
     // Test 2: A grant racing a revoke on the same role converges to exactly one
     // legal state: the entitlement row present once, or absent — no duplicates,
@@ -107,7 +114,10 @@ async fn db_concurrency_014__two_entitlement_updates() {
         handle.await.expect("racer panicked").expect("update");
     }
     let count = grant_count(&db, &code_2, action).await;
-    assert!(count == 0 || count == 1, "the grant must be fully present or fully absent, got {count}");
+    assert!(
+        count == 0 || count == 1,
+        "the grant must be fully present or fully absent, got {count}"
+    );
 
     // Test 3: Fault injection — one worker dies mid-update; the survivor's
     // change still lands, and the row count stays legal.
@@ -144,7 +154,11 @@ async fn db_concurrency_014__two_entitlement_updates() {
         }
     }
     assert_eq!(success, 1, "the survivor still applies its update");
-    assert_eq!(grant_count(&db, &code_3, action).await, 1, "the survivor's grant must be durable");
+    assert_eq!(
+        grant_count(&db, &code_3, action).await,
+        1,
+        "the survivor's grant must be durable"
+    );
 
     drop_role(&db, &code_1).await;
     drop_role(&db, &code_2).await;

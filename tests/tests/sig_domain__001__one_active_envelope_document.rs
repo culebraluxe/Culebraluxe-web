@@ -18,7 +18,7 @@
 
 use db::{Database, SignatureDao};
 use model::SignatureRequestStatus;
-use test_harness::database::{TestDatabase, HarnessDbError};
+use test_harness::database::{HarnessDbError, TestDatabase};
 
 const HARNESS: &str = "SignatureDao/L2 Persistence";
 
@@ -48,7 +48,7 @@ async fn sig_domain_001__one_active_envelope_document() {
     .expect("transaction document must be created");
 
     // 2. Create the first active signature request (status = 'requested') by direct insert.
-//    This bypasses the DAO validation but exercises the database constraint directly.
+    //    This bypasses the DAO validation but exercises the database constraint directly.
     let req1_id: String = sqlx::query_scalar(
         "insert into signature_request (id, transaction_document_id, status, created_at, updated_at)
          values (gen_random_uuid(), $1::uuid, 'requested', now(), now())
@@ -88,7 +88,10 @@ async fn sig_domain_001__one_active_envelope_document() {
     .fetch_one(database.database().pool())
     .await
     .expect("count must work");
-    assert_eq!(count, 1, "{HARNESS}: exactly one active signature request must exist");
+    assert_eq!(
+        count, 1,
+        "{HARNESS}: exactly one active signature request must exist"
+    );
 
     // 6. Cleanup - delete the transaction document (cascades to signature_request).
     sqlx::query("delete from transaction_document where id = $1::uuid")

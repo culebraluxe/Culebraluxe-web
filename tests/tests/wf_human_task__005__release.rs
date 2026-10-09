@@ -219,7 +219,10 @@ fn wf_human_task_005__release() {
         "{HARNESS}: the release emits exactly one task.released event"
     );
     assert_eq!(released_events[0].actor, ALICE);
-    assert_eq!(released_events[0].task_id.as_deref(), Some(parked.id.as_str()));
+    assert_eq!(
+        released_events[0].task_id.as_deref(),
+        Some(parked.id.as_str())
+    );
     assert_eq!(released_events[0].process_instance_id, instance);
 
     // ── 3. NEGATIVE — A NON-ASSIGNEE CANNOT RELEASE ────────────────────────────────────────────────────────────

@@ -16,9 +16,12 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test service_registry__005__runtime_health_matches_registry
 
-use services::{ServiceActor, ServiceActorKind, ServiceContext, ServiceControlCommand, ServiceStatus, ServiceInfrastructure};
-use web::ServiceHarness;
+use services::{
+    ServiceActor, ServiceActorKind, ServiceContext, ServiceControlCommand, ServiceInfrastructure,
+    ServiceStatus,
+};
 use std::sync::Arc;
+use web::ServiceHarness;
 
 const HARNESS: &str = "ServiceHarness/L1 Component";
 
@@ -35,7 +38,9 @@ async fn connect_isolated() -> ServiceHarness {
         .expect("isolated service harness must connect")
 }
 
-fn registry_health(harness: &ServiceHarness) -> std::collections::BTreeMap<String, services::ServiceHealth> {
+fn registry_health(
+    harness: &ServiceHarness,
+) -> std::collections::BTreeMap<String, services::ServiceHealth> {
     harness.kernel().registry().health()
 }
 
@@ -101,7 +106,11 @@ async fn service_registry_005__runtime_health_matches_registry() {
     );
 
     // 5. Drain one service and verify health reflects it.
-    let some_domain = post_start_health.keys().next().expect("at least one service").clone();
+    let some_domain = post_start_health
+        .keys()
+        .next()
+        .expect("at least one service")
+        .clone();
     harness
         .control(&some_domain, ServiceControlCommand::Drain)
         .await
@@ -156,7 +165,10 @@ async fn service_registry_005__runtime_health_matches_registry() {
     );
 
     // 7. Shutdown cleanly.
-    harness.shutdown().await.expect("harness shuts down cleanly");
+    harness
+        .shutdown()
+        .await
+        .expect("harness shuts down cleanly");
 
     // 8. After shutdown, all services should be Stopped.
     let final_health = registry_health(&harness);

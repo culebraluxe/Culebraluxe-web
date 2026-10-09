@@ -170,7 +170,11 @@ async fn forge_packet_002__scope_preserved() {
         .expect("the blank story has a packet");
     // Blank story should not have the authored scope in its architect_brief
     assert!(
-        !blank_row.architect_brief.as_deref().unwrap_or("").contains(&SCOPE_A),
+        !blank_row
+            .architect_brief
+            .as_deref()
+            .unwrap_or("")
+            .contains(&SCOPE_A),
         "{HARNESS}: a story must never read back another story's scope"
     );
 

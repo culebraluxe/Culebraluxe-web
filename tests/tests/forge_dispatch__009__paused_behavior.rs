@@ -93,12 +93,14 @@ async fn claim_ready_item(harness: &ForgeHarness, story_id: &str, worker: &str) 
 }
 
 async fn pause_item(pool: &PgPool, story_id: &str) {
-    sqlx::query("update agent_work_item set state='Paused', updated_at=now()
-                 where story_id=$1 and parallel_group_id is null and state='Claimed'")
-        .bind(story_id)
-        .execute(pool)
-        .await
-        .expect("pause the item");
+    sqlx::query(
+        "update agent_work_item set state='Paused', updated_at=now()
+                 where story_id=$1 and parallel_group_id is null and state='Claimed'",
+    )
+    .bind(story_id)
+    .execute(pool)
+    .await
+    .expect("pause the item");
 }
 
 #[tokio::test]
@@ -135,13 +137,24 @@ async fn forge_dispatch_009__paused_behavior() {
 
     // Verify item is Paused and claimed_by is preserved.
     let items = serial_work_items(pool, &paused_story).await;
-    assert_eq!(items.len(), 1, "{HARNESS}: Paused story has one serial item");
+    assert_eq!(
+        items.len(),
+        1,
+        "{HARNESS}: Paused story has one serial item"
+    );
     assert_eq!(items[0].0, "Paused", "{HARNESS}: item state is Paused");
-    assert_eq!(items[0].1, Some(WORKER.to_string()), "{HARNESS}: claimed_by preserved when Paused");
+    assert_eq!(
+        items[0].1,
+        Some(WORKER.to_string()),
+        "{HARNESS}: claimed_by preserved when Paused"
+    );
 
     // Story status remains In Progress (the run is ongoing).
-    assert_eq!(story_status(pool, &paused_story).await, "Ready",
-        "{HARNESS}: story status remains Ready when item is Paused (board not updated)");
+    assert_eq!(
+        story_status(pool, &paused_story).await,
+        "Ready",
+        "{HARNESS}: story status remains Ready when item is Paused (board not updated)"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 2. SWEEP DOES NOT RESTATE STORY WITH PAUSED ITEM — reconcile_dispatch_queue
@@ -152,9 +165,18 @@ async fn forge_dispatch_009__paused_behavior() {
         .reconcile_dispatch_queue()
         .await
         .expect("sweep the DEV queue");
-    assert_eq!(report.restated, 0, "{HARNESS}: sweep does not restate story with Paused item");
-    assert_eq!(report.queued, 0, "{HARNESS}: sweep does not queue story with Paused item");
-    assert_eq!(report.cleared, 0, "{HARNESS}: sweep does not clear Paused item");
+    assert_eq!(
+        report.restated, 0,
+        "{HARNESS}: sweep does not restate story with Paused item"
+    );
+    assert_eq!(
+        report.queued, 0,
+        "{HARNESS}: sweep does not queue story with Paused item"
+    );
+    assert_eq!(
+        report.cleared, 0,
+        "{HARNESS}: sweep does not clear Paused item"
+    );
 
     // Verify Paused item unchanged.
     let items_after = serial_work_items(pool, &paused_story).await;
@@ -178,7 +200,10 @@ async fn forge_dispatch_009__paused_behavior() {
         .reconcile_dispatch_queue()
         .await
         .expect("second sweep");
-    assert_eq!(report2.cleared, 0, "{HARNESS}: sweep does not clear Paused item for In Progress story");
+    assert_eq!(
+        report2.cleared, 0,
+        "{HARNESS}: sweep does not clear Paused item for In Progress story"
+    );
 
     // Move story to Planned (simulating board withdrawal) — NOW the Paused item should be cleared.
     sqlx::query("update storyboard_story set status='Planned', updated_at=now() where id=$1")
@@ -192,17 +217,23 @@ async fn forge_dispatch_009__paused_behavior() {
         .reconcile_dispatch_queue()
         .await
         .expect("third sweep");
-    assert!(report3.cleared >= 1, "{HARNESS}: sweep clears Paused item when story no longer expects run");
+    assert!(
+        report3.cleared >= 1,
+        "{HARNESS}: sweep clears Paused item when story no longer expects run"
+    );
 
     // Verify item is now Cancelled.
     let all_items: Vec<(String,)> = sqlx::query_as(
-        "select state from agent_work_item where story_id=$1 and parallel_group_id is null"
+        "select state from agent_work_item where story_id=$1 and parallel_group_id is null",
     )
     .bind(&paused_story)
     .fetch_all(pool)
     .await
     .expect("read all serial items");
-    assert_eq!(all_items[0].0, "Cancelled", "{HARNESS}: Paused item cleared to Cancelled");
+    assert_eq!(
+        all_items[0].0, "Cancelled",
+        "{HARNESS}: Paused item cleared to Cancelled"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 4. READY STORY WITH NO ITEM — sweep dispatches it (normal path).
@@ -219,7 +250,10 @@ async fn forge_dispatch_009__paused_behavior() {
         .reconcile_dispatch_queue()
         .await
         .expect("fourth sweep");
-    assert_eq!(report4.queued, 1, "{HARNESS}: sweep dispatches Ready story with no item");
+    assert_eq!(
+        report4.queued, 1,
+        "{HARNESS}: sweep dispatches Ready story with no item"
+    );
 
     let ready_items = serial_work_items(pool, &ready_story).await;
     assert_eq!(ready_items.len(), 1);
@@ -243,10 +277,16 @@ async fn forge_dispatch_009__paused_behavior() {
         .reconcile_dispatch_queue()
         .await
         .expect("fifth sweep");
-    assert_eq!(report5.restated, 1, "{HARNESS}: sweep restates stranded In Progress story to Ready");
+    assert_eq!(
+        report5.restated, 1,
+        "{HARNESS}: sweep restates stranded In Progress story to Ready"
+    );
     // The restate step updates In Progress -> Ready, which fires the trigger and creates the item.
     // The queued step then finds the story already has an item, so queued = 0.
-    assert_eq!(report5.queued, 0, "{HARNESS}: trigger creates item during restate, not queued step");
+    assert_eq!(
+        report5.queued, 0,
+        "{HARNESS}: trigger creates item during restate, not queued step"
+    );
 
     let restated_items = serial_work_items(pool, &in_progress_story).await;
     assert_eq!(restated_items.len(), 1);
@@ -257,15 +297,24 @@ async fn forge_dispatch_009__paused_behavior() {
     //    affect existing Paused items or in-flight runs.
     // -----------------------------------------------------------------------------------------------------------
     // Set runtime to paused.
-    sqlx::query("insert into forge_runtime_control (id, paused, updated_by) values (1, true, 'test')
-                 on conflict (id) do update set paused=true, updated_by='test', updated_at=now()")
-        .execute(pool)
-        .await
-        .expect("set runtime paused");
+    sqlx::query(
+        "insert into forge_runtime_control (id, paused, updated_by) values (1, true, 'test')
+                 on conflict (id) do update set paused=true, updated_by='test', updated_at=now()",
+    )
+    .execute(pool)
+    .await
+    .expect("set runtime paused");
 
-    let runtime_control = harness.control().runtime_control().await.expect("read runtime control");
+    let runtime_control = harness
+        .control()
+        .runtime_control()
+        .await
+        .expect("read runtime control");
     assert!(runtime_control.is_some());
-    assert!(runtime_control.unwrap().paused, "{HARNESS}: runtime is paused");
+    assert!(
+        runtime_control.unwrap().paused,
+        "{HARNESS}: runtime is paused"
+    );
 
     // Try to claim the ready_story's item — should be refused by global pause.
     // We need to use the normal claim door (forge_claim_story) which respects the pause.

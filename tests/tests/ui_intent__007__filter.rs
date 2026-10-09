@@ -40,18 +40,12 @@ fn ui_intent_007__filter() {
         vec![screen::CommandKind::None],
         "filtering filters the rows on screen; it reads nothing"
     );
-    assert_eq!(
-        harness.model().controls.filter.as_deref(),
-        Some("offer")
-    );
+    assert_eq!(harness.model().controls.filter.as_deref(), Some("offer"));
     assert_eq!(harness.model().error, None, "filtering reports no error");
 
     // Replacing the filter replaces it exactly — the old value does not linger.
     harness.update(Msg::FilterChanged("closing".into()));
-    assert_eq!(
-        harness.model().controls.filter.as_deref(),
-        Some("closing")
-    );
+    assert_eq!(harness.model().controls.filter.as_deref(), Some("closing"));
 
     // NEGATIVE: a failed refresh keeps the filter and says why — the operator's
     // narrowing is not silently dropped by somebody else's failure.
@@ -67,10 +61,7 @@ fn ui_intent_007__filter() {
         Some("offer"),
         "a failed refresh keeps the filter"
     );
-    assert_eq!(
-        harness.model().error.as_deref(),
-        Some("deals unavailable")
-    );
+    assert_eq!(harness.model().error.as_deref(), Some("deals unavailable"));
     assert!(
         harness.model().read.loaded().is_some(),
         "the page the filter narrows stays on screen"

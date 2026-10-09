@@ -15,9 +15,11 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test service_registry__004__service_advertised_by_v1_services_actually_exists
 
-use services::{ServiceActor, ServiceActorKind, ServiceContext, ServiceEnvelope, ServiceInfrastructure};
-use web::ServiceHarness;
+use services::{
+    ServiceActor, ServiceActorKind, ServiceContext, ServiceEnvelope, ServiceInfrastructure,
+};
 use std::sync::Arc;
+use web::ServiceHarness;
 
 const HARNESS: &str = "ServiceHarness/L1 Component";
 
@@ -96,5 +98,8 @@ async fn service_registry_004__service_advertised_by_v1_services_actually_exists
     }
 
     // 3. Shutdown cleanly.
-    harness.shutdown().await.expect("harness shuts down cleanly");
+    harness
+        .shutdown()
+        .await
+        .expect("harness shuts down cleanly");
 }

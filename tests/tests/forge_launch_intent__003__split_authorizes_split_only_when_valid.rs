@@ -65,7 +65,10 @@ fn forge_launch_intent_003__split_authorizes_split_only_when_valid() {
     // ── 3. STRUCTURAL VALIDITY: INDEPENDENT SIBLINGS MAY SPLIT. ─────────────
     let siblings = vec![sibling("smith_a", &[]), sibling("smith_b", &[])];
     let (eligible, reason) = split_eligibility(&siblings);
-    assert!(eligible, "independent siblings must be split-eligible: {reason}");
+    assert!(
+        eligible,
+        "independent siblings must be split-eligible: {reason}"
+    );
     assert!(
         !reason.trim().is_empty(),
         "eligibility must carry its reason, never a bare bool"
@@ -92,10 +95,7 @@ fn forge_launch_intent_003__split_authorizes_split_only_when_valid() {
 
     // ── 6. ROUTING VALIDITY: SPLIT OWES ITS COUNT. ──────────────────────────
     assert_eq!(
-        LeadHooks.routing_decision_missing(
-            LEAD_DECISION_NODE,
-            &evidence_with("SPLIT", Some(3))
-        ),
+        LeadHooks.routing_decision_missing(LEAD_DECISION_NODE, &evidence_with("SPLIT", Some(3))),
         None,
         "SPLIT with a positive split count owes nothing"
     );
@@ -105,10 +105,7 @@ fn forge_launch_intent_003__split_authorizes_split_only_when_valid() {
         "SPLIT with no count must be re-asked for it"
     );
     assert_eq!(
-        LeadHooks.routing_decision_missing(
-            LEAD_DECISION_NODE,
-            &evidence_with("SPLIT", Some(0))
-        ),
+        LeadHooks.routing_decision_missing(LEAD_DECISION_NODE, &evidence_with("SPLIT", Some(0))),
         Some("lead_decision.splitCount"),
         "SPLIT with a zero count is not a split"
     );

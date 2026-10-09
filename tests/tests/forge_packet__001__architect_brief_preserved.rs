@@ -171,7 +171,10 @@ async fn forge_packet_001__architect_brief_preserved() {
     // The packet source's architect_brief is a concatenation of scope, dependencies, preconditions,
     // context_refs, operating_surface, architect_brief, and postconditions (forge_engine.rs:754-769).
     // The authored brief must be contained within this concatenation.
-    let authored_brief = authored_row.architect_brief.as_deref().expect("authored brief exists");
+    let authored_brief = authored_row
+        .architect_brief
+        .as_deref()
+        .expect("authored brief exists");
     assert!(
         authored_brief.contains(BRIEF_A),
         "{HARNESS}: the packet source returns the authored architect brief within the concatenated fields"
@@ -181,7 +184,10 @@ async fn forge_packet_001__architect_brief_preserved() {
         .await
         .unwrap()
         .expect("the blank story has a packet");
-    let blank_brief = blank_row.architect_brief.as_deref().expect("blank brief exists");
+    let blank_brief = blank_row
+        .architect_brief
+        .as_deref()
+        .expect("blank brief exists");
     assert!(
         !blank_brief.contains(BRIEF_A),
         "{HARNESS}: a story must never read back another story's architect brief"
@@ -291,7 +297,10 @@ async fn forge_packet_001__architect_brief_preserved() {
         .expect("the authored story still has a packet");
     // The live packet row's architect_brief is the concatenated version.
     // The edited brief must be contained within this concatenation.
-    let reread_brief = reread.architect_brief.as_deref().expect("reread brief exists");
+    let reread_brief = reread
+        .architect_brief
+        .as_deref()
+        .expect("reread brief exists");
     assert!(
         reread_brief.contains("ARCH-EDITED: this edit must never appear in the recorded run"),
         "{HARNESS}: the live packet row reflects the edit within the concatenated fields, while the frozen run snapshot above did not"

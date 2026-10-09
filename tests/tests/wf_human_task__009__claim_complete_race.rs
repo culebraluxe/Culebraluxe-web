@@ -21,9 +21,9 @@ use std::collections::BTreeMap;
 
 use test_harness::{EngineHarness, TestClock};
 use workflow::{
-    CompleteTaskParams, DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessEvent,
+    json, CompleteTaskParams, DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessEvent,
     ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams, Task, TaskStatus,
-    TransitionDefinition, Value, json,
+    TransitionDefinition, Value,
 };
 
 const HARNESS: &str = "WorkflowHarness/L3 Composition";
@@ -208,7 +208,10 @@ fn wf_human_task_009__claim_complete_race() {
     let completed1 = task_by_id(&harness1, &parked1.id);
     assert_eq!(completed1.status, TaskStatus::Completed);
     assert_eq!(completed1.assignee.as_deref(), Some(ALICE));
-    assert_eq!(instance_status(&harness1, &instance1), ProcessStatus::Completed);
+    assert_eq!(
+        instance_status(&harness1, &instance1),
+        ProcessStatus::Completed
+    );
 
     // ── ORDERING 2: COMPLETE THEN CLAIM (DIFFERENT USERS) ──────────────────────────────────────────────────────
     // This simulates: complete wins the race (by a different user on an open task), then claim fails.
@@ -235,7 +238,10 @@ fn wf_human_task_009__claim_complete_race() {
     let completed2 = task_by_id(&harness2, &parked2.id);
     assert_eq!(completed2.status, TaskStatus::Completed);
     assert_eq!(completed2.assignee.as_deref(), Some(ALICE));
-    assert_eq!(instance_status(&harness2, &instance2), ProcessStatus::Completed);
+    assert_eq!(
+        instance_status(&harness2, &instance2),
+        ProcessStatus::Completed
+    );
 
     // Then Bob tries to claim the already-completed task.
     let claim_refused = harness2

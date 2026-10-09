@@ -126,7 +126,8 @@ async fn proof(database: &Database) -> Result<(), String> {
     //    production applies) and filled through the production DAO, with every required migration recorded
     //    EXCEPT the last: the gate must refuse, and must name exactly that one.
     let ledger_sql = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../db/migrations/144_schema_migration_ledger.sql"),
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../db/migrations/144_schema_migration_ledger.sql"),
     )
     .map_err(|error| format!("the ledger migration reads: {error}"))?;
     database

@@ -170,11 +170,7 @@ fn history(harness: &EngineHarness, instance: &str) -> Vec<ProcessEvent> {
         .expect("the instance history reads")
 }
 
-fn events_of_type(
-    harness: &EngineHarness,
-    instance: &str,
-    event_type: &str,
-) -> Vec<ProcessEvent> {
+fn events_of_type(harness: &EngineHarness, instance: &str, event_type: &str) -> Vec<ProcessEvent> {
     history(harness, instance)
         .into_iter()
         .filter(|event| event.event_type == event_type)
@@ -215,8 +211,7 @@ fn wf_human_task_013__obsolete_task_cannot_be_acted_upon() {
     let main_task = task_at(&harness, &instance, MAIN_NODE);
 
     // The required branch completes; the join retires the optional branch, which must obsolete its open task.
-    complete(&harness, &main_task.id)
-        .expect("the required branch completes into the join");
+    complete(&harness, &main_task.id).expect("the required branch completes into the join");
     let obsoleted = task_by_id(&harness, &hold_task.id);
     assert_eq!(
         obsoleted.status,
@@ -250,8 +245,8 @@ fn wf_human_task_013__obsolete_task_cannot_be_acted_upon() {
     // Completing is the one thing the process did not do for it: Obsolete must refuse. The refusal commits nothing —
     // the row keeps its exact shape and no lifecycle event is added.
     let version_before = obsoleted.version;
-    let refused = complete(&harness, &hold_task.id)
-        .expect_err("an obsolete task cannot be completed");
+    let refused =
+        complete(&harness, &hold_task.id).expect_err("an obsolete task cannot be completed");
     assert_eq!(
         refused.code(),
         "TASK_NOT_ACTIONABLE",

@@ -150,7 +150,9 @@ async fn forge_packet_009__packet_snapshot_hash_stable() {
 
     // The snapshot must equal the original SHA
     assert_eq!(
-        run_packet_sha_snapshot(&pool, &authored_story).await.as_deref(),
+        run_packet_sha_snapshot(&pool, &authored_story)
+            .await
+            .as_deref(),
         Some(SHA_ORIGINAL),
         "{HARNESS}: the opened run snapshots the packet_sha at run-open time byte-for-byte"
     );
@@ -175,11 +177,12 @@ async fn forge_packet_009__packet_snapshot_hash_stable() {
     );
 
     // But the live story row must reflect the edit
-    let live_sha: String = sqlx::query_scalar("select packet_sha from storyboard_story where id = $1")
-        .bind(&authored_story)
-        .fetch_one(&pool)
-        .await
-        .expect("live story row is readable");
+    let live_sha: String =
+        sqlx::query_scalar("select packet_sha from storyboard_story where id = $1")
+            .bind(&authored_story)
+            .fetch_one(&pool)
+            .await
+            .expect("live story row is readable");
     assert_eq!(
         live_sha, SHA_EDITED,
         "{HARNESS}: the live story row reflects the edit, while the frozen run snapshot above did not"

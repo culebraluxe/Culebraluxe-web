@@ -27,7 +27,7 @@
 use std::fs;
 use std::path::PathBuf;
 use test_harness::RuntimeHarness;
-use web::site::{site_dir, shell};
+use web::site::{shell, site_dir};
 
 #[test]
 #[allow(non_snake_case)]

@@ -23,7 +23,8 @@ use std::collections::BTreeMap;
 use test_harness::{EngineHarness, TestClock};
 use workflow::{
     DefinitionStatus, FireTimerParams, Job, JobStatus, NodeDefinition, ProcessDefinition,
-    ProcessEvent, ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams, TimerSpec, Token, TokenStatus, TransitionDefinition, Value,
+    ProcessEvent, ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams, TimerSpec,
+    Token, TokenStatus, TransitionDefinition, Value,
 };
 
 /// The canonical harness label for this level.
@@ -132,11 +133,7 @@ fn history(harness: &EngineHarness, instance: &str) -> Vec<ProcessEvent> {
         .expect("the instance history reads")
 }
 
-fn events_of_type(
-    harness: &EngineHarness,
-    instance: &str,
-    event_type: &str,
-) -> Vec<ProcessEvent> {
+fn events_of_type(harness: &EngineHarness, instance: &str, event_type: &str) -> Vec<ProcessEvent> {
     history(harness, instance)
         .into_iter()
         .filter(|event| event.event_type == event_type)
@@ -178,7 +175,10 @@ fn wf_timer_001__due_timer_fires_once() {
     };
     let at_wait = tokens(&harness, &instance);
     assert_eq!(
-        at_wait.iter().filter(|t| t.status == TokenStatus::Active).count(),
+        at_wait
+            .iter()
+            .filter(|t| t.status == TokenStatus::Active)
+            .count(),
         1,
         "{HARNESS}: exactly one token is active, at the timer node"
     );
@@ -193,7 +193,11 @@ fn wf_timer_001__due_timer_fires_once() {
         .engine()
         .run_due_jobs(WORKER, 8)
         .expect("the due timer fires through the production executor");
-    assert_eq!(report.claimed.len(), 1, "{HARNESS}: exactly one job was due");
+    assert_eq!(
+        report.claimed.len(),
+        1,
+        "{HARNESS}: exactly one job was due"
+    );
     assert_eq!(report.fired, 1, "{HARNESS}: exactly one job fired");
     assert_eq!(
         events_of_type(&harness, &instance, "timer.fired").len(),
@@ -257,7 +261,11 @@ fn wf_timer_001__due_timer_fires_once() {
         .engine()
         .run_due_jobs(WORKER, 8)
         .expect("the second pass runs");
-    assert_eq!(second.claimed.len(), 0, "{HARNESS}: the settled job is not reclaimed");
+    assert_eq!(
+        second.claimed.len(),
+        0,
+        "{HARNESS}: the settled job is not reclaimed"
+    );
     assert_eq!(second.fired, 0, "{HARNESS}: the second pass fires nothing");
     assert_eq!(
         events_of_type(&harness, &instance, "timer.fired").len(),

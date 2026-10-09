@@ -88,7 +88,10 @@ fn ui_intent_008__sort() {
     {
         let projects = harness.model().read.loaded().unwrap();
         assert_eq!(
-            (projects.timeline_sort_key.as_str(), projects.timeline_sort_desc),
+            (
+                projects.timeline_sort_key.as_str(),
+                projects.timeline_sort_desc
+            ),
             ("title", false),
             "the unknown key left the sort exactly as it was"
         );

@@ -128,11 +128,7 @@ fn history(harness: &EngineHarness, instance: &str) -> Vec<ProcessEvent> {
         .expect("the instance history reads")
 }
 
-fn events_of_type(
-    harness: &EngineHarness,
-    instance: &str,
-    event_type: &str,
-) -> Vec<ProcessEvent> {
+fn events_of_type(harness: &EngineHarness, instance: &str, event_type: &str) -> Vec<ProcessEvent> {
     history(harness, instance)
         .into_iter()
         .filter(|event| event.event_type == event_type)
@@ -170,7 +166,11 @@ fn wf_timer_002__not_due_timer_does_nothing() {
 
     // Parked: one pending job and one active token at the timer node, before the due time.
     let parked_jobs = open_jobs(&harness, &instance);
-    assert_eq!(parked_jobs.len(), 1, "{HARNESS}: the timer node parked one job");
+    assert_eq!(
+        parked_jobs.len(),
+        1,
+        "{HARNESS}: the timer node parked one job"
+    );
     assert_eq!(parked_jobs[0].status, JobStatus::Pending);
     assert_eq!(parked_jobs[0].locked_by, None);
     assert_eq!(
@@ -191,7 +191,11 @@ fn wf_timer_002__not_due_timer_does_nothing() {
         .engine()
         .run_due_jobs(WORKER, 8)
         .expect("the executor runs against a not-due timer");
-    assert_eq!(report.claimed.len(), 0, "{HARNESS}: nothing is claimed while not due");
+    assert_eq!(
+        report.claimed.len(),
+        0,
+        "{HARNESS}: nothing is claimed while not due"
+    );
     assert_eq!(report.fired, 0, "{HARNESS}: nothing fires while not due");
     assert_eq!(report.failed, 0, "{HARNESS}: nothing fails while not due");
     let after_jobs = open_jobs(&harness, &instance);
@@ -262,7 +266,10 @@ fn wf_timer_002__not_due_timer_does_nothing() {
         .engine()
         .run_due_jobs(WORKER, 8)
         .expect("the executor runs once the timer is due");
-    assert_eq!(due_report.fired, 1, "{HARNESS}: the same executor fires the due job now");
+    assert_eq!(
+        due_report.fired, 1,
+        "{HARNESS}: the same executor fires the due job now"
+    );
     assert_eq!(
         events_of_type(&harness, &instance, "timer.fired").len(),
         1,

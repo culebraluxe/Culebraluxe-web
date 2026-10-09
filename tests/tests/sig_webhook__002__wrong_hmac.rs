@@ -66,7 +66,10 @@ fn sig_webhook_002__wrong_hmac() {
 
     // 1. A FOREIGN SECRET is refused: minted elsewhere, presented here.
     let foreign = mint_header(body, "some-other-webhook-secret", now);
-    assert_ne!(foreign, valid, "distinct secrets must mint distinct headers");
+    assert_ne!(
+        foreign, valid,
+        "distinct secrets must mint distinct headers"
+    );
     let error = verify_webhook_signature(body, &foreign, SECRET, now, TOLERANCE_SECONDS)
         .expect_err("a foreign-secret HMAC must be refused");
     assert!(

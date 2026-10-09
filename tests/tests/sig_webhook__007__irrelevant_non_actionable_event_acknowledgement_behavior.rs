@@ -124,8 +124,7 @@ fn sig_webhook_007__irrelevant_non_actionable_event_acknowledgement_behavior() {
     // 5. CONTROL: terminal mappings are untouched — Completed still completes, so the Viewed
     // assertions above are the mapping discriminating, not everything collapsing to Viewed.
     assert_eq!(
-        map_webhook_event("Completed", Some("Completed"))
-            .expect("Completed must still map"),
+        map_webhook_event("Completed", Some("Completed")).expect("Completed must still map"),
         SignatureProviderEvent::Completed,
         "control: genuine completion must still map Completed"
     );

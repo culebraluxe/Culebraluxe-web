@@ -55,7 +55,8 @@ fn ui_route_005__public_portal_separation() {
             entry.area() == Area::Portal,
             under_portal,
             "{HARNESS}: '{}' at '{}' is on the wrong side of the portal boundary",
-            entry.key, entry.path
+            entry.key,
+            entry.path
         );
     }
 

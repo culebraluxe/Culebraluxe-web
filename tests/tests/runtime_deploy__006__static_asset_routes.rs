@@ -23,15 +23,15 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test runtime_deploy__006__static_asset_routes
 
-use std::fs;
-use test_harness::RuntimeHarness;
-use web::site::{site_dir, shell};
 use axum::{
     body::Body,
     http::{Request, StatusCode},
     Router,
 };
+use std::fs;
+use test_harness::RuntimeHarness;
 use tower::ServiceExt;
+use web::site::{shell, site_dir};
 
 #[tokio::test]
 #[allow(non_snake_case)]

@@ -54,10 +54,13 @@ fn ui_model_001__initial_state() {
     );
 
     // NEGATIVE: opening never navigates, writes, or touches storage — whatever the route.
-    for ctx in [ScreenCtx::default(), ScreenCtx {
-        id: Some("deal-7".into()),
-        ..ScreenCtx::default()
-    }] {
+    for ctx in [
+        ScreenCtx::default(),
+        ScreenCtx {
+            id: Some("deal-7".into()),
+            ..ScreenCtx::default()
+        },
+    ] {
         let (_, open) = ScreenHarness::<Deals>::open(ctx);
         assert_eq!(
             screen::effect_kind(&open),

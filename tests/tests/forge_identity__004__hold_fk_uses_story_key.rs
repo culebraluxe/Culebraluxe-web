@@ -72,7 +72,15 @@ fn drive_and_check_holds() -> (ProcessStatus, Vec<support::CapturedHold>) {
     // Check the holds captured by the SeamWriter
     let holds = fixture.holds();
 
-    (fixture.rt.engine().get_process_instance(&start_result.process_instance_id).expect("instance").status, holds)
+    (
+        fixture
+            .rt
+            .engine()
+            .get_process_instance(&start_result.process_instance_id)
+            .expect("instance")
+            .status,
+        holds,
+    )
 }
 
 #[test]

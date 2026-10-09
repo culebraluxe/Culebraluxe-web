@@ -79,7 +79,9 @@ async fn project_wbs_dependency_004__duplicate() {
     let error = result.unwrap_err();
     let error_str = error.to_string().to_lowercase();
     assert!(
-        error_str.contains("duplicate") || error_str.contains("unique") || error_str.contains("conflict"),
+        error_str.contains("duplicate")
+            || error_str.contains("unique")
+            || error_str.contains("conflict"),
         "error must indicate duplicate/unique constraint violation: {}",
         error
     );
@@ -97,8 +99,15 @@ async fn project_wbs_dependency_004__duplicate() {
         kind: "finish_to_start".into(),
     };
     let result = dao.insert_dependency(&reverse_edge).await;
-    assert!(result.is_ok(), "reverse edge is a different dependency and must succeed");
+    assert!(
+        result.is_ok(),
+        "reverse edge is a different dependency and must succeed"
+    );
 
     let edges = dao.list_dependencies(&project_id).await.expect("list deps");
-    assert_eq!(edges.len(), 2, "both directions must exist as separate edges");
+    assert_eq!(
+        edges.len(),
+        2,
+        "both directions must exist as separate edges"
+    );
 }

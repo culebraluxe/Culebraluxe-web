@@ -67,7 +67,12 @@ fn drive_and_check_jobs() -> (ProcessStatus, Vec<workflow::Job>) {
     // Check the job records for the instance
     let jobs = fixture.jobs_for_instance(&start_result.process_instance_id);
 
-    let status = fixture.rt.engine().get_process_instance(&start_result.process_instance_id).expect("instance").status;
+    let status = fixture
+        .rt
+        .engine()
+        .get_process_instance(&start_result.process_instance_id)
+        .expect("instance")
+        .status;
 
     (status, jobs)
 }
@@ -91,14 +96,19 @@ fn forge_identity_006__receipt_relates_to_correct_story_run_task() {
         assert_eq!(job.status, JobStatus::Completed, "job must be completed");
 
         // The payload must have the correct task_id
-        let task_id = job.payload.get("taskId").and_then(Value::as_str).unwrap_or("");
-        assert!(
-            !task_id.is_empty(),
-            "job payload must have taskId"
-        );
+        let task_id = job
+            .payload
+            .get("taskId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(!task_id.is_empty(), "job payload must have taskId");
 
         // The payload must have the correct story_id
-        let story_id = job.payload.get("storyId").and_then(Value::as_str).unwrap_or("");
+        let story_id = job
+            .payload
+            .get("storyId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         assert_eq!(
             story_id, STORY,
             "job payload storyId must be the story ID '{}', got '{}'",
@@ -106,7 +116,11 @@ fn forge_identity_006__receipt_relates_to_correct_story_run_task() {
         );
 
         // The payload must have the correct process_instance_id
-        let process_instance_id = job.payload.get("processInstanceId").and_then(Value::as_str).unwrap_or("");
+        let process_instance_id = job
+            .payload
+            .get("processInstanceId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         // In-memory tests use a simple format
         assert!(
             !process_instance_id.is_empty(),
@@ -114,9 +128,16 @@ fn forge_identity_006__receipt_relates_to_correct_story_run_task() {
         );
 
         // The payload must have the correct node_id
-        let node_id = job.payload.get("nodeId").and_then(Value::as_str).unwrap_or("");
+        let node_id = job
+            .payload
+            .get("nodeId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         assert!(
-            node_id.contains("smith") || node_id.contains("architect") || node_id.contains("lead") || node_id.contains("qa"),
+            node_id.contains("smith")
+                || node_id.contains("architect")
+                || node_id.contains("lead")
+                || node_id.contains("qa"),
             "job payload nodeId must be a valid role node, got '{}'",
             node_id
         );
@@ -124,15 +145,27 @@ fn forge_identity_006__receipt_relates_to_correct_story_run_task() {
 
     // 3. Negative case: verify the test would catch wrong correlation
     let wrong_story = jobs.iter().any(|j| {
-        let story_id = j.payload.get("storyId").and_then(Value::as_str).unwrap_or("");
+        let story_id = j
+            .payload
+            .get("storyId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         story_id != STORY
     });
     let missing_instance = jobs.iter().any(|j| {
-        let pi = j.payload.get("processInstanceId").and_then(Value::as_str).unwrap_or("");
+        let pi = j
+            .payload
+            .get("processInstanceId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         pi.is_empty()
     });
     let missing_task = jobs.iter().any(|j| {
-        let task_id = j.payload.get("taskId").and_then(Value::as_str).unwrap_or("");
+        let task_id = j
+            .payload
+            .get("taskId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         task_id.is_empty()
     });
 

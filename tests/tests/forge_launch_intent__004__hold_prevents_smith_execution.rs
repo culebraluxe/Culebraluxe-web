@@ -20,12 +20,7 @@ use forge::engine::serial_doors::{serial_launch_door, NO_ASSIGNMENT_REASON};
 #[test]
 fn forge_launch_intent_004__hold_prevents_smith_execution() {
     // ── 1. THE DOOR: SMITH WITHOUT AN ASSIGNMENT IS HELD. ──────────────────
-    for node in [
-        "smith",
-        "repair_smith",
-        "fast_smith",
-        "fast_repair_smith",
-    ] {
+    for node in ["smith", "repair_smith", "fast_smith", "fast_repair_smith"] {
         let hold = serial_launch_door(node, false);
         let reason = hold.unwrap_or_else(|| panic!("{node} without an assignment must HOLD"));
         assert!(
@@ -35,12 +30,7 @@ fn forge_launch_intent_004__hold_prevents_smith_execution() {
     }
 
     // ── 2. THE DOOR OPENS ONLY ON AN ACCEPTED ASSIGNMENT. ───────────────────
-    for node in [
-        "smith",
-        "repair_smith",
-        "fast_smith",
-        "fast_repair_smith",
-    ] {
+    for node in ["smith", "repair_smith", "fast_smith", "fast_repair_smith"] {
         assert_eq!(
             serial_launch_door(node, true),
             None,

@@ -33,7 +33,9 @@ async fn create_test_project(db: &Database) -> String {
 
 #[tokio::test]
 async fn project_wbs_item_002__hierarchy() {
-    let db = Database::connect_target(DbTarget::Dev).await.expect("connect to DEV database");
+    let db = Database::connect_target(DbTarget::Dev)
+        .await
+        .expect("connect to DEV database");
     let project_id = create_test_project(&db).await;
     let dao = WbsDao::new(db.clone());
 
@@ -101,11 +103,23 @@ async fn project_wbs_item_002__hierarchy() {
     assert_eq!(grandchild.parent_id, Some(child1_id.clone()));
 
     // 4. Verify hierarchy by fetching each item individually
-    let root_check = dao.get(&root_id).await.expect("get root").expect("root exists");
+    let root_check = dao
+        .get(&root_id)
+        .await
+        .expect("get root")
+        .expect("root exists");
     assert_eq!(root_check.parent_id, None);
-    let child1_check = dao.get(&child1_id).await.expect("get child1").expect("child1 exists");
+    let child1_check = dao
+        .get(&child1_id)
+        .await
+        .expect("get child1")
+        .expect("child1 exists");
     assert_eq!(child1_check.parent_id, Some(root_id.clone()));
-    let grandchild_check = dao.get(&grandchild_id).await.expect("get grandchild").expect("grandchild exists");
+    let grandchild_check = dao
+        .get(&grandchild_id)
+        .await
+        .expect("get grandchild")
+        .expect("grandchild exists");
     assert_eq!(grandchild_check.parent_id, Some(child1_id.clone()));
 
     // 5. list_for_entity with project entity type
@@ -170,7 +184,10 @@ async fn project_wbs_item_002__hierarchy() {
         .await;
     // The DAO allows this - FK is on wbs_item(id) not project-scoped
     // The service layer is responsible for cross-project parent validation
-    assert!(cross_parent.is_ok(), "DAO allows cross-project parent; service validates");
+    assert!(
+        cross_parent.is_ok(),
+        "DAO allows cross-project parent; service validates"
+    );
 
     // 7. Negative case: self as parent
     let self_parent_id = Uuid::new_v4().to_string();
@@ -190,7 +207,10 @@ async fn project_wbs_item_002__hierarchy() {
             entity: None,
         })
         .await;
-    assert!(self_parent.is_ok(), "DAO allows self-parent; service or app logic should prevent");
+    assert!(
+        self_parent.is_ok(),
+        "DAO allows self-parent; service or app logic should prevent"
+    );
 
     // 8. Update parent_id to null (move to root level)
     let moved = dao

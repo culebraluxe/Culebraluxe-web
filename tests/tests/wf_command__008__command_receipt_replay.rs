@@ -31,10 +31,10 @@ use std::sync::{Arc, Mutex};
 use test_harness::{EngineHarness, TestClock};
 use workflow::sha256::sha256_hex;
 use workflow::{
-    command_id, ApplicationCommandOutcome, ApplicationCommandRequest,
-    ApplicationCommandResult, ApplicationPort, DefinitionStatus, NodeDefinition, ProcessCommand,
-    ProcessDefinition, ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams,
-    TransitionDefinition, Value, WorkflowSubject,
+    command_id, ApplicationCommandOutcome, ApplicationCommandRequest, ApplicationCommandResult,
+    ApplicationPort, DefinitionStatus, NodeDefinition, ProcessCommand, ProcessDefinition,
+    ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams, TransitionDefinition, Value,
+    WorkflowSubject,
 };
 
 const HARNESS: &str = "WorkflowHarness/L3 Composition";
@@ -305,10 +305,7 @@ fn wf_command_008__command_receipt_replay() {
         "{HARNESS}: the replays added no second request to the log"
     );
     assert_eq!(
-        requested[0]
-            .data
-            .get("commandId")
-            .and_then(Value::as_str),
+        requested[0].data.get("commandId").and_then(Value::as_str),
         Some(id.as_str()),
         "{HARNESS}: the single logged request is still the executed command"
     );

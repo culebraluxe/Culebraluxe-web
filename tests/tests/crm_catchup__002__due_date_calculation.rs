@@ -115,7 +115,10 @@ async fn crm_catchup_002__due_date_calculation() {
         "{HARNESS}: the due-date proof runs only on an isolated DEV target"
     );
     let ns = harness.namespace().to_string();
-    let marker = format!("TST-CRMCATCHUP002-{ns}-{}", &Uuid::new_v4().to_string()[..8]);
+    let marker = format!(
+        "TST-CRMCATCHUP002-{ns}-{}",
+        &Uuid::new_v4().to_string()[..8]
+    );
     let dao = CatchUpDao::new(harness.database().database().clone());
 
     // A — one open task due in two days: the row is due-soon and names that task.
@@ -125,7 +128,8 @@ async fn crm_catchup_002__due_date_calculation() {
     // B — an open task at six days, an open task at one day, and an open task with NO due date.
     let person_b = seed_catchup_person(&harness, &format!("{marker}-b")).await;
     let task_b_later = seed_task(&harness, &person_b, "B: due in six days", "open", Some(6)).await;
-    let task_b_earliest = seed_task(&harness, &person_b, "B: due in one day", "open", Some(1)).await;
+    let task_b_earliest =
+        seed_task(&harness, &person_b, "B: due in one day", "open", Some(1)).await;
     let task_b_dateless = seed_task(&harness, &person_b, "B: no due date", "open", None).await;
 
     // C — one open task three days overdue.
@@ -141,7 +145,10 @@ async fn crm_catchup_002__due_date_calculation() {
         "{HARNESS}: a task due in two days is due-soon, not {}",
         item_a.reason_code
     );
-    assert_eq!(item_a.priority, 70, "{HARNESS}: due-soon carries priority 70");
+    assert_eq!(
+        item_a.priority, 70,
+        "{HARNESS}: due-soon carries priority 70"
+    );
     assert_eq!(
         item_a.task_id.as_deref(),
         Some(task_a.as_str()),
@@ -186,7 +193,10 @@ async fn crm_catchup_002__due_date_calculation() {
         "{HARNESS}: a task due three days ago is overdue, not {}",
         item_c.reason_code
     );
-    assert_eq!(item_c.priority, 85, "{HARNESS}: overdue carries priority 85");
+    assert_eq!(
+        item_c.priority, 85,
+        "{HARNESS}: overdue carries priority 85"
+    );
     assert_eq!(
         item_c.task_id.as_deref(),
         Some(task_c.as_str()),
@@ -213,7 +223,10 @@ async fn crm_catchup_002__due_date_calculation() {
 
     sweep(&harness, &marker).await;
     assert_eq!(
-        harness.leftover_count(&marker).await.expect("leftover count"),
+        harness
+            .leftover_count(&marker)
+            .await
+            .expect("leftover count"),
         0,
         "{HARNESS}: the run's persons and tasks are gone"
     );

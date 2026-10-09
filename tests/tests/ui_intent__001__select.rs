@@ -36,9 +36,11 @@ fn ui_intent_001__select() {
     );
 
     // A failed first read leaves nothing selected: there is no row to choose.
-    let failed = harness.update(open.into_requests().remove(0).respond(Err(
-        ApiError::network("listings unavailable"),
-    )));
+    let failed = harness.update(
+        open.into_requests()
+            .remove(0)
+            .respond(Err(ApiError::network("listings unavailable"))),
+    );
     assert_eq!(screen::classify(&failed), vec![screen::CommandKind::None]);
     assert_eq!(harness.model().selected, None);
     assert!(

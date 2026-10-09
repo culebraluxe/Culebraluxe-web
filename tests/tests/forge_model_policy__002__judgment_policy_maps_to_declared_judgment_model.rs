@@ -13,8 +13,7 @@
 
 use forge::engine::harness::ModelSelection;
 use forge::engine::opencode::{
-    as_model_policy, model_for_policy, MODEL_FOR_CHEAP, MODEL_FOR_JUDGMENT,
-    OPENCODE_PINNED_MODEL,
+    as_model_policy, model_for_policy, MODEL_FOR_CHEAP, MODEL_FOR_JUDGMENT, OPENCODE_PINNED_MODEL,
 };
 
 #[test]

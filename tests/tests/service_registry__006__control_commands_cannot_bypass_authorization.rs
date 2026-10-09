@@ -15,9 +15,12 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test service_registry__006__control_commands_cannot_bypass_authorization
 
-use services::{ServiceActor, ServiceActorKind, ServiceContext, ServiceControlCommand, ServicePrincipal, ServiceInfrastructure};
-use web::ServiceHarness;
+use services::{
+    ServiceActor, ServiceActorKind, ServiceContext, ServiceControlCommand, ServiceInfrastructure,
+    ServicePrincipal,
+};
 use std::sync::Arc;
+use web::ServiceHarness;
 
 const HARNESS: &str = "ServiceHarness/L1 Component";
 
@@ -82,9 +85,7 @@ async fn service_registry_006__control_commands_cannot_bypass_authorization() {
         ServiceControlCommand::Drain,
         ServiceControlCommand::Stop,
     ] {
-        let result = harness
-            .control("person", command)
-            .await;
+        let result = harness.control("person", command).await;
         // The harness control method doesn't check authorization directly -
         // the authorization is checked in the API route handler (service_control in security_service.rs).
         // However, we can verify that the service registry itself doesn't enforce authorization
@@ -109,5 +110,8 @@ async fn service_registry_006__control_commands_cannot_bypass_authorization() {
     // The real authorization test is in the API contract tests (api_route_contract__012).
 
     // 4. Shutdown cleanly.
-    harness.shutdown().await.expect("harness shuts down cleanly");
+    harness
+        .shutdown()
+        .await
+        .expect("harness shuts down cleanly");
 }

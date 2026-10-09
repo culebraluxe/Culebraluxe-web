@@ -167,7 +167,11 @@ async fn forge_packet_004__preconditions_preserved() {
         .unwrap()
         .expect("the blank story has a packet");
     assert!(
-        !blank_row.architect_brief.as_deref().unwrap_or("").contains(&PRE_A),
+        !blank_row
+            .architect_brief
+            .as_deref()
+            .unwrap_or("")
+            .contains(&PRE_A),
         "{HARNESS}: a story must never read back another story's preconditions"
     );
 

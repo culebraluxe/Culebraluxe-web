@@ -118,8 +118,10 @@ fn forge_assay_001__assay_commands_come_only_from_approved_packet() {
         drifted.blockers
     );
     assert!(
-        drifted.blockers.iter().any(|blocker| blocker
-            .contains("cargo test -p probe --test something_else")),
+        drifted
+            .blockers
+            .iter()
+            .any(|blocker| blocker.contains("cargo test -p probe --test something_else")),
         "the refusal must name the off-plan command: {:?}",
         drifted.blockers
     );
@@ -129,13 +131,19 @@ fn forge_assay_001__assay_commands_come_only_from_approved_packet() {
     extra.push(measured("echo invented", true));
     let drift = adjudicate_qa(&plan, &extra, None, None, None);
     assert!(
-        drift.blockers.iter().any(|blocker| blocker == "ASSAY_COMMAND_DRIFT"),
+        drift
+            .blockers
+            .iter()
+            .any(|blocker| blocker == "ASSAY_COMMAND_DRIFT"),
         "executing more commands than the packet approved is drift: {:?}",
         drift.blockers
     );
     let short = adjudicate_qa(&plan, &results[..1], None, None, None);
     assert!(
-        short.blockers.iter().any(|blocker| blocker == "ASSAY_COMMAND_DRIFT"),
+        short
+            .blockers
+            .iter()
+            .any(|blocker| blocker == "ASSAY_COMMAND_DRIFT"),
         "executing fewer commands than the packet approved is drift: {:?}",
         short.blockers
     );
@@ -153,7 +161,10 @@ fn forge_assay_001__assay_commands_come_only_from_approved_packet() {
     let empty_plan = planned(&[]);
     let no_plan = adjudicate_qa(&empty_plan, &[], None, None, None);
     assert!(
-        no_plan.blockers.iter().any(|blocker| blocker == "NO_ASSAY_COMMANDS"),
+        no_plan
+            .blockers
+            .iter()
+            .any(|blocker| blocker == "NO_ASSAY_COMMANDS"),
         "an empty approved plan must surface as missing, not as a pass: {:?}",
         no_plan.blockers
     );

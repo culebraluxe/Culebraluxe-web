@@ -168,7 +168,11 @@ async fn forge_packet_008__operating_surface_preserved() {
         .unwrap()
         .expect("the blank story has a packet");
     assert!(
-        !blank_row.architect_brief.as_deref().unwrap_or("").contains(&OS_A),
+        !blank_row
+            .architect_brief
+            .as_deref()
+            .unwrap_or("")
+            .contains(&OS_A),
         "{HARNESS}: a story must never read back another story's operating_surface"
     );
 

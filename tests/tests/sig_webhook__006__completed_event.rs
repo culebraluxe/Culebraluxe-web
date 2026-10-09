@@ -89,8 +89,7 @@ fn sig_webhook_006__completed_event() {
     // 4. COMPLETED IS TERMINAL-SHAPED: the model forbids Completed -> Sent, so a terminal request
     // cannot regress when an older event is replayed through `apply_status`.
     assert!(
-        !SignatureRequestStatus::Completed
-            .can_transition_to(SignatureRequestStatus::Sent),
+        !SignatureRequestStatus::Completed.can_transition_to(SignatureRequestStatus::Sent),
         "Completed must not transition back to Sent"
     );
     assert!(

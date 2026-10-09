@@ -259,14 +259,8 @@ async fn crm_comms_005__ordering() {
         .activity(3)
         .await
         .expect("the limited activity read runs");
-    let narrow_ids: Vec<&str> = narrow
-        .iter()
-        .map(|entry| entry.id.as_str())
-        .collect();
-    let wide_ids: Vec<&str> = activity
-        .iter()
-        .map(|entry| entry.id.as_str())
-        .collect();
+    let narrow_ids: Vec<&str> = narrow.iter().map(|entry| entry.id.as_str()).collect();
+    let wide_ids: Vec<&str> = activity.iter().map(|entry| entry.id.as_str()).collect();
     assert_eq!(
         narrow_ids.len(),
         3,

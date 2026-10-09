@@ -32,7 +32,9 @@ async fn create_test_project(db: &Database) -> String {
 
 #[tokio::test]
 async fn project_wbs_item_005__completion_propagation() {
-    let db = Database::connect_target(DbTarget::Dev).await.expect("connect to DEV database");
+    let db = Database::connect_target(DbTarget::Dev)
+        .await
+        .expect("connect to DEV database");
     let project_id = create_test_project(&db).await;
     let dao = WbsDao::new(db.clone());
 
@@ -108,11 +110,27 @@ async fn project_wbs_item_005__completion_propagation() {
 
     // 3. Children are NOT automatically completed by DAO
     // Completion propagation is a service-layer concern
-    let child1_check = dao.get(&child1_id).await.expect("get child1").expect("exists");
-    let child2_check = dao.get(&child2_id).await.expect("get child2").expect("exists");
+    let child1_check = dao
+        .get(&child1_id)
+        .await
+        .expect("get child1")
+        .expect("exists");
+    let child2_check = dao
+        .get(&child2_id)
+        .await
+        .expect("get child2")
+        .expect("exists");
     // DAO does not propagate completion - service layer might
-    assert_eq!(child1_check.status, WbsStatus::Open, "DAO does not auto-complete children");
-    assert_eq!(child2_check.status, WbsStatus::Open, "DAO does not auto-complete children");
+    assert_eq!(
+        child1_check.status,
+        WbsStatus::Open,
+        "DAO does not auto-complete children"
+    );
+    assert_eq!(
+        child2_check.status,
+        WbsStatus::Open,
+        "DAO does not auto-complete children"
+    );
 
     // 4. Complete a child - parent is NOT affected
     let completed_child = dao
@@ -122,7 +140,11 @@ async fn project_wbs_item_005__completion_propagation() {
         .expect("child exists");
     assert_eq!(completed_child.status, WbsStatus::Done);
 
-    let parent_check = dao.get(&parent_id).await.expect("get parent").expect("exists");
+    let parent_check = dao
+        .get(&parent_id)
+        .await
+        .expect("get parent")
+        .expect("exists");
     assert_eq!(parent_check.status, WbsStatus::Done, "parent remains Done");
 
     // 5. Dismiss a parent - children unaffected at DAO level
@@ -155,20 +177,35 @@ async fn project_wbs_item_005__completion_propagation() {
     assert_eq!(test_item.status, WbsStatus::Open);
 
     // Open -> Doing
-    let doing = dao.set_status(&test_id, WbsStatus::Doing).await.expect("set doing").unwrap();
+    let doing = dao
+        .set_status(&test_id, WbsStatus::Doing)
+        .await
+        .expect("set doing")
+        .unwrap();
     assert_eq!(doing.status, WbsStatus::Doing);
 
     // Doing -> Done
-    let done = dao.set_status(&test_id, WbsStatus::Done).await.expect("set done").unwrap();
+    let done = dao
+        .set_status(&test_id, WbsStatus::Done)
+        .await
+        .expect("set done")
+        .unwrap();
     assert_eq!(done.status, WbsStatus::Done);
 
     // Done -> Dismissed
-    let dismissed = dao.set_status(&test_id, WbsStatus::Dismissed).await.expect("set dismissed").unwrap();
+    let dismissed = dao
+        .set_status(&test_id, WbsStatus::Dismissed)
+        .await
+        .expect("set dismissed")
+        .unwrap();
     assert_eq!(dismissed.status, WbsStatus::Dismissed);
 
     // 7. Negative case: set_status on non-existent item returns None
     let fake_id = Uuid::new_v4().to_string();
-    let result = dao.set_status(&fake_id, WbsStatus::Done).await.expect("set on fake");
+    let result = dao
+        .set_status(&fake_id, WbsStatus::Done)
+        .await
+        .expect("set on fake");
     assert!(result.is_none(), "set_status on non-existent returns None");
 
     // 8. Negative case: save with status change

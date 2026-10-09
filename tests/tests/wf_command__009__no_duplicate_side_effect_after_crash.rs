@@ -278,10 +278,7 @@ fn wf_command_009__no_duplicate_side_effect_after_crash() {
         "{HARNESS}: the retry added no second request to the log"
     );
     assert_eq!(
-        requested[0]
-            .data
-            .get("commandId")
-            .and_then(Value::as_str),
+        requested[0].data.get("commandId").and_then(Value::as_str),
         Some(command_id(&instance_id, COMMAND_NODE, 1).as_str()),
         "{HARNESS}: the single executed command is the crash-stable deterministic identity"
     );

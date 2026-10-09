@@ -32,7 +32,9 @@ async fn create_test_project(db: &Database) -> String {
 
 #[tokio::test]
 async fn project_wbs_item_004__sort() {
-    let db = Database::connect_target(DbTarget::Dev).await.expect("connect to DEV database");
+    let db = Database::connect_target(DbTarget::Dev)
+        .await
+        .expect("connect to DEV database");
     let project_id = create_test_project(&db).await;
     let dao = WbsDao::new(db.clone());
 

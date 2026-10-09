@@ -232,13 +232,11 @@ async fn sweep(pool: &PgPool, fixture: &Fixture) {
         .execute(pool)
         .await
         .expect("envelope row sweep");
-    sqlx::query(
-        "delete from signature_envelope_recipient where signature_request_id = $1::uuid",
-    )
-    .bind(&fixture.request_id)
-    .execute(pool)
-    .await
-    .expect("recipient sweep");
+    sqlx::query("delete from signature_envelope_recipient where signature_request_id = $1::uuid")
+        .bind(&fixture.request_id)
+        .execute(pool)
+        .await
+        .expect("recipient sweep");
     sqlx::query("delete from signature_request where id = $1::uuid")
         .bind(&fixture.request_id)
         .execute(pool)
@@ -350,8 +348,12 @@ async fn sig_webhook_004__duplicate_event() {
     let barrier = Arc::new(ConcurrencyBarrier::new(2));
     let mut handles = Vec::new();
     for _ in 0..2 {
-        let (provider, barrier, body, header) =
-            (provider.clone(), barrier.clone(), body.clone(), header.clone());
+        let (provider, barrier, body, header) = (
+            provider.clone(),
+            barrier.clone(),
+            body.clone(),
+            header.clone(),
+        );
         handles.push(tokio::spawn(async move {
             barrier.arrive_and_wait().await;
             provider.verify_webhook(&body, &header).await

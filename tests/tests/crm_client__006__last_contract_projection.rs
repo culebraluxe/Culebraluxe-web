@@ -173,7 +173,10 @@ async fn crm_client_006__last_contract_projection() {
         .await
         .expect("the production detail read runs")
         .expect("the fixture client is in the book");
-    assert_eq!(detail.id, client, "{HARNESS}: the detail is the client's own");
+    assert_eq!(
+        detail.id, client,
+        "{HARNESS}: the detail is the client's own"
+    );
     let last = detail
         .last_contact
         .as_ref()

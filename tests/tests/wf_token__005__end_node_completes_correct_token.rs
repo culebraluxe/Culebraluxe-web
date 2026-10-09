@@ -37,7 +37,7 @@ const STARTED_BY: &str = "tst";
 /// Only the token reaching end should be completed; branch-b's token stays active.
 const START_NODE: &str = "start";
 const FORK_NODE: &str = "fork";
-const BRANCH_A_NODE: &str = "branch-a";  // This is an end node
+const BRANCH_A_NODE: &str = "branch-a"; // This is an end node
 const BRANCH_B_NODE: &str = "branch-b";
 const TASK_B_NODE: &str = "task-b";
 const END_NODE: &str = "end";
@@ -74,7 +74,7 @@ fn fork_definition() -> ProcessDefinition {
             id: FORK_NODE.to_string(),
             node_type: "fork".to_string(),
             transitions: Some(vec![
-                transition(TO_A, BRANCH_A_NODE, Some(true)),  // branch-a is an end node
+                transition(TO_A, BRANCH_A_NODE, Some(true)), // branch-a is an end node
                 transition(TO_B, BRANCH_B_NODE, Some(true)),
             ]),
             ..Default::default()
@@ -180,24 +180,44 @@ fn wf_token_005__end_node_completes_correct_token() {
 
     eprintln!("{HARNESS}: Found {} tokens:", all_tokens.len());
     for t in &all_tokens {
-        eprintln!("  {} parent={:?} node={} status={:?} required={}", 
-            t.id, t.parent_token_id, t.node_id, t.status, t.required);
+        eprintln!(
+            "  {} parent={:?} node={} status={:?} required={}",
+            t.id, t.parent_token_id, t.node_id, t.status, t.required
+        );
     }
 
     // We have: root token (completed at fork) + first child (completed at branch-a)
     // The second child was not created because process completed after first child.
-    assert_eq!(all_tokens.len(), 2, "{HARNESS}: root + first child (second child not created due to early process completion)");
+    assert_eq!(
+        all_tokens.len(),
+        2,
+        "{HARNESS}: root + first child (second child not created due to early process completion)"
+    );
 
-    let root_token = all_tokens.iter().find(|t| t.parent_token_id.is_none()).expect("root token");
-    let child_a = all_tokens.iter().find(|t| t.node_id == BRANCH_A_NODE).expect("child-a at branch-a");
+    let root_token = all_tokens
+        .iter()
+        .find(|t| t.parent_token_id.is_none())
+        .expect("root token");
+    let child_a = all_tokens
+        .iter()
+        .find(|t| t.node_id == BRANCH_A_NODE)
+        .expect("child-a at branch-a");
 
     // Root token was completed by the fork.
-    assert_eq!(root_token.status, TokenStatus::Completed, "{HARNESS}: root token completed by fork");
+    assert_eq!(
+        root_token.status,
+        TokenStatus::Completed,
+        "{HARNESS}: root token completed by fork"
+    );
     assert_eq!(root_token.outcome, Some(TokenOutcome::Completed));
     assert_eq!(root_token.node_id, FORK_NODE);
 
     // Child A: completed at branch-a (end node).
-    assert_eq!(child_a.status, TokenStatus::Completed, "{HARNESS}: child-a completed at branch-a");
+    assert_eq!(
+        child_a.status,
+        TokenStatus::Completed,
+        "{HARNESS}: child-a completed at branch-a"
+    );
     assert_eq!(child_a.outcome, Some(TokenOutcome::Completed));
     assert_eq!(child_a.node_id, BRANCH_A_NODE);
     assert!(child_a.required, "{HARNESS}: child-a is required");
@@ -208,7 +228,11 @@ fn wf_token_005__end_node_completes_correct_token() {
         .store()
         .with_tx(|tx| tx.get_instance(&instance))
         .expect("the instance reads");
-    assert_eq!(instance_final.status, ProcessStatus::Completed, "{HARNESS}: process completes after first required child");
+    assert_eq!(
+        instance_final.status,
+        ProcessStatus::Completed,
+        "{HARNESS}: process completes after first required child"
+    );
 
     // ── Now test with a graph where the end node is NOT the first branch ────────────────────────────────────────
     // Use a fork where the first branch has a task (so it parks) and the second branch ends immediately.
@@ -230,8 +254,8 @@ fn wf_token_005__end_node_completes_correct_token() {
             id: FORK_NODE.to_string(),
             node_type: "fork".to_string(),
             transitions: Some(vec![
-                transition(TO_B, BRANCH_B_NODE, Some(true)),  // First: task branch
-                transition(TO_A, BRANCH_A_NODE, Some(true)),  // Second: immediate end
+                transition(TO_B, BRANCH_B_NODE, Some(true)), // First: task branch
+                transition(TO_A, BRANCH_A_NODE, Some(true)), // Second: immediate end
             ]),
             ..Default::default()
         },
@@ -316,22 +340,41 @@ fn wf_token_005__end_node_completes_correct_token() {
 
     eprintln!("{HARNESS}: v2 Found {} tokens:", all_tokens2.len());
     for t in &all_tokens2 {
-        eprintln!("  {} parent={:?} node={} status={:?} required={}", 
-            t.id, t.parent_token_id, t.node_id, t.status, t.required);
+        eprintln!(
+            "  {} parent={:?} node={} status={:?} required={}",
+            t.id, t.parent_token_id, t.node_id, t.status, t.required
+        );
     }
 
     // Now we should have: root (completed at fork) + child-b (active at task-b) + child-a (completed at branch-a)
     // Because the first child (task branch) parks at task, so process stays active, then second child created and completes.
     assert_eq!(all_tokens2.len(), 3, "{HARNESS}: v2 root + 2 children");
 
-    let root2 = all_tokens2.iter().find(|t| t.parent_token_id.is_none()).expect("root v2");
-    let child_b = all_tokens2.iter().find(|t| t.node_id == TASK_B_NODE).expect("child-b at task-b");
-    let child_a2 = all_tokens2.iter().find(|t| t.node_id == BRANCH_A_NODE).expect("child-a at branch-a");
+    let root2 = all_tokens2
+        .iter()
+        .find(|t| t.parent_token_id.is_none())
+        .expect("root v2");
+    let child_b = all_tokens2
+        .iter()
+        .find(|t| t.node_id == TASK_B_NODE)
+        .expect("child-b at task-b");
+    let child_a2 = all_tokens2
+        .iter()
+        .find(|t| t.node_id == BRANCH_A_NODE)
+        .expect("child-a at branch-a");
 
     assert_eq!(root2.status, TokenStatus::Completed);
-    assert_eq!(child_b.status, TokenStatus::Active, "{HARNESS}: child-b active at task");
+    assert_eq!(
+        child_b.status,
+        TokenStatus::Active,
+        "{HARNESS}: child-b active at task"
+    );
     assert_eq!(child_b.node_id, TASK_B_NODE);
-    assert_eq!(child_a2.status, TokenStatus::Completed, "{HARNESS}: child-a completed at branch-a");
+    assert_eq!(
+        child_a2.status,
+        TokenStatus::Completed,
+        "{HARNESS}: child-a completed at branch-a"
+    );
     assert_eq!(child_a2.node_id, BRANCH_A_NODE);
 
     let child_b_id = child_b.id.clone();

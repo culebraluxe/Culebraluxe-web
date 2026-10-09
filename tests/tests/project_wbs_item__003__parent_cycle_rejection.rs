@@ -33,7 +33,9 @@ async fn create_test_project(db: &Database) -> String {
 
 #[tokio::test]
 async fn project_wbs_item_003__parent_cycle_rejection() {
-    let db = Database::connect_target(DbTarget::Dev).await.expect("connect to DEV database");
+    let db = Database::connect_target(DbTarget::Dev)
+        .await
+        .expect("connect to DEV database");
     let project_id = create_test_project(&db).await;
     let dao = WbsDao::new(db.clone());
 
@@ -150,7 +152,10 @@ async fn project_wbs_item_003__parent_cycle_rejection() {
             entity: None,
         })
         .await;
-    assert!(self_item.is_ok(), "DAO allows self-parent; database FK allows it");
+    assert!(
+        self_item.is_ok(),
+        "DAO allows self-parent; database FK allows it"
+    );
 
     // 5. Test that a valid parent change (no cycle) works
     let d_id = Uuid::new_v4().to_string();

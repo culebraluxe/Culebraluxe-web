@@ -111,7 +111,11 @@ fn fixture(mode: Mode) -> Fixture {
         audit.clone(),
         Arc::new(CapturingDomainEventPort::default()),
     ));
-    Fixture { runtime, port, audit }
+    Fixture {
+        runtime,
+        port,
+        audit,
+    }
 }
 
 #[tokio::test]
@@ -120,7 +124,11 @@ async fn service_abstract_007__authorization_called_before_mutation() {
     let context = context();
 
     // ── THE CONTRACT: allow consults the port first, then the mutation may run. ──
-    let Fixture { runtime, port, audit } = fixture(Mode::Allow);
+    let Fixture {
+        runtime,
+        port,
+        audit,
+    } = fixture(Mode::Allow);
     let mut mutated = false;
     let decision = authorize(
         &runtime,
@@ -135,7 +143,10 @@ async fn service_abstract_007__authorization_called_before_mutation() {
     assert!(decision.allowed);
     // The mutation runs only after the decision is in hand — this ordering is the contract.
     mutated = true;
-    assert!(mutated, "{HARNESS}: the allowed mutation runs after authorization");
+    assert!(
+        mutated,
+        "{HARNESS}: the allowed mutation runs after authorization"
+    );
     let requests = port.requests.lock().expect("auth capture poisoned");
     assert_eq!(
         requests.len(),
@@ -153,7 +164,11 @@ async fn service_abstract_007__authorization_called_before_mutation() {
     );
 
     // ── NEGATIVE ONE: denial refuses AND audits, the mutation never runs. ──
-    let Fixture { runtime, port, audit } = fixture(Mode::Deny);
+    let Fixture {
+        runtime,
+        port,
+        audit,
+    } = fixture(Mode::Deny);
     let mutated = false;
     let error = authorize(
         &runtime,

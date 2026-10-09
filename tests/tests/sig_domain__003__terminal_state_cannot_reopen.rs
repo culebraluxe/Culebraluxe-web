@@ -15,13 +15,19 @@
 //!     --test sig_domain__003__terminal_state_cannot_reopen -- --ignored
 
 use db::{Database, SignatureDao};
-use web::signature::SignatureService;
-use model::{PrepareSignatureRequest, SignatureRequestStatus, SignatureRecipientRole, PreparedSignatureRecipient};
-use services::{ServiceActor, ServiceActorKind, ServiceContext, ServiceInfrastructure, DefaultAuthorizationPort, CapturingAuditPort, CapturingDomainEventPort};
-use test_harness::providers::FakeSignatureProvider;
+use model::{
+    PrepareSignatureRequest, PreparedSignatureRecipient, SignatureRecipientRole,
+    SignatureRequestStatus,
+};
+use services::{
+    CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
+    ServiceActorKind, ServiceContext, ServiceInfrastructure,
+};
 use std::sync::Arc;
+use test_harness::providers::FakeSignatureProvider;
+use web::signature::SignatureService;
 
-use test_harness::database::{TestDatabase, HarnessDbError};
+use test_harness::database::{HarnessDbError, TestDatabase};
 
 const HARNESS: &str = "SignatureService/L2 Persistence";
 
@@ -68,10 +74,18 @@ async fn create_transaction_document(database: &TestDatabase, ns: &str) -> Strin
     .expect("transaction document must be created")
 }
 
-async fn create_completed_request(database: &TestDatabase, service: &SignatureService<SignatureDao>, ns: &str) -> String {
+async fn create_completed_request(
+    database: &TestDatabase,
+    service: &SignatureService<SignatureDao>,
+    ns: &str,
+) -> String {
     let tx_doc_id = create_transaction_document(database, ns).await;
     let internal = test_context();
-    let mut tx = database.database().begin("sig-domain-003.create").await.expect("tx");
+    let mut tx = database
+        .database()
+        .begin("sig-domain-003.create")
+        .await
+        .expect("tx");
     let result = service
         .prepare_transactional(
             &mut tx,
@@ -95,10 +109,27 @@ async fn create_completed_request(database: &TestDatabase, service: &SignatureSe
         .expect("prepare must succeed");
     let req_id = result.signature_request.id.clone();
     // Transition through the full lifecycle to completed
-    service.transition_transactional(&mut tx, &req_id, SignatureRequestStatus::Sent, &internal).await.expect("sent");
-    service.transition_transactional(&mut tx, &req_id, SignatureRequestStatus::Viewed, &internal).await.expect("viewed");
-    service.transition_transactional(&mut tx, &req_id, SignatureRequestStatus::Signed, &internal).await.expect("signed");
-    service.transition_transactional(&mut tx, &req_id, SignatureRequestStatus::Completed, &internal).await.expect("completed");
+    service
+        .transition_transactional(&mut tx, &req_id, SignatureRequestStatus::Sent, &internal)
+        .await
+        .expect("sent");
+    service
+        .transition_transactional(&mut tx, &req_id, SignatureRequestStatus::Viewed, &internal)
+        .await
+        .expect("viewed");
+    service
+        .transition_transactional(&mut tx, &req_id, SignatureRequestStatus::Signed, &internal)
+        .await
+        .expect("signed");
+    service
+        .transition_transactional(
+            &mut tx,
+            &req_id,
+            SignatureRequestStatus::Completed,
+            &internal,
+        )
+        .await
+        .expect("completed");
     tx.commit().await.expect("commit");
     req_id
 }
@@ -117,9 +148,29 @@ async fn sig_domain_003__terminal_state_cannot_reopen() {
 
     // 2. Attempt to transition from completed to any other state - all must fail.
     let terminal_states = ["completed", "declined", "voided", "expired", "error"];
-    for target in ["requested", "sent", "viewed", "signed", "declined", "voided", "expired", "error"] {
-        let mut tx = database.database().begin("sig-domain-003.transition").await.expect("tx");
-        let result = service.transition_transactional(&mut tx, &req_id, SignatureRequestStatus::try_from(target).unwrap(), &internal).await;
+    for target in [
+        "requested",
+        "sent",
+        "viewed",
+        "signed",
+        "declined",
+        "voided",
+        "expired",
+        "error",
+    ] {
+        let mut tx = database
+            .database()
+            .begin("sig-domain-003.transition")
+            .await
+            .expect("tx");
+        let result = service
+            .transition_transactional(
+                &mut tx,
+                &req_id,
+                SignatureRequestStatus::try_from(target).unwrap(),
+                &internal,
+            )
+            .await;
         assert!(
             result.is_err(),
             "{HARNESS}: completed -> {target} must be rejected"
@@ -133,12 +184,16 @@ async fn sig_domain_003__terminal_state_cannot_reopen() {
     }
 
     // 3. Verify the request is still completed.
-    let status: String = sqlx::query_scalar("select status from signature_request where id = $1::uuid")
-        .bind(&req_id)
-        .fetch_one(database.database().pool())
-        .await
-        .expect("status must read");
-    assert_eq!(status, "completed", "{HARNESS}: request must remain completed");
+    let status: String =
+        sqlx::query_scalar("select status from signature_request where id = $1::uuid")
+            .bind(&req_id)
+            .fetch_one(database.database().pool())
+            .await
+            .expect("status must read");
+    assert_eq!(
+        status, "completed",
+        "{HARNESS}: request must remain completed"
+    );
 
     // 4. Test other terminal states (declined, voided, expired, error) also cannot reopen.
     for terminal in vec!["declined", "voided", "expired", "error"] {
@@ -155,8 +210,19 @@ async fn sig_domain_003__terminal_state_cannot_reopen() {
         .expect("signature request must be created");
 
         for target in ["requested", "sent", "viewed", "signed", "completed"] {
-            let mut tx = database.database().begin("sig-domain-003.transition").await.expect("tx");
-            let result = service.transition_transactional(&mut tx, &req_id, SignatureRequestStatus::try_from(target).unwrap(), &internal).await;
+            let mut tx = database
+                .database()
+                .begin("sig-domain-003.transition")
+                .await
+                .expect("tx");
+            let result = service
+                .transition_transactional(
+                    &mut tx,
+                    &req_id,
+                    SignatureRequestStatus::try_from(target).unwrap(),
+                    &internal,
+                )
+                .await;
             assert!(
                 result.is_err(),
                 "{HARNESS}: {terminal} -> {target} must be rejected"

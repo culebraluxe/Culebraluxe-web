@@ -25,8 +25,8 @@ use std::collections::BTreeMap;
 
 use test_harness::{EngineHarness, TestClock};
 use workflow::{
-    DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessEvent, ProcessGraph, ProcessOutcome,
-    StartProcessParams, Task, TransitionDefinition, Value,
+    DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessEvent, ProcessGraph,
+    ProcessOutcome, StartProcessParams, Task, TransitionDefinition, Value,
 };
 
 /// The canonical harness label for this level.

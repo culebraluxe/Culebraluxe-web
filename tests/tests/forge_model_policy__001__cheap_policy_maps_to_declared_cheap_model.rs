@@ -55,13 +55,15 @@ fn forge_model_policy_001__cheap_policy_maps_to_declared_cheap_model() {
         ModelSelection::from_parts(Some("cheap"), None),
         ModelSelection::Cheap
     );
-    assert_eq!(ModelSelection::from_parts(None, None), ModelSelection::Cheap);
+    assert_eq!(
+        ModelSelection::from_parts(None, None),
+        ModelSelection::Cheap
+    );
 
     // ── 5. THE LANE MODEL: RESOLUTION BILLS THE PIN. ────────────────────────
     // The cheap arm reads no environment: the pin is unconditional.
     assert_eq!(
-        resolve_model_for_policy(Some("cheap"))
-            .expect("cheap resolves"),
+        resolve_model_for_policy(Some("cheap")).expect("cheap resolves"),
         MODEL_FOR_CHEAP.to_string()
     );
 

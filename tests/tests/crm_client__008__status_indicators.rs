@@ -69,7 +69,11 @@ async fn connect_dev() -> ClientHarness {
     );
 }
 
-async fn seed_person(pool: &PgPool, display_name: &str, archived: bool) -> Result<String, DbFailure> {
+async fn seed_person(
+    pool: &PgPool,
+    display_name: &str,
+    archived: bool,
+) -> Result<String, DbFailure> {
     sqlx::query_scalar(
         "insert into person (display_name, role, status, archived_at)
          values ($1, 'buyer', 'warm', case when $2 then now() else null end)
@@ -192,10 +196,16 @@ async fn crm_client_008__status_indicators() {
         .admin(&search(&format!("{marker}-ana")), &ctx)
         .await
         .expect("the production admin read runs");
-    assert_eq!(page.total, 1, "{HARNESS}: the search finds exactly the fixture client");
+    assert_eq!(
+        page.total, 1,
+        "{HARNESS}: the search finds exactly the fixture client"
+    );
     assert_eq!(page.rows.len(), 1, "{HARNESS}: one admin row");
     let row = &page.rows[0];
-    assert_eq!(row.id, client, "{HARNESS}: the row is the fixture client's own");
+    assert_eq!(
+        row.id, client,
+        "{HARNESS}: the row is the fixture client's own"
+    );
     assert_eq!(
         row.status, "warm",
         "{HARNESS}: the status indicator passes the stored status through"
@@ -228,7 +238,10 @@ async fn crm_client_008__status_indicators() {
         .expect("the bare admin read runs");
     assert_eq!(bare_page.total, 1, "{HARNESS}: the bare client is found");
     let bare_row = &bare_page.rows[0];
-    assert_eq!(bare_row.id, bare, "{HARNESS}: the row is the bare client's own");
+    assert_eq!(
+        bare_row.id, bare,
+        "{HARNESS}: the row is the bare client's own"
+    );
     assert_eq!(
         bare_row.open_task_count, 0,
         "{HARNESS}: no tasks reads zero, not null"
@@ -301,12 +314,15 @@ async fn crm_client_008__status_indicators() {
         0,
         "{HARNESS}: the proof leaves no person behind"
     );
-    let property_left: i64 = sqlx::query_scalar("select count(*) from property where id = $1::uuid")
-        .bind(&property)
-        .fetch_one(pool)
-        .await
-        .map_err(|error| DbFailure::from_sqlx("test-harness.crm_client008.property_left", &error))
-        .expect("the property leftover count reads");
+    let property_left: i64 =
+        sqlx::query_scalar("select count(*) from property where id = $1::uuid")
+            .bind(&property)
+            .fetch_one(pool)
+            .await
+            .map_err(|error| {
+                DbFailure::from_sqlx("test-harness.crm_client008.property_left", &error)
+            })
+            .expect("the property leftover count reads");
     assert_eq!(
         property_left, 0,
         "{HARNESS}: the proof leaves no property behind"

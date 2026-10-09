@@ -83,7 +83,10 @@ fn service_abstract_012__idempotency_where_command_declares_it() {
     assert_eq!(result.value, None);
     let error = result.error.expect("the replayed error must travel");
     assert_eq!(error.code, "CONTRACT_STATE");
-    assert!(error.retryable, "{HARNESS}: conflict replays stay retryable");
+    assert!(
+        error.retryable,
+        "{HARNESS}: conflict replays stay retryable"
+    );
 
     // ── NEGATIVE: an in-flight claim conflicts retryably — never replays success. ──
     let pending = CommandReceipt {
@@ -120,12 +123,16 @@ fn service_abstract_012__idempotency_where_command_declares_it() {
         "{HARNESS}: contract.execute declares idempotency — the replay above is what honors it"
     );
     assert_eq!(
-        capability.execution.partition_key(&json!({ "contractId": "c-1" })),
+        capability
+            .execution
+            .partition_key(&json!({ "contractId": "c-1" })),
         Some("c-1".into()),
         "{HARNESS}: the ordered command partitions on its declared key"
     );
     assert_eq!(
-        capability.execution.partition_key(&json!({ "other": "c-1" })),
+        capability
+            .execution
+            .partition_key(&json!({ "other": "c-1" })),
         None,
         "{HARNESS}: a missing partition key partitions nowhere, never on a guess"
     );

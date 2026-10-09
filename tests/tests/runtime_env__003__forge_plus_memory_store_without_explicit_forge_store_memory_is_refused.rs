@@ -28,9 +28,9 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test runtime_env__003__forge_plus_memory_store_without_explicit_forge_store_memory_is_refused
 
-use test_harness::RuntimeHarness;
-use forge::engine::vendor_session::database_url;
 use db::{resolve_forge_target, DbTarget};
+use forge::engine::vendor_session::database_url;
+use test_harness::RuntimeHarness;
 
 #[test]
 #[allow(non_snake_case)]
@@ -162,8 +162,7 @@ fn runtime_env_003__forge_plus_memory_store_without_explicit_forge_store_memory_
     env.remove("DATABASE_URL_PROD");
     let url = database_url();
     assert_eq!(
-        url,
-        None,
+        url, None,
         "{api}: vendor_session::database_url must return None without DATABASE_URL_PROD"
     );
 
@@ -171,8 +170,7 @@ fn runtime_env_003__forge_plus_memory_store_without_explicit_forge_store_memory_
     env.set("DATABASE_URL_DEV", "postgres://dev.invalid/culebraluxe");
     let url = database_url();
     assert_eq!(
-        url,
-        None,
+        url, None,
         "{api}: vendor_session::database_url must not fall back to DATABASE_URL_DEV"
     );
 
@@ -180,8 +178,7 @@ fn runtime_env_003__forge_plus_memory_store_without_explicit_forge_store_memory_
     env.set("DATABASE_URL", "postgres://default.invalid/culebraluxe");
     let url = database_url();
     assert_eq!(
-        url,
-        None,
+        url, None,
         "{api}: vendor_session::database_url must not fall back to DATABASE_URL"
     );
 }

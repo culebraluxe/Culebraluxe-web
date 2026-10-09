@@ -42,11 +42,23 @@ fn ui_model_006__permission_denied() {
     let model = harness.model();
     let failed_error = match &model.data {
         Remote::Failed(e) => e.clone(),
-        other => panic!("{HARNESS}: update must transition to Remote::Failed, got {:?}", other),
+        other => panic!(
+            "{HARNESS}: update must transition to Remote::Failed, got {:?}",
+            other
+        ),
     };
-    assert_eq!(failed_error.status, 403, "{HARNESS}: permission denied must have status 403");
-    assert_eq!(failed_error.code, "FORBIDDEN", "{HARNESS}: permission denied must have code FORBIDDEN");
-    assert!(failed_error.message.contains("permission"), "{HARNESS}: message must mention permission");
+    assert_eq!(
+        failed_error.status, 403,
+        "{HARNESS}: permission denied must have status 403"
+    );
+    assert_eq!(
+        failed_error.code, "FORBIDDEN",
+        "{HARNESS}: permission denied must have code FORBIDDEN"
+    );
+    assert!(
+        failed_error.message.contains("permission"),
+        "{HARNESS}: message must mention permission"
+    );
 
     // The follow-up command should be None
     let kinds = test_harness::mvi::screen::classify(&follow_up);
@@ -70,9 +82,18 @@ fn ui_model_006__permission_denied() {
     let model2 = harness2.model();
     match &model2.data {
         Remote::Failed(e) => {
-            assert_eq!(e.status, 401, "{HARNESS}: unauthorized must have status 401");
-            assert_eq!(e.code, "UNAUTHORIZED", "{HARNESS}: unauthorized must have code UNAUTHORIZED");
+            assert_eq!(
+                e.status, 401,
+                "{HARNESS}: unauthorized must have status 401"
+            );
+            assert_eq!(
+                e.code, "UNAUTHORIZED",
+                "{HARNESS}: unauthorized must have code UNAUTHORIZED"
+            );
         }
-        other => panic!("{HARNESS}: 401 must transition to Remote::Failed, got {:?}", other),
+        other => panic!(
+            "{HARNESS}: 401 must transition to Remote::Failed, got {:?}",
+            other
+        ),
     }
 }

@@ -101,7 +101,9 @@ async fn db_concurrency_009__two_signature_webhooks() {
             // Use a transaction to test the prepare path
             let mut tx = db_c.begin("signature.prepare").await.unwrap();
             let result = dao_c.prepare_tx(&mut tx, &request_c).await;
-            if result.is_ok() { tx.commit().await.unwrap(); }
+            if result.is_ok() {
+                tx.commit().await.unwrap();
+            }
             result
         }));
     }
@@ -240,7 +242,9 @@ async fn db_concurrency_009__two_signature_webhooks() {
                 .prepare_tx(&mut tx, &fault_request_c)
                 .await
                 .map_err(|e| e.to_string());
-            if result.is_ok() { tx.commit().await.unwrap(); }
+            if result.is_ok() {
+                tx.commit().await.unwrap();
+            }
             result
         }));
     }

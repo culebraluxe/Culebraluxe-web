@@ -165,11 +165,7 @@ fn history(harness: &EngineHarness, instance: &str) -> Vec<ProcessEvent> {
         .expect("the instance history reads")
 }
 
-fn events_of_type(
-    harness: &EngineHarness,
-    instance: &str,
-    event_type: &str,
-) -> Vec<ProcessEvent> {
+fn events_of_type(harness: &EngineHarness, instance: &str, event_type: &str) -> Vec<ProcessEvent> {
     history(harness, instance)
         .into_iter()
         .filter(|event| event.event_type == event_type)
@@ -207,11 +203,7 @@ fn wf_join_004__only_one_downstream_token_created() {
 
     // Exactly one token.joined event, and exactly one token past the join.
     let joined = events_of_type(&harness, &instance, "token.joined");
-    assert_eq!(
-        joined.len(),
-        1,
-        "{HARNESS}: one join, one join event"
-    );
+    assert_eq!(joined.len(), 1, "{HARNESS}: one join, one join event");
     let tokens_after = tokens(&harness, &instance);
     let downstream: Vec<&Token> = tokens_after
         .iter()

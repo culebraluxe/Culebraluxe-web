@@ -56,7 +56,11 @@ impl Default for LeaseFenceConfig {
 pub fn parse_supervisor_deadline(turn_ceiling: Option<Duration>) -> Option<Duration> {
     if let Ok(raw) = std::env::var(SUPERVISOR_DEADLINE_ENV) {
         let raw = raw.trim();
-        if raw.is_empty() || raw == "0" || raw.eq_ignore_ascii_case("off") || raw.eq_ignore_ascii_case("none") {
+        if raw.is_empty()
+            || raw == "0"
+            || raw.eq_ignore_ascii_case("off")
+            || raw.eq_ignore_ascii_case("none")
+        {
             return None;
         }
         if let Ok(minutes) = raw.parse::<u64>() {
@@ -351,9 +355,10 @@ pub fn execute_claimed_job_unsettled(
         supervisor_deadline: parse_supervisor_deadline(turn_ceiling),
     };
 
-    let service_result = run_with_lease_heartbeat(jobs, worker_id, &lease.job_id, config, interrupt, || {
-        service.execute(&lease.node_id, task)
-    });
+    let service_result =
+        run_with_lease_heartbeat(jobs, worker_id, &lease.job_id, config, interrupt, || {
+            service.execute(&lease.node_id, task)
+        });
 
     match service_result {
         Ok(outcome) => Ok(outcome),

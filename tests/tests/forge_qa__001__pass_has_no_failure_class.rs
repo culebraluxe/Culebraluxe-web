@@ -113,9 +113,8 @@ fn qa_pass_with_unproven_still_no_failure_class() {
         workflow::Value::from("89abcdef0123456789abcdef0123456789abcdef"),
     );
 
-    let commands = vec![
-        "cargo test --manifest-path Cargo.toml -p test-harness --test example".to_string(),
-    ];
+    let commands =
+        vec!["cargo test --manifest-path Cargo.toml -p test-harness --test example".to_string()];
 
     // WHEN: All commands pass but acceptance is NOT mapped => Unproven
     let assay_evidence = collect_assay_evidence(
@@ -175,7 +174,10 @@ fn qa_pass_tool_artifact_has_correct_structure() {
     assert_eq!(tool_artifact.verdict, Some("PASS".to_string()));
     assert_eq!(tool_artifact.story_id, "test-story");
     assert_eq!(tool_artifact.story_run_id, Some("test-run".to_string()));
-    assert_eq!(tool_artifact.sha, Some("0123456789abcdef0123456789abcdef01234567".to_string()));
+    assert_eq!(
+        tool_artifact.sha,
+        Some("0123456789abcdef0123456789abcdef01234567".to_string())
+    );
     assert!(tool_artifact.summary.is_none());
     assert!(tool_artifact.detail.is_none());
 }

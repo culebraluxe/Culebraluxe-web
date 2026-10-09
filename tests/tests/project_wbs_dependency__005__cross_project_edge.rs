@@ -79,11 +79,16 @@ async fn project_wbs_dependency_005__cross_project_edge() {
 
     // The DAO insert should fail due to foreign key constraint
     let result = dao.insert_dependency(&cross_edge).await;
-    assert!(result.is_err(), "cross-project dependency must fail at database level");
+    assert!(
+        result.is_err(),
+        "cross-project dependency must fail at database level"
+    );
     let error = result.unwrap_err();
     let error_str = error.to_string().to_lowercase();
     assert!(
-        error_str.contains("foreign key") || error_str.contains("fk") || error_str.contains("constraint"),
+        error_str.contains("foreign key")
+            || error_str.contains("fk")
+            || error_str.contains("constraint"),
         "error must indicate foreign key violation: {}",
         error
     );
@@ -91,13 +96,16 @@ async fn project_wbs_dependency_005__cross_project_edge() {
     // Same test with project_id = project_b but source in project_a
     let cross_edge2 = WbsDependency {
         project_id: project_b.clone(),
-        source_id: item_a,      // Item in project A - violates FK for project B
-        target_id: item_b,      // Item in project B - OK
+        source_id: item_a, // Item in project A - violates FK for project B
+        target_id: item_b, // Item in project B - OK
         kind: "finish_to_start".into(),
     };
 
     let result = dao.insert_dependency(&cross_edge2).await;
-    assert!(result.is_err(), "cross-project dependency (v2) must fail at database level");
+    assert!(
+        result.is_err(),
+        "cross-project dependency (v2) must fail at database level"
+    );
 
     // Valid edge within same project must succeed
     let item_a2 = create_test_item(&test_db, &project_a, "Item A2").await;

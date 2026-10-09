@@ -105,17 +105,41 @@ async fn crm_catchup_003__completed_tasks_excluded() {
         "{HARNESS}: the completed-task proof runs only on an isolated DEV target"
     );
     let ns = harness.namespace().to_string();
-    let marker = format!("TST-CRMCATCHUP003-{ns}-{}", &Uuid::new_v4().to_string()[..8]);
+    let marker = format!(
+        "TST-CRMCATCHUP003-{ns}-{}",
+        &Uuid::new_v4().to_string()[..8]
+    );
     let dao = CatchUpDao::new(harness.database().database().clone());
 
     // D — finished work only: a completed task whose date is three days past.
     let person_d = seed_catchup_person(&harness, &format!("{marker}-d")).await;
-    let task_d_done = seed_task(&harness, &person_d, "D: done, overdue", "completed", Some(-3)).await;
+    let task_d_done = seed_task(
+        &harness,
+        &person_d,
+        "D: done, overdue",
+        "completed",
+        Some(-3),
+    )
+    .await;
 
     // E — finished work beside open work: a completed task due in one day, an open task due in three.
     let person_e = seed_catchup_person(&harness, &format!("{marker}-e")).await;
-    let task_e_done = seed_task(&harness, &person_e, "E: done, due tomorrow", "completed", Some(1)).await;
-    let task_e_open = seed_task(&harness, &person_e, "E: open, due in three days", "open", Some(3)).await;
+    let task_e_done = seed_task(
+        &harness,
+        &person_e,
+        "E: done, due tomorrow",
+        "completed",
+        Some(1),
+    )
+    .await;
+    let task_e_open = seed_task(
+        &harness,
+        &person_e,
+        "E: open, due in three days",
+        "open",
+        Some(3),
+    )
+    .await;
 
     // F — the control: an OPEN task three days overdue.
     let person_f = seed_catchup_person(&harness, &format!("{marker}-f")).await;
@@ -180,7 +204,10 @@ async fn crm_catchup_003__completed_tasks_excluded() {
 
     sweep(&harness, &marker).await;
     assert_eq!(
-        harness.leftover_count(&marker).await.expect("leftover count"),
+        harness
+            .leftover_count(&marker)
+            .await
+            .expect("leftover count"),
         0,
         "{HARNESS}: the run's persons and tasks are gone"
     );

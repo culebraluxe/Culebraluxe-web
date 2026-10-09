@@ -167,7 +167,11 @@ async fn forge_packet_007__context_refs_preserved() {
         .unwrap()
         .expect("the blank story has a packet");
     assert!(
-        !blank_row.architect_brief.as_deref().unwrap_or("").contains(&CTX_A),
+        !blank_row
+            .architect_brief
+            .as_deref()
+            .unwrap_or("")
+            .contains(&CTX_A),
         "{HARNESS}: a story must never read back another story's context_refs"
     );
 

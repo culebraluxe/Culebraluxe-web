@@ -61,7 +61,11 @@ fn fixture() -> Fixture {
         .with_error_sink(errors.clone())
         .with_alert_port(alerts.clone()),
     );
-    Fixture { runtime, errors, alerts }
+    Fixture {
+        runtime,
+        errors,
+        alerts,
+    }
 }
 
 #[tokio::test]
@@ -70,7 +74,11 @@ async fn service_abstract_009__errors_flow_to_common_sink() {
     let context = context();
 
     // ── THE CONTRACT: infrastructure failures reach the common sink + alert. ──
-    let Fixture { runtime, errors, alerts } = fixture();
+    let Fixture {
+        runtime,
+        errors,
+        alerts,
+    } = fixture();
     runtime
         .observe_dispatch_failure(
             "contract",

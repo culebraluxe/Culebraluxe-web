@@ -153,7 +153,12 @@ async fn service_abstract_006__query_dispatch() {
 
     // ── NEGATIVE TWO: malformed payload is a caller error, not a crash. ──
     let error = runtime
-        .call_service("person", "person.search", json!({ "query": "   " }), &context)
+        .call_service(
+            "person",
+            "person.search",
+            json!({ "query": "   " }),
+            &context,
+        )
         .await
         .expect_err("a blank query must fail");
     match error {

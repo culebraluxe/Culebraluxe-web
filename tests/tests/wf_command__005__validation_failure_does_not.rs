@@ -291,10 +291,13 @@ fn wf_command_005__validation_failure_does_not() {
         tokens.iter().all(|token| token.node_id != END_NODE),
         "{HARNESS}: a validation failure must not take the command node's success transition"
     );
-    let success_moves = events.iter().filter(|event| {
-        event.event_type == "token.moved"
-            && event.data.get("transition").and_then(Value::as_str) == Some(SUCCESS_TRANSITION)
-    }).count();
+    let success_moves = events
+        .iter()
+        .filter(|event| {
+            event.event_type == "token.moved"
+                && event.data.get("transition").and_then(Value::as_str) == Some(SUCCESS_TRANSITION)
+        })
+        .count();
     assert_eq!(
         success_moves, 0,
         "{HARNESS}: no move names the success transition after a validation failure"
@@ -318,8 +321,10 @@ fn wf_command_005__validation_failure_does_not() {
 
     // POSITIVE CONTROL — the same graph advances on success, so "the failure
     // did not reach the end node" is not an artifact of a broken graph.
-    let (success_harness, success_recorder, success_id) =
-        run_command("TST-WF-COMMAND-005-SUCCESS", ApplicationCommandOutcome::Success);
+    let (success_harness, success_recorder, success_id) = run_command(
+        "TST-WF-COMMAND-005-SUCCESS",
+        ApplicationCommandOutcome::Success,
+    );
     let success_instance = success_harness
         .store()
         .with_tx(|tx| tx.get_instance(&success_id))

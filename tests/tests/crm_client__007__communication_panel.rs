@@ -137,12 +137,24 @@ async fn crm_client_007__communication_panel() {
     // Three single-channel events (email/call/meeting never burst-group) at three distinct
     // instants. Insertion order is shuffled so the panel must order by event time, not by
     // write order.
-    let mid = insert_interaction(pool, &client, "email", "2026-10-01T11:00:00+00:00", "mid email")
-        .await
-        .expect("the middle event commits");
-    let oldest = insert_interaction(pool, &client, "call", "2026-10-01T09:00:00+00:00", "old call")
-        .await
-        .expect("the oldest event commits");
+    let mid = insert_interaction(
+        pool,
+        &client,
+        "email",
+        "2026-10-01T11:00:00+00:00",
+        "mid email",
+    )
+    .await
+    .expect("the middle event commits");
+    let oldest = insert_interaction(
+        pool,
+        &client,
+        "call",
+        "2026-10-01T09:00:00+00:00",
+        "old call",
+    )
+    .await
+    .expect("the oldest event commits");
     let newest = insert_interaction(
         pool,
         &client,
@@ -174,9 +186,18 @@ async fn crm_client_007__communication_panel() {
         .history(&request(1, 50, false), &ctx)
         .await
         .expect("the production panel read runs");
-    assert_eq!(panel.total, 3, "{HARNESS}: the panel counts every committed event");
-    assert_eq!(panel.page, 1, "{HARNESS}: the panel echoes the requested page");
-    assert_eq!(panel.page_size, 50, "{HARNESS}: the panel echoes the requested page size");
+    assert_eq!(
+        panel.total, 3,
+        "{HARNESS}: the panel counts every committed event"
+    );
+    assert_eq!(
+        panel.page, 1,
+        "{HARNESS}: the panel echoes the requested page"
+    );
+    assert_eq!(
+        panel.page_size, 50,
+        "{HARNESS}: the panel echoes the requested page size"
+    );
     assert!(!panel.recent, "{HARNESS}: the panel echoes non-recent mode");
     assert_eq!(
         detail_ids(&panel.rows),
@@ -261,7 +282,10 @@ async fn crm_client_007__communication_panel() {
         )
         .await
         .expect("a stranger's panel reads rather than erroring");
-    assert_eq!(stranger.total, 0, "{HARNESS}: a stranger's panel counts nothing");
+    assert_eq!(
+        stranger.total, 0,
+        "{HARNESS}: a stranger's panel counts nothing"
+    );
     assert!(
         stranger.rows.is_empty(),
         "{HARNESS}: a stranger's panel shows no rows"
@@ -272,7 +296,10 @@ async fn crm_client_007__communication_panel() {
     //    the production read models are rebuilt, and the panel reads empty afterwards.
     // -----------------------------------------------------------------------------------------------------------
     let removed = harness.cleanup(&marker).await.expect("cleanup persons");
-    assert_eq!(removed, 1, "{HARNESS}: exactly this run's person is removed");
+    assert_eq!(
+        removed, 1,
+        "{HARNESS}: exactly this run's person is removed"
+    );
     landing
         .refresh_client_read_models()
         .await

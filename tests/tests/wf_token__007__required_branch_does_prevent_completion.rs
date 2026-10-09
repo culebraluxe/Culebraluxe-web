@@ -217,7 +217,8 @@ fn wf_token_007__required_branch_does_prevent_completion() {
         .with_tx(|tx| tx.get_instance(&instance))
         .expect("instance reads");
     assert_eq!(
-        instance_after_fork.status, ProcessStatus::Active,
+        instance_after_fork.status,
+        ProcessStatus::Active,
         "{HARNESS}: process is active with required tokens outstanding"
     );
 
@@ -255,7 +256,8 @@ fn wf_token_007__required_branch_does_prevent_completion() {
         .with_tx(|tx| tx.get_instance(&instance))
         .expect("instance reads");
     assert_eq!(
-        instance_after_one.status, ProcessStatus::Active,
+        instance_after_one.status,
+        ProcessStatus::Active,
         "{HARNESS}: process remains active while ANY required token is active"
     );
 
@@ -288,7 +290,8 @@ fn wf_token_007__required_branch_does_prevent_completion() {
         .with_tx(|tx| tx.get_instance(&instance))
         .expect("the instance reads");
     assert_eq!(
-        final_instance.status, ProcessStatus::Completed,
+        final_instance.status,
+        ProcessStatus::Completed,
         "{HARNESS}: process completes when ALL required tokens complete"
     );
 
@@ -322,7 +325,8 @@ fn wf_token_007__required_branch_does_prevent_completion() {
         .expect("tokens for instance read");
     for token in tokens2 {
         assert_eq!(
-            token.status, TokenStatus::Completed, // complete_token is called with Cancelled outcome
+            token.status,
+            TokenStatus::Completed, // complete_token is called with Cancelled outcome
             "{HARNESS}: cancelled process marks all tokens Completed with Cancelled outcome"
         );
         assert_eq!(token.outcome, Some(TokenOutcome::Cancelled));

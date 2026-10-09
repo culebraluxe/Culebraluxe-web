@@ -16,13 +16,16 @@
 //!     --test sig_domain__004__unique_signer_mailbox -- --ignored
 
 use db::{Database, SignatureDao};
-use web::signature::SignatureService;
-use model::{PrepareSignatureRequest, SignatureRecipientRole, PreparedSignatureRecipient};
-use services::{ServiceActor, ServiceActorKind, ServiceContext, ServiceInfrastructure, DefaultAuthorizationPort, CapturingAuditPort, CapturingDomainEventPort};
-use test_harness::providers::FakeSignatureProvider;
+use model::{PrepareSignatureRequest, PreparedSignatureRecipient, SignatureRecipientRole};
+use services::{
+    CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
+    ServiceActorKind, ServiceContext, ServiceInfrastructure,
+};
 use std::sync::Arc;
+use test_harness::providers::FakeSignatureProvider;
+use web::signature::SignatureService;
 
-use test_harness::database::{TestDatabase, HarnessDbError};
+use test_harness::database::{HarnessDbError, TestDatabase};
 
 const HARNESS: &str = "SignatureService/L2 Persistence";
 
@@ -82,7 +85,11 @@ async fn sig_domain_004__unique_signer_mailbox() {
     let tx_doc_id = create_transaction_document(&database, &ns).await;
 
     // 2. Create a signature request with one signer.
-    let mut tx = database.database().begin("sig-domain-004.prepare").await.expect("tx");
+    let mut tx = database
+        .database()
+        .begin("sig-domain-004.prepare")
+        .await
+        .expect("tx");
     let result = service
         .prepare_transactional(
             &mut tx,
@@ -108,7 +115,11 @@ async fn sig_domain_004__unique_signer_mailbox() {
     tx.commit().await.expect("commit");
 
     // 3. Attempt to add a second signer with the same email - must be rejected.
-    let mut tx2 = database.database().begin("sig-domain-004.add_signer").await.expect("tx2");
+    let mut tx2 = database
+        .database()
+        .begin("sig-domain-004.add_signer")
+        .await
+        .expect("tx2");
     let result = service
         .prepare_transactional(
             &mut tx2,
@@ -147,7 +158,9 @@ async fn sig_domain_004__unique_signer_mailbox() {
     );
     let error = result.unwrap_err();
     assert!(
-        error.to_string().contains("duplicate") || error.to_string().contains("unique") || error.to_string().contains("already"),
+        error.to_string().contains("duplicate")
+            || error.to_string().contains("unique")
+            || error.to_string().contains("already"),
         "{HARNESS}: rejection must mention duplicate/unique/already, got {error}"
     );
     tx2.rollback().await.expect("rollback");
@@ -160,7 +173,10 @@ async fn sig_domain_004__unique_signer_mailbox() {
     .fetch_one(database.database().pool())
     .await
     .expect("count must work");
-    assert_eq!(count, 1, "{HARNESS}: original request must have only one signer");
+    assert_eq!(
+        count, 1,
+        "{HARNESS}: original request must have only one signer"
+    );
 
     // 5. Cleanup.
     sqlx::query("delete from transaction_document where source_external_id like $1")

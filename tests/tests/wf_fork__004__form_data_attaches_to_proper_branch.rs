@@ -146,7 +146,10 @@ fn task_at_index(tasks: &[Task], index: i64) -> (i64, i64, Value) {
     let task = tasks
         .iter()
         .find(|task| {
-            task.form_data.get("splitBranchIndex").and_then(Value::as_i64) == Some(index)
+            task.form_data
+                .get("splitBranchIndex")
+                .and_then(Value::as_i64)
+                == Some(index)
         })
         .unwrap_or_else(|| panic!("a branch task is parked at index {index}"));
     let count = task

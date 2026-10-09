@@ -220,21 +220,14 @@ fn history(store: &MemoryStore, instance: &str) -> Vec<ProcessEvent> {
         .expect("the instance history reads")
 }
 
-fn events_of_type(
-    store: &MemoryStore,
-    instance: &str,
-    event_type: &str,
-) -> Vec<ProcessEvent> {
+fn events_of_type(store: &MemoryStore, instance: &str, event_type: &str) -> Vec<ProcessEvent> {
     history(store, instance)
         .into_iter()
         .filter(|event| event.event_type == event_type)
         .collect()
 }
 
-fn complete(
-    engine: &WorkflowEngine<FlakyConnectionStore>,
-    task_id: &str,
-) -> Result<()> {
+fn complete(engine: &WorkflowEngine<FlakyConnectionStore>, task_id: &str) -> Result<()> {
     engine.complete_task(CompleteTaskParams {
         task_id: task_id.to_string(),
         user_id: STARTED_BY.to_string(),

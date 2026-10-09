@@ -287,10 +287,7 @@ fn wf_human_task_004__reassignment() {
         "{HARNESS}: the reassignment event records the previous assignee"
     );
     assert_eq!(
-        reassigned_events[0]
-            .data
-            .get("to")
-            .and_then(Value::as_str),
+        reassigned_events[0].data.get("to").and_then(Value::as_str),
         Some(BOB),
         "{HARNESS}: the reassignment event records the new assignee"
     );

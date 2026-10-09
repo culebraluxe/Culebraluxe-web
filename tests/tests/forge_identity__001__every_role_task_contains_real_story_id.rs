@@ -116,10 +116,7 @@ fn forge_identity_001__every_role_task_contains_real_story_id() {
     // This is a structural test — if the production code ever substituted the process UUID
     // for story_id (as happened in the past), this assertion would catch it.
     assert_eq!(
-        all_tasks
-            .iter()
-            .filter(|t| t.story_id == STORY)
-            .count(),
+        all_tasks.iter().filter(|t| t.story_id == STORY).count(),
         all_tasks.len(),
         "all tasks must carry the real story ID; a single UUID substitution would be caught here"
     );

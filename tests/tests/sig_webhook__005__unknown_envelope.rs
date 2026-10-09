@@ -228,13 +228,11 @@ async fn sweep(pool: &PgPool, fixture: &Fixture) {
         .execute(pool)
         .await
         .expect("envelope row sweep");
-    sqlx::query(
-        "delete from signature_envelope_recipient where signature_request_id = $1::uuid",
-    )
-    .bind(&fixture.request_id)
-    .execute(pool)
-    .await
-    .expect("recipient sweep");
+    sqlx::query("delete from signature_envelope_recipient where signature_request_id = $1::uuid")
+        .bind(&fixture.request_id)
+        .execute(pool)
+        .await
+        .expect("recipient sweep");
     sqlx::query("delete from signature_request where id = $1::uuid")
         .bind(&fixture.request_id)
         .execute(pool)

@@ -39,8 +39,7 @@ fn valid_body() -> String {
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-SIG-WEBHOOK-008).
 fn sig_webhook_008__malformed_event() {
     // 1. NON-JSON is refused, naming the payload rather than any field.
-    let error =
-        parse_webhook_payload("this is not json{{{").expect_err("non-JSON must be refused");
+    let error = parse_webhook_payload("this is not json{{{").expect_err("non-JSON must be refused");
     assert!(
         error.contains("not valid JSON"),
         "non-JSON must report the payload, got: {error}"

@@ -144,21 +144,24 @@ async fn crm_comms_006__timeline_pagination() {
     // 1. PAGES PARTITION THE TIMELINE — page 1/2/3 of size 2 are full[0..2], full[2..4],
     //    full[4..5]: the union is the timeline in order, with no overlap and no gap.
     // -----------------------------------------------------------------------------------------------------------
-    let page1 = dao
-        .moments(&person, 2, 0)
-        .await
-        .expect("page 1 reads");
-    let page2 = dao
-        .moments(&person, 2, 2)
-        .await
-        .expect("page 2 reads");
-    let page3 = dao
-        .moments(&person, 2, 4)
-        .await
-        .expect("page 3 reads");
-    let ids1: Vec<&str> = page1.moments.iter().map(|moment| moment.id.as_str()).collect();
-    let ids2: Vec<&str> = page2.moments.iter().map(|moment| moment.id.as_str()).collect();
-    let ids3: Vec<&str> = page3.moments.iter().map(|moment| moment.id.as_str()).collect();
+    let page1 = dao.moments(&person, 2, 0).await.expect("page 1 reads");
+    let page2 = dao.moments(&person, 2, 2).await.expect("page 2 reads");
+    let page3 = dao.moments(&person, 2, 4).await.expect("page 3 reads");
+    let ids1: Vec<&str> = page1
+        .moments
+        .iter()
+        .map(|moment| moment.id.as_str())
+        .collect();
+    let ids2: Vec<&str> = page2
+        .moments
+        .iter()
+        .map(|moment| moment.id.as_str())
+        .collect();
+    let ids3: Vec<&str> = page3
+        .moments
+        .iter()
+        .map(|moment| moment.id.as_str())
+        .collect();
     assert_eq!(
         ids1,
         full_order[0..2],

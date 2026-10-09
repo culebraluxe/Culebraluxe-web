@@ -91,8 +91,12 @@ fn forge_assay_008__fail_requires_machine_evidence() {
 
     // ── 3. NEGATIVE: NO RUNNER IS ITSELF RECORDED EVIDENCE. ──────────────────
     let no_runner: Option<&dyn Fn(&str) -> CommandResult> = None;
-    let blind =
-        collect_assay_evidence(ForgeGateEvidence::default(), no_runner, &[command.clone()], true);
+    let blind = collect_assay_evidence(
+        ForgeGateEvidence::default(),
+        no_runner,
+        &[command.clone()],
+        true,
+    );
     assert_eq!(blind.verdict, AssayVerdict::Fail);
     assert_eq!(blind.evidence.qa_passed, Some(false));
     assert!(

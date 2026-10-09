@@ -29,7 +29,10 @@ fn opened() -> ScreenHarness<ListingMedia> {
     let ctx = ScreenCtx::default();
     let (mut harness, open) = ScreenHarness::<ListingMedia>::open(ctx.clone());
     let read = open.into_requests().remove(0);
-    assert_eq!(read.path, "/api/portal/rust-ui/listing-media?page=0&search=");
+    assert_eq!(
+        read.path,
+        "/api/portal/rust-ui/listing-media?page=0&search="
+    );
     let loaded = harness.update(read.respond(Ok(page())));
     assert_eq!(screen::classify(&loaded), vec![screen::CommandKind::None]);
     harness
@@ -61,7 +64,8 @@ fn ui_intent_009__pagination() {
     );
     assert_eq!(harness.model().page, 1);
     assert_eq!(
-        harness.model().selected, None,
+        harness.model().selected,
+        None,
         "the selection clears: the rows on screen are new"
     );
 

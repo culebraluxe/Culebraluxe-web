@@ -209,7 +209,10 @@ fn wf_human_task_003__assignment() {
         .expect("the open task definition registers with the engine");
     harness
         .engine()
-        .seed_definition(task_definition(CANDIDATE_KEY, Some(vec![CAROL.to_string()])))
+        .seed_definition(task_definition(
+            CANDIDATE_KEY,
+            Some(vec![CAROL.to_string()]),
+        ))
         .expect("the candidate task definition registers with the engine");
 
     // ── 1. THE PARKED OPEN TASK IS CLAIMABLE BY ANYONE ──────────────────────────────────────────────────────────
@@ -360,8 +363,7 @@ fn wf_human_task_003__assignment() {
         "{HARNESS}: the assignee is unchanged"
     );
     assert_eq!(
-        idempotent.claimed_at,
-        before_idempotent.2,
+        idempotent.claimed_at, before_idempotent.2,
         "{HARNESS}: claimed_at is unchanged (the original claim time)"
     );
     assert_eq!(
@@ -398,9 +400,10 @@ fn wf_human_task_003__assignment() {
     // Bob is not the assignee, and the task is no longer open: it is reserved to Alice. The gate must refuse him
     // with `TASK_ALREADY_ASSIGNED` and commit nothing.
     let before_bob = fingerprint(&task_by_id(&harness, &parked.id));
-    let stolen = harness.engine().claim_task(&parked.id, BOB).expect_err(
-        "a user must not be able to claim a task another user already reserved",
-    );
+    let stolen = harness
+        .engine()
+        .claim_task(&parked.id, BOB)
+        .expect_err("a user must not be able to claim a task another user already reserved");
     assert_eq!(
         stolen.code(),
         "TASK_ALREADY_ASSIGNED",
@@ -430,9 +433,10 @@ fn wf_human_task_003__assignment() {
             transition_name: Some(APPROVE.to_string()),
         })
         .expect("the assignee completes the task");
-    let complete_refused = harness.engine().claim_task(&parked.id, ALICE).expect_err(
-        "a completed task cannot be claimed",
-    );
+    let complete_refused = harness
+        .engine()
+        .claim_task(&parked.id, ALICE)
+        .expect_err("a completed task cannot be claimed");
     assert_eq!(
         complete_refused.code(),
         "PROCESS_NOT_ACTIVE",

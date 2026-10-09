@@ -150,7 +150,12 @@ async fn forge_claim_010__agent_work_ownership_follows_ready_claimed_running_wit
     // The chain settles through the same guard: terminate the proof cleanly.
     let settled = harness
         .engine()
-        .finish_agent_work_run(&item, AgentWorkOutcome::Cancelled, Some("proof complete"), None)
+        .finish_agent_work_run(
+            &item,
+            AgentWorkOutcome::Cancelled,
+            Some("proof complete"),
+            None,
+        )
         .await
         .expect("the production settle runs")
         .expect("a Running claim must settle");

@@ -71,12 +71,14 @@ async fn service_abstract_010__events_emitted_through_common_boundary() {
 
     // ── THE CONTRACT: one emit crosses the boundary intact. ──
     let mut payload = BTreeMap::new();
-    payload.insert(
-        "signatureRequestId".to_owned(),
-        serde_json::json!("sr-1"),
-    );
+    payload.insert("signatureRequestId".to_owned(), serde_json::json!("sr-1"));
     runtime
-        .emit("DOCUMENT_SIGN_ISSUED", Some("sr-1".into()), payload, &context)
+        .emit(
+            "DOCUMENT_SIGN_ISSUED",
+            Some("sr-1".into()),
+            payload,
+            &context,
+        )
         .await
         .expect("emitting through the common boundary must not fail");
     let emitted = events.events();
@@ -102,7 +104,10 @@ async fn service_abstract_010__events_emitted_through_common_boundary() {
     );
 
     // An emit without aggregate or causation still carries the correlation.
-    let context_bare = ServiceContext { causation_id: None, ..context.clone() };
+    let context_bare = ServiceContext {
+        causation_id: None,
+        ..context.clone()
+    };
     runtime
         .emit("DOCUMENT_SIGN_SWEPT", None, BTreeMap::new(), &context_bare)
         .await
@@ -115,7 +120,12 @@ async fn service_abstract_010__events_emitted_through_common_boundary() {
     // ── NEGATIVE: an event outage surfaces — the event is never silently dropped. ──
     let broken = make_runtime(Arc::new(FailingEventPort));
     let error = broken
-        .emit("DOCUMENT_SIGN_ISSUED", Some("sr-1".into()), BTreeMap::new(), &context)
+        .emit(
+            "DOCUMENT_SIGN_ISSUED",
+            Some("sr-1".into()),
+            BTreeMap::new(),
+            &context,
+        )
         .await
         .expect_err("an event outage must propagate");
     assert!(

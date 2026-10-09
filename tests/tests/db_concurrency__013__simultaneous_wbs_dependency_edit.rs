@@ -82,7 +82,10 @@ async fn db_concurrency_013__simultaneous_wbs_dependency_edit() {
     sweep(&db, &project_id_1).await;
     create_project(&db, &project_id_1).await;
 
-    let (source_1, target_1) = (create_item(&db, &project_id_1).await, create_item(&db, &project_id_1).await);
+    let (source_1, target_1) = (
+        create_item(&db, &project_id_1).await,
+        create_item(&db, &project_id_1).await,
+    );
     let edge = WbsDependency {
         project_id: project_id_1.clone(),
         source_id: source_1,
@@ -121,8 +124,14 @@ async fn db_concurrency_013__simultaneous_wbs_dependency_edit() {
     sweep(&db, &project_id_2).await;
     create_project(&db, &project_id_2).await;
 
-    let (source_2a, target_2a) = (create_item(&db, &project_id_2).await, create_item(&db, &project_id_2).await);
-    let (source_2b, target_2b) = (create_item(&db, &project_id_2).await, create_item(&db, &project_id_2).await);
+    let (source_2a, target_2a) = (
+        create_item(&db, &project_id_2).await,
+        create_item(&db, &project_id_2).await,
+    );
+    let (source_2b, target_2b) = (
+        create_item(&db, &project_id_2).await,
+        create_item(&db, &project_id_2).await,
+    );
     let edge_a = WbsDependency {
         project_id: project_id_2.clone(),
         source_id: source_2a,
@@ -170,7 +179,10 @@ async fn db_concurrency_013__simultaneous_wbs_dependency_edit() {
     sweep(&db, &project_id_3).await;
     create_project(&db, &project_id_3).await;
 
-    let (source_3, target_3) = (create_item(&db, &project_id_3).await, create_item(&db, &project_id_3).await);
+    let (source_3, target_3) = (
+        create_item(&db, &project_id_3).await,
+        create_item(&db, &project_id_3).await,
+    );
     let edge_3 = WbsDependency {
         project_id: project_id_3.clone(),
         source_id: source_3,

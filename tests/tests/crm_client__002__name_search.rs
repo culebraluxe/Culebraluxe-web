@@ -11,9 +11,9 @@
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test crm_client__002__name_search -- --ignored
 
 use db::DbTarget;
-use uuid::Uuid;
 use model::{ClientDirectoryPageRequest, ClientSummary};
 use test_harness::ClientHarness;
+use uuid::Uuid;
 
 const HARNESS: &str = "ClientHarness/L3 Composition";
 
@@ -187,7 +187,10 @@ async fn crm_client_002__name_search() {
     // -----------------------------------------------------------------------------------------------------------
     let result = harness
         .service()
-        .directory(&dir_request(&format!("{}-alice-smith", marker).to_uppercase(), 1, 50), &ctx)
+        .directory(
+            &dir_request(&format!("{}-alice-smith", marker).to_uppercase(), 1, 50),
+            &ctx,
+        )
         .await
         .expect("directory search runs");
     assert_eq!(

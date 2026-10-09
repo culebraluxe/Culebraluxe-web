@@ -50,10 +50,7 @@ fn ui_intent_005__drag() {
 
     // NEGATIVE: dropping the card where it already sits moves nothing.
     let stayed = harness.update(Msg::SorterDropped("engine".into()));
-    assert!(
-        stayed.into_requests().is_empty(),
-        "same column: no command"
-    );
+    assert!(stayed.into_requests().is_empty(), "same column: no command");
 
     // Dropping it on another column moves its story there with one command.
     harness.update(Msg::SorterDragStarted("FORGE-9#handoff".into()));
@@ -74,8 +71,5 @@ fn ui_intent_005__drag() {
     // NEGATIVE: a drop with nothing picked up is ignored — a stray drop moves no story.
     let mut harness = loaded();
     let stray = harness.update(Msg::SorterDropped("backlog".into()));
-    assert!(
-        stray.into_requests().is_empty(),
-        "no pickup, no command"
-    );
+    assert!(stray.into_requests().is_empty(), "no pickup, no command");
 }

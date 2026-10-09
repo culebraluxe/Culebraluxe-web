@@ -191,11 +191,7 @@ fn history(harness: &EngineHarness, instance: &str) -> Vec<ProcessEvent> {
         .expect("the instance history reads")
 }
 
-fn events_of_type(
-    harness: &EngineHarness,
-    instance: &str,
-    event_type: &str,
-) -> Vec<ProcessEvent> {
+fn events_of_type(harness: &EngineHarness, instance: &str, event_type: &str) -> Vec<ProcessEvent> {
     history(harness, instance)
         .into_iter()
         .filter(|event| event.event_type == event_type)
@@ -244,7 +240,11 @@ fn wf_join_006__terminated_process_cannot_reactivate() {
             .expect("the instance jobs are readable");
         all
     };
-    assert_eq!(parked_jobs.len(), 1, "{HARNESS}: the timer branch parked one pending job");
+    assert_eq!(
+        parked_jobs.len(),
+        1,
+        "{HARNESS}: the timer branch parked one pending job"
+    );
     assert_eq!(parked_jobs[0].status, JobStatus::Pending);
     let parked_job_id = parked_jobs[0].id.clone();
 
@@ -277,7 +277,11 @@ fn wf_join_006__terminated_process_cannot_reactivate() {
         tokens(&harness, &instance)
             .iter()
             .all(|t| t.status == TokenStatus::Completed
-                && matches!(t.outcome, Some(workflow::TokenOutcome::Cancelled) | Some(workflow::TokenOutcome::Completed))),
+                && matches!(
+                    t.outcome,
+                    Some(workflow::TokenOutcome::Cancelled)
+                        | Some(workflow::TokenOutcome::Completed)
+                )),
         "{HARNESS}: every token of the terminated process is concluded"
     );
     assert_eq!(
@@ -330,7 +334,10 @@ fn wf_join_006__terminated_process_cannot_reactivate() {
         .run_due_jobs(WORKER, 8)
         .expect("the timer executor runs against the terminated process");
     assert_eq!(report.claimed.len(), 0, "{HARNESS}: nothing is claimable");
-    assert_eq!(report.fired, 0, "{HARNESS}: the terminated timer does not fire");
+    assert_eq!(
+        report.fired, 0,
+        "{HARNESS}: the terminated timer does not fire"
+    );
     assert_eq!(
         events_of_type(&harness, &instance, "timer.fired").len(),
         0,

@@ -80,12 +80,18 @@ fn const_table(text: &str) -> HashMap<String, String> {
     for line in text.lines() {
         let code = source::code_of(line);
         let Some(eq) = code.find('=') else { continue };
-        let Some(literal) = string_literals(&code[eq..]).into_iter().next() else { continue };
+        let Some(literal) = string_literals(&code[eq..]).into_iter().next() else {
+            continue;
+        };
         let left = code[..eq].trim();
         if !left.starts_with("const ") && !left.starts_with("pub const ") {
             continue;
         }
-        if let Some(name) = left.split_whitespace().skip_while(|token| *token != "const").nth(1) {
+        if let Some(name) = left
+            .split_whitespace()
+            .skip_while(|token| *token != "const")
+            .nth(1)
+        {
             let name = name.trim_end_matches(':');
             if !name.is_empty() && name != "const" {
                 table.insert(name.to_owned(), literal);
@@ -99,8 +105,12 @@ fn const_table(text: &str) -> HashMap<String, String> {
 fn descriptor_domains(path: &PathBuf, text: &str, consts: &HashMap<String, String>) -> Vec<String> {
     let mut domains = Vec::new();
     for (index, _) in text.match_indices("abstract_service!") {
-        let Some(open) = text[index..].find('(') else { continue };
-        let Some(span) = balanced_paren(text, index + open) else { continue };
+        let Some(open) = text[index..].find('(') else {
+            continue;
+        };
+        let Some(span) = balanced_paren(text, index + open) else {
+            continue;
+        };
         match string_literals(span).into_iter().next() {
             Some(domain) => domains.push(domain),
             None => panic!(
@@ -130,7 +140,9 @@ fn descriptor_domains(path: &PathBuf, text: &str, consts: &HashMap<String, Strin
         let mut template = false;
         for candidate in window {
             let code = source::code_of(candidate);
-            let Some(at) = code.find("domain:") else { continue };
+            let Some(at) = code.find("domain:") else {
+                continue;
+            };
             let after = code[at + "domain:".len()..].trim();
             if after.contains('$') {
                 // The abstract_service! template itself names `$domain`: a pattern, not a registration.
@@ -145,11 +157,16 @@ fn descriptor_domains(path: &PathBuf, text: &str, consts: &HashMap<String, Strin
                     .take_while(|c| c.is_alphanumeric() || *c == '_')
                     .collect();
                 found = Some(
-                    consts.get(&ident).unwrap_or_else(|| panic!(
-                        "{HARNESS}: {}:{} names domain by unresolvable const {ident}",
-                        source::relative(path),
-                        number + 1
-                    )).clone(),
+                    consts
+                        .get(&ident)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "{HARNESS}: {}:{} names domain by unresolvable const {ident}",
+                                source::relative(path),
+                                number + 1
+                            )
+                        })
+                        .clone(),
                 );
             }
             break;
@@ -244,7 +261,15 @@ fn service_registry_001__every_production_service_registered_once() {
         None,
         "{HARNESS}: every production service must be registered once — duplicate domains would be refused at startup"
     );
-    for known in ["person", "contract", "property", "forge", "accounting", "whatsapp", "vault"] {
+    for known in [
+        "person",
+        "contract",
+        "property",
+        "forge",
+        "accounting",
+        "whatsapp",
+        "vault",
+    ] {
         assert!(
             domains.iter().any(|domain| domain == known),
             "{HARNESS}: the census must include the {known} service (found {} domains)",

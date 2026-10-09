@@ -85,7 +85,7 @@ async fn active_serial_claims(pool: &PgPool, prefix: &str) -> Vec<(String, Strin
          where parallel_group_id is null
            and state in ('Claimed', 'Running')
            and story_id like $1
-         order by claimed_at"
+         order by claimed_at",
     )
     .bind(prefix)
     .fetch_all(pool)
@@ -117,14 +117,17 @@ async fn claim_next_available(harness: &ForgeHarness, worker: &str, ns: &str) ->
          where state = 'Ready' and parallel_group_id is null
          and story_id like $1
          order by queued_at
-         limit 1"
+         limit 1",
     )
     .bind(format!("{PROOF_PREFIX}%-{ns}"))
     .fetch_optional(harness.pool())
     .await
     .expect("find oldest Ready item");
     if let Some(item_id) = item {
-        let result = harness.engine().claim_specific_agent_work(&item_id, worker).await;
+        let result = harness
+            .engine()
+            .claim_specific_agent_work(&item_id, worker)
+            .await;
         assert!(result.is_ok());
         result.unwrap().map(|r| r.id)
     } else {
@@ -170,7 +173,12 @@ async fn forge_dispatch_007__one_nonparallel_active_claim_globally() {
 
     for story_id in [&story1, &story2, &story3] {
         let items = serial_work_items(pool, story_id).await;
-        assert_eq!(items.len(), 1, "{HARNESS}: {:?} has one serial item", story_id);
+        assert_eq!(
+            items.len(),
+            1,
+            "{HARNESS}: {:?} has one serial item",
+            story_id
+        );
         assert_eq!(items[0].0, "Ready");
     }
 
@@ -187,7 +195,11 @@ async fn forge_dispatch_007__one_nonparallel_active_claim_globally() {
 
     // Verify exactly one active serial claim globally.
     let active = active_serial_claims(pool, &format!("{PROOF_PREFIX}%-{ns}")).await;
-    assert_eq!(active.len(), 1, "{HARNESS}: exactly one active serial claim globally");
+    assert_eq!(
+        active.len(),
+        1,
+        "{HARNESS}: exactly one active serial claim globally"
+    );
     assert_eq!(active[0].0, story1);
     assert_eq!(active[0].1, "Claimed");
     assert_eq!(active[0].2, WORKER_A);
@@ -206,7 +218,10 @@ async fn forge_dispatch_007__one_nonparallel_active_claim_globally() {
     // This should fail because global_story_concurrency=1 and story1 is already active.
     let claim_result = harness.engine().claim_next_agent_work(WORKER_B).await;
     assert!(claim_result.is_ok(), "claim call succeeds");
-    assert!(claim_result.unwrap().is_none(), "{HARNESS}: forge_claim_story refuses when global ceiling reached");
+    assert!(
+        claim_result.unwrap().is_none(),
+        "{HARNESS}: forge_claim_story refuses when global ceiling reached"
+    );
 
     // Pause runtime again.
     sqlx::query("update forge_runtime_control set paused = true, updated_by = 'test', updated_at = now() where id = 1")
@@ -216,7 +231,11 @@ async fn forge_dispatch_007__one_nonparallel_active_claim_globally() {
 
     // Verify still only one active serial claim globally (story1).
     let active = active_serial_claims(pool, &format!("{PROOF_PREFIX}%-{ns}")).await;
-    assert_eq!(active.len(), 1, "{HARNESS}: still exactly one active serial claim globally");
+    assert_eq!(
+        active.len(),
+        1,
+        "{HARNESS}: still exactly one active serial claim globally"
+    );
     // story1 has Claimed item. Try to create another Ready item for story1 (simulating a bug).
     // This should fail due to unique index if we try to claim it.
     // Actually, the trigger won't create a second serial item because the unique index
@@ -229,7 +248,10 @@ async fn forge_dispatch_007__one_nonparallel_active_claim_globally() {
     .execute(pool)
     .await;
     // This should fail due to unique index violation.
-    assert!(insert_result.is_err(), "{HARNESS}: cannot insert second serial Ready item for same story");
+    assert!(
+        insert_result.is_err(),
+        "{HARNESS}: cannot insert second serial Ready item for same story"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 5. SETTLE STORY 1 — Worker A finishes, story goes to Complete.
@@ -243,11 +265,15 @@ async fn forge_dispatch_007__one_nonparallel_active_claim_globally() {
         .expect("mark story1 Complete");
 
     // The item is currently Claimed. Finish it with outcome 'Done'.
-    let finish_result = harness.engine().finish_agent_work_run(
-        &item1,
-        AgentWorkOutcome::Done,
-        Some("Test settlement"), None,
-    ).await;
+    let finish_result = harness
+        .engine()
+        .finish_agent_work_run(
+            &item1,
+            AgentWorkOutcome::Done,
+            Some("Test settlement"),
+            None,
+        )
+        .await;
     assert!(finish_result.is_ok(), "finish_agent_work_run succeeds");
     let finished = finish_result.unwrap();
     assert!(finished.is_some(), "item was finished");
@@ -255,7 +281,11 @@ async fn forge_dispatch_007__one_nonparallel_active_claim_globally() {
 
     // Now no active serial claims globally (Done is not active).
     let active2 = active_serial_claims(pool, &format!("{PROOF_PREFIX}%-{ns}")).await;
-    assert_eq!(active2.len(), 0, "{HARNESS}: no active serial claims after story1 done");
+    assert_eq!(
+        active2.len(),
+        0,
+        "{HARNESS}: no active serial claims after story1 done"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 6. NOW WORKER B CAN CLAIM STORY 2 — global ceiling allows it.
@@ -264,10 +294,17 @@ async fn forge_dispatch_007__one_nonparallel_active_claim_globally() {
     // 6. NOW WORKER B CAN CLAIM STORY 2 — global ceiling allows it.
     // -----------------------------------------------------------------------------------------------------------
     let claimed2 = claim_next_available(&harness, WORKER_B, &ns).await;
-    assert!(claimed2.is_some(), "{HARNESS}: Worker B can now claim story 2");
+    assert!(
+        claimed2.is_some(),
+        "{HARNESS}: Worker B can now claim story 2"
+    );
 
     let active3 = active_serial_claims(pool, &format!("{PROOF_PREFIX}%-{ns}")).await;
-    assert_eq!(active3.len(), 1, "{HARNESS}: exactly one active serial claim after story1 done");
+    assert_eq!(
+        active3.len(),
+        1,
+        "{HARNESS}: exactly one active serial claim after story1 done"
+    );
     assert_eq!(active3[0].0, story2);
     assert_eq!(active3[0].2, WORKER_B);
 

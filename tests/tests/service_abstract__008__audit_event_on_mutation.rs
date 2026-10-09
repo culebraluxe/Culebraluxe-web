@@ -106,8 +106,10 @@ async fn service_abstract_008__audit_event_on_mutation() {
     assert_eq!(events[0].authorization.policy_id, "test:allow");
 
     // ── NEGATIVE ONE: a failed mutation records Failure WITH its code. ──
-    let outcome: Result<(), CoreServiceError> =
-        Err(CoreServiceError::business("PROJECT_NAME_REQUIRED", "A Project requires a name."));
+    let outcome: Result<(), CoreServiceError> = Err(CoreServiceError::business(
+        "PROJECT_NAME_REQUIRED",
+        "A Project requires a name.",
+    ));
     audit_result(
         &runtime,
         "project",
@@ -136,9 +138,16 @@ async fn service_abstract_008__audit_event_on_mutation() {
     // ── NEGATIVE TWO: an audit outage propagates — the event is never silently dropped. ──
     let broken = make_runtime(Arc::new(FailingAuditPort));
     let outcome: Result<(), CoreServiceError> = Ok(());
-    let error = audit_result(&broken, "project", "project.create", &context, decision(), &outcome)
-        .await
-        .expect_err("an audit outage must propagate");
+    let error = audit_result(
+        &broken,
+        "project",
+        "project.create",
+        &context,
+        decision(),
+        &outcome,
+    )
+    .await
+    .expect_err("an audit outage must propagate");
     assert_eq!(
         error.code(),
         "AUDIT_UNAVAILABLE",

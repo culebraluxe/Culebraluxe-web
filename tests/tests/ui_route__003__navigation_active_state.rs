@@ -8,9 +8,9 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test ui_route__003__navigation_active_state
 
-use ui::app::registry::{is_current, parent_of, by_key, ENTRIES};
-use ui::navigation::{Actor, Level};
+use ui::app::registry::{by_key, is_current, parent_of, ENTRIES};
 use ui::model::Surface;
+use ui::navigation::{Actor, Level};
 
 const HARNESS: &str = "MviHarness/L1 Component";
 
@@ -18,8 +18,23 @@ fn root_actor() -> Actor {
     Actor {
         level: Some(Level::Root),
         account_type: "internal".into(),
-        authority_codes: vec!["portal.read".into(), "deal.read".into(), "settings.read".into(), "tech.access".into()],
-        entitlement_codes: vec!["cockpit.read".into(), "person.read".into(), "project.read".into(), "deal.read".into(), "vault.read".into(), "form.read".into(), "property.read".into(), "accounting.read".into(), "tech.access".into()],
+        authority_codes: vec![
+            "portal.read".into(),
+            "deal.read".into(),
+            "settings.read".into(),
+            "tech.access".into(),
+        ],
+        entitlement_codes: vec![
+            "cockpit.read".into(),
+            "person.read".into(),
+            "project.read".into(),
+            "deal.read".into(),
+            "vault.read".into(),
+            "form.read".into(),
+            "property.read".into(),
+            "accounting.read".into(),
+            "tech.access".into(),
+        ],
     }
 }
 
@@ -28,15 +43,33 @@ fn root_actor() -> Actor {
 fn ui_route_003__navigation_active_state() {
     // Positive case: a list screen is current when at its path or any child path
     let clients = by_key("clients").expect("clients must exist");
-    assert!(is_current(clients, "/portal/clients"), "{HARNESS}: clients list is current at /portal/clients");
-    assert!(is_current(clients, "/portal/clients/abc-123"), "{HARNESS}: clients list is current at child record path");
-    assert!(!is_current(clients, "/portal/deals"), "{HARNESS}: clients list is not current at /portal/deals");
+    assert!(
+        is_current(clients, "/portal/clients"),
+        "{HARNESS}: clients list is current at /portal/clients"
+    );
+    assert!(
+        is_current(clients, "/portal/clients/abc-123"),
+        "{HARNESS}: clients list is current at child record path"
+    );
+    assert!(
+        !is_current(clients, "/portal/deals"),
+        "{HARNESS}: clients list is not current at /portal/deals"
+    );
 
     // Positive case: a record screen is current at ANY record path of its type
     let client_record = by_key("client-record").expect("client-record must exist");
-    assert!(is_current(client_record, "/portal/clients/abc-123"), "{HARNESS}: client-record is current at its path");
-    assert!(is_current(client_record, "/portal/clients/other-id"), "{HARNESS}: client-record is current at any record path");
-    assert!(!is_current(client_record, "/portal/clients"), "{HARNESS}: client-record is not current at list path");
+    assert!(
+        is_current(client_record, "/portal/clients/abc-123"),
+        "{HARNESS}: client-record is current at its path"
+    );
+    assert!(
+        is_current(client_record, "/portal/clients/other-id"),
+        "{HARNESS}: client-record is current at any record path"
+    );
+    assert!(
+        !is_current(client_record, "/portal/clients"),
+        "{HARNESS}: client-record is not current at list path"
+    );
 
     // Positive case: parent_of returns the correct parent for drill-in screens
     assert_eq!(
@@ -76,9 +109,18 @@ fn ui_route_003__navigation_active_state() {
     );
 
     // Positive case: list screens have no parent
-    assert!(parent_of("/portal/clients").is_none(), "{HARNESS}: clients list has no parent");
-    assert!(parent_of("/portal/deals").is_none(), "{HARNESS}: deals list has no parent");
-    assert!(parent_of("/").is_none(), "{HARNESS}: site home has no parent");
+    assert!(
+        parent_of("/portal/clients").is_none(),
+        "{HARNESS}: clients list has no parent"
+    );
+    assert!(
+        parent_of("/portal/deals").is_none(),
+        "{HARNESS}: deals list has no parent"
+    );
+    assert!(
+        parent_of("/").is_none(),
+        "{HARNESS}: site home has no parent"
+    );
 
     // Positive case: rail items follow the registry order and visibility rules
     let labels: Vec<_> = ui::app::registry::rail_items(Surface::Core, &root_actor())
@@ -88,8 +130,14 @@ fn ui_route_003__navigation_active_state() {
     assert_eq!(
         labels,
         vec![
-            "Cockpit", "Clients", "Projects", "Contracts", "Cabinet",
-            "Workflows", "Forms", "Seller Strategy"
+            "Cockpit",
+            "Clients",
+            "Projects",
+            "Contracts",
+            "Cabinet",
+            "Workflows",
+            "Forms",
+            "Seller Strategy"
         ],
         "{HARNESS}: Core rail items must be in registry order"
     );
@@ -105,7 +153,11 @@ fn ui_route_003__navigation_active_state() {
         .into_iter()
         .map(|(label, _)| label)
         .collect();
-    assert_eq!(limited_rail, vec!["Clients"], "{HARNESS}: limited user sees only permitted rail items");
+    assert_eq!(
+        limited_rail,
+        vec!["Clients"],
+        "{HARNESS}: limited user sees only permitted rail items"
+    );
 
     // Negative case: an external account sees no operating world
     let guest = Actor {

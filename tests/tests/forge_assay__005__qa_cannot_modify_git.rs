@@ -19,7 +19,7 @@
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test forge_assay__005__qa_cannot_modify_git
 
 use forge::engine::qa_repair::{
-    route_qa_result, RepairAttemptState, RepairBudget, RepairRouting, QaDisposition, QaVerdict,
+    route_qa_result, QaDisposition, QaVerdict, RepairAttemptState, RepairBudget, RepairRouting,
 };
 use test_harness::source;
 

@@ -129,17 +129,8 @@ fn wf_definition_012__xml_graph_fidelity() {
         "{HARNESS}: the graph holds exactly the eleven declared nodes"
     );
     let expected_order: Vec<String> = [
-        "start",
-        "triage",
-        "route",
-        "fan",
-        "slow",
-        "worker",
-        "publish",
-        "joined",
-        "splitter",
-        "done",
-        "failed",
+        "start", "triage", "route", "fan", "slow", "worker", "publish", "joined", "splitter",
+        "done", "failed",
     ]
     .iter()
     .map(|id| id.to_string())
@@ -159,7 +150,10 @@ fn wf_definition_012__xml_graph_fidelity() {
 
     // 2. START AND TASK FIDELITY — the start edge and every task field land where the engine will read them.
     let start = node("start");
-    assert_eq!(start.node_type, "start", "{HARNESS}: <start-state> reads as start");
+    assert_eq!(
+        start.node_type, "start",
+        "{HARNESS}: <start-state> reads as start"
+    );
     assert_eq!(
         start.transitions.as_deref().map(|ts| ts
             .iter()
@@ -169,7 +163,10 @@ fn wf_definition_012__xml_graph_fidelity() {
         "{HARNESS}: the start edge keeps its name and target"
     );
     let triage = node("triage");
-    assert_eq!(triage.node_type, "task", "{HARNESS}: <task-node> reads as task");
+    assert_eq!(
+        triage.node_type, "task",
+        "{HARNESS}: <task-node> reads as task"
+    );
     assert_eq!(
         triage.name.as_deref(),
         Some("Triage"),
@@ -200,7 +197,10 @@ fn wf_definition_012__xml_graph_fidelity() {
         .as_deref()
         .and_then(|ts| ts.iter().find(|t| t.name == "route"))
         .expect("the triage edge is declared");
-    assert_eq!(route_edge.to, "route", "{HARNESS}: the triage edge targets route");
+    assert_eq!(
+        route_edge.to, "route",
+        "{HARNESS}: the triage edge targets route"
+    );
     assert_eq!(
         route_edge.condition.as_deref(),
         Some("ready == true"),
@@ -223,7 +223,10 @@ fn wf_definition_012__xml_graph_fidelity() {
         Some(true),
         "{HARNESS}: refresh-facts survives the parse"
     );
-    let arms = route.decisions.as_deref().expect("the decision arms are declared");
+    let arms = route
+        .decisions
+        .as_deref()
+        .expect("the decision arms are declared");
     assert_eq!(arms.len(), 2, "{HARNESS}: both decision arms survive");
     assert_eq!(
         (arms[0].condition.as_str(), arms[0].transition.as_str()),
@@ -247,15 +250,26 @@ fn wf_definition_012__xml_graph_fidelity() {
     //    that defaulted early would erase the distinction the definition wrote.
     let fan = node("fan");
     assert_eq!(fan.node_type, "fork", "{HARNESS}: <fork> reads as fork");
-    let branches = fan.transitions.as_deref().expect("the fork branches are declared");
+    let branches = fan
+        .transitions
+        .as_deref()
+        .expect("the fork branches are declared");
     assert_eq!(branches.len(), 2, "{HARNESS}: both fork branches survive");
     assert_eq!(
-        (branches[0].name.as_str(), branches[0].to.as_str(), branches[0].required),
+        (
+            branches[0].name.as_str(),
+            branches[0].to.as_str(),
+            branches[0].required
+        ),
         ("a", "worker", None),
         "{HARNESS}: a branch without a required flag keeps required=None"
     );
     assert_eq!(
-        (branches[1].name.as_str(), branches[1].to.as_str(), branches[1].required),
+        (
+            branches[1].name.as_str(),
+            branches[1].to.as_str(),
+            branches[1].required
+        ),
         ("b", "publish", Some(false)),
         "{HARNESS}: a branch with required=false keeps required=Some(false)"
     );
@@ -279,10 +293,10 @@ fn wf_definition_012__xml_graph_fidelity() {
     let joined = node("joined");
     assert_eq!(joined.node_type, "join", "{HARNESS}: <join> reads as join");
     assert_eq!(
-        joined
-            .transitions
-            .as_deref()
-            .map(|ts| ts.iter().map(|t| (t.name.as_str(), t.to.as_str())).collect::<Vec<_>>()),
+        joined.transitions.as_deref().map(|ts| ts
+            .iter()
+            .map(|t| (t.name.as_str(), t.to.as_str()))
+            .collect::<Vec<_>>()),
         Some(vec![("onward", "done")]),
         "{HARNESS}: the join's onward edge keeps its name and target"
     );
@@ -332,7 +346,8 @@ fn wf_definition_012__xml_graph_fidelity() {
         "{HARNESS}: outcome=failed reads as Failed"
     );
     assert_eq!(
-        node("start").outcome, None,
+        node("start").outcome,
+        None,
         "{HARNESS}: a node that declares no outcome carries none"
     );
 
@@ -371,7 +386,8 @@ fn wf_definition_012__xml_graph_fidelity() {
         refusal_message(&unknown).contains("unsupported <mystery>"),
         "{HARNESS}: an unknown element is refused"
     );
-    let duplicated = HONEST_DEFINITION.replacen("<task-node id=\"slow\"", "<task-node id=\"worker\"", 1);
+    let duplicated =
+        HONEST_DEFINITION.replacen("<task-node id=\"slow\"", "<task-node id=\"worker\"", 1);
     assert_ne!(
         duplicated, HONEST_DEFINITION,
         "{HARNESS}: the duplicate-id edit must change the source"
