@@ -118,13 +118,18 @@ printf '\n=== MASTER RELEASE ===\n  %s on %s (%s)\n  mode: %s\n\n' "$BUILD_SHA" 
 
 BUILD_RC="skipped"; DEPLOY_RC="skipped"; PROBE_RC="skipped"; DEPLOY_SHA="$BUILD_SHA"
 
-# READ THE GATE BEFORE YOU BUILD (FORGE-LOCAL-RELEASE-CI-CHECK-01).
+# READ THE GATE BEFORE YOU BUILD (FORGE-LOCAL-RELEASE-CI-CHECK-01) — A REPORT, NOT A GUN.
 #
-# A deploy job in CI was added and deleted for cost (it was doubling the bill): CI now CHECKS and never ships,
-# and this is the deploy. That left a red main releasable by hand, because nothing here read the gate. The
-# check below is a READ — `gh run list` for this exact sha — and it refuses on failed, pending, missing or
-# unreadable results. RELEASE_CI_CHECK=skip is the named opt-out for an outage, and it says loudly that the
-# gate was NOT read.
+# Captain's ruling, 2026-10-08: "tests should be my choice to run, not a gun to my head to do a deploy."
+# So the read below INFORMS. It prints the CI verdict for the exact sha this release is about to ship —
+# green, red, pending, no run, or unreadable — and the release continues on every one of them. What ships
+# is decided by the artifact: this build and the live probe further down.
+#
+# The refusal below therefore fires only when the refusal is asked for: RELEASE_CI_CHECK=require (release-day
+# discipline). RELEASE_CI_CHECK=skip does not read CI at all. Neither is the default; `read` is.
+#
+# A deploy job in CI was added and deleted for cost (it was doubling the bill, ~30 builds a day where 1-2
+# were wanted), which is why CI CHECKS and never ships and why the deploy is here at all.
 #
 # HEAD IS RE-READ AFTER THE CHECK. A check that passes for one sha and a build that then ships another is
 # the stale cite this file already guards against between build and deploy; here it is guarded between the
@@ -136,7 +141,7 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "build" ]; then
   printf -- '--- release gate exit: %s ---\n' "$CI_CHECK_RC"
   AFTER_CHECK_SHA="$(git rev-parse HEAD)"
   if [ "$CI_CHECK_RC" -ne 0 ]; then
-    printf '\n=== RELEASE REFUSED: CI is not green for %s (see above; RELEASE_CI_CHECK=skip to override) ===\n' \
+    printf '\n=== RELEASE REFUSED: CI is not green for %s (RELEASE_CI_CHECK=require is set; unset it to ship without this refusal) ===\n' \
       "$(printf '%.12s' "$CHECK_SHA")"
     exit 1
   fi
