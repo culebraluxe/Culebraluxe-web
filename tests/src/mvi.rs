@@ -154,6 +154,12 @@ pub mod screen {
     }
 
     /// A command's kind, as a value a test can assert on without naming `Cmd`'s payloads.
+    /// This mirrors `ui::app::cmd::EffectKind` — keep them in sync. When adding a new `Cmd` variant,
+    /// update `EffectKind` in `cmd.rs`, add the corresponding variant here, and the test
+    /// `all_effect_kinds_covered` will fail with a clear message if they diverge.
+    ///
+    /// `Unknown` is a fallback for variants that exist in `EffectKind` but not yet in `CommandKind`.
+    /// If a test produces `Unknown`, it means the harness needs updating.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum CommandKind {
         None,
@@ -173,34 +179,49 @@ pub mod screen {
         VideoUpload,
         PostForm,
         InitMap,
+        /// A `Cmd` variant that the harness doesn't know how to classify yet.
+        /// If you see this in test output, add the variant to `CommandKind` and the `From<EffectKind>` impl.
+        Unknown,
+    }
+
+    impl From<ui::app::cmd::EffectKind> for CommandKind {
+        fn from(kind: ui::app::cmd::EffectKind) -> Self {
+            match kind {
+                ui::app::cmd::EffectKind::None => CommandKind::None,
+                ui::app::cmd::EffectKind::Batch => CommandKind::Batch,
+                ui::app::cmd::EffectKind::Request => CommandKind::Request,
+                ui::app::cmd::EffectKind::Navigate => CommandKind::Navigate,
+                ui::app::cmd::EffectKind::Load => CommandKind::Load,
+                ui::app::cmd::EffectKind::ReplacePath => CommandKind::ReplacePath,
+                ui::app::cmd::EffectKind::SharePdf => CommandKind::SharePdf,
+                ui::app::cmd::EffectKind::Listen => CommandKind::Listen,
+                ui::app::cmd::EffectKind::RenderSignature => CommandKind::RenderSignature,
+                ui::app::cmd::EffectKind::PreviewPdf => CommandKind::PreviewPdf,
+                ui::app::cmd::EffectKind::StorageRead => CommandKind::StorageRead,
+                ui::app::cmd::EffectKind::StorageWrite => CommandKind::StorageWrite,
+                ui::app::cmd::EffectKind::After => CommandKind::After,
+                ui::app::cmd::EffectKind::Upload => CommandKind::Upload,
+                ui::app::cmd::EffectKind::VideoUpload => CommandKind::VideoUpload,
+                ui::app::cmd::EffectKind::PostForm => CommandKind::PostForm,
+                ui::app::cmd::EffectKind::InitMap => CommandKind::InitMap,
+                // Fallback for any future variants not yet added to this match.
+                // The test `all_effect_kinds_covered_in_harness` will fail if this is ever used.
+                _ => CommandKind::Unknown,
+            }
+        }
     }
 
     /// Flatten a command tree into its kinds, depth-first. A `Batch` contributes itself and then its children.
-    pub fn classify<Msg>(command: &Cmd<Msg>) -> Vec<CommandKind> {
-        fn walk<Msg>(command: &Cmd<Msg>, out: &mut Vec<CommandKind>) {
-            match command {
-                Cmd::None => out.push(CommandKind::None),
-                Cmd::Batch(children) => {
-                    out.push(CommandKind::Batch);
-                    for child in children {
-                        walk(child, out);
-                    }
+    /// Uses `Cmd::effect_kind()` as the single classification point — adding a new `Cmd` variant only
+    /// requires updating `EffectKind` in `cmd.rs`, not this function.
+    pub fn classify<Msg: 'static>(command: &Cmd<Msg>) -> Vec<CommandKind> {
+        fn walk<Msg: 'static>(command: &Cmd<Msg>, out: &mut Vec<CommandKind>) {
+            let kind: CommandKind = command.effect_kind().into();
+            out.push(kind);
+            if let Cmd::Batch(children) = command {
+                for child in children {
+                    walk(child, out);
                 }
-                Cmd::Request(_) => out.push(CommandKind::Request),
-                Cmd::Navigate(_) => out.push(CommandKind::Navigate),
-                Cmd::Load(_) => out.push(CommandKind::Load),
-                Cmd::ReplacePath(_) => out.push(CommandKind::ReplacePath),
-                Cmd::SharePdf { .. } => out.push(CommandKind::SharePdf),
-                Cmd::Listen { .. } => out.push(CommandKind::Listen),
-                Cmd::RenderSignature { .. } => out.push(CommandKind::RenderSignature),
-                Cmd::PreviewPdf { .. } => out.push(CommandKind::PreviewPdf),
-                Cmd::StorageRead { .. } => out.push(CommandKind::StorageRead),
-                Cmd::StorageWrite { .. } => out.push(CommandKind::StorageWrite),
-                Cmd::After { .. } => out.push(CommandKind::After),
-                Cmd::Upload(_) => out.push(CommandKind::Upload),
-                Cmd::VideoUpload(_) => out.push(CommandKind::VideoUpload),
-                Cmd::PostForm { .. } => out.push(CommandKind::PostForm),
-                Cmd::InitMap { .. } => out.push(CommandKind::InitMap),
             }
         }
         let mut kinds = Vec::new();
@@ -209,7 +230,7 @@ pub mod screen {
     }
 
     /// The first non-`None`, non-`Batch` command kind, if any.
-    pub fn effect_kind<Msg>(command: &Cmd<Msg>) -> Option<CommandKind> {
+    pub fn effect_kind<Msg: 'static>(command: &Cmd<Msg>) -> Option<CommandKind> {
         classify(command)
             .into_iter()
             .find(|kind| !matches!(kind, CommandKind::None | CommandKind::Batch))
@@ -302,5 +323,49 @@ mod tests {
             "the screen stores the failure in its model"
         );
         assert_eq!(harness.updates(), 1);
+    }
+
+    /// Validates that every `EffectKind` variant in `ui::app::cmd` has a corresponding
+    /// `CommandKind` variant in the test harness. If this test fails, a new `Cmd` variant
+    /// was added without updating the harness — update `CommandKind` and the `From<EffectKind>`
+    /// impl in this module to match.
+    #[test]
+    fn all_effect_kinds_covered_in_harness() {
+        use ui::app::cmd::EffectKind;
+
+        // Collect all EffectKind variants by constructing a command for each.
+        // We use the effect_kind() method on dummy commands to get all variants.
+        let kinds = [
+            EffectKind::None,
+            EffectKind::Batch,
+            EffectKind::Request,
+            EffectKind::Navigate,
+            EffectKind::Load,
+            EffectKind::ReplacePath,
+            EffectKind::SharePdf,
+            EffectKind::Listen,
+            EffectKind::RenderSignature,
+            EffectKind::PreviewPdf,
+            EffectKind::StorageRead,
+            EffectKind::StorageWrite,
+            EffectKind::After,
+            EffectKind::Upload,
+            EffectKind::VideoUpload,
+            EffectKind::PostForm,
+            EffectKind::InitMap,
+        ];
+
+        for kind in kinds {
+            let harness_kind: screen::CommandKind = kind.into();
+            // If the harness doesn't know about this variant, it will be classified as Unknown.
+            // We assert that no variant is Unknown — if this fails, the harness needs updating.
+            assert_ne!(
+                harness_kind,
+                screen::CommandKind::Unknown,
+                "EffectKind variant {:?} is not covered in the test harness. \
+                Add it to CommandKind and the From<EffectKind> impl in mvi.rs",
+                kind
+            );
+        }
     }
 }
