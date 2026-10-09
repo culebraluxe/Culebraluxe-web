@@ -123,7 +123,7 @@ pub use forge_engine::{
     CompletionSpend, CompletionUnit, DealWorkflowFactRow, DispatchReconcile, EnsureDispatch,
     ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao, ForgeEvidencePatch, ForgeHoldRow,
     NewToolArtifact, ProcessDefinitionRow, SettlementResult, StoryPacketRow, ToolArtifactRow,
-    WorkflowCommandReceiptRow, WorkflowReceiptClaim,
+    UnfinishedForgeCompletion, WorkflowCommandReceiptRow, WorkflowReceiptClaim,
 };
 pub use forge_read::{
     ForgeBatchRow, ForgeBenchRow, ForgeQueueWorkRow, ForgeReadDao, ForgeStoryBoardRow,

@@ -1132,6 +1132,21 @@ pub struct CompletionUnit<'a> {
     pub fingerprint: &'a str,
 }
 
+/// An accepted workflow completion whose atomic effects do not yet have a successful receipt.
+/// Optional provenance stays visible here so recovery can report corrupt rows rather than
+/// filtering them out as though they never happened.
+#[derive(Debug, Clone, FromRow)]
+pub struct UnfinishedForgeCompletion {
+    pub event_id: i64,
+    pub process_instance_id: String,
+    pub subject_type: Option<String>,
+    pub subject_id: Option<String>,
+    pub business_key: Option<String>,
+    pub task_id: Option<String>,
+    pub node_id: Option<String>,
+    pub form_data: Option<Value>,
+}
+
 /// What [`ForgeEngineDao::apply_completion`] found, and the four answers it must keep apart.
 ///
 /// `Busy` and `Conflict` are not `AlreadyApplied`: reporting them as applied would drop the unit's effects
@@ -1404,6 +1419,45 @@ impl ForgeEngineDao {
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_engine.receipt_watermark_ms", &error))?;
         Ok(watermark)
+    }
+
+    /// Page accepted Forge task completions that do not yet have a successful completion receipt.
+    /// Event ID supplies a stable ordering identity; a receipt timestamp is never a correctness filter.
+    pub async fn unfinished_forge_completions(
+        &self,
+        story_id: Option<&str>,
+        limit: usize,
+    ) -> DbResult<Vec<UnfinishedForgeCompletion>> {
+        let limit = limit.clamp(1, 512);
+        sqlx::query_as::<_, UnfinishedForgeCompletion>(
+            "select pe.id as event_id,
+                    pe.process_instance_id::text as process_instance_id,
+                    pi.subject_type,
+                    pi.subject_id,
+                    pi.business_key,
+                    pe.task_id::text as task_id,
+                    coalesce(pe.node_id, t.node_id) as node_id,
+                    pe.data->'formData' as form_data
+               from process_events pe
+               join process_instances pi on pi.id = pe.process_instance_id
+               join process_definitions pd on pd.id = pi.definition_id
+               left join tasks t on t.id = pe.task_id
+              where pd.key = 'FORGE_SDLC'
+                and pe.event_type = 'task.completed'
+                and ($1::text is null or pi.subject_id = $1 or pi.business_key = $1)
+                and not exists (
+                    select 1 from workflow_command_receipt receipt
+                     where receipt.command_id = 'forge.completion:' || pe.task_id::text
+                       and receipt.outcome = 'success'
+                )
+              order by pe.id asc
+              limit $2",
+        )
+        .bind(story_id)
+        .bind(limit as i64)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.unfinished_forge_completions", &error))
     }
 
     /// The story's repair and replan counters (`forge_repair_attempts` / `forge_replan_attempts`, migration 114), as

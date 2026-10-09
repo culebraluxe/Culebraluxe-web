@@ -341,6 +341,16 @@ impl<S: TxStore> WorkflowEngine<S> {
         self.store.with_tx(|tx| tx.history(id, limit))
     }
 
+    pub fn history_after_event_id(
+        &self,
+        id: &str,
+        after_event_id: i64,
+        limit: usize,
+    ) -> Result<Vec<ProcessEvent>> {
+        self.store
+            .with_tx(|tx| tx.history_after_event_id(id, after_event_id, limit))
+    }
+
     pub fn jobs_for_instance(&self, id: &str) -> Result<Vec<Job>> {
         self.store.with_tx(|tx| tx.open_jobs_for_instance(id))
     }

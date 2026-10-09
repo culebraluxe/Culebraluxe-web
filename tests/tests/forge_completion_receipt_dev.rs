@@ -205,6 +205,11 @@ async fn sweep(db: &Database, story: &str, instance: &str, prefix: &str) {
         .execute(db.pool())
         .await
         .expect("sweep the unit's evidence");
+    sqlx::query("delete from process_events where process_instance_id = $1::uuid")
+        .bind(instance)
+        .execute(db.pool())
+        .await
+        .expect("sweep the unit's process events");
     sqlx::query("delete from process_instances where id = $1::uuid")
         .bind(instance)
         .execute(db.pool())
@@ -215,6 +220,66 @@ async fn sweep(db: &Database, story: &str, instance: &str, prefix: &str) {
         .execute(db.pool())
         .await
         .expect("sweep the unit's story");
+}
+
+/// Slice 3 discovery: a terminal process completion remains visible after more than 200 later events.
+#[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (the harness refuses PROD)"]
+async fn forge_completion_receipt_dev__unfinished_completion_discovery_is_identity_scoped_and_paged(
+) {
+    let test_db = TestDatabase::connect_from_env()
+        .await
+        .expect("a declared DEV database");
+    let db = test_db.database().clone();
+    let dao = ForgeEngineDao::new(db.clone());
+    let tag = uuid::Uuid::new_v4().simple().to_string();
+    let story = format!("ENG-PROOF-DISCOVERY-{tag}");
+    let instance = uuid::Uuid::new_v4().to_string();
+    let task_id = uuid::Uuid::new_v4().to_string();
+    let prefix = format!("forge.completion:proof-discovery-{tag}");
+
+    create_fixture(&db, &story, &instance).await;
+    sqlx::query(
+        "update process_instances set status = 'completed', outcome = 'completed', ended_at = now()
+          where id = $1::uuid",
+    )
+    .bind(&instance)
+    .execute(db.pool())
+    .await
+    .expect("terminalize the synthetic process instance");
+    sqlx::query(
+        "insert into process_events (process_instance_id, task_id, event_type, node_id, actor, data)
+         values ($1::uuid, $2::uuid, 'task.completed', 'smith', 'fixture', $3)",
+    )
+    .bind(&instance)
+    .bind(&task_id)
+    .bind(serde_json::json!({"formData": {"candidateSha": SHA}}))
+    .execute(db.pool())
+    .await
+    .expect("insert the accepted completion event");
+    sqlx::query(
+        "insert into process_events (process_instance_id, event_type, actor, data)
+         select $1::uuid, 'test.noise', 'fixture', '{}'::jsonb from generate_series(1, 205)",
+    )
+    .bind(&instance)
+    .execute(db.pool())
+    .await
+    .expect("place the accepted event beyond the former history cap");
+
+    let unfinished = dao
+        .unfinished_forge_completions(Some(&story), 512)
+        .await
+        .expect("query unfinished events by story and receipt identity");
+    assert_eq!(unfinished.len(), 1);
+    assert_eq!(unfinished[0].task_id.as_deref(), Some(task_id.as_str()));
+    assert_eq!(unfinished[0].process_instance_id, instance);
+    assert_eq!(unfinished[0].subject_id.as_deref(), Some(story.as_str()));
+    assert_eq!(
+        unfinished[0].form_data,
+        Some(serde_json::json!({"candidateSha": SHA}))
+    );
+
+    sweep(&db, &story, &instance, &prefix).await;
 }
 
 async fn receipt_outcome_pool(db: &Database, receipt: &str) -> Option<String> {
