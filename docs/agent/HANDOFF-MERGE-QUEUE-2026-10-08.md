@@ -409,3 +409,57 @@ branch carrying a redirect or audit harness renames its own name to `SecurityHar
 `GuestRepository` (`web/src/security/guest.rs:31`) is not a seam a contract test can name. A guest SEC test that
 needs one is a story about exposing that seam, not a façade to fake.
 
+
+## 14. `lane/muse`, attributed — which of the morning's landings are Forge and which are not (`lane/deep`, 2026-10-08)
+
+The captain asked what Muse was actually doing, having told it to stop non-Forge work. Answered from git and not
+from a status table: for each commit on `main` from `abe6513e5` up, the branch that delivered it
+(`git branch -a --contains <sha>`), the same way §1 answered ancestry.
+
+    through lane/muse:  abdc89512 DOCS-VAULT-FIXTURE: rebuild the 007 pdf-byte fixture against the current signer
+                        abe6513e5 test(forge): repair the contract call sites the landed API changes moved
+                        0a88d98f0 fix(sec-redirect): publish the origin/redirect_uri seam the SEC.REDIRECT tests import
+                        23a950ca3 fix(sec-redirect): treat [::1] as loopback
+                        9d12c571f style(sec-redirect): rustfmt the [::1] predicate
+                        1bb900772 HANDOFF: section 10 — the three red targets repaired and landed
+                        8f64efab4 HANDOFF: section 10.1 — the FMT and slice:check receipts
+                        7b93c3e5a docs(handoff): the land queue is drained
+                        3adb21fc4 fix(forms): draw Lisa's pre-signature from ONE resolver, issuance and preview alike
+                        f07f8cea1 FIX-006-SOUNDNESS: own the harness behind Arc; delete the drive.rs:303 transmute
+    through lane/deep:  c3e06974b … b3be12ec6 (nine commits, the `SecurityHarness` rename and its hand-offs)
+    the merges:         530903627 (muse: FIX-004 24d032c9 + FIX-005 bd1b093f5) · 57927943a (muse: FIX-006-SOUNDNESS)
+                        8a3b7f950 (fledge: FIX-008) · 1a0f60269 (nemotron-2: FIX-006) · d080c968d (nemotron: FIX-002/007)
+
+**Three of those ten are the Forge work he was asked for** — FIX-004, FIX-005, FIX-006-SOUNDNESS. The other seven
+are stories: two SEC.REDIRECT red targets from §10 (`0a88d98f0`, `23a950ca3`), the formatting of one of them
+(`9d12c571f`), three hand-off sections for that same slice (`1bb900772`, `8f64efab4`, `7b93c3e5a`), and two that
+belong to neither — the DOCS-VAULT 007 fixture (`abdc89512`) and the forms pre-signature resolver (`3adb21fc4`).
+`abe6513e5` is Forge-adjacent (contract call sites the landed API changes moved) but it is not one of the ten fixes.
+Every one of them arrived as an ordinary commit on `lane/muse`; no per-story worktree, no second workflow, and
+nothing unattributable — `git worktree list` shows the standing lanes and no other tree.
+
+**The stop costs two commits, and they are Forge commits.** `origin/lane/muse` is two ahead of `main`, tip
+`9f0e07e0b FORGE-FIX-012: lift answer_lands/classify_change out of the Yew gate`. They are pushed, so they are
+pullable; they are not on `main`, so by rule 6 they are unlanded rather than lost. Stopping the *non-Forge* work
+therefore costs nothing that is on `main` and two commits that are Forge work — the two things are not the same
+decision, and the branch can be landed as it stands.
+
+**Both red guard rows are the price of the same morning, and neither author left its lane.** Row 1 of the
+`TECH-DEBT.md` blocking table is FIX-005 (`bd1b093f5`, `lane/muse`) adding `Command::new` to
+`forge/src/engine/assay.rs`; row 2 is FIX-006 (`32832c57c`, `lane/nemotron-2`) naming `opencode` in
+`forge/src/engine/job.rs`. Nine fixes were merged between `47fce4b50` and `57927943a` and neither arch-guard target
+was run against any of them: both are `test-harness` targets, the tiered gate a slice runs stops at the first red
+target, and no step in the merge path ran them. That — not a rogue lane — is what put two red rows on trunk, and it
+is why they were reported twice and assigned zero times: the report had no owner column.
+
+**One label collision, so nobody assigns row 2 to the wrong lane.** Two different fixes are both called **FIX-006**:
+`32832c57c` (lane/nemotron-2, "Fence lease on prolonged outage / stuck turns") is §9's FIX-006 and the one that put
+`opencode` into `job.rs`; `f07f8cea1` (lane/muse, "FIX-006-SOUNDNESS", Arc migration, transmute deleted) is a
+different commit with a different subject. Check the SHA, not the label.
+
+**Next, in order.** (1) `pnpm slice:check` for anyone touching `tests/`, `forge/` or `cli/` will stop at
+`arch_boundary__011__qa_cannot_own_git_mutations` until row 1 lands; (2) rows 3 and 4 are behind row 1 — row 3 needs
+the captain's scope call, row 4 needs `lane/longcat`'s `3b32cc4ff` rebased and landed; (3) §10.2's quiet-trunk
+rustfmt pass is no longer open: `6fe65a1a3` formatted the 182 files (181 under `tests/tests/`, one production file,
+`forge/src/engine/job.rs`) with no token change outside rustfmt's own normalizations.
+

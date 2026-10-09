@@ -15,13 +15,59 @@ What we know is not right, recorded so it is not lost and not re-discovered. Thr
 Last reviewed: 2026-09-15 (the debt-clearing pass: release-path bundler, the V9 live throw, `.next`
 duplicates, the empty lint baseline, KIND chips, and the harness wired into the release build).
 
-## Blocking
+## Blocking — two red guard targets on trunk, assigned 2026-10-08
 
-Nothing. `pnpm forge:harness` (48 harness tests, packet-lint 0 failures / 1 warning / 0 baselined),
-`pnpm db:parity`, `pnpm test:app` and `pnpm smoke:prod` are all green as of the review date; `tsc` is clean
-and `pnpm test:agent-runtime` is 237 pass / 0 fail; the Phase 1 probe passes on DEV with net zero,
-`pnpm forge:decision check` reports the seven decision rows and their mirrors agreeing, `probe-learn-dedupe`
-proves the learn loop's de-dupe against a real Postgres, and `pnpm forge:roi` reads the live rollup.
+`main` carries two red test targets. Both were reproduced on `b3be12ec6` before they were assigned, not read
+off a hand-off; the receipts are at the foot of this section. Each row names a **place**, an **owner** and an
+**expiry** — assigned on the captain's direction 2026-10-08, because a red row that nobody owns is what stops
+every lane's T1 (`pnpm slice:check` runs the section, the section stops at the first red target).
+
+| # | Debt | Place it is decided in | Owner | Expiry | Exit that closes it |
+| --- | --- | --- | --- | --- | --- |
+| 1 | **`arch_boundary__011` refuses `forge/src/engine/assay.rs` naming `Command::new`.** The QA surface owns no process spawn; FIX-005 added one to bound every wait (`spawn_scoped_shell`, `spawn_scoped_shell_with_env`: `assay.rs:203`, `:232`; `:764` in its `#[cfg(test)]` module). | Assert `tests/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs:632`; name arrived in `bd1b093f5` (FORGE-FIX-005, merged `530903627`) | **lane/muse** — author of FIX-005 | 2026-10-10 | `cargo test -p test-harness --test arch_boundary__011__qa_cannot_own_git_mutations` green |
+| 2 | **`forge_arch_seam__001` refuses `forge/src/engine/job.rs` naming `opencode`** — the job layer reaches the vendor to read a turn ceiling (`job.rs:542-544`, `crate::engine::opencode::turn_ceiling`). | Assert `tests/tests/forge_arch_seam__001__canonical_execution_chain.rs:281`; name arrived in `32832c57c` (FORGE-FIX-006, merged `1a0f60269`) | **lane/nemotron-2** — author of FIX-006 | 2026-10-10 | `cargo test -p test-harness --test forge_arch_seam__001__canonical_execution_chain` green |
+| 3 | **Behind #1 — the mutation-verb sweep counts a test file.** The sweep requires that only `forge/src/engine/git_publish.rs` names `"push"`/`"merge"`/`"rebase"`; measured, exactly three files in the workspace name such a literal — `git_publish.rs` (allowed), this guard (excluded by `SELF`), and `tests/tests/forge_assay__005__qa_cannot_modify_git.rs:32-34`, a test whose subject *is* that QA may not push. | Assert `arch_boundary__011…rs:880`, `workspace_code()` (`:395-405`) sweeps `tests/**` | **lane/deep** | 2026-10-10 | The sweep's subject is production-mutation paths and `tests/**` is excluded by one named, dated line — **the captain rules the scope call and lane/deep lands it**; a baseline edit is not this exit |
+| 4 | **Behind #1 — the lint's `pattern!` spelling.** `ROLES_THAT_MAY_NOT_COMMIT` (`arch_boundary__011…rs:220-221`) pins the *one-line* spelling of the lint's role pattern; `cli/src/forge/lint.rs:105-108` now spells it wrapped across three lines, so `lint.contains(…)` cannot match. | Assert `arch_boundary__011…rs:910`; `cli/src/forge/lint.rs:105-108`, wrapped by the rustfmt pass `430a13761` | **lane/longcat** — its fix `3b32cc4ff` (batch 28) asserts the regex the lint must name rather than its line breaks, and it is **unlanded** | 2026-10-10 | That commit is rebased onto `main` and landed; the guard reaches past `:910` |
+
+Rows 3 and 4 sit *behind* row 1 in execution order — the guard stops at `:632`, so they were proved by
+counting rather than by a run: a `grep` for the three literals names exactly the three files above, and a
+`grep -c` for the one-line `pattern!(roles_that_may_not_commit, …)` in `cli/src/forge/lint.rs` returns **0**.
+
+Receipts (run 2026-10-08 on `b3be12ec6`, lane/deep):
+
+    $ cargo test -p test-harness --test arch_boundary__011__qa_cannot_own_git_mutations
+    thread 'arch_boundary_011__qa_cannot_own_git_mutations' panicked at
+    tests/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs:632:13:
+    forge/src/engine/assay.rs names `Command::new`. The QA surface owns no git door: …
+    test result: FAILED. 0 passed; 1 failed; 0 ignored                              EXIT=101
+
+    $ cargo test -p test-harness --test forge_arch_seam__001__canonical_execution_chain
+    thread 'the_job_layer_and_registry_know_no_role_no_node_and_no_vendor' panicked at
+    tests/tests/forge_arch_seam__001__canonical_execution_chain.rs:281:5:
+    JobService / the registry branch on a role or reach the vendor:
+    forge/src/engine/job.rs: `opencode`
+    test result: FAILED. 0 passed; 1 failed; 0 ignored                              EXIT=101
+
+    $ grep -rlE '"(push|merge|rebase)"' --include='*.rs' forge middle db web cli ui tests
+    forge/src/engine/git_publish.rs
+    tests/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs
+    tests/tests/forge_assay__005__qa_cannot_modify_git.rs
+
+    $ grep -c 'pattern!(roles_that_may_not_commit, r"(?i)\b(scout|assay|inspector)\b");' cli/src/forge/lint.rs
+    0
+
+Also closed 2026-10-08 in the same pass: **the rustfmt drift on trunk is gone** — 660 hunks across 182
+files, 181 of them under `tests/tests/`, formatted by `6fe65a1a3` with no token change outside rustfmt's own
+normalizations (whitespace and commas removed, 177 of 182 files are byte-identical to their previous
+revision; 5 more once rustfmt's inserted braces are removed; the 40 with moved imports hold the same
+statements reordered). The four trees `gates.yml` defers were untouched.
+
+## Superseded (2026-09-15, Next.js era)
+
+The paragraph that stood here — "Nothing is blocking; `pnpm forge:harness`, `pnpm db:parity`, `pnpm test:app`,
+`pnpm smoke:prod` and `tsc` are all green" — described the TypeScript estate, which is retired (`legacy/`,
+`docs/agent/LEGACY-TYPESCRIPT.md`). It was kept green by a different toolchain than the one that ships now,
+and it never covered the Rust guard targets above.
 
 ## Released (2026-09-15)
 
