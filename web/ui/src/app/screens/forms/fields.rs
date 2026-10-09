@@ -54,14 +54,12 @@ pub(super) fn field_control(
         }
         "money" => {
             let name = field.name.clone();
-            let changed = link.callback(move |event: InputEvent| Msg::FieldChanged {
+            let changed = link.callback(move |event: InputEvent| Msg::MoneyTyped {
                 name: name.clone(),
                 value: crate::app::exec::input_value(&event)
                     .replace('$', "")
                     .replace(',', ""),
             });
-            let focus_name = field.name.clone();
-            let focused = link.callback(move |_: FocusEvent| Msg::MoneyFocus(focus_name.clone()));
             let blurred = link.callback(|_: FocusEvent| Msg::MoneyBlur);
             let shown = if money_editing == Some(field.name.as_str()) {
                 value.clone()
@@ -73,7 +71,6 @@ pub(super) fn field_control(
                     inputmode="decimal"
                     value={shown}
                     oninput={changed}
-                    onfocus={focused}
                     onblur={blurred}
                     class={INPUT_CLASS}
                 />
