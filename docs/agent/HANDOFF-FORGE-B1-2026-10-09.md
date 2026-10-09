@@ -15,6 +15,8 @@ Four slices. **Slice 1 is landed and verified. Slices 2–4 are not started.** T
 | S6 | The worker stops the owned child on confirmed lease loss and reports supervision separately from the verdict | `forge/src/engine/worker.rs:111-138` (`HeartbeatHandle`), `:175-204` (`spawn_heartbeat`), `:558-575` (`stop_child`); unit test `only_lost_authority_stops_a_child` |
 | S7 | **PROD has migration 278** — applied 2026-10-09 07:03:51Z on the captain’s word, checksum identical to DEV’s, and exactly one signature per routine (no unfenced overload survives) | `psql "$DATABASE_URL_PROD" -tAc "select filename, checksum, applied_at from schema_migration where filename like '%278%'"` |
 | S8 | Production received the **schema only**: no forge process was started there, no story claimed, and the DEV proofs were not re-run against PROD | §4’s receipt |
+| S9 | The re-fenced DEV fixtures run: the 18 targets that carry 28 of them are green after four translation fixes (`0ad85edb7`), and the remaining 16 targets started 2026-10-09 under the mandated `--test-threads=1` — **not finished, so not yet a receipt** | §4’s `0ad85edb7` row; §5 |
+| S10 | Post-278 a claim is authority (owner plus generation), so a `Claimed`/`Running` row with no owner is not a claim. **PROD holds no live claim at all**, so the change strands no production row | §5, the query there |
 
 ## 2. HOLDS — do not act on these
 
@@ -40,15 +42,39 @@ Four slices. **Slice 1 is landed and verified. Slices 2–4 are not started.** T
 | --- | --- | --- |
 | `90b1a9619` on `origin/main` | FORGE-B1 Slice 1: migration 278 (claim generation + three fenced routines + typed settlement), the db/forge/worker/child/supervisor plumbing, 38 test fixtures re-fenced, and the new supersession proof | `cargo check --workspace --all-targets` → `EXIT=0`; `cargo test -p test-harness --test forge_claim__011__… -- --ignored` → `2 passed; 0 failed`; `cargo run -p cli -- db-tool apply db/migrations/278_forge_claim_fencing.sql dev` → `applied … (recorded in schema_migration)`; `cargo fmt -p db -p forge -p test-harness` → clean |
 | `db-tool apply … 278 … prod`, 2026-10-09, on the captain’s word | Migration 278 on PROD: `claim_generation bigint default 0`, the three fenced signatures, recorded in `schema_migration` with DEV’s checksum, and one signature per routine so no unfenced overload survives | `cargo run -p cli -- db-tool apply db/migrations/278_forge_claim_fencing.sql prod` → `database: target=prod host=ep-flat-art-ax92tn7a-pooler.c-4.us-east-2.aws.neon.tech`, `applied … (recorded in schema_migration)`, `EXIT=0`; then `pg_proc` → the three signatures, each with `p_claim_owner`/`p_claim_generation` |
+| `0ad85edb7`, 2026-10-09 | The re-fenced DEV fixtures run for the first time: 18 targets carrying 28 ignored fixtures, green after the four translation fixes §5 names | `cargo check --workspace --all-targets` → `CHECK-EXIT=0`; per target `cargo test -p test-harness --test <target> -- --ignored` → `exit=0` for all 18 (the 17 single-fixture targets are thread-count-independent by construction); `forge_work_claim_dev -- --ignored --test-threads=1` → `test result: ok. 7 passed; 0 failed; 1 filtered out; finished in 58.28s`; `git push origin HEAD:main` → `7900e3daa..0ad85edb7` |
 
 
 ## 5. NOT VERIFIED — the honest gaps
 
-- **The other 37 re-fenced DEV fixtures were compiled, not run.** Their assertions were translated from the old
-  `Option` answers to the typed ones by hand (`!answer.wrote()` for a refusal, `answer.settlement()` for a pair), and
-  several changed message text. Compilation is all I measured. Run them before trusting them:
-  `DATABASE_URL_DEV=… cargo test -p test-harness --test forge_work_claim_dev -- --ignored` and the
-  `forge_claim__00{1..010}__*`, `db_concurrency__00{2,3,4,5,7}__*`, `forge_seam_execution_dev` targets.
+- **CLOSED for 28 of the 32 re-fenced fixtures; 16 targets still running.** `90b1a9619` re-fenced 32 files under
+  `tests/tests/`; the 18 targets now run carry 28 of them, and **the first run found four reds — all four my own
+  hand-translation errors, not engine defects** (fixed in `0ad85edb7`): `claim_fence` read the fence with `fetch_one`,
+  so the routine's legitimate `not_found` refusal arrived as a harness `RowNotFound` (`fetch_optional` now returns a
+  fence of nobody, which is no authority); `db_concurrency__007` selected `ForgeAgentWorkRow` by explicit column list
+  and left `claim_generation` off it, so the decode failed on the column 278 added; `db_concurrency__005` counted
+  winners with `settlement().is_some()`, which is true for `Conflict` and `Duplicate` too, so seven losers read as
+  winners (`wrote()` is the answer); and `forge_work_claim_dev` seeded a `Running` item with no owner, which post-278
+  is a claim nobody holds — the settle is refused before its completion guard is reached, and the seed now carries the
+  owner/generation pair the claim routine writes.
+- **Run DEV fixtures with `--test-threads=1`. That is the project's own invocation, and I did not use it at first.**
+  `forge_work_claim_dev.rs:568` and `.github/workflows/gates.yml:553` both mandate
+  `-- --ignored --test-threads=1`. Under plain `--ignored`, that target's sweeper test clears global `agent_work_item`
+  state while its siblings hold claims, so two of its seven tests fail **in each other's helpers** (`:37`, the fence
+  read, row gone; `:651`, the sweeper's own settle returning an error) — and both pass serially: `7 passed; 0 failed;
+  finished in 58.28s`. That red is an artifact of the invocation, not a defect, and it owes no TECH-DEBT row; what it
+  does owe is this line, because the next agent will otherwise spend the same hour on it.
+- **The 16 targets not yet finished** are `chaos_concurrency__003`, `forge_claim__011` (re-run for a fresh receipt),
+  `forge_claim__different_stories_can_be_claimed_while_peer_is_running`, `forge_dispatch__007`,
+  `forge_packet__001..009`, `forge_queue__001`, `forge_story_run__001`, `forge_story_run__002`. They were started
+  2026-10-09 under the mandated invocation; §6.2 stays open until they pass.
+- **Post-278, a claim is authority, not state** — owner plus generation. A `Claimed`/`Running` row with **no owner** is
+  therefore not a claim: nothing can match its fence and only the sweep can requeue it. Measured the blast radius
+  before trusting the change: **PROD holds no live claim at all** (every `agent_work_item` row is terminal — 1975
+  `Done`, 240 `Error`, 578 `Cancelled`), so no production row can be stranded, and DEV carries only stale fixture
+  leftovers — five owned by `worker-1` at generation 0 and one NULL-owner `Running` row of exactly the shape fix 4
+  stops seeding. Check:
+  `psql "$DATABASE_URL_PROD" -tAc "select coalesce(claimed_by,'<NULL>'), state, claim_generation, count(*) from agent_work_item where state in ('Claimed','Running') group by 1,2,3"` → no rows.
 - **No worker process was run.** `spawn_heartbeat`'s lease-loss → `stop_child` path is proved by the pure
   `lease_loss_reason` unit test and by reading, not by killing a real child.
 - **No end-to-end synthetic story** (claim → begin → accepted completion → effects → finish → crash/reclaim). The
@@ -61,11 +87,17 @@ Four slices. **Slice 1 is landed and verified. Slices 2–4 are not started.** T
 ## 6. OPEN — the next actions, in order
 
 1. ~~**Get the PROD answer (H1) and apply 278 there.**~~ **DONE 2026-10-09** — H1 closed; the receipt is in §4.
-2. **Run the 37 re-fenced fixtures** (§5) and fix whatever the translation got wrong. Finished when the listed
-   targets pass with `--ignored`.
+2. **Finish the re-fenced fixtures** (§5): the last **16 targets**, run as
+   `cargo test -p test-harness --test <target> -- --ignored --test-threads=1`. The 18 targets carrying 28 fixtures are
+   done and green (`0ad85edb7`); this item closes when the other 16 pass. Expect translation errors and check them
+   against the routine before blaming the engine: four of the first 28 were wrong, in exactly the ways §5 lists, and
+   every one of them was mine.
 3. **Slice 2, then 3, then 4**, in that order (each depends on the one before). Each owes: a migration, its DEV
    evidence, `cargo check --workspace --all-targets`, and a push. The commit intents are in work order §6–8.
-4. Leave `docs/agent/TECH-DEBT.md` a row for any defect the slices expose but do not fix, dated and owned.
+4. Leave `docs/agent/TECH-DEBT.md` a row for any defect the slices expose but do not fix, dated and owned. **No row is
+   owed for the parallel-run red in §5** — `--test-threads=1` is the project's own documented invocation for DEV
+   proofs (`gates.yml:553`), so that red is a method error, and a row for it would be process noise in a ledger the
+   captain reads for real defects.
 
 ## 7. ASK THE OWNER
 
