@@ -20,7 +20,7 @@ use services::{
 use web::security::{SecurityService, CasbinAuthorizationPort};
 use std::sync::Arc;
 
-const HARNESS: &str = "SecurityHarness/L2 Persistence";
+const HARNESS: &str = "TestDatabase/L2 Persistence";
 
 async fn test_infrastructure(audit: Arc<CapturingAuditPort>) -> ServiceInfrastructure {
     let auth_port = Arc::new(CasbinAuthorizationPort::new().await.expect("{HARNESS}: CasbinAuthorizationPort builds"));

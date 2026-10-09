@@ -8,6 +8,8 @@ Seven final canonical test binaries passed (one test each, zero ignored). Chris 
 
 TST-SEC-REDIRECT-001, 003, 004, 006, 007, 008 and 010. These seven failed stories had no canonical Rust test files. Added their exact canonical files/functions and SecurityHarness, which delegates to the production Google login/callback policy without duplicating it.
 
+_Update, 2026-10-08 (lane/deep)._ The `SecurityHarness` named above is the **redirect-policy** harness this batch added; the SEC.AUDIT batch had independently given its own, unrelated harness the same name, and the collision briefly left one type answering both questions. They are now named for their jobs — `RedirectPolicyHarness` (L0, this batch's) and `AuditPersistenceHarness` (L2, the audit batch's), both exported from `test_harness`. No behaviour changed: this batch's cases call `RedirectPolicyHarness::redirect_target`, which is the same call to `safe_next`. See `docs/agent/HANDOFF-MERGE-QUEUE-2026-10-08.md` §11.
+
 ## Application defect
 
 `web/src/api/google_auth.rs` accepted local paths containing raw CR/LF and other control characters. Axum 0.8 constructs an HTTP 500 response when such a value cannot become a Location header. The policy now falls back to `/portal/dashboard` for control characters. The unchanged policy permits local paths and rejects all absolute URLs, including same-origin absolute URLs. No database schema, service authorization, or MVI changes.

@@ -245,6 +245,47 @@ rename was still not required.
 - **rustfmt drift** (~150 files: `crm_*`, `wf_*`, `ui_*`, `forge_assay_*`): pre-existing, wants one quiet-trunk commit.
 - **`forge/src/engine/executor/drive.rs:303`**: `unsafe { std::mem::transmute(harness) }` to
   `&'static dyn RoleHarness` inside a closure that outlives its `Arc` — a latent soundness bug, not repaired here.
-- **Not verified here**: no T2 full-suite run (that stays CI's, per the tiered rule), and `pnpm slice:check`'s
-  T1 stage had nothing left to select because this slice was already trunk by the time it ran (§10.1).
+## 11. RESOLVED, later the same day (`lane/deep`): the collision is two names now
+
+§3 said this was a rename, not a union, and recommended a rebase. The rebase then did what §3 warned about:
+`tests/src/security.rs` on `main` became the L2 audit harness **with the L0 redirect policy glued into it** as an
+associated function (`redirect_target`), so a redirect contract test calls a type whose other half owns a Postgres
+pool. Two jobs, one name, and no author could tell which harness they were reading.
+
+Captain's direction, 2026-10-08: keep both implementations, give each a name that states its job, export both, no
+behaviour changes. What `tests/src/security.rs` holds now:
+
+    RedirectPolicyHarness     L0 Pure        the production redirect policy (`safe_next`), no I/O
+    AuditPersistenceHarness   L2 Persistence the production audit DAO on an isolated, disposable DEV target
+    CommittedAuditRow         —              the L2 harness's read-back row (unchanged)
+
+    tests/src/lib.rs  pub use security::{AuditPersistenceHarness, CommittedAuditRow, RedirectPolicyHarness};
+
+Both are `pub use`d from `test_harness`, so `use test_harness::RedirectPolicyHarness;` and
+`use test_harness::AuditPersistenceHarness;` are the two import lines, one per job. The redirect harness keeps its
+body (the same `safe_next` call) and the audit harness keeps every method; nothing about what either does changed.
+
+**How a blocked rebase resolves now — mechanically, five steps.** A branch that carried the redirect harness, or
+the audit one, or both:
+
+1. delete the branch's own `tests/src/security.rs` — trunk's file already holds the redirect policy under its own
+   name, and duplicating it is the merge this page was written about;
+2. take trunk's one-line export in `tests/src/lib.rs` verbatim (that is the "1-line export" conflict of §2);
+3. `perl -pi -e 's/SecurityHarness/RedirectPolicyHarness/g'` over the branch's `sec_redirect__*` cases;
+4. `web/src/api/google_auth.rs` — take trunk's (the CR/LF control-character fix);
+5. a branch that carried the 363-line SEC.IDENTITY / SEC.ENTITLEMENT harness names it `IdentitySecurityHarness` in
+   `tests/src/security_identity.rs` (§3). That name is now reserved for it and nothing on trunk holds it.
+
+Step 5 is the reason the two trunk harnesses are named for their *jobs* rather than for the domain: the third
+member of this family is an identity/entitlement harness, and a name like `SecurityHarness` cannot be split three
+ways. The existing convention in this suite agrees — `RegistryHarness`, `SignatureHarness`, `ClientHarness`,
+`EngineHarness` — a harness is named for what it lets a test do.
+
+**Scope of the rename.** 32 code files, 34 with this page and the TST-REDIRECT hand-off: the module, the export
+line, the 17 `sec_redirect__*` cases, the four `sec_audit__00[1-4]` cases, and the assertion-message `const HARNESS`
+in the remaining security cases. That last
+group is worth a line: `sec_audit__005` and the eight `sec_entitlement__*` L2 cases drive the production
+`SecurityService`/`DurableSecurityAuditPort` over `TestDatabase` and never held the audit harness's type, so their
+message now names the harness they actually use (`TestDatabase/L2 Persistence`) instead of borrowing a name that
+belonged to a different harness.
 

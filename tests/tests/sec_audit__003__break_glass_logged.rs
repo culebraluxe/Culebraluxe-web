@@ -20,14 +20,14 @@
 //! must be refused AND logged as a failure — the success row belongs to the glass-holder alone. And the row must
 //! attribute the exact break-glass actor id: a grant logged against nobody (or anybody) fails the contract.
 //!
-//! ISOLATION. The database is the harness's disposable DEV target: `SecurityHarness::connect_declared` resolves
+//! ISOLATION. The database is the harness's disposable DEV target: `AuditPersistenceHarness::connect_declared` resolves
 //! the declared environment and refuses `DbTarget::Prod` before any socket is opened
 //! (`tests/src/database.rs:68-89`). Rows are addressed by a unique `correlationId` marker the production port
 //! already writes, the fixture break-glass user exists only for this test, and cleanup deletes exactly those
 //! rows — a zero leftover count is asserted, so DEV is left as it was found.
 //!
 //! Level: L2 Persistence — the production audit write against an isolated, disposable DEV/Neon target, harness
-//! `SecurityHarness`.
+//! `AuditPersistenceHarness`.
 //!
 //! Run with:
 //!   set -a; . ./.env.local; set +a
@@ -40,19 +40,19 @@ use services::{
     ServiceInfrastructure, ServicePrincipal,
 };
 use std::sync::Arc;
-use test_harness::SecurityHarness;
+use test_harness::AuditPersistenceHarness;
 use web::security::{CasbinAuthorizationPort, DurableSecurityAuditPort, SecurityService};
 
 /// The harness name and level, carried in every assertion message so a failure names its boundary.
-const HARNESS: &str = "SecurityHarness/L2 Persistence";
+const HARNESS: &str = "AuditPersistenceHarness/L2 Persistence";
 
 /// Connect to the disposable DEV target, tolerating a cold-pool timeout under concurrent test load.
 ///
-/// Infrastructure, not the contract: `SecurityHarness` still refuses PRODUCTION before any socket is opened.
-async fn connect_dev() -> SecurityHarness {
+/// Infrastructure, not the contract: `AuditPersistenceHarness` still refuses PRODUCTION before any socket is opened.
+async fn connect_dev() -> AuditPersistenceHarness {
     let mut last: Option<String> = None;
     for attempt in 1..=4 {
-        match SecurityHarness::connect_declared(Some("dev"), Some("dev")).await {
+        match AuditPersistenceHarness::connect_declared(Some("dev"), Some("dev")).await {
             Ok(harness) => return harness,
             Err(error) => {
                 eprintln!("{HARNESS}: DEV connect attempt {attempt} failed: {error}");

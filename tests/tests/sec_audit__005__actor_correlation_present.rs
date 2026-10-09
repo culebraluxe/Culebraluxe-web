@@ -17,7 +17,7 @@ use services::{
 };
 use std::sync::Arc;
 
-const HARNESS: &str = "SecurityHarness/L2 Persistence";
+const HARNESS: &str = "TestDatabase/L2 Persistence";
 
 fn test_infrastructure(audit: Arc<CapturingAuditPort>) -> ServiceInfrastructure {
     ServiceInfrastructure::new(

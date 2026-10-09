@@ -1,26 +1,45 @@
-//! The security-audit write boundary, executable against one isolated, disposable DEV database.
+//! The two security harnesses, one per job: the redirect policy (L0) and the audit write boundary (L2).
 //!
-//! WHY THIS EXISTS. The durable audit trail — `security_audit_event`, written by the production
-//! `SecurityAuditDao` (`db/src/security_audit.rs`) through the production `DurableSecurityAuditPort`
-//! (`web/src/security/audit.rs`) — is a Postgres insert followed by a read-back. A unit test cannot see any of
-//! it, because the row only exists inside the database. The only honest way to prove a denied action, a
-//! privileged success, or a break-glass decision was logged is to run the production port against a real
-//! Postgres and read back what committed.
+//! WHY TWO NAMES. Two test batches built a harness each, days apart, neither able to see the other, and both
+//! called it `SecurityHarness`. Neither implementation was wrong on its own; the name was. One answers the
+//! *policy* question — "is this redirect allowed?" — so redirect contracts can run without a browser or a
+//! network. The other answers the *evidence* question — "was this recorded?" — so audit contracts can assert
+//! on rows that exist only inside Postgres. The jobs share nothing: one is a pure function over a string, the
+//! other owns a connection pool.
 //!
-//! This module wraps production types; it does not re-implement them. The write under test is always
-//! [`SecurityAuditDao::record`](dao), reached through the production port, and every assertion is read back
-//! from the pool the DAO wrote to ([`pool`](SecurityHarness::pool)). It adds the two seams an audit contract
-//! test needs: a marker that keeps one test's rows addressable (the `correlationId` the production port
-//! already writes into `metadata`), and a cleanup that removes exactly those rows.
+//! One name for both is how a redirect test came to depend on a type whose other half writes to the database,
+//! and how an author could not tell which harness a file used. Each implementation therefore keeps its body
+//! and takes a name that states its job — the vocabulary this module exists to fix:
 //!
-//! Level: L2 Persistence — the database contract against an isolated, disposable DEV/Neon target. The wrapped
-//! [`TestDatabase`] refuses PRODUCTION before any socket is opened.
+//! - [`RedirectPolicyHarness`] — **L0 Pure**: the production redirect policy, no I/O, no configuration.
+//! - [`AuditPersistenceHarness`] — **L2 Persistence**: the production audit DAO against an isolated,
+//!   disposable DEV/Neon target, which refuses PRODUCTION before any socket is opened.
+//!
+//! The SEC.IDENTITY / SEC.ENTITLEMENT harness over the real `SecurityService` and Casbin is a third member of
+//! this family and carries its own name as well (`IdentitySecurityHarness`, module `security_identity`): the
+//! same collision reached it. The rename and the rebase recipe that follows from it are recorded in
+//! `docs/agent/HANDOFF-MERGE-QUEUE-2026-10-08.md` §11.
 
 use db::SecurityAuditDao;
 use serde_json::Value;
 use sqlx::PgPool;
 
 use crate::database::{HarnessDbError, TestDatabase};
+
+/// L0 Pure: the production redirect policy, so a redirect contract needs neither a browser nor a network.
+///
+/// It is a harness in the sense [`crate`] means one — it does not restate the policy, it calls production's
+/// (`web::api::google_auth::safe_next`, the single function the Google login and the callback both use). A test
+/// asserting against a second copy of the rules would stay green on the day the real policy changed.
+pub struct RedirectPolicyHarness;
+
+impl RedirectPolicyHarness {
+    /// What the policy makes of a `next` parameter: the same-origin path the browser is sent to, or the
+    /// dashboard fallback when the value is not a path this site may be redirected to.
+    pub fn redirect_target(next: Option<&str>) -> String {
+        web::api::google_auth::safe_next(next)
+    }
+}
 
 /// One committed audit row, read back from the pool the DAO wrote to.
 ///
@@ -36,13 +55,29 @@ pub struct CommittedAuditRow {
 }
 
 /// The production security-audit DAO on an isolated, disposable DEV database.
+///
+/// WHY THIS EXISTS. The durable audit trail — `security_audit_event`, written by the production
+/// `SecurityAuditDao` (`db/src/security_audit.rs`) through the production `DurableSecurityAuditPort`
+/// (`web/src/security/audit.rs`) — is a Postgres insert followed by a read-back. A unit test cannot see any of
+/// it, because the row only exists inside the database. The only honest way to prove a denied action, a
+/// privileged success, or a break-glass decision was logged is to run the production port against a real
+/// Postgres and read back what committed.
+///
+/// It wraps production types; it does not re-implement them. The write under test is always
+/// `SecurityAuditDao::record`, reached through the production port, and every assertion is read back from the
+/// pool the DAO wrote to ([`pool`](AuditPersistenceHarness::pool)). It adds the two seams an audit contract
+/// test needs: a marker that keeps one test's rows addressable (the `correlationId` the production port
+/// already writes into `metadata`), and a cleanup that removes exactly those rows.
+///
+/// Level: L2 Persistence — the database contract against an isolated, disposable DEV/Neon target. The wrapped
+/// [`TestDatabase`] refuses PRODUCTION before any socket is opened.
 #[derive(Clone)]
-pub struct SecurityHarness {
+pub struct AuditPersistenceHarness {
     database: TestDatabase,
     dao: SecurityAuditDao,
 }
 
-impl SecurityHarness {
+impl AuditPersistenceHarness {
     /// Read the declared environment, refuse PRODUCTION, connect, and wrap the production audit DAO.
     ///
     /// This is the entry point an audit contract test should use: it resolves `VERCEL_ENV`/`APP_ENV` exactly as
@@ -144,10 +179,5 @@ impl SecurityHarness {
         .await
         .map_err(|error| db::DbFailure::from_sqlx("test-harness.audit_leftover", &error))?;
         Ok(count)
-    }
-
-    /// L0 security boundary: the same redirect policy used by Google login and callback.
-    pub fn redirect_target(next: Option<&str>) -> String {
-        web::api::google_auth::safe_next(next)
     }
 }
