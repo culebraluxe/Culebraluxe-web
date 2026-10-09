@@ -28,16 +28,18 @@
 //!      `set error_text='claimed state=Ready'` is NOT (text after a name is not an assignment); a
 //!      `///` comment quoting the statement is NOT (comments are stripped before matching). A scanner
 //!      that cannot fail cannot pass, so every direction is planted below.
-//!   3. THE DATABASE'S OWN DOORS, BOUND. Ten migration functions write the column:
+//!   3. THE DATABASE'S OWN DOORS, BOUND. Nine currently installed migration functions write the column:
 //!      `agent_work_item_dispatch()` (the creation INSERT — 025, restated 146 and 259),
 //!      `forge_claim_specific_agent_work` (262) and `forge_claim_story` (275 — the claim door that obeys the brake; the
 //!      262 `forge_claim_next_agent_work` now only delegates to it),
 //!      `forge_finish_agent_work_run`/`forge_reject_agent_work_configuration` (263),
 //!      `forge_begin_agent_work_run` (264), `forge_reconcile_dispatch_queue` (265), and
-//!      `forge_hold_stale_work`/`forge_requeue_stale_work`/`forge_recover_stale_engine_claim` (266).
+//!      `forge_recover_stale_work` and `forge_cancel_stale_open_work` (279; the first replaces the
+//!      three recovery doors from 266, and the second fences the stale-open cancellation sweep).
 //!      The set is **derived from the migrations themselves** (each `create … function` region is run
-//!      through the same column detector), so a NEW state-writing function fails rather than slipping
-//!      past the pin; each name's production Rust callers are then pinned: nine resolve to
+//!      through the same column detector, with subsequent `drop function` statements removing retired
+//!      doors), so a NEW state-writing function fails rather than slipping past the pin; each name's
+//!      production Rust callers are then pinned: eight resolve to
 //!      `db/src/forge_engine.rs`, `db/src/forge_control.rs` or `db/src/forge_reset.rs`, and
 //!      `agent_work_item_dispatch()` resolves to **none** — the trigger `storyboard_story_ready_dispatch`
 //!      (025:114) fires it, so creation stays one database door with no Rust caller to pin (and no
@@ -128,12 +130,12 @@ const MAY_WRITE_STATE: [&str; 4] = [
     "db/src/tech.rs",
 ];
 
-/// The migration functions whose bodies write `agent_work_item.state`, and the production `.rs` files
+/// The currently installed migration functions whose bodies write `agent_work_item.state`, and the production `.rs` files
 /// allowed to invoke each one from Rust. An empty caller list is the dispatch trigger's own door: no
 /// Rust file may name it. The test does not take this list on faith — it re-derives it from the
 /// migrations (every `create … function` region, run through the same column detector), so a NEW
 /// state-writing function fails here instead of slipping past the pin.
-const DB_STATE_FUNCTIONS: [(&str, &[&str]); 10] = [
+const DB_STATE_FUNCTIONS: [(&str, &[&str]); 9] = [
     ("agent_work_item_dispatch", &[]),
     (
         "forge_claim_specific_agent_work",
@@ -153,12 +155,11 @@ const DB_STATE_FUNCTIONS: [(&str, &[&str]); 10] = [
         "forge_reconcile_dispatch_queue",
         &["db/src/forge_engine.rs"],
     ),
-    ("forge_hold_stale_work", &["db/src/forge_control.rs"]),
-    ("forge_requeue_stale_work", &["db/src/forge_control.rs"]),
     (
-        "forge_recover_stale_engine_claim",
-        &["db/src/forge_reset.rs"],
+        "forge_recover_stale_work",
+        &["db/src/forge_control.rs", "db/src/forge_reset.rs"],
     ),
+    ("forge_cancel_stale_open_work", &["db/src/forge_reset.rs"]),
 ];
 
 /// The apply-time one-off: migration 258 flipped `state='Ready'` on rows stranded by an interrupted
@@ -192,7 +193,7 @@ const READ_PROOF: [(&str, &str); 4] = [
         "db/src/tech.rs",
         "update agent_work_item set state='Cancelled'",
     ),
-    ("db/src/forge_control.rs", "forge_hold_stale_work"),
+    ("db/src/forge_control.rs", "forge_recover_stale_work"),
     ("db/src/forge_engine.rs", "from forge_begin_agent_work_run("),
 ];
 
@@ -630,6 +631,12 @@ where
     let mut current: BTreeMap<String, bool> = BTreeMap::new();
     let mut one_offs: BTreeSet<String> = BTreeSet::new();
     for (file, sql) in migrations {
+        // A migration can retire a previously created function without restating it. Remove those
+        // doors before applying this file's definitions; this is the current schema, not a catalog
+        // of every historical function that once existed.
+        for function in sql_dropped_functions(sql) {
+            current.remove(&function);
+        }
         for (function, region) in sql_function_regions(sql) {
             let writes_now = writes(&region);
             if function.is_empty() {
@@ -647,6 +654,35 @@ where
         .map(|(name, _)| name)
         .collect();
     (functions, one_offs)
+}
+
+/// Names removed by `DROP FUNCTION` statements in a migration. Only the function identifier matters
+/// to this caller pin; overload signatures remain deliberately outside this guard's name-level model.
+fn sql_dropped_functions(sql: &str) -> Vec<String> {
+    sql_code(sql)
+        .to_ascii_lowercase()
+        .split(';')
+        .filter_map(|statement| {
+            let statement = statement.trim();
+            let rest = statement
+                .strip_prefix("drop function if exists ")
+                .or_else(|| statement.strip_prefix("drop function "))?;
+            let name = rest
+                .split(|character: char| character == '(' || character.is_whitespace())
+                .next()?
+                .trim();
+            if name.is_empty() {
+                return None;
+            }
+            Some(
+                name.rsplit('.')
+                    .next()
+                    .unwrap_or(name)
+                    .trim_matches('"')
+                    .to_string(),
+            )
+        })
+        .collect()
 }
 
 #[test]
@@ -940,6 +976,13 @@ fn arch_one_writer_002__agent_work_item_state() {
         "the set of migration functions whose bodies write {TABLE}.{COLUMN} changed. One fact has ONE \
          writer: a NEW state machine owns part of this fact, or a pinned one stopped writing it. Name it \
          here deliberately WITH its production caller, or do not let it exist"
+    );
+    assert_eq!(
+        sql_dropped_functions(
+            "drop function if exists old_gate(uuid); drop function retired_gate(text);"
+        ),
+        ["old_gate".to_string(), "retired_gate".to_string()],
+        "the migration reader must see both conditional and unconditional function retirement"
     );
     assert_eq!(
         one_offs,
