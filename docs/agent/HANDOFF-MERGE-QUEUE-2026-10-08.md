@@ -498,4 +498,14 @@ concluded `Completed` (`:385`). **No production line changed.** Both rows moved 
 **What that leaves.** Rows 1, 2, 4, 5, 7 and 10 are untouched by this pass, and rows 8 and 9 were the only two reds
 that were CI-visible rather than environment-class.
 
+**And the section gate says the same thing, in its own words.** `pnpm slice:check --since 98ef611dd` for this slice —
+sections `harness`, crates `harness`, T0 PASS (52s), FMT PASS (2s), T1 **FAIL (219s)**, "DO NOT HAND OVER" — stopped
+at `arch_boundary__011…rs:640`, row 1. That is not this slice's change failing: the four rows it closed were run by
+name and are green. The useful part for whoever fixes row 1: **rows 2 and 10 are behind it too** — the section runs
+`cargo test -p cli -p test-harness` without `--no-fail-fast`, and `arch_boundary__011` sorts before
+`forge_arch_seam__001` and `runtime_deploy__004`, so neither can be observed in a section run until row 1 lands.
+Row 1 is one line for whoever owns it: `forge/src/engine/assay.rs` needs its `Command::new` decision made (arch, not
+a test edit), and row 4 is one rebase — `lane/longcat`'s `3b32cc4ff`.
+
+
 

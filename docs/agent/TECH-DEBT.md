@@ -116,6 +116,17 @@ Second pass the same day (`1c55a567b`, lane/deep) — the four rows it closed, a
     $ cargo fmt --all -- --check                                                              EXIT=0
     $ cargo check --workspace --all-targets                            Finished in 27.51s      EXIT=0
 
+    $ pnpm slice:check --since 98ef611dd --receipt /tmp/deep-slice-receipt.md   (the gate's own T1, this slice)
+    sections      harness                crates   harness
+    T0 compile    PASS (52s)             FMT rustfmt   PASS (2s)
+    T1 sections   FAIL (219s) → stopped at arch_boundary__011…rs:640, which is row 1 (lane/muse)
+    RESULT        DO NOT HAND OVER — T1 — a test in a section you touched failed
+        → this slice's T1 is blocked by row 1 and not by its own change: the four rows it closed were run
+          individually (above) and are green. **Rows 2 and 10 are behind row 1 for any `tests/` slice** —
+          the section runs `cargo test -p cli -p test-harness` with no `--no-fail-fast`, and
+          `arch_boundary__011` sorts before `forge_arch_seam__001` and `runtime_deploy__004`, so neither of
+          those can be *observed* in a section run until row 1 lands. Run them by name to see their verdict.
+
 Also closed 2026-10-08 in the same pass: **the rustfmt drift on trunk is gone** — 660 hunks across 182
 files, 181 of them under `tests/tests/`, formatted by `6fe65a1a3` with no token change outside rustfmt's own
 normalizations (whitespace and commas removed, 177 of 182 files are byte-identical to their previous
