@@ -8,7 +8,7 @@
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test sec_redirect__001__path_traversal
 
 use axum::http::HeaderMap;
-use web::api::google_auth::{safe_next, percent_decode, encode};
+use web::api::google_auth::{percent_decode, safe_next};
 
 const HARNESS: &str = "RedirectPolicyHarness/L0 Pure";
 
@@ -102,7 +102,10 @@ fn sec_redirect_001__path_traversal() {
     // 9. Percent-encoded traversal attempts are decoded before validation in callback flow
     // The callback does: percent_decode -> safe_next
     // Raw encoded form slips past safe_next; only decoded value is refused
-    let encoded_backslash = encode("/\\evil.example"); // "/%5Cevil.example"
+    // The raw form is spelled out rather than built with `encode`: `encode` (`web/src/api/google_auth.rs:36`) is
+    // this site's URI-component encoder, so it encodes the leading `/` as well and yields `%2F%5Cevil.example`,
+    // which is not a path `safe_next` is being asked about. `/%5Cevil.example` is what the browser sends.
+    let encoded_backslash = String::from("/%5Cevil.example");
     assert_eq!(
         safe_next(Some(&encoded_backslash)),
         encoded_backslash,

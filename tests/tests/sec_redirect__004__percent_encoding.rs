@@ -167,7 +167,17 @@ fn sec_redirect_004__percent_encoding() {
     assert_eq!(percent_decode("hello%20world%zz"), "hello world%zz");
 
     // 9. encode produces uppercase hex digits
-    assert!(encode(" ").chars().all(|c| c.is_ascii_uppercase() || c == '%'));
+    // A percent-encoded byte is '%' followed by two UPPERCASE hex digits, and a hex digit may be a digit:
+    // `encode(" ")` is "%20", so a predicate that admits only uppercase letters and '%' fails on its own
+    // value (it did, on trunk, until this line was repaired). The point of the check is that no LOWERCASE
+    // letter is ever emitted (`%2f`), which the predicate still refuses.
+    let encoded_space = encode(" ");
+    assert!(
+        encoded_space
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '%'),
+        "{HARNESS}: encode(\" \") = {encoded_space:?}, expected '%' and uppercased hex digits"
+    );
     assert_eq!(encode("\u{00E9}"), "%C3%A9"); // é -> UTF-8 bytes C3 A9
 
     // 10. Empty string handling
