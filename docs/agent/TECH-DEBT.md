@@ -12,8 +12,13 @@ What we know is not right, recorded so it is not lost and not re-discovered. Thr
    holds findings we chose not to fix on day one. It is **empty** as of 2026-09-15, the same day it was
    recorded — both of its debts were paid rather than carried, and the file says so in prose.
 
-Last reviewed: 2026-09-15 (the debt-clearing pass: release-path bundler, the V9 live throw, `.next`
-duplicates, the empty lint baseline, KIND chips, and the harness wired into the release build).
+Last reviewed: **2026-10-08** (`lane/deep`): the six red targets on trunk — `arch_boundary__011`, `forge_arch_seam__001`,
+`prop_property_based__008`, `wf_token__006`, `wf_token__007`, `runtime_deploy__004` — reproduced on `b3be12ec6`, each
+given an owner and an expiry, and the SEC.REDIRECT id collision and the in-checkout build tree recorded while doing
+it. The rustfmt drift on trunk closed in the same pass (`6fe65a1a3`). The previous review was 2026-09-15 (the
+debt-clearing pass: release-path bundler,
+the V9 live throw, `.next` duplicates, the empty lint baseline, KIND chips, and the harness wired into the release
+build) — that pass's estate is the retired TypeScript one, kept below under "Superseded".
 
 ## Blocking — two red guard targets on trunk, assigned 2026-10-08
 
@@ -31,6 +36,9 @@ every lane's T1 (`pnpm slice:check` runs the section, the section stops at the f
 | 5 | **Six SEC.REDIRECT story ids carry two test files each.** Three batches authored tests for the same stories and nothing says which file answers a story id: `b3ce7fef9` (2026-10-07, batch 45 — its own subject: "blocked by web crate compilation error") added `001__path_traversal`, `002__open_redirect`, `003__host_injection`, `004__percent_encoding`, `005__fragment_handling`, `006__query_parameters`; `68ba004de` (2026-10-08) added the ids' canonical files as `docs/agent/proposals/TST-REDIRECT-2026-10-08.patch` names them (`001__relative_path_allowed`, `003__evil`, `004__evil`, `006__userinfo_tricks`, and the single `007`/`008`/`010` files); `f438d7a68` (2026-10-08) added `002__same_origin_absolute_behavior_as_intended`, `005__encoded_slash_backslash_variants`, `009__malformed_unicode`, `011__redirect_loops`. | `ls tests/tests/sec_redirect__*.rs` — 17 files, ids 001–006 doubled | **lane/muse** — author of all three batches (every one of the three commits arrived on `lane/muse`) | 2026-10-10 | One file per id: each doubled pair folds into the canonical file — batch 45's assertions move inside it — and batch 45's name is deleted, so the id-to-file map is a function again. Naming the canonical half is done (that is `docs/agent/HANDOFF-TST-REDIRECT-2026-10-08.md`); the fold is not |
 | 6 | **`prop_property_based__008__monetary_arithmetic` is red on trunk, and the stale half is the test.** It asserts `format_money("1250000") == "$1,250,000"` and `"1250000.5" == "$1,250,000.5"`; `middle/model/src/forms_format.rs:12` was rewritten for forms v5 by `c483e8f81` to always write two decimals (`"$1,250,000.00"`, `"$1,250,000.50"`), and the **passing** test `tests/tests/docs_forms_template__007__field_formatting.rs:42-43` pins that two-decimal contract. Found by the trunk estate run 2026-10-08: `test prop_property_based_008__monetary_arithmetic ... FAILED`, `left: "$1,250,000.00"`, `right: "$1,250,000"`. The formatter is the canonical half — its own doc says two decimals and a second test agrees. | Assert `tests/tests/prop_property_based__008__monetary_arithmetic.rs:76-77`; batch 36 (`17bf934a6`, authored against a tree without `c483e8f81`) | **lane/muse-2** — batch 36's lane | 2026-10-10 | Those two display assertions take the v5 contract (`"$1,250,000.00"`, `"$1,250,000.50"`) and the target is green; nothing else in the file changes, and the hostile-input assertions stay |
 | 7 | **A test builds the whole workspace inside the checkout.** `runtime_deploy__004__server_executable.rs:45` falls back to `<checkout>/build/rust` when `CARGO_TARGET_DIR` is unset — the shared target dir retired 2026-10-07 — so running it does a **release build inside the tree**, at a path no `.gitignore` covers (`/target/` is ignored, `build/` is not). Measured 2026-10-08: the directory appeared mid-run and `git add -A` died on `build/rust/release/deps/rmeta…/full.rmeta`, a file the build was still rewriting. Two guards also describe `build/rust` as the shared dir in their doc comments, so the path reads as current. | `tests/tests/runtime_deploy__004__server_executable.rs:44-52` (batch 41, `ebed4727a`); the only test with that fallback (`grep -rl 'join("build")' tests/tests/` → 1) | **lane/muse** — batch 41's lane | 2026-10-10 | The fallback is a path cargo owns and the ignore file covers (`<root>/target`), or the lane's own dir from `CARGO_TARGET_DIR`/`cargo metadata`; `git status` is clean after the target runs, and the two stale doc comments in the arch guards say what is true |
+| 8 | **`wf_token__006__optional_branch_cannot_prevent_completion` — the process stays `Active` after every required token completes.** In-memory (`EngineHarness`), so it is red in CI too and not a database artefact; the run that found it (2026-10-08) is the first that ever got this far, because the rust-format step above the test step in `gates.yml` was red until `6fe65a1a3`. Which half is stale is a **workflow-engine call**, not a test edit: the test pins "completion is gated on required tokens only". | Assert `tests/tests/wf_token__006__optional_branch_cannot_prevent_completion.rs:271`; batch 60 (`5fdfbf4ae`, 2026-10-08) | **lane/muse** — batch 60's lane, with the `middle/workflow` owner wired in | 2026-10-10 | The completion rule is stated once and both halves obey it — either `middle/workflow` completes on required tokens alone, or the test says what the engine does and why |
+| 9 | **`wf_token__007__required_branch_does_prevent_completion` — a cancelled process's tokens carry `TokenOutcome::Completed`.** The instance does reach `Aborted`; the tokens do not carry `Cancelled` (`left: Some(Completed)`). Also in-memory and CI-visible. Same rule question as row 8, opposite direction: whether a mass cancel must write its own outcome or may reuse the completion path is the engine's decision, and the test asserts an implementation detail it also documents as one ("`complete_token` is called with `Cancelled` outcome"). | Assert `tests/tests/wf_token__007__required_branch_does_prevent_completion.rs:332`; batch 60 (`5fdfbf4ae`) | **lane/muse** — batch 60's lane, with the `middle/workflow` owner wired in | 2026-10-10 | Cancellation and completion are distinguishable in the token row or the test stops pinning an internal call, and the target is green |
+| 10 | **`runtime_deploy__004__server_executable` fails on its own environment handling, not on the server.** Its negative case spawns the built `web` with `PORT` set and `APP_ENV` deliberately omitted — but it does not *clear* the child's environment, so it inherits whatever the test process has: run with `.env.local` sourced (every lane) the child starts and serves, and the test fails. Measured 2026-10-08 with the environment actually cleared (`env -i PATH=… PORT=8099 ./build/rust/release/web`) the binary exits with `DbFailure … "database target is undeclared; set APP_ENV or use VERCEL_ENV"` — the refusal is real, and the child is not given the conditions the case needs. The 500 ms wait before `try_wait` adds a second flake. | `tests/tests/runtime_deploy__004__server_executable.rs:85-115` (batch 41, `ebed4727a`) | **lane/muse** — batch 41's lane | 2026-10-10 | The negative case clears the child's environment (`env_clear()` plus the vars it means to allow) and waits for the exit on a bounded poll rather than a fixed sleep; the target is green both with `.env.local` sourced and without |
 
 Rows 3 and 4 sit *behind* row 1 in execution order — the guard stops at `:632`, so they were proved by
 counting rather than by a run: a `grep` for the three literals names exactly the three files above, and a
@@ -63,7 +71,22 @@ Also closed 2026-10-08 in the same pass: **the rustfmt drift on trunk is gone** 
 files, 181 of them under `tests/tests/`, formatted by `6fe65a1a3` with no token change outside rustfmt's own
 normalizations (whitespace and commas removed, 177 of 182 files are byte-identical to their previous
 revision; 5 more once rustfmt's inserted braces are removed; the 40 with moved imports hold the same
-statements reordered). The four trees `gates.yml` defers were untouched.
+statements reordered). The four trees `gates.yml` defers were untouched. This matters twice over: the
+rust-format step sits **above** the test step in `gates.yml`, so while it was red `cargo nextest` never ran —
+the job reported "rustfmt would change something" and proved nothing else, which is how rows 8 and 9 stayed
+invisible.
+
+**The trunk estate, measured once, 2026-10-08** (`cargo test -p forge -p test-harness --no-fail-fast`, this lane):
+
+    first pass:    594 targets reported — 565 ok, 29 red; 1027 tests passed, 30 failed, 205 ignored
+    re-run of the 29 with `.env.local` sourced:
+                   23 ok, 6 red — rows 1, 2, 6, 8, 9 and 10, and nothing else
+
+The 23 that turned green are environment-class, not reds: without `.env.local` the DEV-backed families stop at
+`DATABASE_URL_DEV is not configured` / `database target is undeclared` (`project_wbs_*`, `sec_entitlement__00[1-7,9]`,
+`sec_audit__005`, `service_registry__003-006`). Two of the six are in-memory and would be red in CI as well
+(rows 8, 9). That is the whole red set on trunk as of `6fe65a1a3` — and it is the first complete pass anybody
+has run since the rust-format step went red.
 
 ## Superseded (2026-09-15, Next.js era)
 
