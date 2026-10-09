@@ -12,12 +12,13 @@
 //! THREE FACTS, pinned in **both directions** — a new writer fails here (that is the point) and a pin the
 //! tree no longer matches also fails, so the set can only move by a deliberate edit of this file:
 //!
-//!   1. TWO DAO FILES WRITE THE TABLE, AND NOBODY ELSE INSERTS A RUN. `db/src/forge_control.rs` — one
-//!      statement, `interrupt_story_run` (`set ended_at=now(), result_status='Interrupted',
-//!      failure_code=$2, notes=…`). `db/src/forge_engine.rs` — four: `stamp_run_base_commit`,
-//!      `stamp_run_candidate`, `add_run_usage` and `append_run_detail`. Production Rust has NO `insert
-//!      into storyboard_story_run` at all: a run is created by the database (fact 3). Pinned as a set: a
-//!      third file joining fails, and so does one leaving — the fence may not move in either direction
+//!   1. ONE DAO FILE WRITES THE TABLE DIRECTLY, AND NOBODY ELSE INSERTS A RUN. `db/src/forge_engine.rs` — four:
+//!      `stamp_run_base_commit`, `stamp_run_candidate`, `add_run_usage` and `append_run_detail`.
+//!      Batch 4 removed the unused learning-DAO `interrupt_story_run` copy from `db/src/forge_control.rs`.
+//!      `db/src/forge_control.rs` and `db/src/forge_reset.rs` also call the fenced recovery function
+//!      (migration 279), which closes a run when its stale claim is recovered (fact 3). Production Rust
+//!      has NO `insert into storyboard_story_run` at all: a run is created by the database (fact 3).
+//!      Direct SQL writers and transitive function callers are pinned separately, so neither set moves
 //!      quietly.
 //!   2. THE TABLE, NOT ITS PREFIX AND NOT ITS SUFFIX (the `\b` problem the guard names). The same scanner
 //!      is asked both ways below and must answer only its own name: `update storyboard_story set
@@ -26,19 +27,21 @@
 //!      neither (identifier boundary after the name); `select … from storyboard_story_run` is a read, not
 //!      a write; a `///` comment quoting a statement is not code (comments are stripped first). A scanner
 //!      that cannot fail cannot pass, so every direction is planted.
-//!   3. THE DATABASE'S OWN DOORS, BOUND AND **DERIVED FROM THE MIGRATIONS**. Two migration functions write
+//!   3. THE DATABASE'S OWN DOORS, BOUND AND **DERIVED FROM THE MIGRATIONS**. Three migration functions write
 //!      the table: `forge_begin_agent_work_run` (264 — the `insert into storyboard_story_run` that opens a
 //!      run when execution begins) and `forge_close_story_run` (263 — the `update … set ended_at,
-//!      result_status` that ends one). Two apply-time one-offs backfilled it once when they applied:
+//!      result_status` that ends one), plus `forge_recover_stale_work` (279 — it interrupts a run after
+//!      a stale claim passes its ownership and timestamp fences). Two apply-time one-offs backfilled it once when they applied:
 //!      `133_story_run_cost_widgets.sql` and `190_forge_run_spend_source.sql`. The set is not taken on
 //!      faith — every `create … function` region of `db/migrations` is run through the same detector, so a
 //!      NEW run-writing function or one-off fails here instead of slipping past the pin. Rust entry:
 //!      `forge_begin_agent_work_run` is invoked from `db/src/forge_engine.rs` and nowhere else, while
 //!      `forge_close_story_run` is named by no production `.rs` file at all — it is performed inside SQL by
 //!      `forge_finish_agent_work_run` and `forge_reject_agent_work_configuration` (263), and BOTH of those
-//!      are invoked from `db/src/forge_engine.rs` and nowhere else. Every Rust entry therefore resolves to
-//!      a file already in the pin, and the union built from direct writers, function callers and the
-//!      performers' callers is exactly [`WRITERS`].
+//!      are invoked from `db/src/forge_engine.rs` and nowhere else. `forge_recover_stale_work` is called
+//!      from `db/src/forge_control.rs` and `db/src/forge_reset.rs`. Every Rust entry therefore resolves to
+//!      a pinned file, and the union built from direct writers, function callers and the performers'
+//!      callers is exactly [`MAY_WRITE`].
 //!
 //! THE HONEST STATE OF THE TREE, recorded rather than hidden:
 //!
@@ -57,21 +60,22 @@
 //!     linked a `lane-nemotron` rlib and would have measured the wrong tree). The helpers that take an
 //!     explicit path (`source::sources_under`, `source::read`) are used as they are; only the root is
 //!     local, and the SELF check below proves it resolves to this checkout.
-//!   * AGREEMENT. The pinned set equals the production guard's `TABLE_WRITERS_BASELINE` row for
-//!     `storyboard_story_run` (two files: `db/src/forge_control.rs`, `db/src/forge_engine.rs`) as read on
-//!     2026-10-04 — verified by eye, not parsed from the guard: this test's independence is the point, and
-//!     if the two ever diverge the divergence is the finding.
+//!   * AGREEMENT. The direct-write pin equals the production guard's `TABLE_WRITERS_BASELINE` row for
+//!     `storyboard_story_run` (one file: `db/src/forge_engine.rs`), updated in Batch 4 to remove the unused
+//!     learning-DAO copy. This independent test additionally pins the indirect callers of migration
+//!     functions that write the run ledger; the production guard's source scan does not follow those SQL
+//!     calls. A divergence in either pin is the finding.
 //!   * DELETE. The guard's `writes_table` counts `update` and `insert into` only; this reading adds
 //!     `delete from`, because a delete writes the fact just as much. The tree has no production `delete
 //!     from storyboard_story_run` (nor any migration), so the two readings agree in result — and if one
 //!     ever appears, it fails here rather than hiding behind the narrower definition.
 //!   * THE AUDIT DOC. `docs/agent/COLUMN-WRITER-AUDIT.md` audits `storyboard_story_run` column by column
 //!     (48 rows) and classifies every WRITTEN one with a `legacy/db/*.ts` writer — the retired TypeScript
-//!     port. The Rust writers are the two files above; the doc's rows are history, never this scan's
+//!     port. The direct Rust writer is the one file above; the doc's rows are history, never this scan's
 //!     input, and it has no table-level claim to agree or disagree with.
 //!
 //! WHAT IT DOES NOT COVER, so a green run is not read for more than it is: it reads sources, not behaviour.
-//! It does not prove the two DAOs move the row *correctly*, does not run a statement, and does not see a
+//! It does not prove the DAO moves the row *correctly*, does not run a statement, and does not see a
 //! write spelled inside a migration function body or fired by a trigger (fact 3 bounds the Rust side of
 //! that blind spot — every Rust entry is pinned — and nothing more; SQL-to-SQL calls between migration
 //! functions are bounded only at that Rust entry).
@@ -106,23 +110,30 @@ const PREFIX_TABLE: &str = "storyboard_story";
 /// The production `.rs` files that execute a write of `storyboard_story_run`, frozen. Growth (or a
 /// removal) fails until the pin is edited deliberately, which is the act of saying "a third file writes
 /// the run ledger".
-const WRITERS: [&str; 2] = ["db/src/forge_control.rs", "db/src/forge_engine.rs"];
+const DIRECT_WRITERS: [&str; 1] = ["db/src/forge_engine.rs"];
+/// All Rust entry files that may write the ledger directly or through its pinned database functions.
+const MAY_WRITE: [&str; 3] = [
+    "db/src/forge_control.rs",
+    "db/src/forge_engine.rs",
+    "db/src/forge_reset.rs",
+];
 
 /// Each pinned writer, and text its RAW source must carry — the scan would otherwise pass by reading the
 /// wrong file.
-const READ_PROOF: [(&str, &str); 2] = [
-    ("db/src/forge_control.rs", "update storyboard_story_run"),
-    ("db/src/forge_engine.rs", "update storyboard_story_run"),
-];
+const READ_PROOF: [(&str, &str); 1] = [("db/src/forge_engine.rs", "update storyboard_story_run")];
 
 /// The migration functions whose bodies write the table, and the production `.rs` files allowed to invoke
 /// each one from Rust. An empty caller list means the function is SQL-internal: no production Rust file
 /// may name it (its own door is [`CLOSE_PERFORMERS`]). The test does not take this list on faith — it
 /// re-derives the names from `db/migrations` (every `create … function` region, run through the same
 /// detector), so a NEW run-writing function fails here instead of slipping past the pin.
-const DB_WRITE_FUNCTIONS: [(&str, &[&str]); 2] = [
+const DB_WRITE_FUNCTIONS: [(&str, &[&str]); 3] = [
     ("forge_begin_agent_work_run", &["db/src/forge_engine.rs"]),
     ("forge_close_story_run", &[]),
+    (
+        "forge_recover_stale_work",
+        &["db/src/forge_control.rs", "db/src/forge_reset.rs"],
+    ),
 ];
 
 /// The SQL functions that PERFORM `forge_close_story_run` (263: `forge_finish_agent_work_run` and
@@ -561,7 +572,7 @@ fn arch_one_writer_003__storyboard_story_run() {
         "`storyboard_story_run_archive` answered for `storyboard_story_run`"
     );
 
-    // A READ is not a write: the run ledger is read from four production files and written by two.
+    // A READ is not a write: the run ledger is read from production files and written by one.
     assert!(
         !writes_table(
             "sqlx::query_scalar::<_, i64>(\"select count(*) from storyboard_story_run where story_id = $1\")",
@@ -679,7 +690,7 @@ fn arch_one_writer_003__storyboard_story_run() {
     );
     assert_eq!(
         found,
-        pinned(&WRITERS),
+        pinned(&DIRECT_WRITERS),
         "the set of files writing {TABLE} changed. One fact has ONE writer: name the writer here \
          deliberately, or do not join the set. A file listed here may only be added with the statement it \
          executes (fact 1 lists each one)"
@@ -782,7 +793,7 @@ fn arch_one_writer_003__storyboard_story_run() {
 
     assert_eq!(
         union,
-        pinned(&WRITERS),
+        pinned(&MAY_WRITE),
         "the set of files that may write {TABLE} — directly, through a run-writing database function, or \
          through the SQL functions that perform one — changed. One fact has ONE writer: name the writer \
          here deliberately, or do not join the set"
@@ -798,7 +809,7 @@ fn arch_one_writer_003__storyboard_story_run() {
     grown.insert("planted/src/new_run_writer.rs".to_string());
     assert_ne!(
         grown,
-        pinned(&WRITERS),
+        pinned(&MAY_WRITE),
         "a planted third writer was accepted — the pin is not a fence"
     );
 
