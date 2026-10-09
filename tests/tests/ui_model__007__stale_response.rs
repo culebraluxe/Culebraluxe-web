@@ -1,14 +1,14 @@
 //! UI.MODEL — stale response (TST-UI-MODEL-007).
 //!
 //! Contract: **an answer to the previous record's request never lands on the new record.** The rule lives in exactly
-//! one place — the screen host (`web/ui/src/app/host.rs`), which mounts every screen in the portal — and it is two
-//! decisions, both pure:
+//! one place — the host's pure logic (`web/ui/src/app/host_logic.rs`), called by the one component that mounts every
+//! screen in the portal (`ScreenHost`, `web/ui/src/app/host.rs`) — and it is two decisions, both pure:
 //!
 //! - every message carries the host's *generation* (`HostMsg.generation`), and a message is delivered only while that
-//!   generation is still the host's (`answer_lands`, `web/ui/src/app/host.rs:40`), so an answer asked for under the
+//!   generation is still the host's (`answer_lands`, `web/ui/src/app/host_logic.rs:21`), so an answer asked for under the
 //!   old record is dropped instead of applied to the new one;
 //! - the generation moves on when the screen is reopened for **another record** — a different path, id or actor
-//!   (`classify_change`, `web/ui/src/app/host.rs:59`), while a query-only change keeps the state and asks the screen
+//!   (`classify_change`, `web/ui/src/app/host_logic.rs:54`), while a query-only change keeps the state and asks the screen
 //!   what to do (`Screen::url_changed`), and a grants-only change merely re-draws.
 //!
 //! Screens do not guard against this themselves, because they cannot forget to. That is why both decisions are
@@ -24,8 +24,9 @@
 //! through `answer_lands` and `classify_change`, must keep exactly one place that retires a generation, and must not
 //! go back to comparing generations inline.
 //!
-//! Level: L0 Pure — no database, no network, no wasm: the host's own rule functions, plus a read of the one file
-//! that calls them.
+//! Level: L0 Pure — no database, no network, no browser: the host's own rule functions, plus a read of the one file
+//! that calls them. The rule functions compile without the browser stack (`ui::host_logic`), while the caller pins
+//! the wiring from the component side (`web/ui/src/app/host.rs`).
 //!
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test ui_model__007__stale_response
@@ -33,8 +34,8 @@
 use std::collections::BTreeMap;
 
 use test_harness::source;
-use ui::app::host::{answer_lands, classify_change, UrlChange};
 use ui::app::screen::ScreenCtx;
+use ui::host_logic::{answer_lands, classify_change, CtxView, UrlChange};
 use ui::model::PortalEntitlements;
 use ui::navigation::{Actor, Level};
 
@@ -62,6 +63,23 @@ fn ctx(path: &str, id: Option<&str>, actor: Actor) -> ScreenCtx {
         path: path.to_owned(),
         ..ScreenCtx::default()
     }
+}
+
+/// The host's pure view of a context: the five fields the change decision reads. Mirrors the
+/// adapter in `web/ui/src/app/host.rs`, which is the only production caller of `classify_change`.
+fn view(ctx: &ScreenCtx) -> CtxView<'_> {
+    CtxView {
+        path: &ctx.path,
+        id: ctx.id.as_deref(),
+        actor: &ctx.actor,
+        query: &ctx.query,
+        grants: ctx.grants.as_ref(),
+    }
+}
+
+/// The change decision for two screen contexts, through the host's pure rule.
+fn change(old: &ScreenCtx, new: &ScreenCtx) -> UrlChange {
+    classify_change(&view(old), &view(new))
 }
 
 /// The grants the shell hands over when the portal's entitlement answer arrives.
@@ -117,23 +135,23 @@ fn ui_model_007__stale_response() {
     );
 
     assert_eq!(
-        classify_change(&record_a, &record_a),
+        change(&record_a, &record_a),
         UrlChange::Same,
         "{HARNESS}: an unchanged context must not re-init the screen"
     );
     assert_eq!(
-        classify_change(&record_a, &record_b),
+        change(&record_a, &record_b),
         UrlChange::AnotherRecord,
         "{HARNESS}: another id at another path is another record"
     );
 
     assert_eq!(
-        classify_change(&record_a, &same_url_other_actor),
+        change(&record_a, &same_url_other_actor),
         UrlChange::AnotherRecord,
         "{HARNESS}: the same path and id under another actor is another record — the request is not the same one"
     );
     assert_eq!(
-        classify_change(
+        change(
             &record_a,
             &ctx(
                 "/portal/clients/one",
@@ -156,12 +174,12 @@ fn ui_model_007__stale_response() {
         ctx
     };
     assert_eq!(
-        classify_change(&record_a, &tab),
+        change(&record_a, &tab),
         UrlChange::Query,
         "{HARNESS}: a query-only change keeps the state and asks the screen"
     );
     assert_eq!(
-        classify_change(
+        change(
             &record_a,
             &ScreenCtx {
                 grants: Some(grants()),
@@ -172,7 +190,7 @@ fn ui_model_007__stale_response() {
         "{HARNESS}: the entitlement answer arriving changes what is offered, not what is read"
     );
     assert_eq!(
-        classify_change(&tab, &record_b),
+        change(&tab, &record_b),
         UrlChange::AnotherRecord,
         "{HARNESS}: another record outranks a query change — the new record starts the screen over"
     );
@@ -185,7 +203,7 @@ fn ui_model_007__stale_response() {
         "{HARNESS}: `update` must drop a stale message through `answer_lands`, not by comparing generations inline"
     );
     assert!(
-        source.contains("classify_change(old, new)"),
+        source.contains("classify_change(&view_of(old), &view_of(new))"),
         "{HARNESS}: `changed` must act on `classify_change`, the one place that decides what another record is"
     );
     assert_eq!(
