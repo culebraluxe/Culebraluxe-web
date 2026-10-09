@@ -529,7 +529,7 @@ pub(super) async fn send_signature(
     let mut recipients: Vec<Value> = Vec::new();
     let mut copy_to: Vec<String> = Vec::new();
     for signer in &signers {
-        let Some(email) = signer
+        let Some(typed) = signer
             .email
             .as_deref()
             .map(str::trim)
@@ -537,6 +537,11 @@ pub(super) async fn send_signature(
         else {
             continue;
         };
+        // Checked before the envelope exists, so a bad address is a message on the screen, not a failed invitation.
+        let email = crate::security::guest::normalize_email(typed).map_err(|error| {
+            ApiError::from(error).with_correlation(resolved.service.correlation_id.clone())
+        })?;
+        let email = email.as_str();
         if signer.role == "SELLER_BROKER" {
             copy_to.push(email.to_owned());
             continue;
