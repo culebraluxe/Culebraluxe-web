@@ -463,3 +463,39 @@ the captain's scope call, row 4 needs `lane/longcat`'s `3b32cc4ff` rebased and l
 rustfmt pass is no longer open: `6fe65a1a3` formatted the 182 files (181 under `tests/tests/`, one production file,
 `forge/src/engine/job.rs`) with no token change outside rustfmt's own normalizations.
 
+## 15. The same day, later: four of the six red rows closed (`1c55a567b`, lane/deep)
+
+**The captain's three calls — "exclude tests", "land 008", "assign 8 9" — are landed on `main` as one commit,
+`1c55a567b`.** Rows 3, 6, 8 and 9 of `TECH-DEBT.md`'s blocking table are closed; **three red targets remain**
+(`arch_boundary__011` for rows 1 and 4, `forge_arch_seam__001` for row 2, `runtime_deploy__004` for row 10), and each
+still names a lane and a date.
+
+**Row 3 — the sweep reads the production tree.** `TEST_TREE = "tests/"` is one named, dated line beside `SELF`, and
+the mutation-verb sweep now skips it. The file it was counting is `tests/tests/forge_assay__005__qa_cannot_modify_git.rs`,
+whose subject *is* that QA may not push — it is the rule, not a site that could break it. Verified twice: by counting
+(outside `tests/`, one file names a verb — `forge/src/engine/git_publish.rs`, once, which the guard itself asserts),
+and by a run — with row 1's assertion neutralised for one run (temporary, reverted, `git status` clean; row 1 is
+lane/muse's) the guard ran **past section 5** and stopped at `:924`, which is row 4. So section 5 is green on trunk and
+row 4 is what stands behind row 1.
+
+**Row 6 — the v5 money display.** Two display assertions took the two-decimal contract, and so did the display
+property behind them: it was failing on `amount = "0000"` (0 commas, 1 expected) and had been masked by the two
+assertions failing in front of it. Grouping is now measured on the *rendered* whole part, with exactly two decimals
+required — stronger than what it replaced, and true.
+
+**Rows 8 and 9 — the workflow call, made on evidence.** The engine is right and batch 60's two cases were authored
+against rules no line implements. Completion is `count_active_tokens == 0`
+(`middle/workflow/src/engine/execute_node_leave.rs:173-202`, both stores); an optional branch cannot prevent
+completion because **the join retires it** — `handle_join` waits on required siblings only (`:42-44`), concludes each
+still-active optional sibling `Completed`/`Skipped`, obsoletes its task and cancels its job (`:46-80`). That is what
+`forge/definitions/RE_supermodel-v1.xml:199-204` says in its own words and what the same batch's two green cases
+assert (`wf_join__002`, `wf_definition__011`). 006's original graph forked with **no join**, so nothing retired the
+straggler and the engine correctly waited. 006 now has the join and asserts the retirement; 007's cancel half was
+over-broad — it demanded `Cancelled` of *every* token, including the fork's own parent, which `handle_fork` had already
+concluded `Completed` (`:385`). **No production line changed.** Both rows moved from lane/muse to lane/deep, since the
+`middle/workflow` half needed no change.
+
+**What that leaves.** Rows 1, 2, 4, 5, 7 and 10 are untouched by this pass, and rows 8 and 9 were the only two reds
+that were CI-visible rather than environment-class.
+
+
