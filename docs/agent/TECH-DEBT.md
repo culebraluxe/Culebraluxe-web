@@ -274,9 +274,9 @@ and it never covered the Rust guard targets above.
    (completion effects are four separate writes, not one transaction), defect #1 (`reconcile_completions` skips on a
    global watermark, reads one active instance, and caps at 200 events) and defect #7 (a stale snapshot can demote a
    completed story, and the hold routine moves the board even when its item update matched nothing). The plan, the
-   entry points and the receipts are in `docs/agent/HANDOFF-FORGE-B1-2026-10-09.md`. **And one operational row sits
-   on top of them: migration 278 is on DEV and NOT on PROD, while `main` calls its signatures — nothing may claim
-   against PROD until it is applied there** (`cargo run -p cli -- db-tool apply db/migrations/278_forge_claim_fencing.sql prod`).
+   entry points and the receipts are in `docs/agent/HANDOFF-FORGE-B1-2026-10-09.md`. **Migration 278 is on DEV and PROD**
+   (applied to PROD on the captain’s word 2026-10-09, same checksum, three signatures verified), so the
+   operational hold that sat on top of these slices is closed.
    Exit: the hand-off's §6, in order.
 
 1. **One skill pack has no anchor and says so.** `docs/agent/skills/serena.md` is the single remaining
