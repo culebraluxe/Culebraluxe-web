@@ -267,6 +267,18 @@ and it never covered the Rust guard targets above.
 
 ## Open, in the order I would pay them
 
+0. **FORGE-B1 is one slice in of four.** Slice 1 (the claim fence, migration 278) landed on 2026-10-09 as
+   `90b1a9619` and is verified on DEV: a superseded execution can no longer begin a run, refresh its replacement's
+   lease, or settle its replacement's work, and settlement idempotency is derived by the routine from
+   `(item, generation, outcome)` instead of a caller-supplied key. **Slices 2, 3 and 4 are open** — defect #2
+   (completion effects are four separate writes, not one transaction), defect #1 (`reconcile_completions` skips on a
+   global watermark, reads one active instance, and caps at 200 events) and defect #7 (a stale snapshot can demote a
+   completed story, and the hold routine moves the board even when its item update matched nothing). The plan, the
+   entry points and the receipts are in `docs/agent/HANDOFF-FORGE-B1-2026-10-09.md`. **And one operational row sits
+   on top of them: migration 278 is on DEV and NOT on PROD, while `main` calls its signatures — nothing may claim
+   against PROD until it is applied there** (`cargo run -p cli -- db-tool apply db/migrations/278_forge_claim_fencing.sql prod`).
+   Exit: the hand-off's §6, in order.
+
 1. **One skill pack has no anchor and says so.** `docs/agent/skills/serena.md` is the single remaining
    `skill-not-anchored` warning (`pnpm forge:packet-lint`: 0 failure(s), 1 warning(s), 0 baselined). Serena
    is a global tool with no config, index or adapter committed here, so there is nothing truthful to point
