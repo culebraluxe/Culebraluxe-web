@@ -34,106 +34,26 @@ fn sec_redirect_004__percent_encoding() {
     }
 
     // 2. encode percent-encodes special characters
-    assert_eq!(
-        encode(" "),
-        "%20",
-        "{HARNESS}: space encoded as %20"
-    );
-    assert_eq!(
-        encode("!"),
-        "%21",
-        "{HARNESS}: ! encoded as %21"
-    );
-    assert_eq!(
-        encode("#"),
-        "%23",
-        "{HARNESS}: # encoded as %23"
-    );
-    assert_eq!(
-        encode("$"),
-        "%24",
-        "{HARNESS}: $ encoded as %24"
-    );
-    assert_eq!(
-        encode("%"),
-        "%25",
-        "{HARNESS}: % encoded as %25"
-    );
-    assert_eq!(
-        encode("&"),
-        "%26",
-        "{HARNESS}: & encoded as %26"
-    );
-    assert_eq!(
-        encode("'"),
-        "%27",
-        "{HARNESS}: ' encoded as %27"
-    );
-    assert_eq!(
-        encode("("),
-        "%28",
-        "{HARNESS}: ( encoded as %28"
-    );
-    assert_eq!(
-        encode(")"),
-        "%29",
-        "{HARNESS}: ) encoded as %29"
-    );
-    assert_eq!(
-        encode("*"),
-        "%2A",
-        "{HARNESS}: * encoded as %2A"
-    );
-    assert_eq!(
-        encode("+"),
-        "%2B",
-        "{HARNESS}: + encoded as %2B"
-    );
-    assert_eq!(
-        encode(","),
-        "%2C",
-        "{HARNESS}: , encoded as %2C"
-    );
-    assert_eq!(
-        encode("/"),
-        "%2F",
-        "{HARNESS}: / encoded as %2F"
-    );
-    assert_eq!(
-        encode(":"),
-        "%3A",
-        "{HARNESS}: : encoded as %3A"
-    );
-    assert_eq!(
-        encode(";"),
-        "%3B",
-        "{HARNESS}: ; encoded as %3B"
-    );
-    assert_eq!(
-        encode("="),
-        "%3D",
-        "{HARNESS}: = encoded as %3D"
-    );
-    assert_eq!(
-        encode("?"),
-        "%3F",
-        "{HARNESS}: ? encoded as %3F"
-    );
-    assert_eq!(
-        encode("@"),
-        "%40",
-        "{HARNESS}: @ encoded as %40"
-    );
-    assert_eq!(
-        encode("["),
-        "%5B",
-        "{HARNESS}: [ encoded as %5B"
-    );
-    assert_eq!(
-        encode("]"),
-        "%5D",
-        "{HARNESS}: ] encoded as %5D"
-    );
+    assert_eq!(encode(" "), "%20", "{HARNESS}: space encoded as %20");
+    assert_eq!(encode("!"), "%21", "{HARNESS}: ! encoded as %21");
+    assert_eq!(encode("#"), "%23", "{HARNESS}: # encoded as %23");
+    assert_eq!(encode("$"), "%24", "{HARNESS}: $ encoded as %24");
+    assert_eq!(encode("%"), "%25", "{HARNESS}: % encoded as %25");
+    assert_eq!(encode("&"), "%26", "{HARNESS}: & encoded as %26");
+    assert_eq!(encode("'"), "%27", "{HARNESS}: ' encoded as %27");
+    assert_eq!(encode("("), "%28", "{HARNESS}: ( encoded as %28");
+    assert_eq!(encode(")"), "%29", "{HARNESS}: ) encoded as %29");
+    assert_eq!(encode("*"), "%2A", "{HARNESS}: * encoded as %2A");
+    assert_eq!(encode("+"), "%2B", "{HARNESS}: + encoded as %2B");
+    assert_eq!(encode(","), "%2C", "{HARNESS}: , encoded as %2C");
+    assert_eq!(encode("/"), "%2F", "{HARNESS}: / encoded as %2F");
+    assert_eq!(encode(":"), "%3A", "{HARNESS}: : encoded as %3A");
+    assert_eq!(encode(";"), "%3B", "{HARNESS}: ; encoded as %3B");
+    assert_eq!(encode("="), "%3D", "{HARNESS}: = encoded as %3D");
+    assert_eq!(encode("?"), "%3F", "{HARNESS}: ? encoded as %3F");
+    assert_eq!(encode("@"), "%40", "{HARNESS}: @ encoded as %40");
+    assert_eq!(encode("["), "%5B", "{HARNESS}: [ encoded as %5B");
+    assert_eq!(encode("]"), "%5D", "{HARNESS}: ] encoded as %5D");
 
     // 3. encode does not encode unreserved characters (RFC 3986)
     let unreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~";

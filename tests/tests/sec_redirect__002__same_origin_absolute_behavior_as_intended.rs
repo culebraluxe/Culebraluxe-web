@@ -22,7 +22,11 @@ fn sec_redirect_002__same_origin_absolute_behavior_as_intended() {
         // The fallback must itself be a valid, same-origin Location header.
         let response =
             axum::response::IntoResponse::into_response(axum::response::Redirect::to(&target));
-        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER, "input: {input:?}");
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::SEE_OTHER,
+            "input: {input:?}"
+        );
         assert_eq!(response.headers()[axum::http::header::LOCATION], target);
         assert!(
             target.starts_with('/') && !target.starts_with("//"),

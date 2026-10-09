@@ -8,20 +8,23 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test sec_entitlement__002__read
 
-use test_harness::database::{TestDatabase};
 use db::SecurityDao;
 use services::{
-    CapturingAuditPort, CapturingDomainEventPort,
-    ServiceActor, ServiceActorKind, ServiceContext, ServiceInfrastructure,
-    ServicePrincipal,
+    CapturingAuditPort, CapturingDomainEventPort, ServiceActor, ServiceActorKind, ServiceContext,
+    ServiceInfrastructure, ServicePrincipal,
 };
-use web::security::{SecurityService, CasbinAuthorizationPort};
 use std::sync::Arc;
+use test_harness::database::TestDatabase;
+use web::security::{CasbinAuthorizationPort, SecurityService};
 
 const HARNESS: &str = "TestDatabase/L2 Persistence";
 
 async fn test_infrastructure(audit: Arc<CapturingAuditPort>) -> ServiceInfrastructure {
-    let auth_port = Arc::new(CasbinAuthorizationPort::new().await.expect("{HARNESS}: CasbinAuthorizationPort builds"));
+    let auth_port = Arc::new(
+        CasbinAuthorizationPort::new()
+            .await
+            .expect("{HARNESS}: CasbinAuthorizationPort builds"),
+    );
     ServiceInfrastructure::new(
         auth_port,
         audit,
@@ -58,7 +61,7 @@ async fn sec_entitlement_002__read() {
         .await
         .expect("{HARNESS}: connect to DEV database");
     let dao = SecurityDao::new(db.database().clone());
-    
+
     let audit = Arc::new(CapturingAuditPort::default());
     let infrastructure = test_infrastructure(audit.clone()).await;
     let service = SecurityService::new(dao, infrastructure);
@@ -67,11 +70,11 @@ async fn sec_entitlement_002__read() {
     let role_code = "test_role_read";
     let action1 = "property.read";
     let action2 = "deal.read";
-    
+
     sqlx::query(
         "insert into security_role (code, name, active, account_type) 
          values ($1, $2, true, 'internal')
-         on conflict (code) do nothing"
+         on conflict (code) do nothing",
     )
     .bind(role_code)
     .bind("Test Role Read")
@@ -85,7 +88,7 @@ async fn sec_entitlement_002__read() {
          select r.id, e.id
          from security_role r, entitlement e
          where r.code = $1 and e.code = $2
-         on conflict do nothing"
+         on conflict do nothing",
     )
     .bind(role_code)
     .bind(action1)
@@ -98,7 +101,7 @@ async fn sec_entitlement_002__read() {
          select r.id, e.id
          from security_role r, entitlement e
          where r.code = $1 and e.code = $2
-         on conflict do nothing"
+         on conflict do nothing",
     )
     .bind(role_code)
     .bind(action2)
@@ -109,25 +112,42 @@ async fn sec_entitlement_002__read() {
     // 3. Read the role entitlements.
     let context = root_context("sec-ent-002-read");
     let result = service.list_role_entitlements(&context).await;
-    
-    assert!(result.is_ok(), "{HARNESS}: list role entitlements succeeds: {:?}", result.err());
-    
+
+    assert!(
+        result.is_ok(),
+        "{HARNESS}: list role entitlements succeeds: {:?}",
+        result.err()
+    );
+
     let entitlements = result.unwrap();
-    
+
     // 4. Verify the seeded data appears in the results.
     let role_ent = entitlements.iter().find(|re| re.role_code == role_code);
     assert!(role_ent.is_some(), "{HARNESS}: test role appears in list");
-    
-    let actions: Vec<&str> = role_ent.unwrap().entitlement_codes.iter().map(|s| s.as_str()).collect();
-    assert!(actions.contains(&action1), "{HARNESS}: action1 appears in role's entitlements: {:?}", actions);
-    assert!(actions.contains(&action2), "{HARNESS}: action2 appears in role's entitlements: {:?}", actions);
+
+    let actions: Vec<&str> = role_ent
+        .unwrap()
+        .entitlement_codes
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
+    assert!(
+        actions.contains(&action1),
+        "{HARNESS}: action1 appears in role's entitlements: {:?}",
+        actions
+    );
+    assert!(
+        actions.contains(&action2),
+        "{HARNESS}: action2 appears in role's entitlements: {:?}",
+        actions
+    );
 
     // 5. Verify inactive roles are NOT included.
     let inactive_role = "inactive_test_role_read";
     sqlx::query(
         "insert into security_role (code, name, active, account_type) 
          values ($1, $2, false, 'internal')
-         on conflict (code) do nothing"
+         on conflict (code) do nothing",
     )
     .bind(inactive_role)
     .bind("Inactive Test Role Read")
@@ -140,7 +160,7 @@ async fn sec_entitlement_002__read() {
          select r.id, e.id
          from security_role r, entitlement e
          where r.code = $1 and e.code = $2
-         on conflict do nothing"
+         on conflict do nothing",
     )
     .bind(inactive_role)
     .bind(action1)
@@ -149,29 +169,47 @@ async fn sec_entitlement_002__read() {
     .expect("{HARNESS}: insert inactive role entitlement");
 
     let result2 = service.list_role_entitlements(&context).await;
-    assert!(result2.is_ok(), "{HARNESS}: list role entitlements succeeds after inactive insert");
-    
+    assert!(
+        result2.is_ok(),
+        "{HARNESS}: list role entitlements succeeds after inactive insert"
+    );
+
     let entitlements2 = result2.unwrap();
-    let inactive_ent = entitlements2.iter().find(|re| re.role_code == inactive_role);
-    assert!(inactive_ent.is_none(), "{HARNESS}: inactive role does NOT appear in list");
+    let inactive_ent = entitlements2
+        .iter()
+        .find(|re| re.role_code == inactive_role);
+    assert!(
+        inactive_ent.is_none(),
+        "{HARNESS}: inactive role does NOT appear in list"
+    );
 
     // 6. Verify inactive entitlements are NOT included.
     let inactive_entitlement_action = "calendar.read";
-    sqlx::query(
-        "update entitlement set active = false where code = $1"
-    )
-    .bind(inactive_entitlement_action)
-    .execute(db.database().pool())
-    .await
-    .expect("{HARNESS}: deactivate entitlement");
+    sqlx::query("update entitlement set active = false where code = $1")
+        .bind(inactive_entitlement_action)
+        .execute(db.database().pool())
+        .await
+        .expect("{HARNESS}: deactivate entitlement");
 
     let result3 = service.list_role_entitlements(&context).await;
-    assert!(result3.is_ok(), "{HARNESS}: list role entitlements succeeds after deactivating entitlement");
-    
+    assert!(
+        result3.is_ok(),
+        "{HARNESS}: list role entitlements succeeds after deactivating entitlement"
+    );
+
     let entitlements3 = result3.unwrap();
     let role_ent = entitlements3.iter().find(|re| re.role_code == role_code);
-    let actions3: Vec<&str> = role_ent.unwrap().entitlement_codes.iter().map(|s| s.as_str()).collect();
-    assert!(!actions3.contains(&inactive_entitlement_action), "{HARNESS}: inactive entitlement does NOT appear in role's entitlements: {:?}", actions3);
+    let actions3: Vec<&str> = role_ent
+        .unwrap()
+        .entitlement_codes
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
+    assert!(
+        !actions3.contains(&inactive_entitlement_action),
+        "{HARNESS}: inactive entitlement does NOT appear in role's entitlements: {:?}",
+        actions3
+    );
 
     // 7. NEGATIVE CASE: external account cannot read role entitlements.
     let external_context = ServiceContext {
@@ -189,7 +227,10 @@ async fn sec_entitlement_002__read() {
             entitlement_codes: vec!["security.principal.read".into()],
         }),
     };
-    
+
     let external_result = service.list_role_entitlements(&external_context).await;
-    assert!(external_result.is_err(), "{HARNESS}: external account cannot list role entitlements");
+    assert!(
+        external_result.is_err(),
+        "{HARNESS}: external account cannot list role entitlements"
+    );
 }

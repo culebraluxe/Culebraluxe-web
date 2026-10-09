@@ -7,7 +7,7 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test sec_redirect__002__open_redirect
 
-use web::api::google_auth::{safe_next, percent_decode, encode};
+use web::api::google_auth::{encode, percent_decode, safe_next};
 
 const HARNESS: &str = "RedirectPolicyHarness/L0 Pure";
 

@@ -9,15 +9,14 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test sec_entitlement__001__create
 
-use test_harness::database::{TestDatabase};
 use db::SecurityDao;
 use services::{
-    CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort,
-    ServiceActor, ServiceActorKind, ServiceContext, ServiceInfrastructure,
-    ServicePrincipal,
+    CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
+    ServiceActorKind, ServiceContext, ServiceInfrastructure, ServicePrincipal,
 };
-use web::security::SecurityService;
 use std::sync::Arc;
+use test_harness::database::TestDatabase;
+use web::security::SecurityService;
 
 const HARNESS: &str = "TestDatabase/L2 Persistence";
 
@@ -58,7 +57,7 @@ async fn sec_entitlement_001__create() {
         .await
         .expect("{HARNESS}: connect to DEV database");
     let dao = SecurityDao::new(db.database().clone());
-    
+
     let audit = Arc::new(CapturingAuditPort::default());
     let service = SecurityService::new(dao, test_infrastructure(audit.clone()));
 
@@ -66,12 +65,12 @@ async fn sec_entitlement_001__create() {
     let context = root_context("sec-ent-001-create");
     let role_code = "test_role_create";
     let action = "property.read";
-    
+
     // First ensure the role exists (insert it directly via SQL since DAO doesn't expose role creation)
     sqlx::query(
         "insert into security_role (code, name, active, account_type) 
          values ($1, $2, true, 'internal')
-         on conflict (code) do nothing"
+         on conflict (code) do nothing",
     )
     .bind(role_code)
     .bind("Test Role Create")
@@ -83,26 +82,42 @@ async fn sec_entitlement_001__create() {
     let result = service
         .set_role_entitlement(role_code, action, true, &context)
         .await;
-    
-    assert!(result.is_ok(), "{HARNESS}: grant entitlement succeeds: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "{HARNESS}: grant entitlement succeeds: {:?}",
+        result.err()
+    );
 
     // 4. Verify the grant exists by listing role entitlements.
     let list_result = service.list_role_entitlements(&context).await;
-    assert!(list_result.is_ok(), "{HARNESS}: list role entitlements succeeds");
-    
+    assert!(
+        list_result.is_ok(),
+        "{HARNESS}: list role entitlements succeeds"
+    );
+
     let entitlements = list_result.unwrap();
     let role_ent = entitlements.iter().find(|re| re.role_code == role_code);
     assert!(role_ent.is_some(), "{HARNESS}: test role appears in list");
-    
-    let actions: Vec<&str> = role_ent.unwrap().entitlement_codes.iter().map(|s| s.as_str()).collect();
-    assert!(actions.contains(&action), "{HARNESS}: granted action appears in role's entitlements: {:?}", actions);
+
+    let actions: Vec<&str> = role_ent
+        .unwrap()
+        .entitlement_codes
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
+    assert!(
+        actions.contains(&action),
+        "{HARNESS}: granted action appears in role's entitlements: {:?}",
+        actions
+    );
 
     // 5. NEGATIVE CASE: granting to an inactive role fails.
     let inactive_role = "inactive_test_role";
     sqlx::query(
         "insert into security_role (code, name, active, account_type) 
          values ($1, $2, false, 'internal')
-         on conflict (code) do nothing"
+         on conflict (code) do nothing",
     )
     .bind(inactive_role)
     .bind("Inactive Test Role")
@@ -113,7 +128,10 @@ async fn sec_entitlement_001__create() {
     let inactive_result = service
         .set_role_entitlement(inactive_role, action, true, &context)
         .await;
-    assert!(inactive_result.is_err(), "{HARNESS}: grant to inactive role fails");
+    assert!(
+        inactive_result.is_err(),
+        "{HARNESS}: grant to inactive role fails"
+    );
     assert!(
         matches!(inactive_result.unwrap_err(), web::service_support::CoreServiceError::Business { code, .. } if code == "ENTITLEMENT_TARGET_UNKNOWN"),
         "{HARNESS}: inactive role error is ENTITLEMENT_TARGET_UNKNOWN"
@@ -122,7 +140,15 @@ async fn sec_entitlement_001__create() {
     // 6. NEGATIVE CASE: granting an unknown action fails (catalog validation happens at API layer,
     //    but the DAO should also refuse unknown action/role combinations).
     let unknown_action_result = service
-        .set_role_entitlement(role_code, "unknown.action.that.does.not.exist", true, &context)
+        .set_role_entitlement(
+            role_code,
+            "unknown.action.that.does.not.exist",
+            true,
+            &context,
+        )
         .await;
-    assert!(unknown_action_result.is_err(), "{HARNESS}: grant of unknown action fails");
+    assert!(
+        unknown_action_result.is_err(),
+        "{HARNESS}: grant of unknown action fails"
+    );
 }

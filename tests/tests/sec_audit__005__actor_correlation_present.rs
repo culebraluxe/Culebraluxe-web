@@ -9,13 +9,13 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test sec_audit__005__actor_correlation_present
 
-use test_harness::database::{TestDatabase};
 use services::{
-    CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort,
-    ServiceActor, ServiceActorKind, ServiceContext, ServiceInfrastructure, ServiceOutcome,
-    ServicePrincipal, ServiceRuntime,
+    CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
+    ServiceActorKind, ServiceContext, ServiceInfrastructure, ServiceOutcome, ServicePrincipal,
+    ServiceRuntime,
 };
 use std::sync::Arc;
+use test_harness::database::TestDatabase;
 
 const HARNESS: &str = "TestDatabase/L2 Persistence";
 
@@ -73,7 +73,7 @@ async fn sec_audit_005__actor_correlation_present() {
     let _db = TestDatabase::connect_from_env()
         .await
         .expect("{HARNESS}: connect to DEV database");
-    
+
     let audit = Arc::new(CapturingAuditPort::default());
     let runtime = ServiceRuntime::new(test_infrastructure(audit.clone()));
 
@@ -96,7 +96,11 @@ async fn sec_audit_005__actor_correlation_present() {
 
     // 4. Retrieve captured events and assert the required fields are present.
     let events = audit.events();
-    assert_eq!(events.len(), 1, "{HARNESS}: exactly one audit event recorded");
+    assert_eq!(
+        events.len(),
+        1,
+        "{HARNESS}: exactly one audit event recorded"
+    );
 
     let event = &events[0];
 

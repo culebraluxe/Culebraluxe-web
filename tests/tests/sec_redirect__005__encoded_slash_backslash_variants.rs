@@ -28,7 +28,11 @@ fn sec_redirect_005__encoded_slash_backslash_variants() {
         // And the encoded text is a valid Location header rather than an error the browser renders.
         let response =
             axum::response::IntoResponse::into_response(axum::response::Redirect::to(&target));
-        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER, "input: {input:?}");
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::SEE_OTHER,
+            "input: {input:?}"
+        );
         assert_eq!(response.headers()[axum::http::header::LOCATION], target);
     }
 

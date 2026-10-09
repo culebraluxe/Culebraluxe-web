@@ -12,10 +12,10 @@ use test_harness::RedirectPolicyHarness;
 #[allow(non_snake_case)]
 fn sec_redirect_009__malformed_unicode() {
     for input in [
-        "/portal/%E0%A4%A",        // a truncated three-byte sequence
-        "/portal/%ED%A0%80",       // CESU-8 for a lone surrogate
-        "/portal/%C3%A9",          // a well-formed two-byte sequence
-        "/portal/\u{FFFD}",       // the replacement character itself
+        "/portal/%E0%A4%A",  // a truncated three-byte sequence
+        "/portal/%ED%A0%80", // CESU-8 for a lone surrogate
+        "/portal/%C3%A9",    // a well-formed two-byte sequence
+        "/portal/\u{FFFD}",  // the replacement character itself
     ] {
         let target = RedirectPolicyHarness::redirect_target(Some(input));
         assert_eq!(target, input, "input: {input:?}");
@@ -26,7 +26,11 @@ fn sec_redirect_009__malformed_unicode() {
         // The load-bearing half: the accepted string is a usable Location header, not a 500.
         let response =
             axum::response::IntoResponse::into_response(axum::response::Redirect::to(&target));
-        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER, "input: {input:?}");
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::SEE_OTHER,
+            "input: {input:?}"
+        );
         assert_eq!(response.headers()[axum::http::header::LOCATION], target);
     }
 
