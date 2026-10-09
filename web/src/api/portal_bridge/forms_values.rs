@@ -170,10 +170,18 @@ pub(super) async fn save_form_values(
     }
 
     if template.field("sellerEmail").is_some() {
-        let desired = field_values
+        // A typo here would be saved as the person's primary address and every later send would fail, so it is
+        // refused before anything is written.
+        let desired = match field_values
             .get("sellerEmail")
-            .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty());
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            Some(typed) => {
+                Some(crate::security::guest::normalize_email(typed).map_err(failed(resolved))?)
+            }
+            None => None,
+        };
         if let (Some(person_id), Some(desired)) = (current.person_id.as_deref(), desired) {
             let known = forms
                 .list_signer_people(form_id, &resolved.service)

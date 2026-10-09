@@ -1,7 +1,7 @@
 mod audit;
 mod entitlement_catalog;
 mod entitlements;
-mod guest;
+pub(crate) mod guest;
 mod identity_cache;
 pub use audit::DurableSecurityAuditPort;
 pub use entitlements::CasbinAuthorizationPort;
