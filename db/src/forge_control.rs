@@ -63,6 +63,14 @@ pub struct LearnStaleClaimRow {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, FromRow)]
+pub struct LearnScanStateRow {
+    pub cursor_revision: Option<String>,
+    pub active_revision: Option<String>,
+    pub pending_files: Vec<String>,
+    pub pending_observations: serde_json::Value,
+}
+
 #[derive(Debug, Clone)]
 pub struct FlightFireResult {
     pub batch_id: String,
@@ -79,6 +87,306 @@ pub struct ForgeControlDao {
 impl ForgeControlDao {
     pub fn new(db: Database) -> Self {
         Self { db }
+    }
+
+    pub async fn learn_scan_state(
+        &self,
+        repository_key: &str,
+    ) -> DbResult<Option<LearnScanStateRow>> {
+        sqlx::query_as::<_, LearnScanStateRow>(
+            "select cursor_revision, active_revision, pending_files, pending_observations
+             from forge_learn_scan_state where repository_key=$1",
+        )
+        .bind(repository_key)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_control.learn_scan_state", &error))
+    }
+
+    /// Starts a pinned scan only if the cursor still matches the caller's snapshot. Concurrent
+    /// workers either observe the same active scan or one wins the cursor compare-and-set.
+    pub async fn begin_learn_scan(
+        &self,
+        repository_key: &str,
+        expected_cursor: Option<&str>,
+        revision: &str,
+        files: &[String],
+    ) -> DbResult<LearnScanStateRow> {
+        let mut tx = self.db.begin("forge_control.begin_learn_scan").await?;
+        let result = async {
+            sqlx::query("select pg_advisory_xact_lock(hashtextextended($1, 0))")
+                .bind(format!("forge-learn-scan:{repository_key}"))
+                .execute(tx.connection())
+                .await
+                .map_err(|error| DbFailure::from_sqlx("forge_control.learn_scan.lock", &error))?;
+            sqlx::query(
+                "insert into forge_learn_scan_state(repository_key) values($1) on conflict do nothing",
+            )
+            .bind(repository_key)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_control.learn_scan.create", &error))?;
+            let mut state = sqlx::query_as::<_, LearnScanStateRow>(
+                "select cursor_revision, active_revision, pending_files, pending_observations
+                 from forge_learn_scan_state where repository_key=$1 for update",
+            )
+            .bind(repository_key)
+            .fetch_one(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_control.learn_scan.lock_row", &error))?;
+            if state.active_revision.is_none() && state.cursor_revision.as_deref() == expected_cursor {
+                sqlx::query(
+                    "update forge_learn_scan_state
+                     set active_revision=$2, pending_files=$3, pending_observations='[]'::jsonb, updated_at=now()
+                     where repository_key=$1",
+                )
+                .bind(repository_key)
+                .bind(revision)
+                .bind(files)
+                .execute(tx.connection())
+                .await
+                .map_err(|error| DbFailure::from_sqlx("forge_control.learn_scan.start", &error))?;
+                state.active_revision = Some(revision.to_string());
+                state.pending_files = files.to_vec();
+                state.pending_observations = serde_json::json!([]);
+            }
+            Ok::<LearnScanStateRow, DbFailure>(state)
+        }
+        .await;
+        match result {
+            Ok(state) => {
+                tx.commit().await?;
+                Ok(state)
+            }
+            Err(error) => {
+                let _ = tx.rollback().await;
+                Err(error)
+            }
+        }
+    }
+
+    pub async fn save_learn_scan_progress(
+        &self,
+        repository_key: &str,
+        revision: &str,
+        expected_files: &[String],
+        remaining_files: &[String],
+        expected_observations: &serde_json::Value,
+        observations: &serde_json::Value,
+    ) -> DbResult<bool> {
+        let result = sqlx::query(
+            "update forge_learn_scan_state
+             set pending_files=$4, pending_observations=$6, updated_at=now()
+             where repository_key=$1 and active_revision=$2 and pending_files=$3
+               and pending_observations=$5",
+        )
+        .bind(repository_key)
+        .bind(revision)
+        .bind(expected_files)
+        .bind(remaining_files)
+        .bind(expected_observations)
+        .bind(observations)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_control.learn_scan.progress", &error))?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn complete_learn_scan(
+        &self,
+        repository_key: &str,
+        revision: &str,
+        expected_observations: &serde_json::Value,
+    ) -> DbResult<bool> {
+        let result = sqlx::query(
+            "update forge_learn_scan_state
+             set cursor_revision=active_revision, active_revision=null, pending_files='{}',
+                 pending_observations='[]'::jsonb, updated_at=now()
+             where repository_key=$1 and active_revision=$2 and cardinality(pending_files)=0
+               and pending_observations=$3 and jsonb_array_length(pending_observations)=0",
+        )
+        .bind(repository_key)
+        .bind(revision)
+        .bind(expected_observations)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_control.learn_scan.complete", &error))?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    /// Files one stable logical finding exactly once per open occurrence. Story, ready dispatch or
+    /// staging, finding identity, and pattern key are written in one transaction.
+    pub async fn file_learn_finding(
+        &self,
+        repository_key: &str,
+        finding_key: &str,
+        revision: &str,
+        title: &str,
+        priority: &str,
+        notes: &str,
+        goal: &str,
+        ready: bool,
+    ) -> DbResult<String> {
+        let mut tx = self.db.begin("forge_control.file_learn_finding").await?;
+        let result = async {
+            sqlx::query("select pg_advisory_xact_lock(hashtextextended($1, 0))")
+                .bind(format!("forge-learn-finding:{repository_key}:{finding_key}"))
+                .execute(tx.connection())
+                .await
+                .map_err(|error| DbFailure::from_sqlx("forge_control.learn_finding.lock", &error))?;
+            sqlx::query(
+                "insert into forge_learn_finding(repository_key,finding_key,last_seen_revision)
+                 values($1,$2,$3) on conflict do nothing",
+            )
+            .bind(repository_key)
+            .bind(finding_key)
+            .bind(revision)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_control.learn_finding.create", &error))?;
+            let (occurrence, last_story_id): (i32, Option<String>) = sqlx::query_as(
+                "select occurrence,last_story_id from forge_learn_finding
+                 where repository_key=$1 and finding_key=$2 for update",
+            )
+            .bind(repository_key)
+            .bind(finding_key)
+            .fetch_one(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_control.learn_finding.read", &error))?;
+            if let Some(story_id) = last_story_id {
+                let open: bool = sqlx::query_scalar(
+                    "select exists(
+                         select 1 from agent_work_item where story_id=$1
+                           and state in ('Ready','Claimed','Running','Paused')
+                         union all
+                         select 1 from forge_batch_item where story_id=$1 and state='Staged'
+                     )",
+                )
+                .bind(&story_id)
+                .fetch_one(tx.connection())
+                .await
+                .map_err(|error| DbFailure::from_sqlx("forge_control.learn_finding.open", &error))?;
+                if open {
+                    sqlx::query(
+                        "update forge_learn_finding set last_seen_revision=$3,last_seen_at=now()
+                         where repository_key=$1 and finding_key=$2",
+                    )
+                    .bind(repository_key)
+                    .bind(finding_key)
+                    .bind(revision)
+                    .execute(tx.connection())
+                    .await
+                    .map_err(|error| DbFailure::from_sqlx("forge_control.learn_finding.touch", &error))?;
+                    return Ok::<String, DbFailure>(story_id);
+                }
+            }
+
+            let next_occurrence = occurrence.saturating_add(1).max(1);
+            let story_id: String = sqlx::query_scalar(
+                "select 'LEARN-' || upper(substr(md5($1 || ':' || $2),1,20)) || '-' || $3::text",
+            )
+            .bind(repository_key)
+            .bind(finding_key)
+            .bind(next_occurrence)
+            .fetch_one(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_control.learn_finding.story_id", &error))?;
+            let stored_key = format!("{repository_key}:{finding_key}");
+            sqlx::query(
+                "insert into storyboard_story(id,workstream,title,priority,status,notes,goal,completion,rollup)
+                 values($1,'ENGINEERING',$2,$3,$4,$5,$6,0,true)",
+            )
+            .bind(&story_id)
+            .bind(title)
+            .bind(priority)
+            .bind(if ready { "Ready" } else { "Planned" })
+            .bind(notes)
+            .bind(goal)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_control.learn_finding.story", &error))?;
+
+            if ready {
+                let result = sqlx::query(
+                    "update agent_work_item set kind='learn',learn_pattern_key=$2,special_instructions=$3,
+                         updated_at=now() where story_id=$1 and state='Ready'",
+                )
+                .bind(&story_id)
+                .bind(&stored_key)
+                .bind(notes)
+                .execute(tx.connection())
+                .await
+                .map_err(|error| DbFailure::from_sqlx("forge_control.learn_finding.ready", &error))?;
+                if result.rows_affected() != 1 {
+                    return Err(DbFailure::schema_mismatch(
+                        "forge_control.learn_finding.ready_dispatch",
+                        format!("Ready story {story_id} did not create exactly one work item"),
+                    ));
+                }
+            } else {
+                sqlx::query("select pg_advisory_xact_lock(hashtextextended('forge-learn-staging-batch', 0))")
+                    .execute(tx.connection())
+                    .await
+                    .map_err(|error| DbFailure::from_sqlx("forge_control.learn_staging.lock", &error))?;
+                let batch_id: Option<String> = sqlx::query_scalar(
+                    "select id::text from forge_batch where status='Staged' order by created_at desc limit 1",
+                )
+                .fetch_optional(tx.connection())
+                .await
+                .map_err(|error| DbFailure::from_sqlx("forge_control.learn_staging.find", &error))?;
+                let batch_id = match batch_id {
+                    Some(id) => id,
+                    None => sqlx::query_scalar(
+                        "insert into forge_batch(label,status,note)
+                         values('staging','Staged','built by Rust learn loop') returning id::text",
+                    )
+                    .fetch_one(tx.connection())
+                    .await
+                    .map_err(|error| DbFailure::from_sqlx("forge_control.learn_staging.create", &error))?,
+                };
+                sqlx::query("update storyboard_story set status='Batched',updated_at=now() where id=$1")
+                    .bind(&story_id)
+                    .execute(tx.connection())
+                    .await
+                    .map_err(|error| DbFailure::from_sqlx("forge_control.learn_finding.batched", &error))?;
+                sqlx::query(
+                    "insert into forge_batch_item(batch_id,story_id,state,kind,learn_pattern_key)
+                     values($1::uuid,$2,'Staged','learn',$3)",
+                )
+                .bind(batch_id)
+                .bind(&story_id)
+                .bind(&stored_key)
+                .execute(tx.connection())
+                .await
+                .map_err(|error| DbFailure::from_sqlx("forge_control.learn_finding.staged", &error))?;
+            }
+
+            sqlx::query(
+                "update forge_learn_finding set occurrence=$3,last_story_id=$4,
+                     last_seen_revision=$5,last_seen_at=now()
+                 where repository_key=$1 and finding_key=$2",
+            )
+            .bind(repository_key)
+            .bind(finding_key)
+            .bind(next_occurrence)
+            .bind(&story_id)
+            .bind(revision)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_control.learn_finding.record", &error))?;
+            Ok(story_id)
+        }
+        .await;
+        match result {
+            Ok(story_id) => {
+                tx.commit().await?;
+                Ok(story_id)
+            }
+            Err(error) => {
+                let _ = tx.rollback().await;
+                Err(error)
+            }
+        }
     }
 
     /// Claims a worker has walked away from: the one place the staleness rule is decided (`forge_reapable_claims`,
@@ -404,123 +712,6 @@ impl ForgeControlDao {
         .fetch_all(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_control.open_learn_pattern_keys", &error))
-    }
-
-    pub async fn ensure_staging_batch(&self) -> DbResult<String> {
-        if let Some(id) = sqlx::query_scalar::<_, String>(
-            "select id::text from forge_batch where status='Staged' order by created_at desc limit 1",
-        )
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("forge_control.staging_batch.find", &error))?
-        {
-            return Ok(id);
-        }
-        sqlx::query_scalar::<_, String>(
-            "insert into forge_batch(label,status,note)
-             values('staging','Staged','built by Rust learn loop') returning id::text",
-        )
-        .fetch_one(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("forge_control.staging_batch.create", &error))
-    }
-
-    pub async fn create_learn_story(
-        &self,
-        id: &str,
-        title: &str,
-        priority: &str,
-        notes: &str,
-        goal: &str,
-    ) -> DbResult<()> {
-        sqlx::query(
-            "insert into storyboard_story(id,workstream,title,priority,status,notes,goal,completion,rollup)
-             values($1,'ENGINEERING',$2,$3,'Planned',$4,$5,0,true)
-             on conflict(id) do nothing",
-        )
-        .bind(id)
-        .bind(title)
-        .bind(priority)
-        .bind(notes)
-        .bind(goal)
-        .execute(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("forge_control.create_learn_story", &error))?;
-        Ok(())
-    }
-
-    pub async fn open_ready_learn_item(
-        &self,
-        story_id: &str,
-        pattern_key: &str,
-        instructions: &str,
-    ) -> DbResult<()> {
-        let mut tx = self.db.begin("forge_control.open_ready_learn_item").await?;
-        let result = async {
-            sqlx::query("update storyboard_story set status='Ready',updated_at=now() where id=$1")
-                .bind(story_id)
-                .execute(tx.connection())
-                .await
-                .map_err(|error| DbFailure::from_sqlx("forge_control.learn_story.ready", &error))?;
-            sqlx::query(
-                "update agent_work_item
-                 set kind='learn',learn_pattern_key=$2,special_instructions=$3,updated_at=now()
-                 where story_id=$1 and state='Ready'",
-            )
-            .bind(story_id)
-            .bind(pattern_key)
-            .bind(instructions)
-            .execute(tx.connection())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("forge_control.learn_item.ready", &error))?;
-            Ok::<(), DbFailure>(())
-        }
-        .await;
-        match result {
-            Ok(()) => tx.commit().await,
-            Err(error) => {
-                let _ = tx.rollback().await;
-                Err(error)
-            }
-        }
-    }
-
-    pub async fn stage_learn_item(
-        &self,
-        batch_id: &str,
-        story_id: &str,
-        pattern_key: &str,
-    ) -> DbResult<()> {
-        let mut tx = self.db.begin("forge_control.stage_learn_item").await?;
-        let result = async {
-            sqlx::query(
-                "update storyboard_story set status='Batched',updated_at=now() where id=$1",
-            )
-            .bind(story_id)
-            .execute(tx.connection())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("forge_control.learn_story.batched", &error))?;
-            sqlx::query(
-                "insert into forge_batch_item(batch_id,story_id,state,kind,learn_pattern_key)
-                 values($1::uuid,$2,'Staged','learn',$3)
-                 on conflict(batch_id,story_id) do nothing",
-            )
-            .bind(batch_id)
-            .bind(story_id)
-            .bind(pattern_key)
-            .execute(tx.connection())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("forge_control.learn_item.staged", &error))?;
-            Ok::<(), DbFailure>(())
-        }
-        .await;
-        match result {
-            Ok(()) => tx.commit().await,
-            Err(error) => {
-                let _ = tx.rollback().await;
-                Err(error)
-            }
-        }
     }
 }
 

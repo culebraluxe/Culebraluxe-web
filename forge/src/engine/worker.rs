@@ -5,7 +5,7 @@
 
 use crate::engine::agent_work;
 use crate::engine::config::{ChildConfig, WorkerConfig};
-use crate::engine::learn::run_learn_pass;
+use crate::engine::learn::{run_learn_pass, ScanStatus};
 use crate::engine::routing_brain::{parse_forge_routing_brain, ForgeRoutingBrain};
 use crate::engine::vendor_session::with_shared;
 use crate::engine::worktree::cleanup_worker_workspace;
@@ -414,10 +414,32 @@ pub fn run_worker_pass() -> Result<i32, String> {
     eprintln!("forge-worker: recovered={recovered} due_flights={flights}");
 
     // Learning is observational and fail-open: a learn-pass defect must not block dispatch.
-    match run_learn_pass(std::path::Path::new("."), worker_cfg.stale_after_minutes) {
-        Ok(Some(story)) => eprintln!("learn: filed {story}"),
-        Ok(None) => {}
-        Err(error) => eprintln!("forge-learn-pass-failed: {error}"),
+    let learn = run_learn_pass(std::path::Path::new("."), worker_cfg.stale_after_minutes);
+    match learn.status {
+        ScanStatus::Complete => eprintln!(
+            "forge-learn-scan: status=complete revision={} scanned_files={} deferred_files={} deferred_findings={} filed={}",
+            learn.source_revision.as_deref().unwrap_or("unknown"),
+            learn.scanned_files,
+            learn.deferred_files,
+            learn.deferred_findings,
+            learn.filed_story.as_deref().unwrap_or("none")
+        ),
+        ScanStatus::Partial => eprintln!(
+            "forge-learn-scan: status=partial revision={} scanned_files={} deferred_files={} deferred_findings={} filed={}",
+            learn.source_revision.as_deref().unwrap_or("unknown"),
+            learn.scanned_files,
+            learn.deferred_files,
+            learn.deferred_findings,
+            learn.filed_story.as_deref().unwrap_or("none")
+        ),
+        ScanStatus::Unavailable => eprintln!(
+            "forge-learn-scan: status=unavailable error={}",
+            learn.error.as_deref().unwrap_or("unknown")
+        ),
+        ScanStatus::Failed => eprintln!(
+            "forge-learn-scan: status=failed error={}",
+            learn.error.as_deref().unwrap_or("unknown")
+        ),
     }
 
     // BOUNDED STORY CONCURRENCY (2026-09-29). The queue is serial per story, not per system, so one pass may hold

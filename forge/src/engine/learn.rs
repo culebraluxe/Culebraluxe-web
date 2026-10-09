@@ -6,15 +6,20 @@
 
 use crate::engine::vendor_session::with_shared;
 use db::ForgeControlDao;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
-    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 
+mod discovery;
+mod js_rules;
+mod rust_rules;
+
 const MAX_FILES: usize = 40;
+const MAX_SCAN_BYTES: usize = 4 * 1024 * 1024;
 const WINDOW_HOURS: u64 = 24;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,16 +28,62 @@ enum Severity {
     Normal,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScanStatus {
+    Complete,
+    Partial,
+    Unavailable,
+    Failed,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LearnPassReport {
+    pub(crate) status: ScanStatus,
+    pub(crate) source_revision: Option<String>,
+    pub(crate) scanned_files: usize,
+    pub(crate) deferred_files: usize,
+    pub(crate) deferred_findings: usize,
+    pub(crate) filed_story: Option<String>,
+    pub(crate) error: Option<String>,
+}
+
+impl LearnPassReport {
+    fn complete(source_revision: String) -> Self {
+        Self {
+            status: ScanStatus::Complete,
+            source_revision: Some(source_revision),
+            scanned_files: 0,
+            deferred_files: 0,
+            deferred_findings: 0,
+            filed_story: None,
+            error: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Candidate {
-    pattern: String,
     key: String,
     severity: Severity,
-    title: String,
     evidence: Vec<String>,
     hit_count: usize,
-    first_seen: String,
-    last_seen: String,
+    observations: Vec<RuleObservation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct RuleObservation {
+    rule_id: String,
+    rule_version: u32,
+    key: String,
+    source_revision: String,
+    path: String,
+    start_line: usize,
+    end_line: usize,
+    normalized_context: String,
+    rationale: String,
+    severity: String,
+    confidence: String,
+    limitations: String,
 }
 
 fn now_secs() -> u64 {
@@ -72,146 +123,80 @@ fn write_anchor(root: &Path, key: Option<&str>) -> Result<(), String> {
 }
 
 fn code_path(path: &str) -> bool {
+    let file_name = path.rsplit('/').next().unwrap_or(path);
     let good = path.ends_with(".ts")
         || path.ends_with(".tsx")
         || path.ends_with(".js")
         || path.ends_with(".mjs")
         || path.ends_with(".rs");
     good && !path.starts_with("docs/")
+        && !file_name.starts_with("test_")
+        && !file_name.ends_with("_test.rs")
+        && !file_name.ends_with("_tests.rs")
         && !path.starts_with("node_modules/")
         && !path.starts_with(".next/")
         && !path.starts_with(".vercel/")
         && !path.starts_with(".forge/")
         && !path.starts_with("testv2/")
+        && !path.starts_with("tests/")
+        && !path.contains("/tests/")
+        && !path.starts_with("target/")
+        && !path.contains("/target/")
+        && !path.starts_with("build/")
+        && !path.contains("/build/")
+        && !path.starts_with("dist/")
+        && !path.contains("/dist/")
+        && !path.starts_with("out/")
+        && !path.contains("/out/")
+        && !path.starts_with("vendor/")
+        && !path.contains("/vendor/")
+        && !path.starts_with("generated/")
+        && !path.contains("/generated/")
         && !path.contains(".test.")
         && !path.contains(".spec.")
         && path != "agent-runtime/silent-failure-patterns.ts"
 }
 
-fn changed_files(root: &Path, since: u64) -> Vec<(String, String)> {
-    let since_arg = format!("@{since}");
-    let out = Command::new("git")
-        .current_dir(root)
-        .args([
-            "log",
-            "--since",
-            &since_arg,
-            "--name-only",
-            "--pretty=format:",
-        ])
-        .output();
-    let Ok(out) = out else { return vec![] };
-    if !out.status.success() {
-        return vec![];
-    }
-    let mut seen = BTreeSet::new();
-    let mut files = vec![];
-    for line in String::from_utf8_lossy(&out.stdout).lines() {
-        let p = line.trim();
-        if p.is_empty() || !code_path(p) || !seen.insert(p.to_string()) {
-            continue;
-        }
-        if let Ok(content) = fs::read_to_string(root.join(p)) {
-            files.push((p.to_string(), content));
-            if files.len() >= MAX_FILES {
-                break;
-            }
-        }
-    }
-    files
-}
-
-fn line_of(content: &str, byte: usize) -> usize {
-    content[..byte.min(content.len())]
-        .bytes()
-        .filter(|b| *b == b'\n')
-        .count()
-        + 1
-}
-
-fn push_candidate(map: &mut BTreeMap<String, Candidate>, pattern: &str, path: &str, line: usize) {
-    let key = format!("{pattern}:{path}");
-    let evidence = format!("{path}:{line}");
-    let entry = map.entry(key.clone()).or_insert_with(|| Candidate {
-        pattern: pattern.into(),
-        key,
-        severity: Severity::Normal,
-        title: format!("{pattern} in {path}"),
-        evidence: vec![],
-        hit_count: 0,
-        first_seen: "recent-window".into(),
-        last_seen: "recent-window".into(),
+fn scan_observations(
+    files: &[(String, String)],
+    revision: &str,
+) -> (Vec<RuleObservation>, Vec<rust_rules::ParseIssue>) {
+    let mut observations = js_rules::scan(files, revision);
+    let (rust, issues) = rust_rules::scan_rust_files(files, revision);
+    observations.extend(rust);
+    observations.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then(a.start_line.cmp(&b.start_line))
+            .then(a.rule_id.cmp(&b.rule_id))
     });
-    entry.hit_count += 1;
-    if entry.evidence.len() < 5 {
-        entry.evidence.push(evidence);
-    }
+    (observations, issues)
 }
 
-fn scan_silent_failures(files: &[(String, String)]) -> Vec<Candidate> {
-    let captures = [
-        "captureServerError",
-        "captureServerLog",
-        "captureError",
-        "recordError",
-        "withApiHandler",
-        "withServerErrorCapture",
-    ];
-    let mut map = BTreeMap::new();
-
-    for (path, content) in files {
-        let compact = content.replace("\r", "");
-        for needle in ["catch {}", "catch{}", "catch (_) {}", "catch(_){ }"] {
-            let mut from = 0;
-            while let Some(i) = compact[from..].find(needle) {
-                let at = from + i;
-                push_candidate(&mut map, "empty-catch", path, line_of(&compact, at));
-                from = at + needle.len();
-            }
+fn observations_to_candidates(observations: Vec<RuleObservation>) -> Vec<Candidate> {
+    let mut candidates = BTreeMap::<String, Candidate>::new();
+    for observation in observations {
+        let pattern = format!("{}:v{}", observation.rule_id, observation.rule_version);
+        let key = format!("{pattern}:{}", observation.path);
+        let candidate = candidates.entry(key.clone()).or_insert_with(|| Candidate {
+            key,
+            severity: Severity::Normal,
+            evidence: Vec::new(),
+            hit_count: 0,
+            observations: Vec::new(),
+        });
+        candidate.hit_count += 1;
+        if candidate.evidence.len() < 5 {
+            candidate.evidence.push(format!(
+                "{}:{}-{}",
+                observation.path, observation.start_line, observation.end_line
+            ));
         }
-        for needle in [
-            "=> []",
-            "=> null",
-            "=> undefined",
-            "=> 0",
-            "=> ''",
-            "=> \"\"",
-        ] {
-            let mut from = 0;
-            while let Some(i) = compact[from..].find(".catch(") {
-                let at = from + i;
-                let tail = &compact[at..compact.len().min(at + 180)];
-                if tail.contains(needle) {
-                    push_candidate(&mut map, "swallowed-catch", path, line_of(&compact, at));
-                }
-                from = at + 7;
-            }
-        }
-        let server = path.starts_with("app/")
-            || path.starts_with("services/")
-            || path.contains("/app/")
-            || path.contains("/services/");
-        let captured = captures.iter().any(|m| compact.contains(m));
-        if server && !captured {
-            let mut from = 0;
-            while let Some(i) = compact[from..].find("console.error(") {
-                let at = from + i;
-                push_candidate(
-                    &mut map,
-                    "console-error-without-capture",
-                    path,
-                    line_of(&compact, at),
-                );
-                from = at + 14;
-            }
-        }
-        if compact.contains("catch") && compact.contains("status: 500") && !captured {
-            if let Some(at) = compact.find("status: 500") {
-                push_candidate(&mut map, "bare-500-in-catch", path, line_of(&compact, at));
-            }
+        if candidate.observations.len() < 5 {
+            candidate.observations.push(observation);
         }
     }
-    map.into_values().collect()
+    candidates.into_values().collect()
 }
 
 fn stale_candidate(minutes: i64) -> Result<Option<Candidate>, String> {
@@ -226,32 +211,130 @@ fn stale_candidate(minutes: i64) -> Result<Option<Candidate>, String> {
                 return Ok(None);
             }
             let mut evidence = Vec::new();
-            let mut first = String::new();
-            let mut last = String::new();
-            for (index, row) in rows.iter().enumerate() {
-                if index == 0 {
-                    first = row.updated_at.clone();
-                }
-                last = row.updated_at.clone();
+            for row in &rows {
                 if evidence.len() < 5 {
                     evidence.push(format!("agent_work_item:{}", row.id));
                 }
             }
             Ok(Some(Candidate {
-                pattern: "stale-claim".into(),
                 key: "stale-claim".into(),
                 severity: Severity::P0,
-                title: format!("{} abandoned work claim(s)", rows.len()),
                 evidence,
                 hit_count: rows.len(),
-                first_seen: first,
-                last_seen: last,
+                observations: Vec::new(),
             }))
         })
     })?
 }
 
-fn open_keys() -> Result<BTreeSet<String>, String> {
+fn instructions(candidate: &Candidate) -> String {
+    let observations = serde_json::to_string(&candidate.observations)
+        .expect("RuleObservation contains only serializable fields");
+    format!(
+        "Filed by the Rust learn loop: pattern {} ({} hit(s)). Lead and Architect decide SMITH or HOLD; the loop does not choose the fix. Assay does not ship code. Never auto-merge, never auto-promote a decision. Evidence: {}. Source observations (review candidates, not confirmed defects): {}",
+        candidate.key,
+        candidate.hit_count,
+        candidate.evidence.join(", "),
+        observations
+    )
+}
+
+fn file_candidate(
+    repository_key: &str,
+    revision: &str,
+    candidate: &Candidate,
+) -> Result<String, String> {
+    let notes = instructions(candidate);
+    with_shared(|db, rt| {
+        let dao = ForgeControlDao::new(db.clone());
+        rt.block_on(async {
+            dao.file_learn_finding(
+                repository_key,
+                &candidate.key,
+                revision,
+                &format!("learn: {}", candidate.key),
+                if candidate.severity == Severity::P0 {
+                    "High"
+                } else {
+                    "Medium"
+                },
+                &notes,
+                &format!("Verify and resolve {}", candidate.key),
+                candidate.severity == Severity::P0,
+            )
+            .await
+            .map_err(|error| error.to_string())
+        })
+    })?
+}
+
+fn scan_pinned_chunk(
+    root: &Path,
+    revision: &str,
+    pending_files: &[String],
+) -> Result<(usize, Vec<RuleObservation>, Vec<rust_rules::ParseIssue>), String> {
+    let mut files = Vec::new();
+    let mut bytes = 0usize;
+    for path in pending_files.iter().take(MAX_FILES) {
+        let source = discovery::read_pinned_source(root, revision, path)?;
+        if !files.is_empty() && bytes.saturating_add(source.len()) > MAX_SCAN_BYTES {
+            break;
+        }
+        bytes += source.len();
+        files.push((path.clone(), source));
+        if bytes >= MAX_SCAN_BYTES {
+            break;
+        }
+    }
+    let processed = files.len();
+    let (observations, parse_issues) = scan_observations(&files, revision);
+    Ok((processed, observations, parse_issues))
+}
+
+fn candidate_group_key(observation: &RuleObservation) -> String {
+    format!(
+        "{}:v{}:{}",
+        observation.rule_id, observation.rule_version, observation.path
+    )
+}
+
+fn rust_rule_candidate(candidate: &Candidate) -> bool {
+    candidate.key.starts_with("RUST-")
+}
+
+fn rust_rules_enabled() -> bool {
+    std::env::var("FORGE_LEARN_RUST_RULES_ENABLED")
+        .ok()
+        .is_some_and(|value| value.trim() == "1")
+}
+
+fn save_progress(
+    repository_key: &str,
+    revision: &str,
+    expected_files: &[String],
+    remaining_files: &[String],
+    expected_observations: &serde_json::Value,
+    observations: &serde_json::Value,
+) -> Result<(), String> {
+    let saved = with_shared(|db, rt| {
+        let dao = ForgeControlDao::new(db.clone());
+        rt.block_on(dao.save_learn_scan_progress(
+            repository_key,
+            revision,
+            expected_files,
+            remaining_files,
+            expected_observations,
+            observations,
+        ))
+        .map_err(|error| error.to_string())
+    })??;
+    if !saved {
+        return Err("learning scan changed concurrently; retry on the next worker pass".into());
+    }
+    Ok(())
+}
+
+fn open_pattern_keys() -> Result<BTreeSet<String>, String> {
     with_shared(|db, rt| {
         let dao = ForgeControlDao::new(db.clone());
         rt.block_on(async {
@@ -263,82 +346,135 @@ fn open_keys() -> Result<BTreeSet<String>, String> {
     })?
 }
 
-fn story_id(key: &str) -> String {
-    let slug: String = key
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_uppercase()
+pub(crate) fn run_learn_pass(root: &Path, stale_after_minutes: i64) -> LearnPassReport {
+    match run_learn_pass_inner(root, stale_after_minutes) {
+        Ok(report) => report,
+        Err(error) => LearnPassReport {
+            status: if error.contains("origin remote") {
+                ScanStatus::Unavailable
             } else {
-                '-'
-            }
-        })
-        .collect();
-    let slug = slug.trim_matches('-').chars().take(60).collect::<String>();
-    format!("LEARN-{slug}-{}", now_secs())
+                ScanStatus::Failed
+            },
+            source_revision: None,
+            scanned_files: 0,
+            deferred_files: 0,
+            deferred_findings: 0,
+            filed_story: None,
+            error: Some(error),
+        },
+    }
 }
 
-fn instructions(candidate: &Candidate) -> String {
-    format!(
-        "Filed by the Rust learn loop: pattern {} ({} hit(s)). Lead and Architect decide SMITH or HOLD; the loop does not choose the fix. Assay does not ship code. Never auto-merge, never auto-promote a decision. Evidence: {}.",
-        candidate.key,
-        candidate.hit_count,
-        candidate.evidence.join(", ")
-    )
-}
-
-fn file_candidate(candidate: &Candidate) -> Result<String, String> {
-    let id = story_id(&candidate.key);
-    let notes = instructions(candidate);
-    with_shared(|db, rt| {
-        let dao = ForgeControlDao::new(db.clone());
-        rt.block_on(async {
-            dao.create_learn_story(
-                &id,
-                &format!("learn: {}", candidate.key),
-                if candidate.severity == Severity::P0 {
-                    "High"
-                } else {
-                    "Medium"
-                },
-                &notes,
-                &format!("Verify and resolve {}", candidate.key),
-            )
-            .await
-            .map_err(|error| error.to_string())?;
-
-            if candidate.severity == Severity::P0 {
-                dao.open_ready_learn_item(&id, &candidate.key, &notes)
-                    .await
-                    .map_err(|error| error.to_string())?;
-            } else {
-                let batch = dao
-                    .ensure_staging_batch()
-                    .await
-                    .map_err(|error| error.to_string())?;
-                dao.stage_learn_item(&batch, &id, &candidate.key)
-                    .await
-                    .map_err(|error| error.to_string())?;
-            }
-            Ok::<String, String>(id)
-        })
-    })?
-}
-
-pub(crate) fn run_learn_pass(
-    root: &Path,
-    stale_after_minutes: i64,
-) -> Result<Option<String>, String> {
+fn run_learn_pass_inner(root: &Path, stale_after_minutes: i64) -> Result<LearnPassReport, String> {
     let now = now_secs();
     let floor = now.saturating_sub(WINDOW_HOURS * 3600);
-    let since = read_anchor_secs(root).unwrap_or(floor).max(floor);
-    let files = changed_files(root, since);
-    let mut candidates = scan_silent_failures(&files);
+    let revision = discovery::source_revision(root)?;
+    let repository_key = discovery::repository_key(root)?;
+    let state = with_shared(|db, rt| {
+        let dao = ForgeControlDao::new(db.clone());
+        rt.block_on(dao.learn_scan_state(&repository_key))
+            .map_err(|error| error.to_string())
+    })??;
+    let state = match state {
+        Some(state) if state.active_revision.is_some() => state,
+        prior => {
+            let cursor = prior
+                .as_ref()
+                .and_then(|state| state.cursor_revision.as_deref());
+            if cursor == Some(revision.as_str()) {
+                return Ok(LearnPassReport::complete(revision));
+            }
+            let paths = discovery::changed_paths(root, cursor, &revision, floor)?
+                .into_iter()
+                .filter(|path| code_path(path))
+                .collect::<Vec<_>>();
+            let started = with_shared(|db, rt| {
+                let dao = ForgeControlDao::new(db.clone());
+                rt.block_on(dao.begin_learn_scan(&repository_key, cursor, &revision, &paths))
+                    .map_err(|error| error.to_string())
+            })??;
+            if started.active_revision.is_none()
+                && started.cursor_revision.as_deref() == Some(revision.as_str())
+            {
+                return Ok(LearnPassReport::complete(revision));
+            }
+            started
+        }
+    };
+    let revision = state
+        .active_revision
+        .clone()
+        .unwrap_or_else(|| revision.clone());
+    let pending_files = state.pending_files;
+    let old_value = state.pending_observations;
+    let mut observations: Vec<RuleObservation> = serde_json::from_value(old_value.clone())
+        .map_err(|error| format!("durable learning observations are invalid: {error}"))?;
+    let (processed, newly_found, parse_issues) =
+        scan_pinned_chunk(root, &revision, &pending_files)?;
+    if !parse_issues.is_empty() {
+        return Err(format!(
+            "Rust learning scan incomplete; parser failed for {} file(s): {}",
+            parse_issues.len(),
+            parse_issues
+                .iter()
+                .map(|issue| format!("{}: {}", issue.path, issue.message))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+    }
+    let remaining_files = pending_files
+        .iter()
+        .skip(processed)
+        .cloned()
+        .collect::<Vec<_>>();
+    observations.extend(newly_found);
+    let mut new_value = serde_json::to_value(&observations)
+        .map_err(|error| format!("could not persist learning observations: {error}"))?;
+    if processed > 0 {
+        save_progress(
+            &repository_key,
+            &revision,
+            &pending_files,
+            &remaining_files,
+            &old_value,
+            &new_value,
+        )?;
+    }
+
+    let open = open_pattern_keys()?;
+    let open_source_groups = observations_to_candidates(observations.clone())
+        .into_iter()
+        .filter(|candidate| {
+            open.contains(&format!("{repository_key}:{}", candidate.key))
+                || open.contains(&candidate.key)
+        })
+        .filter_map(|candidate| candidate.observations.first().map(candidate_group_key))
+        .collect::<BTreeSet<_>>();
+    if !open_source_groups.is_empty() {
+        observations
+            .retain(|observation| !open_source_groups.contains(&candidate_group_key(observation)));
+        let pruned_value = serde_json::to_value(&observations)
+            .map_err(|error| format!("could not prune open findings: {error}"))?;
+        save_progress(
+            &repository_key,
+            &revision,
+            &remaining_files,
+            &remaining_files,
+            &new_value,
+            &pruned_value,
+        )?;
+        new_value = pruned_value;
+    }
+    let mut candidates = observations_to_candidates(observations.clone());
     if let Some(stale) = stale_candidate(stale_after_minutes)? {
         candidates.push(stale);
     }
-    let open = open_keys()?;
-    candidates.retain(|c| !open.contains(&c.key));
+    let allow_rust_rules = rust_rules_enabled();
+    candidates.retain(|candidate| {
+        !open.contains(&format!("{repository_key}:{}", candidate.key))
+            && !open.contains(&candidate.key)
+            && (allow_rust_rules || !rust_rule_candidate(candidate))
+    });
     candidates.sort_by(|a, b| match (&a.severity, &b.severity) {
         (Severity::P0, Severity::Normal) => std::cmp::Ordering::Less,
         (Severity::Normal, Severity::P0) => std::cmp::Ordering::Greater,
@@ -347,40 +483,126 @@ pub(crate) fn run_learn_pass(
             .cmp(&a.hit_count)
             .then_with(|| a.key.cmp(&b.key)),
     });
-    let filed = if let Some(c) = candidates.first() {
-        Some(file_candidate(c)?)
+    let filed = if let Some(candidate) = candidates.first() {
+        let story_id = file_candidate(&repository_key, &revision, candidate)?;
+        if candidate.key != "stale-claim" {
+            let group = candidate
+                .observations
+                .first()
+                .map(candidate_group_key)
+                .ok_or_else(|| "source candidate has no rule observation".to_string())?;
+            let retained = observations
+                .iter()
+                .filter(|observation| candidate_group_key(observation) != group)
+                .cloned()
+                .collect::<Vec<_>>();
+            let retained = serde_json::to_value(retained)
+                .map_err(|error| format!("could not update finding backlog: {error}"))?;
+            save_progress(
+                &repository_key,
+                &revision,
+                &remaining_files,
+                &remaining_files,
+                &new_value,
+                &retained,
+            )?;
+            observations = serde_json::from_value(retained)
+                .map_err(|error| format!("could not reload finding backlog: {error}"))?;
+        }
+        Some(story_id)
     } else {
         None
     };
-    write_anchor(root, candidates.first().map(|c| c.key.as_str()))?;
-    Ok(filed)
+    let scan_complete = filed.is_none() && remaining_files.is_empty() && observations.is_empty();
+    if scan_complete {
+        let complete = with_shared(|db, rt| {
+            let dao = ForgeControlDao::new(db.clone());
+            rt.block_on(dao.complete_learn_scan(&repository_key, &revision, &serde_json::json!([])))
+                .map_err(|error| error.to_string())
+        })??;
+        if !complete {
+            return Err(
+                "learning scan completion changed concurrently; retry on the next worker pass"
+                    .into(),
+            );
+        }
+        // This file is a local convenience cache; a cache write failure cannot undo or fail the DB cursor commit.
+        let _ = write_anchor(root, None);
+    }
+    let deferred_findings = observations_to_candidates(observations).len();
+    Ok(LearnPassReport {
+        status: if scan_complete {
+            ScanStatus::Complete
+        } else {
+            ScanStatus::Partial
+        },
+        source_revision: Some(revision),
+        scanned_files: processed,
+        deferred_files: remaining_files.len(),
+        deferred_findings,
+        filed_story: filed,
+        error: None,
+    })
+}
+
+/// Read-only Rust/JavaScript rule report. It does not query the control plane, create findings, or update the cursor.
+pub fn run_learn_dry_run(root: &Path) -> Result<String, String> {
+    let now = now_secs();
+    let floor = now.saturating_sub(WINDOW_HOURS * 3600);
+    let since = read_anchor_secs(root).unwrap_or(floor).max(floor);
+    let revision = discovery::source_revision(root)?;
+    let paths = discovery::changed_paths(root, None, &revision, since)?
+        .into_iter()
+        .filter(|path| code_path(path))
+        .collect::<Vec<_>>();
+    let mut files = Vec::new();
+    let mut bytes = 0usize;
+    for path in paths.iter().take(MAX_FILES) {
+        let source = discovery::read_pinned_source(root, &revision, path)?;
+        if !files.is_empty() && bytes.saturating_add(source.len()) > MAX_SCAN_BYTES {
+            break;
+        }
+        bytes += source.len();
+        files.push((path.clone(), source));
+    }
+    let (observations, parse_issues) = scan_observations(&files, &revision);
+    let deferred_files = paths.len().saturating_sub(files.len());
+    serde_json::to_string_pretty(&serde_json::json!({
+        "dryRun": true,
+        "sourceRevision": revision,
+        "filesScanned": files.len(),
+        "totalChangedFiles": paths.len(),
+        "bytesScanned": bytes,
+        "deferredFiles": deferred_files,
+        "scanStatus": if parse_issues.is_empty() && deferred_files == 0 { "complete" } else { "partial" },
+        "observations": observations,
+        "parseIssues": parse_issues,
+        "filingPerformed": false,
+        "cursorAdvanced": false,
+    }))
+    .map_err(|error| format!("could not render learn report: {error}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{fs, process::Command};
     #[test]
     fn learn_sort_prefers_p0() {
         let mut v = vec![
             Candidate {
-                pattern: "x".into(),
                 key: "x".into(),
                 severity: Severity::Normal,
-                title: "x".into(),
                 evidence: vec![],
                 hit_count: 99,
-                first_seen: "".into(),
-                last_seen: "".into(),
+                observations: vec![],
             },
             Candidate {
-                pattern: "stale-claim".into(),
                 key: "stale-claim".into(),
                 severity: Severity::P0,
-                title: "x".into(),
                 evidence: vec![],
                 hit_count: 1,
-                first_seen: "".into(),
-                last_seen: "".into(),
+                observations: vec![],
             },
         ];
         v.sort_by(|a, b| match (&a.severity, &b.severity) {
@@ -389,5 +611,76 @@ mod tests {
             _ => b.hit_count.cmp(&a.hit_count),
         });
         assert_eq!(v[0].key, "stale-claim");
+    }
+
+    #[test]
+    fn rust_rule_gate_only_selects_rust_candidates_for_explicit_enablement() {
+        let rust = Candidate {
+            key: "RUST-EMPTY-ERROR-ARM:v1:src/lib.rs".into(),
+            severity: Severity::Normal,
+            evidence: vec![],
+            hit_count: 1,
+            observations: vec![],
+        };
+        let js = Candidate {
+            key: "JS-EMPTY-CATCH:v1:app/route.ts".into(),
+            severity: Severity::Normal,
+            evidence: vec![],
+            hit_count: 1,
+            observations: vec![],
+        };
+        assert!(rust_rule_candidate(&rust));
+        assert!(!rust_rule_candidate(&js));
+    }
+
+    #[test]
+    fn source_scan_chunk_respects_file_bound_without_dropping_remaining_paths() {
+        let temp = tempfile::tempdir().expect("temporary repository");
+        let root = temp.path();
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.name", "Forge Test"],
+            vec!["config", "user.email", "forge-test@example.invalid"],
+        ] {
+            let status = Command::new("git")
+                .current_dir(root)
+                .args(args)
+                .status()
+                .expect("git starts");
+            assert!(status.success());
+        }
+        fs::create_dir_all(root.join("forge/src")).expect("source directory");
+        for index in 0..45 {
+            fs::write(
+                root.join(format!("forge/src/file-{index:02}.rs")),
+                "pub fn clean() {}\n",
+            )
+            .expect("fixture source");
+        }
+        let status = Command::new("git")
+            .current_dir(root)
+            .args(["add", "forge/src"])
+            .status()
+            .expect("git starts");
+        assert!(status.success());
+        let status = Command::new("git")
+            .current_dir(root)
+            .args(["commit", "-qm", "source fixture"])
+            .status()
+            .expect("git starts");
+        assert!(status.success());
+        let revision = discovery::source_revision(root).expect("pinned revision");
+        let paths = discovery::changed_paths(root, None, &revision, 0)
+            .expect("changed paths")
+            .into_iter()
+            .filter(|path| code_path(path))
+            .collect::<Vec<_>>();
+        assert_eq!(paths.len(), 45);
+        let (processed, observations, issues) =
+            scan_pinned_chunk(root, &revision, &paths).expect("bounded chunk");
+        assert_eq!(processed, MAX_FILES);
+        assert!(observations.is_empty());
+        assert!(issues.is_empty());
+        assert_eq!(paths.len() - processed, 5);
     }
 }

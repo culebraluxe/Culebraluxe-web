@@ -19,6 +19,9 @@ services = { path = "../middle/services" }
 tokio.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+syn = { version = "2", features = ["full", "visit"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+wait-timeout = "0.2"
 chrono.workspace = true
 tracing.workspace = true
 reqwest.workspace = true
@@ -27,6 +30,7 @@ sha2.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true }
+tempfile.workspace = true
 
 [[bin]]
 name = "re-workflow"
