@@ -567,15 +567,25 @@ pub(super) async fn send_signature(
         ));
     }
 
-    // The envelope's subject: the issued document's own title, when it has one.
+    // The envelope's subject reads "<client> <document>", e.g. "Ada Alvarez Listing Agreement". The Vault title carries
+    // the issue number ("Listing Agreement v9"), which the people signing have no use for.
+    let client = signers
+        .iter()
+        .find(|signer| signer.role != "SELLER_BROKER")
+        .map(|signer| signer.name.trim().to_owned())
+        .filter(|name| !name.is_empty());
     let subject = services
         .vault()
         .get_document(&issued.document_id, &resolved.service)
         .await
         .map_err(failed(&resolved))?
         .and_then(|document| document.title)
-        .map(|title| title.trim().to_owned())
-        .filter(|title| !title.is_empty());
+        .map(|title| without_issue_number(title.trim()))
+        .filter(|title| !title.is_empty())
+        .map(|title| match client {
+            Some(client) => format!("{client} {title}"),
+            None => title,
+        });
     let party_count = recipients.len();
     let input = json!({
         "transactionDocumentId": issued.document_id,
@@ -720,4 +730,41 @@ pub(super) async fn save_or_issue(
 
     let page = forms_page(&state, &resolved, Some(form_id), None, None, None).await?;
     Ok(Json(json!({ "formId": form_id, "forms": page })))
+}
+
+/// `"Listing Agreement v9"` becomes `"Listing Agreement"`: a trailing ` v<digits>` only, so a title that merely has a
+/// v in it is left alone. The same rule the signing page applies to the title it shows.
+fn without_issue_number(title: &str) -> String {
+    match title.rsplit_once(" v") {
+        Some((name, number))
+            if !name.trim().is_empty()
+                && !number.is_empty()
+                && number.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            name.to_owned()
+        }
+        _ => title.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod issue_number_tests {
+    use super::without_issue_number;
+
+    #[test]
+    fn the_issue_number_is_not_part_of_the_subject() {
+        assert_eq!(
+            without_issue_number("Listing Agreement v9"),
+            "Listing Agreement"
+        );
+        assert_eq!(
+            without_issue_number("Listing Agreement v12"),
+            "Listing Agreement"
+        );
+        assert_eq!(
+            without_issue_number("Listing Agreement"),
+            "Listing Agreement"
+        );
+        assert_eq!(without_issue_number("Offer v2 draft"), "Offer v2 draft");
+    }
 }
