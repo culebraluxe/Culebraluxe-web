@@ -331,7 +331,10 @@ impl DocumentSignDao {
         .fetch_optional(tx.connection())
         .await
         .map_err(|error| DbFailure::from_sqlx("document_sign.document_title", &error))?;
-        Ok(row.and_then(|(title,)| title))
+        // The Vault keeps every issue as a version and titles it "Name vN"; the people signing see the name.
+        Ok(row
+            .and_then(|(title,)| title)
+            .map(|title| without_vault_version(&title)))
     }
 
     /// Recipients who are due a reminder: it is their turn (the lowest step still open), they have not acted, the
@@ -889,4 +892,42 @@ fn map_field(row: FieldRow) -> DbResult<SignatureField> {
         configuration: row.configuration,
         created_at: row.created_at.to_rfc3339(),
     })
+}
+
+/// `"Listing Agreement v9"` becomes `"Listing Agreement"`. Only a trailing ` v<digits>` is removed, so a title that
+/// merely contains a v is left alone.
+fn without_vault_version(title: &str) -> String {
+    match title.rsplit_once(" v") {
+        Some((name, number))
+            if !name.trim().is_empty()
+                && !number.is_empty()
+                && number.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            name.to_owned()
+        }
+        _ => title.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::without_vault_version;
+
+    #[test]
+    fn the_vault_version_is_not_part_of_the_name_people_sign() {
+        assert_eq!(
+            without_vault_version("Listing Agreement v9"),
+            "Listing Agreement"
+        );
+        assert_eq!(
+            without_vault_version("Listing Agreement v12"),
+            "Listing Agreement"
+        );
+        assert_eq!(
+            without_vault_version("Listing Agreement"),
+            "Listing Agreement"
+        );
+        assert_eq!(without_vault_version("Offer v2 draft"), "Offer v2 draft");
+        assert_eq!(without_vault_version(" v3"), " v3");
+    }
 }

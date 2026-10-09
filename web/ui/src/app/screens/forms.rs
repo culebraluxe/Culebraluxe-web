@@ -87,7 +87,12 @@ pub enum Msg {
         name: String,
         value: String,
     },
-    MoneyFocus(String),
+    /// A keystroke in a money field: it shows its digits from here until it loses focus. Focus itself changes nothing,
+    /// because a re-render on focus drops the selection and the first typed digit lands at the end of the old value.
+    MoneyTyped {
+        name: String,
+        value: String,
+    },
     MoneyBlur,
     DetailsChanged(String),
     AutosaveDue(u32),

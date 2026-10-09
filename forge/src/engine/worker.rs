@@ -6,14 +6,14 @@
 use crate::engine::agent_work;
 use crate::engine::config::{ChildConfig, WorkerConfig};
 use crate::engine::learn::run_learn_pass;
-use crate::engine::routing_brain::{ForgeRoutingBrain, parse_forge_routing_brain};
+use crate::engine::routing_brain::{parse_forge_routing_brain, ForgeRoutingBrain};
 use crate::engine::vendor_session::with_shared;
 use crate::engine::worktree::cleanup_worker_workspace;
 use db::{AgentWorkOutcome, ForgeControlDao};
 use std::path::Path;
 use std::process::Command;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
