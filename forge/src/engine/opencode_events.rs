@@ -40,36 +40,30 @@ pub const SESSION_ID_KEY: &str = "sessionID";
 
 /// Everything one `opencode run` turn told Forge, in the vendor's own words.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct OpenCodeTurnEvents {
+pub(crate) struct OpenCodeTurnEvents {
     /// The session this turn actually ran in. NOT the id Forge asked for: V2 mints the id, and reporting it
     /// here is what lets a FRESH turn be continued explicitly afterwards (§4).
-    pub session_id: Option<String>,
+    pub(crate) session_id: Option<String>,
     /// Every `text` event's text, concatenated in arrival order. This is the role output Forge logs and the
     /// evidence `forge_agent_collect` reads — never the raw NDJSON (§3).
-    pub assistant_text: String,
+    pub(crate) assistant_text: String,
     /// Usage summed from this run's `step_finish` events. `None` = unmeasured, never a fabricated zero (§6).
     ///
     /// A FLOOR, not necessarily the total: see the module note about the terminal step. `harness_usage`
     /// prefers the vendor's `session export` and falls back to this only when the export is unavailable.
-    pub usage: Option<HarnessUsage>,
+    pub(crate) usage: Option<HarnessUsage>,
     /// How many `step_finish` events were seen. `0` means usage is absent, not zero.
-    pub steps: usize,
+    pub(crate) steps: usize,
     /// The vendor's structured error, when it reported one.
-    pub error: Option<String>,
+    pub(crate) error: Option<String>,
     /// Every parsed event, kept for diagnostics and tests. Not a source of `assistant_text`.
-    pub events: Vec<Value>,
-}
-
-impl OpenCodeTurnEvents {
-    pub fn is_empty(&self) -> bool {
-        self.events.is_empty()
-    }
+    pub(crate) events: Vec<Value>,
 }
 
 /// Parse the NDJSON stream `--format json` produced.
 ///
 /// Unknown event types are tolerated and preserved. A line that is not valid JSON is an error (§3).
-pub fn parse_run_events(stdout: &str) -> Result<OpenCodeTurnEvents> {
+pub(crate) fn parse_run_events(stdout: &str) -> Result<OpenCodeTurnEvents> {
     let mut scanner = RunEventScanner::default();
     for line in stdout.lines() {
         scanner.feed(line)?;
@@ -84,7 +78,7 @@ pub fn parse_run_events(stdout: &str) -> Result<OpenCodeTurnEvents> {
 /// its measured spend passes the cap (and it is the same fold, so the live view and the recorded view cannot drift
 /// apart — `parse_run_events` is this type run to completion).
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct RunEventScanner {
+pub(crate) struct RunEventScanner {
     turn: OpenCodeTurnEvents,
     lines: usize,
 }
@@ -92,7 +86,7 @@ pub struct RunEventScanner {
 impl RunEventScanner {
     /// Fold one line. Line numbering is the scanner's own, so the error a live read produces names the same line
     /// the recorded read would.
-    pub fn feed(&mut self, line: &str) -> Result<()> {
+    pub(crate) fn feed(&mut self, line: &str) -> Result<()> {
         let index = self.lines;
         self.lines += 1;
         let trimmed = line.trim();
@@ -111,16 +105,12 @@ impl RunEventScanner {
     }
 
     /// What the turn has done so far. A live reading, not a verdict: an unmeasured spend stays `None`.
-    pub fn turn(&self) -> &OpenCodeTurnEvents {
+    pub(crate) fn turn(&self) -> &OpenCodeTurnEvents {
         &self.turn
     }
 
-    pub fn lines(&self) -> usize {
-        self.lines
-    }
-
     /// The finished turn, with the session id applied to the usage the same way the whole-stream read does.
-    pub fn finish(mut self) -> OpenCodeTurnEvents {
+    pub(crate) fn finish(mut self) -> OpenCodeTurnEvents {
         if let (Some(usage), Some(id)) = (self.turn.usage.as_mut(), self.turn.session_id.as_deref())
         {
             usage.session_id = id.to_string();
