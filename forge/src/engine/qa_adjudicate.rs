@@ -42,6 +42,7 @@ pub struct QaReport {
     pub blockers: Vec<String>,
     pub unproven: Vec<String>,
     pub failed_conditions: Vec<String>,
+    pub negative_control_confirmed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,13 +125,6 @@ pub fn resolve_planned_check(
 }
 
 fn rust_libtest_ran_zero_tests(output: &str) -> bool {
-    let Some(summary) = output
-        .lines()
-        .rev()
-        .find(|line| line.trim_start().starts_with("test result:"))
-    else {
-        return false;
-    };
     fn count(line: &str, word: &str) -> Option<u64> {
         let at = line.find(word)?;
         let digits: String = line[..at]
@@ -144,7 +138,14 @@ fn rust_libtest_ran_zero_tests(output: &str) -> bool {
             .collect();
         digits.parse().ok()
     }
-    count(summary, "passed") == Some(0) && count(summary, "failed") == Some(0)
+    let summaries = output
+        .lines()
+        .filter(|line| line.trim_start().starts_with("test result:"))
+        .collect::<Vec<_>>();
+    !summaries.is_empty()
+        && summaries.iter().all(|summary| {
+            count(summary, "passed").unwrap_or(0) == 0 && count(summary, "failed").unwrap_or(0) == 0
+        })
 }
 
 fn rust_libtest_check(output: &str, expected: &str) -> CheckObservation {
@@ -317,7 +318,6 @@ pub fn adjudicate_frozen_qa(plan: &ApprovedAssayPlan, results: &[CommandResult])
         });
         if expected_failed && command_measurable {
             negative_control_passed = true;
-            blockers.push(format!("NEGATIVE_CONTROL_CONFIRMED {}", control.command_id));
         } else {
             blockers.push(format!("NEGATIVE_CONTROL_UNPROVEN {}", control.command_id));
             unproven.push(format!("negative-control:{}", control.command_id));
@@ -375,6 +375,7 @@ pub fn adjudicate_frozen_qa(plan: &ApprovedAssayPlan, results: &[CommandResult])
         blockers,
         unproven,
         failed_conditions,
+        negative_control_confirmed: negative_control_passed,
     }
 }
 
@@ -422,12 +423,20 @@ fn adjudicate_judgment_subset(
             blockers: vec![missing_blocker.into()],
             unproven: vec![],
             failed_conditions: vec![],
+            negative_control_confirmed: false,
         };
     }
     let check_ids: std::collections::HashSet<&str> = subset
         .conditions
         .iter()
         .flat_map(|condition| condition.check_ids.iter().map(String::as_str))
+        .collect();
+    let check_ids: std::collections::HashSet<&str> = subset
+        .negative_control
+        .as_ref()
+        .into_iter()
+        .flat_map(|control| control.expected_failed_check_ids.iter().map(String::as_str))
+        .chain(check_ids)
         .collect();
     subset
         .checks
@@ -437,10 +446,16 @@ fn adjudicate_judgment_subset(
         .iter()
         .map(|check| check.command_id.as_str())
         .collect();
+    let command_ids: std::collections::HashSet<&str> = subset
+        .negative_control
+        .as_ref()
+        .map(|control| control.command_id.as_str())
+        .into_iter()
+        .chain(command_ids)
+        .collect();
     subset
         .commands
         .retain(|command| command_ids.contains(command.id.as_str()));
-    subset.negative_control = None;
     let command_texts: std::collections::HashSet<&str> = subset
         .commands
         .iter()
@@ -689,6 +704,7 @@ pub fn adjudicate_qa(
         blockers,
         unproven,
         failed_conditions,
+        negative_control_confirmed: false,
     }
 }
 
@@ -703,6 +719,7 @@ mod tests {
 
     fn cmd(name: &str, output: &str, passed: bool) -> CommandResult {
         CommandResult {
+            cancelled: false,
             command: name.into(),
             exit_code: if passed { 0 } else { 1 },
             passed,
@@ -814,6 +831,57 @@ mod tests {
     }
 
     #[test]
+    fn frozen_judgments_evaluate_and_record_the_approved_negative_control() {
+        let mut plan = frozen_plan(CheckAggregation::AllRequired);
+        plan.checks.push(ApprovedAssertionCheck {
+            id: "control-check".into(),
+            command_id: "control-command".into(),
+            assertion: "sample::must_fail".into(),
+        });
+        plan.commands.push(ApprovedAssayCommand {
+            id: "control-command".into(),
+            command: "cargo test -p sample --negative-control".into(),
+            runner: AssayRunner::RustLibtest,
+            parser: AssayParser::RustLibtest,
+            working_directory: "lane_root".into(),
+            environment_identity: "forge-inherited-shell-v1".into(),
+        });
+        plan.negative_control = Some(crate::engine::qa_plan::ApprovedNegativeControl {
+            command_id: "control-command".into(),
+            expected_failed_check_ids: vec!["control-check".into()],
+        });
+        let results = vec![
+            measured_rust(
+                "test sample::first ... ok\ntest sample::second ... ok\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n",
+            ),
+            cmd(
+                "cargo test -p sample --negative-control",
+                "test sample::must_fail ... FAILED\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n",
+                false,
+            ),
+        ];
+
+        let judgments = adjudicate_frozen_judgments(&plan, &results);
+        assert_eq!(judgments.product.verdict, AssayVerdict::Pass);
+        assert!(judgments.product.negative_control_confirmed);
+        assert!(!judgments
+            .product
+            .blockers
+            .iter()
+            .any(|blocker| blocker == "NEGATIVE_CONTROL_CONFIRMED"));
+
+        let mut surviving = results;
+        surviving[1] = cmd(
+            "cargo test -p sample --negative-control",
+            "test sample::must_fail ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n",
+            true,
+        );
+        let judgments = adjudicate_frozen_judgments(&plan, &surviving);
+        assert_eq!(judgments.product.verdict, AssayVerdict::Unproven);
+        assert!(!judgments.product.negative_control_confirmed);
+    }
+
+    #[test]
     fn frozen_assertions_are_bound_to_their_command_and_structured_runner_output() {
         let echo = measured_rust("the output says sample::first passed\n");
         let report = adjudicate_frozen_qa(&frozen_plan(CheckAggregation::AllRequired), &[echo]);
@@ -837,6 +905,13 @@ mod tests {
         let report = adjudicate_frozen_qa(&frozen_plan(CheckAggregation::AnyOf), &[zero]);
         assert_eq!(report.verdict, AssayVerdict::Unproven);
 
+        assert!(!rust_libtest_ran_zero_tests(
+            "running 1 test\ntest sample::one ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n\n   Doc-tests forge\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+        ));
+        assert!(rust_libtest_ran_zero_tests(
+            "test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+        ));
+
         let skipped = measured_rust("test sample::first ... ignored\ntest result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n");
         let report = adjudicate_frozen_qa(&frozen_plan(CheckAggregation::AllRequired), &[skipped]);
         assert_eq!(report.verdict, AssayVerdict::Unproven);
@@ -846,6 +921,7 @@ mod tests {
     fn cancelled_execution_is_recorded_separately_and_stays_unproven() {
         let mut result = measured_rust("partial output before cancellation");
         result.exit_code = crate::engine::assay::CMD_CANCELLED_EXIT;
+        result.cancelled = true;
         result.passed = false;
         result.unmeasurable = true;
         result.excerpt = "CMD_CANCELLED: assay command received signal 15".into();

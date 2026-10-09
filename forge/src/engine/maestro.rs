@@ -623,6 +623,7 @@ impl RoleHarness for MaestroHarness {
             Ok(child) => child,
             Err(e) => {
                 return CommandResult {
+                    cancelled: false,
                     command: command.into(),
                     exit_code: -1,
                     passed: false,
@@ -634,6 +635,7 @@ impl RoleHarness for MaestroHarness {
         };
         match crate::engine::assay::wait_with_ceiling(child, assay_timeout()) {
             CeilingOutcome::TimedOut(hit) => CommandResult {
+                cancelled: false,
                 command: command.into(),
                 exit_code: CMD_TIMEOUT_EXIT,
                 passed: false,
@@ -646,6 +648,7 @@ impl RoleHarness for MaestroHarness {
                 output: String::new(),
             },
             CeilingOutcome::Finished(Err(e)) => CommandResult {
+                cancelled: false,
                 command: command.into(),
                 exit_code: -1,
                 passed: false,
@@ -671,6 +674,7 @@ impl RoleHarness for MaestroHarness {
                     text
                 };
                 CommandResult {
+                    cancelled: signal.is_some(),
                     command: command.into(),
                     exit_code: code,
                     passed: code == 0,

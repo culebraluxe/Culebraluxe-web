@@ -43,12 +43,17 @@ Unknown marker keys are rejected by the typed DTO, including fields listed above
 deterministic or authoritative producer. This matrix should be extended only when a concrete
 producer port and its provenance are defined.
 
+The absence of a model owner for `scoutRequired`, `qaReviewRequired`, and `resumeTarget` is deliberate:
+the first two are frozen Story Packet/operator requirements and the last is an operator hold-resolution
+choice. `disposition` is produced by deterministic QA/workflow policy after measurement. Current role
+prompts and adapters do not ask a model to emit these fields; if a marker includes one, the whole patch
+is rejected with the field named so it cannot rewrite requirements or workflow routing.
+
 ## Batch 1 coordination
 
-The role-output authority boundary is independent of Batch 1's claim-fencing completion slices.
-Assay receipt persistence and verdict application still need Batch 1 Slice 2's atomic completion
-interface before they can be wired into one production lifecycle transaction. Batch 3 does not
-modify Batch 1's completion, ledger, or control-plane files.
+Batch 3 leaves Batch 1's claim, ledger, and control-plane files unchanged. It carries the assay receipt
+link through Batch 1's atomic completion writer; the final transaction validates the immutable artifact
+before applying verdict evidence, as detailed below.
 
 ## Typed assay plan and approval contract
 
@@ -133,8 +138,9 @@ link through Batch 1 completion replay and provenance persistence against migrat
 
 ## Verification recorded for this branch
 
-Verification on the branch: `cargo test -p forge --lib` (411 passed, 0 failed, 2 ignored),
+Verification on the branch: `cargo test -p forge --lib` (414 passed, 0 failed, 2 ignored),
 `cargo test -p test-harness --test forge_runtime` (41 passed),
+`cargo test -p test-harness --test forge_qa__002__fail_has_valid_disposition` (5 passed),
 `cargo test -p test-harness --test forge_assay__007__pass_requires_acceptance_mapped` (1 passed),
 `cargo check -p forge -p db`, the `forge_completion_receipt_dev` and `forge_assay_receipt_dev`
 integration-test binaries compiled with `--no-run`, and the ignored `forge_assay_receipt_dev`
@@ -142,4 +148,5 @@ integration test ran against Neon DEV after migration 281 (1 passed). `pnpm forg
 (0 failures, 173 warnings, 157 baselined), `pnpm scripts:check` (54 shell files parse cleanly),
 `pnpm scan:migrations` (0 findings), and `git diff --check` all passed. The DEV integration covers
 receipt idempotency, content conflict, failed persistence, durable provenance, and Batch 1
-completion replay/link. No production migration or deployment was performed.
+completion replay/link. Migration 281 was applied to production after the user's explicit approval;
+the Batch 3 code has not been deployed to production.

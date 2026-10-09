@@ -348,6 +348,7 @@ mod tests {
         }
         fn run_command(&self, command: &str) -> CommandResult {
             CommandResult {
+                cancelled: false,
                 command: command.into(),
                 exit_code: 0,
                 passed: true,

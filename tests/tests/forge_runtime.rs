@@ -718,6 +718,7 @@ impl runner::RoleHarness for ScriptedHarness {
     }
     fn run_command(&self, command: &str) -> assay::CommandResult {
         assay::CommandResult {
+            cancelled: false,
             command: command.into(),
             exit_code: if self.cmd_ok { 0 } else { 1 },
             passed: self.cmd_ok,
@@ -725,6 +726,19 @@ impl runner::RoleHarness for ScriptedHarness {
             unmeasurable: false,
             output: String::new(),
         }
+    }
+    fn candidate_probe(&self) -> Option<&dyn runner::CandidateProbe> {
+        Some(self)
+    }
+}
+
+impl runner::CandidateProbe for ScriptedHarness {
+    fn git(&self, _: &[&str]) -> Option<String> {
+        self.sha.clone().or_else(|| Some("b".repeat(40)))
+    }
+
+    fn declared_test_mode(&self) -> Option<&str> {
+        Some("RUST_CONTRACT")
     }
 }
 

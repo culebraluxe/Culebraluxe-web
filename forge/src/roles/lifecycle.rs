@@ -497,6 +497,7 @@ mod tests {
         }
         fn run_command(&self, command: &str) -> CommandResult {
             CommandResult {
+                cancelled: false,
                 command: command.into(),
                 exit_code: 1,
                 passed: false,
@@ -776,6 +777,7 @@ mod tests {
         }
         fn run_command(&self, command: &str) -> CommandResult {
             CommandResult {
+                cancelled: false,
                 command: command.into(),
                 exit_code: 1,
                 passed: false,

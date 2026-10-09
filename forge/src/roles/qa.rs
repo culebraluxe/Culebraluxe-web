@@ -281,15 +281,32 @@ fn measure_frozen_plan(
         plan_errors.push("assay requires a durable Story Run and state writer".into());
     }
 
-    let candidate = evidence
-        .candidate_sha
-        .as_deref()
-        .map(str::trim)
-        .filter(|sha| sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .map(str::to_ascii_lowercase);
+    let candidate = normalize_candidate_sha(evidence.candidate_sha.as_deref());
+    let mut candidate_workspace_matches = false;
+    if let Some(candidate) = candidate.as_deref() {
+        match ctx.harness.candidate_probe() {
+            Some(probe) => {
+                let cwd = ctx.harness.assay_cwd().to_string_lossy();
+                let actual = probe
+                    .git(&["-C", cwd.as_ref(), "rev-parse", "HEAD"])
+                    .and_then(|sha| normalize_candidate_sha(Some(&sha)));
+                candidate_workspace_matches = actual.as_deref() == Some(candidate);
+                if !candidate_workspace_matches {
+                    plan_errors.push(match actual {
+                        Some(actual) => format!(
+                            "candidate workspace HEAD {actual} does not match reviewed candidate {candidate}"
+                        ),
+                        None => "candidate workspace HEAD could not be verified".into(),
+                    });
+                }
+            }
+            None => plan_errors.push("candidate workspace Git probe is unavailable".into()),
+        }
+    }
     let idempotency_key = ctx.story_run_id.map(|run_id| {
         format!(
-            "forge-assay-v1:{run_id}:{node_id}:{}:{}",
+            "forge-assay-v1:{run_id}:{}:{node_id}:{}:{}",
+            task.task_id,
             identity
                 .as_ref()
                 .map(|id| id.hash.as_str())
@@ -302,9 +319,20 @@ fn measure_frozen_plan(
             .read_assay_receipt(key)
             .map_err(|error| WorkflowError::generic(format!("read assay receipt: {error}")))?
         {
+            if !candidate_workspace_matches {
+                return Err(WorkflowError::generic(
+                    "cannot replay assay receipt because the workspace HEAD does not match the reviewed candidate",
+                ));
+            }
             if receipt.story_id != task.story_id
                 || receipt.story_run_id.as_deref() != ctx.story_run_id
                 || receipt.idempotency_key != key
+                || receipt
+                    .detail
+                    .as_ref()
+                    .and_then(|detail| detail.get("task_id"))
+                    .and_then(Value::as_str)
+                    != Some(task.task_id.as_str())
                 || receipt
                     .detail
                     .as_ref()
@@ -329,7 +357,7 @@ fn measure_frozen_plan(
                     .and_then(|detail| detail.get("receipt_schema_version"))
                     .and_then(Value::as_u64)
                     != Some(1)
-                || receipt.sha.as_deref() != candidate.as_deref()
+                || normalize_candidate_sha(receipt.sha.as_deref()) != candidate
             {
                 return Err(WorkflowError::generic(
                     "assay receipt idempotency key conflicts with run, plan, candidate, or measurement node",
@@ -392,13 +420,15 @@ fn measure_frozen_plan(
         }
     }
 
-    if let Some(valid_plan) = plan.as_ref() {
-        for command in &valid_plan.commands {
-            let began = chrono::Utc::now().to_rfc3339();
-            let result = ctx.harness.run_command(&command.command);
-            let ended = chrono::Utc::now().to_rfc3339();
-            timings.push((command.id.clone(), began, ended));
-            results.push(result);
+    if candidate_workspace_matches {
+        if let Some(valid_plan) = plan.as_ref() {
+            for command in &valid_plan.commands {
+                let began = chrono::Utc::now().to_rfc3339();
+                let result = ctx.harness.run_command(&command.command);
+                let ended = chrono::Utc::now().to_rfc3339();
+                timings.push((command.id.clone(), began, ended));
+                results.push(result);
+            }
         }
     }
 
@@ -619,6 +649,7 @@ fn build_assay_receipt(
                 "started_at": timing.map(|(_, started, _)| started.as_str()),
                 "ended_at": timing.map(|(_, _, ended)| ended.as_str()),
                 "status": status,
+                "cancelled_by_harness": result.is_some_and(|result| result.cancelled),
                 "exit_code": exit_code,
                 "output_excerpt": excerpt,
                 "output_truncated": truncated,
@@ -659,7 +690,7 @@ fn build_assay_receipt(
         "measurement_node": node_id,
         "gate_verdict": format!("{gate_verdict:?}"),
         "candidate_sha": candidate_sha,
-        "candidate_attestation_source": "durable_forge_workflow_evidence",
+        "candidate_attestation_source": "durable_evidence_matched_to_assay_workspace_head",
         "plan_id": identity.map(|id| id.plan_id.as_str()),
         "plan_version": identity.map(|id| id.plan_version),
         "plan_schema_version": identity.map(|id| id.schema_version),
@@ -673,10 +704,12 @@ fn build_assay_receipt(
             "applicable": rust_contract,
             "verdict": artifact.map(|report| format!("{:?}", report.verdict)),
             "blockers": artifact.map(|report| report.blockers.clone()).unwrap_or_default(),
+            "negative_control_confirmed": artifact.is_some_and(|report| report.negative_control_confirmed),
         },
         "product_judgment": {
             "verdict": product.map(|report| format!("{:?}", report.verdict)),
             "blockers": product.map(|report| report.blockers.clone()).unwrap_or_default(),
+            "negative_control_confirmed": product.is_some_and(|report| report.negative_control_confirmed),
         },
         "blockers": blockers,
         "commands": commands,
@@ -767,9 +800,20 @@ fn assay_receipt_artifact(
     idempotency_key: Option<String>,
 ) -> db::NewToolArtifact {
     let mut artifact = assay_tool_artifact(story_id, story_run_id, evidence, verdict);
+    artifact.sha = detail
+        .get("candidate_sha")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     artifact.detail = Some(detail);
     artifact.idempotency_key = idempotency_key;
     artifact
+}
+
+fn normalize_candidate_sha(candidate: Option<&str>) -> Option<String> {
+    candidate
+        .map(str::trim)
+        .filter(|sha| sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .map(str::to_ascii_lowercase)
 }
 
 #[cfg(test)]
@@ -780,7 +824,7 @@ mod tests {
         AcceptanceJudgment, ApprovedAcceptanceCondition, ApprovedAssayCommand, ApprovedAssayPlan,
         ApprovedAssertionCheck, AssayParser, AssayRunner, CheckAggregation,
     };
-    use crate::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};
+    use crate::engine::runner::{CandidateProbe, HarnessOutput, ProductionRoleRunner, RoleHarness};
     use crate::engine::writer::RecordingWriter;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -793,6 +837,7 @@ mod tests {
         command_passes: bool,
         commands: Vec<String>,
         output: String,
+        workspace_sha: String,
     }
 
     impl MeasurementHarness {
@@ -803,6 +848,7 @@ mod tests {
                 command_passes,
                 commands: Vec::new(),
                 output: String::new(),
+                workspace_sha: "a".repeat(40),
             }
         }
 
@@ -814,6 +860,11 @@ mod tests {
 
         fn with_output(mut self, output: &str) -> Self {
             self.output = output.into();
+            self
+        }
+
+        fn with_workspace_sha(mut self, sha: &str) -> Self {
+            self.workspace_sha = sha.into();
             self
         }
 
@@ -853,6 +904,7 @@ mod tests {
         fn run_command(&self, command: &str) -> CommandResult {
             self.commands_run.fetch_add(1, Ordering::SeqCst);
             CommandResult {
+                cancelled: false,
                 command: command.into(),
                 exit_code: if self.command_passes { 0 } else { 1 },
                 passed: self.command_passes,
@@ -860,6 +912,19 @@ mod tests {
                 unmeasurable: false,
                 output: self.output.clone(),
             }
+        }
+        fn candidate_probe(&self) -> Option<&dyn CandidateProbe> {
+            Some(self)
+        }
+    }
+
+    impl CandidateProbe for MeasurementHarness {
+        fn git(&self, _: &[&str]) -> Option<String> {
+            Some(self.workspace_sha.clone())
+        }
+
+        fn declared_test_mode(&self) -> Option<&str> {
+            Some("RUST_CONTRACT")
         }
     }
 
@@ -981,6 +1046,16 @@ mod tests {
         assert!(summary.contains("CMD_FAIL"), "{summary}");
     }
 
+    #[test]
+    fn a_mismatched_workspace_candidate_is_neither_measured_nor_accepted() {
+        let harness = Arc::new(MeasurementHarness::new(true).with_workspace_sha(&"b".repeat(40)));
+        let (turns, verdict, summary) = measure(&harness, false);
+        assert_eq!(turns, 0);
+        assert_eq!(harness.commands_run(), 0);
+        assert_eq!(verdict, "UNPROVEN");
+        assert!(summary.contains("does not match reviewed candidate"));
+    }
+
     /// Verification is deterministic and model-free under both product and test-authoring plans.
     #[test]
     fn the_model_free_road_is_for_measurement_nodes_in_every_mode() {
@@ -1034,7 +1109,7 @@ mod tests {
         let writer = Arc::new(RecordingWriter::default());
         approved_plan_snapshot(&writer, "cargo check --all-targets");
         let mut evidence = ForgeGateEvidence::default();
-        evidence.candidate_sha = Some("a".repeat(40));
+        evidence.candidate_sha = Some("A".repeat(40));
         let runner = ProductionRoleRunner::new(harness.clone(), evidence)
             .with_writer(writer.clone())
             .with_story_run(Some(RUN_ID.into()));
@@ -1105,6 +1180,19 @@ mod tests {
             "reconciliation does not rerun a command"
         );
         assert_eq!(writer.artifacts.lock().unwrap().len(), 1);
+
+        let mut retry_task = qa_task();
+        retry_task.task_id = "task-qa-retry".into();
+        AssayService::new(&runner)
+            .execute("qa_verify", &retry_task)
+            .expect("a new task invocation measures again");
+        assert_eq!(harness.commands_run(), 2);
+        let artifacts = writer.artifacts.lock().unwrap();
+        assert_eq!(artifacts.len(), 2);
+        assert_ne!(
+            artifacts[0].idempotency_key, artifacts[1].idempotency_key,
+            "a new workflow task has a new measurement receipt key"
+        );
     }
 
     /// OFF THE CONTRACT PATH THE MAP COMES FROM THE ROW, NOT FROM A MODEL (2026-10-03).

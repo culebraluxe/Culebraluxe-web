@@ -142,6 +142,7 @@ pub fn execute_command_scoped_with_timeout(
     let child = match spawn_scoped_shell(command, worktree_path) {
         Err(error) => {
             return CommandResult {
+                cancelled: false,
                 command: command.to_string(),
                 exit_code: -1,
                 passed: false,
@@ -154,6 +155,7 @@ pub fn execute_command_scoped_with_timeout(
     };
     match wait_with_ceiling(child, timeout) {
         CeilingOutcome::TimedOut(hit) => CommandResult {
+            cancelled: false,
             command: command.to_string(),
             exit_code: CMD_TIMEOUT_EXIT,
             passed: false,
@@ -166,6 +168,7 @@ pub fn execute_command_scoped_with_timeout(
             output: String::new(),
         },
         CeilingOutcome::Finished(Err(error)) => CommandResult {
+            cancelled: false,
             command: command.to_string(),
             exit_code: -1,
             passed: false,
@@ -202,6 +205,7 @@ pub fn execute_command_scoped_with_timeout(
                 );
             }
             CommandResult {
+                cancelled: signal.is_some(),
                 command: command.to_string(),
                 exit_code: code,
                 // A run that executed nothing has not passed, whatever the process says.
@@ -649,6 +653,7 @@ mod tests {
         // all-ignored target must come out `Fail`/`COMMAND_UNMEASURABLE`. Before this change the same run was
         // `passed: true` on exit 0 and adjudicated `Pass`, which is how five stories were closed on nothing.
         let result = CommandResult {
+            cancelled: false,
             command: "cargo test --manifest-path Cargo.toml -p test-harness --test some_target"
                 .to_string(),
             exit_code: 0,
@@ -685,6 +690,7 @@ mod tests {
 
     fn result(command: &str, passed: bool) -> CommandResult {
         CommandResult {
+            cancelled: false,
             command: command.into(),
             exit_code: if passed { 0 } else { 101 },
             passed,

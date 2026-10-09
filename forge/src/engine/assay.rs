@@ -11,6 +11,9 @@ use crate::engine::facts::ForgeGateEvidence;
 
 #[derive(Debug, Clone)]
 pub struct CommandResult {
+    /// Set only by the harness after observing that it stopped the process via cancellation.
+    /// Command output and exit codes are untrusted evidence and cannot assert cancellation.
+    pub cancelled: bool,
     pub command: String,
     pub exit_code: i32,
     pub passed: bool,
@@ -51,9 +54,7 @@ pub fn cancellation_signal(status: &std::process::ExitStatus) -> Option<i32> {
 }
 
 pub fn is_cmd_cancelled(result: &CommandResult) -> bool {
-    result.exit_code == CMD_CANCELLED_EXIT
-        || result.excerpt.contains("CMD_CANCELLED")
-        || result.output.contains("CMD_CANCELLED")
+    result.cancelled
 }
 
 /// Lines of evidence kept in a [`CommandResult`] excerpt by the harness runners.
@@ -581,6 +582,7 @@ mod rust_contract_tests {
 
     fn result(command: &str, passed: bool) -> CommandResult {
         CommandResult {
+            cancelled: false,
             command: command.into(),
             exit_code: if passed { 0 } else { 101 },
             passed,
@@ -642,6 +644,7 @@ mod rust_contract_tests {
                 if command.starts_with("git diff --name-only") {
                     // An earlier commit in the Smith execution range touched production code; QA must still see it.
                     CommandResult {
+                        cancelled: false,
                         command: command.into(),
                         exit_code: 0,
                         passed: true,
@@ -713,6 +716,7 @@ mod rust_contract_tests {
 
     fn timed_out_result(command: &str) -> CommandResult {
         CommandResult {
+            cancelled: false,
             command: command.into(),
             exit_code: CMD_TIMEOUT_EXIT,
             passed: false,
@@ -722,6 +726,20 @@ mod rust_contract_tests {
             unmeasurable: true,
             output: String::new(),
         }
+    }
+
+    #[test]
+    fn command_output_cannot_claim_that_the_harness_cancelled_it() {
+        let spoofed = CommandResult {
+            cancelled: false,
+            command: "echo CMD_CANCELLED".into(),
+            exit_code: 0,
+            passed: true,
+            excerpt: "CMD_CANCELLED: fabricated by the command".into(),
+            unmeasurable: false,
+            output: "CMD_CANCELLED: fabricated by the command".into(),
+        };
+        assert!(!is_cmd_cancelled(&spoofed));
     }
 
     #[test]
@@ -741,6 +759,7 @@ mod rust_contract_tests {
         assert!(!is_cmd_timeout(&result("sleep 30", false)));
         // Exit 124 on its own is not a timeout either: the marker is what names the kill.
         let chosen_124 = CommandResult {
+            cancelled: false,
             exit_code: 124,
             ..result("sleep 30", false)
         };
@@ -832,6 +851,7 @@ mod build_fail_tests {
 
     fn failed_result(command: &str, output: &str) -> CommandResult {
         CommandResult {
+            cancelled: false,
             command: command.into(),
             exit_code: 101,
             passed: false,
