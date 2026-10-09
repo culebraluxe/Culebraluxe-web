@@ -174,7 +174,12 @@ pub fn execute_command_scoped_with_timeout(
             output: String::new(),
         },
         CeilingOutcome::Finished(Ok(output)) => {
-            let code = output.status.code().unwrap_or(-1);
+            let signal = crate::engine::assay::cancellation_signal(&output.status);
+            let code = if signal.is_some() {
+                crate::engine::assay::CMD_CANCELLED_EXIT
+            } else {
+                output.status.code().unwrap_or(-1)
+            };
             let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
             let stderr = String::from_utf8_lossy(&output.stderr);
             if !stderr.trim().is_empty() {
@@ -185,6 +190,9 @@ pub fn execute_command_scoped_with_timeout(
             }
             let ran_nothing = ran_no_tests(command, &combined);
             let mut excerpt = excerpt_lines(&combined, ASSAY_EXCERPT_LINES);
+            if let Some(signal) = signal {
+                excerpt = format!("CMD_CANCELLED: assay command received signal {signal}\n{excerpt}");
+            }
             if ran_nothing {
                 // Say why in the receipt, because the exit code says the opposite and the excerpt is what a
                 // reader adjudicating this story will actually see.
@@ -199,7 +207,7 @@ pub fn execute_command_scoped_with_timeout(
                 // A run that executed nothing has not passed, whatever the process says.
                 passed: code == 0 && !ran_nothing,
                 excerpt,
-                unmeasurable: ran_nothing,
+                unmeasurable: ran_nothing || signal.is_some(),
                 output: combined,
             }
         }
@@ -706,6 +714,22 @@ mod tests {
         assert!(!res.passed);
         assert!(!res.unmeasurable);
         assert_ne!(res.exit_code, 0);
+        let _ = std::fs::remove_dir_all(&lane);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_signalled_assay_command_is_recorded_as_cancelled() {
+        let lane = tmp_lane("cancelled");
+        let res =
+            execute_command_scoped_with_timeout(&lane, "kill -TERM $$", Duration::from_secs(30));
+        assert!(!res.passed);
+        assert!(res.unmeasurable);
+        assert!(crate::engine::assay::is_cmd_cancelled(&res));
+        assert!(res.excerpt.contains("signal 15"));
+        let report = adjudicate_assay(&[res.command.clone()], &[res], true);
+        assert_eq!(report.verdict, crate::engine::assay::AssayVerdict::Unproven);
+        assert!(report.blockers.contains(&"CMD_CANCELLED"));
         let _ = std::fs::remove_dir_all(&lane);
     }
 

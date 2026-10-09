@@ -52,6 +52,7 @@ pub enum CheckObservation {
     Absent(String),
     BuildFailed,
     TimedOut,
+    Cancelled,
     Unmeasurable,
 }
 
@@ -65,6 +66,9 @@ pub fn resolve_planned_check(
     let Some(result) = result else {
         return CheckObservation::Absent("command_not_run".into());
     };
+    if crate::engine::assay::is_cmd_cancelled(result) {
+        return CheckObservation::Cancelled;
+    }
     if crate::engine::assay::is_cmd_timeout(result) {
         return CheckObservation::TimedOut;
     }
@@ -307,6 +311,7 @@ pub fn adjudicate_frozen_qa(plan: &ApprovedAssayPlan, results: &[CommandResult])
         let command_measurable = control_result.is_some_and(|result| {
             !result.unmeasurable
                 && !crate::engine::assay::is_cmd_timeout(result)
+                && !crate::engine::assay::is_cmd_cancelled(result)
                 && !is_build_failure_output(&result.output)
                 && !is_build_failure_output(&result.excerpt)
         });
@@ -330,9 +335,12 @@ pub fn adjudicate_frozen_qa(plan: &ApprovedAssayPlan, results: &[CommandResult])
         is_build_failure_output(&result.output) || is_build_failure_output(&result.excerpt)
     });
     let timed_out = results.iter().any(crate::engine::assay::is_cmd_timeout);
-    let other_unmeasurable = results
-        .iter()
-        .any(|result| result.unmeasurable && !crate::engine::assay::is_cmd_timeout(result));
+    let cancelled = results.iter().any(crate::engine::assay::is_cmd_cancelled);
+    let other_unmeasurable = results.iter().any(|result| {
+        result.unmeasurable
+            && !crate::engine::assay::is_cmd_timeout(result)
+            && !crate::engine::assay::is_cmd_cancelled(result)
+    });
     if command_failure {
         blockers.push("CMD_FAIL".into());
     }
@@ -342,6 +350,9 @@ pub fn adjudicate_frozen_qa(plan: &ApprovedAssayPlan, results: &[CommandResult])
     if timed_out {
         blockers.push("CMD_TIMEOUT".into());
     }
+    if cancelled {
+        blockers.push("CMD_CANCELLED".into());
+    }
     if other_unmeasurable {
         blockers.push("COMMAND_UNMEASURABLE".into());
     }
@@ -350,6 +361,7 @@ pub fn adjudicate_frozen_qa(plan: &ApprovedAssayPlan, results: &[CommandResult])
         AssayVerdict::Fail
     } else if build_failure
         || timed_out
+        || cancelled
         || other_unmeasurable
         || !unproven.is_empty()
         || !blockers.is_empty()
@@ -513,6 +525,8 @@ pub fn adjudicate_qa(
                 // A ceiling kill reads as a kill, not as a generic unmeasurable command: the claim was
                 // held until the ceiling fired, and the story requeues on this blocker (FORGE-FIX-005).
                 format!("CMD_TIMEOUT {}", c.command)
+            } else if crate::engine::assay::is_cmd_cancelled(c) {
+                format!("CMD_CANCELLED {}", c.command)
             } else if c.unmeasurable {
                 format!("CMD_UNMEASURABLE {}", c.command)
             } else if is_build_failure_output(&c.output) || is_build_failure_output(&c.excerpt) {
@@ -641,7 +655,7 @@ pub fn adjudicate_qa(
     }
 
     let command_failure = blockers.iter().any(|b| {
-        (b.starts_with("CMD_") && !b.starts_with(CMD_BUILD_FAIL))
+        (b.starts_with("CMD_") && !b.starts_with(CMD_BUILD_FAIL) && !b.starts_with("CMD_CANCELLED"))
             || b.starts_with("ASSAY_COMMAND_SUBSTITUTED")
             || b.starts_with("ARCH ")
             || b == "NO_ASSAY_COMMANDS"
@@ -659,6 +673,7 @@ pub fn adjudicate_qa(
         AssayVerdict::Fail
     } else if !unproven.is_empty()
         || build_failure
+        || commands.iter().any(crate::engine::assay::is_cmd_cancelled)
         || blockers.iter().any(|b| b == "ACCEPTANCE_MAP_CHANGED")
         || negative_survived
     {
@@ -825,6 +840,26 @@ mod tests {
         let skipped = measured_rust("test sample::first ... ignored\ntest result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n");
         let report = adjudicate_frozen_qa(&frozen_plan(CheckAggregation::AllRequired), &[skipped]);
         assert_eq!(report.verdict, AssayVerdict::Unproven);
+    }
+
+    #[test]
+    fn cancelled_execution_is_recorded_separately_and_stays_unproven() {
+        let mut result = measured_rust("partial output before cancellation");
+        result.exit_code = crate::engine::assay::CMD_CANCELLED_EXIT;
+        result.passed = false;
+        result.unmeasurable = true;
+        result.excerpt = "CMD_CANCELLED: assay command received signal 15".into();
+        let plan = frozen_plan(CheckAggregation::AllRequired);
+        let report = adjudicate_frozen_qa(&plan, &[result.clone()]);
+        assert_eq!(report.verdict, AssayVerdict::Unproven);
+        assert!(report
+            .blockers
+            .iter()
+            .any(|blocker| blocker == "CMD_CANCELLED"));
+        assert_eq!(
+            resolve_planned_check(&plan.commands[0], &plan.checks[0], Some(&result)),
+            CheckObservation::Cancelled
+        );
     }
 
     #[test]

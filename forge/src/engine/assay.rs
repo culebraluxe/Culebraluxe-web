@@ -33,6 +33,28 @@ pub enum AssayVerdict {
 /// 2026-10-08: the batch-45 Failed-without-assays class). The blocker is distinct so the story
 /// is never marked Failed for it; the QA verdict reads it as UNPROVEN (escalate), not FAIL.
 pub const CMD_BUILD_FAIL: &str = "CMD_BUILD_FAIL";
+/// Distinct sentinel for a command stopped by a cancellation signal.
+pub const CMD_CANCELLED_EXIT: i32 = -2;
+
+/// Whether the process ended by an external interrupt/termination signal instead of its own exit.
+pub fn cancellation_signal(status: &std::process::ExitStatus) -> Option<i32> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        return status.signal().filter(|signal| matches!(signal, 2 | 15));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        None
+    }
+}
+
+pub fn is_cmd_cancelled(result: &CommandResult) -> bool {
+    result.exit_code == CMD_CANCELLED_EXIT
+        || result.excerpt.contains("CMD_CANCELLED")
+        || result.output.contains("CMD_CANCELLED")
+}
 
 /// Lines of evidence kept in a [`CommandResult`] excerpt by the harness runners.
 /// Parity with the pianola executor's `ASSAY_EXCERPT_LINES`: the excerpt is what artifact rows
@@ -81,6 +103,12 @@ pub fn adjudicate_assay(
         return AssayReport {
             verdict: AssayVerdict::Fail,
             blockers: vec!["NO_ASSAY_COMMANDS"],
+        };
+    }
+    if results.iter().any(is_cmd_cancelled) {
+        return AssayReport {
+            verdict: AssayVerdict::Unproven,
+            blockers: vec!["CMD_CANCELLED"],
         };
     }
     if results.iter().any(is_cmd_timeout) {

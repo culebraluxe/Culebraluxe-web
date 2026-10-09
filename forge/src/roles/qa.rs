@@ -584,7 +584,9 @@ fn build_assay_receipt(
             let (status, exit_code, excerpt, truncated) = match result {
                 None => ("absent", None, String::new(), false),
                 Some(result) => {
-                    let status = if crate::engine::assay::is_cmd_timeout(result) {
+                    let status = if crate::engine::assay::is_cmd_cancelled(result) {
+                        "cancelled"
+                    } else if crate::engine::assay::is_cmd_timeout(result) {
                         "timed_out"
                     } else if crate::engine::assay::is_build_failure_output(&result.output)
                         || crate::engine::assay::is_build_failure_output(&result.excerpt)
@@ -693,6 +695,7 @@ fn observation_name(observation: &CheckObservation) -> &'static str {
         CheckObservation::Absent(_) => "absent",
         CheckObservation::BuildFailed => "build_failed",
         CheckObservation::TimedOut => "timed_out",
+        CheckObservation::Cancelled => "cancelled",
         CheckObservation::Unmeasurable => "unmeasurable",
     }
 }

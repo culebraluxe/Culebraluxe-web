@@ -64,6 +64,8 @@ pub struct ForgeGateEvidence {
     pub resume_target: Option<String>,
     /// Version of the strict role-output decoder that accepted the current marker.
     pub role_output_schema_version: Option<u32>,
+    /// Durable explanation of the most recent marker acceptance or rejection.
+    pub role_output_diagnostic: Option<String>,
     pub extra: Value,
 }
 
@@ -91,6 +93,7 @@ pub fn marker_evidence(node_id: &str, raw: &str, base: &ForgeGateEvidence) -> Fo
                     let mut rejected = base.clone();
                     rejected.deliverable_rejection =
                         Some(format!("ROLE_OUTPUT_UNKNOWN_PRODUCER: {error}"));
+                    rejected.role_output_diagnostic = rejected.deliverable_rejection.clone();
                     return rejected;
                 }
             };
@@ -101,20 +104,26 @@ pub fn marker_evidence(node_id: &str, raw: &str, base: &ForgeGateEvidence) -> Fo
                     "ROLE_OUTPUT_UNAUTHORIZED_FIELDS: {}",
                     unauthorized.join(", ")
                 ));
+                rejected.role_output_diagnostic = rejected.deliverable_rejection.clone();
                 return rejected;
             }
             evidence.role_output_schema_version = Some(schema_version);
+            evidence.role_output_diagnostic = Some(format!(
+                "ROLE_OUTPUT_ACCEPTED: schema={schema_version}; producer={node_id}"
+            ));
             evidence.merge_over(base)
         }
         RoleOutputParse::Malformed(reason) => {
             let mut rejected = base.clone();
             rejected.deliverable_rejection = Some(format!("ROLE_OUTPUT_MALFORMED: {reason}"));
+            rejected.role_output_diagnostic = rejected.deliverable_rejection.clone();
             rejected
         }
         RoleOutputParse::UnsupportedSchema(version) => {
             let mut rejected = base.clone();
             rejected.deliverable_rejection =
                 Some(format!("ROLE_OUTPUT_SCHEMA_UNSUPPORTED: {version}"));
+            rejected.role_output_diagnostic = rejected.deliverable_rejection.clone();
             rejected
         }
     }
@@ -202,6 +211,10 @@ impl ForgeGateEvidence {
             role_output_schema_version: self
                 .role_output_schema_version
                 .or(base.role_output_schema_version),
+            role_output_diagnostic: or_opt(
+                &self.role_output_diagnostic,
+                &base.role_output_diagnostic,
+            ),
             extra,
         }
     }
@@ -354,6 +367,9 @@ pub fn project_forge_gate_facts(evidence: &ForgeGateEvidence) -> Value {
     }
     if let Some(version) = evidence.role_output_schema_version {
         facts.insert("roleOutputSchemaVersion", Value::from(version as i64));
+    }
+    if let Some(diagnostic) = evidence.role_output_diagnostic.as_deref() {
+        facts.insert("roleOutputDiagnostic", Value::from(diagnostic));
     }
     if let Some(n) = evidence.split_count {
         facts.insert("splitCount", Value::from(n));
@@ -521,7 +537,7 @@ mod marker_tests {
             ..ForgeGateEvidence::default()
         };
         let next = marker_evidence(
-            "scout",
+            "feature_scout",
             "FORGE_EVIDENCE_JSON: {\"schemaVersion\":1,\"rootCauseKnown\":\"true\"}",
             &base,
         );
@@ -529,6 +545,12 @@ mod marker_tests {
         assert_eq!(next.qa_passed, Some(false));
         assert!(next
             .deliverable_rejection
+            .as_deref()
+            .unwrap_or_default()
+            .contains("ROLE_OUTPUT_MALFORMED"));
+        assert_eq!(next.role_output_schema_version, None);
+        assert!(next
+            .role_output_diagnostic
             .as_deref()
             .unwrap_or_default()
             .contains("ROLE_OUTPUT_MALFORMED"));
@@ -553,6 +575,40 @@ mod marker_tests {
             .as_deref()
             .unwrap_or_default()
             .contains("qaPassed"));
+        assert!(next
+            .role_output_diagnostic
+            .as_deref()
+            .unwrap_or_default()
+            .contains("qaPassed"));
+    }
+
+    #[test]
+    fn accepted_marker_provenance_survives_fact_and_database_patch_mapping() {
+        let accepted = marker_evidence(
+            "feature_scout",
+            "FORGE_EVIDENCE_JSON: {\"schemaVersion\":1,\"rootCauseKnown\":true}",
+            &ForgeGateEvidence::default(),
+        );
+        assert_eq!(accepted.role_output_schema_version, Some(1));
+        assert!(accepted
+            .role_output_diagnostic
+            .as_deref()
+            .unwrap_or_default()
+            .contains("producer=feature_scout"));
+
+        let restored = evidence_from_value(&accepted.to_facts());
+        assert_eq!(restored.role_output_schema_version, Some(1));
+        assert_eq!(
+            restored.role_output_diagnostic,
+            accepted.role_output_diagnostic
+        );
+
+        let patch = crate::engine::evidence_store::evidence_patch(&accepted);
+        assert_eq!(patch.role_output_schema_version, Some(1));
+        assert_eq!(
+            patch.role_output_diagnostic,
+            accepted.role_output_diagnostic
+        );
     }
 }
 
@@ -590,6 +646,7 @@ pub fn evidence_from_value(v: &Value) -> ForgeGateEvidence {
         resume_target: get_s("resumeTarget"),
         role_output_schema_version: get_i("roleOutputSchemaVersion")
             .and_then(|version| u32::try_from(version).ok()),
+        role_output_diagnostic: get_s("roleOutputDiagnostic"),
         extra: v.clone(),
         ..Default::default()
     }

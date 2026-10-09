@@ -59,6 +59,10 @@ fn evidence_from_row(row: db::ForgeEvidencePatch) -> ForgeGateEvidence {
         candidate_sha: row.candidate_sha,
         qa_verified_sha: row.qa_verified_sha,
         published_sha: row.published_sha,
+        role_output_schema_version: row
+            .role_output_schema_version
+            .and_then(|version| u32::try_from(version).ok()),
+        role_output_diagnostic: row.role_output_diagnostic,
         ..ForgeGateEvidence::default()
     }
 }

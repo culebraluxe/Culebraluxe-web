@@ -1032,6 +1032,8 @@ pub struct ForgeEvidencePatch {
     pub candidate_sha: Option<String>,
     pub qa_verified_sha: Option<String>,
     pub published_sha: Option<String>,
+    pub role_output_schema_version: Option<i64>,
+    pub role_output_diagnostic: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -1078,9 +1080,10 @@ const WORKFLOW_EVIDENCE_UPSERT_SQL: &str = "\
 insert into forge_workflow_evidence (
     process_instance_id, story_id, work_type, scout_required, lead_decision,
     qa_review_required, qa_review_passed, qa_passed, failure_class, failed_release_stage,
-    last_failure, publish_succeeded, candidate_sha, qa_verified_sha, published_sha
+    last_failure, publish_succeeded, candidate_sha, qa_verified_sha, published_sha,
+    role_output_schema_version, role_output_diagnostic
  ) values (
-    $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
  )
  on conflict (process_instance_id) do update set
     work_type=coalesce(excluded.work_type,forge_workflow_evidence.work_type),
@@ -1089,13 +1092,15 @@ insert into forge_workflow_evidence (
     qa_review_required=coalesce(excluded.qa_review_required,forge_workflow_evidence.qa_review_required),
     qa_review_passed=coalesce(excluded.qa_review_passed,forge_workflow_evidence.qa_review_passed),
     qa_passed=coalesce(excluded.qa_passed,forge_workflow_evidence.qa_passed),
-    failure_class=case when $16 then null else coalesce(excluded.failure_class,forge_workflow_evidence.failure_class) end,
-    failed_release_stage=case when $16 then null else coalesce(excluded.failed_release_stage,forge_workflow_evidence.failed_release_stage) end,
-    last_failure=case when $16 then null else coalesce(excluded.last_failure,forge_workflow_evidence.last_failure) end,
+    failure_class=case when $18 then null else coalesce(excluded.failure_class,forge_workflow_evidence.failure_class) end,
+    failed_release_stage=case when $18 then null else coalesce(excluded.failed_release_stage,forge_workflow_evidence.failed_release_stage) end,
+    last_failure=case when $18 then null else coalesce(excluded.last_failure,forge_workflow_evidence.last_failure) end,
     publish_succeeded=coalesce(excluded.publish_succeeded,forge_workflow_evidence.publish_succeeded),
     candidate_sha=coalesce(excluded.candidate_sha,forge_workflow_evidence.candidate_sha),
     qa_verified_sha=coalesce(excluded.qa_verified_sha,forge_workflow_evidence.qa_verified_sha),
     published_sha=coalesce(excluded.published_sha,forge_workflow_evidence.published_sha),
+    role_output_schema_version=coalesce(excluded.role_output_schema_version,forge_workflow_evidence.role_output_schema_version),
+    role_output_diagnostic=coalesce(excluded.role_output_diagnostic,forge_workflow_evidence.role_output_diagnostic),
     updated_at=now()";
 
 /// Which budget a completion unit spends on the story row — the legacy `INC_REPAIR` / `INC_REPLAN`
@@ -1206,7 +1211,8 @@ impl ForgeEngineDao {
              select work_type, scout_required, lead_decision,
                     qa_review_required, qa_review_passed, qa_passed,
                     failure_class, failed_release_stage, last_failure,
-                    publish_succeeded, candidate_sha, qa_verified_sha, published_sha
+                    publish_succeeded, candidate_sha, qa_verified_sha, published_sha,
+                    role_output_schema_version, role_output_diagnostic
                from forge_workflow_evidence e
               where e.story_id=$1
                 and (not exists (select 1 from live) or e.process_instance_id = (select id from live))
@@ -1242,6 +1248,8 @@ impl ForgeEngineDao {
             .bind(evidence.candidate_sha.as_deref())
             .bind(evidence.qa_verified_sha.as_deref())
             .bind(evidence.published_sha.as_deref())
+            .bind(evidence.role_output_schema_version)
+            .bind(evidence.role_output_diagnostic.as_deref())
             .bind(release_failure_resolved)
             .execute(self.db.pool())
             .await
@@ -1779,6 +1787,8 @@ impl ForgeEngineDao {
             .bind(unit.evidence.candidate_sha.as_deref())
             .bind(unit.evidence.qa_verified_sha.as_deref())
             .bind(unit.evidence.published_sha.as_deref())
+            .bind(unit.evidence.role_output_schema_version)
+            .bind(unit.evidence.role_output_diagnostic.as_deref())
             // A completion unit never resolves a release failure: that is the release path's own write
             // (`Self::merge_workflow_evidence` with `release_failure_resolved = true`).
             .bind(false)

@@ -9,8 +9,9 @@ The harness passes assistant text (not the provider transcript) to the marker de
 one marker only when it is the final nonempty, unquoted line and is outside Markdown code fences.
 Duplicate markers, malformed JSON, wrong types, and unsupported versions are rejected. Schema 0
 is a strict compatibility decoder for existing unversioned valid markers; new prompts require
-schema 1. The accepted schema version is retained in workflow evidence, and a rejected marker
-leaves prior evidence unchanged while recording a named rejection for the correction path.
+schema 1. The accepted schema version and producer node, or the latest rejected marker's named reason, are
+retained in durable workflow evidence. A rejected marker leaves prior business evidence unchanged while
+recording the diagnostic for the correction path.
 
 ## Role marker fields
 
@@ -122,20 +123,21 @@ assay receipt identity, and replay fingerprints include its idempotency key. A c
 assay artifact is saved but before task completion re-reads the same receipt without rerunning the
 measurement, then retries the atomic completion unit.
 
-Batch 1 Slices 3–4 may still change the runtime claim and completion paths. The likely shared files
-are `db/src/forge_engine.rs`, `forge/src/engine/completion.rs`, `forge/src/engine/db_ledger.rs`,
-and `forge/src/engine/runtime.rs`; this branch edits the first three and relies on Slice 2's
-`CompletionUnit` interface. Rebase or merge those slices by preserving the assay link validation
-inside their final claim-fenced transaction. Do not move QA artifact writes into the claim
-transaction: the receipt must remain durable before its verdict is applied.
+Batch 1 Slices 3–4 are now in `origin/main` and this branch is rebased on that head. The rebase
+preserved their claim-fenced completion/recovery behavior together with the assay-link validation
+inside the final transaction. QA artifact writes stay outside the claim transaction: the complete
+receipt is durable before its verdict is applied. The current DEV integration test exercises the
+receipt link through Batch 1 completion replay and provenance persistence once migration 281 is
+available.
 
 ## Verification recorded for this branch
 
-Verification on the branch: `cargo test -p forge --lib` (408 passed, 0 failed, 2 ignored),
+Verification on the branch: `cargo test -p forge --lib` (411 passed, 0 failed, 2 ignored),
 `cargo test -p test-harness --test forge_runtime` (41 passed),
 `cargo test -p test-harness --test forge_assay__007__pass_requires_acceptance_mapped` (1 passed),
-`cargo check -p forge -p db`, `pnpm forge:packet-lint` (0 failures, 173 warnings, 157 baselined),
+`cargo check -p forge -p db`, the `forge_completion_receipt_dev` and `forge_assay_receipt_dev`
+integration-test binaries compiled with `--no-run`, `pnpm forge:packet-lint` (0 failures, 173 warnings, 157 baselined),
 `pnpm scripts:check` (54 shell files parse cleanly), `pnpm scan:migrations` (0 findings), and
-`git diff --check` all passed. There is no local PostgreSQL server available in this environment,
-so migration trigger behavior and receipt uniqueness were not exercised against a real database.
-No paid model calls, Neon migration, deployment, merge, or push are part of this work.
+`git diff --check` all passed. The real-Postgres DEV test was not run because `DATABASE_URL_DEV` is
+unset, so migration execution, receipt uniqueness, and crash/recovery behavior against PostgreSQL
+remain unverified here. No paid model calls, Neon migration, or deployment were performed.

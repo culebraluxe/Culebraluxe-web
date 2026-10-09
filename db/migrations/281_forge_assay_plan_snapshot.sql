@@ -14,6 +14,10 @@ alter table storyboard_story
 alter table storyboard_story_run
     add column if not exists assay_plan_snapshot jsonb;
 
+alter table forge_workflow_evidence
+    add column if not exists role_output_schema_version bigint,
+    add column if not exists role_output_diagnostic text;
+
 create or replace function forge_capture_assay_plan_snapshot()
 returns trigger
 language plpgsql
@@ -79,6 +83,10 @@ comment on column storyboard_story.assay_plan_approved_hash is
     'SHA-256 of canonical schema-v1 plan bytes approved by a human; changed plans invalidate the approval.';
 comment on column storyboard_story_run.assay_plan_snapshot is
     'Immutable plan and approval provenance copied at run creation; NULL plan means legacy plan-required.';
+comment on column forge_workflow_evidence.role_output_schema_version is
+    'Schema version of the latest accepted typed role-output marker for this process instance.';
+comment on column forge_workflow_evidence.role_output_diagnostic is
+    'Latest typed role-output acceptance or rejection reason, including the producing node.';
 
 -- A reused key is idempotent only when it describes the same immutable receipt. The earlier
 -- implementation returned the first row for every same-key retry, even when the retry carried
