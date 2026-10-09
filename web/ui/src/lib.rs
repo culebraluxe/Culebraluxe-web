@@ -38,6 +38,14 @@ pub mod shell;
 #[cfg(all(feature = "wasm", feature = "yew", feature = "yew-router"))]
 pub mod app;
 
+/// The host's pure rules (`app/host_logic.rs`), compiled UNCONDITIONALLY.
+///
+/// `app` above is gated on the browser stack, so `app::host_logic` does not exist on the host. This
+/// alias compiles the same dependency-free file without the gate, which is what lets
+/// `cargo test -p ui --no-default-features host_logic` exercise the staleness rule with no browser.
+#[path = "app/host_logic.rs"]
+pub mod host_logic;
+
 pub mod icons;
 pub use model::{
     home, listed, record_for, screen, screen_for_path, Block, BlockItem, Controls, Listing, Nav,

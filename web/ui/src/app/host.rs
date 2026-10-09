@@ -11,6 +11,7 @@ use yew_router::prelude::RouterScopeExt;
 
 use crate::app::exec;
 use crate::app::screen::{Link, Screen, ScreenCtx};
+use crate::host_logic::{answer_lands, classify_change, CtxView, UrlChange};
 
 /// Mount a screen. The registry stores `mount::<S>` for each screen on the trait.
 pub fn mount<S: Screen>(ctx: ScreenCtx) -> Html {
@@ -32,39 +33,16 @@ pub struct HostMsg<M> {
     msg: M,
 }
 
-/// Whether an answer asked for under `asked` may land while the host is on `current`.
-///
-/// This is the whole staleness rule, and it lives here rather than in a screen because a screen cannot forget to
-/// apply it: a message carries the generation it was created under, the host moves on when another record is opened
-/// ([`classify_change`]), and an answer to the previous record's request is dropped at [`ScreenHost::update`].
-pub fn answer_lands(current: u64, asked: u64) -> bool {
-    current == asked
-}
-
-/// What a changed URL means for the mounted screen. `ScreenHost::changed` acts on this and nothing else.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UrlChange {
-    /// The context is identical: nothing changed, and nothing is re-drawn.
-    Same,
-    /// Another record — path, id or actor: start the screen over and retire the generation, so answers to the
-    /// previous record's requests are dropped.
-    AnotherRecord,
-    /// Only the query changed (a tab, a selection): keep the state and let the screen decide (`Screen::url_changed`).
-    Query,
-    /// Only the grants arrived (or changed): re-draw what the view offers; nothing to read.
-    Grants,
-}
-
-/// Classify a context change. One decision, made here, so no screen re-decides what "another record" means.
-pub fn classify_change(old: &ScreenCtx, new: &ScreenCtx) -> UrlChange {
-    if new == old {
-        UrlChange::Same
-    } else if new.path != old.path || new.id != old.id || new.actor != old.actor {
-        UrlChange::AnotherRecord
-    } else if new.query != old.query {
-        UrlChange::Query
-    } else {
-        UrlChange::Grants
+/// A borrow of the host's pure context view for one `ScreenCtx`. The staleness rule and the change
+/// classification live in `crate::host_logic` (dependency-free, tested on the host); this is the only
+/// place that adapts the browser-gated context type into that view.
+fn view_of(ctx: &ScreenCtx) -> CtxView<'_> {
+    CtxView {
+        path: &ctx.path,
+        id: ctx.id.as_deref(),
+        actor: &ctx.actor,
+        query: &ctx.query,
+        grants: ctx.grants.as_ref(),
     }
 }
 
@@ -104,7 +82,7 @@ impl<S: Screen> Component for ScreenHost<S> {
     /// keeps the state and asks the screen what to do.
     fn changed(&mut self, ctx: &Context<Self>, old: &Self::Properties) -> bool {
         let (new, old) = (&ctx.props().ctx, &old.ctx);
-        let cmd = match classify_change(old, new) {
+        let cmd = match classify_change(&view_of(old), &view_of(new)) {
             UrlChange::Same => return false,
             UrlChange::AnotherRecord => {
                 self.generation += 1;

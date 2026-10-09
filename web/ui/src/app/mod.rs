@@ -19,6 +19,9 @@ pub mod chrome;
 pub mod cmd;
 pub mod exec;
 pub mod host;
+/// The host's pure rules, dependency-free: the single implementation lives at `crate::host_logic`
+/// (unconditional); this alias keeps the `app::host_logic` path working under the browser gate.
+pub use crate::host_logic;
 pub mod list;
 pub mod page;
 pub mod registry;
