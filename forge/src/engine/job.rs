@@ -5,6 +5,7 @@
 //! JobService persists/leases that request, and a worker resolves the concrete
 //! role service. Role semantics never live in this module.
 
+use crate::engine::config::{turn_ceiling, TURN_CEILING_ENV};
 use crate::engine::engine_fault::is_engine_fault_error;
 use crate::engine::executor::drive::ForgeRoleOutcome;
 use crate::engine::runtime::ActiveForgeRoleTask;
@@ -513,12 +514,8 @@ pub fn execute_claimed_job(
     task: &ActiveForgeRoleTask,
     registry: &ForgeServiceRegistry<'_>,
 ) -> Result<ForgeRoleOutcome> {
-    // Get turn ceiling from environment (same logic as opencode harness).
-    let turn_ceiling = crate::engine::opencode::turn_ceiling(
-        std::env::var(crate::engine::opencode::TURN_CEILING_ENV)
-            .ok()
-            .as_deref(),
-    );
+    // The turn budget is shared Forge configuration, independent of the selected harness.
+    let turn_ceiling = turn_ceiling(std::env::var(TURN_CEILING_ENV).ok().as_deref());
     let outcome = execute_claimed_job_unsettled(
         jobs,
         worker_id,
@@ -650,7 +647,7 @@ mod tests {
                 }
                 return Err(WorkflowError::generic(format!(
                     "{}: supervisor cancelled model turn",
-                    crate::engine::opencode::TURN_INTERRUPTED_CODE
+                    crate::engine::harness::TURN_INTERRUPTED_CODE
                 )));
             }
             Ok(HarnessOutput {
@@ -998,7 +995,7 @@ mod tests {
         };
         assert!(error
             .to_string()
-            .contains(crate::engine::opencode::TURN_INTERRUPTED_CODE));
+            .contains(crate::engine::harness::TURN_INTERRUPTED_CODE));
         assert!(harness.interrupted.load(Ordering::SeqCst));
         assert_eq!(
             harness.interrupted_executions.lock().unwrap().as_slice(),

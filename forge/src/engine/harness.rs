@@ -11,6 +11,9 @@ use crate::engine::runner::{CandidateProbe, HarnessOutput, ProductionProbe, Role
 use crate::engine::runtime::ActiveForgeRoleTask;
 use workflow::Result;
 
+/// Vendor-neutral error code for a turn stopped by Forge's supervisor.
+pub const TURN_INTERRUPTED_CODE: &str = "TURN_INTERRUPTED";
+
 /// The execution backend to use for a Forge run.
 ///
 /// Controlled by `FORGE_HARNESS` environment variable.

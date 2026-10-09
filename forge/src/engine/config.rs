@@ -3,6 +3,27 @@ use std::time::Duration;
 
 use crate::engine::constants::{FORGE_DEFAULT_HEARTBEAT_SECONDS, FORGE_DEFAULT_STALE_MINUTES};
 
+/// Shared wall-clock budget for one role turn, independent of the selected harness.
+pub const TURN_CEILING_ENV: &str = "FORGE_TURN_TIMEOUT_MINUTES";
+pub const DEFAULT_TURN_CEILING_MINUTES: u64 = 120;
+
+/// Parse the configured per-turn ceiling. Unset or invalid values use the default; explicit
+/// `0`/`off`/`none` means unbounded. Both the job supervisor and execution adapters share this rule.
+pub fn turn_ceiling(raw: Option<&str>) -> Option<Duration> {
+    let minutes = match raw.map(str::trim) {
+        None | Some("") => DEFAULT_TURN_CEILING_MINUTES,
+        Some(word)
+            if word == "0"
+                || word.eq_ignore_ascii_case("off")
+                || word.eq_ignore_ascii_case("none") =>
+        {
+            return None;
+        }
+        Some(word) => word.parse::<u64>().unwrap_or(DEFAULT_TURN_CEILING_MINUTES),
+    };
+    Some(Duration::from_secs(minutes * 60))
+}
+
 /// Configuration for the Forge worker pass (the scheduler entry point).
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
@@ -170,6 +191,19 @@ mod tests {
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn turn_ceiling_has_one_harness_neutral_policy() {
+        assert_eq!(turn_ceiling(None), Some(Duration::from_secs(120 * 60)));
+        assert_eq!(turn_ceiling(Some("45")), Some(Duration::from_secs(45 * 60)));
+        assert_eq!(
+            turn_ceiling(Some("garbage")),
+            Some(Duration::from_secs(120 * 60))
+        );
+        for unbounded in ["0", "off", "none"] {
+            assert_eq!(turn_ceiling(Some(unbounded)), None);
+        }
+    }
 
     #[test]
     fn story_concurrency_clamped() {

@@ -1,5 +1,6 @@
 //! OpenCode binary, model, environment, and session configuration.
 
+pub use crate::engine::config::{turn_ceiling, DEFAULT_TURN_CEILING_MINUTES, TURN_CEILING_ENV};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -112,29 +113,6 @@ pub fn default_cli_bin() -> String {
         .into_iter()
         .next()
         .unwrap_or_else(|| VENDOR_CLI_PATH_NAME.into())
-}
-
-/// The operator's wall-clock ceiling for one model turn, in minutes.
-pub const TURN_CEILING_ENV: &str = "FORGE_TURN_TIMEOUT_MINUTES";
-/// The ceiling when the operator set none: long enough for any Smith turn measured so far, short enough that a hung
-/// vendor cannot hold a claim and a worker slot overnight.
-pub const DEFAULT_TURN_CEILING_MINUTES: u64 = 120;
-
-/// The ceiling a turn runs under. Unset or unreadable is the default; `0`/`off`/`none` is an operator saying
-/// "unbounded", deliberately, by name.
-pub fn turn_ceiling(raw: Option<&str>) -> Option<std::time::Duration> {
-    let minutes = match raw.map(str::trim) {
-        None | Some("") => DEFAULT_TURN_CEILING_MINUTES,
-        Some(word)
-            if word == "0"
-                || word.eq_ignore_ascii_case("off")
-                || word.eq_ignore_ascii_case("none") =>
-        {
-            return None;
-        }
-        Some(word) => word.parse::<u64>().unwrap_or(DEFAULT_TURN_CEILING_MINUTES),
-    };
-    Some(std::time::Duration::from_secs(minutes * 60))
 }
 
 fn blocked_model_env_key(key: &str) -> bool {

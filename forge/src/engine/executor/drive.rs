@@ -1,5 +1,6 @@
 //! Forge story drive: the main execution loop.
 
+use crate::engine::config::{turn_ceiling, TURN_CEILING_ENV};
 use crate::engine::engine_fault::is_engine_fault_error;
 use crate::engine::executor::completion::{
     complete_role_task_with_transient_retry, completion_failure_reason,
@@ -74,7 +75,7 @@ fn process_completes_story(status: ProcessStatus, outcome: Option<ProcessOutcome
 fn lane_stop_diagnostic(error: &WorkflowError) -> (&'static str, bool) {
     if error.code() == turn_budget::MODEL_TURN_CAP_CODE {
         ("model_attempt_cap", false)
-    } else if error.code() == crate::engine::opencode::TURN_INTERRUPTED_CODE {
+    } else if error.code() == crate::engine::harness::TURN_INTERRUPTED_CODE {
         ("turn_interrupted", false)
     } else {
         ("role_execution_error", true)
@@ -761,11 +762,7 @@ fn drive_forge_story_inner<S: TxStore>(
                     prepared.len(),
                     cap
                 );
-                let turn_ceiling = crate::engine::opencode::turn_ceiling(
-                    std::env::var(crate::engine::opencode::TURN_CEILING_ENV)
-                        .ok()
-                        .as_deref(),
-                );
+                let turn_ceiling = turn_ceiling(std::env::var(TURN_CEILING_ENV).ok().as_deref());
                 let mut executions = execute_durable_batch(
                     prepared,
                     durable.jobs,
@@ -1032,12 +1029,9 @@ fn drive_forge_story_inner<S: TxStore>(
                     // service inside the job boundary, where the exact lease identity is available.
                     let _request =
                         ForgeJobBridge::new(durable.registry).job_for_ready_task(&task)?;
-                    // Get turn ceiling from environment (same logic as opencode harness).
-                    let turn_ceiling = crate::engine::opencode::turn_ceiling(
-                        std::env::var(crate::engine::opencode::TURN_CEILING_ENV)
-                            .ok()
-                            .as_deref(),
-                    );
+                    // Use the shared Forge turn budget regardless of the selected harness.
+                    let turn_ceiling =
+                        turn_ceiling(std::env::var(TURN_CEILING_ENV).ok().as_deref());
 
                     let outcome = match execute_claimed_job_unsettled(
                         durable.jobs,
@@ -1352,7 +1346,7 @@ mod concurrency_tests {
         assert!(!lane_failure_reason("smith", "task-1", &capped).contains("role smith failed"));
 
         let interrupted = WorkflowError::conflict(
-            crate::engine::opencode::TURN_INTERRUPTED_CODE,
+            crate::engine::harness::TURN_INTERRUPTED_CODE,
             "the supervised turn was interrupted",
         );
         assert_eq!(
