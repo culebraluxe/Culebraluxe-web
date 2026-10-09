@@ -128,14 +128,20 @@ impl ForgeHarness {
     /// a generation proves something about the guess, not about the fence. Reading it here means a fixture's
     /// authority is whatever the claim statement actually granted.
     pub async fn claim_fence(&self, item_id: &str) -> DbResult<ClaimFence> {
-        let (owner, generation): (Option<String>, i64) = sqlx::query_as(
+        let row: Option<(Option<String>, i64)> = sqlx::query_as(
             "select claimed_by, claim_generation from agent_work_item where id = $1::uuid",
         )
         .bind(item_id)
-        .fetch_one(self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("test-harness.forge.claim_fence", &error))?;
-        Ok(ClaimFence::new(owner.unwrap_or_default(), generation))
+        // No row is no authority, and that is a fence of nobody, not a harness error: the routine already answers
+        // `not_found` for an item that does not exist (migration 278), and turning that into `fetch_one`'s
+        // `RowNotFound` would report the routine's own refusal as a harness fault.
+        let (owner, generation) = row.map_or((String::new(), 0), |(owner, generation)| {
+            (owner.unwrap_or_default(), generation)
+        });
+        Ok(ClaimFence::new(owner, generation))
     }
 
     /// Open the run for an item **through the production fence**, with the authority the row holds.

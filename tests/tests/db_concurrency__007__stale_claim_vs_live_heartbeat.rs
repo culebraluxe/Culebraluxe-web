@@ -53,7 +53,8 @@ async fn claim_work_item(
             .expect("claim");
             sqlx::query_as::<_, ForgeAgentWorkRow>(
                 "select id::text as id, story_id, state, claimed_by, role, kind, work_type, execution_policy, \
-                        model_policy, stop_after, launch_intent from agent_work_item where id = $1::uuid",
+                        model_policy, stop_after, launch_intent, claim_generation \
+                 from agent_work_item where id = $1::uuid",
             )
             .bind(&id)
             .fetch_optional(db.pool())
@@ -245,7 +246,9 @@ async fn db_concurrency_007__stale_claim_vs_live_heartbeat() {
         .await
         .expect("claimed");
     assert_eq!(claimed.state, "Claimed");
-    let _begun = begin_work(&db, &work_item_id, "worker-1").await.expect("begun");
+    let _begun = begin_work(&db, &work_item_id, "worker-1")
+        .await
+        .expect("begun");
 
     let (task_id_1, pi_1) = seed_execution(&db, &story_id_1, &work_item_id, "worker-1").await;
 
@@ -294,7 +297,9 @@ async fn db_concurrency_007__stale_claim_vs_live_heartbeat() {
     claim_work_item(&db, &story_id_2, "worker-2")
         .await
         .expect("claimed");
-    begin_work(&db, &work_item_id_2, "worker-2").await.expect("begun");
+    begin_work(&db, &work_item_id_2, "worker-2")
+        .await
+        .expect("begun");
     let (task_id_2, pi_2) = seed_execution(&db, &story_id_2, &work_item_id_2, "worker-2").await;
 
     age_heartbeat(&db, &task_id_2).await;
@@ -376,7 +381,9 @@ async fn db_concurrency_007__stale_claim_vs_live_heartbeat() {
     claim_work_item(&db, &story_id_3, "worker-3")
         .await
         .expect("claimed");
-    begin_work(&db, &work_item_id_3, "worker-3").await.expect("begun");
+    begin_work(&db, &work_item_id_3, "worker-3")
+        .await
+        .expect("begun");
     let (task_id_3, pi_3) = seed_execution(&db, &story_id_3, &work_item_id_3, "worker-3").await;
     age_heartbeat(&db, &task_id_3).await;
 

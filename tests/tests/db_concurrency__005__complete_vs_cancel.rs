@@ -269,13 +269,16 @@ async fn db_concurrency_005__complete_vs_cancel() {
                     .expect("a settle answers rather than erroring");
                 (
                     outcome,
-                    settled.settlement().map(|pair| pair.item_state.clone()),
+                    // Which settle WROTE is `wrote()`. A `Conflict` or `Duplicate` answer carries a pair too — it is
+                    // a report about the row, not this call's write — so `settlement().is_some()` counts the seven
+                    // losers as winners.
+                    settled.wrote(),
                 )
             }
         })
         .await;
 
-    let winners: Vec<_> = verdicts.iter().filter(|(_, won)| won.is_some()).collect();
+    let winners: Vec<_> = verdicts.iter().filter(|(_, wrote)| *wrote).collect();
     assert_eq!(
         winners.len(),
         1,
