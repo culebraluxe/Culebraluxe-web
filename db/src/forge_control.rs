@@ -10,6 +10,36 @@ pub struct StaleAgentWorkRow {
     pub max_attempts: i32,
     pub story_run_id: Option<String>,
     pub updated_at: String,
+    pub claimed_by: Option<String>,
+    pub claim_generation: i64,
+    pub state: String,
+    pub heartbeat_at: Option<String>,
+    pub lease_expires_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StaleRecoveryResult {
+    Recovered,
+    NoLongerStale,
+    OwnershipChanged,
+    TerminalPreserved,
+    Conflict,
+}
+
+impl StaleRecoveryResult {
+    pub(crate) fn from_db(value: &str) -> DbResult<Self> {
+        match value {
+            "recovered" => Ok(Self::Recovered),
+            "no_longer_stale" => Ok(Self::NoLongerStale),
+            "ownership_changed" => Ok(Self::OwnershipChanged),
+            "terminal_preserved" => Ok(Self::TerminalPreserved),
+            "conflict" => Ok(Self::Conflict),
+            other => Err(DbFailure::schema_mismatch(
+                "forge_control.stale_recovery.result",
+                format!("unexpected database result {other:?}"),
+            )),
+        }
+    }
 }
 
 /// The operator's brake and the fleet-wide ceiling — `forge_runtime_control`, one row (migration 274).
@@ -64,7 +94,9 @@ impl ForgeControlDao {
     ) -> DbResult<Vec<StaleAgentWorkRow>> {
         sqlx::query_as::<_, StaleAgentWorkRow>(
             "select id::text as id, story_id, role, attempts, max_attempts,
-                    story_run_id::text as story_run_id, updated_at::text as updated_at
+                    story_run_id::text as story_run_id, updated_at::text as updated_at,
+                    claimed_by, claim_generation, state,
+                    heartbeat_at::text as heartbeat_at, lease_expires_at::text as lease_expires_at
              from forge_reapable_claims($1::integer)",
         )
         .bind(stale_after_minutes.clamp(0, i32::MAX as i64) as i32)
@@ -116,38 +148,42 @@ impl ForgeControlDao {
             .map_err(|error| DbFailure::from_sqlx("forge_control.worker_beat", &error))
     }
 
-    pub async fn interrupt_story_run(
+    /// Apply stale recovery using the exact candidate snapshot selected by `forge_reapable_claims`.
+    pub async fn recover_stale_work(
         &self,
-        run_id: &str,
-        failure_code: &str,
+        row: &StaleAgentWorkRow,
+        stale_after_minutes: i64,
         reason: &str,
-    ) -> DbResult<()> {
-        sqlx::query(
-            "update storyboard_story_run
-             set ended_at=now(), result_status='Interrupted', failure_code=$2,
-                 notes=case when notes is null or notes='' then $3 else notes || E'\\n' || $3 end,
-                 updated_at=now()
-             where id=$1::uuid and ended_at is null",
+        failure_code: &str,
+    ) -> DbResult<StaleRecoveryResult> {
+        let result: String = sqlx::query_scalar(
+            "select forge_recover_stale_work(
+                 $1::uuid, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz,
+                 $8::timestamptz, $9, $10, $11)",
         )
-        .bind(run_id)
-        .bind(failure_code)
+        .bind(&row.id)
+        .bind(&row.story_id)
+        .bind(&row.claimed_by)
+        .bind(row.claim_generation)
+        .bind(&row.state)
+        .bind(&row.updated_at)
+        .bind(&row.heartbeat_at)
+        .bind(&row.lease_expires_at)
+        .bind(stale_after_minutes.clamp(1, i32::MAX as i64) as i32)
         .bind(reason)
-        .execute(self.db.pool())
+        .bind(failure_code)
+        .fetch_one(self.db.pool())
         .await
-        .map_err(|error| DbFailure::from_sqlx("forge_control.interrupt_story_run", &error))?;
-        Ok(())
+        .map_err(|error| DbFailure::from_sqlx("forge_control.recover_stale_work", &error))?;
+        StaleRecoveryResult::from_db(&result)
     }
 
-    /// Hold a stale claim the worker will not retry: `Error` on the item and `Hold` on the story, in one write —
-    /// `forge_hold_stale_work` (migration 266).
+    /// Compatibility entry point for older callers. It still takes a fresh, explicit snapshot and delegates to the
+    /// fenced database transition; runtime recovery passes its original candidate snapshot instead.
     pub async fn hold_stale_work(&self, id: &str, story_id: &str, reason: &str) -> DbResult<()> {
-        sqlx::query("select forge_hold_stale_work($1::uuid, $2, $3)")
-            .bind(id)
-            .bind(story_id)
-            .bind(reason)
-            .execute(self.db.pool())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("forge_control.hold_stale_work", &error))?;
+        let _ = self
+            .recover_legacy_snapshot(id, story_id, reason, "HUMAN_DECISION_REQUIRED")
+            .await?;
         Ok(())
     }
 
@@ -159,15 +195,40 @@ impl ForgeControlDao {
     /// requeued and the story was run a second time. That is the mirror image of the `forge:clean` strand, and it is
     /// why the board is read first.
     pub async fn requeue_stale_work(&self, id: &str, story_id: &str) -> DbResult<()> {
-        // The board is read first and decides — `Complete` settles `Done`, `Hold` ends the claim, anything else
-        // retries the run and moves the story with it — in `forge_requeue_stale_work` (migration 266).
-        sqlx::query("select forge_requeue_stale_work($1::uuid, $2)")
-            .bind(id)
-            .bind(story_id)
-            .execute(self.db.pool())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("forge_control.requeue_stale_work", &error))?;
+        let _ = self
+            .recover_legacy_snapshot(
+                id,
+                story_id,
+                "stale claim recovered",
+                "HUMAN_DECISION_REQUIRED",
+            )
+            .await?;
         Ok(())
+    }
+
+    async fn recover_legacy_snapshot(
+        &self,
+        id: &str,
+        story_id: &str,
+        reason: &str,
+        failure_code: &str,
+    ) -> DbResult<StaleRecoveryResult> {
+        let row = sqlx::query_as::<_, StaleAgentWorkRow>(
+            "select id::text as id, story_id, role, attempts, max_attempts,
+                    story_run_id::text as story_run_id, updated_at::text as updated_at,
+                    claimed_by, claim_generation, state, heartbeat_at::text as heartbeat_at,
+                    lease_expires_at::text as lease_expires_at
+             from agent_work_item where id=$1::uuid and story_id=$2",
+        )
+        .bind(id)
+        .bind(story_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_control.recovery_snapshot", &error))?;
+        let Some(row) = row else {
+            return Ok(StaleRecoveryResult::Conflict);
+        };
+        self.recover_stale_work(&row, 1, reason, failure_code).await
     }
 
     pub async fn due_flight_ids(&self) -> DbResult<Vec<String>> {
