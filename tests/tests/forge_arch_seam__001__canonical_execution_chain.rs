@@ -360,18 +360,19 @@ const KNOWN_NODE_LITERALS: [(&str, &str); 3] = [
     ("forge/src/engine/executor/dispatch.rs", "architect"),
     // `--stop-after lead`: the cap stops after the Lead's PRE turn.
     ("forge/src/engine/executor/dispatch.rs", "lead_pre"),
-    // The split fan-out marker for wave planning.
-    ("forge/src/engine/executor/drive.rs", "smith_split_work"),
+    // The split-fan-out hold resolver checks its own XML node before applying node-specific recovery.
+    ("forge/src/engine/hold_resolve.rs", "smith_split_work"),
 ];
 
-/// The layers that move work between roles. `executor.rs` was one file until 2026-10-04; it is now the five files
-/// below, and every one of them is scanned because the layer is the executor, not a filename.
-const ROLE_MOVING_LAYERS: [&str; 12] = [
+/// The execution and recovery layers that can move work between roles; scan each active owner so a
+/// node literal cannot migrate to an adjacent module without being caught.
+const ROLE_MOVING_LAYERS: [&str; 13] = [
     "forge/src/engine/executor/completion.rs",
     "forge/src/engine/executor/dispatch.rs",
     "forge/src/engine/executor/drive.rs",
     "forge/src/engine/executor/lane_failure.rs",
     "forge/src/engine/executor/wave.rs",
+    "forge/src/engine/hold_resolve.rs",
     "forge/src/engine/runtime.rs",
     "forge/src/engine/job.rs",
     "forge/src/roles/registry.rs",

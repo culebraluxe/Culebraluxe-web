@@ -11,6 +11,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use crate::engine::assay::CommandResult;
+use crate::engine::config::turn_ceiling;
 use crate::engine::packet::{ExecutionWorkspace, StoryPacket};
 use crate::engine::runner::{HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
@@ -41,10 +42,10 @@ pub const SESSION_MARKER_FILENAME: &str = ".forge-maestro-v2-session";
 pub const SESSION_CONTINUITY_ENV: &str = "FORGE_SESSION_CONTINUITY";
 
 /// Environment variable for turn ceiling (wall-clock timeout).
-pub const TURN_CEILING_ENV: &str = "FORGE_TURN_TIMEOUT_MINUTES";
+pub const TURN_CEILING_ENV: &str = crate::engine::config::TURN_CEILING_ENV;
 
 /// Default turn ceiling in minutes.
-pub const DEFAULT_TURN_CEILING_MINUTES: u64 = 120;
+pub const DEFAULT_TURN_CEILING_MINUTES: u64 = crate::engine::config::DEFAULT_TURN_CEILING_MINUTES;
 
 /// Shorthand → registered Maestro agent name (the `name` field of `maestro-cli list agents --json`).
 /// The same fail-closed posture as the OpenCode model aliases: a shorthand typed on the command line
@@ -117,22 +118,6 @@ fn parse_roster_names(json: &str) -> std::result::Result<Vec<String>, String> {
                 .ok_or_else(|| "roster entry without a name".to_string())
         })
         .collect()
-}
-
-/// Parse turn ceiling from environment (same logic as OpenCode).
-fn turn_ceiling(raw: Option<&str>) -> Option<Duration> {
-    let minutes = match raw.map(str::trim) {
-        None | Some("") => DEFAULT_TURN_CEILING_MINUTES,
-        Some(word)
-            if word == "0"
-                || word.eq_ignore_ascii_case("off")
-                || word.eq_ignore_ascii_case("none") =>
-        {
-            return None;
-        }
-        Some(word) => word.parse::<u64>().unwrap_or(DEFAULT_TURN_CEILING_MINUTES),
-    };
-    Some(Duration::from_secs(minutes * 60))
 }
 
 /// Whether session continuity is enabled.

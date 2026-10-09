@@ -251,7 +251,7 @@ pub fn run_forge_role_turn(
             Ok(out) => out,
             Err(error) => {
                 let detail = error.to_string();
-                let status = if detail.contains(crate::engine::opencode::TURN_INTERRUPTED_CODE) {
+                let status = if detail.contains(crate::engine::harness::TURN_INTERRUPTED_CODE) {
                     "cancelled"
                 } else if crate::engine::engine_fault::is_engine_fault_error(&error) {
                     "uncertain"

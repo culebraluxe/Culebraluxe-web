@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use crate::engine::assay::CommandResult;
 use crate::engine::harness::TurnTermination;
+pub use crate::engine::harness::TURN_INTERRUPTED_CODE;
 use crate::engine::harness_usage::UsageBaseline;
 use crate::engine::opencode_agents;
 use crate::engine::opencode_client::{
@@ -35,10 +36,6 @@ pub use config::{
     OPENCODE_PINNED_MODEL, SESSION_CONTINUITY_ENV, SESSION_MARKER_FILENAME, TURN_CEILING_ENV,
     VENDOR_CLI_HOME_RELATIVE, VENDOR_CLI_OVERRIDE_ENV, VENDOR_CLI_PATH_NAME, VENDOR_SESSION_LANE,
 };
-
-/// The stop code an interruption from outside the turn carries: a supervisory stop, distinct from the two budget
-/// stops because its cause is not a budget. The reason travels with it (see `LiveTurn.interrupt_reason`).
-pub const TURN_INTERRUPTED_CODE: &str = "TURN_INTERRUPTED";
 
 /// The seam a turn's vendor process is started through.
 ///
