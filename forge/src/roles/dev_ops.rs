@@ -61,7 +61,7 @@ impl ForgeRoleHooks for DevOpsHooks {
         raw: &str,
         ports: &RoleEffectPorts,
     ) -> Result<ForgeGateEvidence, String> {
-        let mut next = marker_evidence(raw, &evidence);
+        let mut next = marker_evidence(node_id, raw, &evidence);
         if !RELEASE_NODES.contains(&node_id) {
             return Ok(next);
         }

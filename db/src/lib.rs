@@ -9,6 +9,7 @@ mod agreement_execution;
 mod app_error;
 mod apple_ods;
 mod boot_gate;
+pub mod forge_assay;
 // LISA'S PRE-SIGNATURE IS PORTED AND NOT YET WIRED, AND THAT IS WHY THIS MODULE IS ALLOWED TO BE UNUSED.
 //
 // `broker_signature.rs` holds the rows, the authority and the drawing its port produced, and nothing calls it: the
@@ -120,10 +121,11 @@ pub use forge_doctor::{
 };
 pub use forge_engine::{
     AgentWorkOutcome, AgentWorkSettlement, BeginAgentWorkRun, ClaimFence, CompletionApply,
-    CompletionSpend, CompletionUnit, DealWorkflowFactRow, DispatchReconcile, EnsureDispatch,
-    ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao, ForgeEvidencePatch, ForgeHoldRow,
-    NewToolArtifact, ProcessDefinitionRow, SettlementResult, StoryPacketRow, ToolArtifactRow,
-    UnfinishedForgeCompletion, WorkflowCommandReceiptRow, WorkflowReceiptClaim,
+    CompletionAssayReceipt, CompletionSpend, CompletionUnit, DealWorkflowFactRow,
+    DispatchReconcile, EnsureDispatch, ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao,
+    ForgeEvidencePatch, ForgeHoldRow, NewToolArtifact, ProcessDefinitionRow, SettlementResult,
+    StoryPacketRow, ToolArtifactRow, UnfinishedForgeCompletion, WorkflowCommandReceiptRow,
+    WorkflowReceiptClaim,
 };
 pub use forge_read::{
     ForgeBatchRow, ForgeBenchRow, ForgeQueueWorkRow, ForgeReadDao, ForgeStoryBoardRow,

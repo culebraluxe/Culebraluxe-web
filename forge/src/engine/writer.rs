@@ -21,6 +21,22 @@ pub trait ForgeStateWriter: Send + Sync {
     /// polarity guard lives behind this call, in the one writer of the table, so a caller cannot record a verdict
     /// that contradicts its run by going through a second door.
     fn record_tool_artifact(&self, input: &db::NewToolArtifact) -> Result<Option<String>, String>;
+    /// Read the immutable assay plan snapshot captured when this run opened. A missing row or
+    /// missing plan is not replaced with acceptance prose or a model/transport boolean.
+    fn read_assay_plan_snapshot(
+        &self,
+        _run_id: &str,
+    ) -> Result<Option<db::forge_assay::AssayPlanSnapshotRow>, String> {
+        Ok(None)
+    }
+    /// Find an already persisted receipt before command execution. A valid receipt can be
+    /// reconciled without another model turn or a changed measurement.
+    fn read_assay_receipt(
+        &self,
+        _idempotency_key: &str,
+    ) -> Result<Option<db::forge_assay::AssayReceiptRow>, String> {
+        Ok(None)
+    }
     /// ADD one model turn's harness-measured spend to its Story Run (`tokens_input`, `tokens_output`, `cost_usd`,
     /// `cost_source='vendor'`). Added, never overwritten: a run is several turns.
     fn record_run_usage(
@@ -110,6 +126,11 @@ pub struct RecordingWriter {
     pub opened_holds: std::sync::Mutex<Vec<(String, String, String)>>,
     /// Every tool artifact the engine asked to record, in the order it asked.
     pub artifacts: std::sync::Mutex<Vec<db::NewToolArtifact>>,
+    /// Frozen plan snapshots exposed to deterministic QA tests.
+    pub assay_plan_snapshots:
+        std::sync::Mutex<std::collections::HashMap<String, db::forge_assay::AssayPlanSnapshotRow>>,
+    pub assay_receipts:
+        std::sync::Mutex<std::collections::HashMap<String, db::forge_assay::AssayReceiptRow>>,
     /// `(run_id, usage)` for every spend reading the engine asked to add to a run.
     pub usage: std::sync::Mutex<Vec<(String, crate::engine::harness::HarnessUsage)>>,
 }
@@ -124,6 +145,8 @@ impl Default for RecordingWriter {
             details: std::sync::Mutex::new(vec![]),
             opened_holds: std::sync::Mutex::new(vec![]),
             artifacts: std::sync::Mutex::new(vec![]),
+            assay_plan_snapshots: std::sync::Mutex::new(std::collections::HashMap::new()),
+            assay_receipts: std::sync::Mutex::new(std::collections::HashMap::new()),
             usage: std::sync::Mutex::new(vec![]),
         }
     }
@@ -172,6 +195,23 @@ impl ForgeStateWriter for RecordingWriter {
         let mut artifacts = self.artifacts.lock().unwrap();
         artifacts.push(input.clone());
         Ok(Some(format!("artifact-{}", artifacts.len())))
+    }
+    fn read_assay_plan_snapshot(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<db::forge_assay::AssayPlanSnapshotRow>, String> {
+        Ok(self
+            .assay_plan_snapshots
+            .lock()
+            .unwrap()
+            .get(run_id)
+            .cloned())
+    }
+    fn read_assay_receipt(
+        &self,
+        key: &str,
+    ) -> Result<Option<db::forge_assay::AssayReceiptRow>, String> {
+        Ok(self.assay_receipts.lock().unwrap().get(key).cloned())
     }
     fn record_run_usage(
         &self,

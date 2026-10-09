@@ -5,15 +5,21 @@
 //! verdict becomes a row of its own. RUST_CONTRACT QA takes the whole turn without a model at all, which is
 //! why it is Assay and not Inspector. The execution lifecycle is inherited, not copied (see `roles::lifecycle`).
 
-use crate::engine::assay::{collect_rust_contract_assay_evidence, AssayEvidence, AssayVerdict};
+use crate::engine::assay::{AssayVerdict, CommandResult};
 use crate::engine::executor::drive::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
 use crate::engine::phase::{lane_deliverable_kind, PhaseDeliverableKind, RoleEffectPorts};
+use crate::engine::qa_adjudicate::{
+    adjudicate_frozen_judgments, resolve_planned_check, CheckObservation,
+};
+use crate::engine::qa_plan::{validate_frozen_snapshot, ApprovedAssayPlan, PlanIdentity};
 use crate::engine::role_mapping::LaneId;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::hooks::ForgeRoleHooks;
-use crate::roles::lifecycle::{hold_rejected_deliverable, ForgeRoleContext, ForgeRoleTurn};
+use crate::roles::lifecycle::{hold_rejected_deliverable, ForgeRoleContext};
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use workflow::{Result, WorkflowError};
 
 pub use crate::engine::assay::{adjudicate_assay, collect_assay_evidence};
@@ -31,9 +37,7 @@ pub fn is_measurement_node(node_id: &str) -> bool {
 pub struct AssayHooks;
 
 impl ForgeRoleHooks for AssayHooks {
-    /// A measurement node's verdict is MEASURED after the turn (`read_assay_measurement`); a model may not state
-    /// it. The reply's `qaPassed` is therefore not read — the verdict standing before the turn is kept until the
-    /// commands replace it.
+    /// A measurement node's verdict comes from its frozen plan and observed commands; a model may not state it.
     fn collect_evidence(
         &self,
         node_id: &str,
@@ -41,7 +45,7 @@ impl ForgeRoleHooks for AssayHooks {
         raw: &str,
         _ports: &RoleEffectPorts,
     ) -> std::result::Result<ForgeGateEvidence, String> {
-        let mut next = marker_evidence(raw, &evidence);
+        let mut next = marker_evidence(node_id, raw, &evidence);
         if is_measurement_node(node_id) {
             next.qa_passed = evidence.qa_passed;
         }
@@ -59,27 +63,23 @@ impl ForgeRoleHooks for AssayHooks {
         }
     }
 
-    /// The lane that measures instead of talking: RUST_CONTRACT QA runs the declared commands and reads
-    /// the result, so it takes the whole turn and never asks a harness for one.
+    /// Measurement is deterministic for every QA verification run. Reconciliation and command
+    /// execution happen before any model turn, so a prior durable receipt needs no model call.
     fn turn_without_model(
         &self,
         ctx: &ForgeRoleContext<'_>,
         node_id: &str,
         task: &ActiveForgeRoleTask,
     ) -> Option<Result<ForgeRoleOutcome>> {
-        if is_measurement_node(node_id) && ctx.test_mode == Some("RUST_CONTRACT") {
-            return Some(run_rust_contract_qa(ctx, node_id, task));
+        if is_measurement_node(node_id) {
+            return Some(run_frozen_assay(
+                ctx,
+                node_id,
+                task,
+                ctx.test_mode == Some("RUST_CONTRACT"),
+            ));
         }
         None
-    }
-
-    fn interpret_turn(
-        &self,
-        ctx: &ForgeRoleContext<'_>,
-        turn: &ForgeRoleTurn<'_>,
-        evidence: &mut ForgeGateEvidence,
-    ) -> Result<()> {
-        read_assay_measurement(ctx, turn, evidence)
     }
 }
 
@@ -124,67 +124,28 @@ impl AbstractForgeService for AssayService<'_> {
 /// whole turn to.
 ///
 /// It lives in the lane that owns the measurement, and no other lane can reach it.
-fn run_rust_contract_qa(
+fn run_frozen_assay(
     ctx: &ForgeRoleContext<'_>,
     node_id: &str,
     task: &ActiveForgeRoleTask,
+    rust_contract: bool,
 ) -> Result<ForgeRoleOutcome> {
     let story_id = task.story_id.as_str();
     if story_id.trim().is_empty() {
         return Err(WorkflowError::generic(format!(
-            "role task {} carries no story id; refusing RUST_CONTRACT QA",
+            "role task {} carries no story id; refusing QA",
             task.task_id
         )));
     }
 
     let mut current = ctx.current.clone();
-    let head = ctx.harness.run_command("git rev-parse HEAD");
-    let sha = head.output.trim();
-    let measured =
-        (head.passed && sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
-            .then(|| sha.to_ascii_lowercase());
-    // THE REVIEWED CANDIDATE IS THE ONE MEASURED (ARCH-SEAM-005). When the evidence already names the candidate Smith
-    // delivered and Inspector reviewed, a workspace whose HEAD is another commit is refused rather than measured: the
-    // SHA this turn reports is the SHA release publishes, so substituting HEAD would publish a commit nobody reviewed.
-    if let Some(reviewed) = ctx.current.candidate_sha.as_deref() {
-        let reviewed = reviewed.trim().to_ascii_lowercase();
-        if measured.as_deref() != Some(reviewed.as_str()) {
-            return Err(WorkflowError::generic(format!(
-                "QA FAIL: RUST_CONTRACT workspace HEAD {} is not the reviewed candidate {reviewed}; refusing to \
-                 measure a commit that was not reviewed",
-                measured.as_deref().unwrap_or("(unreadable)")
-            )));
-        }
-    }
-    current.candidate_sha = measured;
     if let Some(base) = ctx.harness.execution_base_commit() {
         current
             .extra
             .insert("recordedBase", workflow::Value::from(base));
     }
-    let AssayEvidence {
-        mut evidence,
-        verdict,
-    } = collect_rust_contract_assay_evidence(
-        current,
-        Some(&|cmd| ctx.harness.run_command(cmd)),
-        ctx.contract_assay_commands,
-        ctx.contract_acceptance_mapped,
-    );
+    let (mut evidence, verdict) = measure_frozen_plan(ctx, task, node_id, current, rust_contract)?;
     dispose_failure(&mut evidence, &verdict);
-
-    if let Some(writer) = ctx.writer {
-        writer
-            .record_tool_artifact(&assay_tool_artifact(
-                story_id,
-                ctx.story_run_id,
-                &evidence,
-                verdict,
-            ))
-            .map_err(|error| {
-                WorkflowError::generic(format!("record_tool_artifact({story_id}): {error}"))
-            })?;
-    }
     if let Some(reason) = evidence.deliverable_rejection.as_deref() {
         hold_rejected_deliverable(ctx, task, node_id, reason)?;
     }
@@ -248,77 +209,622 @@ pub fn assay_tool_artifact(
     }
 }
 
-/// Assay's own reading: the QA lane MEASURES, and its measurement — not a model's description of it —
-/// becomes the evidence. Deterministic verification, which is why the measurement nodes are this lane's
-/// and not the Inspector's.
-pub fn read_assay_measurement(
+fn measure_frozen_plan(
     ctx: &ForgeRoleContext<'_>,
-    turn: &ForgeRoleTurn<'_>,
-    evidence: &mut ForgeGateEvidence,
-) -> Result<()> {
-    if !is_measurement_node(turn.node_id) {
-        return Ok(());
-    }
-    let collected = if ctx.test_mode == Some("RUST_CONTRACT") {
-        collect_rust_contract_assay_evidence(
-            std::mem::take(evidence),
-            Some(&|cmd| ctx.harness.run_command(cmd)),
-            &turn.out.assay_commands,
-            ctx.contract_acceptance_mapped,
-        )
+    task: &ActiveForgeRoleTask,
+    node_id: &str,
+    mut evidence: ForgeGateEvidence,
+    rust_contract: bool,
+) -> Result<(ForgeGateEvidence, AssayVerdict)> {
+    let started_at = chrono::Utc::now().to_rfc3339();
+    let mut results = Vec::new();
+    let mut timings = Vec::new();
+    let mut plan: Option<ApprovedAssayPlan> = None;
+    let mut identity: Option<PlanIdentity> = None;
+    let mut approval = None;
+    let mut plan_errors = Vec::new();
+
+    if let (Some(writer), Some(run_id)) = (ctx.writer, ctx.story_run_id) {
+        let snapshot_row = writer.read_assay_plan_snapshot(run_id).map_err(|error| {
+            WorkflowError::generic(format!("read assay plan snapshot: {error}"))
+        })?;
+        match snapshot_row {
+            None => plan_errors.push("assay plan snapshot missing for Story Run".into()),
+            Some(row) if row.story_id != task.story_id => {
+                plan_errors.push("assay plan snapshot belongs to another Story".into())
+            }
+            Some(row) => {
+                let commands = row
+                    .assay_commands_snapshot
+                    .unwrap_or_default()
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                match row.snapshot.as_ref() {
+                    None => plan_errors.push("assay plan snapshot absent (legacy run)".into()),
+                    Some(snapshot) => {
+                        match validate_frozen_snapshot(snapshot, &row.story_id, &commands) {
+                            Ok(validated) => {
+                                let actual_environment = ctx.harness.assay_environment_identity();
+                                let environment_mismatch =
+                                    validated.plan.commands.iter().any(|command| {
+                                        command.environment_identity != actual_environment
+                                    });
+                                if environment_mismatch {
+                                    plan_errors.push(format!(
+                                        "assay plan environment identity does not match executor policy {actual_environment}"
+                                    ));
+                                } else if rust_contract
+                                    && !validated.plan.conditions.iter().any(|condition| {
+                                        condition.judgment
+                                    == crate::engine::qa_plan::AcceptanceJudgment::TestArtifact
+                                    })
+                                {
+                                    plan_errors.push(
+                                        "RUST_CONTRACT plan lacks test-artifact acceptance".into(),
+                                    );
+                                } else {
+                                    identity = Some(validated.identity);
+                                    approval = Some((validated.approved_by, validated.approved_at));
+                                    plan = Some(validated.plan);
+                                }
+                            }
+                            Err(errors) => plan_errors.extend(errors),
+                        }
+                    }
+                }
+            }
+        }
     } else {
-        // THE MAP OFF THE CONTRACT PATH COMES FROM THE ROW, NOT FROM A MODEL (2026-10-03).
-        //
-        // `turn.out.acceptance_mapped` is a field of the transport's own report, and NOTHING in the product ever
-        // sets it true: `OpenCodeHarness` constructs it `false` (`engine/opencode.rs`) and no producer exists —
-        // the QA prompt never asks a turn for a map, and no packet names one. While it was the only input here, a
-        // story whose commands ALL passed could only ever be ruled UNPROVEN (`ACCEPTANCE_MAP_MISSING`), which is
-        // what happened to ENG-FORGE-C1-BUILD-INFO-01 on 2026-10-03 — four commands green, `failed=[]`, no PASS,
-        // nothing published — and to every non-contract story since 2026-09-19, the last time one passed.
-        //
-        // The row already carries the rule the contract path measures (`bin/forge.rs`: every assay command
-        // appears in the acceptance-criteria text), so this branch reads it too. It is kept as an OR rather than
-        // a replacement: a claim that was true before must not become false, and this only lets the ROW prove
-        // what a model was being trusted to assert — the direction this lane's doctrine ("its measurement, not a
-        // model's description of it, becomes the evidence") already points.
-        let acceptance_mapped = turn.out.acceptance_mapped || ctx.contract_acceptance_mapped;
-        collect_assay_evidence(
-            std::mem::take(evidence),
-            Some(&|cmd| ctx.harness.run_command(cmd)),
-            &turn.out.assay_commands,
-            acceptance_mapped,
-        )
-    };
-    let AssayEvidence {
-        evidence: measured,
-        verdict,
-    } = collected;
-    *evidence = measured;
-    dispose_failure(evidence, &verdict);
-    // The lane's own measurement becomes a row (migration 130). It is written the moment it exists, not at
-    // the end of the story, because the next question anyone asks about a QA lane is what it measured — and
-    // this is the only moment the measurement is in hand. A write that fails fails the lane, like every other
-    // state write here: a measurement nobody can read is not evidence.
-    if let Some(writer) = ctx.writer {
-        writer
-            .record_tool_artifact(&assay_tool_artifact(
-                turn.story_id,
-                ctx.story_run_id,
-                evidence,
-                verdict,
-            ))
-            .map_err(|error| {
-                WorkflowError::generic(format!("record_tool_artifact({}): {error}", turn.story_id))
-            })?;
+        plan_errors.push("assay requires a durable Story Run and state writer".into());
     }
+
+    let candidate = normalize_candidate_sha(evidence.candidate_sha.as_deref());
+    let mut candidate_workspace_matches = false;
+    if let Some(candidate) = candidate.as_deref() {
+        match ctx.harness.candidate_probe() {
+            Some(probe) => {
+                let cwd = ctx.harness.assay_cwd().to_string_lossy();
+                let actual = probe
+                    .git(&["-C", cwd.as_ref(), "rev-parse", "HEAD"])
+                    .and_then(|sha| normalize_candidate_sha(Some(&sha)));
+                candidate_workspace_matches = actual.as_deref() == Some(candidate);
+                if !candidate_workspace_matches {
+                    plan_errors.push(match actual {
+                        Some(actual) => format!(
+                            "candidate workspace HEAD {actual} does not match reviewed candidate {candidate}"
+                        ),
+                        None => "candidate workspace HEAD could not be verified".into(),
+                    });
+                }
+            }
+            None => plan_errors.push("candidate workspace Git probe is unavailable".into()),
+        }
+    }
+    let idempotency_key = ctx.story_run_id.map(|run_id| {
+        format!(
+            "forge-assay-v1:{run_id}:{}:{node_id}:{}:{}",
+            task.task_id,
+            identity
+                .as_ref()
+                .map(|id| id.hash.as_str())
+                .unwrap_or("plan-missing"),
+            candidate.as_deref().unwrap_or("candidate-missing")
+        )
+    });
+    if let (Some(writer), Some(key)) = (ctx.writer, idempotency_key.as_deref()) {
+        if let Some(receipt) = writer
+            .read_assay_receipt(key)
+            .map_err(|error| WorkflowError::generic(format!("read assay receipt: {error}")))?
+        {
+            if !candidate_workspace_matches {
+                return Err(WorkflowError::generic(
+                    "cannot replay assay receipt because the workspace HEAD does not match the reviewed candidate",
+                ));
+            }
+            if receipt.story_id != task.story_id
+                || receipt.story_run_id.as_deref() != ctx.story_run_id
+                || receipt.idempotency_key != key
+                || receipt
+                    .detail
+                    .as_ref()
+                    .and_then(|detail| detail.get("task_id"))
+                    .and_then(Value::as_str)
+                    != Some(task.task_id.as_str())
+                || receipt
+                    .detail
+                    .as_ref()
+                    .and_then(|detail| detail.get("plan_sha256"))
+                    .and_then(Value::as_str)
+                    != identity.as_ref().map(|identity| identity.hash.as_str())
+                || receipt
+                    .detail
+                    .as_ref()
+                    .and_then(|detail| detail.get("candidate_sha"))
+                    .and_then(Value::as_str)
+                    != candidate.as_deref()
+                || receipt
+                    .detail
+                    .as_ref()
+                    .and_then(|detail| detail.get("measurement_node"))
+                    .and_then(Value::as_str)
+                    != Some(node_id)
+                || receipt
+                    .detail
+                    .as_ref()
+                    .and_then(|detail| detail.get("receipt_schema_version"))
+                    .and_then(Value::as_u64)
+                    != Some(1)
+                || normalize_candidate_sha(receipt.sha.as_deref()) != candidate
+            {
+                return Err(WorkflowError::generic(
+                    "assay receipt idempotency key conflicts with run, plan, candidate, or measurement node",
+                ));
+            }
+            let detail = receipt.detail.as_ref().expect("validated receipt detail");
+            let verdict = detail
+                .get("gate_verdict")
+                .and_then(Value::as_str)
+                .and_then(parse_verdict)
+                .ok_or_else(|| {
+                    WorkflowError::generic("stored assay receipt has no valid gate verdict")
+                })?;
+            let row_verdict = match verdict {
+                AssayVerdict::Pass => "PASS",
+                AssayVerdict::Fail => "FAIL",
+                AssayVerdict::Unproven => "UNPROVEN",
+            };
+            if receipt.verdict.as_deref() != Some(row_verdict) {
+                return Err(WorkflowError::generic(
+                    "stored assay receipt detail disagrees with its durable verdict",
+                ));
+            }
+            evidence.qa_passed = Some(verdict == AssayVerdict::Pass);
+            evidence.qa_verified_sha = (verdict == AssayVerdict::Pass)
+                .then(|| candidate.clone())
+                .flatten();
+            if let Some(blockers) = detail.get("blockers").and_then(Value::as_array) {
+                let blockers = blockers
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>();
+                if verdict != AssayVerdict::Pass {
+                    evidence.deliverable_rejection =
+                        Some(format!("QA {verdict:?}: {}", blockers.join("; ")));
+                }
+            }
+            if rust_contract
+                && detail
+                    .get("product_judgment")
+                    .and_then(|value| value.get("verdict"))
+                    .and_then(Value::as_str)
+                    == Some("Fail")
+            {
+                evidence.last_failure = Some(
+                    "RUST_CONTRACT product finding restored from durable assay receipt".into(),
+                );
+            }
+            attach_assay_receipt_identity(
+                &mut evidence,
+                &receipt.id,
+                ctx.story_run_id.ok_or_else(|| {
+                    WorkflowError::generic("stored assay receipt has no Story Run identity")
+                })?,
+                key,
+                node_id,
+                detail,
+            )?;
+            return Ok((evidence, verdict));
+        }
+    }
+
+    if candidate_workspace_matches {
+        if let Some(valid_plan) = plan.as_ref() {
+            for command in &valid_plan.commands {
+                let began = chrono::Utc::now().to_rfc3339();
+                let result = ctx.harness.run_command(&command.command);
+                let ended = chrono::Utc::now().to_rfc3339();
+                timings.push((command.id.clone(), began, ended));
+                results.push(result);
+            }
+        }
+    }
+
+    let mut product_report = None;
+    let mut artifact_report = None;
+    let mut blockers = plan_errors.clone();
+    let mut verdict = AssayVerdict::Unproven;
+    if let Some(valid_plan) = plan.as_ref() {
+        let judgments = adjudicate_frozen_judgments(valid_plan, &results);
+        blockers.extend(
+            judgments
+                .product
+                .blockers
+                .clone()
+                .into_iter()
+                .map(|b| format!("PRODUCT {b}")),
+        );
+        if rust_contract {
+            blockers.extend(
+                judgments
+                    .test_artifact
+                    .blockers
+                    .clone()
+                    .into_iter()
+                    .map(|b| format!("ARTIFACT {b}")),
+            );
+        }
+        let gate = if rust_contract {
+            &judgments.test_artifact
+        } else {
+            &judgments.product
+        };
+        verdict = gate.verdict.clone();
+        product_report = Some(judgments.product);
+        artifact_report = rust_contract.then_some(judgments.test_artifact);
+    }
+
+    if candidate.is_none() {
+        blockers.push("CANDIDATE_IDENTITY_MISSING".into());
+        verdict = AssayVerdict::Unproven;
+    }
+    if !plan_errors.is_empty() {
+        verdict = AssayVerdict::Unproven;
+    }
+
+    evidence.qa_passed = Some(verdict == AssayVerdict::Pass);
+    evidence.qa_verified_sha = (verdict == AssayVerdict::Pass)
+        .then(|| candidate.clone())
+        .flatten();
+    if rust_contract {
+        if let Some(product) = product_report.as_ref() {
+            if product.verdict == AssayVerdict::Fail {
+                evidence.last_failure = Some(format!(
+                    "RUST_CONTRACT product finding: {}",
+                    product.blockers.join("; ")
+                ));
+            }
+        }
+    }
+    if verdict != AssayVerdict::Pass {
+        evidence.deliverable_rejection = Some(format!(
+            "QA {:?}: {}",
+            verdict,
+            if blockers.is_empty() {
+                "acceptance plan did not prove the candidate".to_string()
+            } else {
+                blockers.join("; ")
+            }
+        ));
+    }
+
+    let ended_at = chrono::Utc::now().to_rfc3339();
+    let detail = build_assay_receipt(
+        task,
+        node_id,
+        ctx.story_run_id,
+        candidate.as_deref(),
+        plan.as_ref(),
+        identity.as_ref(),
+        approval.as_ref(),
+        &results,
+        &timings,
+        product_report.as_ref(),
+        artifact_report.as_ref(),
+        rust_contract,
+        &verdict,
+        &blockers,
+        &started_at,
+        &ended_at,
+    );
+    let writer = ctx
+        .writer
+        .ok_or_else(|| WorkflowError::generic("QA measurement requires a durable state writer"))?;
+    let run_id = ctx
+        .story_run_id
+        .ok_or_else(|| WorkflowError::generic("QA measurement requires a durable Story Run"))?;
+    let key = idempotency_key.as_deref().ok_or_else(|| {
+        WorkflowError::generic("QA measurement requires a durable receipt idempotency key")
+    })?;
+    let artifact = assay_receipt_artifact(
+        &task.story_id,
+        Some(run_id),
+        &evidence,
+        verdict.clone(),
+        detail,
+        Some(key.to_string()),
+    );
+    let artifact_id = writer
+        .record_tool_artifact(&artifact)
+        .map_err(|error| {
+            WorkflowError::generic(format!(
+                "persist assay receipt for {}: {error}",
+                task.story_id
+            ))
+        })?
+        .ok_or_else(|| WorkflowError::generic("assay receipt writer returned no durable row id"))?;
+    attach_assay_receipt_identity(
+        &mut evidence,
+        &artifact_id,
+        run_id,
+        key,
+        node_id,
+        artifact.detail.as_ref().expect("receipt detail"),
+    )?;
+    Ok((evidence, verdict))
+}
+
+fn attach_assay_receipt_identity(
+    evidence: &mut ForgeGateEvidence,
+    artifact_id: &str,
+    story_run_id: &str,
+    idempotency_key: &str,
+    measurement_node: &str,
+    detail: &Value,
+) -> Result<()> {
+    let required = |field: &str| {
+        detail.get(field).and_then(Value::as_str).ok_or_else(|| {
+            WorkflowError::generic(format!("assay receipt detail is missing {field}"))
+        })
+    };
+    let optional = |field: &str| detail.get(field).and_then(Value::as_str);
+    evidence.extra.insert(
+        "assayReceipt",
+        workflow::json!({
+            "artifactId": artifact_id,
+            "storyRunId": story_run_id,
+            "idempotencyKey": idempotency_key,
+            "measurementNode": measurement_node,
+            "gateVerdict": required("gate_verdict")?,
+            "planSha256": optional("plan_sha256"),
+            "candidateSha": optional("candidate_sha"),
+        }),
+    );
     Ok(())
+}
+
+fn build_assay_receipt(
+    task: &ActiveForgeRoleTask,
+    node_id: &str,
+    run_id: Option<&str>,
+    candidate_sha: Option<&str>,
+    plan: Option<&ApprovedAssayPlan>,
+    identity: Option<&PlanIdentity>,
+    approval: Option<&(String, String)>,
+    results: &[CommandResult],
+    timings: &[(String, String, String)],
+    product: Option<&crate::engine::qa_adjudicate::QaReport>,
+    artifact: Option<&crate::engine::qa_adjudicate::QaReport>,
+    rust_contract: bool,
+    gate_verdict: &AssayVerdict,
+    blockers: &[String],
+    started_at: &str,
+    ended_at: &str,
+) -> Value {
+    let commands = plan
+        .into_iter()
+        .flat_map(|plan| plan.commands.iter())
+        .map(|planned| {
+            let result = results
+                .iter()
+                .find(|result| result.command == planned.command);
+            let timing = timings.iter().find(|(id, _, _)| id == &planned.id);
+            let (status, exit_code, excerpt, truncated) = match result {
+                None => ("absent", None, String::new(), false),
+                Some(result) => {
+                    let status = if crate::engine::assay::is_cmd_cancelled(result) {
+                        "cancelled"
+                    } else if crate::engine::assay::is_cmd_timeout(result) {
+                        "timed_out"
+                    } else if crate::engine::assay::is_build_failure_output(&result.output)
+                        || crate::engine::assay::is_build_failure_output(&result.excerpt)
+                    {
+                        "build_failed"
+                    } else if result.unmeasurable {
+                        "unmeasurable"
+                    } else if result.passed {
+                        "passed"
+                    } else {
+                        "failed"
+                    };
+                    let excerpt = redact_assay_output(&result.excerpt);
+                    (
+                        status,
+                        Some(result.exit_code),
+                        excerpt,
+                        result.output != result.excerpt,
+                    )
+                }
+            };
+            json!({
+                "command_id": planned.id,
+                "command_display": redact_assay_output(&planned.command),
+                "command_sha256": hash_text(&planned.command),
+                "runner": runner_name(planned.runner),
+                "parser": parser_name(planned.parser),
+                "working_directory": planned.working_directory,
+                "environment_identity": planned.environment_identity,
+                "started_at": timing.map(|(_, started, _)| started.as_str()),
+                "ended_at": timing.map(|(_, _, ended)| ended.as_str()),
+                "status": status,
+                "cancelled_by_harness": result.is_some_and(|result| result.cancelled),
+                "exit_code": exit_code,
+                "output_excerpt": excerpt,
+                "output_truncated": truncated,
+            })
+        })
+        .collect::<Vec<_>>();
+    let checks = plan
+        .into_iter()
+        .flat_map(|plan| plan.checks.iter().map(move |check| (plan, check)))
+        .map(|(plan, check)| {
+            let command = plan
+                .commands
+                .iter()
+                .find(|command| command.id == check.command_id);
+            let result = command.and_then(|command| {
+                results
+                    .iter()
+                    .find(|result| result.command == command.command)
+            });
+            let observation = command
+                .map(|command| resolve_planned_check(command, check, result))
+                .unwrap_or_else(|| CheckObservation::Absent("planned_command_missing".into()));
+            json!({
+                "check_id": check.id,
+                "command_id": check.command_id,
+                "assertion": check.assertion,
+                "observation": observation_name(&observation),
+                "detail": format!("{observation:?}"),
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "receipt_schema_version": 1,
+        "story_id": task.story_id,
+        "story_run_id": run_id,
+        "process_instance_id": task.process_instance_id,
+        "task_id": task.task_id,
+        "measurement_node": node_id,
+        "gate_verdict": format!("{gate_verdict:?}"),
+        "candidate_sha": candidate_sha,
+        "candidate_attestation_source": "durable_evidence_matched_to_assay_workspace_head",
+        "plan_id": identity.map(|id| id.plan_id.as_str()),
+        "plan_version": identity.map(|id| id.plan_version),
+        "plan_schema_version": identity.map(|id| id.schema_version),
+        "plan_sha256": identity.map(|id| id.hash.as_str()),
+        "plan_approved_by": approval.map(|(by, _)| by.as_str()),
+        "plan_approved_at": approval.map(|(_, at)| at.as_str()),
+        "assertion_parser_version": "forge-qa-assert-v1",
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "test_artifact_judgment": {
+            "applicable": rust_contract,
+            "verdict": artifact.map(|report| format!("{:?}", report.verdict)),
+            "blockers": artifact.map(|report| report.blockers.clone()).unwrap_or_default(),
+            "negative_control_confirmed": artifact.is_some_and(|report| report.negative_control_confirmed),
+        },
+        "product_judgment": {
+            "verdict": product.map(|report| format!("{:?}", report.verdict)),
+            "blockers": product.map(|report| report.blockers.clone()).unwrap_or_default(),
+            "negative_control_confirmed": product.is_some_and(|report| report.negative_control_confirmed),
+        },
+        "blockers": blockers,
+        "commands": commands,
+        "checks": checks,
+        "evidence_truncated": results.iter().any(|result| result.output != result.excerpt),
+        "redactions_applied": results.iter().any(|result| redact_assay_output(&result.excerpt) != result.excerpt),
+        "redaction_policy": "forge-assay-redaction-v1",
+    })
+}
+
+fn observation_name(observation: &CheckObservation) -> &'static str {
+    match observation {
+        CheckObservation::Passed => "passed",
+        CheckObservation::Failed => "failed",
+        CheckObservation::Skipped => "skipped",
+        CheckObservation::Absent(_) => "absent",
+        CheckObservation::BuildFailed => "build_failed",
+        CheckObservation::TimedOut => "timed_out",
+        CheckObservation::Cancelled => "cancelled",
+        CheckObservation::Unmeasurable => "unmeasurable",
+    }
+}
+
+fn parse_verdict(raw: &str) -> Option<AssayVerdict> {
+    match raw {
+        "Pass" => Some(AssayVerdict::Pass),
+        "Fail" => Some(AssayVerdict::Fail),
+        "Unproven" => Some(AssayVerdict::Unproven),
+        _ => None,
+    }
+}
+
+fn runner_name(runner: crate::engine::qa_plan::AssayRunner) -> &'static str {
+    use crate::engine::qa_plan::AssayRunner;
+    match runner {
+        AssayRunner::RustLibtest => "rust_libtest",
+        AssayRunner::Tap => "tap",
+        AssayRunner::Junit => "junit",
+        AssayRunner::CommandExit => "command_exit",
+    }
+}
+
+fn parser_name(parser: crate::engine::qa_plan::AssayParser) -> &'static str {
+    use crate::engine::qa_plan::AssayParser;
+    match parser {
+        AssayParser::RustLibtest => "rust_libtest",
+        AssayParser::Tap => "tap",
+        AssayParser::Junit => "junit",
+        AssayParser::CommandExit => "command_exit",
+    }
+}
+
+fn redact_assay_output(output: &str) -> String {
+    output
+        .lines()
+        .map(|line| {
+            let lower = line.to_ascii_lowercase();
+            if lower.contains("authorization:")
+                || lower.contains("bearer ")
+                || lower.contains("database_url=")
+                || lower.contains("postgres://")
+                || lower.contains("postgresql://")
+                || lower.contains("api_key=")
+                || lower.contains("token=")
+            {
+                "[REDACTED: credential-like output]"
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn hash_text(value: &str) -> String {
+    Sha256::digest(value.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn assay_receipt_artifact(
+    story_id: &str,
+    story_run_id: Option<&str>,
+    evidence: &ForgeGateEvidence,
+    verdict: AssayVerdict,
+    detail: Value,
+    idempotency_key: Option<String>,
+) -> db::NewToolArtifact {
+    let mut artifact = assay_tool_artifact(story_id, story_run_id, evidence, verdict);
+    artifact.sha = detail
+        .get("candidate_sha")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    artifact.detail = Some(detail);
+    artifact.idempotency_key = idempotency_key;
+    artifact
+}
+
+fn normalize_candidate_sha(candidate: Option<&str>) -> Option<String> {
+    candidate
+        .map(str::trim)
+        .filter(|sha| sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .map(str::to_ascii_lowercase)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::engine::assay::CommandResult;
-    use crate::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};
+    use crate::engine::qa_plan::{
+        AcceptanceJudgment, ApprovedAcceptanceCondition, ApprovedAssayCommand, ApprovedAssayPlan,
+        ApprovedAssertionCheck, AssayParser, AssayRunner, CheckAggregation,
+    };
+    use crate::engine::runner::{CandidateProbe, HarnessOutput, ProductionRoleRunner, RoleHarness};
     use crate::engine::writer::RecordingWriter;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -327,29 +833,47 @@ mod tests {
     /// on demand, so the lane's verdict can be traced back to the measurement rather than to a model.
     struct MeasurementHarness {
         turns: AtomicUsize,
+        commands_run: AtomicUsize,
         command_passes: bool,
         commands: Vec<String>,
+        output: String,
+        workspace_sha: String,
     }
 
     impl MeasurementHarness {
         fn new(command_passes: bool) -> Self {
             Self {
                 turns: AtomicUsize::new(0),
+                commands_run: AtomicUsize::new(0),
                 command_passes,
                 commands: Vec::new(),
+                output: String::new(),
+                workspace_sha: "a".repeat(40),
             }
         }
 
-        /// The commands a real transport reports for its turn — the packet's own, when the turn named none
-        /// (`engine/opencode.rs`). The off-contract branch reads them from the turn, so a double that wants to
-        /// reach the acceptance-map rule has to report them the way the transport does.
+        /// Commands that the packet's Story Run snapshot approves.
         fn with_commands(mut self, commands: &[&str]) -> Self {
             self.commands = commands.iter().map(|cmd| (*cmd).to_string()).collect();
             self
         }
 
+        fn with_output(mut self, output: &str) -> Self {
+            self.output = output.into();
+            self
+        }
+
+        fn with_workspace_sha(mut self, sha: &str) -> Self {
+            self.workspace_sha = sha.into();
+            self
+        }
+
         fn turns(&self) -> usize {
             self.turns.load(Ordering::SeqCst)
+        }
+
+        fn commands_run(&self) -> usize {
+            self.commands_run.load(Ordering::SeqCst)
         }
     }
 
@@ -378,14 +902,29 @@ mod tests {
             std::path::Path::new(".")
         }
         fn run_command(&self, command: &str) -> CommandResult {
+            self.commands_run.fetch_add(1, Ordering::SeqCst);
             CommandResult {
+                cancelled: false,
                 command: command.into(),
                 exit_code: if self.command_passes { 0 } else { 1 },
                 passed: self.command_passes,
-                excerpt: String::new(),
+                excerpt: self.output.clone(),
                 unmeasurable: false,
-                output: String::new(),
+                output: self.output.clone(),
             }
+        }
+        fn candidate_probe(&self) -> Option<&dyn CandidateProbe> {
+            Some(self)
+        }
+    }
+
+    impl CandidateProbe for MeasurementHarness {
+        fn git(&self, _: &[&str]) -> Option<String> {
+            Some(self.workspace_sha.clone())
+        }
+
+        fn declared_test_mode(&self) -> Option<&str> {
+            Some("RUST_CONTRACT")
         }
     }
 
@@ -402,17 +941,74 @@ mod tests {
         }
     }
 
+    const RUN_ID: &str = "11111111-2222-3333-4444-555555555555";
+
+    fn approved_plan_snapshot(writer: &RecordingWriter, command: &str) {
+        let plan = ApprovedAssayPlan {
+            schema_version: 1,
+            plan_id: "qa-test-plan".into(),
+            plan_version: 1,
+            commands: vec![ApprovedAssayCommand {
+                id: "cmd-check".into(),
+                command: command.into(),
+                runner: AssayRunner::CommandExit,
+                parser: AssayParser::CommandExit,
+                working_directory: "lane_root".into(),
+                environment_identity: "forge-inherited-shell-v1".into(),
+            }],
+            checks: vec![ApprovedAssertionCheck {
+                id: "check-build".into(),
+                command_id: "cmd-check".into(),
+                assertion: "exit_code_zero".into(),
+            }],
+            conditions: vec![
+                ApprovedAcceptanceCondition {
+                    id: "AC-product".into(),
+                    check_ids: vec!["check-build".into()],
+                    aggregation: CheckAggregation::AllRequired,
+                    judgment: AcceptanceJudgment::Product,
+                },
+                ApprovedAcceptanceCondition {
+                    id: "AC-artifact".into(),
+                    check_ids: vec!["check-build".into()],
+                    aggregation: CheckAggregation::AllRequired,
+                    judgment: AcceptanceJudgment::TestArtifact,
+                },
+            ],
+            negative_control: None,
+        };
+        let identity = plan.identity().unwrap();
+        writer.assay_plan_snapshots.lock().unwrap().insert(
+            RUN_ID.into(),
+            db::forge_assay::AssayPlanSnapshotRow {
+                story_run_id: RUN_ID.into(),
+                story_id: "TST-ASSAY-001".into(),
+                assay_commands_snapshot: Some(command.into()),
+                snapshot: Some(serde_json::json!({
+                    "plan": plan,
+                    "approved_by": "test-operator",
+                    "approved_at": "2026-10-09T12:00:00Z",
+                    "approved_hash": identity.hash,
+                })),
+            },
+        );
+    }
+
     /// Run the measurement lane once and read back what it recorded: (model turns spent, verdict, summary).
     fn measure(
         harness: &Arc<MeasurementHarness>,
-        acceptance_mapped: bool,
+        _acceptance_mapped: bool,
     ) -> (usize, String, String) {
         let writer = Arc::new(RecordingWriter::default());
-        let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default())
+        approved_plan_snapshot(&writer, "cargo check --all-targets");
+        let mut evidence = ForgeGateEvidence::default();
+        evidence.candidate_sha = Some("a".repeat(40));
+        let runner = ProductionRoleRunner::new(harness.clone(), evidence)
             .with_writer(writer.clone())
+            .with_story_run(Some(RUN_ID.into()))
             .with_test_mode(Some("RUST_CONTRACT".into()))
             .with_contract_assay_commands(vec!["cargo check --all-targets".into()])
-            .with_contract_acceptance_mapped(acceptance_mapped);
+            .with_contract_acceptance_mapped(false);
 
         let _ = AssayService::new(&runner).execute("qa_verify", &qa_task());
 
@@ -428,21 +1024,17 @@ mod tests {
         )
     }
 
-    /// Assay is DETERMINISTIC, and this is what that word buys: the verdict is a function of what the
-    /// commands did, never of a model's willingness to describe them. The lane spends no model turn at all,
-    /// and its answer moves with its measurement — not proven while the acceptance is unmapped, FAILED once
-    /// an authoring check actually failed. Collapsing "not proven" into "failed" would be a verdict nobody
-    /// measured, which is why UNPROVEN is an answer of its own.
+    /// The verdict follows the approved plan and measured command result; legacy booleans do not affect it.
     #[test]
     fn the_verdict_is_the_measurement_and_not_a_models_description() {
         let passing = Arc::new(MeasurementHarness::new(true));
         let (turns, verdict, summary) = measure(&passing, false);
         assert_eq!(turns, 0, "the measurement lane spends no model turn");
         assert_eq!(
-            verdict, "UNPROVEN",
-            "an unmapped acceptance is not proven, and must not be reported as a failure"
+            verdict, "PASS",
+            "the typed frozen plan controls acceptance, not the legacy bool"
         );
-        assert!(summary.contains("acceptance mapping"), "{summary}");
+        assert_eq!(summary, "");
 
         let failing = Arc::new(MeasurementHarness::new(false));
         let (turns, verdict, summary) = measure(&failing, true);
@@ -451,14 +1043,22 @@ mod tests {
             verdict, "FAIL",
             "a failing authoring check is a measured failure"
         );
-        assert!(summary.contains("authoring checks failed"), "{summary}");
+        assert!(summary.contains("CMD_FAIL"), "{summary}");
     }
 
-    /// The lane's model-free road is the measurement lane's, and only under the contract mode: every other
-    /// verification turn is a model turn like any other, and its measurement is read out of what the model's
-    /// own commands produced.
     #[test]
-    fn the_model_free_road_is_only_for_the_measurement_nodes() {
+    fn a_mismatched_workspace_candidate_is_neither_measured_nor_accepted() {
+        let harness = Arc::new(MeasurementHarness::new(true).with_workspace_sha(&"b".repeat(40)));
+        let (turns, verdict, summary) = measure(&harness, false);
+        assert_eq!(turns, 0);
+        assert_eq!(harness.commands_run(), 0);
+        assert_eq!(verdict, "UNPROVEN");
+        assert!(summary.contains("does not match reviewed candidate"));
+    }
+
+    /// Verification is deterministic and model-free under both product and test-authoring plans.
+    #[test]
+    fn the_model_free_road_is_for_measurement_nodes_in_every_mode() {
         assert!(is_measurement_node("qa_verify"));
         assert!(is_measurement_node("fast_qa_verify"));
         assert!(
@@ -473,9 +1073,125 @@ mod tests {
 
         let _ = AssayService::new(&runner).execute("qa_verify", &qa_task());
 
-        assert!(
-            harness.turns() >= 1,
-            "with no contract mode declared, this lane's work comes from a model turn"
+        assert_eq!(
+            harness.turns(),
+            0,
+            "QA reads its approved frozen plan and spends no model turn"
+        );
+    }
+
+    #[test]
+    fn legacy_boolean_without_an_approved_plan_stays_unproven() {
+        let harness = Arc::new(MeasurementHarness::new(true));
+        let writer = Arc::new(RecordingWriter::default());
+        let mut evidence = ForgeGateEvidence::default();
+        evidence.candidate_sha = Some("a".repeat(40));
+        let runner = ProductionRoleRunner::new(harness, evidence)
+            .with_writer(writer.clone())
+            .with_story_run(Some(RUN_ID.into()))
+            .with_contract_assay_commands(vec!["cargo check --all-targets".into()])
+            .with_contract_acceptance_mapped(true);
+
+        let _ = AssayService::new(&runner).execute("qa_verify", &qa_task());
+
+        let artifacts = writer.artifacts.lock().unwrap();
+        assert_eq!(artifacts[0].verdict.as_deref(), Some("UNPROVEN"));
+        assert!(artifacts[0].detail.as_ref().unwrap()["blockers"]
+            .to_string()
+            .contains("assay plan snapshot missing"));
+    }
+
+    #[test]
+    fn durable_receipt_redacts_output_and_replays_without_rerunning_commands() {
+        let harness = Arc::new(
+            MeasurementHarness::new(true).with_output("TOKEN=secret-value\ncheck completed\n"),
+        );
+        let writer = Arc::new(RecordingWriter::default());
+        approved_plan_snapshot(&writer, "cargo check --all-targets");
+        let mut evidence = ForgeGateEvidence::default();
+        evidence.candidate_sha = Some("A".repeat(40));
+        let runner = ProductionRoleRunner::new(harness.clone(), evidence)
+            .with_writer(writer.clone())
+            .with_story_run(Some(RUN_ID.into()));
+
+        let first = AssayService::new(&runner)
+            .execute("qa_verify", &qa_task())
+            .expect("first measurement completes");
+        assert_eq!(first.evidence.qa_passed, Some(true));
+        assert_eq!(
+            first
+                .evidence
+                .extra
+                .get("assayReceipt")
+                .and_then(|receipt| receipt.get("artifactId"))
+                .and_then(workflow::Value::as_str),
+            Some("artifact-1")
+        );
+        assert_eq!(
+            first
+                .evidence
+                .extra
+                .get("assayReceipt")
+                .and_then(|receipt| receipt.get("idempotencyKey"))
+                .and_then(workflow::Value::as_str),
+            writer.artifacts.lock().unwrap()[0]
+                .idempotency_key
+                .as_deref()
+        );
+        assert_eq!(harness.commands_run(), 1);
+        let artifact = writer.artifacts.lock().unwrap()[0].clone();
+        let key = artifact.idempotency_key.clone().expect("receipt key");
+        let detail = artifact.detail.clone().expect("durable detail");
+        assert_eq!(detail["receipt_schema_version"], 1);
+        assert_eq!(detail["plan_approved_by"], "test-operator");
+        assert_eq!(detail["redactions_applied"], true);
+        assert!(!detail.to_string().contains("secret-value"));
+        assert!(detail.to_string().contains("REDACTED"));
+        writer.assay_receipts.lock().unwrap().insert(
+            key.clone(),
+            db::forge_assay::AssayReceiptRow {
+                id: "receipt-1".into(),
+                story_id: artifact.story_id.clone(),
+                story_run_id: artifact.story_run_id.clone(),
+                verdict: artifact.verdict.clone(),
+                detail: artifact.detail.clone(),
+                sha: artifact.sha.clone(),
+                idempotency_key: key,
+            },
+        );
+
+        let replay = AssayService::new(&runner)
+            .execute("qa_verify", &qa_task())
+            .expect("stored receipt reconciles");
+        assert_eq!(replay.evidence.qa_passed, Some(true));
+        assert_eq!(
+            replay
+                .evidence
+                .extra
+                .get("assayReceipt")
+                .and_then(|receipt| receipt.get("artifactId"))
+                .and_then(workflow::Value::as_str),
+            Some("receipt-1"),
+            "replay carries the identity of the durable row it read"
+        );
+        assert_eq!(
+            harness.commands_run(),
+            1,
+            "reconciliation does not rerun a command"
+        );
+        assert_eq!(writer.artifacts.lock().unwrap().len(), 1);
+
+        let mut retry_task = qa_task();
+        retry_task.task_id = "task-qa-retry".into();
+        AssayService::new(&runner)
+            .execute("qa_verify", &retry_task)
+            .expect("a new task invocation measures again");
+        assert_eq!(harness.commands_run(), 2);
+        let artifacts = writer.artifacts.lock().unwrap();
+        assert_eq!(artifacts.len(), 2);
+        assert_ne!(
+            artifacts[0].idempotency_key, artifacts[1].idempotency_key,
+            "a new workflow task has a new measurement receipt key"
         );
     }
 
@@ -489,14 +1205,18 @@ mod tests {
     /// too — while UNPROVEN stays the answer when the row does not map the commands, because that is a finding
     /// about the story and not a failure to paper over.
     #[test]
-    fn a_non_contract_story_maps_acceptance_from_the_row() {
+    fn a_non_contract_story_requires_the_frozen_plan_not_a_boolean() {
         fn run(acceptance_mapped: bool) -> (String, String) {
             let harness = Arc::new(
                 MeasurementHarness::new(true).with_commands(&["cargo check --all-targets"]),
             );
             let writer = Arc::new(RecordingWriter::default());
-            let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default())
+            approved_plan_snapshot(&writer, "cargo check --all-targets");
+            let mut evidence = ForgeGateEvidence::default();
+            evidence.candidate_sha = Some("a".repeat(40));
+            let runner = ProductionRoleRunner::new(harness.clone(), evidence)
                 .with_writer(writer.clone())
+                .with_story_run(Some(RUN_ID.into()))
                 .with_contract_assay_commands(vec!["cargo check --all-targets".into()])
                 .with_contract_acceptance_mapped(acceptance_mapped);
 
@@ -516,17 +1236,10 @@ mod tests {
         let (verdict, summary) = run(true);
         assert_eq!(
             verdict, "PASS",
-            "the row maps every command, so a green measurement proves the acceptance: {summary}"
+            "an approved frozen plan and its measured check prove acceptance: {summary}"
         );
 
-        let (verdict, summary) = run(false);
-        assert_eq!(
-            verdict, "UNPROVEN",
-            "an acceptance the row does not map is not proven, and must not be reported as a failure: {summary}"
-        );
-        assert!(
-            summary.contains("ACCEPTANCE_MAP_MISSING"),
-            "the unproven reason names the missing map: {summary}"
-        );
+        let (verdict, _) = run(false);
+        assert_eq!(verdict, "PASS", "legacy booleans do not decide acceptance");
     }
 }

@@ -653,6 +653,7 @@ mod tests {
                 .expect("sh runs");
             let code = out.status.code().unwrap_or(1);
             CommandResult {
+                cancelled: false,
                 command: command.into(),
                 exit_code: code,
                 passed: code == 0,

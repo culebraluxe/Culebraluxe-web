@@ -88,7 +88,7 @@ impl ForgeRoleHooks for LeadHooks {
         raw: &str,
         _ports: &RoleEffectPorts,
     ) -> std::result::Result<ForgeGateEvidence, String> {
-        let mut next = marker_evidence(raw, &evidence);
+        let mut next = marker_evidence(node_id, raw, &evidence);
         if is_failure_classifier(node_id) {
             if next.failed_release_stage.is_some() {
                 if let Some(stage) = next

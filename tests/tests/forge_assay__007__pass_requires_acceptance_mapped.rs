@@ -1,10 +1,8 @@
-//! FORGE.ASSAY-007 — PASS requires acceptance mapped.
+//! FORGE.ASSAY-007 — a legacy view cannot authorize PASS.
 //!
-//! CONTRACT. Green commands alone are not a pass: the assay must also prove WHAT the green
-//! means. `adjudicate_assay` returns `Unproven` with `ACCEPTANCE_MAP_MISSING` when every
-//! command passed but `acceptance_mapped` is false — a run with no acceptance mapping cannot
-//! certify anything, however green. `adjudicate_for_view` derives the same reading from the
-//! packet: a story view with no acceptance criteria can never adjudicate `Pass`.
+//! CONTRACT. A packet view and boolean mapping hint are legacy inputs. They cannot authorize
+//! PASS without the run-frozen typed plan and its approved checks. The generic legacy helper is
+//! retained for compatibility but is not the production measurement boundary.
 //!
 //! Level: L3 Composition — the production adjudicators over a packet-derived view.
 //!
@@ -47,7 +45,7 @@ fn mapped_packet() -> StoryPacket {
 fn forge_assay_007__pass_requires_acceptance_mapped() {
     let command = "cargo test -p test-harness --test probe".to_string();
 
-    // ── 1. GREEN + MAPPED IS PASS. ───────────────────────────────────────────
+    // The legacy helper remains a compatibility utility, not a production gate.
     let pass = adjudicate_assay(&[command.clone()], &[passing(&command)], true);
     assert_eq!(pass.verdict, AssayVerdict::Pass);
     assert!(
@@ -56,7 +54,7 @@ fn forge_assay_007__pass_requires_acceptance_mapped() {
         pass.blockers
     );
 
-    // ── 2. NEGATIVE: GREEN + UNMAPPED IS UNPROVEN, NEVER PASS. ───────────────
+    // A false legacy mapping hint remains unproven.
     let unproven = adjudicate_assay(&[command.clone()], &[passing(&command)], false);
     assert_eq!(
         unproven.verdict,
@@ -69,14 +67,11 @@ fn forge_assay_007__pass_requires_acceptance_mapped() {
         unproven.blockers
     );
 
-    // ── 3. THE VIEW READS THE SAME RULE FROM THE PACKET. ─────────────────────
+    // Even acceptance prose and matching command text cannot authorize PASS.
     let view = TstStoryView::from_packet(&mapped_packet());
     let via_view = adjudicate_for_view(&view, &[passing(&command)]);
-    assert!(
-        via_view.blockers.is_empty(),
-        "a story WITH acceptance criteria adjudicates its green run clean: {:?}",
-        via_view.blockers
-    );
+    assert_eq!(via_view.verdict, AssayVerdict::Unproven);
+    assert!(via_view.blockers.contains(&"ASSAY_PLAN_REQUIRED"));
     let unmapped_packet = StoryPacket {
         acceptance_criteria: None,
         ..mapped_packet()
@@ -84,8 +79,8 @@ fn forge_assay_007__pass_requires_acceptance_mapped() {
     let unmapped_view = TstStoryView::from_packet(&unmapped_packet);
     let via_unmapped = adjudicate_for_view(&unmapped_view, &[passing(&command)]);
     assert!(
-        via_unmapped.blockers.contains(&"ACCEPTANCE_MAP_MISSING"),
-        "a story with NO acceptance criteria cannot prove its green run: {:?}",
+        via_unmapped.blockers.contains(&"ASSAY_PLAN_REQUIRED"),
+        "a story view without a frozen plan cannot prove its green run: {:?}",
         via_unmapped.blockers
     );
     let blank_criteria = StoryPacket {
@@ -97,8 +92,8 @@ fn forge_assay_007__pass_requires_acceptance_mapped() {
         &[passing(&command)],
     );
     assert!(
-        blank_view.blockers.contains(&"ACCEPTANCE_MAP_MISSING"),
-        "whitespace is not an acceptance mapping: {:?}",
+        blank_view.blockers.contains(&"ASSAY_PLAN_REQUIRED"),
+        "blank prose cannot replace a frozen plan: {:?}",
         blank_view.blockers
     );
 }

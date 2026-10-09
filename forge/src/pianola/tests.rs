@@ -61,6 +61,7 @@ fn stamp_ms(now_ms: i64, age_ms: i64) -> String {
 
 fn assay_result(command: &str, passed: bool) -> CommandResult {
     CommandResult {
+        cancelled: false,
         command: command.to_string(),
         exit_code: if passed { 0 } else { 101 },
         passed,
@@ -72,6 +73,7 @@ fn assay_result(command: &str, passed: bool) -> CommandResult {
 
 fn assay_output(command: &str, output: &str) -> CommandResult {
     CommandResult {
+        cancelled: false,
         command: command.to_string(),
         exit_code: 0,
         passed: true,
@@ -317,6 +319,7 @@ fn green_path_continues_only_on_clean_pass() {
     ];
     assert!(!can_continue_automatically("TST-1", &failing));
     let unmeasurable = vec![CommandResult {
+        cancelled: false,
         unmeasurable: true,
         ..assay_result("cargo test -p forge --lib pianola", true)
     }];

@@ -18,10 +18,12 @@ apis = { path = "../middle/apis" }
 services = { path = "../middle/services" }
 tokio.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 chrono.workspace = true
 tracing.workspace = true
 reqwest.workspace = true
 uuid = { workspace = true, features = ["v4"] }
+sha2.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true }
@@ -37,3 +39,7 @@ path = "src/bin/forge_task.rs"
 [[bin]]
 name = "forge-worker"
 path = "src/bin/forge_worker.rs"
+
+[[bin]]
+name = "forge-assay-plan-hash"
+path = "src/bin/forge_assay_plan_hash.rs"

@@ -3,6 +3,9 @@
 use crate::engine::assay::CMD_BUILD_FAIL;
 use crate::engine::assay::{is_build_failure_output, AssayVerdict, CommandResult};
 use crate::engine::qa_assert::{assertion_resolution, AssertionResolution};
+use crate::engine::qa_plan::{
+    ApprovedAssayCommand, ApprovedAssayPlan, ApprovedAssertionCheck, CheckAggregation,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct AcceptanceCondition {
@@ -39,6 +42,431 @@ pub struct QaReport {
     pub blockers: Vec<String>,
     pub unproven: Vec<String>,
     pub failed_conditions: Vec<String>,
+    pub negative_control_confirmed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CheckObservation {
+    Passed,
+    Failed,
+    Skipped,
+    Absent(String),
+    BuildFailed,
+    TimedOut,
+    Cancelled,
+    Unmeasurable,
+}
+
+/// Resolve a check only against the output of its planned command and runner. This prevents a
+/// matching test name in another command's log from satisfying the check.
+pub fn resolve_planned_check(
+    command: &ApprovedAssayCommand,
+    check: &ApprovedAssertionCheck,
+    result: Option<&CommandResult>,
+) -> CheckObservation {
+    let Some(result) = result else {
+        return CheckObservation::Absent("command_not_run".into());
+    };
+    if crate::engine::assay::is_cmd_cancelled(result) {
+        return CheckObservation::Cancelled;
+    }
+    if crate::engine::assay::is_cmd_timeout(result) {
+        return CheckObservation::TimedOut;
+    }
+    if is_build_failure_output(&result.output) || is_build_failure_output(&result.excerpt) {
+        return CheckObservation::BuildFailed;
+    }
+    if result.unmeasurable {
+        return CheckObservation::Unmeasurable;
+    }
+    if command.runner == crate::engine::qa_plan::AssayRunner::RustLibtest
+        && rust_libtest_ran_zero_tests(&result.output)
+    {
+        return CheckObservation::Absent("zero_tests_ran".into());
+    }
+    match command.runner {
+        crate::engine::qa_plan::AssayRunner::CommandExit => {
+            if check.assertion != "exit_code_zero" {
+                CheckObservation::Absent("unsupported_command_exit_contract".into())
+            } else if result.passed {
+                CheckObservation::Passed
+            } else {
+                CheckObservation::Failed
+            }
+        }
+        crate::engine::qa_plan::AssayRunner::RustLibtest => {
+            rust_libtest_check(&result.output, &check.assertion)
+        }
+        crate::engine::qa_plan::AssayRunner::Tap => {
+            if !result
+                .output
+                .lines()
+                .any(|line| line.trim() == "TAP version 13")
+                || !result
+                    .output
+                    .lines()
+                    .any(|line| line.trim().starts_with("1.."))
+            {
+                return CheckObservation::Absent("tap_plan_missing".into());
+            }
+            map_assertion_resolution(assertion_resolution(&result.output, &check.assertion))
+        }
+        crate::engine::qa_plan::AssayRunner::Junit => {
+            let trimmed = result.output.trim_start();
+            if !(trimmed.starts_with("<?xml")
+                || trimmed.starts_with("<testsuite")
+                || trimmed.starts_with("<testsuites"))
+            {
+                return CheckObservation::Absent("junit_document_missing".into());
+            }
+            map_assertion_resolution(assertion_resolution(&result.output, &check.assertion))
+        }
+    }
+}
+
+fn rust_libtest_ran_zero_tests(output: &str) -> bool {
+    fn count(line: &str, word: &str) -> Option<u64> {
+        let at = line.find(word)?;
+        let digits: String = line[..at]
+            .trim_end()
+            .chars()
+            .rev()
+            .take_while(char::is_ascii_digit)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        digits.parse().ok()
+    }
+    let summaries = output
+        .lines()
+        .filter(|line| line.trim_start().starts_with("test result:"))
+        .collect::<Vec<_>>();
+    !summaries.is_empty()
+        && summaries.iter().all(|summary| {
+            count(summary, "passed").unwrap_or(0) == 0 && count(summary, "failed").unwrap_or(0) == 0
+        })
+}
+
+fn rust_libtest_check(output: &str, expected: &str) -> CheckObservation {
+    let (wanted_file, wanted_name) = crate::engine::qa_assert::parse_assertion_ref(expected);
+    let mut matched = Vec::new();
+    for line in output.lines() {
+        let Some(rest) = line.trim().strip_prefix("test ") else {
+            continue;
+        };
+        let (name, verdict) = if let Some(name) = rest.strip_suffix(" ... ok") {
+            (name, CheckObservation::Passed)
+        } else if let Some(name) = rest.strip_suffix(" ... FAILED") {
+            (name, CheckObservation::Failed)
+        } else if let Some(name) = rest.strip_suffix(" ... ignored") {
+            (name, CheckObservation::Skipped)
+        } else {
+            continue;
+        };
+        let name_matches = name == wanted_name || name.ends_with(&format!("::{wanted_name}"));
+        let file_matches = wanted_file.as_deref().is_none_or(|file| {
+            name.starts_with(file)
+                || file
+                    .rsplit('/')
+                    .next()
+                    .is_some_and(|base| name.contains(base))
+        });
+        if name_matches && file_matches {
+            matched.push(verdict);
+        }
+    }
+    match matched.as_slice() {
+        [one] => one.clone(),
+        [] => CheckObservation::Absent("assertion_not_observed".into()),
+        _ => CheckObservation::Absent("assertion_ambiguous".into()),
+    }
+}
+
+fn map_assertion_resolution(resolution: AssertionResolution) -> CheckObservation {
+    match resolution {
+        AssertionResolution::Passed => CheckObservation::Passed,
+        AssertionResolution::Failed => CheckObservation::Failed,
+        AssertionResolution::Skipped => CheckObservation::Skipped,
+        AssertionResolution::Absent { reason, detail } => {
+            CheckObservation::Absent(format!("{reason:?}:{detail}"))
+        }
+    }
+}
+
+/// Deterministic production adjudication for a frozen plan. Commands and assertions retain their
+/// plan identity throughout; there is no command-text acceptance fallback.
+pub fn adjudicate_frozen_qa(plan: &ApprovedAssayPlan, results: &[CommandResult]) -> QaReport {
+    let mut blockers = Vec::new();
+    if plan.commands.is_empty() {
+        blockers.push("NO_ASSAY_COMMANDS".into());
+    }
+    if results.len() != plan.commands.len() {
+        blockers.push("ASSAY_COMMAND_DRIFT result_cardinality".into());
+    }
+    let by_command: std::collections::HashMap<&str, &CommandResult> = results
+        .iter()
+        .map(|result| (result.command.as_str(), result))
+        .collect();
+    for planned in &plan.commands {
+        if !by_command.contains_key(planned.command.as_str()) {
+            blockers.push(format!("ASSAY_COMMAND_NOT_OBSERVED {}", planned.id));
+        }
+    }
+    for (planned, result) in plan.commands.iter().zip(results) {
+        if planned.command != result.command {
+            blockers.push(format!(
+                "ASSAY_COMMAND_SUBSTITUTED {} observed={}",
+                planned.id, result.command
+            ));
+        }
+    }
+    for result in results {
+        if !plan
+            .commands
+            .iter()
+            .any(|planned| planned.command == result.command)
+        {
+            blockers.push(format!("ASSAY_COMMAND_UNPLANNED {}", result.command));
+        }
+    }
+
+    let checks: std::collections::HashMap<&str, CheckObservation> = plan
+        .checks
+        .iter()
+        .map(|check| {
+            let command = plan
+                .commands
+                .iter()
+                .find(|command| command.id == check.command_id);
+            let result =
+                command.and_then(|command| by_command.get(command.command.as_str()).copied());
+            let observation = command
+                .map(|command| resolve_planned_check(command, check, result))
+                .unwrap_or_else(|| CheckObservation::Absent("planned_command_missing".into()));
+            (check.id.as_str(), observation)
+        })
+        .collect();
+
+    let mut failed_conditions = Vec::new();
+    let mut unproven = Vec::new();
+    for condition in &plan.conditions {
+        let outcomes: Vec<_> = condition
+            .check_ids
+            .iter()
+            .map(|id| checks.get(id.as_str()))
+            .collect();
+        let passed = outcomes
+            .iter()
+            .filter(|o| matches!(o, Some(CheckObservation::Passed)))
+            .count();
+        let failed = outcomes
+            .iter()
+            .filter(|o| matches!(o, Some(CheckObservation::Failed)))
+            .count();
+        let unresolved = outcomes.len().saturating_sub(passed + failed);
+        let pass = match condition.aggregation {
+            CheckAggregation::AllRequired => passed == outcomes.len() && !outcomes.is_empty(),
+            CheckAggregation::AnyOf => passed > 0,
+        };
+        if pass {
+            continue;
+        }
+        if failed > 0 && (condition.aggregation == CheckAggregation::AllRequired || unresolved == 0)
+        {
+            failed_conditions.push(condition.id.clone());
+            blockers.push(format!("ASSERTION_FAILED {}", condition.id));
+        } else {
+            unproven.push(condition.id.clone());
+            blockers.push(format!("UNPROVEN {}", condition.id));
+            for (check_id, observation) in condition.check_ids.iter().zip(outcomes) {
+                if !matches!(
+                    observation,
+                    Some(CheckObservation::Passed | CheckObservation::Failed)
+                ) {
+                    blockers.push(format!(
+                        "ASSERTION_NOT_PROVEN {} {check_id} {:?}",
+                        condition.id, observation
+                    ));
+                }
+            }
+        }
+    }
+    let mut negative_control_passed = false;
+    let mut negative_control_command = None;
+    if let Some(control) = &plan.negative_control {
+        let planned_command = plan
+            .commands
+            .iter()
+            .find(|command| command.id == control.command_id);
+        let control_result =
+            planned_command.and_then(|command| by_command.get(command.command.as_str()).copied());
+        negative_control_command = planned_command.map(|command| command.command.as_str());
+        let expected_failed = !control.expected_failed_check_ids.is_empty()
+            && control.expected_failed_check_ids.iter().all(|check_id| {
+                matches!(
+                    checks.get(check_id.as_str()),
+                    Some(CheckObservation::Failed)
+                )
+            });
+        let command_measurable = control_result.is_some_and(|result| {
+            !result.unmeasurable
+                && !crate::engine::assay::is_cmd_timeout(result)
+                && !crate::engine::assay::is_cmd_cancelled(result)
+                && !is_build_failure_output(&result.output)
+                && !is_build_failure_output(&result.excerpt)
+        });
+        if expected_failed && command_measurable {
+            negative_control_passed = true;
+        } else {
+            blockers.push(format!("NEGATIVE_CONTROL_UNPROVEN {}", control.command_id));
+            unproven.push(format!("negative-control:{}", control.command_id));
+        }
+    }
+    let command_failure = results.iter().any(|result| {
+        !result.passed
+            && !result.unmeasurable
+            && !is_build_failure_output(&result.output)
+            && !is_build_failure_output(&result.excerpt)
+            && !(negative_control_passed
+                && negative_control_command == Some(result.command.as_str()))
+    });
+    let build_failure = results.iter().any(|result| {
+        is_build_failure_output(&result.output) || is_build_failure_output(&result.excerpt)
+    });
+    let timed_out = results.iter().any(crate::engine::assay::is_cmd_timeout);
+    let cancelled = results.iter().any(crate::engine::assay::is_cmd_cancelled);
+    let other_unmeasurable = results.iter().any(|result| {
+        result.unmeasurable
+            && !crate::engine::assay::is_cmd_timeout(result)
+            && !crate::engine::assay::is_cmd_cancelled(result)
+    });
+    if command_failure {
+        blockers.push("CMD_FAIL".into());
+    }
+    if build_failure {
+        blockers.push(crate::engine::assay::CMD_BUILD_FAIL.into());
+    }
+    if timed_out {
+        blockers.push("CMD_TIMEOUT".into());
+    }
+    if cancelled {
+        blockers.push("CMD_CANCELLED".into());
+    }
+    if other_unmeasurable {
+        blockers.push("COMMAND_UNMEASURABLE".into());
+    }
+
+    let verdict = if command_failure || !failed_conditions.is_empty() {
+        AssayVerdict::Fail
+    } else if build_failure
+        || timed_out
+        || cancelled
+        || other_unmeasurable
+        || !unproven.is_empty()
+        || !blockers.is_empty()
+    {
+        AssayVerdict::Unproven
+    } else {
+        AssayVerdict::Pass
+    };
+    QaReport {
+        verdict,
+        blockers,
+        unproven,
+        failed_conditions,
+        negative_control_confirmed: negative_control_passed,
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FrozenQaJudgments {
+    pub product: QaReport,
+    pub test_artifact: QaReport,
+}
+
+pub fn adjudicate_frozen_judgments(
+    plan: &ApprovedAssayPlan,
+    results: &[CommandResult],
+) -> FrozenQaJudgments {
+    let product = adjudicate_judgment_subset(
+        plan,
+        results,
+        crate::engine::qa_plan::AcceptanceJudgment::Product,
+        "PRODUCT_ACCEPTANCE_PLAN_MISSING",
+    );
+    let test_artifact = adjudicate_judgment_subset(
+        plan,
+        results,
+        crate::engine::qa_plan::AcceptanceJudgment::TestArtifact,
+        "TEST_ARTIFACT_PLAN_MISSING",
+    );
+    FrozenQaJudgments {
+        product,
+        test_artifact,
+    }
+}
+
+fn adjudicate_judgment_subset(
+    plan: &ApprovedAssayPlan,
+    results: &[CommandResult],
+    judgment: crate::engine::qa_plan::AcceptanceJudgment,
+    missing_blocker: &str,
+) -> QaReport {
+    let mut subset = plan.clone();
+    subset
+        .conditions
+        .retain(|condition| condition.judgment == judgment);
+    if subset.conditions.is_empty() {
+        return QaReport {
+            verdict: AssayVerdict::Unproven,
+            blockers: vec![missing_blocker.into()],
+            unproven: vec![],
+            failed_conditions: vec![],
+            negative_control_confirmed: false,
+        };
+    }
+    let check_ids: std::collections::HashSet<&str> = subset
+        .conditions
+        .iter()
+        .flat_map(|condition| condition.check_ids.iter().map(String::as_str))
+        .collect();
+    let check_ids: std::collections::HashSet<&str> = subset
+        .negative_control
+        .as_ref()
+        .into_iter()
+        .flat_map(|control| control.expected_failed_check_ids.iter().map(String::as_str))
+        .chain(check_ids)
+        .collect();
+    subset
+        .checks
+        .retain(|check| check_ids.contains(check.id.as_str()));
+    let command_ids: std::collections::HashSet<&str> = subset
+        .checks
+        .iter()
+        .map(|check| check.command_id.as_str())
+        .collect();
+    let command_ids: std::collections::HashSet<&str> = subset
+        .negative_control
+        .as_ref()
+        .map(|control| control.command_id.as_str())
+        .into_iter()
+        .chain(command_ids)
+        .collect();
+    subset
+        .commands
+        .retain(|command| command_ids.contains(command.id.as_str()));
+    let command_texts: std::collections::HashSet<&str> = subset
+        .commands
+        .iter()
+        .map(|command| command.command.as_str())
+        .collect();
+    let scoped_results: Vec<CommandResult> = results
+        .iter()
+        .filter(|result| command_texts.contains(result.command.as_str()))
+        .cloned()
+        .collect();
+    adjudicate_frozen_qa(&subset, &scoped_results)
 }
 
 pub fn acceptance_map_changed(
@@ -112,6 +540,8 @@ pub fn adjudicate_qa(
                 // A ceiling kill reads as a kill, not as a generic unmeasurable command: the claim was
                 // held until the ceiling fired, and the story requeues on this blocker (FORGE-FIX-005).
                 format!("CMD_TIMEOUT {}", c.command)
+            } else if crate::engine::assay::is_cmd_cancelled(c) {
+                format!("CMD_CANCELLED {}", c.command)
             } else if c.unmeasurable {
                 format!("CMD_UNMEASURABLE {}", c.command)
             } else if is_build_failure_output(&c.output) || is_build_failure_output(&c.excerpt) {
@@ -187,9 +617,11 @@ pub fn adjudicate_qa(
             }
             continue;
         }
+        // Conditions are all-required by default. A vector of assertion references does not
+        // imply any-of: every required assertion must have an observed pass.
         if outcomes
             .iter()
-            .any(|(_, r)| matches!(r, AssertionResolution::Passed))
+            .all(|(_, r)| matches!(r, AssertionResolution::Passed))
         {
             continue;
         }
@@ -238,7 +670,7 @@ pub fn adjudicate_qa(
     }
 
     let command_failure = blockers.iter().any(|b| {
-        (b.starts_with("CMD_") && !b.starts_with(CMD_BUILD_FAIL))
+        (b.starts_with("CMD_") && !b.starts_with(CMD_BUILD_FAIL) && !b.starts_with("CMD_CANCELLED"))
             || b.starts_with("ASSAY_COMMAND_SUBSTITUTED")
             || b.starts_with("ARCH ")
             || b == "NO_ASSAY_COMMANDS"
@@ -256,6 +688,7 @@ pub fn adjudicate_qa(
         AssayVerdict::Fail
     } else if !unproven.is_empty()
         || build_failure
+        || commands.iter().any(crate::engine::assay::is_cmd_cancelled)
         || blockers.iter().any(|b| b == "ACCEPTANCE_MAP_CHANGED")
         || negative_survived
     {
@@ -271,6 +704,7 @@ pub fn adjudicate_qa(
         blockers,
         unproven,
         failed_conditions,
+        negative_control_confirmed: false,
     }
 }
 
@@ -278,9 +712,14 @@ pub fn adjudicate_qa(
 mod tests {
     use super::*;
     use crate::engine::assay::CommandResult;
+    use crate::engine::qa_plan::{
+        AcceptanceJudgment, ApprovedAcceptanceCondition, ApprovedAssayCommand, ApprovedAssayPlan,
+        ApprovedAssertionCheck, AssayParser, AssayRunner, CheckAggregation,
+    };
 
     fn cmd(name: &str, output: &str, passed: bool) -> CommandResult {
         CommandResult {
+            cancelled: false,
             command: name.into(),
             exit_code: if passed { 0 } else { 1 },
             passed,
@@ -309,5 +748,259 @@ mod tests {
         );
         assert_eq!(report.verdict, AssayVerdict::Unproven);
         assert!(report.blockers.iter().any(|b| b == "UNPROVEN C1"));
+    }
+
+    #[test]
+    fn one_pass_and_one_absent_required_assertion_stays_unproven() {
+        let plan = AssayPlan {
+            commands: vec!["cargo test".into()],
+            conditions: vec![AcceptanceCondition {
+                id: "C1".into(),
+                assertions: vec!["present assertion".into(), "missing assertion".into()],
+            }],
+            negative_control: None,
+        };
+        let report = adjudicate_qa(
+            &plan,
+            &[cmd("cargo test", "ok 1 - present assertion\n", true)],
+            None,
+            None,
+            None,
+        );
+        assert_eq!(report.verdict, AssayVerdict::Unproven);
+        assert!(report.unproven.iter().any(|condition| condition == "C1"));
+    }
+
+    fn frozen_plan(aggregation: CheckAggregation) -> ApprovedAssayPlan {
+        ApprovedAssayPlan {
+            schema_version: 1,
+            plan_id: "plan".into(),
+            plan_version: 1,
+            commands: vec![ApprovedAssayCommand {
+                id: "cmd".into(),
+                command: "cargo test -p sample".into(),
+                runner: AssayRunner::RustLibtest,
+                parser: AssayParser::RustLibtest,
+                working_directory: "lane_root".into(),
+                environment_identity: "forge-inherited-shell-v1".into(),
+            }],
+            checks: vec![
+                ApprovedAssertionCheck {
+                    id: "check-a".into(),
+                    command_id: "cmd".into(),
+                    assertion: "sample::first".into(),
+                },
+                ApprovedAssertionCheck {
+                    id: "check-b".into(),
+                    command_id: "cmd".into(),
+                    assertion: "sample::second".into(),
+                },
+            ],
+            conditions: vec![ApprovedAcceptanceCondition {
+                id: "AC-1".into(),
+                check_ids: vec!["check-a".into(), "check-b".into()],
+                aggregation,
+                judgment: AcceptanceJudgment::Product,
+            }],
+            negative_control: None,
+        }
+    }
+
+    fn measured_rust(output: &str) -> CommandResult {
+        cmd(
+            "cargo test -p sample",
+            output,
+            !output.contains(" ... FAILED"),
+        )
+    }
+
+    #[test]
+    fn frozen_all_required_needs_every_assertion_and_any_of_is_explicit() {
+        let output = "test sample::first ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out\n";
+        let all = adjudicate_frozen_qa(
+            &frozen_plan(CheckAggregation::AllRequired),
+            &[measured_rust(output)],
+        );
+        assert_eq!(all.verdict, AssayVerdict::Unproven);
+
+        let any = adjudicate_frozen_qa(
+            &frozen_plan(CheckAggregation::AnyOf),
+            &[measured_rust(output)],
+        );
+        assert_eq!(any.verdict, AssayVerdict::Pass);
+    }
+
+    #[test]
+    fn frozen_judgments_evaluate_and_record_the_approved_negative_control() {
+        let mut plan = frozen_plan(CheckAggregation::AllRequired);
+        plan.checks.push(ApprovedAssertionCheck {
+            id: "control-check".into(),
+            command_id: "control-command".into(),
+            assertion: "sample::must_fail".into(),
+        });
+        plan.commands.push(ApprovedAssayCommand {
+            id: "control-command".into(),
+            command: "cargo test -p sample --negative-control".into(),
+            runner: AssayRunner::RustLibtest,
+            parser: AssayParser::RustLibtest,
+            working_directory: "lane_root".into(),
+            environment_identity: "forge-inherited-shell-v1".into(),
+        });
+        plan.negative_control = Some(crate::engine::qa_plan::ApprovedNegativeControl {
+            command_id: "control-command".into(),
+            expected_failed_check_ids: vec!["control-check".into()],
+        });
+        let results = vec![
+            measured_rust(
+                "test sample::first ... ok\ntest sample::second ... ok\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n",
+            ),
+            cmd(
+                "cargo test -p sample --negative-control",
+                "test sample::must_fail ... FAILED\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n",
+                false,
+            ),
+        ];
+
+        let judgments = adjudicate_frozen_judgments(&plan, &results);
+        assert_eq!(judgments.product.verdict, AssayVerdict::Pass);
+        assert!(judgments.product.negative_control_confirmed);
+        assert!(!judgments
+            .product
+            .blockers
+            .iter()
+            .any(|blocker| blocker == "NEGATIVE_CONTROL_CONFIRMED"));
+
+        let mut surviving = results;
+        surviving[1] = cmd(
+            "cargo test -p sample --negative-control",
+            "test sample::must_fail ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n",
+            true,
+        );
+        let judgments = adjudicate_frozen_judgments(&plan, &surviving);
+        assert_eq!(judgments.product.verdict, AssayVerdict::Unproven);
+        assert!(!judgments.product.negative_control_confirmed);
+    }
+
+    #[test]
+    fn frozen_assertions_are_bound_to_their_command_and_structured_runner_output() {
+        let echo = measured_rust("the output says sample::first passed\n");
+        let report = adjudicate_frozen_qa(&frozen_plan(CheckAggregation::AllRequired), &[echo]);
+        assert_eq!(report.verdict, AssayVerdict::Unproven);
+
+        let substituted = cmd("cargo test -p another", "test sample::first ... ok\n", true);
+        let report =
+            adjudicate_frozen_qa(&frozen_plan(CheckAggregation::AllRequired), &[substituted]);
+        assert_eq!(report.verdict, AssayVerdict::Unproven);
+        assert!(report
+            .blockers
+            .iter()
+            .any(|blocker| blocker.contains("ASSAY_COMMAND_SUBSTITUTED")));
+    }
+
+    #[test]
+    fn zero_test_success_and_skipped_required_check_are_unproven() {
+        let zero = measured_rust(
+            "test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out\n",
+        );
+        let report = adjudicate_frozen_qa(&frozen_plan(CheckAggregation::AnyOf), &[zero]);
+        assert_eq!(report.verdict, AssayVerdict::Unproven);
+
+        assert!(!rust_libtest_ran_zero_tests(
+            "running 1 test\ntest sample::one ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n\n   Doc-tests forge\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+        ));
+        assert!(rust_libtest_ran_zero_tests(
+            "test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+        ));
+
+        let skipped = measured_rust("test sample::first ... ignored\ntest result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n");
+        let report = adjudicate_frozen_qa(&frozen_plan(CheckAggregation::AllRequired), &[skipped]);
+        assert_eq!(report.verdict, AssayVerdict::Unproven);
+    }
+
+    #[test]
+    fn cancelled_execution_is_recorded_separately_and_stays_unproven() {
+        let mut result = measured_rust("partial output before cancellation");
+        result.exit_code = crate::engine::assay::CMD_CANCELLED_EXIT;
+        result.cancelled = true;
+        result.passed = false;
+        result.unmeasurable = true;
+        result.excerpt = "CMD_CANCELLED: assay command received signal 15".into();
+        let plan = frozen_plan(CheckAggregation::AllRequired);
+        let report = adjudicate_frozen_qa(&plan, &[result.clone()]);
+        assert_eq!(report.verdict, AssayVerdict::Unproven);
+        assert!(report
+            .blockers
+            .iter()
+            .any(|blocker| blocker == "CMD_CANCELLED"));
+        assert_eq!(
+            resolve_planned_check(&plan.commands[0], &plan.checks[0], Some(&result)),
+            CheckObservation::Cancelled
+        );
+    }
+
+    #[test]
+    fn valid_test_artifact_can_pass_while_product_assertion_failure_remains_visible() {
+        use crate::engine::qa_plan::AcceptanceJudgment;
+        let plan = ApprovedAssayPlan {
+            schema_version: 1,
+            plan_id: "contract-plan".into(),
+            plan_version: 1,
+            commands: vec![
+                ApprovedAssayCommand {
+                    id: "compile".into(),
+                    command: "cargo check --all-targets".into(),
+                    runner: AssayRunner::CommandExit,
+                    parser: AssayParser::CommandExit,
+                    working_directory: "lane_root".into(),
+                    environment_identity: "forge-inherited-shell-v1".into(),
+                },
+                ApprovedAssayCommand {
+                    id: "runtime".into(),
+                    command: "cargo test -p app".into(),
+                    runner: AssayRunner::RustLibtest,
+                    parser: AssayParser::RustLibtest,
+                    working_directory: "lane_root".into(),
+                    environment_identity: "forge-inherited-shell-v1".into(),
+                },
+            ],
+            checks: vec![
+                ApprovedAssertionCheck {
+                    id: "artifact-check".into(),
+                    command_id: "compile".into(),
+                    assertion: "exit_code_zero".into(),
+                },
+                ApprovedAssertionCheck {
+                    id: "product-check".into(),
+                    command_id: "runtime".into(),
+                    assertion: "sample::behavior".into(),
+                },
+            ],
+            conditions: vec![
+                ApprovedAcceptanceCondition {
+                    id: "artifact".into(),
+                    check_ids: vec!["artifact-check".into()],
+                    aggregation: CheckAggregation::AllRequired,
+                    judgment: AcceptanceJudgment::TestArtifact,
+                },
+                ApprovedAcceptanceCondition {
+                    id: "product".into(),
+                    check_ids: vec!["product-check".into()],
+                    aggregation: CheckAggregation::AllRequired,
+                    judgment: AcceptanceJudgment::Product,
+                },
+            ],
+            negative_control: None,
+        };
+        let results = vec![
+            cmd("cargo check --all-targets", "", true),
+            cmd(
+                "cargo test -p app",
+                "test sample::behavior ... FAILED\ntest result: FAILED. 0 passed; 1 failed; 0 ignored\n",
+                false,
+            ),
+        ];
+        let judgments = adjudicate_frozen_judgments(&plan, &results);
+        assert_eq!(judgments.test_artifact.verdict, AssayVerdict::Pass);
+        assert_eq!(judgments.product.verdict, AssayVerdict::Fail);
     }
 }

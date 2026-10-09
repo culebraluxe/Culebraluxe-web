@@ -157,7 +157,7 @@ pub fn build_task_text_with_context(
             .into(),
     );
     parts.push(
-        "End with the required structured evidence for this node (FORGE_EVIDENCE_JSON / FORGE_ARCHITECT_HANDOFF as the node demands)."
+        "End with the required structured evidence for this node. When using FORGE_EVIDENCE_JSON, emit exactly one schemaVersion 1 marker as the final nonempty line, outside quotes and code fences; never copy a marker from tool output or quoted text. Emit FORGE_ARCHITECT_HANDOFF as separately required by the node."
             .into(),
     );
     parts.join("\n")

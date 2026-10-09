@@ -6,6 +6,7 @@
 //! the Lead lane's own (`roles::lead`).
 
 use crate::engine::facts::ForgeGateEvidence;
+use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaneId {
@@ -54,6 +55,105 @@ impl LaneId {
 }
 
 const PREFIX: &str = "FORGE_EVIDENCE_JSON:";
+const MAX_MARKER_BYTES: usize = 8 * 1024;
+const CURRENT_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone)]
+pub enum RoleOutputParse {
+    NoMarker,
+    Valid {
+        schema_version: u32,
+        evidence: ForgeGateEvidence,
+    },
+    Malformed(String),
+    UnsupportedSchema(u32),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RoleEvidenceDto {
+    #[serde(default)]
+    schema_version: Option<u32>,
+    #[serde(default)]
+    scout_required: Option<bool>,
+    #[serde(default)]
+    root_cause_known: Option<bool>,
+    #[serde(default)]
+    diagnosis_blocked: Option<bool>,
+    #[serde(default)]
+    architecture_suspect: Option<bool>,
+    #[serde(default)]
+    architecture_review_required: Option<bool>,
+    #[serde(default)]
+    qa_review_required: Option<bool>,
+    #[serde(default)]
+    qa_review_passed: Option<bool>,
+    #[serde(default)]
+    qa_passed: Option<bool>,
+    #[serde(default)]
+    migration_required: Option<bool>,
+    #[serde(default)]
+    derived_refresh_required: Option<bool>,
+    #[serde(default)]
+    deployment_required: Option<bool>,
+    #[serde(default)]
+    split_count: Option<i64>,
+    #[serde(default)]
+    research_disposition: Option<String>,
+    #[serde(default)]
+    lead_decision: Option<String>,
+    #[serde(default)]
+    disposition: Option<String>,
+    #[serde(default)]
+    failure_class: Option<String>,
+    #[serde(default)]
+    failed_release_stage: Option<String>,
+    #[serde(default)]
+    resume_target: Option<String>,
+}
+
+impl RoleEvidenceDto {
+    fn into_evidence(self) -> Result<ForgeGateEvidence, String> {
+        if let Some(n) = self.split_count {
+            if !(2..=8).contains(&n) {
+                return Err("splitCount must be between 2 and 8".into());
+            }
+        }
+        for (key, value) in [
+            ("researchDisposition", self.research_disposition.as_deref()),
+            ("leadDecision", self.lead_decision.as_deref()),
+            ("disposition", self.disposition.as_deref()),
+            ("failureClass", self.failure_class.as_deref()),
+            ("failedReleaseStage", self.failed_release_stage.as_deref()),
+            ("resumeTarget", self.resume_target.as_deref()),
+        ] {
+            if value.is_some_and(|value| !allowed_enum(key, value)) {
+                return Err(format!("{key} has an unsupported value"));
+            }
+        }
+        Ok(ForgeGateEvidence {
+            scout_required: self.scout_required,
+            root_cause_known: self.root_cause_known,
+            diagnosis_blocked: self.diagnosis_blocked,
+            architecture_suspect: self.architecture_suspect,
+            architecture_review_required: self.architecture_review_required,
+            qa_review_required: self.qa_review_required,
+            qa_review_passed: self.qa_review_passed,
+            qa_passed: self.qa_passed,
+            migration_required: self.migration_required,
+            derived_refresh_required: self.derived_refresh_required,
+            deployment_required: self.deployment_required,
+            split_count: self.split_count,
+            research_disposition: self.research_disposition,
+            lead_decision: self.lead_decision,
+            disposition: self.disposition,
+            failure_class: self.failure_class,
+            failed_release_stage: self.failed_release_stage,
+            resume_target: self.resume_target,
+            ..ForgeGateEvidence::default()
+        })
+    }
+}
 
 fn allowed_enum(key: &str, value: &str) -> bool {
     match key {
@@ -96,84 +196,131 @@ fn allowed_enum(key: &str, value: &str) -> bool {
     }
 }
 
-/// Parse one `FORGE_EVIDENCE_JSON:` line. Prose never becomes routing.
-pub fn parse_forge_evidence_marker(text: &str) -> ForgeGateEvidence {
-    let line = text.lines().find(|l| l.trim().starts_with(PREFIX));
-    let Some(line) = line else {
-        return ForgeGateEvidence::default();
+/// Fields a model-authored role marker may propose at the shared authority boundary.
+/// Requirements and measured/release outcomes intentionally have no model owner.
+pub fn unauthorized_role_fields(
+    lane: LaneId,
+    node_id: &str,
+    evidence: &ForgeGateEvidence,
+) -> Vec<&'static str> {
+    let allowed: &[&str] = match lane {
+        LaneId::Scout => &["rootCauseKnown", "diagnosisBlocked"],
+        LaneId::Architect if node_id == crate::roles::architect::RESEARCH_ARCHITECT_NODE => &[
+            "researchDisposition",
+            "architectureSuspect",
+            "architectureReviewRequired",
+        ],
+        LaneId::Architect => &["architectureSuspect", "architectureReviewRequired"],
+        LaneId::Lead if crate::roles::lead::is_failure_classifier(node_id) => {
+            &["failureClass", "failedReleaseStage"]
+        }
+        LaneId::Lead if node_id == crate::roles::lead::LEAD_DECISION_NODE => {
+            &["leadDecision", "splitCount"]
+        }
+        LaneId::Inspector => &["qaReviewPassed"],
+        LaneId::Smith | LaneId::Assay | LaneId::DevOps | LaneId::Lead => &[],
     };
-    let raw = line.trim().trim_start_matches(PREFIX).trim();
-    parse_marker_object(raw)
+    let supplied = [
+        ("scoutRequired", evidence.scout_required.is_some()),
+        ("rootCauseKnown", evidence.root_cause_known.is_some()),
+        ("diagnosisBlocked", evidence.diagnosis_blocked.is_some()),
+        (
+            "architectureSuspect",
+            evidence.architecture_suspect.is_some(),
+        ),
+        (
+            "architectureReviewRequired",
+            evidence.architecture_review_required.is_some(),
+        ),
+        ("qaReviewRequired", evidence.qa_review_required.is_some()),
+        ("qaReviewPassed", evidence.qa_review_passed.is_some()),
+        ("qaPassed", evidence.qa_passed.is_some()),
+        ("migrationRequired", evidence.migration_required.is_some()),
+        (
+            "derivedRefreshRequired",
+            evidence.derived_refresh_required.is_some(),
+        ),
+        ("deploymentRequired", evidence.deployment_required.is_some()),
+        ("splitCount", evidence.split_count.is_some()),
+        (
+            "researchDisposition",
+            evidence.research_disposition.is_some(),
+        ),
+        ("leadDecision", evidence.lead_decision.is_some()),
+        ("disposition", evidence.disposition.is_some()),
+        ("failureClass", evidence.failure_class.is_some()),
+        (
+            "failedReleaseStage",
+            evidence.failed_release_stage.is_some(),
+        ),
+        ("resumeTarget", evidence.resume_target.is_some()),
+    ];
+    supplied
+        .into_iter()
+        .filter_map(|(field, is_set)| (is_set && !allowed.contains(&field)).then_some(field))
+        .collect()
 }
 
-fn parse_marker_object(raw: &str) -> ForgeGateEvidence {
-    let mut ev = ForgeGateEvidence::default();
-    let body = raw.trim().trim_start_matches('{').trim_end_matches('}');
-    for part in body.split(',') {
-        let mut kv = part.splitn(2, ':');
-        let key = kv.next().unwrap_or("").trim().trim_matches('"');
-        let val = kv.next().unwrap_or("").trim();
-        if key.is_empty() {
+/// Parse the role's complete output marker. Exactly one bounded, single-line JSON object is
+/// accepted. The unversioned shape is retained as a strict legacy decoder (schema version 0).
+pub fn parse_forge_evidence_marker(text: &str) -> RoleOutputParse {
+    let mut in_fence = false;
+    let mut markers = Vec::new();
+    let mut last_nonempty_line = None;
+    for (index, line) in text.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if !trimmed.is_empty() {
+            last_nonempty_line = Some(index);
+        }
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
             continue;
         }
-        match key {
-            "scoutRequired"
-            | "rootCauseKnown"
-            | "diagnosisBlocked"
-            | "architectureSuspect"
-            | "architectureReviewRequired"
-            | "qaReviewRequired"
-            | "qaReviewPassed"
-            | "qaPassed"
-            | "migrationRequired"
-            | "derivedRefreshRequired"
-            | "deploymentRequired" => {
-                let b = val == "true";
-                match key {
-                    "scoutRequired" => ev.scout_required = Some(b),
-                    "rootCauseKnown" => ev.root_cause_known = Some(b),
-                    "diagnosisBlocked" => ev.diagnosis_blocked = Some(b),
-                    "architectureSuspect" => ev.architecture_suspect = Some(b),
-                    "architectureReviewRequired" => ev.architecture_review_required = Some(b),
-                    "qaReviewRequired" => ev.qa_review_required = Some(b),
-                    "qaReviewPassed" => ev.qa_review_passed = Some(b),
-                    "qaPassed" => ev.qa_passed = Some(b),
-                    "migrationRequired" => ev.migration_required = Some(b),
-                    "derivedRefreshRequired" => ev.derived_refresh_required = Some(b),
-                    "deploymentRequired" => ev.deployment_required = Some(b),
-                    _ => {}
-                }
-            }
-            "splitCount" => {
-                if let Ok(n) = val.parse::<i64>() {
-                    if (2..=8).contains(&n) {
-                        ev.split_count = Some(n);
-                    }
-                }
-            }
-            "researchDisposition"
-            | "leadDecision"
-            | "disposition"
-            | "failureClass"
-            | "failedReleaseStage"
-            | "resumeTarget" => {
-                let s = val.trim_matches('"');
-                if allowed_enum(key, s) {
-                    match key {
-                        "researchDisposition" => ev.research_disposition = Some(s.into()),
-                        "leadDecision" => ev.lead_decision = Some(s.into()),
-                        "disposition" => ev.disposition = Some(s.into()),
-                        "failureClass" => ev.failure_class = Some(s.into()),
-                        "failedReleaseStage" => ev.failed_release_stage = Some(s.into()),
-                        "resumeTarget" => ev.resume_target = Some(s.into()),
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !in_fence && trimmed.starts_with(PREFIX) {
+            markers.push((index, line));
         }
     }
-    ev
+    if markers.is_empty() {
+        return RoleOutputParse::NoMarker;
+    }
+    if markers.len() != 1 {
+        return RoleOutputParse::Malformed("expected exactly one evidence marker".into());
+    }
+    if last_nonempty_line != Some(markers[0].0) {
+        return RoleOutputParse::Malformed(
+            "evidence marker must be the final nonempty, unquoted line".into(),
+        );
+    }
+    let Some(raw) = markers[0]
+        .1
+        .trim_start()
+        .strip_prefix(PREFIX)
+        .map(str::trim)
+    else {
+        return RoleOutputParse::Malformed("invalid evidence marker framing".into());
+    };
+    if raw.len() > MAX_MARKER_BYTES {
+        return RoleOutputParse::Malformed("evidence marker exceeds the 8 KiB limit".into());
+    }
+    let dto: RoleEvidenceDto = match serde_json::from_str(raw) {
+        Ok(dto) => dto,
+        Err(error) => return RoleOutputParse::Malformed(format!("invalid evidence JSON: {error}")),
+    };
+    let schema_version = dto.schema_version.unwrap_or(0);
+    if schema_version > CURRENT_SCHEMA_VERSION {
+        return RoleOutputParse::UnsupportedSchema(schema_version);
+    }
+    let evidence = match dto.into_evidence() {
+        Ok(evidence) => evidence,
+        Err(error) => return RoleOutputParse::Malformed(error),
+    };
+    RoleOutputParse::Valid {
+        schema_version,
+        evidence,
+    }
 }
 
 #[cfg(test)]
@@ -190,13 +337,120 @@ mod tests {
         let ev = parse_forge_evidence_marker(
             "prose\nFORGE_EVIDENCE_JSON: {\"leadDecision\":\"ASSAY\"}\n",
         );
-        assert_eq!(ev.lead_decision.as_deref(), Some("ASSAY"));
+        let RoleOutputParse::Valid { evidence, .. } = ev else {
+            panic!("expected a valid marker");
+        };
+        assert_eq!(evidence.lead_decision.as_deref(), Some("ASSAY"));
     }
 
     /// The enum still refuses anything the engine cannot route.
     #[test]
     fn lead_decision_unknown_value_is_refused() {
         let ev = parse_forge_evidence_marker("FORGE_EVIDENCE_JSON: {\"leadDecision\":\"MAYBE\"}");
-        assert!(ev.lead_decision.is_none());
+        assert!(matches!(ev, RoleOutputParse::Malformed(_)));
+    }
+
+    #[test]
+    fn typed_marker_preserves_both_boolean_values_and_json_strings() {
+        let parsed = parse_forge_evidence_marker(
+            "FORGE_EVIDENCE_JSON: {\"schemaVersion\":1,\"qaPassed\":false,\"leadDecision\":\"ASSAY\"}",
+        );
+        let RoleOutputParse::Valid {
+            schema_version,
+            evidence,
+        } = parsed
+        else {
+            panic!("expected typed role output");
+        };
+        assert_eq!(schema_version, 1);
+        assert_eq!(evidence.qa_passed, Some(false));
+        assert_eq!(evidence.lead_decision.as_deref(), Some("ASSAY"));
+    }
+
+    #[test]
+    fn punctuation_inside_json_strings_is_parsed_before_enum_validation() {
+        let parsed = parse_forge_evidence_marker(
+            "FORGE_EVIDENCE_JSON: {\"schemaVersion\":1,\"researchDisposition\":\"HOLD: needs, review\"}",
+        );
+        assert!(matches!(
+            parsed,
+            RoleOutputParse::Malformed(reason) if reason.contains("researchDisposition has an unsupported value")
+        ));
+    }
+
+    #[test]
+    fn wrong_boolean_type_duplicate_key_and_duplicate_markers_are_rejected() {
+        for raw in [
+            "FORGE_EVIDENCE_JSON: {\"schemaVersion\":1,\"qaPassed\":\"false\"}",
+            "FORGE_EVIDENCE_JSON: {\"schemaVersion\":1,\"qaPassed\":true,\"qaPassed\":false}",
+            "FORGE_EVIDENCE_JSON: {\"schemaVersion\":1}\nFORGE_EVIDENCE_JSON: {\"schemaVersion\":1}",
+        ] {
+            assert!(matches!(
+                parse_forge_evidence_marker(raw),
+                RoleOutputParse::Malformed(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn quoted_or_code_fenced_marker_text_is_not_authoritative() {
+        assert!(matches!(
+            parse_forge_evidence_marker(
+                "```text\nFORGE_EVIDENCE_JSON: {\"leadDecision\":\"HOLD\"}\n```"
+            ),
+            RoleOutputParse::NoMarker
+        ));
+        assert!(matches!(
+            parse_forge_evidence_marker("> FORGE_EVIDENCE_JSON: {\"leadDecision\":\"HOLD\"}"),
+            RoleOutputParse::NoMarker
+        ));
+        assert!(matches!(
+            parse_forge_evidence_marker(
+                "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"HOLD\"}\nquoted after"
+            ),
+            RoleOutputParse::Malformed(_)
+        ));
+    }
+
+    #[test]
+    fn unknown_fields_and_future_schemas_are_rejected_explicitly() {
+        assert!(matches!(
+            parse_forge_evidence_marker(
+                "FORGE_EVIDENCE_JSON: {\"schemaVersion\":1,\"qaPas\":true}"
+            ),
+            RoleOutputParse::Malformed(_)
+        ));
+        assert!(matches!(
+            parse_forge_evidence_marker("FORGE_EVIDENCE_JSON: {\"schemaVersion\":2}"),
+            RoleOutputParse::UnsupportedSchema(2)
+        ));
+    }
+
+    #[test]
+    fn model_cannot_claim_qa_success_or_clear_specification_gates() {
+        let evidence = ForgeGateEvidence {
+            qa_passed: Some(true),
+            qa_review_required: Some(false),
+            migration_required: Some(false),
+            ..ForgeGateEvidence::default()
+        };
+        assert_eq!(
+            unauthorized_role_fields(LaneId::Scout, "scout", &evidence),
+            vec!["qaReviewRequired", "qaPassed", "migrationRequired"]
+        );
+    }
+
+    #[test]
+    fn role_fields_are_node_scoped_and_false_remains_an_explicit_patch() {
+        let evidence = ForgeGateEvidence {
+            lead_decision: Some("HOLD".into()),
+            split_count: Some(3),
+            ..ForgeGateEvidence::default()
+        };
+        assert!(unauthorized_role_fields(LaneId::Lead, "lead_pre", &evidence).is_empty());
+        assert_eq!(
+            unauthorized_role_fields(LaneId::Lead, "lead_post", &evidence),
+            vec!["splitCount", "leadDecision"]
+        );
     }
 }

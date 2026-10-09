@@ -60,6 +60,20 @@ impl CompletionLedger for DbCompletionLedger {
         let patch = evidence_patch(&rec.evidence);
         let command_id = completion_receipt_id(&rec.task_id);
         let fingerprint = rec.fingerprint();
+        let assay_receipt = rec
+            .assay_receipt_link()
+            .map_err(|error| failed("assay receipt link", error))?;
+        let db_assay_receipt = assay_receipt
+            .as_ref()
+            .map(|receipt| db::CompletionAssayReceipt {
+                artifact_id: &receipt.artifact_id,
+                story_run_id: &receipt.story_run_id,
+                idempotency_key: &receipt.idempotency_key,
+                measurement_node: &receipt.measurement_node,
+                gate_verdict: &receipt.gate_verdict,
+                plan_sha256: receipt.plan_sha256.as_deref(),
+                candidate_sha: receipt.candidate_sha.as_deref(),
+            });
         // `apply_completion` owns the transaction: the receipt, the story-locked budget spend and the
         // evidence merge commit together, or none of them do.
         let unit = CompletionUnit {
@@ -70,6 +84,7 @@ impl CompletionLedger for DbCompletionLedger {
             evidence: &patch,
             spend: rec.spend().map(db_spend),
             fingerprint: &fingerprint,
+            assay_receipt: db_assay_receipt.as_ref(),
         };
         let outcome = with_shared(|db, rt| {
             let dao = ForgeEngineDao::new(db.clone());
