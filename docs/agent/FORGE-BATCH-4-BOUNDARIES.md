@@ -38,4 +38,12 @@
 4. Split DAO implementation by operation family with no SQL policy moved into Forge and no duplicate implementation.
 5. Narrow incidental public modules after the consumer map, then proceed to the learning scanner and durable progress work in later slices.
 
+## Slice 2 extraction record
+
+- `forge/src/engine/maestro/output.rs` now owns the pure Maestro usage and response-envelope parser; the adapter facade still calls it and retains its parser tests.
+- `forge/src/engine/opencode/config.rs` now owns CLI/model/environment/session configuration. The existing `forge::engine::opencode::*` entry points are explicitly re-exported, preserving binary and integration-test callers.
+- `forge/src/engine/job/workflow_service.rs` now owns the Workflow-backed `JobService`; `forge::engine::job::WorkflowJobService` remains the same public construction point.
+- `db/src/forge_engine/model_attempt_budget.rs` now owns generation budget SQL operations. DTOs and `ForgeEngineDao` remain at the existing db facade, and SQL has not moved out of `db`.
+- No vendor launch behavior, job policy, SQL behavior, or public call path was intentionally changed.
+
 No behavior correction is included in move-only changes. A newly discovered bug gets a separate change and evidence.
