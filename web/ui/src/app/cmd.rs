@@ -80,6 +80,48 @@ impl<Msg> Request<Msg> {
     }
 }
 
+/// The kind of effect a `Cmd` performs, for tests and diagnostics without exhaustively matching `Cmd`.
+/// This is the single source of truth for effect classification — the test harness calls `effect_kind()`
+/// instead of pattern-matching on `Cmd` variants, so adding a new variant only requires updating this
+/// enum and its test, not every consumer across crates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectKind {
+    /// No effect.
+    None,
+    /// A batch of commands.
+    Batch,
+    /// An HTTP request.
+    Request,
+    /// In-app navigation.
+    Navigate,
+    /// A full document load.
+    Load,
+    /// Replace the URL without navigation.
+    ReplacePath,
+    /// Share a PDF via the browser's native share sheet.
+    SharePdf,
+    /// Speech recognition.
+    Listen,
+    /// Render a signature to PNG.
+    RenderSignature,
+    /// Preview a PDF from the server.
+    PreviewPdf,
+    /// Read from local storage.
+    StorageRead,
+    /// Write to local storage.
+    StorageWrite,
+    /// A delayed message.
+    After,
+    /// Chunked file upload.
+    Upload,
+    /// Video upload to Mux.
+    VideoUpload,
+    /// Multipart form post with a file.
+    PostForm,
+    /// Initialize a Google Map.
+    InitMap,
+}
+
 /// Everything a screen may ask the shell to do.
 pub enum Cmd<Msg> {
     None,
@@ -382,6 +424,37 @@ impl<Msg: 'static> Cmd<Msg> {
             container_id: container_id.into(),
             reply: Box::new(to_msg),
         }
+    }
+
+    /// Returns the kind of effect this command performs, without exposing its payload.
+    /// This is the single classification point — update `EffectKind` and this method when adding
+    /// a new `Cmd` variant, and all consumers (test harness, diagnostics, etc.) stay in sync.
+    pub fn effect_kind(&self) -> EffectKind {
+        match self {
+            Cmd::None => EffectKind::None,
+            Cmd::Batch(_) => EffectKind::Batch,
+            Cmd::Request(_) => EffectKind::Request,
+            Cmd::Navigate(_) => EffectKind::Navigate,
+            Cmd::Load(_) => EffectKind::Load,
+            Cmd::ReplacePath(_) => EffectKind::ReplacePath,
+            Cmd::SharePdf { .. } => EffectKind::SharePdf,
+            Cmd::Listen { .. } => EffectKind::Listen,
+            Cmd::RenderSignature { .. } => EffectKind::RenderSignature,
+            Cmd::PreviewPdf { .. } => EffectKind::PreviewPdf,
+            Cmd::StorageRead { .. } => EffectKind::StorageRead,
+            Cmd::StorageWrite { .. } => EffectKind::StorageWrite,
+            Cmd::After { .. } => EffectKind::After,
+            Cmd::Upload(_) => EffectKind::Upload,
+            Cmd::VideoUpload(_) => EffectKind::VideoUpload,
+            Cmd::PostForm { .. } => EffectKind::PostForm,
+            Cmd::InitMap { .. } => EffectKind::InitMap,
+        }
+    }
+
+    /// Returns `true` if this command performs an HTTP request (a `Request` or a `Batch` containing one).
+    pub fn is_request(&self) -> bool {
+        matches!(self.effect_kind(), EffectKind::Request)
+            || matches!(self, Cmd::Batch(cmds) if cmds.iter().any(|c| c.is_request()))
     }
 
     /// Re-address every message this command will produce. How a composed piece (a list inside a screen) hands its
