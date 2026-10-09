@@ -146,7 +146,7 @@ Four slices. **Slices 1 and 2 are landed and verified. Slices 3–4 are not star
   `WorkflowError::generic("completion ledger {operation}: {error}")` (`forge/src/engine/db_ledger.rs:44-46`), and
   `DbFailure`'s `Display` prints the kind's own name — `DatabaseUnavailable during apply_completion (incident …,
   sqlstate …)` (`db/src/error.rs:27-43`, which formats `{:?}` of `DbFailureKind`) — and `databaseunavailable` is the
-  first mark in `is_engine_fault`'s vocabulary (`forge/src/engine/engine_fault.rs:24-56`). So a lost connection is
+  first mark in `is_engine_fault`'s vocabulary (`forge/src/engine/engine_fault.rs:24-57`). So a lost connection is
   retried by `should_repeat_completion_write` and, if it stays lost, is recorded as `PAID_TURN_NOT_REDISPATCHED`, never
   as a completed unit. The typed half of the seam (`WorkflowError::is_connection_failure`,
   `middle/workflow/src/error.rs:62`) never fires for the ledger, because the ledger's errors are `generic`: the message
