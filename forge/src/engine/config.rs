@@ -197,6 +197,7 @@ mod tests {
 
     #[test]
     fn heartbeat_override_clamped() {
+        let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("AGENT_WORKER_STALE_AFTER_MINUTES", "10");
         std::env::set_var("AGENT_WORKER_HEARTBEAT_SECONDS", "3600"); // 1h > 600s window
         assert_eq!(heartbeat_seconds(), 150); // falls back to default
