@@ -225,8 +225,12 @@ const QA_NODES: [&str; 3] = [
 const NON_BUILDER_COMMIT_RULE: &str = "non-builder-commit-instruction";
 const NON_BUILDER_COMMIT_MESSAGE: &str =
     "instructs Scout/Assay/Inspector to commit; only the Builder role commits";
-const ROLES_THAT_MAY_NOT_COMMIT: &str =
-    r#"pattern!(roles_that_may_not_commit, r"(?i)\b(scout|assay|inspector)\b");"#;
+/// The contract is the regex that names the three roles, not the `pattern!` macro's line breaks. The assertion
+/// this replaced pinned the one-line spelling `pattern!(…, r"(?i)\b(scout|assay|inspector)\b");` and the rustfmt
+/// pass `430a13761` wrapped the macro across three lines (`cli/src/forge/lint.rs:105-108`), so a pure formatting
+/// change read as a rule change and this guard failed on it. What the guard is FOR is that the lint names Scout,
+/// Assay and Inspector — the same three names the handbook's `Never` line names.
+const ROLES_THAT_MAY_NOT_COMMIT_REGEX: &str = r#"r"(?i)\b(scout|assay|inspector)\b""#;
 
 /// The two directive shapes the rule refuses («a role, commit» and «give a role the commit»), and the tests
 /// that hold the rule — including the one for the `Never` heading the rule statement itself used to trip.
@@ -920,7 +924,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
 
     let lint = source::read(&in_repo("cli/src/forge/lint.rs"));
     assert!(
-        lint.contains(ROLES_THAT_MAY_NOT_COMMIT),
+        lint.contains(ROLES_THAT_MAY_NOT_COMMIT_REGEX),
         "the rule's role pattern changed: the lint must name Scout, Assay and Inspector — the same three \
          roles the handbook's `Never` line names"
     );
