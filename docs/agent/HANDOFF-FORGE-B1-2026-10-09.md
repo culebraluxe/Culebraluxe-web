@@ -150,10 +150,20 @@ Four slices. **Slices 1 and 2 are landed and verified. Slices 3–4 are not star
   retried by `should_repeat_completion_write` and, if it stays lost, is recorded as `PAID_TURN_NOT_REDISPATCHED`, never
   as a completed unit. The typed half of the seam (`WorkflowError::is_connection_failure`,
   `middle/workflow/src/error.rs:62`) never fires for the ledger, because the ledger's errors are `generic`: the message
-  half is deliberately doing the work here, as it does for the vendor errors. **And `DbFailureKind::Timeout` is not in
-  the vocabulary**, so a statement timeout on the unit is treated as permanent and loud rather than repeated — the
-  narrow direction chosen on 2026-09-29, so a paid verdict is never cleared by a timeout that happened somewhere else
-  (`forge/src/engine/engine_fault.rs:37-41`). Nothing here is silent in either direction.
+  half is deliberately doing the work here, as it does for the vendor errors. **The timeout nuance, stated exactly**,
+  because a hand-off that says the opposite of the code is worse than no hand-off: `MARKS`
+  (`forge/src/engine/engine_fault.rs:25-54`) holds no bare `timeout`, only qualified phrases (`statement timeout`,
+  `connection timed out`, `operation timed out`, `pool timed out`) — and the comment at `:37-38` records why a bare
+  `timed out` was removed (it matched any role error that quoted one, turning a paid verdict into a free retry). What
+  that means for a timed-out unit: sqlstate `57014`/`55P03` classifies as `DbFailureKind::Timeout`
+  (`db/src/error.rs:154-160`), and `from_sqlx` keeps the driver's message as `detail` for **every** sqlstate
+  (`db/src/error.rs:92-109`), so the ledger's message ends `: canceling statement due to statement timeout` — which
+  **does** match, so the write **is** repeated, bounded by `COMPLETION_WRITE_ATTEMPTS`
+  (`forge/src/engine/executor/completion.rs:62-64`). A `Timeout` whose detail carries no marked phrase is not repeated
+  and stays loud. Either way the unit is never recorded as applied: an exhausted repeat leaves
+  `PAID_TURN_NOT_REDISPATCHED` (`forge/src/engine/executor/completion.rs:72-80`). The kind's own name is not a mark;
+  the transport's own words are — which is the seam's design, and why it classifies plumbing rather than verdicts.
+  Nothing here is silent in either direction.
 - **The slice adds no warning, and the seven it clears were already on `main`.** `cargo check -p forge -p db
   --all-targets --message-format short` names **no file this slice touches** (`db/src/forge_engine.rs`, `db/src/lib.rs`,
   `forge/src/engine/completion.rs`, `db_ledger.rs`, `mod.rs`, `runtime.rs`). The 22 warnings it prints are pre-existing
