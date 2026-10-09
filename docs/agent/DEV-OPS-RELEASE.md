@@ -38,8 +38,13 @@ Fixed facts, quoted from the scripts (do not retype them elsewhere):
    5/5 `vercel deploy --prod --yes` from the staged directory.
    Then it checks `/`, `/buyers`, `/app.css`, `/rust-ui/ui.js`, `/rust-ui/ui_bg.wasm`,
    `/api/rust-ui/public-page?screen=site-home` and `/login` all answer **200** on the canonical
-   domain, and on any failure it prints the rollback: Vercel → culebraluxe-web-fp → Deployments →
-   promote the previous one. A failed deploy leaves production unchanged.
+   domain — a non-200 fails the release with the rollback line (Vercel → culebraluxe-web-fp →
+   Deployments → promote the previous one). Then `smoke prod --expect-head` asserts the media
+   contract and `databaseTarget==prod` plus the live sha, failing the release on mismatch; finally it
+   writes a deploy receipt (`docs/agent/deploys/<timestamp>-<sha>.md`: sha + `db-tool status`
+   ledger snapshot, committed) so code-vs-migration skew is visible. Guards up front: `main` only,
+   clean tree (generated manifests exempt), `--dry-run` to check the guards without building.
+   A failed deploy leaves production unchanged.
 
 4. **`pnpm release`** — `scripts/release-record.sh`. Build **and** deploy **and** probe **and
    record**, in one command, into the append-only `docs/agent/releases.md`.

@@ -17,6 +17,36 @@ fail() { printf '\nERROR: %s\n' "$1" >&2; exit 1; }
 
 ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || fail "Run this inside the CulebraLuxe repository"
 cd "$ROOT_DIR"
+
+# RELEASE GUARDS — main branch, clean tree, or no deploy. The posture is copied from the superseded
+# `scripts/vercel-deploy-prod.sh:32-50`, hardened from a warning into a refusal: that script uploaded a
+# PREBUILT artifact, so uncommitted source could not reach production through it and a note sufficed. THIS
+# script compiles the working tree (`docker build .`, step 2/5 below), so a dirty tree would ship — the
+# guard refuses before anything builds instead of noting it afterwards.
+#
+# `--dry-run` runs the guards and stops before touching Docker or Vercel: the assay for this guard is a
+# dry run from a dirty fixture checkout, which must refuse.
+DRY_RUN=0
+if [ "${1:-}" = "--dry-run" ] || [ "${1:-}" = "--check-only" ]; then DRY_RUN=1; fi
+
+BRANCH="$(git branch --show-current)"
+[ "$BRANCH" = "main" ] || fail "Production deploys must run from main. Current branch: ${BRANCH:-detached}"
+# GENERATED MANIFESTS ARE EXEMPT. `docs/agent/manifest/*.md` carries a render timestamp and a "last touched"
+# date per row, so a release build rewrites them by definition — failing the deploy over that would mean
+# committing generated files between the build and the deploy.
+DEPLOY_EXEMPT=':(exclude)docs/agent/manifest'
+if ! git diff --quiet --ignore-submodules -- . "$DEPLOY_EXEMPT"; then
+  git status --short | head -20 >&2
+  fail "Tracked files have local changes (see above) — commit or stash them before deploying production."
+fi
+if ! git diff --cached --quiet --ignore-submodules -- . "$DEPLOY_EXEMPT"; then
+  fail "Staged files are waiting to be committed — commit them before deploying production."
+fi
+DEPLOY_SHA="$(git rev-parse HEAD)"
+if [ "$DRY_RUN" = 1 ]; then
+  printf 'DRY RUN — guards pass on %s at %s; no build, no deploy.\n' "$BRANCH" "$(git rev-parse --short HEAD)"
+  exit 0
+fi
 vc whoami >/dev/null 2>&1 || fail "Vercel CLI is not authenticated. Run: vercel login"
 docker info >/dev/null 2>&1 || fail "Docker is not running. Start Docker Desktop."
 printf '\nCulebraLuxe production deploy\n  commit: %s\n' "$(git rev-parse --short HEAD)"
@@ -86,11 +116,47 @@ printf '\n5/5 Deploying...\n'
   || fail "The deploy failed. Production is unchanged."
 
 printf '\nChecking %s...\n' "$SITE"
+ROLLBACK="Vercel -> culebraluxe-web-fp -> Deployments -> promote the previous one."
 bad=0
 for path in / /buyers /app.css /rust-ui/ui.js /rust-ui/ui_bg.wasm "/api/rust-ui/public-page?screen=site-home" /login; do
   code="$(curl -s -o /dev/null -w '%{http_code}' "${SITE}${path}")"
   printf '  %s  %s\n' "$code" "$path"
   [ "$code" = "200" ] || bad=1
 done
-[ "$bad" = 0 ] && printf '\nDEPLOY COMPLETE — %s serves the new application.\n' "$SITE" \
-  || printf '\nDeployed, but a check above is not 200. To roll back: Vercel -> culebraluxe-web-fp -> Deployments -> promote the previous one.\n'
+[ "$bad" = "0" ] || fail "Deployed, but a check above is not 200. To roll back: ${ROLLBACK}."
+
+# LIVE SMOKE — ask production whether it WORKS, not just whether it answers 200. `smoke prod --expect-head`
+# asserts the media contract (the hero nested inside the Rust PropertyRecord with a non-empty gallery,
+# `cli/src/smoke.rs`) and that the container resolved `databaseTarget==prod`, plus that the live sha equals
+# the commit just deployed. A mismatch fails the release: production is answering but not behaving.
+# This is the same command `pnpm smoke:prod` runs, with `--expect-head` folding the sha assertion in.
+printf '\nLive smoke (does production actually work)...\n'
+if ! cargo run -q --manifest-path "$ROOT_DIR/Cargo.toml" -p cli -- smoke prod --expect-head; then
+  fail "Deployed and answering, but the live smoke failed — see the checks above. To roll back: ${ROLLBACK}."
+fi
+
+# DEPLOY RECEIPT — the sha plus the migration ledger state, so code-vs-migration skew is visible after the
+# fact. The deploy applies NO schema (docs/rust-prod-checklist.md: a migration is a separate explicit action
+# in the same release window as the code that needs it); this snapshot records what was applied where at
+# deploy time. Best-effort by design: a database the operator cannot reach from here must not fail a deploy
+# that already smoked green.
+RECEIPT_DIR="$ROOT_DIR/docs/agent/deploys"
+mkdir -p "$RECEIPT_DIR"
+RECEIPT_FILE="$RECEIPT_DIR/$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD).md"
+LEDGER_STATE="$(cargo run -q --manifest-path "$ROOT_DIR/Cargo.toml" -p cli -- db-tool status 2>&1 \
+  || printf 'ledger unreadable from the deploy host\n')"
+{
+  printf '# Deploy receipt — %s\n\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf 'sha: %s\nbranch: %s\nsite: %s\nsmoke: `smoke prod --expect-head` passed\n\n' \
+    "$DEPLOY_SHA" "$BRANCH" "$SITE"
+  printf '## Migration ledger at deploy time (`cli db-tool status`)\n\n```\n%s\n```\n' "$LEDGER_STATE"
+} >"$RECEIPT_FILE"
+git add "$RECEIPT_FILE" 2>/dev/null || true
+if ! git diff --cached --quiet 2>/dev/null; then
+  git commit -q -m "deploy: receipt ${DEPLOY_SHA:0:12}" -- "$RECEIPT_FILE" || true
+  printf 'receipt committed: %s\n' "$RECEIPT_FILE"
+else
+  printf 'receipt: %s\n' "$RECEIPT_FILE"
+fi
+
+printf '\nDEPLOY COMPLETE AND SMOKED — %s serves the new application.\n' "$SITE"
