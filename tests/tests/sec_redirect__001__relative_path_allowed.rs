@@ -1,7 +1,7 @@
 //! TST-SEC-REDIRECT-001: relative path allowed.
-//! L0 Pure, RedirectPolicyHarness; exercises the production Google login/callback policy.
+//! L0 Pure, SecurityHarness; exercises the production Google login/callback policy.
 
-use test_harness::RedirectPolicyHarness;
+use test_harness::SecurityHarness;
 
 #[test]
 #[allow(non_snake_case)]
@@ -12,7 +12,7 @@ fn sec_redirect_001__relative_path_allowed() {
         "/portal/Casa-Luar-áé",
         "/portal/100%",
     ] {
-        let target = RedirectPolicyHarness::redirect_target(Some(input));
+        let target = SecurityHarness::redirect_target(Some(input));
         assert_eq!(target, input, "input: {input:?}");
         // The accepted target must also be a valid Location header.
         let response =

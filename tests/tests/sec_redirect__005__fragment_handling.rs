@@ -10,7 +10,7 @@
 use axum::http::HeaderMap;
 use web::api::google_auth::{origin, safe_next};
 
-const HARNESS: &str = "RedirectPolicyHarness/L0 Pure";
+const HARNESS: &str = "SecurityHarness/L0 Pure";
 
 fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
     let mut map = HeaderMap::new();

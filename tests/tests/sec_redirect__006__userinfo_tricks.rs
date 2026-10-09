@@ -1,7 +1,7 @@
 //! TST-SEC-REDIRECT-006: userinfo tricks.
-//! L0 Pure, RedirectPolicyHarness; exercises the production Google login/callback policy.
+//! L0 Pure, SecurityHarness; exercises the production Google login/callback policy.
 
-use test_harness::RedirectPolicyHarness;
+use test_harness::SecurityHarness;
 
 #[test]
 #[allow(non_snake_case)]
@@ -11,7 +11,7 @@ fn sec_redirect_006__userinfo_tricks() {
         "//portal.example@evil.example/portal",
         "https://evil.example@portal.example/portal",
     ] {
-        let target = RedirectPolicyHarness::redirect_target(Some(input));
+        let target = SecurityHarness::redirect_target(Some(input));
         assert_eq!(target, "/portal/dashboard", "input: {input:?}");
         // The accepted target must also be a valid Location header.
         let response =

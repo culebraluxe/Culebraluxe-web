@@ -1,5 +1,5 @@
 //! TST-SEC-REDIRECT-011: redirect loops.
-//! L0 Pure, RedirectPolicyHarness; exercises the production Google login/callback policy (`web::api::google_auth::safe_next`).
+//! L0 Pure, SecurityHarness; exercises the production Google login/callback policy (`web::api::google_auth::safe_next`).
 //!
 //! A `next` that names the sign-in or callback path is a loop the flow would walk back into. The policy contains it by
 //! being a function that reaches a FIXED POINT: a loop-back path is carried as same-origin data, applying the policy to
@@ -7,16 +7,16 @@
 //! destination can only ever be the path the operator asked for or the dashboard, never something a nested `next`
 //! escalated into.
 
-use test_harness::RedirectPolicyHarness;
+use test_harness::SecurityHarness;
 
 #[test]
 #[allow(non_snake_case)]
 fn sec_redirect_011__redirect_loops() {
     // The fallback is a fixed point and cannot re-enter the sign-in flow.
-    let default = RedirectPolicyHarness::redirect_target(None);
+    let default = SecurityHarness::redirect_target(None);
     assert_eq!(default, "/portal/dashboard");
     assert_eq!(
-        RedirectPolicyHarness::redirect_target(Some(&default)),
+        SecurityHarness::redirect_target(Some(&default)),
         default,
         "the fallback is stable under the policy"
     );
@@ -27,7 +27,7 @@ fn sec_redirect_011__redirect_loops() {
 
     // A refused input lands on that fixed point rather than looping back to itself.
     assert_eq!(
-        RedirectPolicyHarness::redirect_target(Some("//loop.example")),
+        SecurityHarness::redirect_target(Some("//loop.example")),
         default
     );
 
@@ -38,12 +38,12 @@ fn sec_redirect_011__redirect_loops() {
         "/api/auth/callback/google?code=x&next=/api/auth/callback/google?code=x",
         "/portal/clients",
     ] {
-        let once = RedirectPolicyHarness::redirect_target(Some(input));
+        let once = SecurityHarness::redirect_target(Some(input));
         assert_eq!(once, input, "input: {input:?}");
-        let twice = RedirectPolicyHarness::redirect_target(Some(&once));
+        let twice = SecurityHarness::redirect_target(Some(&once));
         assert_eq!(twice, once, "the policy is idempotent for {input:?}");
         assert_eq!(
-            RedirectPolicyHarness::redirect_target(Some(&twice)),
+            SecurityHarness::redirect_target(Some(&twice)),
             once,
             "and stays idempotent however many times it is applied: {input:?}"
         );

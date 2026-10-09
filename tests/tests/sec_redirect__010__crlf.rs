@@ -1,7 +1,7 @@
 //! TST-SEC-REDIRECT-010: crlf.
-//! L0 Pure, RedirectPolicyHarness; exercises the production Google login/callback policy.
+//! L0 Pure, SecurityHarness; exercises the production Google login/callback policy.
 
-use test_harness::RedirectPolicyHarness;
+use test_harness::SecurityHarness;
 
 #[test]
 #[allow(non_snake_case)]
@@ -12,7 +12,7 @@ fn sec_redirect_010__crlf() {
         "/portal/\nclients",
         "/portal/\0clients",
     ] {
-        let target = RedirectPolicyHarness::redirect_target(Some(input));
+        let target = SecurityHarness::redirect_target(Some(input));
         assert_eq!(target, "/portal/dashboard", "input: {input:?}");
         // The accepted target must also be a valid Location header.
         let response =

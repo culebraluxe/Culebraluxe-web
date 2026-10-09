@@ -1,7 +1,7 @@
 //! TST-SEC-REDIRECT-003: evil.
-//! L0 Pure, RedirectPolicyHarness; exercises the production Google login/callback policy.
+//! L0 Pure, SecurityHarness; exercises the production Google login/callback policy.
 
-use test_harness::RedirectPolicyHarness;
+use test_harness::SecurityHarness;
 
 #[test]
 #[allow(non_snake_case)]
@@ -11,7 +11,7 @@ fn sec_redirect_003__evil() {
         "///evil.example",
         "//portal.example@evil.example",
     ] {
-        let target = RedirectPolicyHarness::redirect_target(Some(input));
+        let target = SecurityHarness::redirect_target(Some(input));
         assert_eq!(target, "/portal/dashboard", "input: {input:?}");
         // The accepted target must also be a valid Location header.
         let response =

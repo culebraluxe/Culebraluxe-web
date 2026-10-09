@@ -352,3 +352,60 @@ The enumeration was stopped there deliberately: it is a survey, not this slice's
 target-dir lock while the push needs it. Whoever owns the queue should re-run it to the end (`cargo test -p cli -p
 test-harness --no-fail-fast`) rather than trust these two numbers as complete.
 
+## 13. CONVERGED (`lane/deep`, later the same day): one `SecurityHarness`, the two names deleted
+
+§11's naming lasted one landing. Captain's direction, 2026-10-08 (`b85e73937`): there is one actual harness —
+redirect policy through `web::api::google_auth`, identity resolution and entitlement decisions through the real
+`web::security::SecurityService` (`decide` runs the production Casbin port), durable audit through the production
+`DurableSecurityAuditPort`/`SecurityAuditDao` on the guarded DEV target — with `SecurityHarness::new()` as the
+no-DB form and `connect_from_env`/`connect_declared` adding persistence. `RedirectPolicyHarness` and
+`AuditPersistenceHarness` were left as *temporary aliases to that type* so trunk kept compiling while this lane
+migrated the callers. This section records that migration: the aliases are gone.
+
+**23 files, no behaviour change.** The 21 callers were renamed mechanically — the 17 `sec_redirect__*` cases
+(`RedirectPolicyHarness` -> `SecurityHarness`, module docs included) and the four `sec_audit__00[1-4]` cases
+(`AuditPersistenceHarness` -> `SecurityHarness`, their `connect_dev()` return type and the `const HARNESS` message a
+failure prints included). An alias is transparent, so no assertion, fixture or call moved. One export line remains
+(`tests/src/lib.rs:75`, `pub use security::{CommittedAuditRow, SecurityHarness};`) and the two `pub type` lines are
+deleted; the names survive only as a tombstone in the module doc (`tests/src/security.rs:16-19`), so an older branch
+can find out where they went.
+
+**Receipts** (measured 2026-10-08 in `lane/deep`, `.env.local` sourced; `test-harness` reports one warning, unused
+imports in `tests/src/crm.rs:24`, pre-existing and untouched — and with the aliases gone no `deprecated` warning is
+left anywhere):
+
+    cargo check -p test-harness --all-targets                       EXIT=0
+    cargo test -p test-harness <each of the 36 sec_* binaries> -- --include-ignored
+                                                                    EXIT=0, "36 passed; 0 failed; 0 ignored"
+                                                                    (the four SEC.AUDIT L2 cases ran against DEV)
+    rustfmt --edition 2021 --check <the 23 changed files>            EXIT=0
+
+**FMT.** `tests/src/security.rs` arrived drifted in `b85e73937`: rustfmt reflows the multi-line `sqlx::query` in
+`cleanup()` (`tests/src/security.rs:366`). This slice's FMT stage rewrote that one call — formatting only — and the
+estate above ran after it. §10.2's 181-file quiet-trunk pass is still open and still unowned.
+
+**T1.** This slice touches 23 files under `tests/`, so its section is `test-harness`; the estate above *is* that
+section, run to the end over the 36 named binaries instead of stopping at the first failing target. §12's two
+pre-existing red rows are in `cli`/`forge_arch_seam` targets and were not part of it. Nothing was narrowed to make
+anything green: no baseline, allow-list or triage row was edited, and no SEC case was skipped (0 ignored).
+
+**The identity/entitlement families stay where they are, and that is not a third harness.** They never held either
+name. `sec_audit__005` and the eight `sec_entitlement__*` L2 cases drive the production `SecurityService`/
+`ServiceRuntime` over `TestDatabase` + `SecurityDao`; the five `sec_role__*` L3 cases drive the production
+`CasbinAuthorizationPort` directly, with no database at all. Folding the entitlement *mutation* cases onto the
+canonical harness would not rename anything — it would change their subject: the harness's repository fixture is
+read-only by design (`set_role_entitlement` answers `SECURITY_HARNESS_READ_ONLY`, "role mutation belongs in a
+persistence contract", `tests/src/security.rs:427-436`), so a mutation contract driven through it would assert the
+harness's refusal instead of the DAO's write. Nothing in this lane was a competing harness either: `tests/src/`
+holds no `security_identity.rs`, and `grep -rn 'struct \w*Harness' tests/tests/*.rs` finds only the forge harnesses.
+
+**§11's steps 3 and 5 are superseded; a blocked branch follows this instead.** The reserved third name
+(`IdentitySecurityHarness`, `tests/src/security_identity.rs`) is *not* to be created: a branch carrying an
+identity/entitlement harness folds it onto `SecurityHarness` (its `resolve_identity`, `decide`, `principal`, the
+contexts, and — where it needs rows — `connect_from_env`/`rows_for`/`cleanup`) rather than landing a third type. A
+branch carrying a redirect or audit harness renames its own name to `SecurityHarness`, not to one of §11's two.
+`GuestHarness` stays unfolded deliberately: `mod guest` is private (`web/src/security/mod.rs:4`) and only
+`GuestSignInService`, `guest_mail_from_env` and `GUEST_EMAIL_CODE_PROVIDER` are re-exported (`:8-10`), so
+`GuestRepository` (`web/src/security/guest.rs:31`) is not a seam a contract test can name. A guest SEC test that
+needs one is a story about exposing that seam, not a façade to fake.
+

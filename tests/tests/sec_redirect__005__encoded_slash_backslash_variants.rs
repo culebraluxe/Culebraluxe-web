@@ -1,5 +1,5 @@
 //! TST-SEC-REDIRECT-005: encoded slash/backslash variants.
-//! L0 Pure, RedirectPolicyHarness; exercises the production Google login/callback policy (`web::api::google_auth::safe_next`).
+//! L0 Pure, SecurityHarness; exercises the production Google login/callback policy (`web::api::google_auth::safe_next`).
 //!
 //! The policy refuses a literal backslash right after the leading `/`, because every browser reads `/\evil.example`
 //! as `//evil.example` when it follows a `Location` header. A PERCENT-ENCODED backslash or slash is not that: the
@@ -7,7 +7,7 @@
 //! destination stays on-site. The two classes are asserted separately so a future "decode before validating" fix
 //! cannot quietly merge them.
 
-use test_harness::RedirectPolicyHarness;
+use test_harness::SecurityHarness;
 
 #[test]
 #[allow(non_snake_case)]
@@ -19,7 +19,7 @@ fn sec_redirect_005__encoded_slash_backslash_variants() {
         "/portal/%2e%2e/%2e%2e/etc/passwd",
         "/portal?next=//evil.example",
     ] {
-        let target = RedirectPolicyHarness::redirect_target(Some(input));
+        let target = SecurityHarness::redirect_target(Some(input));
         assert_eq!(target, input, "input: {input:?}");
         assert!(
             target.starts_with('/') && !target.starts_with("//") && !target.starts_with("/\\"),
@@ -38,7 +38,7 @@ fn sec_redirect_005__encoded_slash_backslash_variants() {
 
     // Literal backslashes are refused, encoded ones are not.
     for input in ["/\\evil.example", "/\\\\evil.example"] {
-        let target = RedirectPolicyHarness::redirect_target(Some(input));
+        let target = SecurityHarness::redirect_target(Some(input));
         assert_eq!(target, "/portal/dashboard", "input: {input:?}");
     }
 }

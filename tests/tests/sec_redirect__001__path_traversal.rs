@@ -10,7 +10,7 @@
 use axum::http::HeaderMap;
 use web::api::google_auth::{percent_decode, safe_next};
 
-const HARNESS: &str = "RedirectPolicyHarness/L0 Pure";
+const HARNESS: &str = "SecurityHarness/L0 Pure";
 
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-SEC-REDIRECT-001); the file and the assay use it.

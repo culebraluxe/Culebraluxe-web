@@ -12,8 +12,11 @@
 //!
 //! `SecurityHarness::new()` is the fast, no-database form. `connect_from_env` /
 //! `connect_declared` enable persistence and inherit `TestDatabase`'s fail-closed PROD guard.
-//! There is one actual harness type. The two aliases at the bottom are temporary compatibility
-//! names so existing callers keep compiling while Deep mechanically migrates them.
+//!
+//! There is exactly one security harness type. The compatibility aliases `RedirectPolicyHarness`
+//! and `AuditPersistenceHarness` — which for one landing kept callers compiling against this type
+//! — were deleted on 2026-10-08 once every SEC caller named `SecurityHarness` directly. They are
+//! named here only so an older branch can find out where they went; a new alias is not the fix.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -293,8 +296,8 @@ impl SecurityHarness {
         })
     }
 
-    /// Compatibility seam for existing L2 audit callers. New SEC tests should normally drive
-    /// the production service and inspect `audit_rows()`.
+    /// The production audit DAO this harness writes and reads through. New SEC tests should normally
+    /// drive the production service and inspect `audit_rows()` instead of reaching for the DAO.
     pub fn dao(&self) -> &SecurityAuditDao {
         &self
             .audit
@@ -355,16 +358,16 @@ impl SecurityHarness {
         self.rows_for(self.correlation_id()).await
     }
 
-    /// Explicit-marker cleanup retained for old audit callers during Deep's migration.
+    /// Delete exactly the audit rows carrying `marker`, on the pool the production DAO wrote to.
+    /// Returns the number of rows removed, so a test can assert DEV was left as it was found.
     pub async fn cleanup(&self, marker: &str) -> Result<u64, HarnessDbError> {
         let support = self.audit_support()?;
-        let result = sqlx::query(
-            "delete from security_audit_event where metadata->>'correlationId' = $1",
-        )
-        .bind(marker)
-        .execute(support.database.database().pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("test-harness.audit_cleanup", &error))?;
+        let result =
+            sqlx::query("delete from security_audit_event where metadata->>'correlationId' = $1")
+                .bind(marker)
+                .execute(support.database.database().pool())
+                .await
+                .map_err(|error| DbFailure::from_sqlx("test-harness.audit_cleanup", &error))?;
         Ok(result.rows_affected())
     }
 
@@ -448,14 +451,6 @@ impl SecurityRepository for SecurityHarness {
         ))
     }
 }
-
-/// Transitional compatibility names only: one implementation, one state model, one canonical type.
-/// Deep should mechanically change callers to `SecurityHarness`, then remove these aliases.
-#[deprecated(note = "use test_harness::SecurityHarness; caller migration is in progress")]
-pub type RedirectPolicyHarness = SecurityHarness;
-
-#[deprecated(note = "use test_harness::SecurityHarness; caller migration is in progress")]
-pub type AuditPersistenceHarness = SecurityHarness;
 
 #[cfg(test)]
 mod tests {

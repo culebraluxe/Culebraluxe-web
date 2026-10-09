@@ -9,6 +9,8 @@ Seven final canonical test binaries passed (one test each, zero ignored). Chris 
 TST-SEC-REDIRECT-001, 003, 004, 006, 007, 008 and 010. These seven failed stories had no canonical Rust test files. Added their exact canonical files/functions and SecurityHarness, which delegates to the production Google login/callback policy without duplicating it.
 
 _Update, 2026-10-08 (lane/deep)._ The `SecurityHarness` named above is the **redirect-policy** harness this batch added; the SEC.AUDIT batch had independently given its own, unrelated harness the same name, and the collision briefly left one type answering both questions. They are now named for their jobs — `RedirectPolicyHarness` (L0, this batch's) and `AuditPersistenceHarness` (L2, the audit batch's), both exported from `test_harness`. No behaviour changed: this batch's cases call `RedirectPolicyHarness::redirect_target`, which is the same call to `safe_next`. See `docs/agent/HANDOFF-MERGE-QUEUE-2026-10-08.md` §11.
+_Update 2, 2026-10-08 (lane/deep)._ That naming was itself temporary. `main` now holds **one** `SecurityHarness` (`b85e73937`), serving redirect policy, identity resolution, entitlement decisions and durable audit through production seams, and the two names quoted above are deleted. This batch's cases now call `SecurityHarness::redirect_target` — the same `safe_next` call, renamed only. See `docs/agent/HANDOFF-MERGE-QUEUE-2026-10-08.md` §13.
+
 
 ## Application defect
 

@@ -9,7 +9,7 @@
 
 use web::api::google_auth::{encode, percent_decode};
 
-const HARNESS: &str = "RedirectPolicyHarness/L0 Pure";
+const HARNESS: &str = "SecurityHarness/L0 Pure";
 
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-SEC-REDIRECT-004); the file and the assay use it.
