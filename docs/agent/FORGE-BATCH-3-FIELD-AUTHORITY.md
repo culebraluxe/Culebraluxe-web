@@ -111,7 +111,8 @@ when an operator can explicitly approve a typed plan and its hash. Do not synthe
 acceptance prose or convert old `acceptance_mapped` booleans. Historical receipts remain available
 for reporting but cannot certify a new run. Drain in-flight runs on the old snapshot contract
 before deploying migration 281 and the new adjudicator; new runs without a plan visibly stop at
-`ASSAY_PLAN_REQUIRED`. The migration has not been applied to Neon.
+`ASSAY_PLAN_REQUIRED`. Migration 281 has been applied to Neon DEV for this branch's integration
+verification; it has not been applied to production.
 
 ## Batch 1 integration and dependency points
 
@@ -126,9 +127,8 @@ measurement, then retries the atomic completion unit.
 Batch 1 Slices 3–4 are now in `origin/main` and this branch is rebased on that head. The rebase
 preserved their claim-fenced completion/recovery behavior together with the assay-link validation
 inside the final transaction. QA artifact writes stay outside the claim transaction: the complete
-receipt is durable before its verdict is applied. The current DEV integration test exercises the
-receipt link through Batch 1 completion replay and provenance persistence once migration 281 is
-available.
+receipt is durable before its verdict is applied. The DEV integration test exercises the receipt
+link through Batch 1 completion replay and provenance persistence against migration 281.
 
 ## Verification recorded for this branch
 
@@ -136,8 +136,9 @@ Verification on the branch: `cargo test -p forge --lib` (411 passed, 0 failed, 2
 `cargo test -p test-harness --test forge_runtime` (41 passed),
 `cargo test -p test-harness --test forge_assay__007__pass_requires_acceptance_mapped` (1 passed),
 `cargo check -p forge -p db`, the `forge_completion_receipt_dev` and `forge_assay_receipt_dev`
-integration-test binaries compiled with `--no-run`, `pnpm forge:packet-lint` (0 failures, 173 warnings, 157 baselined),
-`pnpm scripts:check` (54 shell files parse cleanly), `pnpm scan:migrations` (0 findings), and
-`git diff --check` all passed. The real-Postgres DEV test was not run because `DATABASE_URL_DEV` is
-unset, so migration execution, receipt uniqueness, and crash/recovery behavior against PostgreSQL
-remain unverified here. No paid model calls, Neon migration, or deployment were performed.
+integration-test binaries compiled with `--no-run`, and the ignored `forge_assay_receipt_dev`
+integration test ran against Neon DEV after migration 281 (1 passed). `pnpm forge:packet-lint`
+(0 failures, 173 warnings, 157 baselined), `pnpm scripts:check` (54 shell files parse cleanly),
+`pnpm scan:migrations` (0 findings), and `git diff --check` all passed. The DEV integration covers
+receipt idempotency, content conflict, failed persistence, durable provenance, and Batch 1
+completion replay/link. No production migration or deployment was performed.
