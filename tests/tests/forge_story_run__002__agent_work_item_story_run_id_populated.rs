@@ -84,6 +84,19 @@ async fn holders_of(pool: &PgPool, run_id: &str) -> Vec<String> {
     .expect("the run's holders are readable")
 }
 
+/// The authority the item row holds — the fence every claim write takes (migration 278). It is READ from the
+/// row rather than invented here: a test that guesses a generation proves something about the guess.
+async fn fence_of(pool: &sqlx::PgPool, item_id: &str) -> db::ClaimFence {
+    let (owner, generation): (Option<String>, i64) = sqlx::query_as(
+        "select claimed_by, claim_generation from agent_work_item where id = $1::uuid",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .expect("the claim fence reads back");
+    db::ClaimFence::new(owner.unwrap_or_default(), generation)
+}
+
 #[tokio::test]
 #[ignore = "needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket"]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-FORGE-STORY-RUN-002); the file and the assay use it.
@@ -108,7 +121,7 @@ async fn forge_story_run_002__agent_work_item_story_run_id_populated() {
         .expect("the owner claims");
 
     let begun = engine
-        .begin_agent_work_run(&item)
+        .begin_agent_work_run(&item, &fence_of(&pool, &item).await)
         .await
         .unwrap()
         .expect("the live claim opens the run");

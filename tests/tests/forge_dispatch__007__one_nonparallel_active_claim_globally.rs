@@ -266,18 +266,20 @@ async fn forge_dispatch_007__one_nonparallel_active_claim_globally() {
 
     // The item is currently Claimed. Finish it with outcome 'Done'.
     let finish_result = harness
-        .engine()
-        .finish_agent_work_run(
-            &item1,
-            AgentWorkOutcome::Done,
-            Some("Test settlement"),
-            None,
-        )
+        .settle_claim(&item1, AgentWorkOutcome::Done, Some("Test settlement"))
         .await;
     assert!(finish_result.is_ok(), "finish_agent_work_run succeeds");
     let finished = finish_result.unwrap();
-    assert!(finished.is_some(), "item was finished");
-    assert_eq!(finished.unwrap().item_state, "Done", "item state is Done");
+    assert!(
+        finished.wrote(),
+        "item was finished by this settle (got {})",
+        finished.name()
+    );
+    assert_eq!(
+        finished.settlement().map(|pair| pair.item_state.as_str()),
+        Some("Done"),
+        "item state is Done"
+    );
 
     // Now no active serial claims globally (Done is not active).
     let active2 = active_serial_claims(pool, &format!("{PROOF_PREFIX}%-{ns}")).await;

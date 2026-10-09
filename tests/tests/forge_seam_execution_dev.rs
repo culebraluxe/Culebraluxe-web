@@ -23,6 +23,19 @@ async fn delete_story(pool: &sqlx::PgPool, story_id: &str) {
 
 /// SEAM-DB-002 — a story walks `Planned → Ready → claimed → running` with exactly one work item and a Story Run
 /// that is actually opened, stamped on the item, and committed.
+/// The authority the item row holds — the fence every claim write takes (migration 278). It is READ from the
+/// row rather than invented here: a test that guesses a generation proves something about the guess.
+async fn fence_of(pool: &sqlx::PgPool, item_id: &str) -> db::ClaimFence {
+    let (owner, generation): (Option<String>, i64) = sqlx::query_as(
+        "select claimed_by, claim_generation from agent_work_item where id = $1::uuid",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .expect("the claim fence reads back");
+    db::ClaimFence::new(owner.unwrap_or_default(), generation)
+}
+
 #[tokio::test]
 #[ignore = "needs DATABASE_URL_DEV"]
 async fn story_dispatches_through_run_open() {
@@ -76,7 +89,7 @@ async fn story_dispatches_through_run_open() {
         .expect("claim");
     assert_eq!(claimed.state, "Claimed");
     let begun = engine
-        .begin_agent_work_run(&item)
+        .begin_agent_work_run(&item, &fence_of(&pool, &item).await)
         .await
         .unwrap()
         .expect("begin");
@@ -153,7 +166,7 @@ async fn engine_fault_clears_the_pair_and_rules_nothing() {
         .unwrap()
         .expect("claim");
     engine
-        .begin_agent_work_run(&item)
+        .begin_agent_work_run(&item, &fence_of(&pool, &item).await)
         .await
         .unwrap()
         .expect("begin");
@@ -163,13 +176,21 @@ async fn engine_fault_clears_the_pair_and_rules_nothing() {
     let cleared = engine
         .finish_agent_work_run(
             &item,
+            &fence_of(&pool, &item).await,
             AgentWorkOutcome::Abandoned,
             Some("DatabaseUnavailable during workflow.step (sqlstate 25P03)"),
-            None,
         )
         .await
-        .unwrap()
-        .expect("the engine-fault settle must land");
+        .unwrap();
+    assert!(
+        cleared.wrote(),
+        "the engine-fault settle must land (got {})",
+        cleared.name()
+    );
+    let cleared = cleared
+        .settlement()
+        .cloned()
+        .expect("a written settle carries its pair");
     assert_eq!(cleared.item_state, "Ready");
     assert_eq!(cleared.story_status.as_deref(), Some("Ready"));
 
@@ -286,20 +307,24 @@ async fn retry_exhaustion_terminates_the_pair() {
             "a claim counts its attempt"
         );
         engine
-            .begin_agent_work_run(&item)
+            .begin_agent_work_run(&item, &fence_of(&pool, &item).await)
             .await
             .unwrap()
             .expect("begin");
-        let settled = engine
+        let answer = engine
             .finish_agent_work_run(
                 &item,
+                &fence_of(&pool, &item).await,
                 AgentWorkOutcome::Abandoned,
                 Some("still broken"),
-                None,
             )
             .await
-            .unwrap()
-            .expect("settle");
+            .unwrap();
+        assert!(answer.wrote(), "settle (got {})", answer.name());
+        let settled = answer
+            .settlement()
+            .cloned()
+            .expect("a written settle carries its pair");
         if expected_attempt < 3 {
             assert_eq!(
                 settled.item_state, "Ready",
@@ -335,11 +360,16 @@ async fn retry_exhaustion_terminates_the_pair() {
         "an exhausted item must not be claimable"
     );
     assert!(
-        engine
-            .finish_agent_work_run(&item, AgentWorkOutcome::Abandoned, Some("again"), None)
+        !engine
+            .finish_agent_work_run(
+                &item,
+                &fence_of(&pool, &item).await,
+                AgentWorkOutcome::Abandoned,
+                Some("again")
+            )
             .await
             .unwrap()
-            .is_none(),
+            .wrote(),
         "an exhausted item must not settle again"
     );
 

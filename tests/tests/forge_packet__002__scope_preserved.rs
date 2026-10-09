@@ -126,6 +126,19 @@ async fn reap_namespace(pool: &PgPool, namespace: &str) -> u64 {
         .rows_affected()
 }
 
+/// The authority the item row holds — the fence every claim write takes (migration 278). It is READ from the
+/// row rather than invented here: a test that guesses a generation proves something about the guess.
+async fn fence_of(pool: &sqlx::PgPool, item_id: &str) -> db::ClaimFence {
+    let (owner, generation): (Option<String>, i64) = sqlx::query_as(
+        "select claimed_by, claim_generation from agent_work_item where id = $1::uuid",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .expect("the claim fence reads back");
+    db::ClaimFence::new(owner.unwrap_or_default(), generation)
+}
+
 #[tokio::test]
 #[ignore = "needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket"]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-FORGE-PACKET-002); the file and the assay use it.
@@ -188,7 +201,7 @@ async fn forge_packet_002__scope_preserved() {
         .unwrap()
         .expect("the authored item is claimable");
     engine
-        .begin_agent_work_run(&authored_item)
+        .begin_agent_work_run(&authored_item, &fence_of(&pool, &authored_item).await)
         .await
         .unwrap()
         .expect("the authored claim opens a run");
@@ -208,7 +221,7 @@ async fn forge_packet_002__scope_preserved() {
         .unwrap()
         .expect("the blank item is claimable");
     engine
-        .begin_agent_work_run(&blank_item)
+        .begin_agent_work_run(&blank_item, &fence_of(&pool, &blank_item).await)
         .await
         .unwrap()
         .expect("the blank claim opens a run");

@@ -71,6 +71,43 @@ fn reject_configuration(work_item: Option<&str>, reason: &str) {
     }
 }
 
+/// The claim this process is executing under, read from the launch (migration 278).
+///
+/// `--work-item` says WHICH claim; `--claim-owner` and `--claim-generation` say WHOSE. The worker passes all three,
+/// because it is the process that took the claim. The pair is required together: a run that names a work item but
+/// not the authority it executes under cannot be fenced, and an unfenceable run is exactly what lets a superseded
+/// execution begin, beat and settle a claim its successor now owns.
+///
+/// A missing generation is the pre-278 authority (0), which is the authority of an item claimed by a worker that
+/// does not know about generations — that is what makes a mixed-version drain safe (`FORGE-B1` §10.8).
+fn claim_fence_from_args(args: &[String], work_item: &str) -> Result<db::ClaimFence, String> {
+    let owner = flag(args, "--claim-owner")
+        .or_else(|| env::var("FORGE_CLAIM_OWNER").ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let Some(owner) = owner else {
+        return Err(format!(
+            "--work-item {work_item} without --claim-owner cannot be fenced (migration 278).\n\
+             A claim's authority is (owner, generation) and only the process that took the claim has it.\n\
+             Read it with:\n\
+             \x20 select claimed_by, claim_generation from agent_work_item where id = '{work_item}';\n\
+             then pass --claim-owner <claimed_by> --claim-generation <claim_generation>.\n\
+             To run a story with no queue claim at all, drop --work-item."
+        ));
+    };
+    let generation = match flag(args, "--claim-generation")
+        .or_else(|| env::var("FORGE_CLAIM_GENERATION").ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        Some(raw) => raw
+            .parse::<i64>()
+            .map_err(|error| format!("invalid --claim-generation {raw}: {error}"))?,
+        None => 0,
+    };
+    Ok(db::ClaimFence::new(owner, generation))
+}
+
 /// The run's own terminal write, on the way out of `main`: the item **and its story**, decided together in the
 /// database (`db::settlement_pair`).
 ///
@@ -78,28 +115,38 @@ fn reject_configuration(work_item: Option<&str>, reason: &str) {
 /// settles a child only when it exits non-zero, and stale recovery then requeues whatever is left — which is how a
 /// claim whose work had already landed could be handed to a second run. A verdict this process failed to write must
 /// not look like a verdict it wrote.
+///
+/// The `Option` is the pair the DATABASE holds after the call, not a claim that this call wrote it: the name of the
+/// answer (`settled`, `duplicate`, `released`, `conflict`, `refused_ownership`, `not_found`) is printed with it,
+/// and only `settled` means the row moved here.
 fn settle_work_item(
     work_item: Option<&str>,
+    fence: Option<&db::ClaimFence>,
     outcome: AgentWorkOutcome,
     reason: Option<&str>,
 ) -> Result<Option<AgentWorkSettlement>, String> {
-    let Some(item) = work_item else {
+    let (Some(item), Some(fence)) = (work_item, fence) else {
         return Ok(None);
     };
-    match agent_work::finish_agent_work_run(item, outcome, reason, None) {
-        Ok(Some(settled)) => {
-            eprintln!("work_item={item} state={}", settled.item_state);
-            if let Some(status) = &settled.story_status {
-                eprintln!("work_item={item} story set to {status} with its item");
+    match agent_work::finish_agent_work_run(item, fence, outcome, reason) {
+        Ok(answer) => {
+            // The answer is printed by NAME. The old code printed one message for four different facts, and
+            // "already had a verdict" covered "this claim is not yours" — the sentence that let a superseded run
+            // read as a settled one.
+            let pair = answer.settlement().cloned();
+            match pair.as_ref() {
+                Some(pair) => eprintln!(
+                    "work_item={item} {}: item={} story={}",
+                    answer.name(),
+                    pair.item_state,
+                    pair.story_status.as_deref().unwrap_or("unchanged")
+                ),
+                None => eprintln!("work_item={item} {}", answer.name()),
             }
-            if let Some(ref refusal) = settled.reason {
+            if let Some(refusal) = pair.as_ref().and_then(|pair| pair.reason.as_deref()) {
                 eprintln!("work_item={item} {refusal}");
             }
-            Ok(Some(settled))
-        }
-        Ok(None) => {
-            eprintln!("work_item={item} already had a verdict; left as-is");
-            Ok(None)
+            Ok(pair)
         }
         Err(error) => {
             eprintln!("work_item={item} could not be settled: {error}");
@@ -165,6 +212,18 @@ fn main() {
         .or_else(|| env::var("FORGE_WORK_ITEM_ID").ok())
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
+    // The authority this run executes under. Fail fast, before any claim is moved or any model turn is paid for:
+    // a run that cannot be fenced must not start (migration 278, and `FORGE-B1` §10.4).
+    let claim_fence = match work_item.as_deref() {
+        Some(item) => match claim_fence_from_args(&args, item) {
+            Ok(fence) => Some(fence),
+            Err(refusal) => {
+                eprintln!("forge: {refusal}");
+                std::process::exit(2);
+            }
+        },
+        None => None,
+    };
     let story = flag(&args, "--story")
         .or_else(|| env::var("FORGE_STORY_ID").ok())
         .unwrap_or_default();
@@ -310,6 +369,7 @@ fn main() {
             );
             if settle_work_item(
                 work_item.as_deref(),
+                claim_fence.as_ref(),
                 AgentWorkOutcome::Abandoned,
                 Some(&format!("story packet: {e}")),
             )
@@ -346,7 +406,13 @@ fn main() {
     let mut run_model_policy: Option<String> = None;
     let mut run_launch_intent: Option<String> = None;
     if let Some(item) = work_item.as_deref() {
-        match agent_work::begin_agent_work_run(item) {
+        // The fence is present whenever a work item is (checked at argument parsing), so this is the authority the
+        // worker granted, not a name guessed from the launch.
+        let Some(fence) = claim_fence.as_ref() else {
+            eprintln!("forge: no claim fence for work item {item}; refusing to run");
+            std::process::exit(2);
+        };
+        match agent_work::begin_agent_work_run(item, fence) {
             Ok(Some(begin)) => {
                 let policy = begin.execution_policy.clone();
                 story_run_id = Some(begin.story_run_id.clone());
@@ -372,6 +438,7 @@ fn main() {
                     eprintln!("{reason} (set FORGE_ATTENDED=1 for a deliberate, attended run)");
                     if settle_work_item(
                         work_item.as_deref(),
+                        claim_fence.as_ref(),
                         AgentWorkOutcome::Abandoned,
                         Some(&reason),
                     )
@@ -452,6 +519,7 @@ fn main() {
             eprintln!("{e}");
             if settle_work_item(
                 work_item.as_deref(),
+                claim_fence.as_ref(),
                 AgentWorkOutcome::Abandoned,
                 Some(&format!("{e}")),
             )
@@ -509,6 +577,7 @@ fn main() {
                             eprintln!("base_commit_hash: {e}");
                             if settle_work_item(
                                 work_item.as_deref(),
+                                claim_fence.as_ref(),
                                 AgentWorkOutcome::Abandoned,
                                 Some(&format!("base_commit_hash: {e}")),
                             )
@@ -528,6 +597,7 @@ fn main() {
                 // A workspace that could not be provisioned is the engine's own plumbing: the story never ran.
                 if settle_work_item(
                     work_item.as_deref(),
+                    claim_fence.as_ref(),
                     AgentWorkOutcome::Abandoned,
                     Some(&format!("provision: {e}")),
                 )
@@ -553,6 +623,7 @@ fn main() {
                     eprintln!("base_commit_hash: {e}");
                     if settle_work_item(
                         work_item.as_deref(),
+                        claim_fence.as_ref(),
                         AgentWorkOutcome::Abandoned,
                         Some(&format!("base_commit_hash: {e}")),
                     )
@@ -567,6 +638,7 @@ fn main() {
                 eprintln!("base_commit_hash: {e}");
                 if settle_work_item(
                     work_item.as_deref(),
+                    claim_fence.as_ref(),
                     AgentWorkOutcome::Abandoned,
                     Some(&format!("base_commit_hash: {e}")),
                 )
@@ -669,8 +741,13 @@ fn main() {
         }) => {
             println!("{line}");
             eprintln!("work_item ended on a failure hold: {reason}");
-            if settle_work_item(work_item.as_deref(), AgentWorkOutcome::Error, Some(&reason))
-                .is_err()
+            if settle_work_item(
+                work_item.as_deref(),
+                claim_fence.as_ref(),
+                AgentWorkOutcome::Error,
+                Some(&reason),
+            )
+            .is_err()
             {
                 eprintln!("work_item could not be settled; the claim is left to recovery");
             }
@@ -678,7 +755,12 @@ fn main() {
         }
         Ok(DriveSummary { line: summary, .. }) => {
             println!("{summary}");
-            let settled = settle_work_item(work_item.as_deref(), AgentWorkOutcome::Done, None);
+            let settled = settle_work_item(
+                work_item.as_deref(),
+                claim_fence.as_ref(),
+                AgentWorkOutcome::Done,
+                None,
+            );
             match settled {
                 // The engine returns `Ok` for runs the board does not call finished — `exhausted`, the step cap, a
                 // wave blocked on a missing ready task. The pair refuses `Done` for those and records `Error` with
@@ -715,7 +797,14 @@ fn main() {
             } else {
                 AgentWorkOutcome::Error
             };
-            if settle_work_item(work_item.as_deref(), outcome, Some(&error)).is_err() {
+            if settle_work_item(
+                work_item.as_deref(),
+                claim_fence.as_ref(),
+                outcome,
+                Some(&error),
+            )
+            .is_err()
+            {
                 eprintln!("work_item could not be settled; the claim is left to recovery");
             }
             std::process::exit(1);

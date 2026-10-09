@@ -35,6 +35,32 @@ pub struct AgentWorkItem {
     pub model_policy: Option<String>,
     pub stop_after: Option<String>,
     pub launch_intent: Option<String>,
+    /// The authority this claim holds (migration 278): the generation the claim statement bumped. It travels with
+    /// the claim — into the worker, into the child envelope, and into every fenced write — so the process that
+    /// executes a claim is the only one that can begin, beat or settle it.
+    pub claim_generation: i64,
+}
+
+impl AgentWorkItem {
+    /// The authority this claim holds, or `None` when the row names no owner.
+    ///
+    /// A claimed row always has an owner (the claim statement sets both together), so `None` here means the row was
+    /// not claimed — and a claim with no owner has no authority to exercise. Callers get `Result` rather than a
+    /// default generation, because defaulting to 0 would hand out the pre-278 authority of a claim nobody holds.
+    pub fn fence(&self) -> Result<db::ClaimFence, String> {
+        let owner = self
+            .claimed_by
+            .as_deref()
+            .map(str::trim)
+            .filter(|owner| !owner.is_empty())
+            .ok_or_else(|| {
+                format!(
+                    "work item {} names no owner; a claim with no owner has no authority to fence",
+                    self.id
+                )
+            })?;
+        Ok(db::ClaimFence::new(owner, self.claim_generation))
+    }
 }
 
 fn map(row: db::ForgeAgentWorkRow) -> AgentWorkItem {
@@ -50,6 +76,7 @@ fn map(row: db::ForgeAgentWorkRow) -> AgentWorkItem {
         model_policy: row.model_policy,
         stop_after: row.stop_after,
         launch_intent: row.launch_intent,
+        claim_generation: row.claim_generation,
     }
 }
 
@@ -91,11 +118,14 @@ pub fn claim_next_agent_work(worker_id: &str) -> Result<Option<AgentWorkItem>, S
 /// `Claimed → Running`, opening the run this claim executes, with the specification snapshotted into it by the
 /// insert itself (`begin_agent_work_run` copies `storyboard_story`'s twelve specification columns — migration 024
 /// §2: "snapshotted into `storyboard_story_run` when execution begins").
-pub fn begin_agent_work_run(work_item_id: &str) -> Result<Option<db::BeginAgentWorkRun>, String> {
+pub fn begin_agent_work_run(
+    work_item_id: &str,
+    claim: &db::ClaimFence,
+) -> Result<Option<db::BeginAgentWorkRun>, String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
-            dao.begin_agent_work_run(work_item_id)
+            dao.begin_agent_work_run(work_item_id, claim)
                 .await
                 .map_err(|error| error.to_string())
         })
@@ -128,20 +158,24 @@ pub fn reject_agent_work_configuration(work_item_id: &str, evidence: &str) -> Re
 
 /// The run's own terminal write — the item **and its story**, decided together inside one transaction.
 ///
-/// `Ok(None)` means the row was no longer claimable: a settle that raced another settle and lost, which is reported,
-/// not retried. `Ok(Some(settled))` carries the pair that was actually written, including the case where a `Done`
+/// `Ok(Some(settled))` carries the pair that was actually written, including the case where a `Done`
 /// was refused in favour of `Error` because the board never confirmed completion — the caller must not report a
 /// `Done` the database did not accept.
+///
+/// The fence is the claim (migration 278): the write happens only for the execution that holds
+/// `(owner, generation)`, and every other answer is a named variant rather than `None`. A superseded execution
+/// asking to settle its successor's claim gets [`db::SettlementResult::RefusedOwnership`]; the same execution
+/// asking twice gets `Duplicate`.
 pub fn finish_agent_work_run(
     work_item_id: &str,
+    claim: &db::ClaimFence,
     outcome: db::AgentWorkOutcome,
     error_text: Option<&str>,
-    idempotency_key: Option<&str>,
-) -> Result<Option<db::AgentWorkSettlement>, String> {
+) -> Result<db::SettlementResult, String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
-            dao.finish_agent_work_run(work_item_id, outcome, error_text, idempotency_key)
+            dao.finish_agent_work_run(work_item_id, claim, outcome, error_text)
                 .await
                 .map_err(|error| error.to_string())
         })
@@ -185,16 +219,20 @@ mod execution_policy_tests {
     }
 }
 
-/// Touch the claim so `stale_agent_work` does not requeue a run that is still alive. False = no longer claimable.
+/// Touch the claim so `stale_agent_work` does not requeue a run that is still alive.
+///
+/// Fenced by the claim (migration 278), not by the worker's name: the lease this beat renews is the lease of the
+/// exact execution that holds it. False = no longer claimable (settled, reassigned, or reclaimed after the lease
+/// expired), which the caller reads as "stop heartbeating and stop the child", never as an error.
 pub fn heartbeat_agent_work(
     work_item_id: &str,
-    worker_id: &str,
+    claim: &db::ClaimFence,
     lease_ttl: std::time::Duration,
 ) -> Result<bool, String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
-            dao.heartbeat_agent_work(work_item_id, worker_id, lease_ttl)
+            dao.heartbeat_agent_work(work_item_id, claim, lease_ttl)
                 .await
                 .map_err(|error| error.to_string())
         })

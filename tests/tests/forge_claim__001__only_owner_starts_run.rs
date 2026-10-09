@@ -169,6 +169,19 @@ async fn run_rows(pool: &PgPool, story_id: &str) -> Vec<(String, bool, bool, Str
     .expect("the story's runs are readable")
 }
 
+/// The authority the item row holds — the fence every claim write takes (migration 278). It is READ from the
+/// row rather than invented here: a test that guesses a generation proves something about the guess.
+async fn fence_of(pool: &sqlx::PgPool, item_id: &str) -> db::ClaimFence {
+    let (owner, generation): (Option<String>, i64) = sqlx::query_as(
+        "select claimed_by, claim_generation from agent_work_item where id = $1::uuid",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .expect("the claim fence reads back");
+    db::ClaimFence::new(owner.unwrap_or_default(), generation)
+}
+
 #[tokio::test]
 #[ignore = "needs DATABASE_URL_DEV (a disposable DEV branch); TestDatabase refuses PROD before any socket"]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-FORGE-CLAIM-001); the file and the assay use it.
@@ -257,7 +270,7 @@ async fn forge_claim_001__only_owner_starts_run() {
         "{HARNESS}: no run exists before the owner begins"
     );
     let run = engine
-        .begin_agent_work_run(&owned_item)
+        .begin_agent_work_run(&owned_item, &fence_of(&pool, &owned_item).await)
         .await
         .unwrap()
         .expect("the owner's live Claimed row must open its run");
@@ -330,7 +343,7 @@ async fn forge_claim_001__only_owner_starts_run() {
     );
     assert!(
         engine
-            .begin_agent_work_run(&owned_item)
+            .begin_agent_work_run(&owned_item, &fence_of(&pool, &owned_item).await)
             .await
             .unwrap()
             .is_none(),
@@ -430,7 +443,7 @@ async fn forge_claim_001__only_owner_starts_run() {
     let requeued_durable = durable_item_row(&pool, &requeued_item).await;
     assert!(
         engine
-            .begin_agent_work_run(&requeued_item)
+            .begin_agent_work_run(&requeued_item, &fence_of(&pool, &requeued_item).await)
             .await
             .unwrap()
             .is_none(),
@@ -454,7 +467,7 @@ async fn forge_claim_001__only_owner_starts_run() {
     let unowned_durable = durable_item_row(&pool, &unowned_item).await;
     assert!(
         engine
-            .begin_agent_work_run(&unowned_item)
+            .begin_agent_work_run(&unowned_item, &fence_of(&pool, &unowned_item).await)
             .await
             .unwrap()
             .is_none(),
@@ -462,7 +475,10 @@ async fn forge_claim_001__only_owner_starts_run() {
     );
     assert!(
         engine
-            .begin_agent_work_run(&uuid::Uuid::new_v4().to_string())
+            .begin_agent_work_run(
+                &uuid::Uuid::new_v4().to_string(),
+                &db::ClaimFence::new(OWNER_A, 0)
+            )
             .await
             .unwrap()
             .is_none(),
@@ -489,12 +505,14 @@ async fn forge_claim_001__only_owner_starts_run() {
     engine
         .finish_agent_work_run(
             &owned_item,
+            &fence_of(&pool, &owned_item).await,
             AgentWorkOutcome::Cancelled,
             Some("proof cleanup"),
-            None,
         )
         .await
         .unwrap()
+        .settlement()
+        .cloned()
         .expect("the owner settles its own run");
     let (state, _, _) = item_row(&pool, &owned_item).await;
     assert_eq!(
@@ -504,7 +522,7 @@ async fn forge_claim_001__only_owner_starts_run() {
     let settled_durable = durable_item_row(&pool, &owned_item).await;
     assert!(
         engine
-            .begin_agent_work_run(&owned_item)
+            .begin_agent_work_run(&owned_item, &fence_of(&pool, &owned_item).await)
             .await
             .unwrap()
             .is_none(),

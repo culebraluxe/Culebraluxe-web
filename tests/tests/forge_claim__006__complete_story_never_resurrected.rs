@@ -67,8 +67,7 @@ async fn forge_claim_006__complete_story_never_resurrected() {
         .expect("the production claim runs")
         .expect("a Ready item must be claimable");
     harness
-        .engine()
-        .begin_agent_work_run(&item)
+        .begin_claim(&item)
         .await
         .expect("the production begin runs")
         .expect("a Claimed item must open its run");
@@ -78,11 +77,9 @@ async fn forge_claim_006__complete_story_never_resurrected() {
         .await
         .expect("the board confirms the work landed");
     let settlement = harness
-        .engine()
-        .finish_agent_work_run(&item, AgentWorkOutcome::Done, None, None)
+        .settle_claim_writing(&item, AgentWorkOutcome::Done, None)
         .await
-        .expect("the production settle runs")
-        .expect("Done over a Complete board must settle");
+        .expect("the production settle runs");
     assert_eq!(
         settlement.item_state, "Done",
         "{HARNESS}: the claim settles Done"
@@ -94,14 +91,16 @@ async fn forge_claim_006__complete_story_never_resurrected() {
     assert_eq!(story_status(pool, &landed_story).await, "Complete");
 
     // Exactly-once: a second settle is a no-op, not a second verdict.
+    // Exactly-once: a second settle is a no-op, not a second verdict. Read as the WRITE it is not — the typed
+    // answer (migration 278) says which fact it is instead of collapsing them into `None`.
     let second = harness
-        .engine()
-        .finish_agent_work_run(&item, AgentWorkOutcome::Done, None, None)
+        .settle_claim(&item, AgentWorkOutcome::Done, None)
         .await
         .expect("the production settle runs");
-    assert_eq!(
-        second, None,
-        "{HARNESS}: a settled claim settles exactly once — the guard makes a second settle a no-op"
+    assert!(
+        !second.wrote(),
+        "{HARNESS}: a settled claim settles exactly once — the guard makes a second settle a no-op (got {})",
+        second.name()
     );
 
     // The recovery sweep cannot resurrect it: the guard's `state in (...)` admits no terminal row.
@@ -160,17 +159,14 @@ async fn forge_claim_006__complete_story_never_resurrected() {
         .expect("the production claim runs")
         .expect("a Ready item must be claimable");
     harness
-        .engine()
-        .begin_agent_work_run(&refused_item)
+        .begin_claim(&refused_item)
         .await
         .expect("the production begin runs")
         .expect("a Claimed item must open its run");
     let refused = harness
-        .engine()
-        .finish_agent_work_run(&refused_item, AgentWorkOutcome::Done, None, None)
+        .settle_claim_writing(&refused_item, AgentWorkOutcome::Done, None)
         .await
-        .expect("the production settle runs")
-        .expect("the refusal still settles the claim");
+        .expect("the production settle runs");
     assert_eq!(
         refused.item_state, "Error",
         "{HARNESS}: Done without the board's confirmation is REFUSED — the item records Error"

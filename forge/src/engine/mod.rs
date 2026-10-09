@@ -120,7 +120,7 @@ pub use split_join::{reduce_split, split_join_hold_reasons};
 pub use self_heal::{attempt_budget, build_self_heal_directive};
 pub use worktree::{derive_branch_name, derive_worktree_path, provision_worker_workspace};
 
-pub use agent_work::{claim_next_agent_work, claim_specific_agent_work};
+pub use agent_work::{claim_next_agent_work, claim_specific_agent_work, AgentWorkItem};
 pub use workspace_id::{forge_execution_generation_key, resolve_forge_execution_run_id};
 
 pub use decisions::{lane_needs_decisions, list_active_decisions, with_decision_context};

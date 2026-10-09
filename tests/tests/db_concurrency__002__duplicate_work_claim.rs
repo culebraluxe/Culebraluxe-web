@@ -234,16 +234,14 @@ async fn db_concurrency_002__duplicate_work_claim() {
     );
     assert!(
         harness
-            .engine()
-            .finish_agent_work_run(
+            .settle_claim(
                 &settled,
                 AgentWorkOutcome::Cancelled,
                 Some("settled by the proof"),
-                None,
             )
             .await
             .expect("the settle answers")
-            .is_some(),
+            .wrote(),
         "{HARNESS}: the claimed item settles as Cancelled"
     );
     assert_eq!(

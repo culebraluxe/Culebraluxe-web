@@ -77,8 +77,7 @@ async fn forge_claim_005__lost_heartbeat_eventually_requeues() {
             .expect("the production claim runs")
             .expect("a Ready item must be claimable");
         harness
-            .engine()
-            .begin_agent_work_run(&item)
+            .begin_claim(&item)
             .await
             .expect("the production begin runs")
             .expect("a Claimed item must open its run");
@@ -100,8 +99,7 @@ async fn forge_claim_005__lost_heartbeat_eventually_requeues() {
     // Only the live twin heartbeats — the difference under test is exactly one heartbeat.
     assert!(
         harness
-            .engine()
-            .heartbeat_agent_work(&live_item, LIVE_OWNER, std::time::Duration::from_secs(300))
+            .beat_claim(&live_item, std::time::Duration::from_secs(300))
             .await
             .expect("the production heartbeat runs"),
         "{HARNESS}: the live twin's heartbeat must hold"

@@ -30,6 +30,19 @@ async fn cleanup_story(pool: &sqlx::PgPool, story_id: &str) {
         .await;
 }
 
+/// The authority the item row holds — the fence every claim write takes (migration 278). It is READ from the
+/// row rather than invented here: a test that guesses a generation proves something about the guess.
+async fn fence_of(pool: &sqlx::PgPool, item_id: &str) -> db::ClaimFence {
+    let (owner, generation): (Option<String>, i64) = sqlx::query_as(
+        "select claimed_by, claim_generation from agent_work_item where id = $1::uuid",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .expect("the claim fence reads back");
+    db::ClaimFence::new(owner.unwrap_or_default(), generation)
+}
+
 #[tokio::test]
 #[ignore = "needs DATABASE_URL_DEV"]
 async fn a_second_story_is_claimed_while_a_peer_runs_and_one_story_still_cannot_be_doubled() {
@@ -101,7 +114,7 @@ async fn a_second_story_is_claimed_while_a_peer_runs_and_one_story_still_cannot_
     );
     assert_eq!(claim_a.state, "Claimed");
     let run_a = engine
-        .begin_agent_work_run(&claim_a.id)
+        .begin_agent_work_run(&claim_a.id, &fence_of(&pool, &claim_a.id).await)
         .await
         .unwrap()
         .expect("Claimed -> Running must open the run");
@@ -122,7 +135,7 @@ async fn a_second_story_is_claimed_while_a_peer_runs_and_one_story_still_cannot_
         "two workers must never hold one story"
     );
     let run_b = engine
-        .begin_agent_work_run(&claim_b.id)
+        .begin_agent_work_run(&claim_b.id, &fence_of(&pool, &claim_b.id).await)
         .await
         .unwrap()
         .expect("Claimed -> Running must open story B's run");
@@ -198,9 +211,9 @@ async fn a_second_story_is_claimed_while_a_peer_runs_and_one_story_still_cannot_
         engine
             .finish_agent_work_run(
                 &claim.id,
+                &fence_of(&pool, &claim.id).await,
                 db::AgentWorkOutcome::Abandoned,
                 Some("proof cleanup"),
-                None,
             )
             .await
             .expect("the proof must be able to put its own claims back");

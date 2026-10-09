@@ -36,11 +36,14 @@ async fn story_status(pool: &sqlx::PgPool, story_id: &str) -> String {
 }
 
 /// One engine-fault cycle through the production path: claim, begin, abandon.
+///
+/// The settle must have WRITTEN the pair (migration 278's typed answer), so the return type is the answer's pair
+/// and a refusal would fail here rather than flow on as a settlement nobody made.
 async fn abandon_cycle(
     harness: &ForgeHarness,
     _story: &str,
     item: &str,
-) -> Option<db::AgentWorkSettlement> {
+) -> db::AgentWorkSettlement {
     harness
         .engine()
         .claim_specific_agent_work(item, OWNER)
@@ -48,18 +51,15 @@ async fn abandon_cycle(
         .expect("the production claim runs")
         .expect("a Ready item must be claimable");
     harness
-        .engine()
-        .begin_agent_work_run(item)
+        .begin_claim(item)
         .await
         .expect("the production begin runs")
         .expect("a Claimed item must open its run");
     harness
-        .engine()
-        .finish_agent_work_run(
+        .settle_claim_writing(
             item,
             AgentWorkOutcome::Abandoned,
             Some("engine fault: host went away"),
-            None,
         )
         .await
         .expect("the production settle runs")
@@ -96,9 +96,7 @@ async fn forge_claim_008__maximum_attempts() {
         .await
         .expect("the board marks the story running");
 
-    let first = abandon_cycle(&harness, &capped_story, &item)
-        .await
-        .expect("the first engine fault must settle the claim");
+    let first = abandon_cycle(&harness, &capped_story, &item).await;
     assert_eq!(
         first.item_state, "Ready",
         "{HARNESS}: fault 1 of 3 clears the claim back to the queue"
@@ -106,18 +104,14 @@ async fn forge_claim_008__maximum_attempts() {
     assert_eq!(first.story_status.as_deref(), Some("Ready"));
     assert_eq!(attempts_of(pool, &item).await, 1);
 
-    let second = abandon_cycle(&harness, &capped_story, &item)
-        .await
-        .expect("the second engine fault must settle the claim");
+    let second = abandon_cycle(&harness, &capped_story, &item).await;
     assert_eq!(
         second.item_state, "Ready",
         "{HARNESS}: fault 2 of 3 clears the claim back to the queue"
     );
     assert_eq!(attempts_of(pool, &item).await, 2);
 
-    let third = abandon_cycle(&harness, &capped_story, &item)
-        .await
-        .expect("the third engine fault must settle the claim");
+    let third = abandon_cycle(&harness, &capped_story, &item).await;
     assert_eq!(
         third.item_state, "Error",
         "{HARNESS}: fault 3 of 3 exhausts the budget — a cleared claim is not a free retry"
@@ -151,9 +145,7 @@ async fn forge_claim_008__maximum_attempts() {
         .execute(pool)
         .await
         .expect("the board marks the story running");
-    let fresh = abandon_cycle(&harness, &fresh_story, &fresh_item)
-        .await
-        .expect("a first engine fault must settle the claim");
+    let fresh = abandon_cycle(&harness, &fresh_story, &fresh_item).await;
     assert_eq!(
         fresh.item_state, "Ready",
         "{HARNESS}: fault 1 of 3 on a fresh story clears it — the budget counts attempts, not faults"

@@ -22,6 +22,10 @@ pub struct WorkerDispatch {
     /// The claim this dispatch holds. It is passed to the child so the run it starts can move its own item
     /// `Claimed → Running` and settle it, instead of the queue inferring a run from a `Ready` row.
     pub work_item_id: String,
+    /// The authority this dispatch holds over the item (migration 278): the owner and the generation the claim
+    /// statement bumped. It is the fence for every write this dispatch or its child makes — the begin, the
+    /// heartbeat and the settlement — so a worker that lost the claim cannot write over the one that took it.
+    pub claim: db::ClaimFence,
     pub story_id: String,
     pub work_type: String,
     /// The durable dispatch envelope, straight off the claimed row (migrations 029 and 167). It travels to the child
@@ -76,19 +80,113 @@ pub fn in_flight_runs() -> usize {
     IN_FLIGHT_RUNS.load(Ordering::SeqCst)
 }
 
-/// Hold the claim open while the child runs.
+/// The heartbeat thread's observations, shared with the dispatch thread.
+///
+/// Three outcomes have to be observable and stay distinct (work order `FORGE-B1` §5): a beat the database refused
+/// because the claim is gone, a beat that failed (the database was unreachable), and a heartbeat thread that died
+/// — a panic used to take the thread down in silence while the child kept running un-beaten, which looks exactly
+/// like a live run to stale recovery until the lease expires.
+#[derive(Debug, Default, Clone)]
+pub struct HeartbeatState {
+    pub beats: u64,
+    pub lost_authority: bool,
+    pub last_error: Option<String>,
+    pub panicked: bool,
+}
+
+/// The reason to stop a child, from what the heartbeat has seen. `None` = the claim is still this execution's.
+///
+/// ONE fact stops a child and only one: the database said this claim is no longer ours. A failing beat
+/// (`last_error`) and a panicked heartbeat thread are supervision outcomes that are REPORTED — they are not
+/// authority loss, and stopping a child over our own bookkeeping bug would abandon work nobody took from us.
+fn lease_loss_reason(state: &HeartbeatState, work_item_id: &str) -> Option<String> {
+    state.lost_authority.then(|| {
+        format!(
+            "lease lost: work item {work_item_id} was reclaimed, settled or cancelled while its run was in flight"
+        )
+    })
+}
+
+/// The handle on a running heartbeat: stop it, ask whether authority is gone, read what it saw.
+pub struct HeartbeatHandle {
+    stop: Arc<AtomicBool>,
+    state: Arc<std::sync::Mutex<HeartbeatState>>,
+}
+
+impl HeartbeatHandle {
+    /// Ask the thread to stop. Called on every exit path, including the ones that already killed the child.
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+
+    /// Does this execution still hold its claim? Read by the dispatch thread on every poll: `true` here means the
+    /// item was reclaimed, settled or cancelled by somebody else.
+    pub fn lost_authority(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| state.lost_authority)
+            .unwrap_or(false)
+    }
+
+    /// Did the heartbeat thread die? Reported, never treated as lost authority: a bug in our own bookkeeping must
+    /// not stop a child over a claim it may still hold.
+    pub fn panicked(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| state.panicked)
+            .unwrap_or(false)
+    }
+
+    /// What the heartbeat has observed so far. The dispatch thread asks this on every poll, and the pass log
+    /// prints it on the way out.
+    pub fn snapshot(&self) -> HeartbeatState {
+        self.state
+            .lock()
+            .map(|state| state.clone())
+            .unwrap_or_default()
+    }
+
+    /// One line for the pass log: what the heartbeat actually did. Printed on every exit path, because a
+    /// supervision failure that is not reported is a supervision failure nobody can act on.
+    pub fn report(&self, work_item_id: &str) -> String {
+        let Ok(state) = self.state.lock() else {
+            return format!("forge-worker-heartbeat: {work_item_id} state is poisoned");
+        };
+        format!(
+            "forge-worker-heartbeat: item={work_item_id} beats={} lost_authority={} panicked={} last_error={}",
+            state.beats,
+            state.lost_authority,
+            state.panicked,
+            state.last_error.as_deref().unwrap_or("(none)")
+        )
+    }
+}
+
+/// Hold the claim open while the child runs, and report the moment it is no longer ours.
 ///
 /// This is the half of the claim that the port also dropped: `stale_agent_work` decides staleness on `updated_at`
 /// alone, and a role turn touches nothing on the item, so without a beat a run longer than the window would be
 /// requeued **while it was still running** and the next tick would start a second engine over the same story.
-/// A beat that comes back `Ok(false)` means the claim is no longer ours; the thread stops and says so.
-fn spawn_heartbeat(work_item_id: String, worker_id: String, interval: Duration) -> Arc<AtomicBool> {
+///
+/// A beat that comes back `Ok(false)` means the claim is no longer ours: migration 278 fences the beat by owner AND
+/// generation, so a reclaim or a settle ends the authority even for the same worker name. The thread records it and
+/// the dispatch thread stops the child — a child that keeps writing under an authority it no longer has is exactly
+/// what this fence exists to remove.
+fn spawn_heartbeat(
+    work_item_id: String,
+    claim: db::ClaimFence,
+    interval: Duration,
+) -> HeartbeatHandle {
     let stop = Arc::new(AtomicBool::new(false));
+    let state = Arc::new(std::sync::Mutex::new(HeartbeatState::default()));
     let flag = stop.clone();
+    let shared = state.clone();
     // The lease outlives three missed beats before it can be read as dead; one missed beat is a hiccup.
     let lease_ttl = interval * 3;
     std::thread::spawn(move || {
-        loop {
+        // A panic in this thread must not be silent: the child keeps running, and an un-beaten claim is one the
+        // sweep will reclaim from under it.
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| loop {
             // Sleep in one-second slices so the child finishing is noticed promptly.
             for _ in 0..interval.as_secs().max(1) {
                 if flag.load(Ordering::Relaxed) {
@@ -96,21 +194,42 @@ fn spawn_heartbeat(work_item_id: String, worker_id: String, interval: Duration) 
                 }
                 std::thread::sleep(Duration::from_secs(1));
             }
-            match agent_work::heartbeat_agent_work(&work_item_id, &worker_id, lease_ttl) {
-                Ok(true) => {}
+            match agent_work::heartbeat_agent_work(&work_item_id, &claim, lease_ttl) {
+                Ok(true) => {
+                    if let Ok(mut state) = shared.lock() {
+                        state.beats += 1;
+                    }
+                }
                 Ok(false) => {
                     eprintln!(
-                        "forge-worker: heartbeat lost for work item {work_item_id}; the claim is no longer ours"
+                        "forge-worker: heartbeat lost for work item {work_item_id} (owner={} generation={}); \
+                         the claim is no longer ours",
+                        claim.owner, claim.generation
                     );
+                    if let Ok(mut state) = shared.lock() {
+                        state.lost_authority = true;
+                    }
                     return;
                 }
                 // A transient failure is reported (through the capture seam in `db::capture`) and retried on the
-                // next beat: `updated_at` is still fresh inside the stale window.
-                Err(error) => eprintln!("forge-worker-heartbeat-failed: {error}"),
+                // next beat: `updated_at` is still fresh inside the stale window. It is kept, not swallowed: a beat
+                // that has been failing for a whole lease is the run's real status.
+                Err(error) => {
+                    eprintln!("forge-worker-heartbeat-failed: {error}");
+                    if let Ok(mut state) = shared.lock() {
+                        state.last_error = Some(error);
+                    }
+                }
+            }
+        }));
+        if outcome.is_err() {
+            eprintln!("forge-worker-heartbeat-panicked: item={work_item_id}");
+            if let Ok(mut state) = shared.lock() {
+                state.panicked = true;
             }
         }
     });
-    stop
+    HeartbeatHandle { stop, state }
 }
 
 /// The engine's work types, verbatim as `--work-type` accepts them (`forge/src/bin/forge.rs:117`) and as
@@ -256,10 +375,17 @@ pub fn fire_due_flights() -> Result<u64, String> {
 /// protection (the per-story serial claim, attempts, ordering, stale recovery) was inert. There is no fallback here
 /// on purpose: if the claim returns nothing, there is no work to dispatch.
 pub fn claim_next_dispatch(worker_id: &str) -> Result<Option<WorkerDispatch>, String> {
-    let claimed = agent_work::claim_next_agent_work(worker_id)?;
-    Ok(claimed.map(|item| WorkerDispatch {
+    let Some(item) = agent_work::claim_next_agent_work(worker_id)? else {
+        return Ok(None);
+    };
+    // The claim's authority is read off the claimed row, never rebuilt from the worker name this process happens to
+    // be using: the generation came back from the statement that took the claim, so it is the one the database
+    // granted. A row with no owner cannot be dispatched — there would be nothing to fence the run with.
+    let claim = item.fence()?;
+    Ok(Some(WorkerDispatch {
         work_type: work_type_for_item(item.work_type.as_deref(), item.kind.as_deref()).to_string(),
         work_item_id: item.id,
+        claim,
         story_id: item.story_id,
         execution_policy: item.execution_policy,
         model_policy: item.model_policy,
@@ -400,6 +526,57 @@ pub fn run_worker_pass() -> Result<i32, String> {
     Ok(exit_code)
 }
 
+/// Report what a fenced settle answered.
+///
+/// Only `Settled` is a verdict this call wrote. Every other answer is a fact ABOUT the claim — a successor holds it,
+/// this execution already settled it, a different outcome is already stored, the item is gone — and printing those
+/// as settlements is how a lost claim came to look like a settled one.
+fn report_settlement(item: &str, when: &str, answer: Result<db::SettlementResult, String>) {
+    match answer {
+        Ok(answer) => {
+            let pair = answer
+                .settlement()
+                .map(|pair| {
+                    format!(
+                        " item={} story={}",
+                        pair.item_state,
+                        pair.story_status.as_deref().unwrap_or("unchanged")
+                    )
+                })
+                .unwrap_or_default();
+            eprintln!("forge-worker: {item} {when}: {}{pair}", answer.name());
+        }
+        Err(error) => eprintln!("forge-worker: {item} {when} could not be written: {error}"),
+    }
+}
+
+/// Stop a running child and everything it started.
+///
+/// The child is spawned in its own process group (`command.process_group(0)`), so signalling the GROUP reaches the
+/// `cargo run` wrapper and the engine it launched. Killing only the wrapper would leave the engine running — holding
+/// a claim it no longer has and writing to the same story — which is the state a lease-loss stop exists to prevent.
+fn stop_child(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        match std::process::Command::new("kill")
+            .args(["-9", &format!("-{}", child.id())])
+            .status()
+        {
+            Ok(status) if status.success() => {}
+            // The group may already be gone (the child exited between the poll and here), which is not a failure.
+            Ok(status) => eprintln!("forge-worker: signalling child group returned {status}"),
+            Err(error) => eprintln!("forge-worker: could not signal child group: {error}"),
+        }
+    }
+    if let Err(error) = child.kill() {
+        // ESRCH here is the ordinary race: the child died on its own between the poll and the signal.
+        eprintln!("forge-worker: child kill returned {error}");
+    }
+    if let Err(error) = child.wait() {
+        eprintln!("forge-worker: child could not be reaped: {error}");
+    }
+}
+
 /// Run ONE claimed story to its end, in its own thread.
 ///
 /// Everything below the claim lives here rather than in `run_worker_pass`, so the pass can hold several stories at
@@ -440,36 +617,28 @@ fn run_claimed_dispatch(
             dispatch.execution_policy, dispatch.work_item_id
         );
         eprintln!("forge-worker: {reason} (set FORGE_ATTENDED=1 for a deliberate, attended run)");
-        match agent_work::finish_agent_work_run(
+        report_settlement(
             &dispatch.work_item_id,
-            AgentWorkOutcome::Abandoned,
-            Some(&reason),
-            None,
-        ) {
-            Ok(Some(settled)) => eprintln!(
-                "forge-worker: settled {} as {} (story {})",
-                dispatch.work_item_id,
-                settled.item_state,
-                settled.story_status.as_deref().unwrap_or("unchanged")
+            "refused an unattended dispatch",
+            agent_work::finish_agent_work_run(
+                &dispatch.work_item_id,
+                &dispatch.claim,
+                AgentWorkOutcome::Abandoned,
+                Some(&reason),
             ),
-            Ok(None) => eprintln!(
-                "forge-worker: {} already had a verdict; left as-is",
-                dispatch.work_item_id
-            ),
-            Err(settle) => eprintln!(
-                "forge-worker: could not settle {}: {settle}",
-                dispatch.work_item_id
-            ),
-        }
+        );
         return Ok(0);
     }
 
-    // The claim is only worth holding if it stays fresh for as long as the run lasts.
+    // The claim is only worth holding if it stays fresh for as long as the run lasts — and only while it is still
+    // ours. The beat is fenced by (owner, generation), so it reports the moment a reclaim or a settle ends this
+    // dispatch's authority, and the child is stopped rather than left writing under a claim it no longer has.
     let heartbeat = spawn_heartbeat(
         dispatch.work_item_id.clone(),
-        worker_id.clone(),
+        dispatch.claim.clone(),
         worker_cfg.heartbeat_interval,
     );
+    let claim_generation = dispatch.claim.generation.to_string();
 
     let mut command = Command::new("cargo");
     command.args([
@@ -487,6 +656,12 @@ fn run_claimed_dispatch(
         &dispatch.work_type,
         "--work-item",
         &dispatch.work_item_id,
+        // The child is a different process: it must be told which authority it is executing under, or its begin and
+        // its settlement would have to guess — and guessing is what the fence removes.
+        "--claim-owner",
+        &dispatch.claim.owner,
+        "--claim-generation",
+        &claim_generation,
     ]);
     // The dispatch cap travels with the dispatch (migration 167: "read by the engine worker when it claims the
     // item"). It is omitted when the column is NULL, which is the full chain — the child's own default.
@@ -535,33 +710,37 @@ fn run_claimed_dispatch(
         Ok(child) => child,
         Err(error) => {
             let reason = format!("launch Rust Forge engine: {error}");
-            match agent_work::finish_agent_work_run(
+            report_settlement(
                 &dispatch.work_item_id,
-                AgentWorkOutcome::Abandoned,
-                Some(&reason),
-                None,
-            ) {
-                Ok(Some(settled)) => eprintln!(
-                    "forge-worker: settled {} as {} (story {})",
-                    dispatch.work_item_id,
-                    settled.item_state,
-                    settled.story_status.as_deref().unwrap_or("unchanged")
+                "could not launch the child",
+                agent_work::finish_agent_work_run(
+                    &dispatch.work_item_id,
+                    &dispatch.claim,
+                    AgentWorkOutcome::Abandoned,
+                    Some(&reason),
                 ),
-                Ok(None) => eprintln!(
-                    "forge-worker: {} already had a verdict; left as-is",
-                    dispatch.work_item_id
-                ),
-                Err(settle) => eprintln!(
-                    "forge-worker: could not settle {} as Error: {settle}",
-                    dispatch.work_item_id
-                ),
-            }
-            heartbeat.store(true, Ordering::Relaxed);
+            );
+            heartbeat.stop();
+            eprintln!("{}", heartbeat.report(&dispatch.work_item_id));
             return Err(reason);
         }
     };
     let started = std::time::Instant::now();
     let status = loop {
+        // LOST AUTHORITY STOPS THE CHILD. A beat that came back "no longer claimable" means somebody else owns this
+        // item now: the successor may already be provisioning a worktree for it, and every write this child makes
+        // under the old authority is a second writer on one story. The child is signalled and reaped here, and this
+        // thread settles nothing — the claim is not its to end.
+        if let Some(reason) = lease_loss_reason(&heartbeat.snapshot(), &dispatch.work_item_id) {
+            eprintln!(
+                "forge-worker: claim for {} is no longer held by {} generation {}; stopping its child",
+                dispatch.work_item_id, dispatch.claim.owner, dispatch.claim.generation
+            );
+            stop_child(&mut child);
+            heartbeat.stop();
+            eprintln!("{}", heartbeat.report(&dispatch.work_item_id));
+            return Err(reason);
+        }
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) => {
@@ -571,49 +750,36 @@ fn run_claimed_dispatch(
                         dispatch.work_item_id,
                         run_timeout.as_secs()
                     );
-                    #[cfg(unix)]
-                    {
-                        let _ = std::process::Command::new("kill")
-                            .args(["-9", &format!("-{}", child.id())])
-                            .status();
-                    }
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    stop_child(&mut child);
                     let reason =
                         format!("FORGE_RUN_TIMEOUT_SECS={} elapsed", run_timeout.as_secs());
-                    match agent_work::finish_agent_work_run(
+                    report_settlement(
                         &dispatch.work_item_id,
-                        AgentWorkOutcome::Abandoned,
-                        Some(&reason),
-                        None,
-                    ) {
-                        Ok(Some(settled)) => eprintln!(
-                            "forge-worker: settled {} as {} (story {})",
-                            dispatch.work_item_id,
-                            settled.item_state,
-                            settled.story_status.as_deref().unwrap_or("unchanged")
+                        "timed out",
+                        agent_work::finish_agent_work_run(
+                            &dispatch.work_item_id,
+                            &dispatch.claim,
+                            AgentWorkOutcome::Abandoned,
+                            Some(&reason),
                         ),
-                        Ok(None) => eprintln!(
-                            "forge-worker: {} already had a verdict; left as-is",
-                            dispatch.work_item_id
-                        ),
-                        Err(settle) => eprintln!(
-                            "forge-worker: could not settle {} as Error: {settle}",
-                            dispatch.work_item_id
-                        ),
-                    }
-                    heartbeat.store(true, Ordering::Relaxed);
+                    );
+                    heartbeat.stop();
+                    eprintln!("{}", heartbeat.report(&dispatch.work_item_id));
                     return Err(reason);
                 }
                 std::thread::sleep(Duration::from_secs(1));
             }
             Err(error) => {
-                heartbeat.store(true, Ordering::Relaxed);
+                heartbeat.stop();
+                eprintln!("{}", heartbeat.report(&dispatch.work_item_id));
                 return Err(format!("wait on forge child: {error}"));
             }
         }
     };
-    heartbeat.store(true, Ordering::Relaxed);
+    heartbeat.stop();
+    // The heartbeat's own report, on the ordinary path too: beats, a refused beat, a failed beat and a panicked
+    // thread are supervision outcomes, and a pass that never prints them is a pass nobody can audit.
+    eprintln!("{}", heartbeat.report(&dispatch.work_item_id));
 
     // A worktree is an execution sandbox, not workflow state. Remove it after every child run. The cleanup helper
     // keeps the branch only when its candidate is not yet contained in origin/main, so a Hold cannot erase paid code.
@@ -642,22 +808,16 @@ fn run_claimed_dispatch(
     // story in a human `Hold` nobody had decided.
     if !status.success() {
         let reason = format!("forge run exited with {}", status.code().unwrap_or(1));
-        match agent_work::finish_agent_work_run(
+        report_settlement(
             &dispatch.work_item_id,
-            AgentWorkOutcome::Abandoned,
-            Some(&reason),
-            None,
-        ) {
-            Ok(Some(settled)) => eprintln!(
-                "forge-worker: settled {} as {} with the board ({reason})",
-                dispatch.work_item_id, settled.item_state
+            "left no verdict",
+            agent_work::finish_agent_work_run(
+                &dispatch.work_item_id,
+                &dispatch.claim,
+                AgentWorkOutcome::Abandoned,
+                Some(&reason),
             ),
-            Ok(None) => eprintln!(
-                "forge-worker: {} already had a verdict; left as-is ({reason})",
-                dispatch.work_item_id
-            ),
-            Err(error) => eprintln!("forge-worker: could not settle the failed run: {error}"),
-        }
+        );
     }
 
     Ok(status.code().unwrap_or(1))
@@ -716,6 +876,57 @@ mod tests {
         assert!(assay_terminal_role(Some("reviewer")));
         assert!(assay_terminal_role(Some("verifier")));
         assert!(!assay_terminal_role(Some("builder")));
+    }
+
+    /// The drain waits on this count, so it has to be exact: up while a run is carried, down when it ends — and down
+    /// when the run PANICS, or a drain would wait out its whole window for a run that is already gone.
+    /// The one fact that stops a child is lost authority. A failed beat and a dead heartbeat thread are reported as
+    /// what they are; neither may be read as "somebody took the claim", because stopping a child over our own
+    /// bookkeeping bug abandons work nobody took from us.
+    #[test]
+    fn only_lost_authority_stops_a_child() {
+        let alive = HeartbeatState {
+            beats: 4,
+            ..Default::default()
+        };
+        assert!(lease_loss_reason(&alive, "item-1").is_none());
+
+        // The database was unreachable: the claim is still ours until a beat SAYS otherwise.
+        let failing = HeartbeatState {
+            beats: 4,
+            last_error: Some("connection reset".into()),
+            ..Default::default()
+        };
+        assert!(lease_loss_reason(&failing, "item-1").is_none());
+
+        // Our own bookkeeping died. Reported (`panicked`), never authority loss.
+        let panicked = HeartbeatState {
+            beats: 4,
+            panicked: true,
+            ..Default::default()
+        };
+        assert!(lease_loss_reason(&panicked, "item-1").is_none());
+
+        let lost = HeartbeatState {
+            beats: 4,
+            lost_authority: true,
+            ..Default::default()
+        };
+        let reason = lease_loss_reason(&lost, "item-1").expect("lost authority stops the child");
+        assert!(reason.contains("lease lost"), "{reason}");
+        assert!(reason.contains("item-1"), "{reason}");
+    }
+
+    /// A worker identity is a name the operator sets; the fence is a generation the database granted. This test is
+    /// the shape of the distinction: two claims by the SAME owner are two authorities.
+    #[test]
+    fn two_claims_by_one_name_are_two_authorities() {
+        let first = db::ClaimFence::new("worker-a", 1);
+        let second = db::ClaimFence::new("worker-a", 2);
+        assert_ne!(first, second);
+        assert_eq!(first.owner, second.owner);
+        // The pre-278 claim is generation 0, and it is a different authority from the first fenced one.
+        assert_ne!(db::ClaimFence::unfenced("worker-a"), first);
     }
 
     /// The drain waits on this count, so it has to be exact: up while a run is carried, down when it ends — and down

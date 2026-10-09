@@ -27,7 +27,10 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use db::{CommandReceiptDao, Database, DbFailure, ForgeEngineDao, TaskDao};
+use db::{
+    AgentWorkOutcome, AgentWorkSettlement, BeginAgentWorkRun, ClaimFence, CommandReceiptDao,
+    Database, DbFailure, DbResult, ForgeEngineDao, SettlementResult, TaskDao,
+};
 use sqlx::PgPool;
 
 use crate::barrier::ConcurrencyBarrier;
@@ -109,6 +112,79 @@ impl RaceHarness {
         &self.tasks
     }
 
+    /// The authority the item row holds — the fence every claim write takes (migration 278).
+    ///
+    /// A fenced write takes `(owner, generation)` and a race test has no business inventing either: the generation
+    /// the claim granted IS the subject. Read from the row, so a racer fences with what the database actually
+    /// handed out.
+    pub async fn claim_fence(&self, item_id: &str) -> DbResult<ClaimFence> {
+        let (owner, generation): (Option<String>, i64) = sqlx::query_as(
+            "select claimed_by, claim_generation from agent_work_item where id = $1::uuid",
+        )
+        .bind(item_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("test-harness.race.claim_fence", &error))?;
+        Ok(ClaimFence::new(owner.unwrap_or_default(), generation))
+    }
+
+    /// Begin an item's run through the production fence (migration 278), with the authority the row holds.
+    pub async fn begin_claim(&self, item_id: &str) -> DbResult<Option<BeginAgentWorkRun>> {
+        let fence = self.claim_fence(item_id).await?;
+        self.engine.begin_agent_work_run(item_id, &fence).await
+    }
+
+    /// Renew an item's lease through the production fence, with the authority the row holds.
+    pub async fn beat_claim(
+        &self,
+        item_id: &str,
+        lease_ttl: std::time::Duration,
+    ) -> DbResult<bool> {
+        let fence = self.claim_fence(item_id).await?;
+        self.engine
+            .heartbeat_agent_work(item_id, &fence, lease_ttl)
+            .await
+    }
+
+    /// Settle an item through the production fence, with the authority the row holds.
+    ///
+    /// The answer is typed (migration 278): `answer.wrote()` is "this call settled it", and every other variant is a
+    /// report about the claim rather than a verdict.
+    pub async fn settle_claim(
+        &self,
+        item_id: &str,
+        outcome: AgentWorkOutcome,
+        error_text: Option<&str>,
+    ) -> DbResult<SettlementResult> {
+        let fence = self.claim_fence(item_id).await?;
+        self.engine
+            .finish_agent_work_run(item_id, &fence, outcome, error_text)
+            .await
+    }
+
+    /// Settle, requiring that THIS call wrote the pair, and return the pair.
+    ///
+    /// Most racers settle their own claim exactly once and then assert what the row says. The typed answer
+    /// (migration 278) reports a refusal instead of pretending one did not happen, so a test that means "it settled"
+    /// says so once, here. A test that needs the typed answer — duplicate, conflict, refused — uses
+    /// [`settle_claim`](Self::settle_claim).
+    pub async fn settle_claim_writing(
+        &self,
+        item_id: &str,
+        outcome: AgentWorkOutcome,
+        error_text: Option<&str>,
+    ) -> DbResult<AgentWorkSettlement> {
+        let answer = self.settle_claim(item_id, outcome, error_text).await?;
+        assert!(
+            answer.wrote(),
+            "the claim's holder must settle it (got {})",
+            answer.name()
+        );
+        Ok(answer
+            .settlement()
+            .cloned()
+            .expect("a written settle carries its pair"))
+    }
     /// The production pool, for a caller that must open its own transaction.
     pub fn database_handle(&self) -> &Database {
         self.database.database()

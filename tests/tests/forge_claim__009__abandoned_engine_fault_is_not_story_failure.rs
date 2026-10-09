@@ -97,22 +97,18 @@ async fn forge_claim_009__abandoned_engine_fault_is_not_story_failure() {
         .expect("the production claim runs")
         .expect("a Ready item must be claimable");
     harness
-        .engine()
-        .begin_agent_work_run(&abandoned_item)
+        .begin_claim(&abandoned_item)
         .await
         .expect("the production begin runs")
         .expect("a Claimed item must open its run");
     let settlement = harness
-        .engine()
-        .finish_agent_work_run(
+        .settle_claim_writing(
             &abandoned_item,
             AgentWorkOutcome::Abandoned,
             Some("engine fault: host went away"),
-            None,
         )
         .await
-        .expect("the production settle runs")
-        .expect("an engine fault must settle the claim");
+        .expect("the production settle runs");
     assert_eq!(
         settlement.item_state, "Ready",
         "{HARNESS}: an Abandoned claim goes back to the queue"
@@ -158,22 +154,18 @@ async fn forge_claim_009__abandoned_engine_fault_is_not_story_failure() {
         .expect("the production claim runs")
         .expect("a Ready item must be claimable");
     harness
-        .engine()
-        .begin_agent_work_run(&error_item)
+        .begin_claim(&error_item)
         .await
         .expect("the production begin runs")
         .expect("a Claimed item must open its run");
     let failed = harness
-        .engine()
-        .finish_agent_work_run(
+        .settle_claim_writing(
             &error_item,
             AgentWorkOutcome::Error,
             Some("smith exited 101"),
-            None,
         )
         .await
-        .expect("the production settle runs")
-        .expect("an Error must settle the claim");
+        .expect("the production settle runs");
     assert_eq!(failed.item_state, "Error");
     assert_eq!(failed.story_status.as_deref(), Some("Hold"));
     assert_eq!(story_status(pool, &error_story).await, "Hold");
@@ -197,22 +189,18 @@ async fn forge_claim_009__abandoned_engine_fault_is_not_story_failure() {
         .expect("the production claim runs")
         .expect("a Ready item must be claimable");
     harness
-        .engine()
-        .begin_agent_work_run(&landed_item)
+        .begin_claim(&landed_item)
         .await
         .expect("the production begin runs")
         .expect("a Claimed item must open its run");
     let landed = harness
-        .engine()
-        .finish_agent_work_run(
+        .settle_claim_writing(
             &landed_item,
             AgentWorkOutcome::Abandoned,
             Some("engine fault over landed work"),
-            None,
         )
         .await
-        .expect("the production settle runs")
-        .expect("an engine fault over landed work must settle the claim");
+        .expect("the production settle runs");
     assert_eq!(
         landed.item_state, "Cancelled",
         "{HARNESS}: over a board that no longer expects a run the fault cancels the item"

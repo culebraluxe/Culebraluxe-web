@@ -62,8 +62,7 @@ async fn forge_claim_007__hold_story_never_reopened() {
         .expect("the production claim runs")
         .expect("a Ready item must be claimable");
     harness
-        .engine()
-        .begin_agent_work_run(&item)
+        .begin_claim(&item)
         .await
         .expect("the production begin runs")
         .expect("a Claimed item must open its run");

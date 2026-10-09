@@ -25,6 +25,19 @@ async fn cleanup_story(pool: &sqlx::PgPool, story_id: &str) {
         .await;
 }
 
+/// The authority the item row holds — the fence every claim write takes (migration 278). It is READ from the
+/// row rather than invented here: a test that guesses a generation proves something about the guess.
+async fn fence_of(pool: &sqlx::PgPool, item_id: &str) -> db::ClaimFence {
+    let (owner, generation): (Option<String>, i64) = sqlx::query_as(
+        "select claimed_by, claim_generation from agent_work_item where id = $1::uuid",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .expect("the claim fence reads back");
+    db::ClaimFence::new(owner.unwrap_or_default(), generation)
+}
+
 #[tokio::test]
 #[ignore = "needs DATABASE_URL_DEV"]
 async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
@@ -143,9 +156,9 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         engine
             .finish_agent_work_run(
                 &peer.id,
+                &fence_of(&pool, &peer.id).await,
                 AgentWorkOutcome::Abandoned,
                 Some("proof borrow"),
-                None,
             )
             .await
             .expect("a borrowed DEV claim must be put back");
@@ -156,7 +169,7 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     //    The transition also reports the claimed row's `execution_policy`, because that policy decides whether the
     //    run may be unattended at all (migration 029).
     let begin = engine
-        .begin_agent_work_run(&claimed.id)
+        .begin_agent_work_run(&claimed.id, &fence_of(&pool, &claimed.id).await)
         .await
         .unwrap()
         .expect("Claimed -> Running must settle exactly one row and report the item's policy");
@@ -245,7 +258,7 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     }
     assert!(
         engine
-            .begin_agent_work_run(&claimed.id)
+            .begin_agent_work_run(&claimed.id, &fence_of(&pool, &claimed.id).await)
             .await
             .unwrap()
             .is_none(),
@@ -272,7 +285,7 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         engine
             .heartbeat_agent_work(
                 &claimed.id,
-                "proof-worker",
+                &fence_of(&pool, &claimed.id).await,
                 std::time::Duration::from_secs(300)
             )
             .await
@@ -304,10 +317,23 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         .await
         .expect("board: the story completed");
     let settled = engine
-        .finish_agent_work_run(&claimed.id, AgentWorkOutcome::Done, None, None)
+        .finish_agent_work_run(
+            &claimed.id,
+            &fence_of(&pool, &claimed.id).await,
+            AgentWorkOutcome::Done,
+            None,
+        )
         .await
-        .unwrap()
-        .expect("the first settle must land");
+        .unwrap();
+    assert!(
+        settled.wrote(),
+        "the first settle must land (got {})",
+        settled.name()
+    );
+    let settled = settled
+        .settlement()
+        .cloned()
+        .expect("a written settle carries its pair");
     assert_eq!(settled.item_state, "Done");
     assert_eq!(
         settled.story_status, None,
@@ -342,16 +368,16 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     );
     assert!(closed_at.is_some(), "a settled claim closes its run");
     assert!(
-        engine
+        !engine
             .finish_agent_work_run(
                 &claimed.id,
+                &fence_of(&pool, &claimed.id).await,
                 AgentWorkOutcome::Error,
                 Some("late second verdict"),
-                None,
             )
             .await
             .unwrap()
-            .is_none(),
+            .wrote(),
         "a settled item must not be settled again"
     );
     let (state_after, error_after): (String, Option<String>) =
@@ -391,10 +417,23 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     .await
     .expect("insert a running item over a story the board says is being worked");
     let refused = engine
-        .finish_agent_work_run(&stuck_item, AgentWorkOutcome::Done, None, None)
+        .finish_agent_work_run(
+            &stuck_item,
+            &fence_of(&pool, &stuck_item).await,
+            AgentWorkOutcome::Done,
+            None,
+        )
         .await
-        .unwrap()
-        .expect("a run that ends must still settle its claim");
+        .unwrap();
+    assert!(
+        refused.wrote(),
+        "a run that ends must still settle its claim (got {})",
+        refused.name()
+    );
+    let refused = refused
+        .settlement()
+        .cloned()
+        .expect("a written settle carries its pair");
     assert_eq!(
         refused.item_state, "Error",
         "`Ok` is not completion: `Done` must be refused when the board never confirmed the work"
@@ -447,7 +486,7 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
         !engine
             .heartbeat_agent_work(
                 &busy_item,
-                "proof-worker",
+                &fence_of(&pool, &busy_item).await,
                 std::time::Duration::from_secs(300)
             )
             .await
@@ -590,7 +629,7 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
         .expect("claim the proof item");
     assert!(
         engine
-            .begin_agent_work_run(&stranded_item)
+            .begin_agent_work_run(&stranded_item, &fence_of(&pool, &stranded_item).await)
             .await
             .unwrap()
             .is_some(),
@@ -599,13 +638,21 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
     let cleared = engine
         .finish_agent_work_run(
             &stranded_item,
+            &fence_of(&pool, &stranded_item).await,
             AgentWorkOutcome::Abandoned,
             Some("DatabaseUnavailable during workflow.step (sqlstate 25P03)"),
-            None,
         )
         .await
-        .unwrap()
-        .expect("the engine-fault settle must land");
+        .unwrap();
+    assert!(
+        cleared.wrote(),
+        "the engine-fault settle must land (got {})",
+        cleared.name()
+    );
+    let cleared = cleared
+        .settlement()
+        .cloned()
+        .expect("a written settle carries its pair");
     assert_eq!(
         cleared.item_state, "Ready",
         "an engine fault clears the item back into the queue"
@@ -662,13 +709,21 @@ async fn engine_faults_clear_the_pair_and_the_plane_is_swept_before_each_run() {
     let exhausted = engine
         .finish_agent_work_run(
             &stranded_item,
+            &fence_of(&pool, &stranded_item).await,
             AgentWorkOutcome::Abandoned,
             Some("still broken"),
-            None,
         )
         .await
-        .unwrap()
-        .expect("the exhausted settle must land");
+        .unwrap();
+    assert!(
+        exhausted.wrote(),
+        "the exhausted settle must land (got {})",
+        exhausted.name()
+    );
+    let exhausted = exhausted
+        .settlement()
+        .cloned()
+        .expect("a written settle carries its pair");
     assert_eq!(exhausted.item_state, "Error");
     assert_eq!(exhausted.story_status.as_deref(), Some("Hold"));
 
@@ -1076,7 +1131,7 @@ async fn the_claim_routines_hold_the_claim_contract() {
             .unwrap()
     }
     assert!(engine
-        .begin_agent_work_run(&item_a)
+        .begin_agent_work_run(&item_a, &fence_of(&pool, &item_a).await)
         .await
         .unwrap()
         .is_none());
@@ -1086,7 +1141,7 @@ async fn the_claim_routines_hold_the_claim_contract() {
         "an unclaimed item opens no run"
     );
     let begun = engine
-        .begin_agent_work_run(&item_b)
+        .begin_agent_work_run(&item_b, &fence_of(&pool, &item_b).await)
         .await
         .unwrap()
         .expect("the claimed item begins");
@@ -1117,7 +1172,7 @@ async fn the_claim_routines_hold_the_claim_contract() {
         (begun.story_run_id.as_str(), "DEV", "smith", "Running")
     );
     assert!(engine
-        .begin_agent_work_run(&item_b)
+        .begin_agent_work_run(&item_b, &fence_of(&pool, &item_b).await)
         .await
         .unwrap()
         .is_none());

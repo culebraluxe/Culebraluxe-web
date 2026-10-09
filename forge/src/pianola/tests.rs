@@ -42,6 +42,7 @@ fn work_item(id: &str, story_id: &str, updated_at: Option<&str>) -> ForgeQueueWo
         story_id: story_id.to_string(),
         state: "Claimed".to_string(),
         lease_owner: Some("worker-a".to_string()),
+        claim_generation: 1,
         error_text: None,
         queued_at: None,
         updated_at: updated_at.map(str::to_string),

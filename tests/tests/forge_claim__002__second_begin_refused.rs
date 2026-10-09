@@ -86,8 +86,7 @@ async fn forge_claim_002__second_begin_refused() {
 
     // 3. THE FIRST BEGIN. This is the only begin this claim may ever get, and it opens the Story Run.
     let first = harness
-        .engine()
-        .begin_agent_work_run(&item_a)
+        .begin_claim(&item_a)
         .await
         .expect("the production begin runs")
         .expect("a Claimed item must be able to open its run");
@@ -163,8 +162,7 @@ async fn forge_claim_002__second_begin_refused() {
     // 5. THE CONTRACT — A SECOND BEGIN IS REFUSED. The item is no longer `Claimed`, so the compare-and-set finds
     //    nothing and the production method returns `None`; nothing is written.
     let second = harness
-        .engine()
-        .begin_agent_work_run(&item_a)
+        .begin_claim(&item_a)
         .await
         .expect("a refused begin is not an error");
     assert!(
@@ -261,21 +259,17 @@ async fn forge_claim_002__second_begin_refused() {
     //     further begin on the settled item is refused: it cannot resurrect the item or reopen the run. So the
     //     one-begin-per-claim rule holds across the whole lifecycle, not only while the item happens to be Running.
     let settled = harness
-        .engine()
-        .finish_agent_work_run(
+        .settle_claim_writing(
             &item_a,
             AgentWorkOutcome::Error,
             Some("contract proof settle"),
-            None,
         )
         .await
-        .expect("the production settle runs")
-        .expect("a Running item must be settleable exactly once");
+        .expect("the production settle runs");
     assert_eq!(settled.item_state, "Error");
     assert!(
         harness
-            .engine()
-            .begin_agent_work_run(&item_a)
+            .begin_claim(&item_a)
             .await
             .expect("a refused begin is not an error")
             .is_none(),
@@ -313,8 +307,7 @@ async fn forge_claim_002__second_begin_refused() {
         .await
         .expect("the Ready trigger must queue exactly one item for story B");
     let not_owned = harness
-        .engine()
-        .begin_agent_work_run(&item_b)
+        .begin_claim(&item_b)
         .await
         .expect("a refused begin is not an error");
     assert!(
@@ -342,8 +335,7 @@ async fn forge_claim_002__second_begin_refused() {
     let unknown = uuid::Uuid::new_v4().to_string();
     assert!(
         harness
-            .engine()
-            .begin_agent_work_run(&unknown)
+            .begin_claim(&unknown)
             .await
             .expect("an unknown item is a refusal, not an error")
             .is_none(),

@@ -266,14 +266,17 @@ pub fn check_overlapping_targets(assigned_stories: &[StoryPacketRow]) -> Result<
 /// Pianola heartbeat table, and there must never be one. Returns false when
 /// the row is no longer claimable (settled or reassigned), which the caller
 /// treats as "stop and escalate", never as an error.
+///
+/// Fenced by (owner, generation) like every other claim write (migration 278): a supervisor beating on somebody
+/// else's item through a stale snapshot cannot freshen a lease it does not hold.
 pub async fn heartbeat_via_engine(
     engine: &ForgeEngineDao,
     work_item_id: &str,
-    worker_id: &str,
+    claim: &db::ClaimFence,
     lease_ttl: std::time::Duration,
 ) -> DbResult<bool> {
     engine
-        .heartbeat_agent_work(work_item_id, worker_id, lease_ttl)
+        .heartbeat_agent_work(work_item_id, claim, lease_ttl)
         .await
 }
 
@@ -327,10 +330,17 @@ pub async fn supervisor_tick(
                 work_item_id: item.id.clone(),
             }
         } else if item.state == "Claimed" || item.state == "Running" {
+            // The fence is read off the same row the heartbeat is about: the owner the queue names and the
+            // generation that owner holds. A row naming no owner has no authority to freshen, and the beat answers
+            // false rather than inventing one.
+            let claim = db::ClaimFence::new(
+                item.lease_owner.clone().unwrap_or_default(),
+                item.claim_generation,
+            );
             match heartbeat_via_engine(
                 engine,
                 &item.id,
-                item.lease_owner.as_deref().unwrap_or(""),
+                &claim,
                 std::time::Duration::from_secs(300),
             )
             .await?

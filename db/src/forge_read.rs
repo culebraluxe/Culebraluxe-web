@@ -142,6 +142,9 @@ pub struct ForgeQueueWorkRow {
     /// The claim holder, named for the lease — `agent_work_item.claimed_by`. This is the fence the heartbeat
     /// checks, so the queue row's owner and the heartbeat's owner read as one fact.
     pub lease_owner: Option<String>,
+    /// The generation that owner holds (migration 278). A heartbeat is fenced by (owner, generation), so a reader
+    /// that wants to beat a claim has to carry both — a name alone is not an authority.
+    pub claim_generation: i64,
     pub heartbeat_at: Option<String>,
     pub lease_expires_at: Option<String>,
 }
@@ -455,6 +458,7 @@ impl ForgeReadDao {
                     to_char(updated_at at time zone 'UTC', '{ISO_UTC}') as updated_at,
                     attempts, max_attempts,
                     claimed_by as lease_owner,
+                    claim_generation,
                     to_char(heartbeat_at at time zone 'UTC', '{ISO_UTC}') as heartbeat_at,
                     to_char(lease_expires_at at time zone 'UTC', '{ISO_UTC}') as lease_expires_at
              from agent_work_item

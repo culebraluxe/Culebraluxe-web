@@ -126,8 +126,7 @@ async fn db_concurrency_003__complete_vs_complete() {
     // is called inside the same transaction, and there is nothing to close if execution never began. So the sequence
     // under test is the production one — claim, begin, then settle — with the race on the last step.
     let begun = harness
-        .engine()
-        .begin_agent_work_run(&item)
+        .begin_claim(&item)
         .await
         .expect("begin answers rather than erroring")
         .expect("the claimed item begins its run");
@@ -147,21 +146,25 @@ async fn db_concurrency_003__complete_vs_complete() {
         .race(SETTLERS, move |index, harness| {
             let item = racing_item.clone();
             async move {
-                harness
-                    .engine()
-                    .finish_agent_work_run(&item, AgentWorkOutcome::Done, None, None)
+                let answer = harness
+                    .settle_claim(&item, AgentWorkOutcome::Done, None)
                     .await
-                    .expect("a settle answers rather than erroring")
-                    .map(|settlement| (index, settlement))
+                    .expect("a settle answers rather than erroring");
+                (index, answer)
             }
         })
         .await;
 
+    // `wrote()` is the exact translation of the old `Some`: the typed answer (migration 278) says WHO ended the run,
+    // and only one racer can have written it.
     let winners: Vec<_> = settlements
         .iter()
-        .filter_map(|answer| answer.as_ref())
+        .filter(|(_, answer)| answer.wrote())
         .collect();
-    let losers = settlements.iter().filter(|answer| answer.is_none()).count();
+    let losers = settlements
+        .iter()
+        .filter(|(_, answer)| !answer.wrote())
+        .count();
     assert_eq!(
         winners.len(),
         1,
@@ -171,11 +174,14 @@ async fn db_concurrency_003__complete_vs_complete() {
     assert_eq!(
         losers,
         SETTLERS - 1,
-        "{HARNESS}: every other concurrent settle is refused with None rather than re-settling the run"
+        "{HARNESS}: every other concurrent settle is refused rather than re-settling the run"
     );
 
     // The one winner's answer is the real settlement, not a bare state.
-    let (_, settlement) = winners[0];
+    let (_, answer) = winners[0];
+    let settlement = answer
+        .settlement()
+        .expect("the winning settle wrote a pair");
     assert_eq!(
         settlement.item_state, "Done",
         "{HARNESS}: the winning settle recorded the terminal state it was asked for"
@@ -212,18 +218,17 @@ async fn db_concurrency_003__complete_vs_complete() {
     //    guard were missing this second settle would succeed and write `Error` over a run that actually finished.
     // -----------------------------------------------------------------------------------------------------------
     let late = harness
-        .engine()
-        .finish_agent_work_run(
+        .settle_claim(
             &item,
             AgentWorkOutcome::Error,
             Some("a late duplicate settling"),
-            None,
         )
         .await
         .expect("the late settle answers rather than erroring");
     assert!(
-        late.is_none(),
-        "{HARNESS}: a settle on an already-settled item is refused"
+        !late.wrote(),
+        "{HARNESS}: a settle on an already-settled item is refused (got {})",
+        late.name()
     );
     assert_eq!(
         harness
@@ -255,13 +260,13 @@ async fn db_concurrency_003__complete_vs_complete() {
     // -----------------------------------------------------------------------------------------------------------
     complete_the_board(&harness, &story_id).await;
     let again = harness
-        .engine()
-        .finish_agent_work_run(&item, AgentWorkOutcome::Done, None, None)
+        .settle_claim(&item, AgentWorkOutcome::Done, None)
         .await
         .expect("the repeat settle answers rather than erroring");
     assert!(
-        again.is_none(),
-        "{HARNESS}: settling an already-settled run again is refused even with the board in the same state"
+        !again.wrote(),
+        "{HARNESS}: settling an already-settled run again is refused even with the board in the same state (got {})",
+        again.name()
     );
 
     // -----------------------------------------------------------------------------------------------------------

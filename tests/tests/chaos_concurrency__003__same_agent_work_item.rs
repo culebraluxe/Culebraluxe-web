@@ -19,10 +19,24 @@ use std::sync::Arc;
 use test_harness::barrier::ConcurrencyBarrier;
 use uuid::Uuid;
 
+/// The authority the item row holds — the fence every claim write takes (migration 278). It is READ from the
+/// row rather than invented here: a test that guesses a generation proves something about the guess.
+async fn fence_of(pool: &sqlx::PgPool, item_id: &str) -> db::ClaimFence {
+    let (owner, generation): (Option<String>, i64) = sqlx::query_as(
+        "select claimed_by, claim_generation from agent_work_item where id = $1::uuid",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .expect("the claim fence reads back");
+    db::ClaimFence::new(owner.unwrap_or_default(), generation)
+}
+
 #[tokio::test]
 #[ignore = "requires DATABASE_URL_DEV"]
 async fn chaos_concurrency_003__same_agent_work_item() {
     let db = Database::connect_target(DbTarget::Dev).await.unwrap();
+    let pool = db.pool();
     let dao = Arc::new(ForgeEngineDao::new(db.clone()));
     let tag = format!("chaos-003-{}", Uuid::new_v4());
 
@@ -68,12 +82,12 @@ async fn chaos_concurrency_003__same_agent_work_item() {
 
     // The run gate belongs to the winner: begin opens the run once, then owns nothing further.
     let first = dao
-        .begin_agent_work_run(&item)
+        .begin_agent_work_run(&item, &fence_of(&pool, &item).await)
         .await
         .expect("begin answers");
     let run_id = first.expect("the winner begins the run").story_run_id;
     assert!(
-        dao.begin_agent_work_run(&item)
+        dao.begin_agent_work_run(&item, &fence_of(&pool, &item).await)
             .await
             .expect("re-begin answers")
             .is_none(),

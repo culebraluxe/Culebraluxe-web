@@ -66,8 +66,7 @@ async fn forge_claim_010__agent_work_ownership_follows_ready_claimed_running_wit
 
     // ── NO SKIP: a run cannot open without a claim. ───────────────────────────
     let skipped = harness
-        .engine()
-        .begin_agent_work_run(&item)
+        .begin_claim(&item)
         .await
         .expect("the production begin runs");
     assert_eq!(
@@ -108,8 +107,7 @@ async fn forge_claim_010__agent_work_ownership_follows_ready_claimed_running_wit
 
     // ── STEP TWO: Claimed -> Running, exactly once, with the run. ────────────
     let begun = harness
-        .engine()
-        .begin_agent_work_run(&item)
+        .begin_claim(&item)
         .await
         .expect("the production begin runs")
         .expect("a Claimed item must open its run");
@@ -122,8 +120,7 @@ async fn forge_claim_010__agent_work_ownership_follows_ready_claimed_running_wit
 
     // No duplicate begin: the row has left Claimed, so no second run opens.
     let rebegun = harness
-        .engine()
-        .begin_agent_work_run(&item)
+        .begin_claim(&item)
         .await
         .expect("the production begin runs");
     assert_eq!(
@@ -149,16 +146,9 @@ async fn forge_claim_010__agent_work_ownership_follows_ready_claimed_running_wit
 
     // The chain settles through the same guard: terminate the proof cleanly.
     let settled = harness
-        .engine()
-        .finish_agent_work_run(
-            &item,
-            AgentWorkOutcome::Cancelled,
-            Some("proof complete"),
-            None,
-        )
+        .settle_claim_writing(&item, AgentWorkOutcome::Cancelled, Some("proof complete"))
         .await
-        .expect("the production settle runs")
-        .expect("a Running claim must settle");
+        .expect("the production settle runs");
     assert_eq!(settled.item_state, "Cancelled");
     assert_eq!(item_state(pool, &item).await, "Cancelled");
 

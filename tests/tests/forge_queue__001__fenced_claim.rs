@@ -56,6 +56,28 @@ async fn clean(pool: &PgPool) {
     }
 }
 
+/// The authority the item row holds — the fence every claim write takes (migration 278). Read from the row rather
+/// than invented here.
+async fn fence_of(pool: &sqlx::PgPool, item_id: &str) -> db::ClaimFence {
+    let (owner, generation): (Option<String>, i64) = sqlx::query_as(
+        "select claimed_by, claim_generation from agent_work_item where id = $1::uuid",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .expect("the claim fence reads back");
+    db::ClaimFence::new(owner.unwrap_or_default(), generation)
+}
+
+/// A fence naming somebody who does NOT hold the item, at the generation the row actually carries.
+///
+/// This is the shape of the defect the fence removes: the name is real and the claim is real, but the AUTHORITY
+/// belongs to whoever bumped the generation last. A peer with a plausible name is still a peer.
+async fn other_owner_fence(pool: &sqlx::PgPool, item_id: &str, name: &str) -> db::ClaimFence {
+    let fence = fence_of(pool, item_id).await;
+    db::ClaimFence::new(name, fence.generation)
+}
+
 #[tokio::test]
 #[ignore = "requires DATABASE_URL_DEV"]
 async fn forge_queue_001__fenced_claim() {
@@ -83,25 +105,31 @@ async fn forge_queue_001__fenced_claim() {
         engine
             .finish_agent_work_run(
                 &row.id,
+                &fence_of(&pool, &row.id).await,
                 db::AgentWorkOutcome::Abandoned,
                 Some("proof borrow"),
-                None,
             )
             .await
             .unwrap();
     }
 
-    // The fence: worker-b's heartbeat on the row it does NOT own is refused, worker-a's is held.
+    // The fence: worker-b's heartbeat on the row it does NOT own is refused, worker-a's is held. The name is what
+    // 277 fenced on; 278 fences on the GENERATION too, so a peer holding a plausible name has no authority at all.
+    let peer = other_owner_fence(pool, &item_one, "worker-b").await;
     assert!(
         !engine
-            .heartbeat_agent_work(&item_one, "worker-b", std::time::Duration::from_secs(300))
+            .heartbeat_agent_work(&item_one, &peer, std::time::Duration::from_secs(300))
             .await
             .unwrap(),
         "HeldByAnother: a non-owner's heartbeat is refused"
     );
     assert!(
         engine
-            .heartbeat_agent_work(&item_one, "worker-a", std::time::Duration::from_secs(300))
+            .heartbeat_agent_work(
+                &item_one,
+                &fence_of(&pool, &item_one).await,
+                std::time::Duration::from_secs(300)
+            )
             .await
             .unwrap(),
         "the owner's heartbeat renews its lease"
@@ -135,11 +163,12 @@ async fn forge_queue_001__fenced_claim() {
     // --- 2. A dead worker's lease expires: the item is reclaimable on the next claim, no sweep.
     add_story(pool, STORY_TWO).await;
     let item_two = open_item(pool, STORY_TWO).await;
-    engine
+    let dead_worker_claim = engine
         .claim_specific_agent_work(&item_two, "worker-a")
         .await
         .unwrap()
         .expect("worker-a claims");
+    let dead_fence = db::ClaimFence::new("worker-a", dead_worker_claim.claim_generation);
     // The worker dies: its lease reads expired with no sweep run.
     sqlx::query(
         "update agent_work_item set lease_expires_at = now() - interval '1 minute' \
@@ -159,12 +188,28 @@ async fn forge_queue_001__fenced_claim() {
         "worker-b takes the dead worker's item"
     );
     assert_eq!(reclaimed.claimed_by.as_deref(), Some("worker-b"));
+    let reclaim_fence = fence_of(pool, &item_two).await;
+    assert!(
+        reclaim_fence.generation > dead_fence.generation,
+        "the reclaim is a new authority: the fence's memory is the generation, not the name"
+    );
     assert!(
         !engine
-            .heartbeat_agent_work(&item_two, "worker-a", std::time::Duration::from_secs(300))
+            .heartbeat_agent_work(&item_two, &dead_fence, std::time::Duration::from_secs(300))
             .await
             .unwrap(),
         "the dead worker's late heartbeat is refused: the fence lost no memory"
+    );
+    assert!(
+        engine
+            .heartbeat_agent_work(
+                &item_two,
+                &reclaim_fence,
+                std::time::Duration::from_secs(300)
+            )
+            .await
+            .unwrap(),
+        "the reclaiming worker's beat renews the lease it actually holds"
     );
 
     // --- 3. A retried artifact submit with the same idempotency key is one record.

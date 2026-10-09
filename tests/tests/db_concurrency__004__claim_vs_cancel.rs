@@ -94,18 +94,17 @@ async fn db_concurrency_004__claim_vs_cancel() {
         .expect("item A seeds");
 
     let premature_cancel = harness
-        .engine()
-        .finish_agent_work_run(
+        .settle_claim(
             &item_a,
             AgentWorkOutcome::Cancelled,
             Some("aimed at unclaimed work"),
-            None,
         )
         .await
         .expect("the cancel answers rather than erroring");
     assert!(
-        premature_cancel.is_none(),
-        "{HARNESS}: a cancel against a `Ready` item is refused — a run that never began cannot be cancelled"
+        !premature_cancel.wrote(),
+        "{HARNESS}: a cancel against a `Ready` item is refused — a run that never began cannot be cancelled (got {})",
+        premature_cancel.name()
     );
     assert_eq!(
         harness
@@ -142,15 +141,15 @@ async fn db_concurrency_004__claim_vs_cancel() {
     //    admits it and the terminal write takes the row. The claim cannot be replayed over the result.
     // -----------------------------------------------------------------------------------------------------------
     let cancellation = harness
-        .engine()
-        .finish_agent_work_run(
+        .settle_claim(
             &item_a,
             AgentWorkOutcome::Cancelled,
             Some("cancelled by the proof"),
-            None,
         )
         .await
         .expect("the cancel answers rather than erroring")
+        .settlement()
+        .cloned()
         .expect("a cancel against a claimed item is legal and settles it");
     assert_eq!(
         cancellation.item_state, "Cancelled",
@@ -192,18 +191,17 @@ async fn db_concurrency_004__claim_vs_cancel() {
 
     // And a second cancel is refused too: the terminal write happens once.
     let second_cancel = harness
-        .engine()
-        .finish_agent_work_run(
+        .settle_claim(
             &item_a,
             AgentWorkOutcome::Cancelled,
             Some("a second cancel"),
-            None,
         )
         .await
         .expect("the second cancel answers rather than erroring");
     assert!(
-        second_cancel.is_none(),
-        "{HARNESS}: a second cancel on an already-cancelled item is refused"
+        !second_cancel.wrote(),
+        "{HARNESS}: a second cancel on an already-cancelled item is refused (got {})",
+        second_cancel.name()
     );
 
     // -----------------------------------------------------------------------------------------------------------
@@ -235,16 +233,10 @@ async fn db_concurrency_004__claim_vs_cancel() {
                     (true, claim.is_some())
                 } else {
                     let cancel = harness
-                        .engine()
-                        .finish_agent_work_run(
-                            &item,
-                            AgentWorkOutcome::Cancelled,
-                            Some("racing cancel"),
-                            None,
-                        )
+                        .settle_claim(&item, AgentWorkOutcome::Cancelled, Some("racing cancel"))
                         .await
                         .expect("a cancel answers rather than erroring");
-                    (false, cancel.is_some())
+                    (false, cancel.wrote())
                 }
             }
         })

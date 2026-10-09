@@ -35,6 +35,95 @@ pub struct ForgeAgentWorkRow {
     pub stop_after: Option<String>,
     /// Operator launch cap for THIS dispatch: `SOLO` / `SMITH` / `SPLIT` / `HOLD`, NULL = the Lead decides.
     pub launch_intent: Option<String>,
+    /// The authority this claim holds (migration 278). Bumped by the claim in the statement that names the owner,
+    /// so it is not a copy of anything the caller passed in: it IS the generation the row now carries.
+    pub claim_generation: i64,
+}
+
+/// The authority ONE execution holds over ONE work item (migration 278).
+///
+/// `claimed_by` alone is a NAME, and a name is reused: `AGENT_WORKER_ID` is exported by hand and by host, and the
+/// Forge worker is a process that can be restarted under the name its predecessor had. Lifetime authority used to
+/// be (owner text, state), so a superseded execution of the same name could still begin a run, freshen the
+/// replacement's lease, or settle the replacement's work. The generation is bumped by the claim itself, in the
+/// statement that names the owner, so `(work_item, generation)` names exactly one execution and the predecessor it
+/// replaced can no longer write anything.
+///
+/// Generation `0` is the pre-278 authority: an item claimed by a worker that does not know about generations still
+/// owns its claim at generation 0, which is what lets the fence land without orphaning in-flight work during the
+/// drain the work order asks for (`FORGE-B1` §10.8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClaimFence {
+    pub owner: String,
+    pub generation: i64,
+}
+
+impl ClaimFence {
+    pub fn new(owner: impl Into<String>, generation: i64) -> Self {
+        Self {
+            owner: owner.into(),
+            generation,
+        }
+    }
+
+    /// The fence an item that was claimed before generations existed carries.
+    pub fn unfenced(owner: impl Into<String>) -> Self {
+        Self::new(owner, 0)
+    }
+}
+
+/// What a fenced settle answered (migration 278).
+///
+/// The old shape answered an empty row set for every kind of "no" — already settled, not mine, no such item — and
+/// the callers reported all three as "already had a verdict". That is how a superseded execution learned to look
+/// like a settled one. Each variant below is a different fact and is named as one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettlementResult {
+    /// This call wrote the pair.
+    Settled(AgentWorkSettlement),
+    /// The same execution's identical settle was already applied; this is the pair it stored.
+    Duplicate(AgentWorkSettlement),
+    /// This generation's claim was already released back into the queue, so there is nothing to settle.
+    Released(AgentWorkSettlement),
+    /// A terminal pair exists under this execution identity with a DIFFERENT outcome. Not a duplicate, not a
+    /// success: the caller asked for two verdicts from one authority and neither is trusted.
+    Conflict(AgentWorkSettlement),
+    /// The item is not this execution's to settle: a successor owns it, it is not in a claimable state, or its
+    /// generation does not match. The pair as it stands is attached when the item exists at all.
+    RefusedOwnership(Option<AgentWorkSettlement>),
+    /// There is no such work item.
+    Missing,
+}
+
+impl SettlementResult {
+    /// The pair as the database holds it, when there is one to report.
+    pub fn settlement(&self) -> Option<&AgentWorkSettlement> {
+        match self {
+            Self::Settled(pair)
+            | Self::Duplicate(pair)
+            | Self::Released(pair)
+            | Self::Conflict(pair) => Some(pair),
+            Self::RefusedOwnership(pair) => pair.as_ref(),
+            Self::Missing => None,
+        }
+    }
+
+    /// Did THIS call write the pair? Only `Settled` did; every other answer is a report.
+    pub fn wrote(&self) -> bool {
+        matches!(self, Self::Settled(_))
+    }
+
+    /// The routine's own word for the answer, for a log line or a test assertion.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Settled(_) => "settled",
+            Self::Duplicate(_) => "duplicate",
+            Self::Released(_) => "released",
+            Self::Conflict(_) => "conflict",
+            Self::RefusedOwnership(_) => "refused_ownership",
+            Self::Missing => "not_found",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +172,9 @@ pub struct BeginAgentWorkRun {
     pub model_policy: Option<String>,
     /// The Lead cap the Cockpit set on the dispatch (migration 167). Carried to the Lead as its bench intent.
     pub launch_intent: Option<String>,
+    /// The generation the fence matched (migration 278). It comes back from the statement that moved the row, so
+    /// the caller holds the authority the database actually granted rather than the one it asked for.
+    pub claim_generation: i64,
 }
 
 /// The specification a run is opened with: the twelve specification columns of `storyboard_story`, copied into
@@ -253,7 +345,7 @@ impl ForgeEngineDao {
     ) -> DbResult<Option<ForgeAgentWorkRow>> {
         sqlx::query_as::<_, ForgeAgentWorkRow>(
             "select id::text as id, story_id, state, claimed_by, role, kind, work_type, execution_policy,
-                    model_policy, stop_after, launch_intent
+                    model_policy, stop_after, launch_intent, claim_generation
              from forge_claim_specific_agent_work($1::uuid, $2)",
         )
         .bind(work_item_id)
@@ -279,7 +371,7 @@ impl ForgeEngineDao {
     ) -> DbResult<Option<ForgeAgentWorkRow>> {
         sqlx::query_as::<_, ForgeAgentWorkRow>(
             "select id::text as id, story_id, state, claimed_by, role, kind, work_type, execution_policy,
-                    model_policy, stop_after, launch_intent
+                    model_policy, stop_after, launch_intent, claim_generation
              from forge_claim_story($1::text, 1)",
         )
         .bind(worker_id)
@@ -302,16 +394,20 @@ impl ForgeEngineDao {
     pub async fn begin_agent_work_run(
         &self,
         work_item_id: &str,
+        claim: &ClaimFence,
     ) -> DbResult<Option<BeginAgentWorkRun>> {
         // The lock, the run snapshot and the `Claimed → Running` move are the database's:
-        // `forge_begin_agent_work_run` (migration 264). The run's actual target is the one fact only this process
-        // knows, so it is the one passed in.
+        // `forge_begin_agent_work_run` (migration 264, fenced by 278). The run's actual target is the one fact only
+        // this process knows, so it is the one passed in — and the claim's authority is the other, so a superseded
+        // execution gets no row and no run.
         sqlx::query_as::<_, BeginAgentWorkRun>(
-            "select execution_policy, story_run_id, model_policy, launch_intent
-               from forge_begin_agent_work_run($1::uuid, $2)",
+            "select execution_policy, story_run_id, model_policy, launch_intent, claim_generation
+               from forge_begin_agent_work_run($1::uuid, $2, $3, $4)",
         )
         .bind(work_item_id)
         .bind(run_execution_environment(self.db.declared_target()))
+        .bind(&claim.owner)
+        .bind(claim.generation)
         .fetch_optional(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_engine.begin_agent_work_run", &error))
@@ -338,60 +434,94 @@ impl ForgeEngineDao {
         Ok(())
     }
 
-    /// Keep a live claim out of `stale_agent_work`'s reach while its run is in flight, fenced to the owner.
+    /// Keep a live claim out of `stale_agent_work`'s reach while its run is in flight, fenced to the owner **and the
+    /// generation** (migration 278).
     ///
     /// The heartbeat is the lease's renewal: it moves `updated_at` and `heartbeat_at` forward and re-opens
-    /// `lease_expires_at` for `lease_ttl`. It is owner-fenced — `claimed_by` must be `worker_id` — so a peer
-    /// (or a supervisor beating on someone else's item through a stale snapshot) cannot freshen a claim it
-    /// does not hold, and a stale owner whose lease was reclaimed no-ops here instead of double-driving.
-    /// False = no longer claimable (settled, reassigned or not ours), which the worker treats as "stop
-    /// heartbeating", never as an error.
+    /// `lease_expires_at` for `lease_ttl`. It used to be fenced by `claimed_by` alone, which is a name: a
+    /// superseded execution's late beat refreshed the SUCCESSOR's lease, keeping a run that had lost its claim alive
+    /// in the eyes of stale recovery. Requiring the generation means a beat either renews the lease of the exact
+    /// execution it belongs to, or answers `false`. False = no longer claimable (settled, reassigned, reclaimed),
+    /// which the worker treats as "stop heartbeating", never as an error.
     pub async fn heartbeat_agent_work(
         &self,
         work_item_id: &str,
-        worker_id: &str,
+        claim: &ClaimFence,
         lease_ttl: std::time::Duration,
     ) -> DbResult<bool> {
         let lease_secs = lease_ttl.as_secs_f64();
-        let result = sqlx::query(
-            "update agent_work_item set updated_at=now(), heartbeat_at=now(),
-             lease_expires_at = now() + make_interval(secs => $3)
-             where id=$1::uuid and claimed_by=$2 and state in ('Claimed','Running')",
+        let alive = sqlx::query_scalar::<_, bool>(
+            "select forge_heartbeat_agent_work($1::uuid, $2, $3, $4)",
         )
         .bind(work_item_id)
-        .bind(worker_id)
+        .bind(&claim.owner)
+        .bind(claim.generation)
         .bind(lease_secs)
-        .execute(self.db.pool())
+        .fetch_one(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_engine.heartbeat_agent_work", &error))?;
-        Ok(result.rows_affected() > 0)
+        Ok(alive)
     }
 
-    /// The one terminal write: a run that was claimed ends exactly once, as `Done`, `Error` or `Cancelled`.
+    /// The one terminal write: a run that was claimed ends exactly once, as `Done`, `Error`, `Cancelled` or
+    /// `Abandoned` — for the execution that holds the claim, and only for it (migration 278).
     ///
-    /// `state in ('Claimed','Running')` is the guard, not a courtesy: it makes a second settle a no-op instead of
-    /// overwriting a terminal row, so the child settling its own run and the worker settling a failed launch cannot
-    /// race each other into a wrong verdict. Returns `None` when this call did not settle anything.
+    /// The fence is (owner, generation), so a superseded execution cannot write a verdict over its replacement. The
+    /// answer is typed ([`SettlementResult`]) rather than `Option`: "the claim is not yours", "this execution
+    /// already settled it", "a different outcome was already stored under this authority" and "no such item" are
+    /// four different facts, and reporting them as one was how a lost claim looked like a settled one.
     ///
-    /// The transaction, the pair it writes, the `max_attempts` cap and the run close are the database's:
-    /// `forge_finish_agent_work_run` (migration 263).
+    /// Idempotency is the routine's, not the caller's: the settlement key is derived from (work item, generation,
+    /// outcome) inside `forge_finish_agent_work_run`, so a retry of the same execution's settle is a `Duplicate`
+    /// and no caller can invent an identity that makes a second write look like a first.
     pub async fn finish_agent_work_run(
         &self,
         work_item_id: &str,
+        claim: &ClaimFence,
         outcome: AgentWorkOutcome,
         error_text: Option<&str>,
-        idempotency_key: Option<&str>,
-    ) -> DbResult<Option<AgentWorkSettlement>> {
-        sqlx::query_as::<_, AgentWorkSettlement>(
-            "select item_state, story_status, reason from forge_finish_agent_work_run($1::uuid, $2, $3, $4)",
+    ) -> DbResult<SettlementResult> {
+        // The transaction, the pair it writes, the `max_attempts` cap, the run close and the fence are the
+        // database's: `forge_finish_agent_work_run` (migration 263, fenced and typed by 278).
+        let (result, item_state, story_status, reason): (
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = sqlx::query_as(
+            "select result, item_state, story_status, reason
+               from forge_finish_agent_work_run($1::uuid, $2, $3, $4, $5)",
         )
         .bind(work_item_id)
         .bind(outcome.as_str())
         .bind(error_text)
-        .bind(idempotency_key)
-        .fetch_optional(self.db.pool())
+        .bind(&claim.owner)
+        .bind(claim.generation)
+        .fetch_one(self.db.pool())
         .await
-        .map_err(|error| DbFailure::from_sqlx("forge_engine.finish_agent_work_run", &error))
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.finish_agent_work_run", &error))?;
+
+        let pair = item_state.map(|item_state| AgentWorkSettlement {
+            item_state,
+            story_status,
+            reason,
+        });
+        Ok(match (result.as_str(), pair) {
+            ("settled", Some(pair)) => SettlementResult::Settled(pair),
+            ("duplicate", Some(pair)) => SettlementResult::Duplicate(pair),
+            ("released", Some(pair)) => SettlementResult::Released(pair),
+            ("conflict", Some(pair)) => SettlementResult::Conflict(pair),
+            ("refused_ownership", pair) => SettlementResult::RefusedOwnership(pair),
+            ("not_found", _) => SettlementResult::Missing,
+            // An outcome nobody defined is not a verdict. Reporting it as one would be exactly the silent success
+            // this routine exists to remove.
+            (other, _) => {
+                return Err(DbFailure::schema_mismatch(
+                    "forge_engine.finish_agent_work_run",
+                    format!("forge_finish_agent_work_run answered {other:?}"),
+                ))
+            }
+        })
     }
 
     /// **Clean the control plane before every run.**

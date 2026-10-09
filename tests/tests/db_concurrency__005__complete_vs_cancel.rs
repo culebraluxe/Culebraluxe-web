@@ -86,8 +86,7 @@ async fn claim_and_begin(harness: &RaceHarness, story_id: &str, item: &str) {
     );
     assert!(
         harness
-            .engine()
-            .begin_agent_work_run(item)
+            .begin_claim(item)
             .await
             .expect("begin answers rather than erroring")
             .is_some(),
@@ -145,15 +144,15 @@ async fn db_concurrency_005__complete_vs_cancel() {
     claim_and_begin(&harness, &story_a, &item_a).await;
 
     let cancel_first = harness
-        .engine()
-        .finish_agent_work_run(
+        .settle_claim(
             &item_a,
             AgentWorkOutcome::Cancelled,
             Some("cancelled before the child reported"),
-            None,
         )
         .await
         .expect("the cancel answers rather than erroring")
+        .settlement()
+        .cloned()
         .expect("a cancel against a running item is legal");
     assert_eq!(
         cancel_first.item_state, "Cancelled",
@@ -162,13 +161,13 @@ async fn db_concurrency_005__complete_vs_cancel() {
 
     // NEGATIVE: the late `Done` must not overwrite it.
     let late_done = harness
-        .engine()
-        .finish_agent_work_run(&item_a, AgentWorkOutcome::Done, None, None)
+        .settle_claim(&item_a, AgentWorkOutcome::Done, None)
         .await
         .expect("the late Done answers rather than erroring");
     assert!(
-        late_done.is_none(),
-        "{HARNESS}: a `Done` arriving after a `Cancelled` is refused — it cannot resurrect a cancelled run"
+        !late_done.wrote(),
+        "{HARNESS}: a `Done` arriving after a `Cancelled` is refused — it cannot resurrect a cancelled run (got {})",
+        late_done.name()
     );
     assert_eq!(
         harness
@@ -198,10 +197,11 @@ async fn db_concurrency_005__complete_vs_cancel() {
     claim_and_begin(&harness, &story_b, &item_b).await;
 
     let done_first = harness
-        .engine()
-        .finish_agent_work_run(&item_b, AgentWorkOutcome::Done, None, None)
+        .settle_claim(&item_b, AgentWorkOutcome::Done, None)
         .await
         .expect("the Done answers rather than erroring")
+        .settlement()
+        .cloned()
         .expect("a Done against a board that reads Complete is legal");
     assert_eq!(
         done_first.item_state, "Done",
@@ -210,18 +210,17 @@ async fn db_concurrency_005__complete_vs_cancel() {
 
     // NEGATIVE: the late `Cancelled` must not overwrite the real completion.
     let late_cancel = harness
-        .engine()
-        .finish_agent_work_run(
+        .settle_claim(
             &item_b,
             AgentWorkOutcome::Cancelled,
             Some("a cancel that arrived too late"),
-            None,
         )
         .await
         .expect("the late cancel answers rather than erroring");
     assert!(
-        late_cancel.is_none(),
-        "{HARNESS}: a `Cancelled` arriving after a `Done` is refused — it cannot erase a real completion"
+        !late_cancel.wrote(),
+        "{HARNESS}: a `Cancelled` arriving after a `Done` is refused — it cannot erase a real completion (got {})",
+        late_cancel.name()
     );
     assert_eq!(
         harness
@@ -265,11 +264,13 @@ async fn db_concurrency_005__complete_vs_cancel() {
                     AgentWorkOutcome::Cancelled
                 };
                 let settled = harness
-                    .engine()
-                    .finish_agent_work_run(&item, outcome, None, None)
+                    .settle_claim(&item, outcome, None)
                     .await
                     .expect("a settle answers rather than erroring");
-                (outcome, settled.map(|answer| answer.item_state))
+                (
+                    outcome,
+                    settled.settlement().map(|pair| pair.item_state.clone()),
+                )
             }
         })
         .await;

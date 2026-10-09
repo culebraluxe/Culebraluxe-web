@@ -12,8 +12,12 @@
 //! asserts is the production `ForgeEngineDao` method ([`engine`](ForgeHarness::engine)), and every assertion is read
 //! back from the pool the production DAO wrote to ([`pool`](ForgeHarness::pool)).
 
-use db::{DbFailure, ForgeControlDao, ForgeEngineDao};
+use db::{
+    AgentWorkOutcome, AgentWorkSettlement, BeginAgentWorkRun, ClaimFence, DbFailure, DbResult,
+    ForgeControlDao, ForgeEngineDao, SettlementResult,
+};
 use sqlx::PgPool;
+use std::time::Duration;
 
 use crate::database::{HarnessDbError, TestDatabase};
 
@@ -115,5 +119,76 @@ impl ForgeHarness {
             .await
             .map_err(|error| DbFailure::from_sqlx("test-harness.forge.cleanup_story", &error))?;
         Ok(())
+    }
+
+    /// The authority the ROW currently holds for an item — what the production worker reads off its own claim
+    /// (`AgentWorkItem::fence`, migration 278).
+    ///
+    /// A fenced write takes `(owner, generation)`, and a test has no business inventing either: a test that guesses
+    /// a generation proves something about the guess, not about the fence. Reading it here means a fixture's
+    /// authority is whatever the claim statement actually granted.
+    pub async fn claim_fence(&self, item_id: &str) -> DbResult<ClaimFence> {
+        let (owner, generation): (Option<String>, i64) = sqlx::query_as(
+            "select claimed_by, claim_generation from agent_work_item where id = $1::uuid",
+        )
+        .bind(item_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("test-harness.forge.claim_fence", &error))?;
+        Ok(ClaimFence::new(owner.unwrap_or_default(), generation))
+    }
+
+    /// Open the run for an item **through the production fence**, with the authority the row holds.
+    pub async fn begin_claim(&self, item_id: &str) -> DbResult<Option<BeginAgentWorkRun>> {
+        let fence = self.claim_fence(item_id).await?;
+        self.engine.begin_agent_work_run(item_id, &fence).await
+    }
+
+    /// Renew an item's lease through the production fence, with the authority the row holds.
+    pub async fn beat_claim(&self, item_id: &str, lease_ttl: Duration) -> DbResult<bool> {
+        let fence = self.claim_fence(item_id).await?;
+        self.engine
+            .heartbeat_agent_work(item_id, &fence, lease_ttl)
+            .await
+    }
+
+    /// Settle an item through the production fence, with the authority the row holds.
+    ///
+    /// The answer is typed (migration 278): `Settled` is a write, `Duplicate` is this execution asking twice,
+    /// `RefusedOwnership` is somebody else's claim. A test that only needs "it settled" asserts `answer.wrote()`.
+    pub async fn settle_claim(
+        &self,
+        item_id: &str,
+        outcome: AgentWorkOutcome,
+        error_text: Option<&str>,
+    ) -> DbResult<SettlementResult> {
+        let fence = self.claim_fence(item_id).await?;
+        self.engine
+            .finish_agent_work_run(item_id, &fence, outcome, error_text)
+            .await
+    }
+
+    /// Settle, requiring that THIS call wrote the pair, and return the pair.
+    ///
+    /// Most fixtures settle their own claim exactly once and then assert what the row says. The typed answer
+    /// (migration 278) reports a refusal instead of pretending one did not happen, so a test that means "it settled"
+    /// says so once, here, rather than at every call site. A test that needs the typed answer — duplicate, conflict,
+    /// refused — uses [`settle_claim`](Self::settle_claim).
+    pub async fn settle_claim_writing(
+        &self,
+        item_id: &str,
+        outcome: AgentWorkOutcome,
+        error_text: Option<&str>,
+    ) -> DbResult<AgentWorkSettlement> {
+        let answer = self.settle_claim(item_id, outcome, error_text).await?;
+        assert!(
+            answer.wrote(),
+            "the claim's holder must settle it (got {})",
+            answer.name()
+        );
+        Ok(answer
+            .settlement()
+            .cloned()
+            .expect("a written settle carries its pair"))
     }
 }

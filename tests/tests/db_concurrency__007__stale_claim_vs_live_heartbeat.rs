@@ -64,16 +64,28 @@ async fn claim_work_item(
     }
 }
 
-async fn begin_work(db: &Database, work_item_id: &str) -> Option<db::BeginAgentWorkRun> {
+async fn begin_work(
+    db: &Database,
+    work_item_id: &str,
+    worker_id: &str,
+) -> Option<db::BeginAgentWorkRun> {
     let dao = ForgeEngineDao::new(db.clone());
-    dao.begin_agent_work_run(work_item_id).await.expect("begin")
+    // The fixture claims with raw SQL (which does not bump a claim generation), so this item's authority is the
+    // pre-278 one: owner, generation 0. Migration 278 reads it exactly as the row holds it.
+    dao.begin_agent_work_run(work_item_id, &db::ClaimFence::new(worker_id, 0))
+        .await
+        .expect("begin")
 }
 
 async fn heartbeat(db: &Database, work_item_id: &str, worker_id: &str) -> bool {
     let dao = ForgeEngineDao::new(db.clone());
-    dao.heartbeat_agent_work(work_item_id, worker_id, std::time::Duration::from_secs(300))
-        .await
-        .expect("heartbeat")
+    dao.heartbeat_agent_work(
+        work_item_id,
+        &db::ClaimFence::new(worker_id, 0),
+        std::time::Duration::from_secs(300),
+    )
+    .await
+    .expect("heartbeat")
 }
 
 /// The execution ledger row a live worker asks recovery to respect. The
@@ -233,7 +245,7 @@ async fn db_concurrency_007__stale_claim_vs_live_heartbeat() {
         .await
         .expect("claimed");
     assert_eq!(claimed.state, "Claimed");
-    let _begun = begin_work(&db, &work_item_id).await.expect("begun");
+    let _begun = begin_work(&db, &work_item_id, "worker-1").await.expect("begun");
 
     let (task_id_1, pi_1) = seed_execution(&db, &story_id_1, &work_item_id, "worker-1").await;
 
@@ -282,7 +294,7 @@ async fn db_concurrency_007__stale_claim_vs_live_heartbeat() {
     claim_work_item(&db, &story_id_2, "worker-2")
         .await
         .expect("claimed");
-    begin_work(&db, &work_item_id_2).await.expect("begun");
+    begin_work(&db, &work_item_id_2, "worker-2").await.expect("begun");
     let (task_id_2, pi_2) = seed_execution(&db, &story_id_2, &work_item_id_2, "worker-2").await;
 
     age_heartbeat(&db, &task_id_2).await;
@@ -364,7 +376,7 @@ async fn db_concurrency_007__stale_claim_vs_live_heartbeat() {
     claim_work_item(&db, &story_id_3, "worker-3")
         .await
         .expect("claimed");
-    begin_work(&db, &work_item_id_3).await.expect("begun");
+    begin_work(&db, &work_item_id_3, "worker-3").await.expect("begun");
     let (task_id_3, pi_3) = seed_execution(&db, &story_id_3, &work_item_id_3, "worker-3").await;
     age_heartbeat(&db, &task_id_3).await;
 
