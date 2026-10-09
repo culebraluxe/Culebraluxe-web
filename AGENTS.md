@@ -537,6 +537,7 @@ Run:
 git diff --check
 pnpm build              # web/ui wasm (release) + tailwind + the rust server binary
 pnpm broken:ts:sweep    # dead-TS counts; fails if the tree and the inventory disagree
+pnpm scripts:check      # every tracked shell file parses (bash -n) — the release path is shell
 ```
 
 **There is no `next build`: there is no Next.js application.** The website is the Yew app in `web/ui` (wasm +

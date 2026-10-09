@@ -111,6 +111,16 @@ jobs:
       - name: guard paths (every `guard:` in AGENTS.md resolves to a test)
         run: pnpm forge:guard-lint
 
+      # EVERY TRACKED SHELL FILE IS PARSED, BECAUSE NOTHING PARSED ONE (2026-10-08).
+      #
+      # `scripts/release-ci-check.sh` — the file that decides whether a release may proceed — was found carrying a
+      # live syntax error: an apostrophe inside a bash single-quoted `node -e` block, left by an edit nothing ever
+      # parsed. `bash -n` reports that in a second, and nothing ran it: not the pre-push hook, not `pnpm slice:check`,
+      # not this workflow. A shell file that cannot be parsed cannot run, and a release-path script that cannot run
+      # fails at the worst moment, so the cheapest check in the estate was the one missing.
+      - name: shell syntax (every tracked shell file parses)
+        run: bash scripts/check-shell-syntax.sh
+
       - name: lint
         run: pnpm lint
 
