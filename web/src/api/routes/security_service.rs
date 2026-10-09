@@ -491,7 +491,7 @@ pub(super) async fn service_dispatch(
     Ok(success(value, &resolved))
 }
 
-pub(super) fn service_dispatch_error(error: ServiceDispatchError) -> ApiError {
+pub(crate) fn service_dispatch_error(error: ServiceDispatchError) -> ApiError {
     match error {
         ServiceDispatchError::ServiceNotFound(domain) => ApiError::not_found(
             "SERVICE_NOT_FOUND",

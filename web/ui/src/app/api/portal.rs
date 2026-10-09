@@ -372,7 +372,7 @@ impl Endpoint for SigningDeskList {
     const METHOD: Method = Method::Post;
     type Response = Vec<crate::model::SigningEnvelopeSummary>;
     fn path(&self) -> String {
-        "/v1/services/dispatch".into()
+        "/api/portal/rust-ui/signing/dispatch".into()
     }
     fn body(&self) -> Option<serde_json::Value> {
         Some(serde_json::json!({
@@ -393,7 +393,7 @@ impl Endpoint for SigningEnvelopeGet {
     const METHOD: Method = Method::Post;
     type Response = serde_json::Value;
     fn path(&self) -> String {
-        "/v1/services/dispatch".into()
+        "/api/portal/rust-ui/signing/dispatch".into()
     }
     fn body(&self) -> Option<serde_json::Value> {
         Some(serde_json::json!({
@@ -458,7 +458,7 @@ impl Endpoint for SigningDeskCommand {
     const METHOD: Method = Method::Post;
     type Response = serde_json::Value;
     fn path(&self) -> String {
-        "/v1/commands/dispatch".into()
+        "/api/portal/rust-ui/signing/command".into()
     }
     fn body(&self) -> Option<serde_json::Value> {
         let mut input = self.input.as_object().cloned().unwrap_or_default();
@@ -484,13 +484,13 @@ impl Endpoint for SigningDeskCommand {
     }
 }
 
-/// The documents the desk can send for signature: the Vault's issued documents (`GET /v1/vault/documents`).
+/// The documents the desk can send for signature: the Vault's issued documents (`GET /api/portal/rust-ui/signing/documents`).
 pub struct SigningDocumentsList;
 
 impl Endpoint for SigningDocumentsList {
     const METHOD: Method = Method::Get;
     type Response = Vec<crate::model::SigningDocumentOption>;
     fn path(&self) -> String {
-        "/v1/vault/documents".into()
+        "/api/portal/rust-ui/signing/documents".into()
     }
 }

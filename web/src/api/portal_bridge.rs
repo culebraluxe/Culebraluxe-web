@@ -11,7 +11,7 @@ use crate::service_support::CoreServiceError;
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use base64::Engine as _;
@@ -39,6 +39,7 @@ mod forms_write_actions;
 mod pages;
 mod projects;
 mod security_media;
+mod signing_desk;
 mod tech_documents;
 mod workspaces;
 #[allow(unused_imports)]
@@ -59,6 +60,8 @@ pub(super) use pages::*;
 pub(super) use projects::*;
 #[allow(unused_imports)]
 pub(super) use security_media::*;
+#[allow(unused_imports)]
+pub(super) use signing_desk::*;
 #[allow(unused_imports)]
 pub(super) use tech_documents::*;
 #[allow(unused_imports)]
@@ -82,6 +85,15 @@ pub fn router() -> Router<ApiState> {
         .route("/api/portal/rust-ui/cabinet", get(cabinet))
         .route("/api/portal/flight-recorder/{id}", get(flight_recorder))
         .route("/api/portal/rust-ui/deals", get(deals).post(deals_write))
+        .route(
+            "/api/portal/rust-ui/signing/dispatch",
+            post(signing_dispatch),
+        )
+        .route("/api/portal/rust-ui/signing/command", post(signing_command))
+        .route(
+            "/api/portal/rust-ui/signing/documents",
+            get(signing_documents),
+        )
         .route("/api/portal/rust-ui/forms", get(forms).post(forms_write))
         .route(
             "/api/portal/rust-ui/forms/preview",
