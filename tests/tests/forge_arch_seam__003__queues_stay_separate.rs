@@ -12,7 +12,7 @@
 //! `forge_job__013` pins the narrow half (`job.rs` vs the worker). This rail pins the whole boundary:
 //!
 //!   * EXECUTABLE: a whole FEATURE generation runs its role jobs with NO story-queue row in existence, and every role
-//!     job's envelope is exactly the Workflow identity — it carries no work-item identity to collapse onto;
+//!     job's envelope carries the Workflow identity plus its optional write-surface scope — no work-item identity;
 //!   * the story-queue side — the db DAOs, the stored routines (migrations 262–267) and the dispatch trigger (025, 146),
 //!     the worker — never creates, reads or claims a `jobs` row;
 //!   * the role-job side — the driver, the job layer, the registry, the roles and the Workflow kernel — never names
@@ -30,14 +30,15 @@ use arch::*;
 use forge::engine::job::{WorkflowJobService, FORGE_ROLE_JOB_TYPE};
 use test_harness::source;
 
-/// The keys a `forge.role` envelope carries: the Workflow task's identity and its XML service key. Nothing else.
-const ROLE_JOB_ENVELOPE: [&str; 6] = [
+/// Workflow identity, XML service key and the optional execution-scope hint. No work-item key is allowed.
+const ROLE_JOB_ENVELOPE: [&str; 7] = [
     "nodeId",
     "processInstanceId",
     "serviceKey",
     "storyId",
     "taskId",
     "tokenId",
+    "writeSurface",
 ];
 
 #[test]
