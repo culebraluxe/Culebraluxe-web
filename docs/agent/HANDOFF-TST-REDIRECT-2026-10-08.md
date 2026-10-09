@@ -43,3 +43,44 @@ After the gate built all targets, directly executed the seven final canonical te
 ## Publication receipt
 
 Owner authorization: “I authorize you to push your tree to main.” Applied the exact preserved ten-file patch against main at `80e5f7d04c9eba7a8aff35590f52c95cfdc2f723`, checking all existing hunk contexts and confirming new paths are absent. Subsequent verification documented in `docs/agent/HANDOFF-TST-RED-LANDING-2026-10-08.md` reports seven canonical assays plus ten web Google-auth tests passing against `877d1f6f6`. The earlier scratch executor is unavailable in this turn, so no fresh build or test execution is claimed. Publish via the GitHub API with an expected-head lease; no force push, gate edits or deployment. Neon completion notes distinguish the targeted passing evidence from the non-green section gate.
+
+## Provenance, added 2026-10-08 (`lane/deep`): three batches, and six ids now carry two files
+
+The family above was authored by **three** batches, not one, and two of them wrote tests for the same seven
+stories under different names. Established from the repository, not from a status table — the add commit of every
+one of the 17 files (`git log --diff-filter=A --format='%h %ad %s' --date=short -- <file> | tail -1`):
+
+    b3ce7fef9  2026-10-07  TST RED batch 45: Add SEC.REDIRECT contract tests 001-010 (blocked by web crate compilation error)
+                          001__path_traversal  002__open_redirect  003__host_injection  004__percent_encoding
+                          005__fragment_handling  006__query_parameters  007__port_changes  008__scheme_changes
+                          009__malformed_unicode  010__crlf
+    68ba004de  2026-10-08  fix: reject redirect control characters and add seven security contracts   ← this batch
+                          001__relative_path_allowed  003__evil  004__evil  006__userinfo_tricks
+                          007__port_changes  008__scheme_changes  010__crlf
+    f438d7a68  2026-10-08  test(sec): four redirect contracts - 002 same-origin absolute, 005 encoded slash/backslash,
+                          009 malformed Unicode, 011 loops
+                          002__same_origin_absolute_behavior_as_intended  005__encoded_slash_backslash_variants
+                          009__malformed_unicode  011__redirect_loops
+
+All three arrived on `lane/muse`. **Six ids therefore have two test files** — 001, 002, 003, 004, 005 and 006 —
+and nothing in the tree says which file answers a story id; `ls tests/tests/sec_redirect__*.rs` lists 17 files for
+11 ids. Batch 45's own subject says it was authored against a tree whose `web` crate did not compile, which is why
+it is the half that needs folding rather than the half to keep.
+
+**Which file is canonical, decided and recorded here so a lookup has one answer:** for **001, 003, 004 and 006**
+the canonical file is the one this batch added under the name the preserved proposal names
+(`docs/agent/proposals/TST-REDIRECT-2026-10-08.patch`); for **002, 005, 009 and 011** it is `f438d7a68`'s
+(`002__same_origin_absolute_behavior_as_intended`, `005__encoded_slash_backslash_variants`,
+`009__malformed_unicode`, `011__redirect_loops`); 007, 008 and 010 are single files both batches edited. Batch 45's
+six names (`001__path_traversal`, `002__open_redirect`, `003__host_injection`, `004__percent_encoding`,
+`005__fragment_handling`, `006__query_parameters`) are the duplicates.
+
+**The "remaining work" line above is stale on four ids.** It says 002, 005, 009 and 011 "remain unclaimed"; they
+were claimed by `f438d7a68` on the same day, after that paragraph was written. Nothing is unclaimed now: all 11
+ids have at least one file, six have two.
+
+**Closing it** (assigned `lane/muse` in `docs/agent/TECH-DEBT.md` row 5, expiry 2026-10-10): fold each doubled pair
+into its canonical file — batch 45's assertions move inside it, which makes the test richer rather than smaller — and
+delete batch 45's six names. That leaves one file per id and an id-to-file map that is a function. Deleting tests
+without folding is *not* the exit; the assertions batch 45 wrote are the only coverage of those exact inputs.
+
