@@ -21,6 +21,7 @@
 use forge::engine::opencode;
 use forge::engine::opencode_agents;
 use forge::engine::opencode_client;
+use std::sync::Arc;
 
 fn run_args(
     model: &str,
@@ -604,6 +605,7 @@ fn live_smoke_captures_resumes_and_meters_a_real_v2_turn() {
         auto_approve: true,
         start_run: None,
         live_turn: opencode_client::live_turn_slot(),
+        execution_turns: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         spend_cap_usd: None,
         assay_commands: vec![],
         acceptance_mapped: false,
@@ -625,6 +627,8 @@ fn live_smoke_captures_resumes_and_meters_a_real_v2_turn() {
         status: workflow::TaskStatus::Ready,
         assignee: None,
         candidates: vec![],
+
+        write_surface: None,
     };
 
     // TURN 1 — fresh. No session is named, so the vendor mints one and reports it.

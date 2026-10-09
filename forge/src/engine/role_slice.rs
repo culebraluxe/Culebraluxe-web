@@ -96,9 +96,9 @@ pub fn forge_lane_surface(form_data: Option<&Value>) -> Option<Vec<String>> {
             _ => vec![],
         }
     };
-    let direct = form.get("surface").map(clean).unwrap_or_default();
-    if !direct.is_empty() {
-        return Some(direct);
+    if let Some(value) = form.get("surface") {
+        let direct = clean(value);
+        return (!direct.is_empty()).then_some(direct);
     }
     let slice = form.get("splitBranch")?;
     let plan = slice.get("plan")?;
@@ -106,17 +106,16 @@ pub fn forge_lane_surface(form_data: Option<&Value>) -> Option<Vec<String>> {
         Some(Value::Array(items)) => items,
         _ => return None,
     };
-    let mut from_plan = Vec::new();
-    for chunk in chunks {
-        if let Some(surface) = chunk.get("surface") {
-            from_plan.extend(clean(surface));
-        }
-    }
-    if from_plan.is_empty() {
-        None
-    } else {
-        Some(from_plan)
-    }
+    // Workflow attaches the selected branch's zero-based index to each fork
+    // task. Collecting every chunk's surface here made each child claim the
+    // whole plan, which hid independent lanes from the scheduler.
+    let index = usize::try_from(form.get("splitBranchIndex")?.as_i64()?).ok()?;
+    chunks.get(index).and_then(|chunk| {
+        chunk
+            .get("surface")
+            .map(clean)
+            .filter(|surface| !surface.is_empty())
+    })
 }
 
 /// Derive a release receipt the same way the TS runner does. Proofs are injected.
@@ -220,5 +219,59 @@ mod tests {
         );
         let surface = forge_lane_surface(Some(&Value::Object(form))).unwrap();
         assert_eq!(surface, vec!["src/a.rs", "src/b.rs"]);
+    }
+
+    #[test]
+    fn a_present_but_empty_surface_does_not_fall_back_to_another_branch() {
+        use std::collections::BTreeMap;
+        let mut form = BTreeMap::new();
+        form.insert("surface".into(), Value::Array(vec![]));
+        let mut chunk = BTreeMap::new();
+        chunk.insert(
+            "surface".into(),
+            Value::Array(vec![Value::String("src/other.rs".into())]),
+        );
+        let mut plan = BTreeMap::new();
+        plan.insert("chunks".into(), Value::Array(vec![Value::Object(chunk)]));
+        let mut split = BTreeMap::new();
+        split.insert("plan".into(), Value::Object(plan));
+        form.insert("splitBranchIndex".into(), Value::from(0));
+        form.insert("splitBranch".into(), Value::Object(split));
+        assert_eq!(forge_lane_surface(Some(&Value::Object(form))), None);
+    }
+
+    #[test]
+    fn split_surface_uses_only_the_task_branch_index() {
+        use std::collections::BTreeMap;
+        let chunk = |path: &str| {
+            let mut chunk = BTreeMap::new();
+            chunk.insert(
+                "surface".into(),
+                Value::Array(vec![Value::String(path.into())]),
+            );
+            Value::Object(chunk)
+        };
+        let mut plan = BTreeMap::new();
+        plan.insert(
+            "chunks".into(),
+            Value::Array(vec![chunk("src/a.rs"), chunk("src/b.rs")]),
+        );
+        let mut split = BTreeMap::new();
+        split.insert("plan".into(), Value::Object(plan.clone()));
+        let mut form = BTreeMap::new();
+        form.insert("splitBranchIndex".into(), Value::from(1));
+        form.insert("splitBranch".into(), Value::Object(split));
+        let form = Value::Object(form);
+        assert_eq!(
+            forge_lane_surface(Some(&form)),
+            Some(vec!["src/b.rs".into()])
+        );
+
+        let mut split = BTreeMap::new();
+        split.insert("plan".into(), Value::Object(plan));
+        let mut missing_index = BTreeMap::new();
+        missing_index.insert("splitBranch".into(), Value::Object(split));
+        let missing_index = Value::Object(missing_index);
+        assert_eq!(forge_lane_surface(Some(&missing_index)), None);
     }
 }

@@ -58,6 +58,27 @@ pub trait RoleHarness: Send + Sync {
         task: &ActiveForgeRoleTask,
         self_heal: Option<&str>,
     ) -> Result<HarnessOutput>;
+    /// Run a turn under the durable execution identity that owns its cancellation handle.
+    /// Compatibility harnesses delegate to `run_role`; process-backed harnesses override this
+    /// so a supervisor cannot stop another execution sharing the same harness instance.
+    fn run_role_scoped(
+        &self,
+        _execution_id: &str,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> Result<HarnessOutput> {
+        self.run_role(node_id, task, self_heal)
+    }
+    /// Create a harness with an independent workspace and process slots for
+    /// one concurrent lane. Unsupported adapters return `None` so callers can
+    /// keep that work serial.
+    fn fork_for_workspace(
+        &self,
+        _workspace: crate::engine::packet::ExecutionWorkspace,
+    ) -> Result<Option<Arc<dyn RoleHarness>>> {
+        Ok(None)
+    }
     /// Stop the turn this harness is running RIGHT NOW, if it is running one, and say what was stopped.
     ///
     /// The default is `Ok(None)`, and that is a real answer rather than a stub: a harness with no subprocess, or
@@ -69,6 +90,24 @@ pub trait RoleHarness: Send + Sync {
     /// indistinguishable from a crash.
     fn interrupt_execution(&self, _reason: &str) -> Result<Option<TurnTermination>> {
         Ok(None)
+    }
+    /// Prepare, stop, and retire one execution independently of other turns on this harness.
+    /// The default implementation is the compatibility behavior for harnesses that do not support cancellation.
+    fn begin_execution(&self, _execution_id: &str) -> Result<()> {
+        Ok(())
+    }
+    fn interrupt_execution_scoped(
+        &self,
+        _execution_id: &str,
+        reason: &str,
+    ) -> Result<Option<TurnTermination>> {
+        self.interrupt_execution(reason)
+    }
+    fn finish_execution(&self, _execution_id: &str) {}
+    /// True only when this harness can deliver a stop to its active model
+    /// process. `Ok(None)` from interrupt alone may also mean it already exited.
+    fn supports_interrupt(&self) -> bool {
+        false
     }
     fn exists_on_base_ref(&self, base_ref: &str, path: &str) -> bool;
     /// Where this harness runs commands from — the assay workspace.
@@ -85,6 +124,9 @@ pub trait RoleHarness: Send + Sync {
         "forge-inherited-shell-v1"
     }
     fn execution_base_commit(&self) -> Option<&str> {
+        None
+    }
+    fn execution_workspace(&self) -> Option<&crate::engine::packet::ExecutionWorkspace> {
         None
     }
     fn run_command(&self, command: &str) -> CommandResult;
@@ -122,6 +164,10 @@ pub struct ProductionRoleRunner {
     /// The durable evidence each turn starts from. Without it every turn of a process saw `current` — the evidence
     /// the process was WOKEN with — and never what earlier turns produced (candidate, decision, published commit).
     pub evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
+    /// Model-attempt authority used by the shared lifecycle. Direct runners get
+    /// an in-process cap; durable production replaces it with the generation's
+    /// database authority during composition.
+    pub model_attempt_control: Option<Arc<dyn crate::engine::turn_budget::ModelAttemptControl>>,
 }
 
 /// The envelope a turn runs under, as whoever hosts it exposes it.
@@ -144,6 +190,8 @@ pub trait ForgeTurnPorts {
     fn contract_assay_commands(&self) -> &[String];
     fn contract_acceptance_mapped(&self) -> bool;
     fn require_prod(&self) -> bool;
+    fn model_attempt_control(&self)
+        -> Option<&dyn crate::engine::turn_budget::ModelAttemptControl>;
     /// The evidence a turn on `story_id` starts from: the story's latest durable evidence over the wake evidence.
     /// The default is the wake evidence alone, for hosts with no durable store behind them.
     ///
@@ -151,6 +199,12 @@ pub trait ForgeTurnPorts {
     /// as an engine fault (retryable). Returns `Err(WorkflowError::Generic)` for other database errors.
     fn current_for(&self, story_id: &str) -> Result<ForgeGateEvidence> {
         Ok(self.current().clone())
+    }
+    fn fork_with_harness(
+        &self,
+        _harness: Arc<dyn RoleHarness>,
+    ) -> Option<Box<dyn ForgeRoleRunner>> {
+        None
     }
 }
 
@@ -195,6 +249,12 @@ impl ForgeTurnPorts for ProductionRoleRunner {
         self.require_prod
     }
 
+    fn model_attempt_control(
+        &self,
+    ) -> Option<&dyn crate::engine::turn_budget::ModelAttemptControl> {
+        self.model_attempt_control.as_deref()
+    }
+
     fn current_for(&self, story_id: &str) -> Result<ForgeGateEvidence> {
         match &self.evidence_reader {
             Some(reader) => {
@@ -212,6 +272,21 @@ impl ForgeTurnPorts for ProductionRoleRunner {
             None => Ok(self.current.clone()),
         }
     }
+    fn fork_with_harness(&self, harness: Arc<dyn RoleHarness>) -> Option<Box<dyn ForgeRoleRunner>> {
+        Some(Box::new(ProductionRoleRunner {
+            harness,
+            current: self.current.clone(),
+            writer: self.writer.clone(),
+            story_run_id: self.story_run_id.clone(),
+            bench_intent: self.bench_intent.clone(),
+            test_mode: self.test_mode.clone(),
+            contract_assay_commands: self.contract_assay_commands.clone(),
+            contract_acceptance_mapped: self.contract_acceptance_mapped,
+            require_prod: self.require_prod,
+            evidence_reader: self.evidence_reader.clone(),
+            model_attempt_control: self.model_attempt_control.clone(),
+        }))
+    }
 }
 
 impl ProductionRoleRunner {
@@ -227,6 +302,18 @@ impl ProductionRoleRunner {
             contract_acceptance_mapped: false,
             require_prod: false,
             evidence_reader: None,
+            // Direct executions still pass through the shared lifecycle, so they
+            // need the same per-invocation guard. Durable production replaces
+            // this process-local authority during composition below.
+            model_attempt_control: Some(Arc::new(
+                crate::engine::turn_budget::LocalModelAttemptControl::new(
+                    crate::engine::turn_budget::resolve_generation_turn_cap(
+                        std::env::var(crate::engine::turn_budget::GENERATION_TURN_CAP_ENV)
+                            .ok()
+                            .as_deref(),
+                    ),
+                ),
+            )),
         }
     }
 
@@ -234,6 +321,14 @@ impl ProductionRoleRunner {
     /// it hangs on the story alone, and no run's ruling can be read against it.
     pub fn with_story_run(mut self, story_run_id: Option<String>) -> Self {
         self.story_run_id = story_run_id;
+        self
+    }
+
+    pub fn with_model_attempt_control(
+        mut self,
+        control: Arc<dyn crate::engine::turn_budget::ModelAttemptControl>,
+    ) -> Self {
+        self.model_attempt_control = Some(control);
         self
     }
 
@@ -289,6 +384,15 @@ impl ProductionRoleRunner {
 impl ForgeRoleRunner for ProductionRoleRunner {
     fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
         crate::roles::service::ForgeLaneServices::new(self).run(node_id, task)
+    }
+
+    fn run_scoped(
+        &self,
+        execution_id: &str,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+    ) -> Result<ForgeRoleOutcome> {
+        crate::roles::service::ForgeLaneServices::new(self).run_scoped(execution_id, node_id, task)
     }
 
     /// This is the runner that HAS the envelope. It is where a turn's harness, its starting evidence, its
@@ -369,6 +473,7 @@ mod tests {
             status: workflow::TaskStatus::Ready,
             assignee: None,
             candidates: vec![node_id.into()],
+            write_surface: None,
         }
     }
 

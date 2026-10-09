@@ -158,7 +158,12 @@ impl ForgeRoleHooks for LeadHooks {
         node_id: &str,
         out: &mut crate::engine::runner::HarnessOutput,
     ) {
-        crate::roles::smith::judge_delivered_candidate(ctx.harness, node_id, out);
+        crate::roles::smith::judge_delivered_candidate_in_surface(
+            ctx.harness,
+            node_id,
+            out,
+            ctx.write_surface,
+        );
     }
 
     fn interpret_turn(

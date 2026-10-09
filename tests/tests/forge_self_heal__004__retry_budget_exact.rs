@@ -63,6 +63,8 @@ impl RoleHarness for CountingHarness {
             excerpt: "not run by this harness".into(),
             unmeasurable: true,
             output: String::new(),
+
+            cancelled: false,
         }
     }
 }
@@ -77,6 +79,8 @@ fn role_task(story_id: &str) -> ActiveForgeRoleTask {
         status: TaskStatus::Ready,
         assignee: None,
         candidates: vec!["architect".into()],
+
+        write_surface: None,
     }
 }
 
@@ -100,6 +104,10 @@ fn attempts_for(enforce: &str, retries: &str, story_id: &str) -> usize {
         contract_assay_commands: &[],
         contract_acceptance_mapped: false,
         require_prod: false,
+
+        execution_id: None,
+        write_surface: None,
+        model_attempt_control: None,
     };
     run_forge_role_turn(&ctx, "architect", &task, &NoRoleHooks).expect("turn runs");
     harness.turns.load(Ordering::SeqCst)

@@ -52,6 +52,8 @@ impl RoleHarness for HoldHarness {
             excerpt: String::new(),
             unmeasurable: false,
             output: String::new(),
+
+            cancelled: false,
         }
     }
 }
@@ -71,6 +73,8 @@ fn role_hold_keeps_uuid_task_and_process_identity_and_human_story_id() {
         status: TaskStatus::Ready,
         assignee: None,
         candidates: vec![],
+
+        write_surface: None,
     };
     let runner = ProductionRoleRunner::new(
         Arc::new(HoldHarness),

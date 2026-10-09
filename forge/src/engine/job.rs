@@ -331,6 +331,26 @@ pub fn execute_claimed_job_unsettled(
     interrupt: Option<InterruptHandle>,
     turn_ceiling: Option<Duration>,
 ) -> Result<ForgeRoleOutcome> {
+    execute_claimed_job_unsettled_with_deadline(
+        jobs,
+        worker_id,
+        lease,
+        task,
+        registry,
+        interrupt,
+        parse_supervisor_deadline(turn_ceiling),
+    )
+}
+
+fn execute_claimed_job_unsettled_with_deadline(
+    jobs: &dyn JobService,
+    worker_id: &str,
+    lease: &ForgeJobLease,
+    task: &ActiveForgeRoleTask,
+    registry: &ForgeServiceRegistry<'_>,
+    interrupt: Option<InterruptHandle>,
+    supervisor_deadline: Option<Duration>,
+) -> Result<ForgeRoleOutcome> {
     if let Err(error) = assert_task_matches_lease(lease, task) {
         jobs.fail(&lease.job_id, worker_id, &error.to_string(), true)?;
         return Err(error);
@@ -352,13 +372,66 @@ pub fn execute_claimed_job_unsettled(
     // Build the lease fence config with connection failure threshold and supervisor deadline.
     let config = LeaseFenceConfig {
         max_consecutive_db_failures: 5,
-        supervisor_deadline: parse_supervisor_deadline(turn_ceiling),
+        supervisor_deadline,
     };
 
-    let service_result =
-        run_with_lease_heartbeat(jobs, worker_id, &lease.job_id, config, interrupt, || {
-            service.execute(&lease.node_id, task)
-        });
+    let execution_id = format!(
+        "{}:lease:{}:worker:{}:instance:{}",
+        lease.job_id, lease.attempts, worker_id, lease.process_instance_id
+    );
+    let harness = service
+        .runner()
+        .turn_ports()
+        .map(|ports| ports.harness_arc());
+    let scoped_interrupt = if let Some(harness) = harness.as_ref() {
+        if !harness.supports_interrupt() {
+            let reason = format!(
+                "INTERRUPT_UNSUPPORTED: service {} cannot stop its active execution",
+                lease.service_key
+            );
+            jobs.fail(&lease.job_id, worker_id, &reason, true)?;
+            return Err(WorkflowError::conflict("INTERRUPT_UNSUPPORTED", reason));
+        }
+        harness.begin_execution(&execution_id)?;
+        let harness = Arc::clone(harness);
+        let execution_for_log = execution_id.clone();
+        let story_for_log = task.story_id.clone();
+        let task_for_log = task.task_id.clone();
+        let job_for_log = lease.job_id.clone();
+        let instance_for_log = lease.process_instance_id.clone();
+        let attempt_for_log = lease.attempts;
+        Some(Arc::new(move |reason: &str| {
+            eprintln!(
+                "forge-interrupt story={story_for_log} instance={instance_for_log} task={task_for_log} job={job_for_log} attempt={attempt_for_log} execution={execution_for_log} requested=true reason={reason}"
+            );
+            match harness.interrupt_execution_scoped(&execution_for_log, reason) {
+                Ok(Some(receipt)) => eprintln!(
+                    "forge-interrupt story={story_for_log} instance={instance_for_log} task={task_for_log} job={job_for_log} attempt={attempt_for_log} execution={execution_for_log} delivered=true existed={} killed={} signalled={:?}",
+                    receipt.existed, receipt.killed, receipt.signalled
+                ),
+                Ok(None) => eprintln!(
+                    "forge-interrupt story={story_for_log} instance={instance_for_log} task={task_for_log} job={job_for_log} attempt={attempt_for_log} execution={execution_for_log} delivered=no_live_process_or_latched_before_launch"
+                ),
+                Err(error) => eprintln!(
+                    "forge-interrupt story={story_for_log} instance={instance_for_log} task={task_for_log} job={job_for_log} attempt={attempt_for_log} execution={execution_for_log} delivery_error={error}"
+                ),
+            }
+        }) as InterruptHandle)
+    } else {
+        interrupt
+    };
+
+    let service_result = run_with_lease_heartbeat(
+        jobs,
+        worker_id,
+        &lease.job_id,
+        config,
+        scoped_interrupt,
+        || service.execute_scoped(&execution_id, &lease.node_id, task),
+    );
+    if let Some(harness) = harness.as_ref() {
+        harness.finish_execution(&execution_id);
+    }
 
     match service_result {
         Ok(outcome) => Ok(outcome),
@@ -461,7 +534,16 @@ fn run_with_lease_heartbeat_interval<T>(
                     }
                 }
 
-                match stop_rx.recv_timeout(interval) {
+                let wait_for = heartbeat_state
+                    .config
+                    .supervisor_deadline
+                    .map(|deadline| {
+                        deadline
+                            .saturating_sub(heartbeat_state.work_started.elapsed())
+                            .min(interval)
+                    })
+                    .unwrap_or(interval);
+                match stop_rx.recv_timeout(wait_for) {
                     Ok(()) | Err(RecvTimeoutError::Disconnected) => return None,
                     Err(RecvTimeoutError::Timeout) => match jobs.heartbeat(&job_id_owned, &worker_id_owned) {
                         Ok(_) => {
@@ -489,7 +571,12 @@ fn run_with_lease_heartbeat_interval<T>(
                                 )));
                             }
                         }
-                        Err(error) => return Some(error),
+                        Err(error) => {
+                            if let Some(interrupt) = &heartbeat_state.interrupt {
+                                interrupt("durable job was cancelled or its lease was lost");
+                            }
+                            return Some(error);
+                        }
                     },
                 }
             }
@@ -514,9 +601,15 @@ fn run_with_lease_heartbeat_interval<T>(
     // the Workflow task under a lease it no longer owns.
     let lease_lost = heartbeat_error.is_some();
     if let Some(error) = heartbeat_error {
-        eprintln!(
-            "forge-job: job {job_id} lost its lease after role completed; outcome preserved for reconciliation: {error}"
-        );
+        if work_result.is_ok() {
+            eprintln!(
+                "forge-job: job {job_id} lost its lease after role completed; outcome preserved for reconciliation: {error}"
+            );
+        } else {
+            eprintln!(
+                "forge-job: job {job_id} lost its lease and the role returned an interruption/failure; no business outcome was accepted: {error}"
+            );
+        }
     }
 
     // Fence Workflow completion with one final ownership renewal after the
@@ -621,8 +714,11 @@ fn lease_from_job(job: &Job) -> Result<ForgeJobLease> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::assay::CommandResult;
     use crate::engine::executor::drive::ForgeRoleRunner;
     use crate::engine::facts::ForgeGateEvidence;
+    use crate::engine::harness::TurnTermination;
+    use crate::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};
     use crate::roles::architect::ArchitectService;
     use crate::roles::dev_ops::DevOpsService;
     use crate::roles::inspector::InspectorService;
@@ -631,13 +727,105 @@ mod tests {
     use crate::roles::scout::ScoutService;
     use crate::roles::smith::SmithService;
     use std::sync::{
-        atomic::{AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicI64, Ordering},
         Arc, Mutex,
     };
     use workflow::{EngineOptions, MemoryStore, ProcessInstance, ProcessStatus};
 
     struct RecordingRunner {
         calls: Mutex<Vec<String>>,
+    }
+
+    struct ScopedHarness {
+        executions: Mutex<Vec<String>>,
+        interrupted_executions: Mutex<Vec<String>>,
+        interrupted: Arc<AtomicBool>,
+        block_until_interrupted: bool,
+    }
+
+    impl RoleHarness for ScopedHarness {
+        fn run_role(
+            &self,
+            _node_id: &str,
+            _task: &ActiveForgeRoleTask,
+            _self_heal: Option<&str>,
+        ) -> Result<HarnessOutput> {
+            Err(WorkflowError::generic(
+                "durable dispatch bypassed scoped execution",
+            ))
+        }
+
+        fn run_role_scoped(
+            &self,
+            execution_id: &str,
+            _node_id: &str,
+            _task: &ActiveForgeRoleTask,
+            _self_heal: Option<&str>,
+        ) -> Result<HarnessOutput> {
+            self.executions
+                .lock()
+                .unwrap()
+                .push(execution_id.to_string());
+            if self.block_until_interrupted {
+                while !self.interrupted.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                return Err(WorkflowError::generic(format!(
+                    "{}: supervisor cancelled model turn",
+                    crate::engine::opencode::TURN_INTERRUPTED_CODE
+                )));
+            }
+            Ok(HarnessOutput {
+                raw: "scout findings".into(),
+                candidate_sha: None,
+                assay_commands: Vec::new(),
+                acceptance_mapped: false,
+                refusal: None,
+                execution_base: None,
+                usage: None,
+            })
+        }
+
+        fn interrupt_execution(&self, _reason: &str) -> Result<Option<TurnTermination>> {
+            Ok(None)
+        }
+
+        fn interrupt_execution_scoped(
+            &self,
+            execution_id: &str,
+            _reason: &str,
+        ) -> Result<Option<TurnTermination>> {
+            self.interrupted_executions
+                .lock()
+                .unwrap()
+                .push(execution_id.to_string());
+            self.interrupted.store(true, Ordering::SeqCst);
+            Ok(None)
+        }
+
+        fn supports_interrupt(&self) -> bool {
+            true
+        }
+
+        fn exists_on_base_ref(&self, _base_ref: &str, _path: &str) -> bool {
+            false
+        }
+
+        fn assay_cwd(&self) -> &std::path::Path {
+            std::path::Path::new(".")
+        }
+
+        fn run_command(&self, command: &str) -> CommandResult {
+            CommandResult {
+                command: command.into(),
+                exit_code: 0,
+                passed: true,
+                excerpt: String::new(),
+                cancelled: false,
+                unmeasurable: false,
+                output: String::new(),
+            }
+        }
     }
 
     impl RecordingRunner {
@@ -675,6 +863,7 @@ mod tests {
             status,
             assignee: None,
             candidates: vec![],
+            write_surface: None,
         }
     }
 
@@ -850,6 +1039,97 @@ mod tests {
     }
 
     #[test]
+    fn durable_job_dispatch_uses_registered_runner_and_exact_lease_identity() {
+        let clock = Arc::new(AtomicI64::new(1_000));
+        let engine = engine(clock);
+        let jobs = WorkflowJobService::new(&engine);
+        let harness = Arc::new(ScopedHarness {
+            executions: Mutex::new(Vec::new()),
+            interrupted_executions: Mutex::new(Vec::new()),
+            interrupted: Arc::new(AtomicBool::new(false)),
+            block_until_interrupted: false,
+        });
+        let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default());
+        let scout = ScoutService::new(&runner);
+        let mut registry = ForgeServiceRegistry::new();
+        registry
+            .register(&scout)
+            .expect("register production Scout");
+        let ready = task("feature_scout", TaskStatus::Ready);
+        let request = ForgeJobBridge::new(&registry)
+            .job_for_ready_task(&ready)
+            .expect("ready durable request");
+        jobs.enqueue(&request).expect("enqueue");
+        let lease = jobs.claim("worker-a", 1).expect("claim").remove(0);
+        let expected_execution_id = format!(
+            "{}:lease:{}:worker:{}:instance:{}",
+            lease.job_id, lease.attempts, "worker-a", lease.process_instance_id
+        );
+
+        execute_claimed_job_unsettled(&jobs, "worker-a", &lease, &ready, &registry, None, None)
+            .expect("the production-shaped registered service completes");
+
+        assert_eq!(
+            harness.executions.lock().unwrap().as_slice(),
+            &[expected_execution_id],
+            "durable dispatch carries its exact lease identity through the registered runner"
+        );
+    }
+
+    #[test]
+    fn durable_supervisor_deadline_releases_registered_blocking_harness() {
+        let clock = Arc::new(AtomicI64::new(1_000));
+        let engine = engine(clock);
+        let jobs = WorkflowJobService::new(&engine);
+        let harness = Arc::new(ScopedHarness {
+            executions: Mutex::new(Vec::new()),
+            interrupted_executions: Mutex::new(Vec::new()),
+            interrupted: Arc::new(AtomicBool::new(false)),
+            block_until_interrupted: true,
+        });
+        let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default());
+        let scout = ScoutService::new(&runner);
+        let mut registry = ForgeServiceRegistry::new();
+        registry
+            .register(&scout)
+            .expect("register production Scout");
+        let ready = task("feature_scout", TaskStatus::Ready);
+        let request = ForgeJobBridge::new(&registry)
+            .job_for_ready_task(&ready)
+            .expect("ready durable request");
+        jobs.enqueue(&request).expect("enqueue");
+        let lease = jobs.claim("worker-a", 1).expect("claim").remove(0);
+        let expected_execution_id = format!(
+            "{}:lease:{}:worker:{}:instance:{}",
+            lease.job_id, lease.attempts, "worker-a", lease.process_instance_id
+        );
+
+        let result = execute_claimed_job_unsettled_with_deadline(
+            &jobs,
+            "worker-a",
+            &lease,
+            &ready,
+            &registry,
+            None,
+            Some(Duration::from_millis(20)),
+        );
+
+        let error = match result {
+            Ok(_) => panic!("a cancelled model turn cannot report a business success"),
+            Err(error) => error,
+        };
+        assert!(error
+            .to_string()
+            .contains(crate::engine::opencode::TURN_INTERRUPTED_CODE));
+        assert!(harness.interrupted.load(Ordering::SeqCst));
+        assert_eq!(
+            harness.interrupted_executions.lock().unwrap().as_slice(),
+            &[expected_execution_id],
+            "the supervisor stops only the execution identity associated with the durable lease"
+        );
+    }
+
+    #[test]
     fn heartbeat_renews_only_the_owning_workers_lease() {
         let clock = Arc::new(AtomicI64::new(1_000));
         let engine = engine(clock.clone());
@@ -936,6 +1216,50 @@ mod tests {
             engine.get_job(&lease.job_id).expect("job").status,
             JobStatus::Locked,
             "heartbeat renews ownership; it does not settle the job"
+        );
+    }
+
+    #[test]
+    fn supervisor_deadline_interrupts_only_the_execution_handle_it_received() {
+        let clock = Arc::new(AtomicI64::new(1_000));
+        let engine = engine(clock);
+        let jobs = WorkflowJobService::new(&engine);
+        let runner = RecordingRunner::new();
+        let (mut registry, _scout, _architect, _lead, smith, _inspector, _assay, _devops) =
+            registry(&runner);
+        registry.register(&smith).expect("register Smith");
+        let request = ForgeJobBridge::new(&registry)
+            .job_for_ready_task(&task("smith", TaskStatus::Ready))
+            .expect("Smith request");
+        jobs.enqueue(&request).expect("enqueue");
+        let lease = jobs.claim("worker-a", 1).expect("claim").remove(0);
+        let interrupted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let target = Arc::clone(&interrupted);
+        let handle: InterruptHandle = Arc::new(move |_| target.store(true, Ordering::SeqCst));
+        let result = run_with_lease_heartbeat_interval(
+            &jobs,
+            "worker-a",
+            &lease.job_id,
+            Duration::from_millis(2),
+            LeaseFenceConfig {
+                max_consecutive_db_failures: 2,
+                supervisor_deadline: Some(Duration::from_millis(20)),
+            },
+            Some(handle),
+            || -> Result<()> {
+                while !interrupted.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(WorkflowError::generic("harness stopped"))
+            },
+        );
+        assert!(
+            interrupted.load(Ordering::SeqCst),
+            "the supervisor delivered the scoped stop"
+        );
+        assert!(
+            result.is_err(),
+            "the stopped role cannot produce a successful business outcome"
         );
     }
 

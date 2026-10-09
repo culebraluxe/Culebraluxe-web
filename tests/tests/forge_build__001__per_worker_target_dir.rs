@@ -16,6 +16,7 @@ use forge::engine::packet::{ExecutionWorkspace, StoryPacket};
 use forge::engine::runner::RoleHarness;
 use std::collections::HashMap;
 use std::env;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 const HARNESS: &str = "OpenCodeHarness/L0 Unit";
@@ -91,6 +92,7 @@ fn run_command_sets_cargo_target_dir_and_sanitizes_env() {
         auto_approve: true,
         start_run: None,
         live_turn: forge::engine::opencode_client::live_turn_slot(),
+        execution_turns: Arc::new(std::sync::Mutex::new(HashMap::new())),
         spend_cap_usd: None,
         assay_commands: vec![],
         acceptance_mapped: false,
@@ -225,6 +227,7 @@ fn two_harnesses_different_worktrees_different_target_dirs() {
         auto_approve: true,
         start_run: None,
         live_turn: forge::engine::opencode_client::live_turn_slot(),
+        execution_turns: Arc::new(std::sync::Mutex::new(HashMap::new())),
         spend_cap_usd: None,
         assay_commands: vec![],
         acceptance_mapped: false,
@@ -246,6 +249,7 @@ fn two_harnesses_different_worktrees_different_target_dirs() {
         auto_approve: true,
         start_run: None,
         live_turn: forge::engine::opencode_client::live_turn_slot(),
+        execution_turns: Arc::new(std::sync::Mutex::new(HashMap::new())),
         spend_cap_usd: None,
         assay_commands: vec![],
         acceptance_mapped: false,

@@ -153,6 +153,7 @@ mod tests {
             status: TaskStatus::Ready,
             assignee: None,
             candidates: vec![],
+            write_surface: None,
         }
     }
 

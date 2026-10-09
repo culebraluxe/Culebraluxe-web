@@ -4,6 +4,7 @@
 /// agent-execution harness (OpenCode, Maestro, etc.). They contain no
 /// vendor-specific logic — that lives in the adapter modules.
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::engine::assay::CommandResult;
 use crate::engine::runner::{CandidateProbe, HarnessOutput, ProductionProbe, RoleHarness};
@@ -189,10 +190,67 @@ impl RoleHarness for ForgeHarness {
         }
     }
 
+    fn run_role_scoped(
+        &self,
+        execution_id: &str,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> Result<HarnessOutput> {
+        match self {
+            ForgeHarness::OpenCode(h) => h.run_role_scoped(execution_id, node_id, task, self_heal),
+            ForgeHarness::Maestro(h) => h.run_role_scoped(execution_id, node_id, task, self_heal),
+        }
+    }
+
+    fn fork_for_workspace(
+        &self,
+        workspace: crate::engine::packet::ExecutionWorkspace,
+    ) -> Result<Option<Arc<dyn RoleHarness>>> {
+        match self {
+            ForgeHarness::OpenCode(harness) => {
+                Ok(Some(Arc::new(harness.fork_for_workspace(workspace)?)))
+            }
+            ForgeHarness::Maestro(_) => Ok(None),
+        }
+    }
+
     fn interrupt_execution(&self, reason: &str) -> Result<Option<TurnTermination>> {
         match self {
             ForgeHarness::OpenCode(h) => h.interrupt_execution(reason),
             ForgeHarness::Maestro(h) => h.interrupt_execution(reason),
+        }
+    }
+
+    fn begin_execution(&self, execution_id: &str) -> Result<()> {
+        match self {
+            ForgeHarness::OpenCode(h) => h.begin_execution(execution_id),
+            ForgeHarness::Maestro(h) => h.begin_execution(execution_id),
+        }
+    }
+
+    fn interrupt_execution_scoped(
+        &self,
+        execution_id: &str,
+        reason: &str,
+    ) -> Result<Option<TurnTermination>> {
+        match self {
+            ForgeHarness::OpenCode(h) => h.interrupt_execution_scoped(execution_id, reason),
+            ForgeHarness::Maestro(h) => h.interrupt_execution_scoped(execution_id, reason),
+        }
+    }
+
+    fn finish_execution(&self, execution_id: &str) {
+        match self {
+            ForgeHarness::OpenCode(h) => h.finish_execution(execution_id),
+            ForgeHarness::Maestro(h) => h.finish_execution(execution_id),
+        }
+    }
+
+    fn supports_interrupt(&self) -> bool {
+        match self {
+            ForgeHarness::OpenCode(h) => h.supports_interrupt(),
+            ForgeHarness::Maestro(h) => h.supports_interrupt(),
         }
     }
 
@@ -214,6 +272,13 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.execution_base_commit(),
             ForgeHarness::Maestro(h) => h.execution_base_commit(),
+        }
+    }
+
+    fn execution_workspace(&self) -> Option<&crate::engine::packet::ExecutionWorkspace> {
+        match self {
+            ForgeHarness::OpenCode(h) => h.execution_workspace(),
+            ForgeHarness::Maestro(h) => h.execution_workspace(),
         }
     }
 

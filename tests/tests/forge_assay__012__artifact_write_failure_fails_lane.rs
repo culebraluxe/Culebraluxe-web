@@ -54,6 +54,8 @@ impl RoleHarness for HealthyGit {
             } else {
                 PATCH.into()
             },
+
+            cancelled: false,
         }
     }
 }
@@ -142,6 +144,8 @@ fn smith_task() -> ActiveForgeRoleTask {
         status: TaskStatus::Ready,
         assignee: None,
         candidates: vec!["smith".into()],
+
+        write_surface: None,
     }
 }
 
@@ -176,6 +180,10 @@ fn read_with<'a>(
         contract_assay_commands: no_commands,
         contract_acceptance_mapped: false,
         require_prod: false,
+
+        execution_id: None,
+        write_surface: None,
+        model_attempt_control: None,
     };
     let turn = ForgeRoleTurn {
         node_id: "smith",

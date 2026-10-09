@@ -77,6 +77,7 @@ pub fn task(task_id: &str, node_id: &str, status: TaskStatus) -> ActiveForgeRole
         status,
         assignee: None,
         candidates: vec![],
+        write_surface: None,
     }
 }
 

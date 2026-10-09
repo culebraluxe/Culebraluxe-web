@@ -632,6 +632,10 @@ impl RoleHarness for MaestroHarness {
             .map(|workspace| workspace.base_commit.as_str())
     }
 
+    fn execution_workspace(&self) -> Option<&ExecutionWorkspace> {
+        self.execution_workspace.as_ref()
+    }
+
     fn run_command(&self, command: &str) -> CommandResult {
         use crate::engine::assay::{
             assay_timeout, cancellation_signal, spawn_scoped_shell, CeilingOutcome,
@@ -1756,6 +1760,7 @@ mod tests {
             status: workflow::TaskStatus::InProgress,
             assignee: None,
             candidates: vec![],
+            write_surface: None,
         };
         let text = harness.task_text("architect", &task, None);
         assert!(text.contains("GOAL-TEXT"), "{text}");

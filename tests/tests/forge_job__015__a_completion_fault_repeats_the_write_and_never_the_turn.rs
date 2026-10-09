@@ -245,7 +245,7 @@ fn drive_one_turn(
             runner: None,
             max_steps: 1,
             worker_id,
-            split_concurrency: 1,
+            within_story_concurrency: 1,
             stop_after: None,
             turn_cap: 8,
         },

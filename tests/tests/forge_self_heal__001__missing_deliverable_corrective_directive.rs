@@ -83,6 +83,8 @@ impl RoleHarness for DirectiveRecordingHarness {
             excerpt: "not run by this harness".into(),
             unmeasurable: true,
             output: String::new(),
+
+            cancelled: false,
         }
     }
 }
@@ -97,6 +99,8 @@ fn role_task(story_id: &str) -> ActiveForgeRoleTask {
         status: TaskStatus::Ready,
         assignee: None,
         candidates: vec!["architect".into()],
+
+        write_surface: None,
     }
 }
 
@@ -114,6 +118,10 @@ fn context<'a>(
         contract_assay_commands: &[],
         contract_acceptance_mapped: false,
         require_prod: false,
+
+        execution_id: None,
+        write_surface: None,
+        model_attempt_control: None,
     }
 }
 

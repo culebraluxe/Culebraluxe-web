@@ -474,7 +474,7 @@ fn production_drive_refuses_a_drive_with_no_role_runner() {
             runner: None,
             max_steps: 4,
             worker_id: "forge",
-            split_concurrency: 1,
+            within_story_concurrency: 1,
             stop_after: None,
             turn_cap: executor::DriveForgeStoryOptions::turn_cap_from_env(),
         },
@@ -495,7 +495,7 @@ fn drive_stops_after_architect() {
             runner: Some(&CompletingRunner),
             max_steps: 8,
             worker_id: "forge",
-            split_concurrency: 1,
+            within_story_concurrency: 1,
             stop_after: Some(executor::ForgeStopTarget::Role("architect")),
             turn_cap: executor::DriveForgeStoryOptions::turn_cap_from_env(),
         },
@@ -523,7 +523,7 @@ fn a_generation_stops_at_the_turn_cap_before_dispatching_past_it() {
             // Room for many waves: what stops this generation has to be the CAP rather than the wave ceiling.
             max_steps: 20,
             worker_id: "forge",
-            split_concurrency: 1,
+            within_story_concurrency: 1,
             stop_after: None,
             turn_cap: 1,
         },
@@ -761,6 +761,8 @@ fn production_runner_holds_architect_without_handoff() {
         status: workflow::TaskStatus::Ready,
         assignee: None,
         candidates: vec!["architect".into()],
+
+        write_surface: None,
     };
     let out = executor::ForgeRoleRunner::run(&role, "architect", &task).unwrap();
     assert!(out
@@ -798,6 +800,8 @@ fn a_held_lane_writes_the_story_id_not_the_instance_uuid() {
         status: workflow::TaskStatus::Ready,
         assignee: None,
         candidates: vec!["architect".into()],
+
+        write_surface: None,
     };
     let out = executor::ForgeRoleRunner::run(&role, "architect", &task).unwrap();
     assert!(out.evidence.deliverable_rejection.is_some());
@@ -833,6 +837,8 @@ fn a_role_task_without_a_story_id_is_refused() {
         status: workflow::TaskStatus::Ready,
         assignee: None,
         candidates: vec!["architect".into()],
+
+        write_surface: None,
     };
     let error = match executor::ForgeRoleRunner::run(&role, "architect", &task) {
         Ok(_) => panic!("a story-less task is refused"),
@@ -896,6 +902,8 @@ fn a_hold_that_cannot_be_recorded_fails_the_lane() {
         status: workflow::TaskStatus::Ready,
         assignee: None,
         candidates: vec!["architect".into()],
+
+        write_surface: None,
     };
     let error = match executor::ForgeRoleRunner::run(&role, "architect", &task) {
         Ok(_) => panic!("an unrecordable hold is a failed lane"),
@@ -945,6 +953,8 @@ fn a_qa_lane_records_its_measurement_as_an_artifact() {
         status: workflow::TaskStatus::Ready,
         assignee: None,
         candidates: vec!["qa_verify".into()],
+
+        write_surface: None,
     };
     executor::ForgeRoleRunner::run(&role, "qa_verify", &task)
         .expect("a clean assay is a clean lane");
@@ -1002,6 +1012,8 @@ fn the_recorded_verdict_is_the_lanes_own_reading() {
             status: workflow::TaskStatus::Ready,
             assignee: None,
             candidates: vec!["qa_verify".into()],
+
+            write_surface: None,
         };
         executor::ForgeRoleRunner::run(&role, "qa_verify", &task).expect("the lane completes");
         let recorded = writer.artifacts.lock().unwrap();
@@ -1068,6 +1080,8 @@ fn an_artifact_that_cannot_be_recorded_fails_the_lane() {
         status: workflow::TaskStatus::Ready,
         assignee: None,
         candidates: vec!["qa_verify".into()],
+
+        write_surface: None,
     };
     let error = match executor::ForgeRoleRunner::run(&role, "qa_verify", &task) {
         Ok(_) => panic!("a measurement nobody could store is a failed lane"),

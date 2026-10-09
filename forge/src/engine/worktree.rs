@@ -100,6 +100,115 @@ fn git(cwd: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Apply a completed lane's commits onto the story worktree. Callers invoke
+/// this sequentially in stable lane order, never from worker threads.
+pub fn integrate_lane_candidate(
+    repo_root: &Path,
+    base_commit: &str,
+    candidate_commit: &str,
+) -> Result<(), String> {
+    if base_commit == candidate_commit {
+        return Ok(());
+    }
+    for sha in [base_commit, candidate_commit] {
+        if sha.len() != 40 || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(format!("invalid lane integration commit {sha:?}"));
+        }
+    }
+    let ancestor = |older: &str, newer: &str| -> Result<bool, String> {
+        let output = Command::new(git_binary())
+            .args(["merge-base", "--is-ancestor", older, newer])
+            .current_dir(repo_root)
+            .output()
+            .map_err(|error| format!("git merge-base --is-ancestor: {error}"))?;
+        if output.status.success() {
+            Ok(true)
+        } else if output.status.code() == Some(1) {
+            Ok(false)
+        } else {
+            Err(format!(
+                "git merge-base --is-ancestor failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
+    };
+    if ancestor(candidate_commit, base_commit)? {
+        // Non-mutating roles often carry forward an earlier candidate SHA,
+        // which is an ancestor of this lane's starting point.
+        return Ok(());
+    }
+    if !ancestor(base_commit, candidate_commit)? {
+        return Err(format!(
+            "lane candidate {candidate_commit} is not based on its declared execution base {base_commit}"
+        ));
+    }
+    let head = git(repo_root, &["rev-parse", "HEAD"])?;
+    if !ancestor(base_commit, &head)? {
+        return Err(format!(
+            "story worktree HEAD {head} no longer descends from lane base {base_commit}"
+        ));
+    }
+    if ancestor(candidate_commit, &head)? {
+        return Ok(());
+    }
+    if let Err(error) = git(
+        repo_root,
+        &[
+            "merge",
+            "--no-ff",
+            "--no-commit",
+            "--no-edit",
+            candidate_commit,
+        ],
+    ) {
+        let _ = git(repo_root, &["merge", "--abort"]);
+        return Err(format!(
+            "could not merge lane candidate {candidate_commit}: {error}"
+        ));
+    }
+    if let Err(error) = git(repo_root, &["commit", "--no-edit"]) {
+        let _ = git(repo_root, &["merge", "--abort"]);
+        return Err(format!(
+            "could not commit lane integration {candidate_commit}: {error}"
+        ));
+    }
+    Ok(())
+}
+
+/// Remove only the lane checkout; keep its branch so paid work remains
+/// reachable for a later retry or operator review.
+pub fn remove_lane_worktree(repo_root: &Path, worktree_path: &Path) -> Result<(), String> {
+    if worktree_path.exists() {
+        git(
+            repo_root,
+            &[
+                "worktree",
+                "remove",
+                "--force",
+                worktree_path.to_str().unwrap_or(""),
+            ],
+        )?;
+    }
+    let _ = git(repo_root, &["worktree", "prune"]);
+    Ok(())
+}
+
+/// Remove a lane workspace that never reached its harness. Its branch may be
+/// deleted only while it still points at the provisioned base commit.
+pub fn discard_unstarted_lane_worktree(
+    repo_root: &Path,
+    worktree_path: &Path,
+    branch_name: &str,
+    base_commit: &str,
+) -> Result<(), String> {
+    remove_lane_worktree(repo_root, worktree_path)?;
+    let branch = git(repo_root, &["rev-parse", "--verify", branch_name])?;
+    if branch == base_commit {
+        git(repo_root, &["branch", "-D", branch_name])?;
+    }
+    Ok(())
+}
+
 /// Resolve `base_ref` to a 40-char commit. Does not create a worktree.
 /// The live engine stamps this onto `storyboard_story_run.base_commit_hash` even when
 /// `FORGE_PROVISION` is off (NO TREES): the receipt still has to name the base the run read.
@@ -273,6 +382,50 @@ pub fn cleanup_worker_workspace(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn run_git(repo: &Path, args: &[&str]) -> String {
+        let output = Command::new(git_binary())
+            .args(args)
+            .current_dir(repo)
+            .output()
+            .expect("git starts");
+        assert!(
+            output.status.success(),
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    fn test_repo(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "forge-worktree-{name}-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        run_git(&root, &["init", "-b", "main"]);
+        run_git(&root, &["config", "user.name", "Forge Test"]);
+        run_git(
+            &root,
+            &["config", "user.email", "forge-test@example.invalid"],
+        );
+        root
+    }
+
+    fn commit_file(repo: &Path, branch: &str, start: &str, file: &str, contents: &str) -> String {
+        run_git(repo, &["checkout", "-B", branch, start]);
+        std::fs::write(repo.join(file), contents).unwrap();
+        run_git(repo, &["add", file]);
+        run_git(repo, &["commit", "-m", &format!("add {file}")]);
+        run_git(repo, &["rev-parse", "HEAD"])
+    }
+
     #[test]
     fn split_suffix_survives() {
         let story = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -280,6 +433,59 @@ mod tests {
         let branch = derive_branch_name(story, &run);
         assert!(branch.ends_with("split-1"), "{branch}");
         assert!(branch.starts_with("agent/"));
+    }
+
+    #[test]
+    fn lane_candidates_merge_in_order_and_remain_reachable() {
+        let repo = test_repo("merge");
+        std::fs::write(repo.join("base.txt"), "base\n").unwrap();
+        run_git(&repo, &["add", "base.txt"]);
+        run_git(&repo, &["commit", "-m", "base"]);
+        let base = run_git(&repo, &["rev-parse", "HEAD"]);
+        let lane_a = commit_file(&repo, "agent/story/lane-a", &base, "src-a.rs", "a\n");
+        let lane_b = commit_file(&repo, "agent/story/lane-b", &base, "src-b.rs", "b\n");
+        run_git(&repo, &["checkout", "-B", "agent/story/run", &base]);
+
+        integrate_lane_candidate(&repo, &base, &lane_a).unwrap();
+        integrate_lane_candidate(&repo, &base, &lane_b).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(repo.join("src-a.rs")).unwrap(),
+            "a\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(repo.join("src-b.rs")).unwrap(),
+            "b\n"
+        );
+        let head = run_git(&repo, &["rev-parse", "HEAD"]);
+        assert!(run_git(&repo, &["merge-base", "--is-ancestor", &lane_a, &head]).is_empty());
+        assert!(run_git(&repo, &["merge-base", "--is-ancestor", &lane_b, &head]).is_empty());
+        let _ = std::fs::remove_dir_all(repo);
+    }
+
+    #[test]
+    fn conflicting_lane_merge_aborts_without_partial_story_changes() {
+        let repo = test_repo("conflict");
+        std::fs::write(repo.join("shared.txt"), "base\n").unwrap();
+        run_git(&repo, &["add", "shared.txt"]);
+        run_git(&repo, &["commit", "-m", "base"]);
+        let base = run_git(&repo, &["rev-parse", "HEAD"]);
+        let lane_a = commit_file(&repo, "agent/story/lane-a", &base, "shared.txt", "lane a\n");
+        let lane_b = commit_file(&repo, "agent/story/lane-b", &base, "shared.txt", "lane b\n");
+        run_git(&repo, &["checkout", "-B", "agent/story/run", &base]);
+
+        integrate_lane_candidate(&repo, &base, &lane_a).unwrap();
+        let before = run_git(&repo, &["rev-parse", "HEAD"]);
+        let error = integrate_lane_candidate(&repo, &base, &lane_b).unwrap_err();
+
+        assert!(error.contains("could not merge lane candidate"));
+        assert_eq!(
+            std::fs::read_to_string(repo.join("shared.txt")).unwrap(),
+            "lane a\n"
+        );
+        assert_eq!(run_git(&repo, &["rev-parse", "HEAD"]), before);
+        assert!(run_git(&repo, &["status", "--porcelain"]).is_empty());
+        let _ = std::fs::remove_dir_all(repo);
     }
 }
 

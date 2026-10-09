@@ -706,8 +706,16 @@ pub fn start_opencode_run_streaming(
     // Published BEFORE the first line is read, so a turn can be interrupted from the instant it exists rather
     // than only once it has produced output. The slot is NOT cleared here: the owner clears it, because the
     // interruption reason has to survive the turn ending for the reader to report it.
-    if let Ok(mut slot) = live.lock() {
+    let cancelled_during_launch = if let Ok(mut slot) = live.lock() {
         slot.running = Some(running);
+        slot.interrupt_reason.is_some()
+    } else {
+        false
+    };
+    if cancelled_during_launch {
+        // Cancellation may race with spawn before the PID is published. The request is
+        // latched in the slot, so terminate immediately after publication instead of losing it.
+        let _ = running.terminate();
     }
     let started = Instant::now();
     let max_turn = opts.max_turn;

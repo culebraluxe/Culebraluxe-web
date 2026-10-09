@@ -228,6 +228,7 @@ impl RoleHarness for SeamHarness {
         CommandResult {
             command: command.to_string(),
             exit_code: 0,
+            cancelled: false,
             passed: true,
             excerpt: String::new(),
             unmeasurable: false,
@@ -319,7 +320,7 @@ impl SeamFixture {
                 runner: None,
                 max_steps: 1,
                 worker_id: WORKER,
-                split_concurrency: 1,
+                within_story_concurrency: 1,
                 stop_after: None,
                 turn_cap: 16,
             },

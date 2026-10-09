@@ -28,6 +28,8 @@ fn pass_result(command: &str) -> CommandResult {
         excerpt: String::new(),
         unmeasurable: false,
         output: String::new(),
+
+        cancelled: false,
     }
 }
 

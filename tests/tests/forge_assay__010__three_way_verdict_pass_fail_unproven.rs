@@ -18,6 +18,7 @@ fn result(command: &str, passed: bool) -> CommandResult {
     CommandResult {
         command: command.into(),
         exit_code: if passed { 0 } else { 101 },
+        cancelled: false,
         passed,
         excerpt: String::new(),
         unmeasurable: false,
@@ -29,6 +30,7 @@ fn unmeasurable(command: &str) -> CommandResult {
     CommandResult {
         command: command.into(),
         exit_code: 0,
+        cancelled: false,
         passed: true,
         excerpt: String::new(),
         unmeasurable: true,

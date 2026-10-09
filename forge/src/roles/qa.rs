@@ -938,6 +938,7 @@ mod tests {
             status: workflow::TaskStatus::Ready,
             assignee: None,
             candidates: vec!["qa_verify".into()],
+            write_surface: None,
         }
     }
 

@@ -54,6 +54,8 @@ fn measured(command: &str, passed: bool) -> CommandResult {
         excerpt: "probe excerpt".into(),
         unmeasurable: false,
         output: "probe output".into(),
+
+        cancelled: false,
     }
 }
 

@@ -940,7 +940,8 @@ fn drive_with_runtime<S: TxStore>(
         .as_deref()
         .map(|run_id| format!("forge:{run_id}"))
         .unwrap_or_else(|| format!("forge:{story}"));
-    let runner = ProductionRoleRunner::new(harness, evidence.clone())
+    let turn_cap = DriveForgeStoryOptions::turn_cap_from_env();
+    let mut runner = ProductionRoleRunner::new(harness, evidence.clone())
         .with_writer(writer)
         .with_story_run(story_run_id)
         .with_bench_intent(bench_intent)
@@ -948,6 +949,12 @@ fn drive_with_runtime<S: TxStore>(
         .with_contract_assay_commands(contract_assay_commands)
         .with_contract_acceptance_mapped(contract_acceptance_mapped)
         .with_evidence_reader(evidence_reader.clone());
+    if let Some(run_id) = runner.story_run_id.as_deref() {
+        let control =
+            forge::engine::turn_budget::DbModelAttemptControl::initialize(run_id, turn_cap)
+                .map_err(WorkflowError::generic)?;
+        runner = runner.with_model_attempt_control(Arc::new(control));
+    }
     // Every canonical Forge lane is composed here, in one place: each service owns its lane's identity,
     // its authority and its own reading of a turn (roles/smith.rs, roles/architect.rs, roles/qa.rs, …),
     // and inherits the shared execution lifecycle. Workflow still owns sequencing, JobService still owns
@@ -967,11 +974,11 @@ fn drive_with_runtime<S: TxStore>(
             runner: None,
             max_steps: 40,
             worker_id: &durable_worker_id,
-            split_concurrency: 1,
+            within_story_concurrency: DriveForgeStoryOptions::within_story_concurrency_from_env(),
             stop_after,
             // The operator's ceiling, from the environment. Read here rather than in the loop so the cap a run is
             // held to is fixed for the whole generation.
-            turn_cap: DriveForgeStoryOptions::turn_cap_from_env(),
+            turn_cap,
         },
         DurableForgeExecution {
             jobs: &jobs,
