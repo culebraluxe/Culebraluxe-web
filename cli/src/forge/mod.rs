@@ -44,7 +44,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::process::Command;
 
-use db::{Database, DbFailure};
+use db::{Database, DbFailure, DbTarget};
 
 /// A gate failure. Exit codes are part of the contract: 0 clean or reported-not-blocking, 1 refused or
 /// drift, 2 configuration or usage.
@@ -199,9 +199,26 @@ pub fn repo_root() -> PathBuf {
 /// printed "cannot resolve or reach" for both cases, so a missing `.env.local` and a suspended database looked
 /// identical to the reader. The detail is printed here.
 pub async fn connect() -> Result<Database, Failure> {
-    Database::connect_from_env()
+    let database = Database::connect_from_env()
         .await
-        .map_err(|error| Failure::configuration(connect_failure_message(&error)))
+        .map_err(|error| Failure::configuration(connect_failure_message(&error)))?;
+    // The banner `db-tool` prints: a run that mutates must say which database it is about to touch
+    // before it touches it, and the host alone identifies the database — the URL carries credentials.
+    println!(
+        "database: target={} {}",
+        database.target().as_str(),
+        host_label(database.target())
+    );
+    Ok(database)
+}
+
+/// The host of the connected database's URL, for the banner [`connect`] prints. Same extraction
+/// `db-tool` prints with, shared through `db::host_of`.
+fn host_label(target: DbTarget) -> String {
+    match std::env::var(target.env_name()) {
+        Ok(url) => format!("host={}", db::host_of(&url)),
+        Err(_) => format!("host=({} is unset)", target.env_name()),
+    }
 }
 
 /// Split out of `connect` so the message can be asserted on without a database.
@@ -253,6 +270,26 @@ mod tests {
 
         assert!(message.contains("no further detail"), "{message}");
         assert!(message.contains("DATABASE_URL_DEV"), "{message}");
+    }
+
+    /// The banner a mutating run prints before it touches anything: the target and the host, never the
+    /// URL — a command's output gets pasted into reports, and a connection URL carries credentials.
+    /// No other test in this binary reads `DATABASE_URL_PROD`, so publishing it here is safe.
+    #[test]
+    fn the_target_banner_prints_the_target_and_host_and_never_the_url() {
+        std::env::set_var(
+            "DATABASE_URL_PROD",
+            "postgresql://neondb_owner:npg_SECRET@ep-cool-db-12345.us-east-2.aws.neon.tech/neondb?sslmode=require",
+        );
+
+        let label = host_label(DbTarget::Prod);
+
+        assert_eq!(label, "host=ep-cool-db-12345.us-east-2.aws.neon.tech");
+        assert!(
+            !label.contains("npg_SECRET"),
+            "the banner must never carry credentials: {label}"
+        );
+        std::env::remove_var("DATABASE_URL_PROD");
     }
 
     /// Criterion 5 of ENG-FORGE-C1-BUILD-INFO-01: a command is reachable only if the dispatcher advertises

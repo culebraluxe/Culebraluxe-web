@@ -53,12 +53,26 @@ impl DbTarget {
         }
     }
 
-    const fn env_name(self) -> &'static str {
+    /// The environment variable that carries this target's connection URL. The pool and the CLI
+    /// banner read the same name, so a target and its URL can never drift apart.
+    pub const fn env_name(self) -> &'static str {
         match self {
             Self::Dev => "DATABASE_URL_DEV",
             Self::Prod => "DATABASE_URL_PROD",
         }
     }
+}
+
+/// The host of a connection URL — the only part a banner may print. A URL carries credentials,
+/// and a command's output gets pasted into reports and transcripts.
+pub fn host_of(url: &str) -> String {
+    let after_scheme = url.split("://").nth(1).unwrap_or(url);
+    let after_userinfo = after_scheme.rsplit('@').next().unwrap_or(after_scheme);
+    after_userinfo
+        .split(['/', '?'])
+        .next()
+        .unwrap_or_default()
+        .to_string()
 }
 
 #[derive(Clone)]

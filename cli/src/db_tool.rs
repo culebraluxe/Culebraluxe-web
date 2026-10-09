@@ -19,7 +19,7 @@
 //! DIFFERENT checksum is REFUSED unless `--force` is passed. Nothing here decides schema truth — it
 //! executes a reviewed SQL file and records that it ran.
 
-use db::{schema_parity, Database, DbTarget, MigrationLedgerRow, SchemaMigrationDao};
+use db::{host_of, schema_parity, Database, DbTarget, MigrationLedgerRow, SchemaMigrationDao};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io;
@@ -117,7 +117,7 @@ impl From<io::Error> for Failure {
 fn require_env(targets: &[DbTarget]) -> Result<(), Failure> {
     let missing: Vec<&str> = targets
         .iter()
-        .map(|target| target_env_name(*target))
+        .map(|target| target.env_name())
         .filter(|name| std::env::var(name).is_err())
         .collect();
     if missing.is_empty() {
@@ -145,29 +145,11 @@ async fn connect(target: DbTarget) -> Result<Database, Failure> {
     Ok(database)
 }
 
-fn target_env_name(target: DbTarget) -> &'static str {
-    match target {
-        DbTarget::Dev => "DATABASE_URL_DEV",
-        DbTarget::Prod => "DATABASE_URL_PROD",
-    }
-}
-
 fn host_label(target: DbTarget) -> String {
-    match std::env::var(target_env_name(target)) {
+    match std::env::var(target.env_name()) {
         Ok(url) => format!("host={}", host_of(&url)),
-        Err(_) => format!("host=({} is unset)", target_env_name(target)),
+        Err(_) => format!("host=({} is unset)", target.env_name()),
     }
-}
-
-/// Host only. A connection URL carries credentials, and a gate's output gets pasted into reports.
-fn host_of(url: &str) -> String {
-    let after_scheme = url.split("://").nth(1).unwrap_or(url);
-    let after_userinfo = after_scheme.rsplit('@').next().unwrap_or(after_scheme);
-    after_userinfo
-        .split(['/', '?'])
-        .next()
-        .unwrap_or_default()
-        .to_string()
 }
 
 fn migrations_dir() -> PathBuf {

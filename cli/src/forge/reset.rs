@@ -14,9 +14,14 @@
 //!   must never cancel a running peer.
 //!
 //! Usage:
-//!   cargo run -p cli -- forge reset <story-id> [--force]
-//!   cargo run -p cli -- forge recover <story-id> [--force]
-//!   cargo run -p cli -- forge clean [--stale-minutes N] [--force]
+//!   cargo run -p cli -- forge reset <story-id> [--force] [--plan]
+//!   cargo run -p cli -- forge recover <story-id> [--force] [--plan]
+//!   cargo run -p cli -- forge clean [--stale-minutes N] [--force] [--plan]
+//!
+//! `--plan` is the dry run: it resolves the invocation exactly as a real one — same PROD-only
+//! refusal, same mode and story parsing — prints the scope the run would touch, and exits 0 before
+//! anything connects. No DAO call, no mutation. It is itself the explicit request, so it does not
+//! need `--force`; a mutating run still requires `--force` exactly as before.
 
 use super::{connect, Failure};
 use db::{resolve_declared_target, DbTarget, ForgeResetDao, ResetReport};
@@ -26,9 +31,9 @@ use std::env;
 /// A claim younger than this is treated as LIVE: `clean` must never cancel a running peer.
 pub const DEFAULT_CLEAN_STALE_MINUTES: i64 = FORGE_DEFAULT_STALE_MINUTES;
 
-pub const USAGE: &str = "usage: forge reset <story-id> [--force] | forge recover <story-id> [--force] | \
-forge clean [--stale-minutes N] [--force] (the database target is PROD and is decided by the pool; PROD \
-requires --force)";
+pub const USAGE: &str = "usage: forge reset <story-id> [--force] [--plan] | forge recover <story-id> [--force] \
+[--plan] | forge clean [--stale-minutes N] [--force] [--plan] (the database target is PROD and is decided by \
+the pool; PROD requires --force, or --plan for a scope preview that mutates nothing)";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResetMode {
@@ -65,6 +70,8 @@ pub struct ResetConfig {
     pub story: String,
     pub mode: ResetMode,
     pub stale_minutes: i64,
+    /// `--plan`: print the scope and exit 0 before anything connects — no DAO call, no mutation.
+    pub plan: bool,
 }
 
 /// Resolve one invocation without touching the process — the tested half.
@@ -75,14 +82,15 @@ pub fn resolve_reset_config(
     args: &[String],
     declared_target: Option<&str>,
 ) -> Result<ResetConfig, String> {
-    // `--force` is recognized position-independently and never occupies a positional slot, so it may appear
-    // before, between or after the positionals.
+    // `--force` and `--plan` are recognized position-independently and never occupy a positional slot, so
+    // they may appear before, between or after the positionals.
     let force = args.iter().any(|arg| arg == "--force");
+    let plan = args.iter().any(|arg| arg == "--plan");
     let stale_minutes = read_stale_minutes(args)?;
 
     let positional = strip_valued_flags(args, "--stale-minutes")
         .into_iter()
-        .filter(|arg| arg != "--force")
+        .filter(|arg| arg != "--force" && arg != "--plan")
         .collect::<Vec<_>>();
 
     // `clean` may lead (hygiene reads naturally as its own verb) or follow a story id. When it leads there is
@@ -134,10 +142,12 @@ pub fn resolve_reset_config(
             declared.to_uppercase()
         ));
     }
-    if !force {
+    // `--plan` is the dry run: it prints the scope and mutates nothing, so it is itself the explicit
+    // request and does not need `--force`. A mutating run still requires `--force`, unchanged.
+    if !force && !plan {
         return Err(
             "PROD reset/recover/clean requires --force (refusing a destructive act without explicit \
-             confirmation)"
+             confirmation; --plan previews the scope and mutates nothing)"
                 .to_string(),
         );
     }
@@ -146,6 +156,7 @@ pub fn resolve_reset_config(
         story,
         mode,
         stale_minutes,
+        plan,
     })
 }
 
@@ -191,7 +202,20 @@ pub async fn run(args: &[String]) -> Result<u8, Failure> {
     .ok()
     .map(DbTarget::as_str);
 
+    run_with_declared_target(args, declared).await
+}
+
+/// The body of [`run`] with the declared target already resolved, so the `--plan` path — which returns
+/// before anything connects — can be asserted on without a process environment or a database.
+async fn run_with_declared_target(args: &[String], declared: Option<&str>) -> Result<u8, Failure> {
     let config = resolve_reset_config(args, declared).map_err(Failure::usage)?;
+
+    // `--plan` is the dry run: report the scope and exit before anything connects. No DAO call, no
+    // mutation — the preview is a pure function of the resolved config.
+    if config.plan {
+        print_plan(&config);
+        return Ok(0);
+    }
 
     let database = connect().await?;
     let dao = ForgeResetDao::new(database);
@@ -210,6 +234,57 @@ pub async fn run(args: &[String]) -> Result<u8, Failure> {
 
     print_report(&config, &report);
     Ok(0)
+}
+
+/// `--plan`: print the scope of the run instead of the run. Pure function of the config — no
+/// connection, no DAO, no mutation.
+fn print_plan(config: &ResetConfig) {
+    println!("{}", plan_report(config));
+}
+
+/// The scope report `--plan` prints: what the run would touch, in the order the run would touch it.
+fn plan_report(config: &ResetConfig) -> String {
+    let scope = if config.story.is_empty() {
+        "control plane".to_string()
+    } else {
+        config.story.clone()
+    };
+    let mut lines = vec![format!(
+        "[plan] {} {} (stale window {} min) — nothing will be mutated",
+        config.mode.label(),
+        scope,
+        config.stale_minutes
+    )];
+    lines.extend(
+        plan_steps(config)
+            .into_iter()
+            .map(|step| format!("  would {step}")),
+    );
+    lines.join("\n")
+}
+
+/// What the run would do, per mode — the same steps [`ForgeResetDao`] performs, as scope lines.
+fn plan_steps(config: &ResetConfig) -> Vec<&'static str> {
+    match config.mode {
+        ResetMode::Reset => vec![
+            "abort the story's active engine instances",
+            "obsolete their open tasks",
+            "cancel the story's open work items",
+            "interrupt the engine claims the reset kills",
+            "return the story to Planned",
+        ],
+        ResetMode::Recover => vec![
+            "release the story's reserved and in-progress tasks to ready",
+            "cancel the story's stale running work items",
+        ],
+        ResetMode::Clean => vec![
+            "cancel stale open work items and hold their stories",
+            "interrupt engine claims older than the stale window",
+            "abort engine instances older than the stale window",
+            "obsolete open tasks under terminal instances",
+            "mop up orphaned engine claims",
+        ],
+    }
 }
 
 /// The post-condition is printed every time, because a sweep you cannot read the result of is a sweep you will
@@ -352,5 +427,131 @@ mod tests {
             "the value of a flag is not a positional"
         );
         assert_eq!(config.stale_minutes, 30);
+    }
+
+    /// FORGE-FIX-015: `--plan` is the dry run. It resolves like a real invocation — same PROD-only
+    /// refusal, same mode and story parsing — but it is itself the explicit request, so it does not
+    /// need `--force`: a preview mutates nothing.
+    #[test]
+    fn clean_with_plan_resolves_without_force_over_the_whole_control_plane() {
+        let config = resolve_reset_config(&args(&["clean", "--plan"]), Some("prod"))
+            .expect("a preview is the explicit request for exactly what it does");
+        assert!(config.plan);
+        assert_eq!(config.mode, ResetMode::Clean);
+        assert!(config.story.is_empty(), "clean is not story-scoped");
+        assert_eq!(config.stale_minutes, DEFAULT_CLEAN_STALE_MINUTES);
+    }
+
+    /// `--plan` keeps the story scoping of `reset` and `recover`.
+    #[test]
+    fn a_story_mode_with_plan_resolves_the_story_and_the_plan() {
+        let config = resolve_reset_config(
+            &args(&["ENG-FORGE-DOCTOR-01", "recover", "--plan"]),
+            Some("prod"),
+        )
+        .expect("recover --plan is the dry run for one story");
+        assert!(config.plan);
+        assert_eq!(config.mode, ResetMode::Recover);
+        assert_eq!(config.story, "ENG-FORGE-DOCTOR-01");
+    }
+
+    /// The mutating contract is unchanged: without `--force` and without `--plan`, PROD is refused.
+    #[test]
+    fn prod_with_neither_force_nor_plan_is_refused() {
+        let error = resolve_reset_config(&args(&["clean"]), Some("prod")).unwrap_err();
+        assert!(error.contains("requires --force"), "{error}");
+    }
+
+    /// `--plan` is a flag, never a story or a mode: it is stripped from the positionals, so the
+    /// first positional remains the story exactly as it would be without the flag — and a leftover
+    /// positional after story and mode is still refused, flag or not.
+    #[test]
+    fn a_plan_flag_is_never_mistaken_for_a_story_or_a_mode() {
+        let config = resolve_reset_config(&args(&["reset", "--plan"]), Some("prod"))
+            .expect("the plan flag is not a positional");
+        assert!(config.plan);
+        assert_eq!(config.story, "reset");
+        assert_eq!(config.mode, ResetMode::Reset);
+
+        let error =
+            resolve_reset_config(&args(&["--plan", "clean", "extra"]), Some("prod")).unwrap_err();
+        assert!(error.contains("unexpected argument"), "{error}");
+    }
+
+    /// The PROD-only refusal holds for the dry run too: this tool only ever touches PROD state.
+    #[test]
+    fn plan_on_a_dev_target_is_still_refused() {
+        let error = resolve_reset_config(&args(&["clean", "--plan"]), Some("dev")).unwrap_err();
+        assert!(error.contains("refusing to run against DEV"), "{error}");
+    }
+
+    /// `--plan` composes with the valued flags: the stale window is still parsed.
+    #[test]
+    fn plan_composes_with_the_stale_window() {
+        let config = resolve_reset_config(
+            &args(&["clean", "--stale-minutes", "30", "--plan"]),
+            Some("prod"),
+        )
+        .expect("plan composes with --stale-minutes");
+        assert!(config.plan);
+        assert_eq!(config.stale_minutes, 30);
+    }
+
+    /// The scope report names the mode, the scope, the stale window, and the no-mutation guarantee.
+    #[test]
+    fn the_plan_report_names_the_scope_and_the_guarantee() {
+        let config = resolve_reset_config(&args(&["clean", "--plan"]), Some("prod")).unwrap();
+        let report = plan_report(&config);
+        assert!(report.contains("[plan] clean control plane"), "{report}");
+        assert!(
+            report.contains(&format!("stale window {} min", DEFAULT_CLEAN_STALE_MINUTES)),
+            "{report}"
+        );
+        assert!(report.contains("nothing will be mutated"), "{report}");
+        assert!(
+            report.contains("would cancel stale open work items"),
+            "{report}"
+        );
+        assert!(
+            report.contains("would mop up orphaned engine claims"),
+            "{report}"
+        );
+
+        let story = resolve_reset_config(
+            &args(&["ENG-FORGE-DOCTOR-01", "reset", "--plan"]),
+            Some("prod"),
+        )
+        .unwrap();
+        let report = plan_report(&story);
+        assert!(
+            report.contains("[plan] reset ENG-FORGE-DOCTOR-01"),
+            "{report}"
+        );
+        assert!(
+            report.contains("would return the story to Planned"),
+            "{report}"
+        );
+    }
+
+    /// The assay: `forge clean --plan` reports the scope and exits 0 with zero row changes. The plan
+    /// path returns before `connect` is ever called, so no connection is possible and no row can
+    /// move. `DATABASE_URL_PROD` is removed for the duration so that even a regression that fell
+    /// through to the mutating path could not connect — the test would fail on the connection
+    /// error instead of passing against a real database. No other test in this binary reads it.
+    #[tokio::test]
+    async fn clean_with_plan_exits_zero_without_a_connection() {
+        let previous = std::env::var("DATABASE_URL_PROD").ok();
+        std::env::remove_var("DATABASE_URL_PROD");
+
+        let result = run_with_declared_target(&args(&["clean", "--plan"]), Some("prod")).await;
+
+        match previous {
+            Some(url) => std::env::set_var("DATABASE_URL_PROD", &url),
+            None => std::env::remove_var("DATABASE_URL_PROD"),
+        }
+        assert_eq!(
+            result.expect("--plan must exit 0 without touching a database"),
+            0
+        );
     }
 }
