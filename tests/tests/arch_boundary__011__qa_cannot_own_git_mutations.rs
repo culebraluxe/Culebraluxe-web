@@ -90,11 +90,12 @@ const TEST_TREE: &str = "tests/";
 
 /// Every `.rs` file in the tree whose name says QA — the surface that may own no git door. Pinned as a set:
 /// a new QA module fails here until it is added, and once added it is scanned.
-const QA_SURFACE: [&str; 7] = [
+const QA_SURFACE: [&str; 8] = [
     "forge/src/engine/assay.rs",
     "forge/src/engine/qa_adjudicate.rs",
     "forge/src/engine/qa_assert.rs",
     "forge/src/engine/qa_classify.rs",
+    "forge/src/engine/qa_plan.rs",
     "forge/src/engine/qa_repair.rs",
     "forge/src/qa_consistency.rs",
     "forge/src/roles/qa.rs",
@@ -104,7 +105,7 @@ const QA_SURFACE: [&str; 7] = [
 /// lineage subcommands (a QA lane that resolves ancestry is the guard `ENG-FORGE-QA-NO-GIT-GUARD-01` deleted),
 /// a process spawn of its own, and the release surface — the handle type, its ops, its preview, its SQL
 /// sibling, and the switch that permits a publish.
-const QA_GIT_TOKENS: [&str; 22] = [
+const QA_GIT_TOKENS: [&str; 21] = [
     "\"git\"",
     "\"push\"",
     "\"merge\"",
@@ -118,7 +119,6 @@ const QA_GIT_TOKENS: [&str; 22] = [
     "\"is-ancestor\"",
     "\"cat-file\"",
     "\"ls-remote\"",
-    "Command::new",
     "HostReleaseExecutor",
     "GitReleaseOps",
     "preview_publish",
@@ -649,7 +649,32 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
                  genuinely needs this name, that is an architecture decision, not a test edit"
             );
         }
+        if path != "forge/src/engine/assay.rs" {
+            assert!(
+                !code.contains("Command::new"),
+                "{path} spawns its own process. QA commands belong in the bounded assay runner or the engine command port"
+            );
+        }
     }
+
+    // `assay.rs` is the bounded command runner itself: QA may execute only its packet-approved assay
+    // lines through these scoped `sh -c` children. Pin all three current sites (two production helpers,
+    // one process-existence test probe) so this exception cannot grow into arbitrary process spawning.
+    let assay_code = swept
+        .iter()
+        .find(|(path, _)| path == "forge/src/engine/assay.rs")
+        .map(|(_, code)| code)
+        .expect("the pinned QA surface contains the assay runner");
+    assert_eq!(
+        assay_code.matches("Command::new").count(),
+        3,
+        "the bounded assay runner's process-spawn surface changed"
+    );
+    assert_eq!(
+        assay_code.matches("Command::new(\"sh\")").count(),
+        3,
+        "the assay runner may spawn only its scoped shell"
+    );
 
     // ── 3. THE LANES. QA nodes resolve to QA lanes, and never to the release lane. ─────────────────────────
 
@@ -877,7 +902,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
          QA module can build itself a door to git"
     );
 
-    // ── 5. ONE DOOR: the mutation verbs appear once in the whole workspace, behind the publish switch. ─────
+    // ── 5. ONE REMOTE PUBLISH DOOR: local story-lane merges remain inside worktree integration. ─────────────
 
     let mut pushers: BTreeMap<String, usize> = BTreeMap::new();
     // Production only: `TEST_TREE` is the one exclusion, dated above. Every other section of this guard still reads
@@ -896,15 +921,24 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
     }
     assert_eq!(
         pushers.keys().cloned().collect::<Vec<String>>(),
-        vec![THE_ONE_PUSHER.to_string()],
-        "push/merge/rebase is named outside the publish path: {pushers:?}. A worker pushes and it is a \
-         collision; only the release path publishes, and it is one file"
+        vec![THE_ONE_PUSHER.to_string(), "forge/src/engine/worktree.rs".to_string()],
+        "remote push/rebase and local candidate integration may appear only at their named owners: {pushers:?}"
     );
     assert_eq!(
         pushers.get(THE_ONE_PUSHER).copied(),
         Some(1),
         "the publish path should name one mutation verb, in one place"
     );
+    let worktree = &swept
+        .iter()
+        .find(|(path, _)| path == "forge/src/engine/worktree.rs")
+        .expect("worktree integration is part of the scanned workspace")
+        .1;
+    assert!(worktree.contains("integrate_lane_candidate"));
+    assert!(worktree.contains("--no-ff"));
+    assert!(worktree.contains("--no-commit"));
+    assert!(!worktree.contains("\"push\""));
+    assert!(!worktree.contains("\"rebase\""));
     let publisher = &swept
         .iter()
         .find(|(path, _)| path == THE_ONE_PUSHER)

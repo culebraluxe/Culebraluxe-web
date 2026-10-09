@@ -286,9 +286,8 @@ fn measure_frozen_plan(
     if let Some(candidate) = candidate.as_deref() {
         match ctx.harness.candidate_probe() {
             Some(probe) => {
-                let cwd = ctx.harness.assay_cwd().to_string_lossy();
                 let actual = probe
-                    .git(&["-C", cwd.as_ref(), "rev-parse", "HEAD"])
+                    .workspace_head(ctx.harness.assay_cwd())
                     .and_then(|sha| normalize_candidate_sha(Some(&sha)));
                 candidate_workspace_matches = actual.as_deref() == Some(candidate);
                 if !candidate_workspace_matches {
