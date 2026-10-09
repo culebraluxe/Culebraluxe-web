@@ -72,5 +72,8 @@ pub use level::TestLevel;
 pub use pool::{DbPoolFaultHarness, PoolFault};
 pub use race::RaceHarness;
 pub use runtime::RuntimeHarness;
-pub use security::{AuditPersistenceHarness, CommittedAuditRow, RedirectPolicyHarness};
+#[allow(deprecated)]
+pub use security::{
+    AuditPersistenceHarness, CommittedAuditRow, RedirectPolicyHarness, SecurityHarness,
+};
 pub use signature::SignatureHarness;
