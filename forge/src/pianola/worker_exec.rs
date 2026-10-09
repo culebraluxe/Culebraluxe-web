@@ -37,9 +37,7 @@ use db::{DbResult, ForgeEngineDao, NewToolArtifact};
 
 use super::worker::TstStoryView;
 use super::worker_authoring::is_test_artifact_path;
-use crate::engine::assay::{
-    adjudicate_assay, is_rust_contract_runtime_test, AssayReport, CommandResult,
-};
+use crate::engine::assay::{is_rust_contract_runtime_test, AssayReport, CommandResult};
 
 /// Whether a `cargo test` / `cargo nextest` invocation actually RAN a test.
 ///
@@ -144,6 +142,7 @@ pub fn execute_command_scoped_with_timeout(
     let child = match spawn_scoped_shell(command, worktree_path) {
         Err(error) => {
             return CommandResult {
+                cancelled: false,
                 command: command.to_string(),
                 exit_code: -1,
                 passed: false,
@@ -156,6 +155,7 @@ pub fn execute_command_scoped_with_timeout(
     };
     match wait_with_ceiling(child, timeout) {
         CeilingOutcome::TimedOut(hit) => CommandResult {
+            cancelled: false,
             command: command.to_string(),
             exit_code: CMD_TIMEOUT_EXIT,
             passed: false,
@@ -168,6 +168,7 @@ pub fn execute_command_scoped_with_timeout(
             output: String::new(),
         },
         CeilingOutcome::Finished(Err(error)) => CommandResult {
+            cancelled: false,
             command: command.to_string(),
             exit_code: -1,
             passed: false,
@@ -176,7 +177,12 @@ pub fn execute_command_scoped_with_timeout(
             output: String::new(),
         },
         CeilingOutcome::Finished(Ok(output)) => {
-            let code = output.status.code().unwrap_or(-1);
+            let signal = crate::engine::assay::cancellation_signal(&output.status);
+            let code = if signal.is_some() {
+                crate::engine::assay::CMD_CANCELLED_EXIT
+            } else {
+                output.status.code().unwrap_or(-1)
+            };
             let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
             let stderr = String::from_utf8_lossy(&output.stderr);
             if !stderr.trim().is_empty() {
@@ -187,6 +193,9 @@ pub fn execute_command_scoped_with_timeout(
             }
             let ran_nothing = ran_no_tests(command, &combined);
             let mut excerpt = excerpt_lines(&combined, ASSAY_EXCERPT_LINES);
+            if let Some(signal) = signal {
+                excerpt = format!("CMD_CANCELLED: assay command received signal {signal}\n{excerpt}");
+            }
             if ran_nothing {
                 // Say why in the receipt, because the exit code says the opposite and the excerpt is what a
                 // reader adjudicating this story will actually see.
@@ -196,12 +205,13 @@ pub fn execute_command_scoped_with_timeout(
                 );
             }
             CommandResult {
+                cancelled: signal.is_some(),
                 command: command.to_string(),
                 exit_code: code,
                 // A run that executed nothing has not passed, whatever the process says.
                 passed: code == 0 && !ran_nothing,
                 excerpt,
-                unmeasurable: ran_nothing,
+                unmeasurable: ran_nothing || signal.is_some(),
                 output: combined,
             }
         }
@@ -221,20 +231,20 @@ pub fn run_assay_commands(view: &TstStoryView, worktree_path: &Path) -> Vec<Comm
         .collect()
 }
 
-/// Adjudicate this story's results with the same adjudicator QA uses.
-///
-/// `acceptance_mapped` is true when the packet carries acceptance criteria:
-/// a story with no criteria cannot be proven, which surfaces as
-/// `ACCEPTANCE_MAP_MISSING` rather than a pass.
+/// Legacy TST view without a frozen typed plan cannot authorize PASS. The packet's prose and
+/// command-presence boolean are not a substitute for approved check identities.
 pub fn adjudicate_for_view(view: &TstStoryView, results: &[CommandResult]) -> AssayReport {
-    let acceptance_mapped = view
-        .acceptance_criteria
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or("")
-        .is_empty()
-        == false;
-    adjudicate_assay(&view.assay_commands, results, acceptance_mapped)
+    let mut blockers = vec!["ASSAY_PLAN_REQUIRED"];
+    if view.assay_commands.is_empty() {
+        blockers.push("NO_ASSAY_COMMANDS");
+    }
+    if results.len() != view.assay_commands.len() {
+        blockers.push("ASSAY_COMMAND_DRIFT");
+    }
+    AssayReport {
+        verdict: crate::engine::assay::AssayVerdict::Unproven,
+        blockers,
+    }
 }
 
 /// True when the story exists to expose an app defect: its goal or criteria
@@ -283,7 +293,8 @@ pub fn assay_artifact(
     assay_results: &[CommandResult],
     tests_summary: &str,
 ) -> NewToolArtifact {
-    let all_passed = !assay_results.is_empty() && assay_results.iter().all(|r| r.passed);
+    // This TST helper has no approved frozen plan at its boundary, so it can record observations
+    // but cannot award either the artifact or product acceptance judgment.
     let commands: Vec<serde_json::Value> = assay_results
         .iter()
         .map(|r| {
@@ -297,16 +308,20 @@ pub fn assay_artifact(
         })
         .collect();
     let detail = serde_json::json!({
+        "receipt_schema_version": 1,
         "run_id": run_id,
         "tests_summary": extract_tests_summary(tests_summary, tests_summary),
         "commands": commands,
+        "test_artifact_judgment": "UNPROVEN",
+        "product_judgment": "UNPROVEN",
+        "blockers": ["ASSAY_PLAN_REQUIRED"],
     });
     NewToolArtifact {
         story_id: story_id.to_string(),
         story_run_id: Some(run_id.to_string()),
         tool: "pianola".to_string(),
         kind: "assay".to_string(),
-        verdict: Some(if all_passed { "pass" } else { "fail" }.to_string()),
+        verdict: Some("UNPROVEN".to_string()),
         summary: Some(tests_summary_line(tests_summary)),
         detail: Some(detail),
         sha: None,
@@ -553,6 +568,7 @@ fn tmp_lane(name: &str) -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::assay::adjudicate_assay;
 
     // --- the empty-green detector -------------------------------------------------
     //
@@ -637,6 +653,7 @@ mod tests {
         // all-ignored target must come out `Fail`/`COMMAND_UNMEASURABLE`. Before this change the same run was
         // `passed: true` on exit 0 and adjudicated `Pass`, which is how five stories were closed on nothing.
         let result = CommandResult {
+            cancelled: false,
             command: "cargo test --manifest-path Cargo.toml -p test-harness --test some_target"
                 .to_string(),
             exit_code: 0,
@@ -673,6 +690,7 @@ mod tests {
 
     fn result(command: &str, passed: bool) -> CommandResult {
         CommandResult {
+            cancelled: false,
             command: command.into(),
             exit_code: if passed { 0 } else { 101 },
             passed,
@@ -702,6 +720,22 @@ mod tests {
         assert!(!res.passed);
         assert!(!res.unmeasurable);
         assert_ne!(res.exit_code, 0);
+        let _ = std::fs::remove_dir_all(&lane);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_signalled_assay_command_is_recorded_as_cancelled() {
+        let lane = tmp_lane("cancelled");
+        let res =
+            execute_command_scoped_with_timeout(&lane, "kill -TERM $$", Duration::from_secs(30));
+        assert!(!res.passed);
+        assert!(res.unmeasurable);
+        assert!(crate::engine::assay::is_cmd_cancelled(&res));
+        assert!(res.excerpt.contains("signal 15"));
+        let report = adjudicate_assay(&[res.command.clone()], &[res], true);
+        assert_eq!(report.verdict, crate::engine::assay::AssayVerdict::Unproven);
+        assert!(report.blockers.contains(&"CMD_CANCELLED"));
         let _ = std::fs::remove_dir_all(&lane);
     }
 
@@ -756,15 +790,16 @@ mod tests {
     fn adjudication_uses_shared_blockers() {
         let view = view_with(&["cargo test -p probe"], "author a test", "test exists");
         let report = adjudicate_for_view(&view, &[result("cargo test -p probe", true)]);
-        assert!(report.blockers.is_empty());
+        assert_eq!(report.verdict, crate::engine::assay::AssayVerdict::Unproven);
+        assert!(report.blockers.contains(&"ASSAY_PLAN_REQUIRED"));
         let failing = adjudicate_for_view(&view, &[result("cargo test -p probe", false)]);
-        assert!(failing.blockers.contains(&"CMD_FAIL"));
+        assert!(failing.blockers.contains(&"ASSAY_PLAN_REQUIRED"));
         let empty = view_with(&[], "author a test", "test exists");
         let no_cmds = adjudicate_for_view(&empty, &[]);
         assert!(no_cmds.blockers.contains(&"NO_ASSAY_COMMANDS"));
         let no_criteria = view_with(&["cargo test -p probe"], "author a test", "   ");
         let unproven = adjudicate_for_view(&no_criteria, &[result("cargo test -p probe", true)]);
-        assert!(unproven.blockers.contains(&"ACCEPTANCE_MAP_MISSING"));
+        assert!(unproven.blockers.contains(&"ASSAY_PLAN_REQUIRED"));
     }
 
     #[test]
@@ -793,14 +828,16 @@ mod tests {
         assert_eq!(artifact.tool, "pianola");
         assert_eq!(artifact.kind, "assay");
         assert_eq!(artifact.story_id, "TST-7");
-        assert_eq!(artifact.verdict.as_deref(), Some("fail"));
+        assert_eq!(artifact.verdict.as_deref(), Some("UNPROVEN"));
         let summary = artifact.summary.unwrap_or_default();
         assert!(summary.starts_with("Tests:"), "unexpected: {summary}");
         let detail = artifact.detail.expect("detail");
         assert_eq!(detail["run_id"], serde_json::json!("run-1"));
         assert_eq!(detail["commands"].as_array().unwrap().len(), 2);
+        assert_eq!(detail["test_artifact_judgment"], "UNPROVEN");
+        assert_eq!(detail["product_judgment"], "UNPROVEN");
         let passing = assay_artifact("TST-7", "run-1", &[result("cargo test", true)], "all green");
-        assert_eq!(passing.verdict.as_deref(), Some("pass"));
+        assert_eq!(passing.verdict.as_deref(), Some("UNPROVEN"));
     }
 
     #[test]

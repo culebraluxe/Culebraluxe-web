@@ -551,12 +551,18 @@ fn a_generation_stops_at_the_turn_cap_before_dispatching_past_it() {
 }
 
 #[test]
-fn evidence_marker_sets_the_lead_decision_only_on_lead_pre() {
-    let ev = role_mapping::parse_forge_evidence_marker(
+fn evidence_marker_is_typed_and_lead_cannot_claim_qa_success() {
+    let parsed = role_mapping::parse_forge_evidence_marker(
         "prose\nFORGE_EVIDENCE_JSON: {\"leadDecision\":\"SMITH\",\"qaPassed\":true}\n",
     );
-    assert_eq!(ev.lead_decision.as_deref(), Some("SMITH"));
-    assert_eq!(ev.qa_passed, Some(true));
+    let role_mapping::RoleOutputParse::Valid {
+        evidence: parsed, ..
+    } = parsed
+    else {
+        panic!("expected a valid typed marker");
+    };
+    assert_eq!(parsed.lead_decision.as_deref(), Some("SMITH"));
+    assert_eq!(parsed.qa_passed, Some(true));
     // The reading is the Lead lane's own, not the engine's: the decision belongs to the PRE phase, so the PRE turn
     // sets it and no later Lead turn may. (This test used to assert that lead_pre could NOT set it — pinning the
     // rule that left the execution-shape gateway with no decision and sent every FEATURE story to SOLO in
@@ -575,6 +581,27 @@ fn evidence_marker_sets_the_lead_decision_only_on_lead_pre() {
     assert_eq!(decide("lead_pre").as_deref(), Some("SMITH"));
     assert_eq!(decide("lead_post"), None);
     assert_eq!(decide("lead_solo_implement"), None);
+    let rejected = rust_forge_lead_hooks()
+        .collect_evidence(
+            "lead_pre",
+            ForgeGateEvidence::default(),
+            "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"SMITH\",\"qaPassed\":true}",
+            &phase::RoleEffectPorts::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        rejected.lead_decision, None,
+        "the mixed patch is rejected atomically"
+    );
+    assert_eq!(
+        rejected.qa_passed, None,
+        "the model cannot grant QA success"
+    );
+    assert!(rejected
+        .deliverable_rejection
+        .as_deref()
+        .unwrap_or_default()
+        .contains("qaPassed"));
 }
 
 /// The Lead lane's own reading, borrowed where a test needs to ask what the lane makes of a reply.
@@ -617,6 +644,53 @@ struct ScriptedHarness {
     cmd_ok: bool,
 }
 
+fn approved_assay_snapshot(writer: &RecordingWriter, story_id: &str, run_id: &str, command: &str) {
+    use forge::engine::qa_plan::{
+        AcceptanceJudgment, ApprovedAcceptanceCondition, ApprovedAssayCommand, ApprovedAssayPlan,
+        ApprovedAssertionCheck, AssayParser, AssayRunner, CheckAggregation,
+    };
+    let plan = ApprovedAssayPlan {
+        schema_version: 1,
+        plan_id: format!("plan-{story_id}"),
+        plan_version: 1,
+        commands: vec![ApprovedAssayCommand {
+            id: "cmd-check".into(),
+            command: command.into(),
+            runner: AssayRunner::CommandExit,
+            parser: AssayParser::CommandExit,
+            working_directory: "lane_root".into(),
+            environment_identity: "forge-inherited-shell-v1".into(),
+        }],
+        checks: vec![ApprovedAssertionCheck {
+            id: "check-exit".into(),
+            command_id: "cmd-check".into(),
+            assertion: "exit_code_zero".into(),
+        }],
+        conditions: vec![ApprovedAcceptanceCondition {
+            id: "AC-product".into(),
+            check_ids: vec!["check-exit".into()],
+            aggregation: CheckAggregation::AllRequired,
+            judgment: AcceptanceJudgment::Product,
+        }],
+        negative_control: None,
+    };
+    let identity = plan.identity().expect("plan hashes");
+    writer.assay_plan_snapshots.lock().unwrap().insert(
+        run_id.into(),
+        db::forge_assay::AssayPlanSnapshotRow {
+            story_run_id: run_id.into(),
+            story_id: story_id.into(),
+            assay_commands_snapshot: Some(command.into()),
+            snapshot: Some(serde_json::json!({
+                "plan": plan,
+                "approved_by": "test-operator",
+                "approved_at": "2026-10-09T12:00:00Z",
+                "approved_hash": identity.hash,
+            })),
+        },
+    );
+}
+
 impl runner::RoleHarness for ScriptedHarness {
     /// Where this harness would run commands from. A scripted harness does not shell out, so the test's own working
     /// directory is the honest answer — and it has to be declared because `assay_cwd` is part of the trait.
@@ -644,6 +718,7 @@ impl runner::RoleHarness for ScriptedHarness {
     }
     fn run_command(&self, command: &str) -> assay::CommandResult {
         assay::CommandResult {
+            cancelled: false,
             command: command.into(),
             exit_code: if self.cmd_ok { 0 } else { 1 },
             passed: self.cmd_ok,
@@ -651,6 +726,19 @@ impl runner::RoleHarness for ScriptedHarness {
             unmeasurable: false,
             output: String::new(),
         }
+    }
+    fn candidate_probe(&self) -> Option<&dyn runner::CandidateProbe> {
+        Some(self)
+    }
+}
+
+impl runner::CandidateProbe for ScriptedHarness {
+    fn git(&self, _: &[&str]) -> Option<String> {
+        self.sha.clone().or_else(|| Some("b".repeat(40)))
+    }
+
+    fn declared_test_mode(&self) -> Option<&str> {
+        Some("RUST_CONTRACT")
     }
 }
 
@@ -825,28 +913,33 @@ fn a_hold_that_cannot_be_recorded_fails_the_lane() {
 /// whichever pool happens to be installed.
 #[test]
 fn a_qa_lane_records_its_measurement_as_an_artifact() {
+    let run_id = "11111111-1111-1111-1111-111111111111";
+    let story_id = "ENG-PROOF-ARTIFACT-01";
+    let candidate_sha = "a".repeat(40);
+    let command = "cargo check -p db";
     let h = ScriptedHarness {
         raw: "assay complete".into(),
-        sha: Some("abc1234".into()),
-        commands: vec!["cargo test -p db".into()],
+        sha: Some(candidate_sha.clone()),
+        commands: vec![command.into()],
         mapped: true,
         cmd_ok: true,
     };
     let writer = Arc::new(RecordingWriter::default());
+    approved_assay_snapshot(&writer, story_id, run_id, command);
     let role = runner::ProductionRoleRunner::new(
         Arc::new(h),
         ForgeGateEvidence {
-            candidate_sha: Some("abc1234".into()),
+            candidate_sha: Some(candidate_sha.clone()),
             ..Default::default()
         },
     )
-    .with_story_run(Some("11111111-1111-1111-1111-111111111111".into()));
+    .with_story_run(Some(run_id.into()));
     let mut role = role;
     role.writer = Some(writer.clone());
     let task = runtime::ActiveForgeRoleTask {
         task_id: "t".into(),
         process_instance_id: "p".into(),
-        story_id: "ENG-PROOF-ARTIFACT-01".into(),
+        story_id: story_id.into(),
         token_id: Some("k".into()),
         node_id: Some("qa_verify".into()),
         status: workflow::TaskStatus::Ready,
@@ -859,27 +952,31 @@ fn a_qa_lane_records_its_measurement_as_an_artifact() {
     let recorded = writer.artifacts.lock().unwrap();
     assert_eq!(recorded.len(), 1, "one measurement, one artifact");
     let artifact = &recorded[0];
-    assert_eq!(artifact.story_id, "ENG-PROOF-ARTIFACT-01");
+    assert_eq!(artifact.story_id, story_id);
     assert_eq!(
         artifact.story_run_id.as_deref(),
-        Some("11111111-1111-1111-1111-111111111111"),
+        Some(run_id),
         "the artifact names the execution it came out of"
     );
     assert_eq!(artifact.tool, "assay");
     assert_eq!(artifact.kind, "qa-assay-evidence");
     assert_eq!(artifact.verdict.as_deref(), Some("PASS"));
-    assert_eq!(artifact.sha.as_deref(), Some("abc1234"));
+    assert_eq!(artifact.sha.as_deref(), Some(candidate_sha.as_str()));
 }
 
 /// A failing assay records `FAIL`, and a lane that measured nothing records `UNPROVEN` — three answers, because a
 /// measurement nobody took is not a failed measurement.
 #[test]
 fn the_recorded_verdict_is_the_lanes_own_reading() {
+    let run_id = "11111111-1111-1111-1111-111111111112";
+    let story_id = "ENG-PROOF-ARTIFACT-02";
+    let command = "cargo check --all-targets";
     for (commands, mapped, cmd_ok, expected) in [
-        (vec!["cargo test".to_string()], true, false, "FAIL"),
-        (vec![], true, true, "FAIL"),
-        (vec!["cargo test".to_string()], false, true, "UNPROVEN"),
+        (vec![command.to_string()], true, false, "FAIL"),
+        (vec![], true, true, "UNPROVEN"),
+        (vec![command.to_string()], false, true, "PASS"),
     ] {
+        let has_command = !commands.is_empty();
         let h = ScriptedHarness {
             raw: "assay".into(),
             sha: None,
@@ -888,12 +985,18 @@ fn the_recorded_verdict_is_the_lanes_own_reading() {
             cmd_ok,
         };
         let writer = Arc::new(RecordingWriter::default());
-        let mut role = runner::ProductionRoleRunner::new(Arc::new(h), ForgeGateEvidence::default());
+        if has_command {
+            approved_assay_snapshot(&writer, story_id, run_id, command);
+        }
+        let mut evidence = ForgeGateEvidence::default();
+        evidence.candidate_sha = Some("b".repeat(40));
+        let mut role = runner::ProductionRoleRunner::new(Arc::new(h), evidence)
+            .with_story_run(Some(run_id.into()));
         role.writer = Some(writer.clone());
         let task = runtime::ActiveForgeRoleTask {
             task_id: "t".into(),
             process_instance_id: "p".into(),
-            story_id: "ENG-PROOF-ARTIFACT-02".into(),
+            story_id: story_id.into(),
             token_id: None,
             node_id: Some("qa_verify".into()),
             status: workflow::TaskStatus::Ready,
@@ -955,6 +1058,7 @@ fn an_artifact_that_cannot_be_recorded_fails_the_lane() {
     let writer = Arc::new(BrokenArtifact);
     let mut role = runner::ProductionRoleRunner::new(Arc::new(h), ForgeGateEvidence::default());
     role.writer = Some(writer.clone());
+    role.story_run_id = Some("11111111-2222-3333-4444-555555555555".into());
     let task = runtime::ActiveForgeRoleTask {
         task_id: "t".into(),
         process_instance_id: "p".into(),
@@ -970,7 +1074,7 @@ fn an_artifact_that_cannot_be_recorded_fails_the_lane() {
         Err(error) => error,
     };
     assert!(
-        error.to_string().contains("record_tool_artifact"),
+        error.to_string().contains("persist assay receipt"),
         "{error}"
     );
     assert!(

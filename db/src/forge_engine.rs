@@ -1032,6 +1032,8 @@ pub struct ForgeEvidencePatch {
     pub candidate_sha: Option<String>,
     pub qa_verified_sha: Option<String>,
     pub published_sha: Option<String>,
+    pub role_output_schema_version: Option<i64>,
+    pub role_output_diagnostic: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -1078,9 +1080,10 @@ const WORKFLOW_EVIDENCE_UPSERT_SQL: &str = "\
 insert into forge_workflow_evidence (
     process_instance_id, story_id, work_type, scout_required, lead_decision,
     qa_review_required, qa_review_passed, qa_passed, failure_class, failed_release_stage,
-    last_failure, publish_succeeded, candidate_sha, qa_verified_sha, published_sha
+    last_failure, publish_succeeded, candidate_sha, qa_verified_sha, published_sha,
+    role_output_schema_version, role_output_diagnostic
  ) values (
-    $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
  )
  on conflict (process_instance_id) do update set
     work_type=coalesce(excluded.work_type,forge_workflow_evidence.work_type),
@@ -1089,13 +1092,15 @@ insert into forge_workflow_evidence (
     qa_review_required=coalesce(excluded.qa_review_required,forge_workflow_evidence.qa_review_required),
     qa_review_passed=coalesce(excluded.qa_review_passed,forge_workflow_evidence.qa_review_passed),
     qa_passed=coalesce(excluded.qa_passed,forge_workflow_evidence.qa_passed),
-    failure_class=case when $16 then null else coalesce(excluded.failure_class,forge_workflow_evidence.failure_class) end,
-    failed_release_stage=case when $16 then null else coalesce(excluded.failed_release_stage,forge_workflow_evidence.failed_release_stage) end,
-    last_failure=case when $16 then null else coalesce(excluded.last_failure,forge_workflow_evidence.last_failure) end,
+    failure_class=case when $18 then null else coalesce(excluded.failure_class,forge_workflow_evidence.failure_class) end,
+    failed_release_stage=case when $18 then null else coalesce(excluded.failed_release_stage,forge_workflow_evidence.failed_release_stage) end,
+    last_failure=case when $18 then null else coalesce(excluded.last_failure,forge_workflow_evidence.last_failure) end,
     publish_succeeded=coalesce(excluded.publish_succeeded,forge_workflow_evidence.publish_succeeded),
     candidate_sha=coalesce(excluded.candidate_sha,forge_workflow_evidence.candidate_sha),
     qa_verified_sha=coalesce(excluded.qa_verified_sha,forge_workflow_evidence.qa_verified_sha),
     published_sha=coalesce(excluded.published_sha,forge_workflow_evidence.published_sha),
+    role_output_schema_version=coalesce(excluded.role_output_schema_version,forge_workflow_evidence.role_output_schema_version),
+    role_output_diagnostic=coalesce(excluded.role_output_diagnostic,forge_workflow_evidence.role_output_diagnostic),
     updated_at=now()";
 
 /// Which budget a completion unit spends on the story row — the legacy `INC_REPAIR` / `INC_REPLAN`
@@ -1106,6 +1111,19 @@ insert into forge_workflow_evidence (
 pub enum CompletionSpend {
     Repair,
     Replan,
+}
+
+/// Identity of the previously persisted QA receipt that this task completion applies. The completion
+/// transaction verifies the artifact row and carries this link in its own receipt proof.
+#[derive(Debug, Clone)]
+pub struct CompletionAssayReceipt<'a> {
+    pub artifact_id: &'a str,
+    pub story_run_id: &'a str,
+    pub idempotency_key: &'a str,
+    pub measurement_node: &'a str,
+    pub gate_verdict: &'a str,
+    pub plan_sha256: Option<&'a str>,
+    pub candidate_sha: Option<&'a str>,
 }
 
 /// One completion unit as the row-level routine takes it (FORGE-B1 slice 2).
@@ -1130,6 +1148,8 @@ pub struct CompletionUnit<'a> {
     /// receipt for this key carries the same fingerprint; a differing one is a different unit claiming a
     /// spent key, which is refused rather than replayed.
     pub fingerprint: &'a str,
+    /// Optional QA receipt committed before task completion and now atomically linked to this unit.
+    pub assay_receipt: Option<&'a CompletionAssayReceipt<'a>>,
 }
 
 /// An accepted workflow completion whose atomic effects do not yet have a successful receipt.
@@ -1191,7 +1211,8 @@ impl ForgeEngineDao {
              select work_type, scout_required, lead_decision,
                     qa_review_required, qa_review_passed, qa_passed,
                     failure_class, failed_release_stage, last_failure,
-                    publish_succeeded, candidate_sha, qa_verified_sha, published_sha
+                    publish_succeeded, candidate_sha, qa_verified_sha, published_sha,
+                    role_output_schema_version, role_output_diagnostic
                from forge_workflow_evidence e
               where e.story_id=$1
                 and (not exists (select 1 from live) or e.process_instance_id = (select id from live))
@@ -1227,6 +1248,8 @@ impl ForgeEngineDao {
             .bind(evidence.candidate_sha.as_deref())
             .bind(evidence.qa_verified_sha.as_deref())
             .bind(evidence.published_sha.as_deref())
+            .bind(evidence.role_output_schema_version)
+            .bind(evidence.role_output_diagnostic.as_deref())
             .bind(release_failure_resolved)
             .execute(self.db.pool())
             .await
@@ -1658,6 +1681,52 @@ impl ForgeEngineDao {
             }
         }
 
+        // The QA artifact is written first so its complete observations survive a crash. Before
+        // applying its verdict to workflow evidence, lock and verify that exact durable artifact;
+        // the completion proof below then links both identities in this transaction.
+        if let Some(receipt) = unit.assay_receipt {
+            let linked = sqlx::query_scalar::<_, String>(
+                "select id::text from forge_tool_artifact
+                  where id = $1::uuid
+                    and story_id = $2
+                    and story_run_id = $3::uuid
+                    and tool = 'assay'
+                    and kind = 'qa-assay-evidence'
+                    and idempotency_key = $4
+                    and detail->>'receipt_schema_version' = '1'
+                    and detail->>'measurement_node' = $5
+                    and detail->>'gate_verdict' = $6
+                    and detail->>'plan_sha256' is not distinct from $7
+                    and detail->>'candidate_sha' is not distinct from $8
+                  for key share",
+            )
+            .bind(receipt.artifact_id)
+            .bind(unit.story_id)
+            .bind(receipt.story_run_id)
+            .bind(receipt.idempotency_key)
+            .bind(receipt.measurement_node)
+            .bind(receipt.gate_verdict)
+            .bind(receipt.plan_sha256)
+            .bind(receipt.candidate_sha)
+            .fetch_optional(tx.connection())
+            .await
+            .map_err(|error| {
+                DbFailure::from_sqlx("forge_engine.completion_assay_receipt", &error)
+            })?;
+            if linked.is_none() {
+                return Err(DbFailure::schema_mismatch(
+                    "forge_engine.completion_assay_receipt",
+                    format!(
+                        "assay artifact {} does not match story {}, run {}, key {}, plan/candidate, and verdict",
+                        receipt.artifact_id,
+                        unit.story_id,
+                        receipt.story_run_id,
+                        receipt.idempotency_key
+                    ),
+                ));
+            }
+        }
+
         // The spend, before the evidence merge. The story row is locked first so the counter and the
         // story's own writers serialize, and a story that does not exist is a schema error rather than a
         // silently unspent budget.
@@ -1718,6 +1787,8 @@ impl ForgeEngineDao {
             .bind(unit.evidence.candidate_sha.as_deref())
             .bind(unit.evidence.qa_verified_sha.as_deref())
             .bind(unit.evidence.published_sha.as_deref())
+            .bind(unit.evidence.role_output_schema_version)
+            .bind(unit.evidence.role_output_diagnostic.as_deref())
             // A completion unit never resolves a release failure: that is the release path's own write
             // (`Self::merge_workflow_evidence` with `release_failure_resolved = true`).
             .bind(false)
@@ -1771,5 +1842,14 @@ fn completion_proof(unit: &CompletionUnit<'_>) -> Value {
             None => None,
         },
         "fingerprint": unit.fingerprint,
+        "assay_receipt": unit.assay_receipt.map(|receipt| serde_json::json!({
+            "artifact_id": receipt.artifact_id,
+            "story_run_id": receipt.story_run_id,
+            "idempotency_key": receipt.idempotency_key,
+            "measurement_node": receipt.measurement_node,
+            "gate_verdict": receipt.gate_verdict,
+            "plan_sha256": receipt.plan_sha256,
+            "candidate_sha": receipt.candidate_sha,
+        })),
     })
 }

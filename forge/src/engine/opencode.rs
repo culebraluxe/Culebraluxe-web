@@ -885,8 +885,8 @@ impl RoleHarness for OpenCodeHarness {
 
     fn run_command(&self, command: &str) -> CommandResult {
         use crate::engine::assay::{
-            assay_timeout, is_cmd_timeout, spawn_scoped_shell_with_env, CeilingOutcome,
-            CMD_TIMEOUT_CODE, CMD_TIMEOUT_EXIT,
+            assay_timeout, cancellation_signal, is_cmd_timeout, spawn_scoped_shell_with_env,
+            CeilingOutcome, CMD_CANCELLED_EXIT, CMD_TIMEOUT_CODE, CMD_TIMEOUT_EXIT,
         };
         let cwd = self.assay_cwd();
         // FIX-007: per-worktree CARGO_TARGET_DIR for build isolation, sanitized env (no secrets).
@@ -903,6 +903,7 @@ impl RoleHarness for OpenCodeHarness {
             Ok(child) => child,
             Err(e) => {
                 return CommandResult {
+                    cancelled: false,
                     command: command.into(),
                     exit_code: -1,
                     passed: false,
@@ -914,6 +915,7 @@ impl RoleHarness for OpenCodeHarness {
         };
         match crate::engine::assay::wait_with_ceiling(child, assay_timeout()) {
             CeilingOutcome::TimedOut(hit) => CommandResult {
+                cancelled: false,
                 command: command.into(),
                 exit_code: CMD_TIMEOUT_EXIT,
                 passed: false,
@@ -926,6 +928,7 @@ impl RoleHarness for OpenCodeHarness {
                 output: String::new(),
             },
             CeilingOutcome::Finished(Err(e)) => CommandResult {
+                cancelled: false,
                 command: command.into(),
                 exit_code: -1,
                 passed: false,
@@ -939,8 +942,19 @@ impl RoleHarness for OpenCodeHarness {
                 // FIX-003: BOTH streams are evidence — cargo diagnostics print to stderr while test
                 // harnesses print to stdout, and keeping only one silently discards the compiler error.
                 let text = crate::engine::assay::combine_command_output(&stdout, &stderr);
-                let code = out.status.code().unwrap_or(1);
+                let signal = cancellation_signal(&out.status);
+                let code = if signal.is_some() {
+                    CMD_CANCELLED_EXIT
+                } else {
+                    out.status.code().unwrap_or(1)
+                };
+                let text = if let Some(signal) = signal {
+                    format!("CMD_CANCELLED: assay command received signal {signal}\n{text}")
+                } else {
+                    text
+                };
                 let result = CommandResult {
+                    cancelled: signal.is_some(),
                     command: command.into(),
                     exit_code: code,
                     passed: code == 0,
@@ -949,7 +963,7 @@ impl RoleHarness for OpenCodeHarness {
                         .take(crate::engine::assay::COMMAND_EXCERPT_LINES)
                         .collect::<Vec<_>>()
                         .join("\n"),
-                    unmeasurable: false,
+                    unmeasurable: signal.is_some(),
                     output: text,
                 };
                 debug_assert!(

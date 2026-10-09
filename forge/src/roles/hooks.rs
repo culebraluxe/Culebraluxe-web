@@ -63,7 +63,7 @@ pub trait ForgeRoleHooks: Send + Sync {
         raw: &str,
         _ports: &RoleEffectPorts,
     ) -> std::result::Result<ForgeGateEvidence, String> {
-        Ok(marker_evidence(raw, &base))
+        Ok(marker_evidence(_node_id, raw, &base))
     }
 
     /// Which deliverable this node owes, as this lane reads it.

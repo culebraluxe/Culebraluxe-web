@@ -52,6 +52,7 @@ pub mod production_probe;
 pub mod qa_adjudicate;
 pub mod qa_assert;
 pub mod qa_classify;
+pub mod qa_plan;
 pub mod qa_repair;
 pub mod re_commands;
 pub mod re_facts;

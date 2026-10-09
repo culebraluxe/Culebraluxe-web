@@ -167,6 +167,7 @@ fn unit_for<'a>(
         evidence: patch,
         spend,
         fingerprint,
+        assay_receipt: None,
     }
 }
 

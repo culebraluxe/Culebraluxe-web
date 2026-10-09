@@ -59,6 +59,10 @@ fn evidence_from_row(row: db::ForgeEvidencePatch) -> ForgeGateEvidence {
         candidate_sha: row.candidate_sha,
         qa_verified_sha: row.qa_verified_sha,
         published_sha: row.published_sha,
+        role_output_schema_version: row
+            .role_output_schema_version
+            .and_then(|version| u32::try_from(version).ok()),
+        role_output_diagnostic: row.role_output_diagnostic,
         ..ForgeGateEvidence::default()
     }
 }
@@ -175,6 +179,34 @@ impl ForgeStateWriter for DbForgeStateWriter {
                     .await
                     .map(|row| Some(row.id))
                     .map_err(|e| e.to_string())
+            })
+        })?
+    }
+
+    fn read_assay_plan_snapshot(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<db::forge_assay::AssayPlanSnapshotRow>, String> {
+        with_shared(|db, rt| {
+            let dao = ::db::forge_assay::ForgeAssayDao::new(db.clone());
+            rt.block_on(async {
+                dao.plan_snapshot_for_run(run_id)
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        })?
+    }
+
+    fn read_assay_receipt(
+        &self,
+        key: &str,
+    ) -> Result<Option<::db::forge_assay::AssayReceiptRow>, String> {
+        with_shared(|db, rt| {
+            let dao = ::db::forge_assay::ForgeAssayDao::new(db.clone());
+            rt.block_on(async {
+                dao.receipt_for_key(key)
+                    .await
+                    .map_err(|error| error.to_string())
             })
         })?
     }

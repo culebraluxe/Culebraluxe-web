@@ -42,6 +42,7 @@ fn unit<'a>(
         evidence: patch,
         spend,
         fingerprint: FINGERPRINT,
+        assay_receipt: None,
     }
 }
 

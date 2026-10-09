@@ -26,5 +26,7 @@ pub fn evidence_patch(evidence: &ForgeGateEvidence) -> ForgeEvidencePatch {
         candidate_sha: evidence.candidate_sha.clone(),
         qa_verified_sha: evidence.qa_verified_sha.clone(),
         published_sha: evidence.published_sha.clone(),
+        role_output_schema_version: evidence.role_output_schema_version.map(i64::from),
+        role_output_diagnostic: evidence.role_output_diagnostic.clone(),
     }
 }

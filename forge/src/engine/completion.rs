@@ -49,8 +49,63 @@ impl CompletionRecord {
     /// reused or leaked task id — is refused as a conflict instead of being answered "already applied",
     /// which would drop this unit's evidence and budget on the floor without a trace.
     pub fn fingerprint(&self) -> String {
-        format!("story:{}", self.story_id)
+        match self.assay_receipt_key() {
+            Some(key) => format!("story:{};assay-receipt:{key}", self.story_id),
+            None => format!("story:{}", self.story_id),
+        }
     }
+
+    /// The durable assay receipt linked to this task, when the completed evidence carries one.
+    /// Malformed metadata is an error: a completion may not silently drop a receipt link.
+    pub fn assay_receipt_link(&self) -> std::result::Result<Option<AssayReceiptLink>, String> {
+        let Some(value) = self.evidence.extra.get("assayReceipt") else {
+            return Ok(None);
+        };
+        let get_required = |key: &str| {
+            value
+                .get(key)
+                .and_then(workflow::Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| format!("assayReceipt.{key} is required"))
+        };
+        let get_optional = |key: &str| match value.get(key) {
+            None | Some(workflow::Value::Null) => Ok(None),
+            Some(value) => value
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| format!("assayReceipt.{key} must be a string or null"))
+                .map(Some),
+        };
+        Ok(Some(AssayReceiptLink {
+            artifact_id: get_required("artifactId")?,
+            story_run_id: get_required("storyRunId")?,
+            idempotency_key: get_required("idempotencyKey")?,
+            measurement_node: get_required("measurementNode")?,
+            gate_verdict: get_required("gateVerdict")?,
+            plan_sha256: get_optional("planSha256")?,
+            candidate_sha: get_optional("candidateSha")?,
+        }))
+    }
+
+    fn assay_receipt_key(&self) -> Option<&str> {
+        self.evidence
+            .extra
+            .get("assayReceipt")?
+            .get("idempotencyKey")?
+            .as_str()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssayReceiptLink {
+    pub artifact_id: String,
+    pub story_run_id: String,
+    pub idempotency_key: String,
+    pub measurement_node: String,
+    pub gate_verdict: String,
+    pub plan_sha256: Option<String>,
+    pub candidate_sha: Option<String>,
 }
 
 /// Which budget a completion spends. The mapping from a node to a budget is
@@ -298,5 +353,84 @@ mod spend_tests {
             None,
             "a node-less unit spends nothing"
         );
+    }
+}
+
+#[cfg(test)]
+mod assay_receipt_link_tests {
+    use super::*;
+
+    fn record_with_assay_receipt() -> CompletionRecord {
+        let mut record = CompletionRecord {
+            task_id: "task-qa".into(),
+            process_instance_id: "process-1".into(),
+            story_id: "STORY-1".into(),
+            node_id: Some("qa_verify".into()),
+            evidence: ForgeGateEvidence::default(),
+        };
+        record.evidence.extra.insert(
+            "assayReceipt",
+            workflow::json!({
+                "artifactId": "artifact-1",
+                "storyRunId": "run-1",
+                "idempotencyKey": "assay-key",
+                "measurementNode": "qa_verify",
+                "gateVerdict": "Pass",
+                "planSha256": "plan-hash",
+                "candidateSha": "candidate-sha",
+            }),
+        );
+        record
+    }
+
+    #[test]
+    fn assay_receipt_identity_is_part_of_completion_fingerprint_and_link() {
+        let record = record_with_assay_receipt();
+        assert_eq!(
+            record.fingerprint(),
+            "story:STORY-1;assay-receipt:assay-key"
+        );
+        assert_eq!(
+            record.assay_receipt_link().unwrap(),
+            Some(AssayReceiptLink {
+                artifact_id: "artifact-1".into(),
+                story_run_id: "run-1".into(),
+                idempotency_key: "assay-key".into(),
+                measurement_node: "qa_verify".into(),
+                gate_verdict: "Pass".into(),
+                plan_sha256: Some("plan-hash".into()),
+                candidate_sha: Some("candidate-sha".into()),
+            })
+        );
+        let mut different = record.clone();
+        different.evidence.extra.insert(
+            "assayReceipt",
+            workflow::json!({
+                "artifactId": "artifact-2",
+                "storyRunId": "run-1",
+                "idempotencyKey": "assay-key-2",
+                "measurementNode": "qa_verify",
+                "gateVerdict": "Pass",
+                "planSha256": "plan-hash",
+                "candidateSha": "candidate-sha",
+            }),
+        );
+        assert_ne!(record.fingerprint(), different.fingerprint());
+    }
+
+    #[test]
+    fn malformed_assay_receipt_metadata_is_not_dropped() {
+        let mut record = CompletionRecord {
+            task_id: "task-qa".into(),
+            process_instance_id: "process-1".into(),
+            story_id: "STORY-1".into(),
+            node_id: Some("qa_verify".into()),
+            evidence: ForgeGateEvidence::default(),
+        };
+        record
+            .evidence
+            .extra
+            .insert("assayReceipt", workflow::json!({"artifactId":"artifact-1"}));
+        assert!(record.assay_receipt_link().is_err());
     }
 }

@@ -24,6 +24,7 @@ use forge::roles::qa::dispose_failure;
 /// A failing command result for testing.
 fn fail_result(command: &str) -> CommandResult {
     CommandResult {
+        cancelled: false,
         command: command.to_string(),
         exit_code: 101,
         passed: false,
@@ -36,6 +37,7 @@ fn fail_result(command: &str) -> CommandResult {
 /// A passing command result for testing.
 fn pass_result(command: &str) -> CommandResult {
     CommandResult {
+        cancelled: false,
         command: command.to_string(),
         exit_code: 0,
         passed: true,
