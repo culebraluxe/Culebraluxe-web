@@ -20,12 +20,15 @@ debt-clearing pass: release-path bundler,
 the V9 live throw, `.next` duplicates, the empty lint baseline, KIND chips, and the harness wired into the release
 build) — that pass's estate is the retired TypeScript one, kept below under "Superseded".
 
-## Blocking — two red guard targets on trunk, assigned 2026-10-08
+## Blocking — the red targets on trunk, assigned 2026-10-08
 
-`main` carries two red test targets. Both were reproduced on `b3be12ec6` before they were assigned, not read
-off a hand-off; the receipts are at the foot of this section. Each row names a **place**, an **owner** and an
-**expiry** — assigned on the captain's direction 2026-10-08, because a red row that nobody owns is what stops
-every lane's T1 (`pnpm slice:check` runs the section, the section stops at the first red target).
+`main` carries **six red test targets**. Each was reproduced before it was assigned, not read off a hand-off: rows 1
+and 2 by running the target on its own, rows 6, 8, 9 and 10 by the trunk estate run (10 also by hand, with the
+child's environment genuinely cleared), and the receipts are at the foot of this section. Rows 3, 4, 5 and 7 are not
+red targets — they are what putting the trunk back in order turned up, and they are recorded here because each needs
+an owner for the same reason. Every row names a **place**, an **owner** and an **expiry** — assigned on the
+captain's direction 2026-10-08, because a red row that nobody owns is what stops every lane's T1
+(`pnpm slice:check` runs the section, and the section stops at the first red target).
 
 | # | Debt | Place it is decided in | Owner | Expiry | Exit that closes it |
 | --- | --- | --- | --- | --- | --- |
