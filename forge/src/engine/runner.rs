@@ -7,6 +7,7 @@ use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::harness::{HarnessUsage, TurnTermination};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::writer::{ForgeEvidenceReader, ForgeStateWriter};
+use std::path::Path;
 use std::sync::Arc;
 use workflow::{Result, WorkflowError};
 
@@ -32,6 +33,11 @@ pub struct HarnessOutput {
 pub trait CandidateProbe {
     /// `git <args>` in the turn's workspace: trimmed stdout, or `None` when git failed.
     fn git(&self, args: &[&str]) -> Option<String>;
+    /// The workspace's current commit, exposed as a fact so QA does not need raw Git commands.
+    fn workspace_head(&self, workspace: &Path) -> Option<String> {
+        let workspace = workspace.to_string_lossy();
+        self.git(&["-C", workspace.as_ref(), "rev-parse", "HEAD"])
+    }
     /// The test mode the packet the harness was started with declared (`RUST_CONTRACT`, …).
     fn declared_test_mode(&self) -> Option<&str>;
 }
