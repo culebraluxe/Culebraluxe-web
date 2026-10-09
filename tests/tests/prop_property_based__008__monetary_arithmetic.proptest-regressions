@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc b6d4556c3a54eb90edbfcd5dad3aaa3d855cdb3fbaefec863ad43ea27ad7c83e # shrinks to amount = "0", hostile = "1e3"
+cc 56a7e11494ff5237a2027d553ebbf391887f5f39f27ec51e081f7b90da5d427e # shrinks to amount = "0000", hostile = "1e3"

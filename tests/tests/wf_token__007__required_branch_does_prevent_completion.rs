@@ -9,6 +9,14 @@
 //! counted by `count_required_active_siblings` at joins and by the completion logic
 //! in `resolve_process_after_token` (which checks `token.required`).
 //!
+//! The CANCELLATION half below was authored in the same batch 60 (`5fdfbf4ae`) and went red on trunk
+//! for one over-broad assertion: it read **every** token of a cancelled instance and demanded
+//! `Cancelled` of all of them — including the fork's own parent token, which `handle_fork` had already
+//! concluded `Completed` when it minted the branches
+//! (`middle/workflow/src/engine/execute_node_leave.rs:385`). `cancel_process` → `terminate_process`
+//! concludes the tokens it finds ACTIVE (`execute_node_leave.rs:223-238`); a token that finished
+//! before the cancel is not rewritten. The assertions below say exactly that.
+//!
 //! Level: L1 Component, harness `WorkflowHarness`. Deterministic and isolated: a fixed clock
 //! and an in-memory store; no database, no network, no filesystem write, no live provider.
 //!
@@ -308,6 +316,21 @@ fn wf_token_007__required_branch_does_prevent_completion() {
         .expect("process starts");
     let instance2 = started2.process_instance_id.clone();
 
+    // The tokens ACTIVE at the moment of cancellation: the fork's two required children. The fork's
+    // own token was already concluded when it minted them (`handle_fork` completes the parent,
+    // `middle/workflow/src/engine/execute_node_leave.rs:385`), and cancellation does not rewrite a
+    // token that had already finished — `terminate_process` walks `list_active_tokens` and nothing
+    // else (`execute_node_leave.rs:223-238`). So this is the set the cancel can conclude.
+    let active_before_cancel = harness2
+        .store()
+        .with_tx(|tx| tx.list_active_tokens(&instance2))
+        .expect("active tokens read");
+    assert_eq!(
+        active_before_cancel.len(),
+        2,
+        "{HARNESS}: both required children are active at the moment of cancellation"
+    );
+
     // Cancel the process immediately (while both required tokens are active).
     harness2
         .engine()
@@ -318,19 +341,66 @@ fn wf_token_007__required_branch_does_prevent_completion() {
         })
         .expect("cancellation succeeds");
 
-    // All tokens should be cancelled (not completed).
+    // Nothing is left Active: cancellation concludes every token of the instance.
     let tokens2 = harness2
         .store()
         .with_tx(|tx| tx.tokens_for_instance(&instance2))
         .expect("tokens for instance read");
-    for token in tokens2 {
+    for token in &tokens2 {
         assert_eq!(
             token.status,
-            TokenStatus::Completed, // complete_token is called with Cancelled outcome
-            "{HARNESS}: cancelled process marks all tokens Completed with Cancelled outcome"
+            TokenStatus::Completed,
+            "{HARNESS}: cancellation concludes every token ({} at {})",
+            token.id,
+            token.node_id
         );
-        assert_eq!(token.outcome, Some(TokenOutcome::Cancelled));
     }
+
+    // A token cancelled before it finished is concluded `Cancelled` — the outcome that says the
+    // branch did not earn completion.
+    for caught in &active_before_cancel {
+        let concluded = read_token(harness2.store(), &caught.id);
+        assert_eq!(
+            concluded.outcome,
+            Some(TokenOutcome::Cancelled),
+            "{HARNESS}: a branch cancelled mid-flight is concluded Cancelled"
+        );
+    }
+
+    // The one token that had already finished keeps what it earned: cancellation does not rewrite
+    // history, so the fork's parent token stays `Completed` (and it is the only such token).
+    let pre_concluded: Vec<&Token> = tokens2
+        .iter()
+        .filter(|token| {
+            !active_before_cancel
+                .iter()
+                .any(|active| active.id == token.id)
+        })
+        .collect();
+    assert_eq!(
+        pre_concluded.len(),
+        1,
+        "{HARNESS}: exactly one token — the fork's own — was concluded before the cancellation"
+    );
+    assert_eq!(
+        pre_concluded[0].node_id, FORK_NODE,
+        "{HARNESS}: the token concluded before the cancellation is the fork's parent"
+    );
+    assert_eq!(
+        pre_concluded[0].outcome,
+        Some(TokenOutcome::Completed),
+        "{HARNESS}: a token that finished before the cancellation keeps its Completed outcome"
+    );
+
+    // The branches' open work is concluded with them: no task is left open on a cancelled run.
+    assert!(
+        harness2
+            .store()
+            .with_tx(|tx| tx.open_tasks_for_instance(&instance2))
+            .expect("open tasks read")
+            .is_empty(),
+        "{HARNESS}: cancellation obsoletes the open tasks of the branches it cancels"
+    );
 
     // Process instance is Aborted (cancelled outcome).
     let inst2 = harness2

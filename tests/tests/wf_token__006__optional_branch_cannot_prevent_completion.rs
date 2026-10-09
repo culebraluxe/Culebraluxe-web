@@ -1,14 +1,22 @@
 //! WF.TOKEN — optional branch cannot prevent completion (TST-WF-TOKEN-006).
 //!
 //! Contract: when a fork mints an optional child token (required=false), that token's
-//! completion or lack thereof must not prevent the process from completing. The process
-//! completes when all REQUIRED active tokens are completed. Optional tokens are absorbed
-//! at the join or simply ignored for completion accounting.
+//! completion or lack thereof must not prevent the process from completing.
 //!
-//! This is why the contract distinguishes required vs optional: the join gate counts only
-//! required siblings (`count_required_active_siblings`), and process completion checks
-//! `count_active_tokens` which the engine interprets as required-only in the completion
-//! logic (via `resolve_process_after_token` checking `token.required`).
+//! WHERE THE RULE LIVES — the half this case got wrong as first authored (batch 60, `5fdfbf4ae`).
+//! The completion check is one line and it counts **every** token: `check_process_completion`
+//! completes the instance only when `count_active_tokens == 0`
+//! (`middle/workflow/src/engine/execute_node_leave.rs:173-202`; both stores count
+//! `status = 'active'`, `memory.rs:283-290` and `neon/new_id.rs:283-290`). An optional branch
+//! cannot prevent completion because the **join the branches rendezvous at retires it**:
+//! `handle_join` waits on required siblings only (`handle_join.rs:42-44`), then concludes every
+//! still-active optional sibling `Completed` with outcome `Skipped`, obsoletes its open task and
+//! cancels its open job (`handle_join.rs:46-80`) before it emits the result token. That is the
+//! production shape — the optional deadline tracks of `forge/definitions/RE_supermodel-v1.xml:199-204`
+//! "skip straight to the join … and are skipped by the join (timer cancelled) when the milestone
+//! completes first". A fork whose branches converge on an `end` node with **no join** is not a shape
+//! this engine has a rule for, and waiting there is not a defect in the engine; the graph below is
+//! the shape the contract speaks about.
 //!
 //! Level: L1 Component, harness `WorkflowHarness`. Deterministic and isolated: a fixed clock
 //! and an in-memory store; no database, no network, no filesystem write, no live provider.
@@ -22,8 +30,8 @@ use test_harness::EngineHarness;
 use workflow::{
     CompleteTaskParams, DefinitionStatus, EngineOptions, MemoryStore, NodeDefinition,
     ProcessDefinition, ProcessGraph, ProcessInstance, ProcessOutcome, ProcessStatus, Result,
-    StartProcessParams, Store, Task, Token, TokenOutcome, TokenStatus, TransitionDefinition,
-    TxStore, Value, WorkflowEngine,
+    StartProcessParams, Store, Task, TaskStatus, Token, TokenOutcome, TokenStatus,
+    TransitionDefinition, TxStore, Value, WorkflowEngine,
 };
 
 /// The canonical harness label for this level.
@@ -50,6 +58,10 @@ const TO_REQ: &str = "to-req";
 const TO_OPT: &str = "to-opt";
 const FINISH_REQ: &str = "finish-req";
 const FINISH_OPT: &str = "finish-opt";
+/// The join both branches rendezvous at — where a still-active optional branch is retired.
+const JOIN_NODE: &str = "join";
+/// The join's own transition to the end node: the token the join creates takes it.
+const ONWARD: &str = "onward";
 
 fn transition(name: &str, to: &str, required: Option<bool>) -> TransitionDefinition {
     TransitionDefinition {
@@ -100,7 +112,7 @@ fn fork_optional_definition() -> ProcessDefinition {
             id: REQ_TASK.to_string(),
             node_type: "task".to_string(),
             name: Some("Required Task".to_string()),
-            transitions: Some(vec![transition(FINISH_REQ, END_NODE, None)]),
+            transitions: Some(vec![transition(FINISH_REQ, JOIN_NODE, None)]),
             ..Default::default()
         },
     );
@@ -120,7 +132,17 @@ fn fork_optional_definition() -> ProcessDefinition {
             id: OPT_TASK.to_string(),
             node_type: "task".to_string(),
             name: Some("Optional Task".to_string()),
-            transitions: Some(vec![transition(FINISH_OPT, END_NODE, None)]),
+            transitions: Some(vec![transition(FINISH_OPT, JOIN_NODE, None)]),
+            ..Default::default()
+        },
+    );
+    // The rendezvous: the join is what an optional branch cannot hold back, and what retires it.
+    nodes.insert(
+        JOIN_NODE.to_string(),
+        NodeDefinition {
+            id: JOIN_NODE.to_string(),
+            node_type: "join".to_string(),
+            transitions: Some(vec![transition(ONWARD, END_NODE, None)]),
             ..Default::default()
         },
     );
@@ -226,6 +248,17 @@ fn wf_token_006__optional_branch_cannot_prevent_completion() {
     assert_eq!(after_fork_req.status, TokenStatus::Active);
     assert_eq!(after_fork_opt.status, TokenStatus::Active);
 
+    // The optional branch is parked on an open task — the work a "required-only completion" rule
+    // would have to ignore. The join is what will retire the branch, so read the task now: after
+    // the join fires there is no open task left to read.
+    let opt_task = harness
+        .store()
+        .with_tx(|tx| tx.open_tasks_for_token(&opt_id))
+        .expect("opt token's task reads")
+        .into_iter()
+        .next()
+        .expect("opt token has exactly one open task");
+
     // Complete ONLY the required branch's task.
     let req_task = harness
         .store()
@@ -242,27 +275,46 @@ fn wf_token_006__optional_branch_cannot_prevent_completion() {
             form_data: Value::object(),
             transition_name: Some(FINISH_REQ.to_string()),
         })
-        .expect("completing required task advances req token to end node");
+        .expect("completing required task advances req token to the join");
 
-    // The required token reaches the end node and completes.
+    // The join fires now — it waits on required siblings only — so the required token is concluded
+    // AT THE JOIN (the join completes it; it never reaches the end node) while the parked optional
+    // branch is retired rather than waited for.
     let req_done = read_token(harness.store(), &req_id);
     assert_eq!(
         req_done.status,
         TokenStatus::Completed,
-        "{HARNESS}: required token completes at end node"
+        "{HARNESS}: the required token is concluded by the join"
     );
-    assert_eq!(req_done.node_id, END_NODE);
+    assert_eq!(req_done.node_id, JOIN_NODE);
 
-    // The optional token is STILL ACTIVE at its task (opt-task).
-    let opt_still_active = read_token(harness.store(), &opt_id);
+    // THE CONTRACT: the optional branch did not prevent completion. `handle_join` concludes every
+    // still-active optional sibling `Completed` with outcome `Skipped`
+    // (`middle/workflow/src/engine/handle_join.rs:46-61`) — retired, not completed as work.
+    let opt_done = read_token(harness.store(), &opt_id);
     assert_eq!(
-        opt_still_active.status,
-        TokenStatus::Active,
-        "{HARNESS}: optional token remains active at its task"
+        opt_done.status,
+        TokenStatus::Completed,
+        "{HARNESS}: the parked optional branch is concluded by the join"
     );
-    assert_eq!(opt_still_active.node_id, OPT_TASK);
+    assert_eq!(
+        opt_done.outcome,
+        Some(TokenOutcome::Skipped),
+        "{HARNESS}: the optional branch is retired as Skipped, not completed as work"
+    );
 
-    // CRITICAL ASSERTION: The process instance MUST BE COMPLETED because all required tokens are done.
+    // Its open task is obsoleted with it: the branch is not work anyone can still complete.
+    let opt_task_after = harness
+        .store()
+        .with_tx(|tx| tx.get_task(&opt_task.id))
+        .expect("the optional branch's task reads");
+    assert_eq!(
+        opt_task_after.status,
+        TaskStatus::Obsolete,
+        "{HARNESS}: retiring the optional branch obsoletes its task"
+    );
+
+    // The process is Completed even though the optional branch's work was never done.
     let instance_status = harness
         .store()
         .with_tx(|tx| tx.get_instance(&instance))
@@ -270,48 +322,52 @@ fn wf_token_006__optional_branch_cannot_prevent_completion() {
         .status;
     assert_eq!(
         instance_status, ProcessStatus::Completed,
-        "{HARNESS}: process completes when all required tokens complete, even with optional token still active"
+        "{HARNESS}: process completes when the required branch completes, even though the optional \
+         branch's work was never done"
     );
 
-    // Now complete the optional branch's task as well.
-    let opt_task = harness
+    // The retirement is on the record once: one join, one skip.
+    let history = harness
         .store()
-        .with_tx(|tx| tx.open_tasks_for_token(&opt_id))
-        .expect("opt token's task reads")
-        .into_iter()
-        .next()
-        .expect("opt token has exactly one open task");
-    harness
-        .engine()
-        .complete_task(CompleteTaskParams {
-            task_id: opt_task.id.clone(),
-            user_id: STARTED_BY.to_string(),
-            form_data: Value::object(),
-            transition_name: Some(FINISH_OPT.to_string()),
-        })
-        .expect("completing optional task advances opt token to end node");
+        .with_tx(|tx| tx.history(&instance, 100))
+        .expect("the instance's history reads");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_type == "token.joined")
+            .count(),
+        1,
+        "{HARNESS}: the join fires exactly once"
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_type == "token.skipped")
+            .count(),
+        1,
+        "{HARNESS}: exactly one optional branch is retired"
+    );
 
-    // Optional token also completes.
-    let opt_done = read_token(harness.store(), &opt_id);
-    assert_eq!(opt_done.status, TokenStatus::Completed);
-    assert_eq!(opt_done.node_id, END_NODE);
+    // Retired means retired: the obsoleted task refuses completion, so the process cannot be dragged
+    // back into work through the branch it decided not to wait for.
+    match harness.engine().complete_task(CompleteTaskParams {
+        task_id: opt_task.id.clone(),
+        user_id: STARTED_BY.to_string(),
+        form_data: Value::object(),
+        transition_name: Some(FINISH_OPT.to_string()),
+    }) {
+        Err(error) => assert_eq!(
+            error.code(),
+            "TASK_NOT_ACTIONABLE",
+            "{HARNESS}: a retired optional branch is refused as non-actionable work"
+        ),
+        Ok(()) => panic!("{HARNESS}: a retired optional branch must not be completable"),
+    }
 
-    // Process remains completed (idempotent).
-    let final_instance = harness
-        .store()
-        .with_tx(|tx| tx.get_instance(&instance))
-        .expect("the instance reads");
-    assert_eq!(final_instance.status, ProcessStatus::Completed);
-
-    // ── NEGATIVE CASE: process with ONLY optional branches ─────────────────────────────────────────────────────
-    // A process that forks into ONLY optional branches should complete immediately
-    // when the fork completes (since there are zero required active tokens).
-    // This tests the edge case where count_required_active_siblings returns 0.
-
-    // Note: The current engine's fork implementation completes the parent token and
-    // mints children. If all children are optional, the process should complete
-    // when the last required token (none) completes - i.e., immediately.
-    // However, the current implementation in check_process_completion uses
-    // count_active_tokens which counts ALL active tokens, not just required ones.
-    // This test documents the expected behavior: optional tokens should not prevent completion.
+    // ── THE SHAPE MATTERS ────────────────────────────────────────────────────────────────────────
+    // The case as first authored (batch 60, `5fdfbf4ae`) forked into a required and an optional branch
+    // that converged on an `end` node with NO join, and asserted the process completed on the required
+    // token alone. Nothing retires a token in that shape — the JOIN is what retires it — so the
+    // engine's one completion rule (`count_active_tokens == 0`) correctly waited, and the case was red.
+    // The rule is not "optional tokens are ignored"; it is "a join does not wait for them".
 }

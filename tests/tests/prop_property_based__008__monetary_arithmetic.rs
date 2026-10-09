@@ -4,8 +4,18 @@
 //! accepts an optional sign, digits and at most one decimal point — and
 //! nothing else (`1e3`, `12,50`, bare `.` all refuse with `AMOUNT_INVALID`);
 //! what parses is kept verbatim for the wire; negativity is the leading `-`
-//! and nothing else; display groups whole-part digits in threes under `$`
-//! while non-numeric input passes through unchanged.
+//! and nothing else; display is spreadsheet money — `$`, whole-part digits in
+//! threes, **always two decimals** (`model::forms_format`, forms v5 `c483e8f81`,
+//! pinned by `tests/tests/docs_forms_template__007__field_formatting.rs:42-43`)
+//! — while non-numeric input passes through unchanged.
+//!
+//! The two display assertions below — and the display property behind them — were
+//! authored before forms v5 (batch 36, `17bf934a6`) against the pre-`c483e8f81` rule
+//! that kept the typed decimal and echoed the typed digits, so they went red the
+//! moment the formatter moved to two decimals (and the property failed on leading
+//! zeros, `"0000"` → `"$0.00"`, which the two assertions had been failing in front
+//! of). The formatter is the canonical half: its own doc says two decimals and a
+//! second test agrees (`docs_forms_template__007…rs:42-43`).
 //!
 //! Level: L0 Pure — the executable boundary is
 //! `model::{accounting, forms_format}`, no I/O.
@@ -72,9 +82,10 @@ proptest! {
         prop_assert_eq!(Money::parse("12,50").unwrap_err().code(), "AMOUNT_INVALID");
         prop_assert_eq!(Money::parse("").unwrap_err().code(), "AMOUNT_INVALID");
         prop_assert_eq!(Money::parse(".").unwrap_err().code(), "AMOUNT_INVALID");
-        // Fixed display: grouped under `$`, fraction kept verbatim, passthrough.
-        prop_assert_eq!(format_money("1250000"), "$1,250,000");
-        prop_assert_eq!(format_money("1250000.5"), "$1,250,000.5");
+        // Fixed display: spreadsheet money — grouped under `$`, always two decimals
+        // (rounded to the cent), and passthrough for input with no digits in it.
+        prop_assert_eq!(format_money("1250000"), "$1,250,000.00");
+        prop_assert_eq!(format_money("1250000.5"), "$1,250,000.50");
         prop_assert_eq!(format_money("not a number"), "not a number");
         prop_assert_eq!(format_money(""), "");
 
@@ -96,15 +107,32 @@ proptest! {
             hostile
         );
 
-        // Property: display of a digit string groups the whole part in
-        // threes and keeps the typed fraction verbatim.
+        // Property: display of a digit string is spreadsheet money over the NUMBER it parses to —
+        // the whole part grouped in threes, and always exactly two decimals. `format_money`
+        // normalises rather than echoing: leading zeros are the number's, and a third fraction
+        // digit rounds (so `999.999` renders `$1,000.00`).
         let digits: String = amount.chars().filter(|c| c.is_ascii_digit()).collect();
         if !digits.is_empty() && !amount.starts_with('-') && !amount.starts_with('+') {
             let shown = format_money(&amount);
             prop_assert!(shown.starts_with('$'), "display must carry $: {}", shown);
-            let commas = shown.chars().filter(|c| *c == ',').count();
-            let whole_len = amount.split('.').next().unwrap_or("").len();
-            prop_assert_eq!(commas, whole_len.saturating_sub(1) / 3);
+            let whole = shown
+                .trim_start_matches('$')
+                .split('.')
+                .next()
+                .expect("a `$`-prefixed display has a whole part");
+            let whole_digits = whole.chars().filter(char::is_ascii_digit).count();
+            prop_assert_eq!(
+                shown.chars().filter(|c| *c == ',').count(),
+                whole_digits.saturating_sub(1) / 3,
+                "grouping must be threes of the rendered whole part: {}",
+                shown
+            );
+            prop_assert_eq!(
+                shown.split('.').nth(1).map(str::len),
+                Some(2),
+                "money is always two decimals: {}",
+                shown
+            );
         }
     }
 }

@@ -80,6 +80,14 @@ use test_harness::source;
 /// it as a site — the same self-reference TST-ARCH-BOUNDARY-005 records for its own detector.
 const SELF: &str = "tests/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs";
 
+/// The production tree a mutation-verb SITE can live in. The sweep's subject is production code paths that could
+/// push; a test whose subject *is* a mutation verb is not such a site — it quotes the verb to refuse it. Two test
+/// files do exactly that: this one, and `tests/tests/forge_assay__005__qa_cannot_modify_git.rs:32-34`, whose whole
+/// subject is that QA may not push. Excluded by this one named line (the captain's scope call, 2026-10-08) rather
+/// than by widening `SELF` one file at a time, so a production site cannot hide behind a test-shaped name and a
+/// new test that names a verb is still covered by every other section of this guard.
+const TEST_TREE: &str = "tests/";
+
 /// Every `.rs` file in the tree whose name says QA — the surface that may own no git door. Pinned as a set:
 /// a new QA module fails here until it is added, and once added it is scanned.
 const QA_SURFACE: [&str; 7] = [
@@ -868,7 +876,12 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
     // ── 5. ONE DOOR: the mutation verbs appear once in the whole workspace, behind the publish switch. ─────
 
     let mut pushers: BTreeMap<String, usize> = BTreeMap::new();
-    for (path, code) in &swept {
+    // Production only: `TEST_TREE` is the one exclusion, dated above. Every other section of this guard still reads
+    // the whole tree, so a test that names a verb is still held to the rest of the rule.
+    for (path, code) in swept
+        .iter()
+        .filter(|(path, _)| !path.starts_with(TEST_TREE))
+    {
         let count: usize = MUTATION_VERBS
             .iter()
             .map(|verb| code.matches(*verb).count())
