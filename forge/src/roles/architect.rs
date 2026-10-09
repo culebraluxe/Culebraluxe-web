@@ -56,7 +56,7 @@ impl ForgeRoleHooks for ArchitectHooks {
         raw: &str,
         _ports: &RoleEffectPorts,
     ) -> std::result::Result<ForgeGateEvidence, String> {
-        let mut next = marker_evidence(raw, &evidence);
+        let mut next = marker_evidence(node_id, raw, &evidence);
         if !carries_architect_handoff(node_id) {
             return Ok(next);
         }

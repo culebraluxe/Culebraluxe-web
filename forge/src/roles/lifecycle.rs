@@ -248,7 +248,7 @@ pub fn run_forge_role_turn(
                 !out.raw.is_empty(),
                 evidence.findings.is_some(),
             );
-            if missing.is_empty() {
+            if missing.is_empty() && evidence.deliverable_rejection.is_none() {
                 break;
             }
             let directive = build_self_heal_directive(
@@ -848,15 +848,17 @@ mod tests {
 
     #[test]
     fn a_measurement_turn_is_paid_once_and_its_verdict_is_measured_not_claimed() {
-        let (outcome, turns) = one_turn(
-            "qa_verify",
-            "all good\nFORGE_EVIDENCE_JSON: {\"qaPassed\":true}\n",
-            &crate::roles::qa::AssayHooks,
-        );
-        assert_eq!(
-            turns, 1,
-            "the verdict is measured after the turn; the turn owes nothing"
-        );
+        let harness = CountingHarness::new("all good; please run the planned checks\n", None);
+        let current = ForgeGateEvidence::default();
+        let writer = RecordingWriter::default();
+        let task = role_task("qa_verify", "ENG-STORY-1");
+        let mut context = context(&harness, &current, Some(&writer));
+        context.story_run_id = Some("11111111-2222-3333-4444-555555555555");
+        let outcome =
+            run_forge_role_turn(&context, "qa_verify", &task, &crate::roles::qa::AssayHooks)
+                .expect("durable measurement runs without a model turn");
+        let turns = harness.turns();
+        assert_eq!(turns, 0, "QA measurement is deterministic and model-free");
         assert_eq!(
             outcome.evidence.qa_passed,
             Some(false),

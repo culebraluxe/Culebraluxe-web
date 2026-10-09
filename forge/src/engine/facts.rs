@@ -62,6 +62,8 @@ pub struct ForgeGateEvidence {
     pub batch_released_at: Option<String>,
     pub batch_release_receipt: Option<String>,
     pub resume_target: Option<String>,
+    /// Version of the strict role-output decoder that accepted the current marker.
+    pub role_output_schema_version: Option<u32>,
     pub extra: Value,
 }
 
@@ -74,8 +76,48 @@ fn or_opt<T: Clone>(a: &Option<T>, b: &Option<T>) -> Option<T> {
 ///
 /// A lane's own reading narrows this (`roles::hooks::ForgeRoleHooks::collect_evidence`); none of them
 /// replaces it, so no lane can drop what the run already knew by reading a reply.
-pub fn marker_evidence(raw: &str, base: &ForgeGateEvidence) -> ForgeGateEvidence {
-    crate::engine::role_mapping::parse_forge_evidence_marker(raw).merge_over(base)
+pub fn marker_evidence(node_id: &str, raw: &str, base: &ForgeGateEvidence) -> ForgeGateEvidence {
+    use crate::engine::role_mapping::{unauthorized_role_fields, RoleOutputParse};
+
+    match crate::engine::role_mapping::parse_forge_evidence_marker(raw) {
+        RoleOutputParse::NoMarker => base.clone(),
+        RoleOutputParse::Valid {
+            schema_version,
+            mut evidence,
+        } => {
+            let lane = match crate::engine::service_binding::lane_for_node(node_id) {
+                Ok(lane) => lane,
+                Err(error) => {
+                    let mut rejected = base.clone();
+                    rejected.deliverable_rejection =
+                        Some(format!("ROLE_OUTPUT_UNKNOWN_PRODUCER: {error}"));
+                    return rejected;
+                }
+            };
+            let unauthorized = unauthorized_role_fields(lane, node_id, &evidence);
+            if !unauthorized.is_empty() {
+                let mut rejected = base.clone();
+                rejected.deliverable_rejection = Some(format!(
+                    "ROLE_OUTPUT_UNAUTHORIZED_FIELDS: {}",
+                    unauthorized.join(", ")
+                ));
+                return rejected;
+            }
+            evidence.role_output_schema_version = Some(schema_version);
+            evidence.merge_over(base)
+        }
+        RoleOutputParse::Malformed(reason) => {
+            let mut rejected = base.clone();
+            rejected.deliverable_rejection = Some(format!("ROLE_OUTPUT_MALFORMED: {reason}"));
+            rejected
+        }
+        RoleOutputParse::UnsupportedSchema(version) => {
+            let mut rejected = base.clone();
+            rejected.deliverable_rejection =
+                Some(format!("ROLE_OUTPUT_SCHEMA_UNSUPPORTED: {version}"));
+            rejected
+        }
+    }
 }
 
 impl ForgeGateEvidence {
@@ -157,6 +199,9 @@ impl ForgeGateEvidence {
             batch_released_at: or_opt(&self.batch_released_at, &base.batch_released_at),
             batch_release_receipt: or_opt(&self.batch_release_receipt, &base.batch_release_receipt),
             resume_target: or_opt(&self.resume_target, &base.resume_target),
+            role_output_schema_version: self
+                .role_output_schema_version
+                .or(base.role_output_schema_version),
             extra,
         }
     }
@@ -306,6 +351,9 @@ pub fn project_forge_gate_facts(evidence: &ForgeGateEvidence) -> Value {
         if let Some(v) = v {
             facts.insert(k, Value::from(v));
         }
+    }
+    if let Some(version) = evidence.role_output_schema_version {
+        facts.insert("roleOutputSchemaVersion", Value::from(version as i64));
     }
     if let Some(n) = evidence.split_count {
         facts.insert("splitCount", Value::from(n));
@@ -461,6 +509,53 @@ pub fn project_gate_facts(evidence: &ForgeGateEvidence) -> Value {
     project_forge_gate_facts(evidence)
 }
 
+#[cfg(test)]
+mod marker_tests {
+    use super::*;
+
+    #[test]
+    fn malformed_marker_leaves_the_existing_facts_unchanged() {
+        let base = ForgeGateEvidence {
+            root_cause_known: Some(false),
+            qa_passed: Some(false),
+            ..ForgeGateEvidence::default()
+        };
+        let next = marker_evidence(
+            "scout",
+            "FORGE_EVIDENCE_JSON: {\"schemaVersion\":1,\"rootCauseKnown\":\"true\"}",
+            &base,
+        );
+        assert_eq!(next.root_cause_known, Some(false));
+        assert_eq!(next.qa_passed, Some(false));
+        assert!(next
+            .deliverable_rejection
+            .as_deref()
+            .unwrap_or_default()
+            .contains("ROLE_OUTPUT_MALFORMED"));
+    }
+
+    #[test]
+    fn unauthorized_marker_patch_is_rejected_as_a_whole() {
+        let base = ForgeGateEvidence {
+            lead_decision: Some("SMITH".into()),
+            qa_passed: Some(false),
+            ..ForgeGateEvidence::default()
+        };
+        let next = marker_evidence(
+            "lead_pre",
+            "FORGE_EVIDENCE_JSON: {\"schemaVersion\":1,\"leadDecision\":\"HOLD\",\"qaPassed\":true}",
+            &base,
+        );
+        assert_eq!(next.lead_decision.as_deref(), Some("SMITH"));
+        assert_eq!(next.qa_passed, Some(false));
+        assert!(next
+            .deliverable_rejection
+            .as_deref()
+            .unwrap_or_default()
+            .contains("qaPassed"));
+    }
+}
+
 pub fn evidence_from_value(v: &Value) -> ForgeGateEvidence {
     let get_s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(|s| s.to_string());
     let get_b = |k: &str| match v.get(k) {
@@ -493,6 +588,8 @@ pub fn evidence_from_value(v: &Value) -> ForgeGateEvidence {
         published_sha: get_s("publishedSha"),
         deployed_sha: get_s("deployedSha"),
         resume_target: get_s("resumeTarget"),
+        role_output_schema_version: get_i("roleOutputSchemaVersion")
+            .and_then(|version| u32::try_from(version).ok()),
         extra: v.clone(),
         ..Default::default()
     }

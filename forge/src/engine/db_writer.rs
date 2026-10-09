@@ -178,4 +178,32 @@ impl ForgeStateWriter for DbForgeStateWriter {
             })
         })?
     }
+
+    fn read_assay_plan_snapshot(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<db::forge_assay::AssayPlanSnapshotRow>, String> {
+        with_shared(|db, rt| {
+            let dao = ::db::forge_assay::ForgeAssayDao::new(db.clone());
+            rt.block_on(async {
+                dao.plan_snapshot_for_run(run_id)
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        })?
+    }
+
+    fn read_assay_receipt(
+        &self,
+        key: &str,
+    ) -> Result<Option<::db::forge_assay::AssayReceiptRow>, String> {
+        with_shared(|db, rt| {
+            let dao = ::db::forge_assay::ForgeAssayDao::new(db.clone());
+            rt.block_on(async {
+                dao.receipt_for_key(key)
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        })?
+    }
 }

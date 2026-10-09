@@ -78,6 +78,12 @@ pub trait RoleHarness: Send + Sync {
     /// reached for it through the harness and got `E0599`. Both errors were the same missing line. The full path
     /// is spelled out rather than imported so this file needs no new `use`.
     fn assay_cwd(&self) -> &std::path::Path;
+    /// Versioned identity for the command environment policy. The current production harnesses
+    /// inherit the Forge process environment for scoped assay shells; receipts store this policy
+    /// name and never persist environment values.
+    fn assay_environment_identity(&self) -> &str {
+        "forge-inherited-shell-v1"
+    }
     fn execution_base_commit(&self) -> Option<&str> {
         None
     }
@@ -378,6 +384,7 @@ mod tests {
         let writer = Arc::new(RecordingWriter::default());
         let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default())
             .with_writer(writer.clone())
+            .with_story_run(Some("11111111-2222-3333-4444-555555555555".into()))
             .with_test_mode(Some("RUST_CONTRACT".into()))
             .with_contract_assay_commands(vec!["cargo test".into()]);
 

@@ -1108,6 +1108,19 @@ pub enum CompletionSpend {
     Replan,
 }
 
+/// Identity of the previously persisted QA receipt that this task completion applies. The completion
+/// transaction verifies the artifact row and carries this link in its own receipt proof.
+#[derive(Debug, Clone)]
+pub struct CompletionAssayReceipt<'a> {
+    pub artifact_id: &'a str,
+    pub story_run_id: &'a str,
+    pub idempotency_key: &'a str,
+    pub measurement_node: &'a str,
+    pub gate_verdict: &'a str,
+    pub plan_sha256: Option<&'a str>,
+    pub candidate_sha: Option<&'a str>,
+}
+
 /// One completion unit as the row-level routine takes it (FORGE-B1 slice 2).
 ///
 /// The unit is built by the durable completion ledger (`forge/src/engine/db_ledger.rs`), which owns the
@@ -1130,6 +1143,8 @@ pub struct CompletionUnit<'a> {
     /// receipt for this key carries the same fingerprint; a differing one is a different unit claiming a
     /// spent key, which is refused rather than replayed.
     pub fingerprint: &'a str,
+    /// Optional QA receipt committed before task completion and now atomically linked to this unit.
+    pub assay_receipt: Option<&'a CompletionAssayReceipt<'a>>,
 }
 
 /// An accepted workflow completion whose atomic effects do not yet have a successful receipt.
@@ -1658,6 +1673,52 @@ impl ForgeEngineDao {
             }
         }
 
+        // The QA artifact is written first so its complete observations survive a crash. Before
+        // applying its verdict to workflow evidence, lock and verify that exact durable artifact;
+        // the completion proof below then links both identities in this transaction.
+        if let Some(receipt) = unit.assay_receipt {
+            let linked = sqlx::query_scalar::<_, String>(
+                "select id::text from forge_tool_artifact
+                  where id = $1::uuid
+                    and story_id = $2
+                    and story_run_id = $3::uuid
+                    and tool = 'assay'
+                    and kind = 'qa-assay-evidence'
+                    and idempotency_key = $4
+                    and detail->>'receipt_schema_version' = '1'
+                    and detail->>'measurement_node' = $5
+                    and detail->>'gate_verdict' = $6
+                    and detail->>'plan_sha256' is not distinct from $7
+                    and detail->>'candidate_sha' is not distinct from $8
+                  for key share",
+            )
+            .bind(receipt.artifact_id)
+            .bind(unit.story_id)
+            .bind(receipt.story_run_id)
+            .bind(receipt.idempotency_key)
+            .bind(receipt.measurement_node)
+            .bind(receipt.gate_verdict)
+            .bind(receipt.plan_sha256)
+            .bind(receipt.candidate_sha)
+            .fetch_optional(tx.connection())
+            .await
+            .map_err(|error| {
+                DbFailure::from_sqlx("forge_engine.completion_assay_receipt", &error)
+            })?;
+            if linked.is_none() {
+                return Err(DbFailure::schema_mismatch(
+                    "forge_engine.completion_assay_receipt",
+                    format!(
+                        "assay artifact {} does not match story {}, run {}, key {}, plan/candidate, and verdict",
+                        receipt.artifact_id,
+                        unit.story_id,
+                        receipt.story_run_id,
+                        receipt.idempotency_key
+                    ),
+                ));
+            }
+        }
+
         // The spend, before the evidence merge. The story row is locked first so the counter and the
         // story's own writers serialize, and a story that does not exist is a schema error rather than a
         // silently unspent budget.
@@ -1771,5 +1832,14 @@ fn completion_proof(unit: &CompletionUnit<'_>) -> Value {
             None => None,
         },
         "fingerprint": unit.fingerprint,
+        "assay_receipt": unit.assay_receipt.map(|receipt| serde_json::json!({
+            "artifact_id": receipt.artifact_id,
+            "story_run_id": receipt.story_run_id,
+            "idempotency_key": receipt.idempotency_key,
+            "measurement_node": receipt.measurement_node,
+            "gate_verdict": receipt.gate_verdict,
+            "plan_sha256": receipt.plan_sha256,
+            "candidate_sha": receipt.candidate_sha,
+        })),
     })
 }
