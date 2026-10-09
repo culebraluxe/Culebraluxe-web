@@ -112,6 +112,27 @@ impl CompletionLedger for DbCompletionLedger {
         .map_err(|error| failed(&command_id, error))
     }
 
+    fn unfinished(
+        &self,
+        story_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Option<Vec<CompletionRecord>>> {
+        let rows = with_shared(|db, rt| {
+            let dao = ForgeEngineDao::new(db.clone());
+            rt.block_on(async {
+                dao.unfinished_forge_completions(story_id, limit)
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        })
+        .map_err(|error| failed("discover unfinished completions", error))?
+        .map_err(|error| failed("discover unfinished completions", error))?;
+        rows.into_iter()
+            .map(completion_record_from_event)
+            .collect::<Result<Vec<_>>>()
+            .map(Some)
+    }
+
     fn reset_budget(&self, story_id: &str) -> Result<()> {
         let id = story_id.to_string();
         with_shared(|db, rt| {
@@ -139,6 +160,67 @@ impl CompletionLedger for DbCompletionLedger {
         .map_err(|error| failed("watermark", error))?
         .map_err(|error| failed(&format!("watermark({prefix})"), error))
     }
+}
+
+fn completion_record_from_event(row: db::UnfinishedForgeCompletion) -> Result<CompletionRecord> {
+    let conflict = |reason: &str| {
+        failed(
+            &format!("recovery event {} provenance", row.event_id),
+            reason,
+        )
+    };
+    if row.subject_type.as_deref() != Some("story") {
+        return Err(conflict("process subject is not a story"));
+    }
+    let story_id = row
+        .subject_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| conflict("story subject id is missing"))?;
+    if row.business_key.as_deref() != Some(story_id) {
+        return Err(conflict("business key disagrees with story subject id"));
+    }
+    let task_id = row
+        .task_id
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| conflict("task id is missing"))?;
+    let node_id = row
+        .node_id
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| conflict("workflow node is missing"))?;
+    let form_data = row
+        .form_data
+        .ok_or_else(|| conflict("accepted form data is missing"))?;
+    if !form_data.is_object() {
+        return Err(conflict("accepted form data is not an object"));
+    }
+    let form = workflow::json::parse(&form_data.to_string())
+        .map_err(|error| conflict(&format!("accepted form data is invalid JSON: {error}")))?;
+    if form.as_object().is_none() {
+        return Err(conflict("accepted form data did not decode to an object"));
+    }
+    Ok(CompletionRecord {
+        task_id,
+        process_instance_id: row.process_instance_id,
+        story_id: story_id.to_string(),
+        node_id: Some(node_id),
+        evidence: crate::engine::facts::evidence_from_value(&form),
+    })
+}
+
+/// Recover a bounded page of durable accepted completions at the worker service boundary.
+/// A successful apply removes that event from the next page; failure stays visible and is retried
+/// on the next worker pass. No model, process, or workflow action is repeated.
+pub fn reconcile_unfinished_completion_batch(limit: usize) -> Result<usize> {
+    let ledger = DbCompletionLedger;
+    let records = ledger.unfinished(None, limit.max(1))?.unwrap_or_default();
+    let mut applied = 0;
+    for record in records {
+        if ledger.apply(&record)?.applied() {
+            applied += 1;
+        }
+    }
+    Ok(applied)
 }
 
 /// The prefix the watermark is read under, exposed so the runtime and the ledger spell it once

@@ -793,6 +793,46 @@ impl Store for NeonTx<'_> {
             .collect())
     }
 
+    fn history_after_event_id(
+        &mut self,
+        instance_id: &str,
+        after_event_id: i64,
+        limit: usize,
+    ) -> Result<Vec<ProcessEvent>> {
+        let this = self;
+        let sql = "SELECT id, tenant_id::text AS tenant_id, process_instance_id::text AS process_instance_id,
+                    token_id::text AS token_id, task_id::text AS task_id, job_id::text AS job_id,
+                    event_type, node_id, actor, data::text AS data,
+                    extract(epoch from created_at)*1000 AS created_at
+                 FROM process_events
+                 WHERE process_instance_id = $1::uuid AND id > $2
+                 ORDER BY id ASC
+                 LIMIT $3";
+        let rows = fetch_all_q(
+            this,
+            sqlx::query(sql)
+                .bind(instance_id)
+                .bind(after_event_id)
+                .bind(limit as i64),
+        )?;
+        Ok(rows
+            .iter()
+            .map(|row| ProcessEvent {
+                id: s_i64(row, "id"),
+                tenant_id: s_opt(row, "tenant_id"),
+                process_instance_id: s_get(row, "process_instance_id"),
+                token_id: s_opt(row, "token_id"),
+                task_id: s_opt(row, "task_id"),
+                job_id: s_opt(row, "job_id"),
+                event_type: s_get(row, "event_type"),
+                node_id: s_opt(row, "node_id"),
+                actor: s_get(row, "actor"),
+                data: json_col(row, "data"),
+                created_at: s_f64(row, "created_at"),
+            })
+            .collect())
+    }
+
     fn command_visit_count(&mut self, instance_id: &str, node_id: &str) -> Result<i32> {
         let this = self;
         let row = fetch_one_q(

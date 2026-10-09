@@ -20,7 +20,7 @@
 use std::sync::Arc;
 
 use forge::engine::*;
-use workflow::{json, MemoryStore};
+use workflow::{json, MemoryStore, ProcessEvent, ProcessOutcome, ProcessStatus};
 
 fn record(task_id: &str) -> CompletionRecord {
     CompletionRecord {
@@ -55,6 +55,27 @@ fn feature_story() -> ForgeGateEvidence {
     ForgeGateEvidence {
         work_type: Some("FEATURE".into()),
         ..Default::default()
+    }
+}
+
+/// Make the old timestamp filter maximally adversarial: any receipt would hide every event.
+struct WideWatermarkLedger(MemoryLedger);
+
+impl CompletionLedger for WideWatermarkLedger {
+    fn apply(&self, record: &CompletionRecord) -> workflow::Result<CompletionApply> {
+        self.0.apply(record)
+    }
+
+    fn has_final(&self, receipt_id: &str) -> workflow::Result<bool> {
+        self.0.has_final(receipt_id)
+    }
+
+    fn reset_budget(&self, story_id: &str) -> workflow::Result<()> {
+        self.0.reset_budget(story_id)
+    }
+
+    fn watermark(&self, _prefix: &str) -> workflow::Result<Option<i64>> {
+        Ok(Some(i64::MAX))
     }
 }
 
@@ -141,4 +162,146 @@ fn forge_completion_receipt_010__reconciliation_applies_once() {
         0,
         "no instance, no applications"
     );
+}
+
+/// Terminal instances and old events remain discoverable after an unrelated story advances the
+/// former global receipt watermark. Pagination reaches the completion beyond 200 later events.
+#[test]
+fn forge_completion_receipt_010__terminal_old_completion_is_found_after_later_receipt() {
+    let store = MemoryStore::new();
+    let ledger = Arc::new(WideWatermarkLedger(MemoryLedger::new()));
+    let rt = compact_runtime(store.clone(), ledger.clone());
+    let started = rt
+        .start_story("story-1", "FEATURE", feature_story())
+        .expect("start");
+    let instance_id = started.process_instance_id;
+    let task = rt.list_role_tasks("story-1").expect("tasks")[0].clone();
+    rt.claim_role_task(&task.task_id, "lead")
+        .expect("claim accepted task");
+    rt.engine()
+        .complete_task(workflow::CompleteTaskParams {
+            task_id: task.task_id.clone(),
+            user_id: "lead".into(),
+            form_data: json!({ "candidateSha": "old-candidate" }),
+            transition_name: Some("solo".into()),
+        })
+        .expect("transition durable, completion effects orphaned");
+
+    store
+        .with_tx(|tx| {
+            for _ in 0..205 {
+                tx.insert_event(ProcessEvent {
+                    id: 0,
+                    tenant_id: None,
+                    process_instance_id: instance_id.clone(),
+                    token_id: None,
+                    task_id: None,
+                    job_id: None,
+                    event_type: "test.noise".into(),
+                    node_id: None,
+                    actor: "fixture".into(),
+                    data: json!({}),
+                    created_at: 0,
+                })?;
+            }
+            tx.terminate_instance(
+                &instance_id,
+                ProcessStatus::Completed,
+                ProcessOutcome::Completed,
+                10_000,
+            )
+        })
+        .expect("fixture becomes terminal after the accepted event");
+
+    apply_completion_unit(
+        ledger.as_ref(),
+        CompletionRecord {
+            task_id: "later-story-task".into(),
+            process_instance_id: "22222222-2222-2222-2222-222222222222".into(),
+            story_id: "story-2".into(),
+            node_id: None,
+            evidence: ForgeGateEvidence::default(),
+        },
+    )
+    .expect("unrelated story advances the former global watermark");
+    assert_eq!(
+        ledger.watermark("forge.completion:").unwrap(),
+        Some(i64::MAX)
+    );
+
+    let resumed = compact_runtime(store, ledger.clone());
+    assert_eq!(
+        resumed
+            .reconcile_completions("story-1")
+            .expect("recover by identity"),
+        1
+    );
+    assert_eq!(
+        ledger
+            .0
+            .evidence_for("story-1")
+            .unwrap()
+            .candidate_sha
+            .as_deref(),
+        Some("old-candidate")
+    );
+    assert_eq!(
+        resumed
+            .reconcile_completions("story-1")
+            .expect("repeat is safe"),
+        0
+    );
+}
+
+/// An earlier terminal run's orphan is applied before a rerun clears story-scoped attempt counters.
+#[test]
+fn forge_completion_receipt_010__old_completion_is_reconciled_before_new_budget_reset() {
+    let store = MemoryStore::new();
+    let ledger = Arc::new(WideWatermarkLedger(MemoryLedger::new()));
+    let rt = compact_runtime(store.clone(), ledger.clone());
+    let started = rt
+        .start_story("story-1", "FEATURE", feature_story())
+        .expect("start old run");
+    let task = rt.list_role_tasks("story-1").expect("tasks")[0].clone();
+    rt.claim_role_task(&task.task_id, "lead")
+        .expect("claim task");
+    rt.engine()
+        .complete_task(workflow::CompleteTaskParams {
+            task_id: task.task_id,
+            user_id: "lead".into(),
+            form_data: json!({ "candidateSha": "old-run-candidate" }),
+            transition_name: Some("solo".into()),
+        })
+        .expect("accepted transition leaves its effects unfinished");
+    store
+        .with_tx(|tx| {
+            tx.terminate_instance(
+                &started.process_instance_id,
+                ProcessStatus::Completed,
+                ProcessOutcome::Completed,
+                10_000,
+            )
+        })
+        .expect("old run is terminal");
+
+    apply_completion_unit(
+        ledger.as_ref(),
+        CompletionRecord {
+            task_id: "earlier-repair-spend".into(),
+            process_instance_id: started.process_instance_id.clone(),
+            story_id: "story-1".into(),
+            node_id: Some("repair_smith".into()),
+            evidence: ForgeGateEvidence::default(),
+        },
+    )
+    .expect("old run already spent one repair attempt");
+    assert_eq!(ledger.0.repairs("story-1"), 1);
+
+    let rerun = rt
+        .wake_story("story-1", "FEATURE", feature_story())
+        .expect("resume and start the fresh run");
+    assert!(rerun.started);
+    assert_eq!(rerun.reconciled, 1, "old orphan healed before rerun");
+    assert_eq!(ledger.0.repairs("story-1"), 0, "fresh budget starts full");
+    assert_ne!(rerun.instance_id, started.process_instance_id);
 }

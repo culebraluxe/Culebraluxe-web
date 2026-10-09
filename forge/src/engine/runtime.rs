@@ -396,59 +396,181 @@ impl<S: TxStore> ForgeRuntime<S> {
 
     /// Resume door: finish any won transition whose receipt never finalized.
     pub fn reconcile_completions(&self, story_id: &str) -> Result<usize> {
-        let Some(instance_id) = self.find_active_instance(story_id)? else {
-            return Ok(0);
-        };
-        let events = self.engine.history(&instance_id, 200)?;
-        let tasks = self.engine.tasks_for_instance(&instance_id)?;
-        let tokens = self.engine.tokens_for_instance(&instance_id)?;
-        let watermark = self
-            .ledger
-            .watermark(crate::engine::db_ledger::completion_receipt_prefix())?;
-        let mut applied = 0;
-        for ev in events.into_iter().rev() {
-            if ev.event_type != "task.completed" {
-                continue;
-            }
-            if let Some(w) = watermark {
-                if ev.created_at > 0 && ev.created_at <= w {
-                    continue;
+        const PAGE_SIZE: usize = 128;
+        const MAX_PER_RESUME: usize = 512;
+
+        // The durable ledger queries accepted events against final receipts. Drain all pages for
+        // this story before wake_story can start a fresh instance or reset its story-scoped budget.
+        if let Some(first_page) = self.ledger.unfinished(Some(story_id), PAGE_SIZE)? {
+            let mut applied = 0;
+            let mut observed = 0;
+            let mut records = first_page;
+            loop {
+                if records.is_empty() {
+                    return Ok(applied);
                 }
+                for record in records {
+                    if record.story_id != story_id {
+                        return Err(WorkflowError::generic(format!(
+                            "completion recovery returned story {} while reconciling {story_id}",
+                            record.story_id
+                        )));
+                    }
+                    observed += 1;
+                    if apply_completion_unit(self.ledger.as_ref(), record)?.applied() {
+                        applied += 1;
+                    }
+                    if observed >= MAX_PER_RESUME {
+                        if self
+                            .ledger
+                            .unfinished(Some(story_id), 1)?
+                            .is_some_and(|more| !more.is_empty())
+                        {
+                            return Err(WorkflowError::generic(format!(
+                                "completion recovery for {story_id} reached its {MAX_PER_RESUME}-event resume limit; retry before starting a fresh instance"
+                            )));
+                        }
+                        return Ok(applied);
+                    }
+                }
+                records = self
+                    .ledger
+                    .unfinished(Some(story_id), PAGE_SIZE)?
+                    .expect("durable discovery stays supported");
             }
-            let Some(task_id) = ev.task_id.clone() else {
-                continue;
-            };
-            if self.ledger.has_final(&completion_receipt_id(&task_id))? {
-                continue;
+        }
+
+        self.reconcile_workflow_store_completions(story_id, PAGE_SIZE, MAX_PER_RESUME)
+    }
+
+    fn reconcile_workflow_store_completions(
+        &self,
+        story_id: &str,
+        page_size: usize,
+        max_events: usize,
+    ) -> Result<usize> {
+        let mut instances = Vec::new();
+        let mut offset = 0;
+        loop {
+            let page = self.engine.list_instances(
+                None,
+                None,
+                Some(FORGE_SDLC_KEY),
+                None,
+                page_size,
+                offset,
+            )?;
+            let page_len = page.len();
+            instances.extend(page.into_iter().filter(|instance| {
+                instance.subject_id.as_deref() == Some(story_id)
+                    || instance.business_key.as_deref() == Some(story_id)
+            }));
+            if page_len < page_size {
+                break;
             }
-            let form = ev
-                .data
-                .get("formData")
-                .cloned()
-                .unwrap_or_else(Value::object);
-            let node_id = tasks.iter().find(|t| t.id == task_id).and_then(|t| {
-                t.node_id.clone().or_else(|| {
-                    t.token_id.as_ref().and_then(|id| {
-                        tokens
-                            .iter()
-                            .find(|tk| &tk.id == id)
-                            .map(|tk| tk.node_id.clone())
-                    })
-                })
-            });
-            if apply_completion_unit(
-                self.ledger.as_ref(),
-                CompletionRecord {
-                    task_id,
-                    process_instance_id: instance_id.clone(),
-                    story_id: story_id.into(),
-                    node_id,
-                    evidence: evidence_from_value(&form),
-                },
-            )?
-            .applied()
+            offset += page_len;
+        }
+        for instance in &instances {
+            if instance.subject_type.as_deref() != Some("story")
+                || instance.subject_id.as_deref() != Some(story_id)
+                || instance.business_key.as_deref() != Some(story_id)
             {
-                applied += 1;
+                return Err(WorkflowError::generic(format!(
+                    "completion recovery instance {} has invalid story provenance for {story_id}",
+                    instance.id
+                )));
+            }
+        }
+        instances.sort_by(|a, b| a.started_at.cmp(&b.started_at).then(a.id.cmp(&b.id)));
+
+        let mut applied = 0;
+        let mut observed = 0;
+        for instance in instances {
+            let tasks = self.engine.tasks_for_instance(&instance.id)?;
+            let tokens = self.engine.tokens_for_instance(&instance.id)?;
+            let mut after_event_id = 0;
+            loop {
+                let events =
+                    self.engine
+                        .history_after_event_id(&instance.id, after_event_id, page_size)?;
+                if events.is_empty() {
+                    break;
+                }
+                after_event_id = events
+                    .last()
+                    .map(|event| event.id)
+                    .unwrap_or(after_event_id);
+                for event in events
+                    .iter()
+                    .filter(|event| event.event_type == "task.completed")
+                {
+                    let task_id = event.task_id.as_deref().ok_or_else(|| {
+                        WorkflowError::generic(format!(
+                            "completion recovery event {} in {} has no task identity",
+                            event.id, instance.id
+                        ))
+                    })?;
+                    if self.ledger.has_final(&completion_receipt_id(task_id))? {
+                        continue;
+                    }
+                    if observed >= max_events {
+                        return Err(WorkflowError::generic(format!(
+                            "completion recovery for {story_id} reached its {max_events}-event resume limit; retry before starting a fresh instance"
+                        )));
+                    }
+                    observed += 1;
+                    let form = event
+                        .data
+                        .get("formData")
+                        .filter(|form| form.as_object().is_some())
+                        .ok_or_else(|| {
+                            WorkflowError::generic(format!(
+                                "completion recovery event {} in {} has missing or invalid accepted form data",
+                                event.id, instance.id
+                            ))
+                        })?;
+                    let node_id = event.node_id.clone().or_else(|| {
+                        tasks
+                            .iter()
+                            .find(|task| task.id == task_id)
+                            .and_then(|task| {
+                                task.node_id.clone().or_else(|| {
+                                    task.token_id.as_ref().and_then(|token_id| {
+                                        tokens
+                                            .iter()
+                                            .find(|token| &token.id == token_id)
+                                            .map(|token| token.node_id.clone())
+                                    })
+                                })
+                            })
+                    });
+                    let node_id =
+                        node_id
+                            .filter(|node| !node.trim().is_empty())
+                            .ok_or_else(|| {
+                                WorkflowError::generic(format!(
+                                    "completion recovery event {} in {} has no workflow node",
+                                    event.id, instance.id
+                                ))
+                            })?;
+                    if apply_completion_unit(
+                        self.ledger.as_ref(),
+                        CompletionRecord {
+                            task_id: task_id.to_string(),
+                            process_instance_id: instance.id.clone(),
+                            story_id: story_id.into(),
+                            node_id: Some(node_id),
+                            evidence: evidence_from_value(form),
+                        },
+                    )?
+                    .applied()
+                    {
+                        applied += 1;
+                    }
+                }
+                if events.len() < page_size {
+                    break;
+                }
             }
         }
         Ok(applied)

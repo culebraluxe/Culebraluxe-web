@@ -86,6 +86,16 @@ pub trait CompletionLedger: Send + Sync {
     /// applied it" and quietly drop the evidence merge and the counters.
     fn apply(&self, rec: &CompletionRecord) -> Result<CompletionApply>;
     fn has_final(&self, receipt_id: &str) -> Result<bool>;
+    /// Read one bounded page of accepted completions that still lack final effects. Durable ledgers
+    /// implement this from their authoritative event/receipt tables; `None` asks the runtime to use
+    /// the workflow store's explicit instance/event pagination (the in-memory test ledger).
+    fn unfinished(
+        &self,
+        _story_id: Option<&str>,
+        _limit: usize,
+    ) -> Result<Option<Vec<CompletionRecord>>> {
+        Ok(None)
+    }
     /// Return the story's repair and replan budget to full: a fresh instance is a fresh attempt (a board rerun),
     /// and the attempts an earlier instance spent are not this one's. The default (a ledger with no budget of its
     /// own) does nothing.

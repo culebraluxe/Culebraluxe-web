@@ -4,7 +4,7 @@ Work order: `FORGE-B1` — **`~/Downloads/Forge-Batch-1-Work-Order.md`** (229 li
 rollout, the checklist and the decisions to close early). Three batches were written and Batch 1 is the one authorized.
 The file lives with the captain and is deliberately **not** copied into the repo — one fact, one writer — so read it from
 there; this hand-off is the state, the work order is the requirement. Lane: `lane/deep`.
-Four slices. **Slices 1 and 2 are landed and verified. Slices 3–4 are not started.** This file is the state between them.
+Four slices. **Slices 1 and 2 are landed and verified. Slice 3 is being completed on `codex/forge-b1-slice-3`; Slice 4 remains unstarted.** The user explicitly asked this lane to take over Slice 3 after the prior agent crashed. This worktree is based on the current `origin/main`; it is separate from the Batch 3 branch.
 
 ## 1. STATUS — what is true right now
 
@@ -25,13 +25,14 @@ Four slices. **Slices 1 and 2 are landed and verified. Slices 3–4 are not star
 | S13 | **Slice 2 owes no migration, and slot 279 is free.** `workflow_command_receipt` already carries every column the unit writes — `outcome`, `aggregate_id`, `message`, `result_payload`, `updated_at`, `command_type`, `request_fingerprint` — so no schema change is needed and none was made | `psql "$DATABASE_URL_DEV" -c '\d workflow_command_receipt'`; `ls db/migrations \| tail -1` → `278_forge_claim_fencing.sql` |
 | S14 | The **event→effects window remains a boundary**: the task transition commits in its own transaction (work order §6 allows this explicitly) and what reconciles it is the watermark/resume path, which slice 3 completes. The unit claims only what it does — a receipt that exists is a unit that happened | `tests/tests/forge_completion_receipt__006__crash_after_task_transition_before_receipt.rs`; `forge/src/engine/runtime.rs:445-460` (the resume counts `applied()`) |
 | S15 | `Busy` and `Conflict` are never `AlreadyApplied`: a fresh `pending` row is a peer mid-unit and a receipt holding another unit is refused — neither writes — while a `pending` row past the 15-minute window is taken over and applied exactly once | the DEV fixture's steps 3b / 5b / 5c; the window SQL at `db/src/forge_engine.rs:1307-1366` |
+| S16 | Slice 3 recovery is implemented on `codex/forge-b1-slice-3`: durable discovery pages accepted completions by event ID and receipt identity across active and terminal instances; memory recovery pages every matching instance/event; resume drains story work before a fresh-instance budget reset; the worker repairs bounded batches | `forge/src/engine/runtime.rs`, `forge/src/engine/db_ledger.rs`, `db/src/forge_engine.rs`, `forge/src/engine/worker.rs`; focused regression test `forge_completion_receipt__010__reconciliation_applies_once` |
 
 ## 2. HOLDS — do not act on these
 
 | # | Held | Who holds it | What an agent must do |
 | --- | --- | --- | --- |
 | H1 | **CLOSED 2026-10-09** — the captain said “apply 278 to prod” and it was applied and verified | — | receipt in §4; PROD is claimable again for a binary at or after `90b1a9619` |
-| H2 | Slices 2–4 of FORGE-B1 | the Captain | Batch 1 is his to sequence; batches 2 and 3 are explicitly deferred until Batch 1 is done |
+| H2 | Slice 4 of FORGE-B1 | the Captain | Slice 3 was explicitly delegated to this task after the prior agent crashed; Batch 1 Slice 4 remains sequenced by the Captain |
 | H3 | `arch_boundary__011` (row 1) and `forge_arch_seam__001` (row 2) in `docs/agent/TECH-DEBT.md` | the Captain | Still needs one word each (WIDEN or MOVE); a `tests/` or `forge/` slice's T1 stops there, so `pnpm slice:check` on this slice reports that pre-existing red (named in the §4 row) and its section list, not a green — the crate checks it also runs are the part that is this slice's |
 | H4 | Row 7's doc-comment half (five arch guards still call the shared `build/rust`) | lane/muse | Not this lane's row |
 
@@ -40,7 +41,7 @@ Four slices. **Slices 1 and 2 are landed and verified. Slices 3–4 are not star
 | Your task | Read | The files you touch |
 | --- | --- | --- |
 | Slice 2 — one transaction for evidence + counter + receipt | **LANDED 2026-10-09** — `db/src/forge_engine.rs:1540-1660` (`apply_completion`, `apply_completion_tx`, the `CompletionApply` answer, the 15-minute window at `:1307-1366`), `forge/src/engine/completion.rs` (the port, `spend_for_node`, `MemoryLedger`), `forge/src/engine/db_ledger.rs:45-110` (the one call), `forge/src/engine/runtime.rs:439-452` (the resume counts `applied()`) | — **no migration is owed** (§5, S13): the receipt table already carries every column the unit writes |
-| Slice 3 — discover unfinished completions by identity | `forge/src/engine/runtime.rs:398-453` — the watermark at `:405` is the defect and `:413` the filter; `self.engine.history(&instance_id, 200)` at `:402` is the 200-event cap; `find_active_instance` at `:204` is why a terminal instance is never reconciled | `forge/src/engine/runtime.rs`, `db/src/forge_engine.rs` (a discovery query), `forge/src/engine/process.rs:37,119` (the resume callers) |
+| Slice 3 — discover unfinished completions by identity | **IMPLEMENTED locally on `codex/forge-b1-slice-3`; validation/commit receipt is in §4.** The old global timestamp filter, 200-event cap and active-only lookup are removed from reconciliation | `forge/src/engine/runtime.rs`, `db/src/forge_engine.rs`, `forge/src/engine/db_ledger.rs`, `forge/src/engine/worker.rs`, `middle/workflow/src/{store.rs,memory.rs,neon/new_id.rs,engine/fire_timer_job.rs}` |
 | Slice 4 — revalidate a stale candidate under lock | `db/migrations/266_forge_stale_recovery.sql:15-27` (`forge_hold_stale_work` moves the board whether or not the item update matched), `:34-71` (`forge_requeue_stale_work` reads the board before the guard) | new migration (279 or 280), `db/src/forge_control.rs`, `db/src/forge_reset.rs`, `forge/src/engine/worker.rs:298-346` (the sweep) |
 | How the fence was built (the pattern to copy) | `db/migrations/278_forge_claim_fencing.sql` header, then the three routines | — |
 
@@ -52,6 +53,7 @@ Four slices. **Slices 1 and 2 are landed and verified. Slices 3–4 are not star
 | `db-tool apply … 278 … prod`, 2026-10-09, on the captain’s word | Migration 278 on PROD: `claim_generation bigint default 0`, the three fenced signatures, recorded in `schema_migration` with DEV’s checksum, and one signature per routine so no unfenced overload survives | `cargo run -p cli -- db-tool apply db/migrations/278_forge_claim_fencing.sql prod` → `database: target=prod host=ep-flat-art-ax92tn7a-pooler.c-4.us-east-2.aws.neon.tech`, `applied … (recorded in schema_migration)`, `EXIT=0`; then `pg_proc` → the three signatures, each with `p_claim_owner`/`p_claim_generation` |
 | `0ad85edb7`, 2026-10-09 | The re-fenced DEV fixtures run for the first time: 18 targets carrying 28 ignored fixtures, green after the four translation fixes §5 names | `cargo check --workspace --all-targets` → `CHECK-EXIT=0`; per target `cargo test -p test-harness --test <target> -- --ignored` → `exit=0` for all 18 (the 17 single-fixture targets are thread-count-independent by construction); `forge_work_claim_dev -- --ignored --test-threads=1` → `test result: ok. 7 passed; 0 failed; 1 filtered out; finished in 58.28s`; `git push origin HEAD:main` → `7900e3daa..0ad85edb7` |
 | `521b83bfb` on `origin/main` | FORGE-B1 Slice 2: a completion is **one committed effect**. `apply_completion` (the unit's own transaction) and `apply_completion_tx` (a caller's) claim the receipt key, spend the node's budget on the story row `for update`, merge evidence with the evidence port's own upsert, and prove the unit; the answer is a **name** (`Applied`/`AlreadyApplied`/`Conflict{stored}`/`Busy`, narrowed to two at the engine port, where `Busy`/`Conflict` fold to `Err`); the proof carries the unit's provenance (`task_receipt`, `story_id`, `process_instance_id`, `node_id`, `spend`); the four retired verbs lose their last caller; 14 harness fixtures speak the unit and `forge_completion_receipt_dev` gains the two DEV proofs. **No migration** (S13). `forge/src/bin/forge.rs:89-96` names columns instead of a `select … from` statement, which is what `arch_boundary__005` was reading | `pnpm slice:check --since 25d4ee72e --receipt …` → `tree lane/deep @ 521b83bfb`, `under test committed slice since 25d4ee72e`, `changed 19 file(s)`, `T0 compile PASS (29s)`, `FMT rustfmt PASS (1s)`, `T1 sections FAIL (229s)` — **45 `test result: ok` against exactly one red**, `arch_boundary__011` (H3, `forge/src/engine/assay.rs`, no file of this slice); `arch_boundary__005` ok in the same run. DEV proofs, real Postgres, `-- --ignored --test-threads=1`: `forge_completion_receipt_dev` → `2 passed; 0 failed` (one committed transaction; two concurrent units on two pool connections, one `Applied` and a non-forking loser), `db_transaction__003__receipt_evidence` → `1 passed; 0 failed`, `db_transaction__004__receipt_repair_count` → `1 passed; 0 failed`, `forge_completion_receipt__004__stale_pending_reclamation` → `1 passed; 0 failed`, each `exit=0`. `cargo check -p forge -p db --all-targets` → no warning in any file this slice touches (§5). `git push origin HEAD:main` → `25d4ee72e..521b83bfb` |
+| Local commit on `codex/forge-b1-slice-3` | FORGE-B1 Slice 3: identity-scoped discovery replaces the global timestamp filter; Postgres pages accepted completions by event ID regardless of process state, the runtime paginates durable and in-memory sources, validates provenance, and the worker repairs a bounded global batch. A wake drains old completions before starting a new instance and resetting budgets. No migration | `cargo check --workspace --all-targets` → PASS; `cargo test -p test-harness --test forge_completion_receipt__010__reconciliation_applies_once` → 3 passed; `cargo test -p test-harness --test forge_completion_receipt_dev --no-run` → PASS; `pnpm scripts:check`, `pnpm scan:migrations`, rustfmt and `git diff --check` → PASS. `pnpm slice:check` → T0/FMT PASS, T1 stops at known H3 failure `arch_boundary__011` in untouched `forge/src/engine/assay.rs`. DEV fixture is added but not run: this worktree has no `.env.local`/`DATABASE_URL_DEV`. Local commit only; not pushed or merged |
 
 
 ## 5. NOT VERIFIED — the honest gaps
@@ -83,6 +85,8 @@ Four slices. **Slices 1 and 2 are landed and verified. Slices 3–4 are not star
   `set -a; . ./.env.local; set +a` first (or the harness's own loader), otherwise every ignored fixture panics
   `a declared DEV database: Undeclared("… database target is undeclared; set APP_ENV or use VERCEL_ENV")` — the
   *target* is undeclared, no URL is missing, and that reads like a broken fixture rather than an unexported shell.
+- **Slice 3's real Postgres discovery fixture is added but not run.** `forge_completion_receipt_dev__unfinished_completion_discovery_is_identity_scoped_and_paged` creates a terminal `FORGE_SDLC` process, places 205 later events after an unfinished completion, and asserts the DAO still discovers its accepted payload. This worktree has no `.env.local` or `DATABASE_URL_DEV`; the fixture is ignored by default and the harness refuses PROD. Run it with the documented DEV environment before claiming the SQL query has been exercised.
+- **Slice 3's `pnpm slice:check` stops on H3, not this slice.** T0 and rustfmt pass; T1 fails at `arch_boundary__011__qa_cannot_own_git_mutations`, whose diagnosed `Command::new` use is in untouched `forge/src/engine/assay.rs`. The focused Slice 3 recovery test passes all three cases.
 - **The second pass is green: 16 of 16 targets, `exit=0`, no panic.** `chaos_concurrency__003`, `forge_claim__011`
   (re-run for a fresh receipt), `forge_claim__different_stories_can_be_claimed_while_peer_is_running`,
   `forge_dispatch__007`, `forge_packet__001..009`, `forge_queue__001`, `forge_story_run__001`,
@@ -187,7 +191,7 @@ Four slices. **Slices 1 and 2 are landed and verified. Slices 3–4 are not star
 3. ~~**Slice 2** — one transaction for evidence + counter + receipt.~~ **DONE 2026-10-09** — it needed **no
    migration** (§5, S13) and the receipt is §4's `521b83bfb` row. What it deliberately did not do: close the event→effects window
    (slice 3's) and run the engine end to end (§11's batch boundary).
-4. **Slice 3, then 4**, in that order (§3 has the entry points). Slice 4 is the one that owes the next migration —
+4. ~~**Finish Slice 3**~~ **DONE locally** on `codex/forge-b1-slice-3` (`fix(forge): reconcile unfinished completions across instance states`). Run its ignored DEV discovery fixture when a DEV environment is available. Then Slice 4 is the one that owes the next migration —
    **279 is free**; slice 3 is a discovery query plus the resume ordering. Both owe the same recipe: DEV evidence from
    their own fixture, T0 (`cargo check --workspace --all-targets`), T1 and a push. The commit intents are in work
    order §7–8.
@@ -199,14 +203,13 @@ Four slices. **Slices 1 and 2 are landed and verified. Slices 3–4 are not star
 ## 7. ASK THE OWNER
 
 - ~~**Apply 278 to PROD, yes or no?**~~ **Answered “apply 278 to prod” on 2026-10-09** and applied the same day; the hold is closed.
-- **Slices 2–4 now, or a fresh lane each?** Now → one lane continues; fresh → `pnpm lane:new forge-b1-s2` and the
-  next agent starts at §6.4 (slice 2 is closed; slices 3–4 are item 4).
+- ~~**Slices 2–4 now, or a fresh lane each?**~~ **Slice 3 was explicitly delegated to this task after the prior agent crashed.** Slice 4 remains with the Captain after this branch is reviewed.
 - **The two TECH-DEBT rows (H3) — WIDEN or MOVE?** Unchanged from the previous handoff; it is what keeps T1 honest
   for any `tests/` slice.
 
 ## 8. INVARIANT MAP — Batch 1 §4, sliced (the answer to “is Batch 1 done?”)
 
-The work order is four slices (§5–§8) covering four defects (#3, #2, #1, #7). **Two of the four are done.** The nine
+The work order is four slices (§5–§8) covering four defects (#3, #2, #1, #7). **Three slices are implemented; Slice 3 still needs its DEV database proof and has the known H3 T1 red.** The nine
 invariants of §4, and the slice that carries each:
 
 | §4 invariant | Slice | State |
@@ -216,12 +219,12 @@ invariants of §4, and the slice that carries each:
 | 3 Lost authority — a superseded execution gets a typed refusal and cannot settle over its replacement | 1 | **done** (`refused_ownership` is a name, not an empty row set) |
 | 4 Atomic completion — a committed receipt proves its evidence and counter effects committed | 2 | **done** (one transaction: receipt + story-locked spend + evidence merge; `db_transaction__003`, DEV steps 1/2/5a) |
 | 5 Replay idempotency — no double effect; a different payload under one identity is a conflict | 1+2 | **done** (a second call is `AlreadyApplied` and writes nothing — DEV step 3; a different unit under the same key is `Conflict { stored }` — step 5c) |
-| 6 Complete recovery — a durable accepted completion stays discoverable regardless of other stories’ timestamps | 3 | open |
-| 7 Instance isolation — an older instance cannot overwrite newer evidence or spend the current budget | 3 | open |
+| 6 Complete recovery — a durable accepted completion stays discoverable regardless of other stories’ timestamps | 3 | **implemented;** three deterministic recovery tests pass; DEV DAO fixture is not run |
+| 7 Instance isolation — an older instance cannot overwrite newer evidence or spend the current budget | 3 | **implemented;** a wake-order test proves old recovery precedes fresh budget reset; DEV query/apply path is not run |
 | 8 Safe recovery mutation — a stale candidate is revalidated under lock; a completed story keeps status and timestamp | 4 | open |
 | 9 Visible failure — db failure, uncertain ownership and receipt conflict never become success or a silent no-op | 1+2 | **done** (the ledger is fallible — a database that cannot answer errors instead of answering `AlreadyApplied`; `Busy`/`Conflict` are refusals that write nothing — DEV steps 3b/5b/5c) |
 
-So: **six invariants whole, three untouched.** §11’s batch boundary (a synthetic story end to end, the broader checks,
+So: **eight invariants implemented, one untouched** (Slice 4). The two Slice 3 invariants still need their real DEV database proof before they are fully verified. §11’s batch boundary (a synthetic story end to end, the broader checks,
 the compatibility notes) is not reached and must not be claimed until slices 3–4 land.
 
 ## 9. WORK ORDER §12 — the decisions, answered (slice 2's share)

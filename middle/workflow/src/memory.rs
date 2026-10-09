@@ -635,6 +635,24 @@ impl Store for MemoryTx<'_> {
         Ok(v)
     }
 
+    fn history_after_event_id(
+        &mut self,
+        instance_id: &str,
+        after_event_id: i64,
+        limit: usize,
+    ) -> Result<Vec<ProcessEvent>> {
+        let mut events: Vec<_> = self
+            .inner
+            .events
+            .iter()
+            .filter(|event| event.process_instance_id == instance_id && event.id > after_event_id)
+            .cloned()
+            .collect();
+        events.sort_by_key(|event| event.id);
+        events.truncate(limit);
+        Ok(events)
+    }
+
     fn command_visit_count(&mut self, instance_id: &str, node_id: &str) -> Result<i32> {
         Ok(self
             .inner

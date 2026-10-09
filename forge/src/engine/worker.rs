@@ -402,6 +402,9 @@ pub fn run_worker_pass() -> Result<i32, String> {
         );
     }
 
+    let completion_recovered = crate::engine::db_ledger::reconcile_unfinished_completion_batch(64)
+        .map_err(|error| format!("completion recovery sweep failed: {error}"))?;
+    eprintln!("forge-worker: unfinished completion effects applied={completion_recovered}");
     let recovered = recover_stale_agent_work(worker_cfg.stale_after_minutes)?;
     // Clean the junk before each run (captain, 2026-09-29). A `Ready` story with no work item, a story whose run is
     // gone while its board still says one is happening, and an item whose story no longer expects a run are all the

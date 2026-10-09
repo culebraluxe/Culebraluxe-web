@@ -120,6 +120,19 @@ pub trait Store {
 
     fn insert_event(&mut self, event: ProcessEvent) -> Result<()>;
     fn history(&mut self, instance_id: &str, limit: usize) -> Result<Vec<ProcessEvent>>;
+    /// Read a stable page of events after a durable event id, in insertion order.
+    fn history_after_event_id(
+        &mut self,
+        instance_id: &str,
+        after_event_id: i64,
+        limit: usize,
+    ) -> Result<Vec<ProcessEvent>> {
+        let mut events = self.history(instance_id, usize::MAX)?;
+        events.retain(|event| event.id > after_event_id);
+        events.sort_by_key(|event| event.id);
+        events.truncate(limit);
+        Ok(events)
+    }
 
     fn command_visit_count(&mut self, instance_id: &str, node_id: &str) -> Result<i32>;
     fn insert_command(&mut self, cmd: ProcessCommand) -> Result<()>;
