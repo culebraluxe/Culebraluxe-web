@@ -53,4 +53,23 @@
 - `job_payload`, `model_aliases`, and `opencode_events` are private implementation modules. Their remaining uses are inside `forge`.
 - `cargo check -p test-harness --all-targets` passed after these visibility changes, covering independently compiled integration tests and the Forge binary.
 
+## Slice 4 learning rules
+
+- Rust and JavaScript/TypeScript scanning are separate modules. Rust rules parse syntax with `syn`; they do not infer types or execute source.
+- Rust findings are review-only observations with a versioned rule ID, stable rule/path key, pinned source revision, span, normalized context, rationale, confidence, and stated limitation. The initial Rust catalog covers known-fallible `let _` calls, empty `Err` arms, and likely error-to-default fallbacks in authoritative paths.
+- Rust observations are collected and retained, but normal filing is off by default. `FORGE_LEARN_RUST_RULES_ENABLED=1` is required to select them for filing; dry-run always evaluates the rules. This batch does not set that production flag. Existing JS/TS rules and stale-claim routing retain their current behavior.
+- Narrow intentional cases cover discarded `remove_file`, `remove_dir_all`, and rollback results, plus the exact local anchor/session-marker read/write patterns whose absence is an expected fallback. The rules still cannot type-check receiver types, infer wrapper contracts, or see every generated/macro-expanded path; other safe `.ok()`/default fallbacks can be false positives, while APIs outside the fallible-call allowlist and indirect error suppression are known false negatives.
+- Inline `#[cfg(test)]` modules and repository test/vendor/generated/build paths are excluded from production Rust rules. Rust comments and strings are handled by the syntax parser. Legacy JS/TS heuristics run only on JS/TS paths and retain their documented text-matching limitations.
+- `forge learn --dry-run` is read-only: it does not connect to the control plane, file stories, or move a cursor. Its report includes the pinned revision, scanned/deferred file counts, bytes, findings, parser issues, and an incomplete status when scan bounds are reached.
+- Bounds: 40 files and 4 MiB per pass, 256 KiB per source file, 8 MiB Git path output, 10 seconds per Git subprocess. A cap or parser/read error is visible and cannot advance durable progress.
+
+## Slice 5 progress and filing
+
+- Migration 284 adds `forge_learn_scan_state` (per stable repository identity, pinned cursor/revision, pending file paths, and pending observations) and `forge_learn_finding` (stable logical key, occurrence, and last story pointer). Durable scanning requires an `origin` remote so separate worker worktrees derive the same repository scope; only its sanitized, hashed identity is stored. The local `.forge-context/learn-last-run.json` remains a convenience cache only.
+- Git change discovery is bounded and reports errors. Source bytes come from `git show <pinned-revision>:<path>`, never from a moving worktree. Deleted paths are excluded by Git's `ACMRT` filter because there is no current source to analyze; invalid paths, unreadable files, oversized files, invalid UTF-8, timeouts, and parser failures stop the pass visibly without cursor advancement.
+- Progress updates compare the expected revision, file backlog, and observation backlog. Competing workers may read the same chunk, but only one compare-and-set advances it. Unselected findings stay in the JSON backlog; only one story is filed per pass, and the worker logs deferred file/finding counts.
+- `ForgeControlDao::file_learn_finding` serializes a logical key and commits the registry pointer with either the existing Ready dispatch or the staging batch item. Retrying after a crash returns the still-open story. A resolved/staged/terminal story is not a permanent tombstone: a later recurrence increments the occurrence and receives a new deterministic story ID.
+- The stable identity is `rule ID + rule version + repository-relative path`, paired with a hash of the sanitized origin identity. Line numbers and filing time do not change the key. Existing pre-migration open keys are checked as a compatibility fallback.
+- Stale claims remain observations only and use their existing Ready route; the learning pass never recovers a claim. No migration was applied to DEV or production as part of this lane.
+
 No behavior correction is included in move-only changes. A newly discovered bug gets a separate change and evidence.

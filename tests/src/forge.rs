@@ -198,3 +198,149 @@ impl ForgeHarness {
             .expect("a written settle carries its pair"))
     }
 }
+
+#[cfg(test)]
+mod learn_durable_tests {
+    use super::*;
+    use crate::database::TestDatabase;
+    use uuid::Uuid;
+
+    /// Requires migration 284 on a disposable DEV database. TestDatabase refuses production before connecting.
+    #[tokio::test]
+    #[ignore = "requires disposable DEV database with migration 284 applied"]
+    async fn concurrent_and_retried_learning_filing_reuses_one_staged_story() {
+        let database = TestDatabase::connect_from_env()
+            .await
+            .expect("declared disposable DEV database");
+        let dao = ForgeControlDao::new(database.database().clone());
+        let repository_key = format!("test:{}", Uuid::new_v4());
+        let finding_key = "RUST-EMPTY-ERROR-ARM:v1:src/lib.rs";
+        let revision = "test-pinned-revision";
+        let initial_files = vec!["src/a.rs".to_string(), "src/b.rs".to_string()];
+        let state = dao
+            .begin_learn_scan(&repository_key, None, revision, &initial_files)
+            .await
+            .expect("begin pinned scan");
+        assert_eq!(state.active_revision.as_deref(), Some(revision));
+        let pending = serde_json::json!([{"finding":"candidate"}]);
+        assert!(dao
+            .save_learn_scan_progress(
+                &repository_key,
+                revision,
+                &initial_files,
+                &initial_files[1..],
+                &serde_json::json!([]),
+                &pending,
+            )
+            .await
+            .expect("persist partial progress"));
+        let restarted_worker = ForgeControlDao::new(database.database().clone());
+        let resumed = restarted_worker
+            .learn_scan_state(&repository_key)
+            .await
+            .expect("read durable cursor")
+            .expect("scan state survives worker restart");
+        assert_eq!(resumed.active_revision.as_deref(), Some(revision));
+        assert_eq!(resumed.pending_files, vec!["src/b.rs"]);
+        assert_eq!(resumed.pending_observations, pending);
+        assert!(dao
+            .save_learn_scan_progress(
+                &repository_key,
+                revision,
+                &resumed.pending_files,
+                &[],
+                &pending,
+                &serde_json::json!([]),
+            )
+            .await
+            .expect("persist completed chunk"));
+        assert!(dao
+            .complete_learn_scan(&repository_key, revision, &serde_json::json!([]))
+            .await
+            .expect("advance durable cursor"));
+
+        let first = dao.file_learn_finding(
+            &repository_key,
+            finding_key,
+            revision,
+            "learn: empty error arm",
+            "Medium",
+            "review candidate",
+            "verify finding",
+            false,
+        );
+        let second = dao.file_learn_finding(
+            &repository_key,
+            finding_key,
+            revision,
+            "learn: empty error arm",
+            "Medium",
+            "review candidate",
+            "verify finding",
+            false,
+        );
+        let (first, second) = tokio::join!(first, second);
+        let first = first.expect("first concurrent file");
+        let second = second.expect("second concurrent file");
+        assert_eq!(first, second);
+        let retry = dao
+            .file_learn_finding(
+                &repository_key,
+                finding_key,
+                revision,
+                "learn: empty error arm",
+                "Medium",
+                "review candidate",
+                "verify finding",
+                false,
+            )
+            .await
+            .expect("idempotent retry");
+        assert_eq!(first, retry);
+
+        let staged: i64 = sqlx::query_scalar(
+            "select count(*) from forge_batch_item where story_id=$1 and state='Staged' and kind='learn'",
+        )
+        .bind(&first)
+        .fetch_one(database.database().pool())
+        .await
+        .expect("read staged story");
+        assert_eq!(staged, 1);
+
+        let staging_batch: Option<String> = sqlx::query_scalar(
+            "select batch_id::text from forge_batch_item where story_id=$1 and state='Staged'",
+        )
+        .bind(&first)
+        .fetch_optional(database.database().pool())
+        .await
+        .expect("read staged batch");
+
+        sqlx::query("delete from forge_learn_finding where repository_key=$1 and finding_key=$2")
+            .bind(&repository_key)
+            .bind(finding_key)
+            .execute(database.database().pool())
+            .await
+            .expect("clean finding identity");
+        sqlx::query("delete from storyboard_story where id=$1")
+            .bind(first)
+            .execute(database.database().pool())
+            .await
+            .expect("clean staged story");
+        if let Some(batch_id) = staging_batch {
+            sqlx::query(
+                "delete from forge_batch b where b.id=$1::uuid and b.note='built by Rust learn loop'
+                   and b.status='Staged'
+                   and not exists(select 1 from forge_batch_item i where i.batch_id=b.id)",
+            )
+            .bind(batch_id)
+            .execute(database.database().pool())
+            .await
+            .expect("clean unused test staging batch");
+        }
+        sqlx::query("delete from forge_learn_scan_state where repository_key=$1")
+            .bind(&repository_key)
+            .execute(database.database().pool())
+            .await
+            .expect("clean scan state");
+    }
+}

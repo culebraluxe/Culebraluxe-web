@@ -156,10 +156,29 @@ fn settle_work_item(
 }
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.get(1).map(|value| value.as_str()) == Some("learn")
+        && args.iter().any(|value| value == "--dry-run")
+    {
+        let root = match env::current_dir() {
+            Ok(root) => root,
+            Err(error) => {
+                eprintln!("forge learn --dry-run: cannot resolve current directory: {error}");
+                std::process::exit(1);
+            }
+        };
+        match forge::engine::run_learn_dry_run(&root) {
+            Ok(report) => println!("{report}"),
+            Err(error) => {
+                eprintln!("forge learn --dry-run: {error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     // The engine's own database budgets, and the rule behind them: `forge::engine::db_budget`. Both binaries that
     // talk to the control plane install these, because the process that was dying was the worker.
     let budget = forge::engine::db_budget::install_engine_db_budget();
-    let args: Vec<String> = env::args().collect();
     // `forge harness-info`: print the resolved vendor identity and exit — the proof line for the A/B/C
     // acceptance criteria without parsing a turn log.
     if args.get(1).map(|s| s.as_str()) == Some("harness-info") {

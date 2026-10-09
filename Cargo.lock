@@ -806,6 +806,7 @@ dependencies = [
  "chrono",
  "db",
  "model",
+ "proc-macro2",
  "proptest",
  "reqwest",
  "serde",
@@ -813,9 +814,12 @@ dependencies = [
  "services",
  "sha2 0.10.9",
  "sqlx",
+ "syn 2.0.119",
+ "tempfile",
  "tokio",
  "tracing",
  "uuid",
+ "wait-timeout",
  "workflow",
 ]
 
