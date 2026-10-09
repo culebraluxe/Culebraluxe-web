@@ -409,8 +409,13 @@ async fn a_claimed_item_walks_ready_to_done_and_never_settles_twice() {
     .await
     .expect("insert stuck proof story");
     let stuck_item: String = sqlx::query_scalar(
-        "insert into agent_work_item (story_id, state, priority, started_at)
-         values ($1, 'Running', 1, now()) returning id::text",
+        // Post-278 a claim is AUTHORITY, not merely state: the fence is the owner plus the generation, so a row
+        // seeded `Running` with no owner is a claim nobody holds, and its settle is refused before the completion
+        // guard below is ever reached. The seed carries the authority its state claims — owner and generation, the
+        // same pair the claim routine writes — which is what makes this fixture test the completion guard rather
+        // than the fence.
+        "insert into agent_work_item (story_id, state, priority, started_at, claimed_by, claim_generation)
+         values ($1, 'Running', 1, now(), 'proof-worker', 1) returning id::text",
     )
     .bind(&stuck_story)
     .fetch_one(pool)
