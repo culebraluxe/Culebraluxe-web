@@ -119,10 +119,11 @@ pub use forge_doctor::{
     RoiAttemptRow,
 };
 pub use forge_engine::{
-    AgentWorkOutcome, AgentWorkSettlement, BeginAgentWorkRun, ClaimFence, DealWorkflowFactRow,
-    DispatchReconcile, EnsureDispatch, ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao,
-    ForgeEvidencePatch, ForgeHoldRow, NewToolArtifact, ProcessDefinitionRow, SettlementResult,
-    StoryPacketRow, ToolArtifactRow, WorkflowCommandReceiptRow, WorkflowReceiptClaim,
+    AgentWorkOutcome, AgentWorkSettlement, BeginAgentWorkRun, ClaimFence, CompletionApply,
+    CompletionSpend, CompletionUnit, DealWorkflowFactRow, DispatchReconcile, EnsureDispatch,
+    ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao, ForgeEvidencePatch, ForgeHoldRow,
+    NewToolArtifact, ProcessDefinitionRow, SettlementResult, StoryPacketRow, ToolArtifactRow,
+    WorkflowCommandReceiptRow, WorkflowReceiptClaim,
 };
 pub use forge_read::{
     ForgeBatchRow, ForgeBenchRow, ForgeQueueWorkRow, ForgeReadDao, ForgeStoryBoardRow,

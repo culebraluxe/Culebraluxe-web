@@ -445,7 +445,9 @@ impl<S: TxStore> ForgeRuntime<S> {
                     node_id,
                     evidence: evidence_from_value(&form),
                 },
-            )? {
+            )?
+            .applied()
+            {
                 applied += 1;
             }
         }

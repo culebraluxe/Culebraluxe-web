@@ -9,144 +9,95 @@
 //! absent — and the resume applies the unit exactly once.
 //!
 //! TWO PROPERTIES, PINNED HERE. (1) The ledger is fallible: a database that cannot answer must stop the
-//! caller, because `false` from `claim` means "someone already applied this unit". (2) The unit applies once
-//! regardless of which process looks. The row-level half of the same contract — that the SQL really behaves
-//! this way — is `tests/tests/forge_completion_receipt_dev.rs`, because a unit test cannot see a
-//! column typo.
+//! caller, because "someone already applied this unit" is an answer only a committed receipt may give. (2)
+//! The unit applies once regardless of which process looks. Both are now expressed on ONE method — `apply`
+//! returns `Result<CompletionApply>` (FORGE-B1 slice 2) — because the unit is one committed effect: there is
+//! no longer a claim to lose, a merge to replay or a finalize to forget. The row-level half of the same
+//! contract — that the SQL behaves this way, one transaction, receipt and effects together — is
+//! `tests/tests/forge_completion_receipt_dev.rs`, because a unit test cannot see a column typo.
 
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use forge::engine::*;
 use workflow::{json, MemoryStore, Result, WorkflowError};
 
 /// A ledger shared by two runtimes, standing in for the receipt row both processes read.
+///
+/// It IS the production in-memory ledger — `MemoryLedger` — rather than a second implementation of the same
+/// semantics, because two adjudicators of one fact is how a wrong verdict gets a second author. What this
+/// double adds is the book of *committed applications*, which is what "exactly once across processes" is
+/// measured on.
 #[derive(Default)]
 struct SharedLedger {
-    receipts: Mutex<BTreeMap<String, String>>,
-    evidence_merges: Mutex<Vec<String>>,
-    repairs: Mutex<BTreeMap<String, u32>>,
-    replans: Mutex<BTreeMap<String, u32>>,
+    inner: MemoryLedger,
+    applied: Mutex<Vec<String>>,
 }
 
 impl SharedLedger {
-    fn state(&self, receipt_id: &str) -> Option<String> {
-        self.receipts.lock().unwrap().get(receipt_id).cloned()
-    }
-    fn merges(&self) -> usize {
-        self.evidence_merges.lock().unwrap().len()
+    fn applied_count(&self) -> usize {
+        self.applied.lock().unwrap().len()
     }
     fn repairs(&self, story_id: &str) -> u32 {
-        *self.repairs.lock().unwrap().get(story_id).unwrap_or(&0)
+        self.inner.repairs(story_id)
     }
     fn replans(&self, story_id: &str) -> u32 {
-        *self.replans.lock().unwrap().get(story_id).unwrap_or(&0)
+        self.inner.replans(story_id)
     }
 }
 
 impl CompletionLedger for SharedLedger {
-    fn claim(&self, receipt_id: &str) -> Result<bool> {
-        let mut receipts = self.receipts.lock().unwrap();
-        if receipts.contains_key(receipt_id) {
-            return Ok(false);
+    fn apply(&self, rec: &CompletionRecord) -> Result<CompletionApply> {
+        let outcome = self.inner.apply(rec)?;
+        if outcome.applied() {
+            self.applied
+                .lock()
+                .unwrap()
+                .push(completion_receipt_id(&rec.task_id));
         }
-        receipts.insert(receipt_id.to_string(), "pending".into());
-        Ok(true)
-    }
-    fn finalize(&self, receipt_id: &str) -> Result<()> {
-        self.receipts
-            .lock()
-            .unwrap()
-            .insert(receipt_id.to_string(), "final".into());
-        Ok(())
+        Ok(outcome)
     }
     fn has_final(&self, receipt_id: &str) -> Result<bool> {
-        Ok(self.state(receipt_id).as_deref() == Some("final"))
+        self.inner.has_final(receipt_id)
     }
-    fn merge_evidence(&self, rec: &CompletionRecord) -> Result<()> {
-        self.evidence_merges
-            .lock()
-            .unwrap()
-            .push(rec.story_id.clone());
-        Ok(())
+    fn reset_budget(&self, story_id: &str) -> Result<()> {
+        self.inner.reset_budget(story_id)
     }
-    fn increment_repair(&self, story_id: &str) -> Result<()> {
-        *self
-            .repairs
-            .lock()
-            .unwrap()
-            .entry(story_id.to_string())
-            .or_insert(0) += 1;
-        Ok(())
-    }
-    fn increment_replan(&self, story_id: &str) -> Result<()> {
-        *self
-            .replans
-            .lock()
-            .unwrap()
-            .entry(story_id.to_string())
-            .or_insert(0) += 1;
-        Ok(())
+    fn watermark(&self, prefix: &str) -> Result<Option<i64>> {
+        self.inner.watermark(prefix)
     }
 }
 
-/// A ledger whose every question fails. It stands for a database that is not there, which is the case the
-/// old `bool` trait could not express: it had to answer `false`, and `false` is what "already applied" says.
+/// A ledger whose every question fails. It stands for a database that is not there ("database unreachable")
+/// or a unit whose transaction died ("evidence write failed"), which is the case the old `bool` trait could
+/// not express: it had to answer `false`, and `false` is what "already applied" says.
 #[derive(Default)]
-struct UnreachableLedger {
-    finalized: Mutex<Vec<String>>,
-    merged: Mutex<Vec<String>>,
+struct FailingLedger {
+    reason: String,
+    calls: Mutex<u32>,
 }
 
-impl CompletionLedger for UnreachableLedger {
-    fn claim(&self, _receipt_id: &str) -> Result<bool> {
-        Err(WorkflowError::generic("database unreachable"))
+impl FailingLedger {
+    fn new(reason: &str) -> Self {
+        Self {
+            reason: reason.to_string(),
+            calls: Mutex::new(0),
+        }
     }
-    fn finalize(&self, receipt_id: &str) -> Result<()> {
-        self.finalized.lock().unwrap().push(receipt_id.to_string());
-        Ok(())
+    fn calls(&self) -> u32 {
+        *self.calls.lock().unwrap()
+    }
+    fn failure(&self) -> WorkflowError {
+        WorkflowError::generic(self.reason.clone())
+    }
+}
+
+impl CompletionLedger for FailingLedger {
+    fn apply(&self, _rec: &CompletionRecord) -> Result<CompletionApply> {
+        *self.calls.lock().unwrap() += 1;
+        Err(self.failure())
     }
     fn has_final(&self, _receipt_id: &str) -> Result<bool> {
-        Err(WorkflowError::generic("database unreachable"))
-    }
-    fn merge_evidence(&self, rec: &CompletionRecord) -> Result<()> {
-        self.merged.lock().unwrap().push(rec.story_id.clone());
-        Ok(())
-    }
-    fn increment_repair(&self, _story_id: &str) -> Result<()> {
-        Err(WorkflowError::generic("database unreachable"))
-    }
-    fn increment_replan(&self, _story_id: &str) -> Result<()> {
-        Err(WorkflowError::generic("database unreachable"))
-    }
-}
-
-/// A ledger that claims fine and then fails to write the evidence: the unit is claimed and NOT applied,
-/// which is the crash window the resume is for. It must not be finalized as if it had worked.
-#[derive(Default)]
-struct HalfWrittenLedger {
-    finalized: Mutex<Vec<String>>,
-}
-
-impl CompletionLedger for HalfWrittenLedger {
-    fn claim(&self, _receipt_id: &str) -> Result<bool> {
-        Ok(true)
-    }
-    fn finalize(&self, receipt_id: &str) -> Result<()> {
-        self.finalized.lock().unwrap().push(receipt_id.to_string());
-        Ok(())
-    }
-    fn has_final(&self, _receipt_id: &str) -> Result<bool> {
-        Ok(false)
-    }
-    fn merge_evidence(&self, _rec: &CompletionRecord) -> Result<()> {
-        Err(WorkflowError::generic("evidence write failed"))
-    }
-    fn increment_repair(&self, _story_id: &str) -> Result<()> {
-        Ok(())
-    }
-    fn increment_replan(&self, _story_id: &str) -> Result<()> {
-        Ok(())
+        Err(self.failure())
     }
 }
 
@@ -199,7 +150,7 @@ fn a_ledger_shared_by_two_processes_applies_the_orphaned_unit_once() {
     // Process 1 — the transition is won, then the process dies before the unit runs.
     let task_id = {
         let writer = Arc::new(RecordingWriter::default());
-        let mut rt = ForgeRuntime::from_store(
+        let rt = ForgeRuntime::from_store(
             store.clone(),
             writer,
             None,
@@ -220,16 +171,22 @@ fn a_ledger_shared_by_two_processes_applies_the_orphaned_unit_once() {
                 transition_name: Some("smith".into()),
             })
             .expect("the transition is durable even though the unit is not");
-        assert_eq!(
-            ledger.state(&completion_receipt_id(&task.task_id)),
-            None,
+        assert!(
+            !ledger
+                .has_final(&completion_receipt_id(&task.task_id))
+                .expect("has_final"),
             "no receipt: this is the crash window the resume reconciles on"
+        );
+        assert_eq!(
+            ledger.applied_count(),
+            0,
+            "and the unit is not applied either"
         );
         task.task_id
     };
 
     // Process 2 — the resume heals it, once.
-    let mut rt2 = compact_runtime(store.clone(), ledger.clone());
+    let rt2 = compact_runtime(store.clone(), ledger.clone());
     assert_eq!(
         rt2.reconcile_completions("story-1").expect("reconcile"),
         1,
@@ -238,19 +195,19 @@ fn a_ledger_shared_by_two_processes_applies_the_orphaned_unit_once() {
     assert!(ledger
         .has_final(&completion_receipt_id(&task_id))
         .expect("has_final"));
-    assert_eq!(ledger.merges(), 1);
+    assert_eq!(ledger.applied_count(), 1);
 
-    // Process 3 — a second resume merges nothing.
-    let mut rt3 = compact_runtime(store.clone(), ledger.clone());
+    // Process 3 — a second resume applies nothing.
+    let rt3 = compact_runtime(store.clone(), ledger.clone());
     assert_eq!(
         rt3.reconcile_completions("story-1").expect("reconcile"),
         0,
         "the receipt already exists; a third process must apply nothing"
     );
     assert_eq!(
-        ledger.merges(),
+        ledger.applied_count(),
         1,
-        "the evidence merge happened exactly once across three processes"
+        "the unit was applied exactly once across three processes"
     );
 }
 
@@ -259,51 +216,100 @@ fn a_ledger_shared_by_two_processes_applies_the_orphaned_unit_once() {
 fn repair_and_replan_counters_move_once_per_unit() {
     let ledger = Arc::new(SharedLedger::default());
     let repair = record("task-repair", Some("repair_smith"));
-    assert!(apply_completion_unit(ledger.as_ref(), repair.clone()).expect("ledger"));
+    assert_eq!(
+        apply_completion_unit(ledger.as_ref(), repair.clone()).expect("ledger"),
+        CompletionApply::Applied
+    );
     // The same unit, seen again: not a second repair attempt.
-    assert!(!apply_completion_unit(ledger.as_ref(), repair.clone()).expect("ledger"));
+    assert_eq!(
+        apply_completion_unit(ledger.as_ref(), repair.clone()).expect("ledger"),
+        CompletionApply::AlreadyApplied
+    );
     let replan = record("task-replan", Some("repair_architect"));
-    assert!(apply_completion_unit(ledger.as_ref(), replan.clone()).expect("ledger"));
-    assert!(!apply_completion_unit(ledger.as_ref(), replan.clone()).expect("ledger"));
+    assert_eq!(
+        apply_completion_unit(ledger.as_ref(), replan.clone()).expect("ledger"),
+        CompletionApply::Applied
+    );
+    assert_eq!(
+        apply_completion_unit(ledger.as_ref(), replan.clone()).expect("ledger"),
+        CompletionApply::AlreadyApplied
+    );
     assert_eq!(ledger.repairs("story-1"), 1);
     assert_eq!(ledger.replans("story-1"), 1);
-    assert_eq!(ledger.merges(), 2, "one merge per unit, not per look");
+    assert_eq!(
+        ledger.applied_count(),
+        2,
+        "one application per unit, not one per look"
+    );
 }
 
 /// A ledger that cannot answer must stop the run. Under the old `bool` trait this case could not be
 /// written: there was no way to say "I could not ask", and the answer was `false` — "someone else applied it".
 #[test]
 fn a_ledger_that_cannot_answer_is_not_already_applied() {
-    let ledger = Arc::new(UnreachableLedger::default());
+    let ledger = Arc::new(FailingLedger::new("database unreachable"));
     let error = apply_completion_unit(ledger.as_ref(), record("task-1", None)).unwrap_err();
     assert!(
         error.to_string().contains("database unreachable"),
         "the failure is reported, not swallowed: {error}"
     );
-    assert!(
-        ledger.merged.lock().unwrap().is_empty(),
-        "nothing is written against a ledger that never took the claim"
+    assert_eq!(
+        ledger.calls(),
+        1,
+        "and the unit is not attempted again behind the caller's back"
     );
 }
 
-/// A unit whose evidence write fails stays claimed and unfinalized: that is the crash window, and the
-/// resume — not a finalize the unit never earned — is what closes it.
+/// A unit whose write fails leaves the transition durable and the receipt absent — the crash window — and
+/// the next process heals it exactly once. Under the four-call shape the retry could not be told from a
+/// first attempt either: the evidence was already merged and the budget already spent, so the heal spent it
+/// again (that is TST-FORGE-COMPLETION-RECEIPT-008's pin).
 #[test]
-fn a_failed_evidence_write_does_not_finalize_the_receipt() {
-    let ledger = Arc::new(HalfWrittenLedger::default());
-    let error = apply_completion_unit(ledger.as_ref(), record("task-1", None)).unwrap_err();
-    assert!(error.to_string().contains("evidence write failed"));
+fn a_failed_unit_is_recovered_by_the_next_process_not_replayed() {
+    let store = MemoryStore::new();
+    let failing = Arc::new(FailingLedger::new("evidence write failed"));
+    let rt = compact_runtime(store.clone(), failing.clone());
+    rt.start_story("story-1", "FEATURE", feature_story())
+        .expect("start");
+    let task = rt.list_role_tasks("story-1").expect("tasks")[0].clone();
+    rt.claim_role_task(&task.task_id, "lead").expect("claim");
+    let error = rt
+        .complete_role_task(
+            &task.task_id,
+            "lead",
+            Some("smith"),
+            ForgeGateEvidence::default(),
+        )
+        .unwrap_err();
     assert!(
-        ledger.finalized.lock().unwrap().is_empty(),
-        "an unfinalized receipt is the durable signal the resume reconciles on"
+        error.to_string().contains("evidence write failed"),
+        "the unit's failure is reported: {error}"
     );
+    assert_eq!(failing.calls(), 1, "the unit was attempted once");
+
+    // The next process, with a ledger that can answer, applies the orphan — once.
+    let healed = Arc::new(SharedLedger::default());
+    let rt2 = compact_runtime(store.clone(), healed.clone());
+    assert_eq!(
+        rt2.reconcile_completions("story-1").expect("reconcile"),
+        1,
+        "a unit the failing ledger never committed is applied by the next process"
+    );
+    assert_eq!(healed.applied_count(), 1);
+    let rt3 = compact_runtime(store.clone(), healed.clone());
+    assert_eq!(
+        rt3.reconcile_completions("story-1").expect("reconcile"),
+        0,
+        "and a third process applies nothing"
+    );
+    assert_eq!(healed.applied_count(), 1);
 }
 
 /// The runtime door must not turn a ledger failure into a completed task: `complete_role_task` propagates.
 #[test]
 fn a_ledger_failure_reaches_the_caller_of_complete_role_task() {
-    let ledger = Arc::new(UnreachableLedger::default());
-    let mut rt = compact_runtime(MemoryStore::new(), ledger);
+    let ledger = Arc::new(FailingLedger::new("database unreachable"));
+    let rt = compact_runtime(MemoryStore::new(), ledger);
     rt.start_story("story-1", "FEATURE", feature_story())
         .expect("start");
     let task = rt.list_role_tasks("story-1").expect("tasks")[0].clone();
@@ -330,7 +336,6 @@ fn the_engine_binary_installs_the_durable_ledger() {
     let source = include_str!("../../forge/src/bin/forge.rs");
     assert!(
         source.contains("durable_completion_ledger()"),
-        "forge/src/bin/forge.rs must build its runtime with the receipt row; a process-local ledger there re-applies \
-         every completion in the instance history"
+        "forge/src/bin/forge.rs must build its runtime with the receipt row; a process-local ledger there re-applies every completion in the instance history"
     );
 }
