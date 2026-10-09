@@ -112,7 +112,8 @@ acceptance prose or convert old `acceptance_mapped` booleans. Historical receipt
 for reporting but cannot certify a new run. Drain in-flight runs on the old snapshot contract
 before deploying migration 281 and the new adjudicator; new runs without a plan visibly stop at
 `ASSAY_PLAN_REQUIRED`. Migration 281 has been applied to Neon DEV for this branch's integration
-verification; it has not been applied to production.
+verification and to production after operator approval. The schema is in production ahead of the
+Batch 3 code release; this migration does not itself enable the new adjudicator.
 
 ## Batch 1 integration and dependency points
 
