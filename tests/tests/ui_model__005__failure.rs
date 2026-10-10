@@ -38,7 +38,10 @@ fn ui_model_005__failure() {
     let model = harness.model();
     let failed_error = match &model.data {
         Remote::Failed(e) => e.clone(),
-        other => panic!("{HARNESS}: update must transition to Remote::Failed, got {:?}", other),
+        other => panic!(
+            "{HARNESS}: update must transition to Remote::Failed, got {:?}",
+            other
+        ),
     };
     assert_eq!(failed_error.code, "NETWORK");
     assert_eq!(failed_error.message, "connection refused");
@@ -65,6 +68,9 @@ fn ui_model_005__failure() {
             assert_eq!(e.code, "DECODE");
             assert_eq!(e.message, "invalid JSON");
         }
-        other => panic!("{HARNESS}: decode error must transition to Remote::Failed, got {:?}", other),
+        other => panic!(
+            "{HARNESS}: decode error must transition to Remote::Failed, got {:?}",
+            other
+        ),
     }
 }

@@ -23,7 +23,10 @@ fn ui_route_001__every_registry_entry_resolves() {
         }
 
         let (resolved_entry, params) = resolve(entry.path).unwrap_or_else(|| {
-            panic!("{HARNESS}: entry '{}' with path '{}' must resolve", entry.key, entry.path);
+            panic!(
+                "{HARNESS}: entry '{}' with path '{}' must resolve",
+                entry.key, entry.path
+            );
         });
 
         assert_eq!(
@@ -37,13 +40,15 @@ fn ui_route_001__every_registry_entry_resolves() {
             assert!(
                 !params.is_empty(),
                 "{HARNESS}: entry '{}' with param path '{}' must extract params",
-                entry.key, entry.path
+                entry.key,
+                entry.path
             );
         } else {
             assert!(
                 params.is_empty(),
                 "{HARNESS}: entry '{}' with static path '{}' must have no params",
-                entry.key, entry.path
+                entry.key,
+                entry.path
             );
         }
     }

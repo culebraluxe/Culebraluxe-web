@@ -18,8 +18,8 @@
 //!     --test forge_dispatch__008__parallel_group_exception_only_where_permitted -- --ignored
 
 use db::{DbFailure, DbTarget};
-use sqlx::PgPool;
 use sqlx::types::Uuid as SqlxUuid;
+use sqlx::PgPool;
 use test_harness::ForgeHarness;
 
 const HARNESS: &str = "ForgeHarness/L2 Persistence";
@@ -76,12 +76,15 @@ async fn serial_work_items(pool: &PgPool, story_id: &str) -> Vec<(String, Option
     .expect("read the story's serial work items")
 }
 
-async fn parallel_work_items(pool: &PgPool, story_id: &str) -> Vec<(String, Option<String>, String, i32)> {
+async fn parallel_work_items(
+    pool: &PgPool,
+    story_id: &str,
+) -> Vec<(String, Option<String>, String, i32)> {
     sqlx::query_as(
         "select state, claimed_by, parallel_group_id::text, parallel_slot
          from agent_work_item
          where story_id=$1 and parallel_group_id is not null
-         order by queued_at, parallel_slot"
+         order by queued_at, parallel_slot",
     )
     .bind(story_id)
     .fetch_all(pool)
@@ -127,9 +130,17 @@ async fn forge_dispatch_008__parallel_group_exception_only_where_permitted() {
     // -----------------------------------------------------------------------------------------------------------
     insert_story(pool, &serial_only_story, "Ready").await;
     let serial_items = serial_work_items(pool, &serial_only_story).await;
-    assert_eq!(serial_items.len(), 1, "{HARNESS}: serial-only story gets one serial item");
-    assert!(parallel_work_items(pool, &serial_only_story).await.is_empty(),
-        "{HARNESS}: serial-only story has no parallel items");
+    assert_eq!(
+        serial_items.len(),
+        1,
+        "{HARNESS}: serial-only story gets one serial item"
+    );
+    assert!(
+        parallel_work_items(pool, &serial_only_story)
+            .await
+            .is_empty(),
+        "{HARNESS}: serial-only story has no parallel items"
+    );
 
     // Try to manually insert a parallel item for this story — should fail due to
     // the unique index requiring a valid parallel_group_id that matches a declared group.
@@ -172,7 +183,11 @@ async fn forge_dispatch_008__parallel_group_exception_only_where_permitted() {
     // Insert parallel story at Ready.
     insert_story(pool, &parallel_story, "Ready").await;
     let serial_items2 = serial_work_items(pool, &parallel_story).await;
-    assert_eq!(serial_items2.len(), 1, "{HARNESS}: parallel story gets serial item");
+    assert_eq!(
+        serial_items2.len(),
+        1,
+        "{HARNESS}: parallel story gets serial item"
+    );
 
     // Manually create a parallel group for this story (simulating a declared parallel work type).
     // We'll use a deterministic UUID for the parallel group.
@@ -199,8 +214,12 @@ async fn forge_dispatch_008__parallel_group_exception_only_where_permitted() {
 
     // Verify parallel items exist.
     let parallel_items = parallel_work_items(pool, &parallel_story).await;
-    assert_eq!(parallel_items.len(), parallel_size as usize,
-        "{HARNESS}: parallel story gets {} parallel items", parallel_size);
+    assert_eq!(
+        parallel_items.len(),
+        parallel_size as usize,
+        "{HARNESS}: parallel story gets {} parallel items",
+        parallel_size
+    );
 
     // Verify serial item still exists.
     assert_eq!(serial_work_items(pool, &parallel_story).await.len(), 1);
@@ -221,7 +240,10 @@ async fn forge_dispatch_008__parallel_group_exception_only_where_permitted() {
     .bind(parallel_size)
     .execute(pool)
     .await;
-    assert!(dup_result.is_err(), "{HARNESS}: duplicate parallel slot rejected by unique index");
+    assert!(
+        dup_result.is_err(),
+        "{HARNESS}: duplicate parallel slot rejected by unique index"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 4. CLAIM PARALLEL ITEMS — each parallel slot can be claimed independently.
@@ -229,7 +251,7 @@ async fn forge_dispatch_008__parallel_group_exception_only_where_permitted() {
     // Claim slot 1.
     let item_slot1: String = sqlx::query_scalar(
         "select id::text from agent_work_item
-         where story_id=$1 and parallel_group_id=$2 and parallel_slot=1 and state='Ready'"
+         where story_id=$1 and parallel_group_id=$2 and parallel_slot=1 and state='Ready'",
     )
     .bind(&parallel_story)
     .bind(parallel_group_id)
@@ -237,14 +259,20 @@ async fn forge_dispatch_008__parallel_group_exception_only_where_permitted() {
     .await
     .expect("find parallel slot 1");
 
-    let claim1 = harness.engine().claim_specific_agent_work(&item_slot1, WORKER).await;
+    let claim1 = harness
+        .engine()
+        .claim_specific_agent_work(&item_slot1, WORKER)
+        .await;
     assert!(claim1.is_ok());
-    assert!(claim1.unwrap().is_some(), "{HARNESS}: parallel slot 1 claimed");
+    assert!(
+        claim1.unwrap().is_some(),
+        "{HARNESS}: parallel slot 1 claimed"
+    );
 
     // Claim slot 2.
     let item_slot2: String = sqlx::query_scalar(
         "select id::text from agent_work_item
-         where story_id=$1 and parallel_group_id=$2 and parallel_slot=2 and state='Ready'"
+         where story_id=$1 and parallel_group_id=$2 and parallel_slot=2 and state='Ready'",
     )
     .bind(&parallel_story)
     .bind(parallel_group_id)
@@ -252,9 +280,15 @@ async fn forge_dispatch_008__parallel_group_exception_only_where_permitted() {
     .await
     .expect("find parallel slot 2");
 
-    let claim2 = harness.engine().claim_specific_agent_work(&item_slot2, WORKER).await;
+    let claim2 = harness
+        .engine()
+        .claim_specific_agent_work(&item_slot2, WORKER)
+        .await;
     assert!(claim2.is_ok());
-    assert!(claim2.unwrap().is_some(), "{HARNESS}: parallel slot 2 claimed");
+    assert!(
+        claim2.unwrap().is_some(),
+        "{HARNESS}: parallel slot 2 claimed"
+    );
 
     // Verify serial item is still Ready (not affected by parallel claims).
     let serial_items3 = serial_work_items(pool, &parallel_story).await;
@@ -272,8 +306,12 @@ async fn forge_dispatch_008__parallel_group_exception_only_where_permitted() {
         .await
         .expect("sweep");
     // Sweep should not create any parallel items for serial-only story.
-    assert!(parallel_work_items(pool, &serial_only_story).await.is_empty(),
-        "{HARNESS}: sweep does not create parallel items for serial-only story");
+    assert!(
+        parallel_work_items(pool, &serial_only_story)
+            .await
+            .is_empty(),
+        "{HARNESS}: sweep does not create parallel items for serial-only story"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 6. FAULT CASE — parallel items without a declared group should not be created
@@ -283,7 +321,9 @@ async fn forge_dispatch_008__parallel_group_exception_only_where_permitted() {
     let new_serial_story = format!("{PROOF_PREFIX}new-serial-{ns}");
     insert_story(pool, &new_serial_story, "Ready").await;
     assert_eq!(serial_work_items(pool, &new_serial_story).await.len(), 1);
-    assert!(parallel_work_items(pool, &new_serial_story).await.is_empty());
+    assert!(parallel_work_items(pool, &new_serial_story)
+        .await
+        .is_empty());
 
     // -----------------------------------------------------------------------------------------------------------
     // 7. COMMITTED TRUTH SURVIVES ROLLBACK.

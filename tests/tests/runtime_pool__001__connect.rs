@@ -27,9 +27,9 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test runtime_pool__001__connect
 
-use test_harness::RuntimeHarness;
+use db::{resolve_declared_target, resolve_forge_target, Database, DbTarget};
 use test_harness::pool::{DbPoolFaultHarness, PoolFault};
-use db::{Database, DbTarget, resolve_declared_target, resolve_forge_target};
+use test_harness::RuntimeHarness;
 use tokio::runtime::Runtime;
 
 #[test]
@@ -47,7 +47,10 @@ fn runtime_pool_001__connect() {
 
     // PROD target without DATABASE_URL_PROD
     let result = runtime.block_on(Database::connect_target(DbTarget::Prod));
-    assert!(result.is_err(), "{api}: PROD connect without DATABASE_URL_PROD must fail");
+    assert!(
+        result.is_err(),
+        "{api}: PROD connect without DATABASE_URL_PROD must fail"
+    );
     let err = match result {
         Err(e) => e,
         Ok(_) => panic!("{api}: expected error"),
@@ -65,7 +68,10 @@ fn runtime_pool_001__connect() {
 
     // DEV target without DATABASE_URL_DEV
     let result = runtime.block_on(Database::connect_target(DbTarget::Dev));
-    assert!(result.is_err(), "{api}: DEV connect without DATABASE_URL_DEV must fail");
+    assert!(
+        result.is_err(),
+        "{api}: DEV connect without DATABASE_URL_DEV must fail"
+    );
     let err = match result {
         Err(e) => e,
         Ok(_) => panic!("{api}: expected error"),
@@ -95,7 +101,9 @@ fn runtime_pool_001__connect() {
     // ---- FAULT INJECTION: DbPoolFaultHarness classifies through production boundary ----
     // Pool timeout
     let harness = DbPoolFaultHarness::scripted(vec![PoolFault::PoolTimedOut, PoolFault::Ready]);
-    let failure = harness.acquire("db.acquire").expect_err("first checkout times out");
+    let failure = harness
+        .acquire("db.acquire")
+        .expect_err("first checkout times out");
     assert_eq!(failure.kind, db::DbFailureKind::Timeout);
     assert!(failure.retryable);
     assert_eq!(failure.operation, "db.acquire");
@@ -105,7 +113,9 @@ fn runtime_pool_001__connect() {
 
     // Statement timeout
     let harness = DbPoolFaultHarness::always(PoolFault::StatementTimeout);
-    let failure = harness.acquire("db.acquire").expect_err("statement timeout");
+    let failure = harness
+        .acquire("db.acquire")
+        .expect_err("statement timeout");
     assert_eq!(failure.kind, db::DbFailureKind::Timeout);
     assert!(failure.retryable);
 
@@ -117,19 +127,25 @@ fn runtime_pool_001__connect() {
 
     // Idle-in-transaction timeout -> DatabaseUnavailable (not Timeout)
     let harness = DbPoolFaultHarness::always(PoolFault::IdleInTransactionTimeout);
-    let failure = harness.acquire("db.acquire").expect_err("idle in transaction timeout");
+    let failure = harness
+        .acquire("db.acquire")
+        .expect_err("idle in transaction timeout");
     assert_eq!(failure.kind, db::DbFailureKind::DatabaseUnavailable);
     assert!(failure.retryable);
 
     // Connection exhausted -> DatabaseUnavailable
     let harness = DbPoolFaultHarness::always(PoolFault::ConnectionExhausted);
-    let failure = harness.acquire("db.acquire").expect_err("connection exhausted");
+    let failure = harness
+        .acquire("db.acquire")
+        .expect_err("connection exhausted");
     assert_eq!(failure.kind, db::DbFailureKind::DatabaseUnavailable);
     assert!(failure.retryable);
 
     // Constraint violation -> Constraint (not retryable)
     let harness = DbPoolFaultHarness::always(PoolFault::ConstraintViolation);
-    let failure = harness.acquire("db.acquire").expect_err("constraint violation");
+    let failure = harness
+        .acquire("db.acquire")
+        .expect_err("constraint violation");
     assert_eq!(failure.kind, db::DbFailureKind::Constraint);
     assert!(!failure.retryable);
     assert_eq!(harness.attempts(), 1);
@@ -172,7 +188,10 @@ fn runtime_pool_001__connect() {
     let result = runtime.block_on(retry(bounded_attempts(3), |_| async {
         exhausted.acquire("db.acquire")
     }));
-    assert!(result.is_err(), "{api}: retry must surface timeout at ceiling");
+    assert!(
+        result.is_err(),
+        "{api}: retry must surface timeout at ceiling"
+    );
     let failure = result.unwrap_err();
     assert_eq!(failure.kind, db::DbFailureKind::Timeout);
     assert_eq!(exhausted.attempts(), 3);

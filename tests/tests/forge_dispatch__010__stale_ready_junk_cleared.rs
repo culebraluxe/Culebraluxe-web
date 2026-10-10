@@ -77,7 +77,7 @@ async fn all_serial_items(pool: &PgPool, story_id: &str) -> Vec<(String,)> {
     sqlx::query_as(
         "select state from agent_work_item
          where story_id=$1 and parallel_group_id is null
-         order by queued_at, id"
+         order by queued_at, id",
     )
     .bind(story_id)
     .fetch_all(pool)
@@ -181,12 +181,14 @@ async fn forge_dispatch_010__stale_ready_junk_cleared() {
     assert_eq!(items[0].0, "Claimed");
     assert_eq!(items[0].1, Some(WORKER.to_string()));
 
-    sqlx::query("update agent_work_item set state='Paused', updated_at=now()
-                 where story_id=$1 and parallel_group_id is null")
-        .bind(&paused_story_planned)
-        .execute(pool)
-        .await
-        .expect("pause the item");
+    sqlx::query(
+        "update agent_work_item set state='Paused', updated_at=now()
+                 where story_id=$1 and parallel_group_id is null",
+    )
+    .bind(&paused_story_planned)
+    .execute(pool)
+    .await
+    .expect("pause the item");
 
     let paused_items = serial_work_items(pool, &paused_story_planned).await;
     assert_eq!(paused_items[0].0, "Paused");
@@ -229,7 +231,11 @@ async fn forge_dispatch_010__stale_ready_junk_cleared() {
 
     // The sweep clears stale items from ALL namespaces. We expect at least 4 (our 4 stories).
     // There may be additional items from previous test runs.
-    assert!(report.cleared >= 4, "{HARNESS}: sweep clears at least 4 stale items (got {})", report.cleared);
+    assert!(
+        report.cleared >= 4,
+        "{HARNESS}: sweep clears at least 4 stale items (got {})",
+        report.cleared
+    );
 
     // Verify stories 1-4 have their items cleared to Cancelled.
     for story_id in [
@@ -239,20 +245,39 @@ async fn forge_dispatch_010__stale_ready_junk_cleared() {
         &paused_story_planned,
     ] {
         let all_items = all_serial_items(pool, story_id).await;
-        assert!(!all_items.is_empty(), "{HARNESS}: {:?} should have an item row", story_id);
-        assert_eq!(all_items[0].0, "Cancelled", "{HARNESS}: {:?} item cleared to Cancelled", story_id);
+        assert!(
+            !all_items.is_empty(),
+            "{HARNESS}: {:?} should have an item row",
+            story_id
+        );
+        assert_eq!(
+            all_items[0].0, "Cancelled",
+            "{HARNESS}: {:?} item cleared to Cancelled",
+            story_id
+        );
     }
 
     // Verify story 5 (Ready, stays Ready) item is NOT cleared.
     let items5_after = serial_work_items(pool, &ready_story_stays_ready).await;
-    assert_eq!(items5_after.len(), 1, "{HARNESS}: Ready story that stays Ready keeps its item");
+    assert_eq!(
+        items5_after.len(),
+        1,
+        "{HARNESS}: Ready story that stays Ready keeps its item"
+    );
     assert_eq!(items5_after[0].0, "Ready");
 
     // Verify story 6 (In Progress with open run) is restated to Ready and dispatched.
-    assert_eq!(story_status(pool, &in_progress_story).await, "Ready",
-        "{HARNESS}: In Progress story with open run restated to Ready");
+    assert_eq!(
+        story_status(pool, &in_progress_story).await,
+        "Ready",
+        "{HARNESS}: In Progress story with open run restated to Ready"
+    );
     let in_progress_items = serial_work_items(pool, &in_progress_story).await;
-    assert_eq!(in_progress_items.len(), 1, "{HARNESS}: restated story gets new serial item");
+    assert_eq!(
+        in_progress_items.len(),
+        1,
+        "{HARNESS}: restated story gets new serial item"
+    );
     assert_eq!(in_progress_items[0].0, "Ready");
 
     // -----------------------------------------------------------------------------------------------------------
@@ -302,13 +327,19 @@ async fn forge_dispatch_010__stale_ready_junk_cleared() {
         .expect("third sweep");
     // The settlement step should settle the Claimed item (run ended without settling).
     // Then the clear step should NOT clear it because it's no longer Ready/Paused.
-    assert!(report3.cleared == 0, "{HARNESS}: Claimed item not cleared by stale cleanup");
+    assert!(
+        report3.cleared == 0,
+        "{HARNESS}: Claimed item not cleared by stale cleanup"
+    );
 
     // Verify the Claimed item remains Claimed (settlement is for forge_work_queue only).
     // agent_work_item is settled by forge_finish_agent_work_run when the run explicitly finishes.
     let running_items = all_serial_items(pool, &running_story).await;
     assert!(!running_items.is_empty());
-    assert_eq!(running_items[0].0, "Claimed", "{HARNESS}: Claimed item remains Claimed; settlement is for forge_work_queue only");
+    assert_eq!(
+        running_items[0].0, "Claimed",
+        "{HARNESS}: Claimed item remains Claimed; settlement is for forge_work_queue only"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 10. COMMITTED TRUTH SURVIVES ROLLBACK.

@@ -104,7 +104,11 @@ fn drive_with_observer() -> (String, usize, Vec<(String, String, String, String,
         ));
     }
 
-    (fixture.current_evidence().work_type.unwrap_or_default(), calls.len(), calls)
+    (
+        fixture.current_evidence().work_type.unwrap_or_default(),
+        calls.len(),
+        calls,
+    )
 }
 
 #[test]
@@ -124,10 +128,7 @@ fn forge_identity_003__observer_correlation_has_both_instance_and_story_correctl
             !process_instance_id.is_empty(),
             "task must have process_instance_id"
         );
-        assert!(
-            !story_id.is_empty(),
-            "task must have story_id"
-        );
+        assert!(!story_id.is_empty(), "task must have story_id");
 
         // The story_id must be the canonical ENG-* key
         assert_eq!(

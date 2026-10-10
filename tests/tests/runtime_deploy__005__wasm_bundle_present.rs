@@ -27,7 +27,7 @@
 use std::fs;
 use std::path::PathBuf;
 use test_harness::RuntimeHarness;
-use web::site::{site_dir, shell};
+use web::site::{shell, site_dir};
 
 #[test]
 #[allow(non_snake_case)]
@@ -39,7 +39,11 @@ fn runtime_deploy_005__wasm_bundle_present() {
     // The actual build artifact should exist in the repository
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
         .unwrap_or_else(|_| "/Users/Shared/dev/src/lane-nemotron".to_string());
-    let root = std::path::Path::new(&manifest_dir).parent().unwrap().parent().unwrap();
+    let root = std::path::Path::new(&manifest_dir)
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
     let public_rust_ui = root.join("public").join("rust-ui");
     let wasm_path = public_rust_ui.join("ui_bg.wasm");
     let js_path = public_rust_ui.join("ui.js");

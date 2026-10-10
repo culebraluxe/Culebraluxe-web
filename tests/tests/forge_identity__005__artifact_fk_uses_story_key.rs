@@ -39,8 +39,8 @@
 #[path = "support/forge_seam.rs"]
 mod support;
 
-use support::*;
 use db::NewToolArtifact;
+use support::*;
 
 /// Drive a story through the Forge runtime and verify artifact correlation through the writer.
 fn drive_and_check_artifacts() -> Vec<NewToolArtifact> {
@@ -92,8 +92,15 @@ fn forge_identity_005__artifact_fk_uses_story_key() {
     }
 
     // 2. Negative case: verify the test would catch process UUID substitution
-    let uuid_as_fk = artifacts.iter().any(|a| a.story_run_id.as_deref().map(is_uuid).unwrap_or(false));
-    let proc_as_fk = artifacts.iter().any(|a| a.story_run_id.as_deref().map(|s| s.starts_with("proc-")).unwrap_or(false));
+    let uuid_as_fk = artifacts
+        .iter()
+        .any(|a| a.story_run_id.as_deref().map(is_uuid).unwrap_or(false));
+    let proc_as_fk = artifacts.iter().any(|a| {
+        a.story_run_id
+            .as_deref()
+            .map(|s| s.starts_with("proc-"))
+            .unwrap_or(false)
+    });
 
     assert!(
         !uuid_as_fk && !proc_as_fk,

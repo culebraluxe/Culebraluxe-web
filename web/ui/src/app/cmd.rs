@@ -6,6 +6,77 @@
 
 use serde::de::DeserializeOwned;
 
+/// Opaque handle to a browser `File`. On wasm this indexes a global registry; on host it carries
+/// metadata so commands remain constructible and debuggable without `web_sys`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileHandle {
+    /// Stable index into the wasm-side file registry (valid only on wasm).
+    index: u32,
+    /// File name for debugging and for the upload protocol.
+    name: String,
+    /// File size in bytes for the upload protocol.
+    size: u64,
+    /// MIME type for the upload protocol.
+    mime_type: String,
+}
+
+impl FileHandle {
+    /// Create a handle from a wasm `File`, registering it in the global registry.
+    /// This function is only available when the `wasm` feature is enabled.
+    #[cfg(feature = "wasm")]
+    pub fn from_web_sys(file: web_sys::File) -> Self {
+        use crate::app::file_registry::register_file;
+        let name = file.name();
+        let size = file.size() as u64;
+        let mime_type = file.type_();
+        let index = register_file(file);
+        Self {
+            index: index.0,
+            name,
+            size,
+            mime_type,
+        }
+    }
+
+    /// Create a handle for host tests with just metadata. The index is ignored on host.
+    pub fn for_host(name: impl Into<String>, size: u64, mime_type: impl Into<String>) -> Self {
+        Self {
+            index: 0,
+            name: name.into(),
+            size,
+            mime_type: mime_type.into(),
+        }
+    }
+
+    /// Get the file name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Get the file size in bytes.
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Get the MIME type.
+    pub fn mime_type(&self) -> &str {
+        &self.mime_type
+    }
+
+    /// Get the registry index (wasm only).
+    #[cfg(feature = "wasm")]
+    pub fn index(&self) -> crate::app::file_registry::FileRegistryIndex {
+        crate::app::file_registry::FileRegistryIndex(self.index)
+    }
+
+    /// Consume the handle and return the inner file from the registry (wasm only).
+    /// This removes the file from the registry.
+    #[cfg(feature = "wasm")]
+    pub fn take_file(self) -> Option<web_sys::File> {
+        crate::app::file_registry::take_file(self.index())
+    }
+}
+
 /// A failed request, in one shape for every screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiError {
@@ -188,7 +259,7 @@ pub enum Cmd<Msg> {
     PostForm {
         path: String,
         fields: Vec<(String, String)>,
-        file: web_sys::File,
+        file: FileHandle,
         reply: Box<dyn FnOnce(Result<serde_json::Value, ApiError>) -> Msg>,
     },
     /// Render the Google property map into the container with this id: load
@@ -226,7 +297,7 @@ pub struct SignatureArt {
 /// `filename`, `mimeType`, `byteSize`, `chunkCount`, `chunkSize`) and answers an `uploadId`; each `chunk` carries one
 /// piece in order; `complete` assembles and attaches it. `fields` go with every step, `init_fields` with the first only.
 pub struct Upload<Msg> {
-    pub file: web_sys::File,
+    pub file: FileHandle,
     pub path: String,
     pub fields: Vec<(String, String)>,
     pub init_fields: Vec<(String, String)>,
@@ -242,7 +313,7 @@ pub struct VideoProgress {
 }
 
 pub struct VideoUpload<Msg> {
-    pub file: web_sys::File,
+    pub file: FileHandle,
     pub property_id: String,
     pub role: String,
     pub caption: String,
@@ -252,7 +323,7 @@ pub struct VideoUpload<Msg> {
 
 impl<Msg: 'static> Cmd<Msg> {
     pub fn video_upload(
-        file: web_sys::File,
+        file: FileHandle,
         property_id: String,
         role: String,
         caption: String,
@@ -330,7 +401,7 @@ impl<Msg: 'static> Cmd<Msg> {
     pub fn post_form(
         endpoint: impl FileEndpoint,
         fields: Vec<(String, String)>,
-        file: web_sys::File,
+        file: FileHandle,
         to_msg: impl FnOnce(Result<serde_json::Value, ApiError>) -> Msg + 'static,
     ) -> Self {
         Cmd::PostForm {
@@ -386,7 +457,7 @@ impl<Msg: 'static> Cmd<Msg> {
     }
 
     pub fn upload(
-        file: web_sys::File,
+        file: FileHandle,
         endpoint: impl FileEndpoint,
         fields: Vec<(String, String)>,
         init_fields: Vec<(String, String)>,

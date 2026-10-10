@@ -140,11 +140,15 @@ async fn forge_dispatch_005__story_no_longer_ready_cannot_be_claimed() {
         .reconcile_dispatch_queue()
         .await
         .expect("sweep the DEV queue");
-    assert!(report.cleared >= 1, "{HARNESS}: sweep clears Ready item for Planned story (cleared={})", report.cleared);
+    assert!(
+        report.cleared >= 1,
+        "{HARNESS}: sweep clears Ready item for Planned story (cleared={})",
+        report.cleared
+    );
 
     // Debug: check item state directly using a fresh query
     let debug_items: Vec<(String,)> = sqlx::query_as(
-        "select state from agent_work_item where story_id=$1 and parallel_group_id is null"
+        "select state from agent_work_item where story_id=$1 and parallel_group_id is null",
     )
     .bind(&story_planned)
     .fetch_all(pool)
@@ -154,20 +158,32 @@ async fn forge_dispatch_005__story_no_longer_ready_cannot_be_claimed() {
 
     // After sweep, item should be Cancelled.
     let items_after_sweep = serial_work_items(pool, &story_planned).await;
-    assert!(items_after_sweep.is_empty(), "{HARNESS}: Ready item cleared by sweep for Planned story");
+    assert!(
+        items_after_sweep.is_empty(),
+        "{HARNESS}: Ready item cleared by sweep for Planned story"
+    );
     let all_items: Vec<(String,)> = sqlx::query_as(
-        "select state from agent_work_item where story_id=$1 and parallel_group_id is null"
+        "select state from agent_work_item where story_id=$1 and parallel_group_id is null",
     )
     .bind(&story_planned)
     .fetch_all(pool)
     .await
     .expect("read all serial items");
-    assert_eq!(all_items[0].0, "Cancelled", "{HARNESS}: item cleared to Cancelled");
+    assert_eq!(
+        all_items[0].0, "Cancelled",
+        "{HARNESS}: item cleared to Cancelled"
+    );
 
     // Now try to claim the Cancelled item - should fail.
-    let claim_result = harness.engine().claim_specific_agent_work(&item_id, "another-worker").await;
+    let claim_result = harness
+        .engine()
+        .claim_specific_agent_work(&item_id, "another-worker")
+        .await;
     assert!(claim_result.is_ok(), "claim call succeeds");
-    assert!(claim_result.unwrap().is_none(), "{HARNESS}: claim refused for Cancelled item");
+    assert!(
+        claim_result.unwrap().is_none(),
+        "{HARNESS}: claim refused for Cancelled item"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 2. STORY AT COMPLETE — story completed, item still Ready. Sweep clears it.
@@ -193,14 +209,26 @@ async fn forge_dispatch_005__story_no_longer_ready_cannot_be_claimed() {
         .reconcile_dispatch_queue()
         .await
         .expect("second sweep");
-    assert!(report2.cleared >= 1, "{HARNESS}: sweep clears Ready item for Complete story");
+    assert!(
+        report2.cleared >= 1,
+        "{HARNESS}: sweep clears Ready item for Complete story"
+    );
 
     let items_after2 = serial_work_items(pool, &story_done).await;
-    assert!(items_after2.is_empty(), "{HARNESS}: Ready item cleared by sweep for Complete story");
+    assert!(
+        items_after2.is_empty(),
+        "{HARNESS}: Ready item cleared by sweep for Complete story"
+    );
 
-    let claim_result2 = harness.engine().claim_specific_agent_work(&item_id2, "another-worker").await;
+    let claim_result2 = harness
+        .engine()
+        .claim_specific_agent_work(&item_id2, "another-worker")
+        .await;
     assert!(claim_result2.is_ok());
-    assert!(claim_result2.unwrap().is_none(), "{HARNESS}: claim refused for Cancelled item");
+    assert!(
+        claim_result2.unwrap().is_none(),
+        "{HARNESS}: claim refused for Cancelled item"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 3. POSITIVE CONTROL — story at Ready, claim succeeds.
@@ -228,7 +256,7 @@ async fn forge_dispatch_005__story_no_longer_ready_cannot_be_claimed() {
     // Verify items are cleared to Cancelled.
     for story_id in [&story_planned, &story_done] {
         let all_items: Vec<(String,)> = sqlx::query_as(
-            "select state from agent_work_item where story_id=$1 and parallel_group_id is null"
+            "select state from agent_work_item where story_id=$1 and parallel_group_id is null",
         )
         .bind(story_id)
         .fetch_all(pool)
@@ -236,7 +264,11 @@ async fn forge_dispatch_005__story_no_longer_ready_cannot_be_claimed() {
         .expect("read all serial items");
         // The item should now be Cancelled.
         assert!(!all_items.is_empty());
-        assert_eq!(all_items[0].0, "Cancelled", "{HARNESS}: item cleared to Cancelled for {:?}", story_id);
+        assert_eq!(
+            all_items[0].0, "Cancelled",
+            "{HARNESS}: item cleared to Cancelled for {:?}",
+            story_id
+        );
     }
 
     // -----------------------------------------------------------------------------------------------------------

@@ -42,17 +42,27 @@ fn ui_model_004__empty() {
             "comms": null,
             "properties": []
         }
-    })).unwrap();
+    }))
+    .unwrap();
 
     let loaded_msg = Msg::Loaded(Ok(empty_answer));
     let follow_up = harness.update(loaded_msg);
 
     // The model should now be Loaded with empty data
     let model = harness.model();
-    let data = model.data.loaded().expect("{HARNESS}: update must transition to Remote::Loaded");
+    let data = model
+        .data
+        .loaded()
+        .expect("{HARNESS}: update must transition to Remote::Loaded");
     assert_eq!(data.total, 0, "{HARNESS}: empty data must have total = 0");
-    assert!(data.rows.is_empty(), "{HARNESS}: empty data must have no rows");
-    assert!(data.selected.is_none(), "{HARNESS}: empty data must have no selected client");
+    assert!(
+        data.rows.is_empty(),
+        "{HARNESS}: empty data must have no rows"
+    );
+    assert!(
+        data.selected.is_none(),
+        "{HARNESS}: empty data must have no selected client"
+    );
 
     // The follow-up command should be None
     let kinds = test_harness::mvi::screen::classify(&follow_up);

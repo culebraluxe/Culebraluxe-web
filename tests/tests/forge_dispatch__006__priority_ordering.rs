@@ -84,7 +84,7 @@ async fn all_serial_items_ordered(pool: &PgPool) -> Vec<(String, String, String)
          where w.parallel_group_id is null
            and w.state in ('Ready', 'Claimed', 'Running', 'Paused')
            and w.story_id like 'TST-FORGE-DISPATCH-006-%'
-         order by w.queued_at"
+         order by w.queued_at",
     )
     .fetch_all(pool)
     .await
@@ -124,7 +124,12 @@ async fn forge_dispatch_006__priority_ordering() {
         (&low_priority, "Low"),
     ] {
         let items = serial_work_items(pool, story_id).await;
-        assert_eq!(items.len(), 1, "{HARNESS}: {} priority story has one serial item", priority);
+        assert_eq!(
+            items.len(),
+            1,
+            "{HARNESS}: {} priority story has one serial item",
+            priority
+        );
         assert_eq!(items[0].0, "Ready");
     }
 
@@ -136,7 +141,10 @@ async fn forge_dispatch_006__priority_ordering() {
         .reconcile_dispatch_queue()
         .await
         .expect("sweep the DEV queue");
-    assert_eq!(report.queued, 0, "{HARNESS}: sweep does not re-dispatch already-queued stories");
+    assert_eq!(
+        report.queued, 0,
+        "{HARNESS}: sweep does not re-dispatch already-queued stories"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 3. PRIORITY SCORES — verify the trigger sets correct priority scores on work items.
@@ -148,7 +156,10 @@ async fn forge_dispatch_006__priority_ordering() {
     .fetch_one(pool)
     .await
     .expect("get high priority item");
-    assert_eq!(high_item.1, 80, "{HARNESS}: High priority item has score 80");
+    assert_eq!(
+        high_item.1, 80,
+        "{HARNESS}: High priority item has score 80"
+    );
 
     let medium_item: (String, i32) = sqlx::query_as(
         "select id::text, priority from agent_work_item where story_id=$1 and parallel_group_id is null and state in ('Ready', 'Claimed', 'Running', 'Paused')"
@@ -157,7 +168,10 @@ async fn forge_dispatch_006__priority_ordering() {
     .fetch_one(pool)
     .await
     .expect("get medium priority item");
-    assert_eq!(medium_item.1, 50, "{HARNESS}: Medium priority item has score 50");
+    assert_eq!(
+        medium_item.1, 50,
+        "{HARNESS}: Medium priority item has score 50"
+    );
 
     let low_item: (String, i32) = sqlx::query_as(
         "select id::text, priority from agent_work_item where story_id=$1 and parallel_group_id is null and state in ('Ready', 'Claimed', 'Running', 'Paused')"
@@ -173,19 +187,31 @@ async fn forge_dispatch_006__priority_ordering() {
     //    This verifies the items can be claimed and the priority scores are correct.
     // -----------------------------------------------------------------------------------------------------------
     // Claim High priority first.
-    let result1 = harness.engine().claim_specific_agent_work(&high_item.0, LIVE_WORKER).await;
+    let result1 = harness
+        .engine()
+        .claim_specific_agent_work(&high_item.0, LIVE_WORKER)
+        .await;
     assert!(result1.is_ok());
     let claimed1 = result1.unwrap();
     assert!(claimed1.is_some(), "{HARNESS}: High priority item claimed");
 
     // Claim Medium priority second.
-    let result2 = harness.engine().claim_specific_agent_work(&medium_item.0, LIVE_WORKER).await;
+    let result2 = harness
+        .engine()
+        .claim_specific_agent_work(&medium_item.0, LIVE_WORKER)
+        .await;
     assert!(result2.is_ok());
     let claimed2 = result2.unwrap();
-    assert!(claimed2.is_some(), "{HARNESS}: Medium priority item claimed");
+    assert!(
+        claimed2.is_some(),
+        "{HARNESS}: Medium priority item claimed"
+    );
 
     // Claim Low priority third.
-    let result3 = harness.engine().claim_specific_agent_work(&low_item.0, LIVE_WORKER).await;
+    let result3 = harness
+        .engine()
+        .claim_specific_agent_work(&low_item.0, LIVE_WORKER)
+        .await;
     assert!(result3.is_ok());
     let claimed3 = result3.unwrap();
     assert!(claimed3.is_some(), "{HARNESS}: Low priority item claimed");
@@ -196,13 +222,16 @@ async fn forge_dispatch_006__priority_ordering() {
     let remaining: Vec<(String,)> = sqlx::query_as(
         "select id::text from agent_work_item
          where story_id like $1
-           and state = 'Ready' and parallel_group_id is null"
+           and state = 'Ready' and parallel_group_id is null",
     )
     .bind(format!("{PROOF_PREFIX}%-{ns}"))
     .fetch_all(pool)
     .await
     .expect("check remaining Ready items");
-    assert!(remaining.is_empty(), "{HARNESS}: no more Ready items for test stories");
+    assert!(
+        remaining.is_empty(),
+        "{HARNESS}: no more Ready items for test stories"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 6. FAULT CASE — insert a new High priority story after all claimed.
@@ -218,7 +247,10 @@ async fn forge_dispatch_006__priority_ordering() {
         .await
         .expect("sweep for new high priority");
     // The trigger already created the item on insert, so sweep does not queue it again.
-    assert_eq!(report2.queued, 0, "{HARNESS}: new High priority story already has item from trigger");
+    assert_eq!(
+        report2.queued, 0,
+        "{HARNESS}: new High priority story already has item from trigger"
+    );
 
     // Verify new item has High priority score.
     let new_high_item: (String, i32) = sqlx::query_as(
@@ -228,12 +260,21 @@ async fn forge_dispatch_006__priority_ordering() {
     .fetch_one(pool)
     .await
     .expect("get new high priority item");
-    assert_eq!(new_high_item.1, 80, "{HARNESS}: new High priority item has score 80");
+    assert_eq!(
+        new_high_item.1, 80,
+        "{HARNESS}: new High priority item has score 80"
+    );
 
     // Claim it.
-    let result5 = harness.engine().claim_specific_agent_work(&new_high_item.0, LIVE_WORKER).await;
+    let result5 = harness
+        .engine()
+        .claim_specific_agent_work(&new_high_item.0, LIVE_WORKER)
+        .await;
     assert!(result5.is_ok());
-    assert!(result5.unwrap().is_some(), "{HARNESS}: new High priority item claimed");
+    assert!(
+        result5.unwrap().is_some(),
+        "{HARNESS}: new High priority item claimed"
+    );
 
     // -----------------------------------------------------------------------------------------------------------
     // 6. COMMITTED TRUTH SURVIVES ROLLBACK.
@@ -273,11 +314,12 @@ async fn forge_dispatch_006__priority_ordering() {
         .expect("the rolled-back probe must run");
     assert_eq!(inside_probe, "Low");
     // Verify the original priority is restored after rollback.
-    let original_priority: String = sqlx::query_scalar("select priority from storyboard_story where id=$1")
-        .bind(&high_priority)
-        .fetch_one(pool)
-        .await
-        .expect("read original priority");
+    let original_priority: String =
+        sqlx::query_scalar("select priority from storyboard_story where id=$1")
+            .bind(&high_priority)
+            .fetch_one(pool)
+            .await
+            .expect("read original priority");
     assert_eq!(original_priority, "High");
 
     // -----------------------------------------------------------------------------------------------------------

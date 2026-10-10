@@ -152,9 +152,19 @@ fn wf_human_task_012__process_terminated_while_task_open() {
 
     // ── 1. START THE PROCESS, TASK IS OPEN (READY) ──────────────────────────────────────────────────────────────
     let (instance, parked) = start_and_park(&harness, TERMINATED_OPEN_KEY);
-    assert_eq!(parked.status, TaskStatus::Ready, "{HARNESS}: task parks Ready");
-    assert_eq!(parked.assignee, None, "{HARNESS}: open task has no assignee");
-    assert!(parked.candidates.is_empty(), "{HARNESS}: open task has no candidates");
+    assert_eq!(
+        parked.status,
+        TaskStatus::Ready,
+        "{HARNESS}: task parks Ready"
+    );
+    assert_eq!(
+        parked.assignee, None,
+        "{HARNESS}: open task has no assignee"
+    );
+    assert!(
+        parked.candidates.is_empty(),
+        "{HARNESS}: open task has no candidates"
+    );
     assert_eq!(instance_status(&harness, &instance), ProcessStatus::Active);
 
     // ── 2. TERMINATE THE PROCESS WHILE TASK IS OPEN ────────────────────────────────────────────────────────────
@@ -227,13 +237,11 @@ fn wf_human_task_012__process_terminated_while_task_open() {
     );
 
     // ── 6. VERIFY A SECOND CANCEL IS IDEMPOTENT ─────────────────────────────────────────────────────────────────
-    let second_cancel = harness
-        .engine()
-        .cancel_process(CancelProcessParams {
-            process_instance_id: instance.clone(),
-            actor: MANAGER.to_string(),
-            reason: Some("second cancel".to_string()),
-        });
+    let second_cancel = harness.engine().cancel_process(CancelProcessParams {
+        process_instance_id: instance.clone(),
+        actor: MANAGER.to_string(),
+        reason: Some("second cancel".to_string()),
+    });
     assert!(
         second_cancel.is_ok(),
         "{HARNESS}: second cancel on already-aborted process is idempotent"

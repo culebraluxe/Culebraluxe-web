@@ -19,9 +19,9 @@ use std::collections::BTreeMap;
 
 use test_harness::{EngineHarness, TestClock};
 use workflow::{
-    CompleteTaskParams, DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessEvent,
+    json, CompleteTaskParams, DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessEvent,
     ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams, Task, TaskStatus,
-    TransitionDefinition, Value, json,
+    TransitionDefinition, Value,
 };
 
 const HARNESS: &str = "WorkflowHarness/L3 Composition";
@@ -154,7 +154,16 @@ fn instance_status(harness: &EngineHarness, instance: &str) -> ProcessStatus {
         .status
 }
 
-fn fingerprint(task: &Task) -> (TaskStatus, Option<String>, Option<i64>, Option<i64>, Option<String>, i32) {
+fn fingerprint(
+    task: &Task,
+) -> (
+    TaskStatus,
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+    i32,
+) {
     (
         task.status,
         task.assignee.clone(),

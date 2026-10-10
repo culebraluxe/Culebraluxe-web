@@ -64,7 +64,10 @@ impl ForgeRoleRunner for SmithNeverSplit {
             transition_name: Some("complete".into()),
             evidence: forge::engine::facts::ForgeGateEvidence::default(),
         };
-        self.transitions.lock().expect("lock").push("complete".to_string());
+        self.transitions
+            .lock()
+            .expect("lock")
+            .push("complete".to_string());
         Ok(outcome)
     }
 }

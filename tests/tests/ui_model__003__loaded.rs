@@ -39,7 +39,10 @@ fn ui_model_003__loaded() {
 
     // The model should now be Loaded with data
     let model = harness.model();
-    let data = model.data.loaded().expect("{HARNESS}: update must transition to Remote::Loaded");
+    let data = model
+        .data
+        .loaded()
+        .expect("{HARNESS}: update must transition to Remote::Loaded");
     assert!(
         !data.rows.is_empty(),
         "{HARNESS}: loaded data must contain rows"

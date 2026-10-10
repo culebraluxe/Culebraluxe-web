@@ -37,7 +37,10 @@ fn ui_model_007__stale_response() {
 
     // Verify we're now Loaded with page 1 data
     let model = harness.model();
-    let data1 = model.data.loaded().expect("{HARNESS}: first response must transition to Loaded");
+    let data1 = model
+        .data
+        .loaded()
+        .expect("{HARNESS}: first response must transition to Loaded");
     let total1 = data1.total;
 
     // Now simulate a search that triggers a new request (page 0 with search)
@@ -49,7 +52,10 @@ fn ui_model_007__stale_response() {
 
     // The model should be refreshing
     let model = harness.model();
-    assert!(model.refreshing, "{HARNESS}: search must set refreshing = true");
+    assert!(
+        model.refreshing,
+        "{HARNESS}: search must set refreshing = true"
+    );
 
     // Now simulate the SECOND response arriving (the search results)
     let answer2: PortalPage = serde_json::from_value(serde_json::json!({
@@ -68,9 +74,18 @@ fn ui_model_007__stale_response() {
 
     // Verify we're now Loaded with search results
     let model = harness.model();
-    let data2 = model.data.loaded().expect("{HARNESS}: search response must transition to Loaded");
-    assert_eq!(data2.total, 1, "{HARNESS}: search results must have total = 1");
-    assert!(!model.refreshing, "{HARNESS}: refreshing must be false after response");
+    let data2 = model
+        .data
+        .loaded()
+        .expect("{HARNESS}: search response must transition to Loaded");
+    assert_eq!(
+        data2.total, 1,
+        "{HARNESS}: search results must have total = 1"
+    );
+    assert!(
+        !model.refreshing,
+        "{HARNESS}: refreshing must be false after response"
+    );
 
     // NOW simulate a STALE response arriving (the original page 1 response arriving late)
     // The screen should ignore this because refreshing was true and we already got a newer response
@@ -80,8 +95,14 @@ fn ui_model_007__stale_response() {
 
     // The model should STILL have the search results (stale response ignored)
     let model = harness.model();
-    let data = model.data.loaded().expect("{HARNESS}: stale response must not overwrite newer data");
-    assert_eq!(data.total, 1, "{HARNESS}: stale response must not overwrite search results");
+    let data = model
+        .data
+        .loaded()
+        .expect("{HARNESS}: stale response must not overwrite newer data");
+    assert_eq!(
+        data.total, 1,
+        "{HARNESS}: stale response must not overwrite search results"
+    );
     assert!(!model.refreshing, "{HARNESS}: refreshing must remain false");
 
     // Negative/refusal case: if the screen accepted the stale response and reverted to old data, the test would fail

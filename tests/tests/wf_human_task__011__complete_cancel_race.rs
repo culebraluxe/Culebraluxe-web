@@ -21,9 +21,9 @@ use std::collections::BTreeMap;
 
 use test_harness::{EngineHarness, TestClock};
 use workflow::{
-    CancelProcessParams, CompleteTaskParams, DefinitionStatus, NodeDefinition, ProcessDefinition,
-    ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams, Task, TaskStatus,
-    TransitionDefinition, Value, json,
+    json, CancelProcessParams, CompleteTaskParams, DefinitionStatus, NodeDefinition,
+    ProcessDefinition, ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams, Task,
+    TaskStatus, TransitionDefinition, Value,
 };
 
 const HARNESS: &str = "WorkflowHarness/L3 Composition";
@@ -169,7 +169,10 @@ fn wf_human_task_011__complete_cancel_race() {
             reason: Some("race test".to_string()),
         })
         .expect("cancel process succeeds");
-    assert_eq!(instance_status(&harness1, &instance1), ProcessStatus::Aborted);
+    assert_eq!(
+        instance_status(&harness1, &instance1),
+        ProcessStatus::Aborted
+    );
 
     // Then Alice tries to complete the task.
     let complete_refused = harness1
@@ -219,16 +222,17 @@ fn wf_human_task_011__complete_cancel_race() {
         .expect("complete succeeds");
     let completed2 = task_by_id(&harness2, &parked2.id);
     assert_eq!(completed2.status, TaskStatus::Completed);
-    assert_eq!(instance_status(&harness2, &instance2), ProcessStatus::Completed);
+    assert_eq!(
+        instance_status(&harness2, &instance2),
+        ProcessStatus::Completed
+    );
 
     // Then cancel the process - should fail with PROCESS_NOT_ACTIVE since the process is already Completed.
-    let cancel_result = harness2
-        .engine()
-        .cancel_process(CancelProcessParams {
-            process_instance_id: instance2.clone(),
-            actor: MANAGER.to_string(),
-            reason: Some("race test".to_string()),
-        });
+    let cancel_result = harness2.engine().cancel_process(CancelProcessParams {
+        process_instance_id: instance2.clone(),
+        actor: MANAGER.to_string(),
+        reason: Some("race test".to_string()),
+    });
     // cancel_process returns PROCESS_NOT_ACTIVE for already-completed processes (only idempotent for Cancelled).
     assert!(
         cancel_result.is_err(),
@@ -241,7 +245,10 @@ fn wf_human_task_011__complete_cancel_race() {
         "{HARNESS}: cancel on completed process fails with PROCESS_NOT_ACTIVE"
     );
     // The process and task should remain Completed.
-    assert_eq!(instance_status(&harness2, &instance2), ProcessStatus::Completed);
+    assert_eq!(
+        instance_status(&harness2, &instance2),
+        ProcessStatus::Completed
+    );
     let task_after_cancel = task_by_id(&harness2, &parked2.id);
     assert_eq!(task_after_cancel.status, TaskStatus::Completed);
 }

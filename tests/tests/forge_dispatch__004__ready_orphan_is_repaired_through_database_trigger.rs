@@ -75,7 +75,10 @@ async fn serial_work_items(pool: &PgPool, story_id: &str) -> Vec<(String, Option
     .expect("read the story's serial work items")
 }
 
-async fn all_work_items(pool: &PgPool, story_id: &str) -> Vec<(String, Option<String>, Option<String>)> {
+async fn all_work_items(
+    pool: &PgPool,
+    story_id: &str,
+) -> Vec<(String, Option<String>, Option<String>)> {
     sqlx::query_as(
         "select state, claimed_by, parallel_group_id::text from agent_work_item
          where story_id=$1
@@ -120,12 +123,14 @@ async fn forge_dispatch_004__ready_orphan_is_repaired_through_database_trigger()
     let original_item_state = initial_items[0].0.clone();
 
     // Simulate the item going terminal (Done) — this is what happens when a run completes.
-    sqlx::query("update agent_work_item set state='Done', finished_at=now(), updated_at=now()
-                 where story_id=$1 and parallel_group_id is null")
-        .bind(&ready_orphan)
-        .execute(pool)
-        .await
-        .expect("mark item Done");
+    sqlx::query(
+        "update agent_work_item set state='Done', finished_at=now(), updated_at=now()
+                 where story_id=$1 and parallel_group_id is null",
+    )
+    .bind(&ready_orphan)
+    .execute(pool)
+    .await
+    .expect("mark item Done");
 
     // Verify: story still at Ready, but NO serial Ready/Claimed/Running/Paused item.
     let orphan_items = serial_work_items(pool, &ready_orphan).await;
@@ -151,8 +156,7 @@ async fn forge_dispatch_004__ready_orphan_is_repaired_through_database_trigger()
 
     // The sweep should have queued exactly one new item for this story.
     assert_eq!(
-        report.queued,
-        1,
+        report.queued, 1,
         "{HARNESS}: sweep repairs Ready orphan by queuing exactly one item"
     );
 
@@ -181,7 +185,10 @@ async fn forge_dispatch_004__ready_orphan_is_repaired_through_database_trigger()
     );
     let done_count = all_items.iter().filter(|(s, _, _)| s == "Done").count();
     let ready_count = all_items.iter().filter(|(s, _, _)| s == "Ready").count();
-    assert_eq!(done_count, 1, "{HARNESS}: one Done item from original dispatch");
+    assert_eq!(
+        done_count, 1,
+        "{HARNESS}: one Done item from original dispatch"
+    );
     assert_eq!(ready_count, 1, "{HARNESS}: one Ready item from repair");
 
     // -----------------------------------------------------------------------------------------------------------
@@ -191,14 +198,18 @@ async fn forge_dispatch_004__ready_orphan_is_repaired_through_database_trigger()
     let initial2 = serial_work_items(pool, &ready_with_cancelled_item).await;
     assert_eq!(initial2.len(), 1);
 
-    sqlx::query("update agent_work_item set state='Cancelled', finished_at=now(), updated_at=now()
-                 where story_id=$1 and parallel_group_id is null")
-        .bind(&ready_with_cancelled_item)
-        .execute(pool)
-        .await
-        .expect("mark item Cancelled");
+    sqlx::query(
+        "update agent_work_item set state='Cancelled', finished_at=now(), updated_at=now()
+                 where story_id=$1 and parallel_group_id is null",
+    )
+    .bind(&ready_with_cancelled_item)
+    .execute(pool)
+    .await
+    .expect("mark item Cancelled");
 
-    assert!(serial_work_items(pool, &ready_with_cancelled_item).await.is_empty());
+    assert!(serial_work_items(pool, &ready_with_cancelled_item)
+        .await
+        .is_empty());
 
     let report2 = harness
         .engine()
@@ -218,14 +229,18 @@ async fn forge_dispatch_004__ready_orphan_is_repaired_through_database_trigger()
     let initial3 = serial_work_items(pool, &ready_with_done_item).await;
     assert_eq!(initial3.len(), 1);
 
-    sqlx::query("update agent_work_item set state='Done', finished_at=now(), updated_at=now()
-                 where story_id=$1 and parallel_group_id is null")
-        .bind(&ready_with_done_item)
-        .execute(pool)
-        .await
-        .expect("mark item Done");
+    sqlx::query(
+        "update agent_work_item set state='Done', finished_at=now(), updated_at=now()
+                 where story_id=$1 and parallel_group_id is null",
+    )
+    .bind(&ready_with_done_item)
+    .execute(pool)
+    .await
+    .expect("mark item Done");
 
-    assert!(serial_work_items(pool, &ready_with_done_item).await.is_empty());
+    assert!(serial_work_items(pool, &ready_with_done_item)
+        .await
+        .is_empty());
 
     let report3 = harness
         .engine()
@@ -250,8 +265,7 @@ async fn forge_dispatch_004__ready_orphan_is_repaired_through_database_trigger()
         .await
         .expect("fourth sweep");
     assert_eq!(
-        report4.queued,
-        0,
+        report4.queued, 0,
         "{HARNESS}: sweep does not re-repair a story that already has a serial item"
     );
 

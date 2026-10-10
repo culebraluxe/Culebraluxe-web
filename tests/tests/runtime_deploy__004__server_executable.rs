@@ -26,10 +26,10 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test runtime_deploy__004__server_executable
 
-use std::process::{Command, Stdio};
-use std::time::Duration;
-use std::thread;
 use std::io::Read;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
 
 #[test]
 #[allow(non_snake_case)]
@@ -42,8 +42,12 @@ fn runtime_deploy_004__server_executable() {
     let root = std::path::Path::new(&manifest_dir).parent().unwrap();
 
     // Find the target directory - use CARGO_TARGET_DIR or default
-    let target_dir = std::env::var("CARGO_TARGET_DIR")
-        .unwrap_or_else(|_| root.join("build").join("rust").to_string_lossy().to_string());
+    let target_dir = std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| {
+        root.join("build")
+            .join("rust")
+            .to_string_lossy()
+            .to_string()
+    });
 
     let binary_path = std::path::Path::new(&target_dir)
         .join("release")
@@ -54,10 +58,13 @@ fn runtime_deploy_004__server_executable() {
         let output = Command::new("cargo")
             .args([
                 "build",
-                "--manifest-path", &root.join("Cargo.toml").to_string_lossy(),
-                "--bin", "web",
+                "--manifest-path",
+                &root.join("Cargo.toml").to_string_lossy(),
+                "--bin",
+                "web",
                 "--release",
-                "--target-dir", &target_dir,
+                "--target-dir",
+                &target_dir,
             ])
             .output()
             .expect("cargo build failed to run");
@@ -68,7 +75,11 @@ fn runtime_deploy_004__server_executable() {
         }
     }
 
-    assert!(binary_path.exists(), "{api}: server binary must exist at {:?}", binary_path);
+    assert!(
+        binary_path.exists(),
+        "{api}: server binary must exist at {:?}",
+        binary_path
+    );
 
     // ---- NEGATIVE: Missing required environment (APP_ENV) ----
     let mut child = Command::new(&binary_path)
@@ -131,14 +142,18 @@ fn runtime_deploy_004__server_executable() {
                 let _ = err.read_to_string(&mut stderr);
             }
             assert!(
-                stderr.contains("DATABASE_URL_DEV") || stderr.contains("database") || stderr.contains("connection"),
+                stderr.contains("DATABASE_URL_DEV")
+                    || stderr.contains("database")
+                    || stderr.contains("connection"),
                 "{api}: error must mention missing database URL, got: {stderr}"
             );
         }
         Ok(None) => {
             child2.kill().expect("kill");
             let _ = child2.wait();
-            panic!("{api}: server should have failed without DATABASE_URL_DEV but is still running");
+            panic!(
+                "{api}: server should have failed without DATABASE_URL_DEV but is still running"
+            );
         }
         Err(e) => {
             panic!("{api}: failed to check process status: {e}");
@@ -168,14 +183,18 @@ fn runtime_deploy_004__server_executable() {
                 let _ = err.read_to_string(&mut stderr);
             }
             assert!(
-                stderr.contains("database") || stderr.contains("connection") || stderr.contains("lookup"),
+                stderr.contains("database")
+                    || stderr.contains("connection")
+                    || stderr.contains("lookup"),
                 "{api}: error must mention database connection failure, got: {stderr}"
             );
         }
         Ok(None) => {
             child3.kill().expect("kill");
             let _ = child3.wait();
-            panic!("{api}: server should have failed with invalid database URL but is still running");
+            panic!(
+                "{api}: server should have failed with invalid database URL but is still running"
+            );
         }
         Err(e) => {
             panic!("{api}: failed to check process status: {e}");

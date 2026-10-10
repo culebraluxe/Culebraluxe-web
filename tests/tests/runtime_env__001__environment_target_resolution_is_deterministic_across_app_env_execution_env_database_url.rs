@@ -28,12 +28,13 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test runtime_env__001__environment_target_resolution_is_deterministic_across_app_env_execution_env_database_url
 
-use test_harness::RuntimeHarness;
 use db::{resolve_declared_target, DbTarget};
+use test_harness::RuntimeHarness;
 
 #[test]
 #[allow(non_snake_case)]
-fn runtime_env_001__environment_target_resolution_is_deterministic_across_app_env_execution_env_database_url() {
+fn runtime_env_001__environment_target_resolution_is_deterministic_across_app_env_execution_env_database_url(
+) {
     let mut env = RuntimeHarness::acquire();
     let api = "environment target resolution";
 

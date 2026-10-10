@@ -24,9 +24,9 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test runtime_deploy__008__stale_build_guard
 
-use std::process::Command;
 use std::env;
 use std::os::unix::fs::PermissionsExt;
+use std::process::Command;
 use test_harness::RuntimeHarness;
 
 #[test]
@@ -45,8 +45,10 @@ fn runtime_deploy_008__stale_build_guard() {
     let hook_path = root.join(".githooks").join("pre-push");
 
     assert!(hook_path.exists(), "{api}: pre-push hook must exist");
-    assert!(hook_path.metadata().expect("metadata").permissions().mode() & 0o111 != 0,
-        "{api}: pre-push hook must be executable");
+    assert!(
+        hook_path.metadata().expect("metadata").permissions().mode() & 0o111 != 0,
+        "{api}: pre-push hook must be executable"
+    );
 
     // ---- POSITIVE: Hook detects web/ui changes and runs cargo check for wasm ----
     // We can't easily test the full git diff in a unit test, but we can verify the cargo check command
@@ -57,10 +59,14 @@ fn runtime_deploy_008__stale_build_guard() {
     let output = Command::new("cargo")
         .args([
             "check",
-            "--manifest-path", &root.join("Cargo.toml").to_string_lossy(),
-            "-p", "ui",
-            "--features", "wasm",
-            "--target", "wasm32-unknown-unknown",
+            "--manifest-path",
+            &root.join("Cargo.toml").to_string_lossy(),
+            "-p",
+            "ui",
+            "--features",
+            "wasm",
+            "--target",
+            "wasm32-unknown-unknown",
         ])
         .output()
         .expect("cargo check failed to run");

@@ -23,9 +23,9 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test runtime_env__002__forge_plus_dev_database_is_refused
 
-use test_harness::RuntimeHarness;
 use db::{resolve_forge_target, Database, DbTarget};
 use forge::engine::db_writer::DbForgeStateWriter;
+use test_harness::RuntimeHarness;
 use tokio::runtime::Runtime;
 
 #[test]
@@ -75,7 +75,10 @@ fn runtime_env_002__forge_plus_dev_database_is_refused() {
     env.set("APP_ENV", "production");
     env.remove("VERCEL_ENV");
     env.remove("DATABASE_URL_PROD");
-    env.set("DATABASE_URL_DEV", "postgres://dev-only.invalid/culebraluxe");
+    env.set(
+        "DATABASE_URL_DEV",
+        "postgres://dev-only.invalid/culebraluxe",
+    );
     env.remove("DATABASE_URL");
 
     let refusal = match DbForgeStateWriter::connect_env() {
@@ -112,7 +115,10 @@ fn runtime_env_002__forge_plus_dev_database_is_refused() {
     );
 
     // ---- CONTROL: Non-empty DATABASE_URL_PROD makes writer construct (no connection opened) ----
-    env.set("DATABASE_URL_PROD", "postgres://placeholder.invalid/culebraluxe");
+    env.set(
+        "DATABASE_URL_PROD",
+        "postgres://placeholder.invalid/culebraluxe",
+    );
     assert!(
         DbForgeStateWriter::connect_env().is_ok(),
         "{api}: present DATABASE_URL_PROD must yield writer (no connection opened)"

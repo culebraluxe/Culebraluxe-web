@@ -8,7 +8,7 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test ui_route__002__no_orphan_screen
 
-use ui::app::registry::{ENTRIES, by_key};
+use ui::app::registry::{by_key, ENTRIES};
 use ui::app::screens::{self};
 
 const HARNESS: &str = "MviHarness/L1 Component";
@@ -23,7 +23,8 @@ fn ui_route_002__no_orphan_screen() {
     // The registry is the single source of truth. Every screen the app renders must be in ENTRIES.
     // We verify this by checking that all known screen structs have a registry entry.
 
-    let registered_keys: std::collections::HashSet<_> = ENTRIES.iter()
+    let registered_keys: std::collections::HashSet<_> = ENTRIES
+        .iter()
         .filter(|e| matches!(e.kind, ui::app::registry::Kind::Screen(_)))
         .map(|e| e.key)
         .collect();
@@ -31,19 +32,64 @@ fn ui_route_002__no_orphan_screen() {
     // Known screen structs (from app/screens/mod.rs exports) that should be registered
     let expected_screens = [
         // Core portal screens
-        "dashboard", "clients", "projects", "deals", "cabinet", "workflows", "forms",
-        "seller-strategy", "accounting", "accounting-receivables", "accounting-expenses",
-        "accounting-pnl", "accounting-receipt-scanner", "marketing", "marketing-syndication",
-        "property-admin", "property-media", "document-signing", "tech", "storyboard",
-        "design-lab", "system-health", "db-test", "whatsapp-meta", "site-video",
-        "review", "security", "attention", "activity", "client-record", "deal-record",
-        "form-record", "workflow-record", "property-record", "story-record", "trace-record",
-        "site-home", "site-properties", "site-property-detail", "site-privacy",
-        "site-favorites", "site-account", "login", "login-recovery", "login-unauthorized",
-        "auth-error", "site-buyers", "site-sellers", "site-services", "site-guide",
-        "site-about", "site-faq", "site-contact", "site-whatsapp",
+        "dashboard",
+        "clients",
+        "projects",
+        "deals",
+        "cabinet",
+        "workflows",
+        "forms",
+        "seller-strategy",
+        "accounting",
+        "accounting-receivables",
+        "accounting-expenses",
+        "accounting-pnl",
+        "accounting-receipt-scanner",
+        "marketing",
+        "marketing-syndication",
+        "property-admin",
+        "property-media",
+        "document-signing",
+        "tech",
+        "storyboard",
+        "design-lab",
+        "system-health",
+        "db-test",
+        "whatsapp-meta",
+        "site-video",
+        "review",
+        "security",
+        "attention",
+        "activity",
+        "client-record",
+        "deal-record",
+        "form-record",
+        "workflow-record",
+        "property-record",
+        "story-record",
+        "trace-record",
+        "site-home",
+        "site-properties",
+        "site-property-detail",
+        "site-privacy",
+        "site-favorites",
+        "site-account",
+        "login",
+        "login-recovery",
+        "login-unauthorized",
+        "auth-error",
+        "site-buyers",
+        "site-sellers",
+        "site-services",
+        "site-guide",
+        "site-about",
+        "site-faq",
+        "site-contact",
+        "site-whatsapp",
         // Settings sub-screens
-        "settings-authorities", "settings-roles", "settings-users",
+        "settings-authorities",
+        "settings-roles",
+        "settings-users",
     ];
 
     for key in expected_screens {
@@ -58,7 +104,8 @@ fn ui_route_002__no_orphan_screen() {
     let keys: Vec<_> = ENTRIES.iter().map(|e| e.key).collect();
     let unique_keys: std::collections::HashSet<_> = keys.iter().collect();
     assert_eq!(
-        keys.len(), unique_keys.len(),
+        keys.len(),
+        unique_keys.len(),
         "{HARNESS}: duplicate keys in registry"
     );
 
@@ -66,7 +113,8 @@ fn ui_route_002__no_orphan_screen() {
     let paths: Vec<_> = ENTRIES.iter().map(|e| e.path).collect();
     let unique_paths: std::collections::HashSet<_> = paths.iter().collect();
     assert_eq!(
-        paths.len(), unique_paths.len(),
+        paths.len(),
+        unique_paths.len(),
         "{HARNESS}: duplicate paths in registry"
     );
 
@@ -82,7 +130,8 @@ fn ui_route_002__no_orphan_screen() {
             assert!(
                 by_key(parent_key).is_some(),
                 "{HARNESS}: screen '{}' references parent '{}' which is not registered",
-                entry.key, parent_key
+                entry.key,
+                parent_key
             );
         }
     }

@@ -20,9 +20,9 @@ use std::collections::BTreeMap;
 
 use test_harness::{EngineHarness, TestClock};
 use workflow::{
-    CancelProcessParams, DefinitionStatus, NodeDefinition, ProcessDefinition,
-    ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams, Task,
-    TaskStatus, TransitionDefinition, Value,
+    CancelProcessParams, DefinitionStatus, NodeDefinition, ProcessDefinition, ProcessGraph,
+    ProcessOutcome, ProcessStatus, StartProcessParams, Task, TaskStatus, TransitionDefinition,
+    Value,
 };
 
 const HARNESS: &str = "WorkflowHarness/L3 Composition";
@@ -169,7 +169,10 @@ fn wf_human_task_010__claim_cancel_race() {
             reason: Some("race test".to_string()),
         })
         .expect("cancel process succeeds");
-    assert_eq!(instance_status(&harness1, &instance1), ProcessStatus::Aborted);
+    assert_eq!(
+        instance_status(&harness1, &instance1),
+        ProcessStatus::Aborted
+    );
 
     // Then Alice tries to claim the task.
     let claim_refused = harness1
@@ -219,7 +222,10 @@ fn wf_human_task_010__claim_cancel_race() {
             reason: Some("race test".to_string()),
         })
         .expect("cancel process succeeds after claim");
-    assert_eq!(instance_status(&harness2, &instance2), ProcessStatus::Aborted);
+    assert_eq!(
+        instance_status(&harness2, &instance2),
+        ProcessStatus::Aborted
+    );
     // The task should now be Obsolete.
     let task_after_cancel = task_by_id(&harness2, &parked2.id);
     assert_eq!(

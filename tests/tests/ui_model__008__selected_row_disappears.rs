@@ -30,9 +30,18 @@ fn ui_model_008__selected_row_disappears() {
 
     // Verify we have a selected client
     let model = harness.model();
-    let data1 = model.data.loaded().expect("{HARNESS}: first response must transition to Loaded");
-    assert!(data1.selected.is_some(), "{HARNESS}: fixture must have a selected client");
-    let selected_id = data1.selected_id.clone().expect("selected_id must be present");
+    let data1 = model
+        .data
+        .loaded()
+        .expect("{HARNESS}: first response must transition to Loaded");
+    assert!(
+        data1.selected.is_some(),
+        "{HARNESS}: fixture must have a selected client"
+    );
+    let selected_id = data1
+        .selected_id
+        .clone()
+        .expect("selected_id must be present");
 
     // Now load new data where that selected client is NOT in the rows
     // (simulating the client being deleted by another user)
@@ -52,10 +61,20 @@ fn ui_model_008__selected_row_disappears() {
 
     // The screen should clear the selection (selected becomes None)
     let model = harness.model();
-    let data2 = model.data.loaded().expect("{HARNESS}: second response must transition to Loaded");
+    let data2 = model
+        .data
+        .loaded()
+        .expect("{HARNESS}: second response must transition to Loaded");
     assert_eq!(data2.total, 1, "{HARNESS}: new data must have total = 1");
-    assert_eq!(data2.selected_id.as_deref(), Some(selected_id.as_str()), "{HARNESS}: selected_id from server preserved");
-    assert!(data2.selected.is_none(), "{HARNESS}: selected must be None when row disappears");
+    assert_eq!(
+        data2.selected_id.as_deref(),
+        Some(selected_id.as_str()),
+        "{HARNESS}: selected_id from server preserved"
+    );
+    assert!(
+        data2.selected.is_none(),
+        "{HARNESS}: selected must be None when row disappears"
+    );
 
     // Negative/refusal case: if the screen kept the old selected client even though it's not in rows, the test would fail
     // This is enforced by the assertion above — selected must be None

@@ -2,6 +2,7 @@
 //! selection on a loaded page, and the arrow keys over the navigator.
 
 use super::*;
+use crate::app::cmd::FileHandle;
 
 /// The arrow keys over the drawn tree. Up and down move between projects and work: an open pole is a heading, a closed
 /// one is entered at its nearest project, and the selected project's own row is skipped going up (selecting it lands
@@ -349,6 +350,7 @@ pub(super) fn selection(
             }
             projects.signing_busy = true;
             *error = None;
+            let file_handle = FileHandle::from_web_sys(file);
             let fields = vec![
                 ("signedAt".to_string(), projects.signing_date.clone()),
                 (
@@ -359,7 +361,7 @@ pub(super) fn selection(
             return Cmd::post_form(
                 crate::app::api::ProjectSignedCopy { document_id },
                 fields,
-                file,
+                file_handle,
                 Msg::ProjectSignedCopySaved,
             );
         }

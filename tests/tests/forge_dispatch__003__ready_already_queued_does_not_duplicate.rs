@@ -105,9 +105,14 @@ async fn forge_dispatch_003__ready_already_queued_does_not_duplicate() {
     let existing_item_id = items[0].0.clone(); // state
 
     // Call ensure_story_dispatched — must return AlreadyQueued with the SAME item.
-    let result = harness.engine().ensure_story_dispatched(&ready_queued).await;
-    assert!(matches!(result, Ok(EnsureDispatch::AlreadyQueued { item }) if item == items[0].0 || item == items[0].1.as_deref().unwrap_or("") || true),
-        "{HARNESS}: already-queued story returns AlreadyQueued");
+    let result = harness
+        .engine()
+        .ensure_story_dispatched(&ready_queued)
+        .await;
+    assert!(
+        matches!(result, Ok(EnsureDispatch::AlreadyQueued { item }) if item == items[0].0 || item == items[0].1.as_deref().unwrap_or("") || true),
+        "{HARNESS}: already-queued story returns AlreadyQueued"
+    );
 
     // Committed truth: still exactly one serial item.
     let items_after = serial_work_items(pool, &ready_queued).await;
@@ -126,8 +131,7 @@ async fn forge_dispatch_003__ready_already_queued_does_not_duplicate() {
         .await
         .expect("sweep the DEV queue");
     assert_eq!(
-        report.queued,
-        0,
+        report.queued, 0,
         "{HARNESS}: sweep does not queue a story that already holds a serial item"
     );
 
@@ -160,8 +164,7 @@ async fn forge_dispatch_003__ready_already_queued_does_not_duplicate() {
         .await
         .expect("second sweep");
     assert_eq!(
-        report2.queued,
-        1,
+        report2.queued, 1,
         "{HARNESS}: sweep dispatches Ready story with no serial item exactly once"
     );
 
@@ -181,8 +184,7 @@ async fn forge_dispatch_003__ready_already_queued_does_not_duplicate() {
         .await
         .expect("third sweep");
     assert_eq!(
-        report3.queued,
-        0,
+        report3.queued, 0,
         "{HARNESS}: second sweep does not re-dispatch"
     );
 
