@@ -283,25 +283,6 @@ fn measure_frozen_plan(
 
     let candidate = normalize_candidate_sha(evidence.candidate_sha.as_deref());
     let mut candidate_workspace_matches = false;
-    if let Some(candidate) = candidate.as_deref() {
-        match ctx.harness.candidate_probe() {
-            Some(probe) => {
-                let actual = probe
-                    .workspace_head(ctx.harness.assay_cwd())
-                    .and_then(|sha| normalize_candidate_sha(Some(&sha)));
-                candidate_workspace_matches = actual.as_deref() == Some(candidate);
-                if !candidate_workspace_matches {
-                    plan_errors.push(match actual {
-                        Some(actual) => format!(
-                            "candidate workspace HEAD {actual} does not match reviewed candidate {candidate}"
-                        ),
-                        None => "candidate workspace HEAD could not be verified".into(),
-                    });
-                }
-            }
-            None => plan_errors.push("candidate workspace Git probe is unavailable".into()),
-        }
-    }
     let idempotency_key = ctx.story_run_id.map(|run_id| {
         format!(
             "forge-assay-v1:{run_id}:{}:{node_id}:{}:{}",
@@ -318,11 +299,6 @@ fn measure_frozen_plan(
             .read_assay_receipt(key)
             .map_err(|error| WorkflowError::generic(format!("read assay receipt: {error}")))?
         {
-            if !candidate_workspace_matches {
-                return Err(WorkflowError::generic(
-                    "cannot replay assay receipt because the workspace HEAD does not match the reviewed candidate",
-                ));
-            }
             if receipt.story_id != task.story_id
                 || receipt.story_run_id.as_deref() != ctx.story_run_id
                 || receipt.idempotency_key != key
@@ -416,6 +392,28 @@ fn measure_frozen_plan(
                 detail,
             )?;
             return Ok((evidence, verdict));
+        }
+    }
+
+    // The candidate checkout authorizes a NEW measurement only. A valid durable receipt above is
+    // self-contained evidence and can be replayed after its worktree has advanced or disappeared.
+    if let Some(candidate) = candidate.as_deref() {
+        match ctx.harness.candidate_probe() {
+            Some(probe) => {
+                let actual = probe
+                    .workspace_head(ctx.harness.assay_cwd())
+                    .and_then(|sha| normalize_candidate_sha(Some(&sha)));
+                candidate_workspace_matches = actual.as_deref() == Some(candidate);
+                if !candidate_workspace_matches {
+                    plan_errors.push(match actual {
+                        Some(actual) => format!(
+                            "candidate workspace HEAD {actual} does not match reviewed candidate {candidate}"
+                        ),
+                        None => "candidate workspace HEAD could not be verified".into(),
+                    });
+                }
+            }
+            None => plan_errors.push("candidate workspace Git probe is unavailable".into()),
         }
     }
 
@@ -825,7 +823,7 @@ mod tests {
     };
     use crate::engine::runner::{CandidateProbe, HarnessOutput, ProductionRoleRunner, RoleHarness};
     use crate::engine::writer::RecordingWriter;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
 
     /// A harness that runs whatever it is told and counts any turn it is asked for. Its commands pass or fail
@@ -836,7 +834,9 @@ mod tests {
         command_passes: bool,
         commands: Vec<String>,
         output: String,
-        workspace_sha: String,
+        workspace_sha: std::sync::Mutex<String>,
+        candidate_probes: AtomicUsize,
+        probe_available: AtomicBool,
     }
 
     impl MeasurementHarness {
@@ -847,7 +847,9 @@ mod tests {
                 command_passes,
                 commands: Vec::new(),
                 output: String::new(),
-                workspace_sha: "a".repeat(40),
+                workspace_sha: std::sync::Mutex::new("a".repeat(40)),
+                candidate_probes: AtomicUsize::new(0),
+                probe_available: AtomicBool::new(true),
             }
         }
 
@@ -863,8 +865,16 @@ mod tests {
         }
 
         fn with_workspace_sha(mut self, sha: &str) -> Self {
-            self.workspace_sha = sha.into();
+            *self.workspace_sha.get_mut().unwrap() = sha.into();
             self
+        }
+
+        fn disable_candidate_probe(&self) {
+            self.probe_available.store(false, Ordering::SeqCst);
+        }
+
+        fn enable_candidate_probe(&self) {
+            self.probe_available.store(true, Ordering::SeqCst);
         }
 
         fn turns(&self) -> usize {
@@ -913,13 +923,16 @@ mod tests {
             }
         }
         fn candidate_probe(&self) -> Option<&dyn CandidateProbe> {
-            Some(self)
+            self.probe_available
+                .load(Ordering::SeqCst)
+                .then_some(self as &dyn CandidateProbe)
         }
     }
 
     impl CandidateProbe for MeasurementHarness {
         fn git(&self, _: &[&str]) -> Option<String> {
-            Some(self.workspace_sha.clone())
+            self.candidate_probes.fetch_add(1, Ordering::SeqCst);
+            Some(self.workspace_sha.lock().unwrap().clone())
         }
 
         fn declared_test_mode(&self) -> Option<&str> {
@@ -1139,6 +1152,7 @@ mod tests {
                 .as_deref()
         );
         assert_eq!(harness.commands_run(), 1);
+        assert_eq!(harness.candidate_probes.load(Ordering::SeqCst), 1);
         let artifact = writer.artifacts.lock().unwrap()[0].clone();
         let key = artifact.idempotency_key.clone().expect("receipt key");
         let detail = artifact.detail.clone().expect("durable detail");
@@ -1160,6 +1174,7 @@ mod tests {
             },
         );
 
+        harness.disable_candidate_probe();
         let replay = AssayService::new(&runner)
             .execute("qa_verify", &qa_task())
             .expect("stored receipt reconciles");
@@ -1179,10 +1194,16 @@ mod tests {
             1,
             "reconciliation does not rerun a command"
         );
+        assert_eq!(
+            harness.candidate_probes.load(Ordering::SeqCst),
+            1,
+            "durable receipt replay succeeds after the workspace probe becomes unavailable"
+        );
         assert_eq!(writer.artifacts.lock().unwrap().len(), 1);
 
         let mut retry_task = qa_task();
         retry_task.task_id = "task-qa-retry".into();
+        harness.enable_candidate_probe();
         AssayService::new(&runner)
             .execute("qa_verify", &retry_task)
             .expect("a new task invocation measures again");
