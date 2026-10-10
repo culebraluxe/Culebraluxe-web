@@ -819,25 +819,40 @@ fn run_maestro_streaming(
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
     cmd.stdin(std::process::Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
 
+    let start_time = std::time::Instant::now();
     let mut child = cmd
         .spawn()
         .map_err(|e| WorkflowError::generic(format!("failed to spawn maestro: {e}")))?;
+    let running = crate::engine::opencode_client::RunningTurn { pid: child.id() };
 
     let mut stdout = String::new();
-    // Spawn stderr reader in a separate thread
+    // Both pipes are drained independently. Completion is reported over channels so the enforcement loop
+    // never blocks waiting for a descendant that inherited a pipe.
     let stderr_pipe = child.stderr.take().unwrap();
-    let stderr_handle = std::thread::spawn(move || {
+    let (stderr_tx, stderr_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
         use std::io::{BufRead, BufReader};
         let reader = BufReader::new(stderr_pipe);
         let mut stderr = String::new();
         for line in reader.lines() {
-            if let Ok(l) = line {
-                stderr.push_str(&l);
-                stderr.push('\n');
+            match line {
+                Ok(line) => {
+                    stderr.push_str(&line);
+                    stderr.push('\n');
+                }
+                Err(error) => {
+                    let _ = stderr_tx.send(Err(error));
+                    return;
+                }
             }
         }
-        stderr
+        let _ = stderr_tx.send(Ok(stderr));
     });
 
     // Read stdout with spend cap enforcement and timeout.
@@ -848,7 +863,6 @@ fn run_maestro_streaming(
     // below is the enforcement that always holds; the cap kills early only when a streamed usage line
     // already proves it breached.
     let stdout_pipe = child.stdout.take().unwrap();
-    let start_time = std::time::Instant::now();
 
     // Stdout is read on a thread and pumped over a channel: the blocking read must never hide the
     // ceiling from the enforcement loop, so the main loop wakes every 100ms even when the child is
@@ -876,12 +890,14 @@ fn run_maestro_streaming(
         }
     });
 
+    let mut stdout_done = false;
+    let mut stderr_result = None;
+    let mut status = None;
+    let mut direct_child_exited_at = None;
     loop {
-        // Check turn timeout
         if let Some(ceiling) = max_turn {
             if start_time.elapsed() >= ceiling {
-                let _ = child.kill();
-                let _ = child.wait();
+                stop_maestro_process_tree(&mut child, running);
                 return Err(WorkflowError::generic(format!(
                     "maestro turn exceeded wall-clock ceiling of {:?}",
                     ceiling
@@ -889,44 +905,131 @@ fn run_maestro_streaming(
             }
         }
 
-        match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(Ok(line)) => {
-                stdout.push_str(&line);
-                // Check spend cap from parsed usage in line (if Maestro emits usage in streaming output)
-                if let Some(cap) = spend_cap {
-                    if let Some(usage) = parse_usage_from_line(&line) {
-                        if usage.cost_usd > cap {
-                            let _ = child.kill();
-                            let _ = child.wait();
-                            return Err(WorkflowError::generic(format!(
-                                "maestro turn exceeded spend cap: ${:.6} > ${:.6}",
-                                usage.cost_usd, cap
-                            )));
-                        }
-                    }
+        loop {
+            match rx.try_recv() {
+                Ok(line) => {
+                    accept_maestro_stdout_line(line, &mut stdout, spend_cap, &mut child, running)?
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    stdout_done = true;
+                    break;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+            }
+        }
+
+        if stderr_result.is_none() {
+            match stderr_rx.try_recv() {
+                Ok(Ok(stderr)) => stderr_result = Some(stderr),
+                Ok(Err(error)) => {
+                    stop_maestro_process_tree(&mut child, running);
+                    return Err(WorkflowError::generic(format!(
+                        "failed to read maestro stderr: {error}"
+                    )));
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    stderr_result = Some(String::new());
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+
+        if status.is_none() {
+            match child.try_wait() {
+                Ok(Some(exit)) => {
+                    status = Some(exit);
+                    direct_child_exited_at = Some(std::time::Instant::now());
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    stop_maestro_process_tree(&mut child, running);
+                    return Err(WorkflowError::generic(format!(
+                        "failed to wait for maestro: {error}"
+                    )));
                 }
             }
-            Ok(Err(e)) => {
-                return Err(WorkflowError::generic(format!(
-                    "failed to read maestro stdout: {e}"
-                )));
+        }
+
+        if stdout_done && stderr_result.is_some() && status.is_some() {
+            break;
+        }
+
+        // An operator may explicitly disable the turn ceiling. Still bound pipe draining after the direct
+        // child exits: an inherited pipe must not hold a completed execution forever.
+        if max_turn.is_none()
+            && direct_child_exited_at.is_some_and(|exited| {
+                exited.elapsed() >= crate::engine::opencode_client::UNBOUNDED_REAP_FALLBACK
+            })
+        {
+            stop_maestro_process_tree(&mut child, running);
+            return Err(WorkflowError::generic(
+                "maestro descendants kept output pipes open past the bounded reap window",
+            ));
+        }
+
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(line) => {
+                accept_maestro_stdout_line(line, &mut stdout, spend_cap, &mut child, running)?
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break, // EOF
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => stdout_done = true,
         }
     }
 
-    // Wait for process to finish
-    let status = child
-        .wait()
-        .map_err(|e| WorkflowError::generic(e.to_string()))?;
-    let stderr = stderr_handle.join().unwrap_or_default();
+    let status = status.expect("loop exits only after the direct child exited");
+    let stderr = stderr_result.unwrap_or_default();
 
     Ok(MaestroRunResult {
         exit_code: status.code(),
         stdout,
         stderr,
     })
+}
+
+fn stop_maestro_process_tree(
+    child: &mut std::process::Child,
+    running: crate::engine::opencode_client::RunningTurn,
+) {
+    #[cfg(unix)]
+    {
+        let _ = running.terminate();
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+}
+
+fn accept_maestro_stdout_line(
+    line: std::io::Result<String>,
+    stdout: &mut String,
+    spend_cap: Option<f64>,
+    child: &mut std::process::Child,
+    running: crate::engine::opencode_client::RunningTurn,
+) -> Result<()> {
+    let line = match line {
+        Ok(line) => line,
+        Err(error) => {
+            stop_maestro_process_tree(child, running);
+            return Err(WorkflowError::generic(format!(
+                "failed to read maestro stdout: {error}"
+            )));
+        }
+    };
+    stdout.push_str(&line);
+    if let Some(cap) = spend_cap {
+        if let Some(usage) = parse_usage_from_line(&line) {
+            if usage.cost_usd > cap {
+                stop_maestro_process_tree(child, running);
+                return Err(WorkflowError::generic(format!(
+                    "maestro turn exceeded spend cap: ${:.6} > ${:.6}",
+                    usage.cost_usd, cap
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Verify the Maestro CLI contract: the binary spawns and answers `--version`.
@@ -978,6 +1081,49 @@ mod tests {
         ENV_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn write_fixture_script(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(name);
+        let mut file = std::fs::File::create(&path).expect("fixture script");
+        writeln!(file, "#!/bin/sh\n{body}").expect("write fixture script");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("make fixture executable");
+        path
+    }
+
+    fn run_fixture_with_outer_deadline(
+        path: std::path::PathBuf,
+        turn_ceiling: Duration,
+        pid_file: Option<std::path::PathBuf>,
+    ) -> Result<MaestroRunResult> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = run_maestro_streaming(
+                path.to_str().expect("fixture path is UTF-8"),
+                ".",
+                &[],
+                None,
+                None,
+                Some(turn_ceiling),
+            );
+            let _ = tx.send(result);
+        });
+        match rx.recv_timeout(turn_ceiling + Duration::from_secs(3)) {
+            Ok(result) => result,
+            Err(_) => {
+                if let Some(pid_file) = pid_file {
+                    if let Ok(pid) = std::fs::read_to_string(pid_file)
+                        .and_then(|pid| pid.trim().parse::<u32>().map_err(std::io::Error::other))
+                    {
+                        let _ = crate::engine::opencode_client::RunningTurn { pid }.terminate();
+                    }
+                }
+                panic!("Maestro fixture exceeded its outer test deadline");
+            }
+        }
     }
 
     use crate::engine::harness::{HarnessBackend, ModelSelection};
@@ -1420,6 +1566,145 @@ mod tests {
         assert!(err.to_string().contains("spend cap"), "{err}");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn maestro_deadline_survives_stdout_eof() {
+        let dir = std::env::temp_dir().join(format!("forge-maestro-eof-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("fixture dir");
+        let pid_file = dir.join("pid");
+        let script = write_fixture_script(
+            &dir,
+            "close-stdout.sh",
+            &format!("echo $$ > '{}'\nexec 1>&-\nsleep 30", pid_file.display()),
+        );
+        let started = std::time::Instant::now();
+        let error = run_fixture_with_outer_deadline(
+            script,
+            Duration::from_millis(300),
+            Some(pid_file.clone()),
+        )
+        .expect_err("closing stdout must not bypass the deadline");
+        assert!(error.to_string().contains("wall-clock ceiling"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(3));
+        let pid: u32 = std::fs::read_to_string(&pid_file)
+            .expect("child wrote its pid")
+            .trim()
+            .parse()
+            .expect("pid is numeric");
+        assert!(
+            !std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .status()
+                .expect("kill command")
+                .success(),
+            "timed-out direct child was reaped"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn maestro_descendant_pipe_cannot_hide_deadline_and_sibling_survives() {
+        let dir = std::env::temp_dir().join(format!("forge-maestro-desc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("fixture dir");
+        let parent_pid_file = dir.join("parent-pid");
+        let descendant_pid_file = dir.join("descendant-pid");
+        let hold_pipe = write_fixture_script(
+            &dir,
+            "descendant.sh",
+            &format!(
+                "echo $$ > '{}'\nsleep 30 &\necho $! > '{}'\nexit 0",
+                parent_pid_file.display(),
+                descendant_pid_file.display()
+            ),
+        );
+
+        let sibling = write_fixture_script(&dir, "sibling.sh", "sleep 0.7\necho sibling-ok");
+        let (sibling_tx, sibling_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = run_maestro_streaming(
+                sibling.to_str().expect("sibling path"),
+                ".",
+                &[],
+                None,
+                None,
+                Some(Duration::from_secs(4)),
+            );
+            let _ = sibling_tx.send(result);
+        });
+
+        let err = run_fixture_with_outer_deadline(
+            hold_pipe,
+            Duration::from_millis(400),
+            Some(parent_pid_file),
+        )
+        .expect_err("a descendant retaining the pipes must not block the deadline");
+        assert!(err.to_string().contains("wall-clock ceiling"), "{err}");
+        let sibling = sibling_rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("sibling completed independently")
+            .expect("sibling succeeded");
+        assert!(sibling.stdout.contains("sibling-ok"));
+        let descendant: u32 = std::fs::read_to_string(&descendant_pid_file)
+            .expect("descendant wrote its pid")
+            .trim()
+            .parse()
+            .expect("pid is numeric");
+        assert!(
+            !std::process::Command::new("kill")
+                .args(["-0", &descendant.to_string()])
+                .status()
+                .expect("kill command")
+                .success(),
+            "owned descendant was stopped"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn maestro_stdout_eof_before_success_preserves_stderr() {
+        let dir = std::env::temp_dir().join(format!("forge-maestro-ok-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("fixture dir");
+        let script = write_fixture_script(
+            &dir,
+            "success.sh",
+            "printf 'result line\\n'\nprintf 'stderr retained\\n' >&2\nexec 1>&-\nexit 0",
+        );
+        let result = run_fixture_with_outer_deadline(script, Duration::from_secs(3), None)
+            .expect("successful process exits before deadline");
+        assert_eq!(result.exit_code, Some(0));
+        assert!(result.stdout.contains("result line"));
+        assert!(result.stderr.contains("stderr retained"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn maestro_stdout_reader_error_stops_and_reaps_live_child() {
+        let mut command = Command::new("sh");
+        command
+            .args(["-c", "sleep 30"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        let mut child = command.spawn().expect("fixture process");
+        let running = crate::engine::opencode_client::RunningTurn { pid: child.id() };
+        let _stdout = child.stdout.take();
+        let _stderr = child.stderr.take();
+        let error = accept_maestro_stdout_line(
+            Err(std::io::Error::other("injected reader failure")),
+            &mut String::new(),
+            None,
+            &mut child,
+            running,
+        )
+        .expect_err("reader failure must be reported");
+        assert!(error.to_string().contains("failed to read maestro stdout"));
+        assert!(child.try_wait().expect("child wait status").is_some());
     }
 
     #[test]
