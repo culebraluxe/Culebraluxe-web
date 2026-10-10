@@ -50,6 +50,7 @@ async fn create_test_item(db: &TestDatabase, project_id: &str, title: &str) -> S
 }
 
 #[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (APP_ENV=dev): uses disposable Postgres; production is refused"]
 async fn project_wbs_dependency_005__cross_project_edge() {
     let test_db = TestDatabase::connect_from_env()
         .await

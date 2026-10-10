@@ -67,6 +67,7 @@ fn auth_decision() -> services::AuthorizationDecision {
 }
 
 #[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (APP_ENV=dev): uses disposable Postgres; production is refused"]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-SEC-AUDIT-005); the file and the assay use it.
 async fn sec_audit_005__actor_correlation_present() {
     // 1. Setup: isolated DEV database and a runtime with a capturing audit port.

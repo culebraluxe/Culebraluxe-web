@@ -45,6 +45,7 @@ fn registry_health(
 }
 
 #[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (APP_ENV=dev): uses disposable Postgres; production is refused"]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-SERVICE-REGISTRY-005)
 async fn service_registry_005__runtime_health_matches_registry() {
     // 0. L1 boundary: the real ServiceRegistry composed with deterministic infrastructure.
