@@ -32,6 +32,7 @@ async fn create_test_project(db: &Database) -> String {
 }
 
 #[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (APP_ENV=dev): uses disposable Postgres; production is refused"]
 async fn project_wbs_item_002__hierarchy() {
     let db = Database::connect_target(DbTarget::Dev)
         .await
