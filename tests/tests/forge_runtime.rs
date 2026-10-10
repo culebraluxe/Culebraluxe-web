@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use forge::engine::*;
+use forge::engine::turn_budget::ModelAttemptControl;
 use forge::roles::hooks::ForgeRoleHooks;
 use workflow::{json, ApplicationCommandOutcome, ApplicationCommandRequest, ProcessStatus, Value};
 
@@ -505,49 +506,24 @@ fn drive_stops_after_architect() {
     assert!(out.steps.iter().any(|s| s == "architect"));
 }
 
-/// The generation turn cap (§10): the generation STOPS before dispatching past it, and it says which cap it ran into.
-///
-/// The unit is what V1 measured — a dispatched ROLE turn, "architect, lead_pre, smith, post, qa" — not a vendor step
-/// inside one of them. The failure this prevents is not slowness: it is a generation that keeps looking productive one
-/// turn at a time and is read as "still working" instead of "looping".
+/// Batch 2 counts model launches in one generation. The local attempt ledger denies the next launch
+/// before it can reach a harness, and reports the same cap used by the durable database adapter.
 #[test]
-fn a_generation_stops_at_the_turn_cap_before_dispatching_past_it() {
-    let (mut rt, _) = runtime();
-    let out = executor::drive_forge_story(
-        &mut rt,
-        "story-1",
-        executor::DriveForgeStoryOptions {
-            work_type: "FEATURE",
-            evidence: feature_ev(),
-            runner: Some(&CompletingRunner),
-            // Room for many waves: what stops this generation has to be the CAP rather than the wave ceiling.
-            max_steps: 20,
-            worker_id: "forge",
-            within_story_concurrency: 1,
-            stop_after: None,
-            turn_cap: 1,
-        },
-    )
-    .unwrap();
+fn a_model_attempt_cap_refuses_before_authorizing_a_second_launch() {
+    let control = turn_budget::LocalModelAttemptControl::new(1);
+    let first = control
+        .reserve("task-1", 0)
+        .expect("first launch is allowed");
+    assert_eq!((first.used, first.cap), (1, 1));
 
-    assert_eq!(
-        out.steps.len(),
-        1,
-        "one turn is one dispatch, and nothing may run past the cap: {:?}",
-        out.steps
-    );
-    let reason = out
-        .blocked_reason
-        .expect("a capped generation must name itself in its own record");
-    assert!(reason.contains("MODEL_TURN_CAP"), "{reason}");
+    let refused = control
+        .reserve("task-2", 0)
+        .expect_err("the next model launch is denied before it can run");
     assert!(
-        reason.contains("already dispatched 1 turns (cap 1)"),
-        "the reason must state the count and the cap: {reason}"
+        refused.starts_with(turn_budget::MODEL_TURN_CAP_CODE),
+        "{refused}"
     );
-    assert!(
-        reason.contains("FORGE_MAX_MODEL_TURNS_PER_GENERATION"),
-        "and must say how to authorise a longer run: {reason}"
-    );
+    assert!(refused.contains("used 1 of 1"), "{refused}");
 }
 
 #[test]
