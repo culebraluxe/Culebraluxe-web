@@ -19,6 +19,23 @@ pub struct ModelAttemptReservation {
     pub duplicate: bool,
 }
 
+#[derive(Debug, Clone, FromRow, PartialEq, Eq)]
+pub struct ModelGenerationBudget {
+    pub generation_id: String,
+    pub story_id: String,
+    pub cap: i32,
+    pub used: i32,
+    pub uncertain: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelGenerationReservation {
+    pub budget: ModelGenerationBudget,
+    pub attempt_key: String,
+    pub authorized: bool,
+    pub duplicate: bool,
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct ForgeAgentWorkRow {
     pub id: String,
@@ -1196,8 +1213,12 @@ pub enum CompletionApply {
     AlreadyApplied,
     /// A committed receipt for this task holds a DIFFERENT unit (the stored fingerprint is returned).
     Conflict { stored: String },
+    /// A finalized pre-fingerprint receipt has committed effects but lacks enough identity to compare.
+    UnverifiableLegacy { command_id: String },
     /// Another process is mid-unit on this receipt (a `pending` row younger than the stale window).
     Busy,
+    /// A pre-atomic pending receipt was quarantined because its prior effects cannot be attributed safely.
+    LegacyAmbiguous { command_id: String },
 }
 
 /// The state of a receipt that already exists, read inside the unit's transaction and held under
@@ -1432,9 +1453,13 @@ impl ForgeEngineDao {
         command_id: &str,
     ) -> DbResult<Option<String>> {
         sqlx::query_scalar::<_, String>(
-            "select outcome
+            "select case
+                       when outcome='success' and command_type='forge.completion'
+                            and request_fingerprint is null then 'unverifiable_legacy'
+                       else outcome
+                   end as outcome
              from workflow_command_receipt
-             where command_id=$1 and outcome <> 'pending'
+             where command_id=$1 and outcome not in ('pending', 'quarantined')
              limit 1",
         )
         .bind(command_id)
@@ -1452,7 +1477,7 @@ impl ForgeEngineDao {
         let watermark = sqlx::query_scalar::<_, Option<i64>>(
             "select (extract(epoch from max(created_at)) * 1000)::bigint
              from workflow_command_receipt
-             where command_id like $1 and outcome <> 'pending'",
+             where command_id like $1 and outcome not in ('pending', 'quarantined')",
         )
         .bind(format!("{prefix}%"))
         .fetch_one(self.db.pool())
@@ -1585,6 +1610,11 @@ impl ForgeEngineDao {
                 tx.commit().await?;
                 Ok(CompletionApply::Applied)
             }
+            Ok(ambiguous @ CompletionApply::LegacyAmbiguous { .. }) => {
+                // Quarantine is itself the durable reconciliation decision; no business effects are applied.
+                tx.commit().await?;
+                Ok(ambiguous)
+            }
             Ok(rest) => {
                 // Nothing was written (already applied, busy, or a conflicting unit), so there is no work
                 // to make durable: end the transaction and release the row lock it holds.
@@ -1655,14 +1685,44 @@ impl ForgeEngineDao {
                 )
             })?;
 
-            if state.outcome != "pending" {
+            let replay_authorized = state.outcome == "replay_authorized";
+            if replay_authorized {
+                if state.request_fingerprint.as_deref() != Some(unit.fingerprint) {
+                    return Ok(CompletionApply::Conflict {
+                        stored: state.request_fingerprint.unwrap_or_default(),
+                    });
+                }
+                let replay_claimed = sqlx::query_scalar::<_, String>(
+                    "update workflow_command_receipt
+                        set outcome = 'pending', updated_at = now()
+                      where command_id = $1
+                        and outcome = 'replay_authorized'
+                        and request_fingerprint = $2
+                      returning command_id",
+                )
+                .bind(unit.command_id)
+                .bind(unit.fingerprint)
+                .fetch_optional(tx.connection())
+                .await
+                .map_err(|error| {
+                    DbFailure::from_sqlx("forge_engine.completion_replay_authorized", &error)
+                })?;
+                if replay_claimed.is_none() {
+                    return Ok(CompletionApply::Busy);
+                }
+            } else if state.outcome != "pending" {
+                if state.outcome == "quarantined" {
+                    return Ok(CompletionApply::LegacyAmbiguous {
+                        command_id: unit.command_id.to_string(),
+                    });
+                }
                 // Final: the unit it proves was committed, effects and all.
                 return Ok(match state.request_fingerprint {
-                    // A receipt written before the unit carried a fingerprint (every completion receipt
-                    // predating this routine). Its effects are committed — finalizing it was the last
-                    // write — so it is applied. There is no identity to compare, and inventing one would
-                    // replay a unit that already ran.
-                    None => CompletionApply::AlreadyApplied,
+                    // A finalized legacy receipt proves effects committed, but does not prove which full
+                    // unit was accepted. Preserve it without replay and report the identity gap explicitly.
+                    None => CompletionApply::UnverifiableLegacy {
+                        command_id: unit.command_id.to_string(),
+                    },
                     Some(stored) if stored == unit.fingerprint => CompletionApply::AlreadyApplied,
                     // A committed receipt for this task holding a DIFFERENT unit. Refuse: replaying our
                     // evidence over it would rewrite a settled unit, and reporting it as applied would
@@ -1671,30 +1731,39 @@ impl ForgeEngineDao {
                 });
             }
 
-            if state.fresh {
-                // A `pending` row inside the stale window: another process is mid-unit. Refuse — never
-                // treat an unfinished unit as applied.
-                return Ok(CompletionApply::Busy);
-            }
-            // A `pending` row past the window: a predecessor died holding it (the shape a pre-unit claim
-            // left behind). Take it over on the same window `claim_workflow_receipt` reclaims on, and
-            // record OUR fingerprint while doing it, so the row names the unit that owns it now.
-            let reclaimed = sqlx::query_scalar::<_, String>(
-                "update workflow_command_receipt
-                    set request_fingerprint = $2, updated_at = now()
-                  where command_id = $1
-                    and outcome = 'pending'
-                    and coalesce(updated_at, created_at) < now() - interval '15 minutes'
-                  returning command_id",
-            )
-            .bind(unit.command_id)
-            .bind(unit.fingerprint)
-            .fetch_optional(tx.connection())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("forge_engine.completion_reclaim", &error))?;
-            if reclaimed.is_none() {
-                // The window closed under us while we waited on the row lock: a peer owns it now.
-                return Ok(CompletionApply::Busy);
+            if !replay_authorized {
+                if state.fresh {
+                    // A `pending` row inside the stale window: another process is mid-unit. Refuse — never
+                    // treat an unfinished unit as applied.
+                    return Ok(CompletionApply::Busy);
+                }
+                // A durable pending completion cannot have been created by the atomic protocol: its claim,
+                // effects, and finalization share one transaction, so an uncommitted `pending` row is invisible.
+                // A persisted stale pending row is therefore legacy/ambiguous. Age proves abandonment, not
+                // absence of earlier evidence or counter effects. Quarantine it and require reconciliation.
+                let quarantined = sqlx::query_scalar::<_, String>(
+                    "update workflow_command_receipt
+                        set outcome = 'quarantined',
+                            message = 'legacy completion pending; effects require operator reconciliation',
+                            updated_at = now()
+                      where command_id = $1
+                        and outcome = 'pending'
+                        and coalesce(updated_at, created_at) < now() - interval '15 minutes'
+                      returning command_id",
+                )
+                .bind(unit.command_id)
+                .fetch_optional(tx.connection())
+                .await
+                .map_err(|error| {
+                    DbFailure::from_sqlx("forge_engine.completion_quarantine", &error)
+                })?;
+                if quarantined.is_none() {
+                    // The window closed under us while we waited on the row lock: a peer owns it now.
+                    return Ok(CompletionApply::Busy);
+                }
+                return Ok(CompletionApply::LegacyAmbiguous {
+                    command_id: unit.command_id.to_string(),
+                });
             }
         }
 

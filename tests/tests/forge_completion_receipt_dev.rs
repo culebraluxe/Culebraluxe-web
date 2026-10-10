@@ -432,7 +432,7 @@ async fn forge_completion_receipt_dev__unit_is_one_transaction() {
     //     the unfinished unit belongs to. Three reads of the same row, in order: `pending` moves nothing; the
     //     unit that finds it inside the 15-minute window answers `Busy` and still writes nothing (`Busy` must
     //     never be mistaken for `AlreadyApplied` — work order §6); and the same unit, once the window has
-    //     passed, takes the row over and commits, which is when the watermark advances. This is the SQL half
+    //     passed, quarantines the ambiguous legacy row, and refuses replay. This is the SQL half
     //     of TST-FORGE-COMPLETION-RECEIPT-005, which holds the in-memory half.
     let prefix = format!("forge.completion:proof-{tag}:");
     let pending = format!("{prefix}task-pending");
@@ -455,7 +455,15 @@ async fn forge_completion_receipt_dev__unit_is_one_transaction() {
         Some(before),
         "a claimed but unapplied receipt advances nothing: pending is not final"
     );
-    let unit_pending = unit_for(&pending, &story, &instance, &fingerprint, &patch, None);
+    let pending_patch = patch_release();
+    let unit_pending = unit_for(
+        &pending,
+        &story,
+        &instance,
+        &fingerprint,
+        &pending_patch,
+        Some(CompletionSpend::Repair),
+    );
     assert_eq!(
         dao.apply_completion(&unit_pending)
             .await
@@ -478,15 +486,17 @@ async fn forge_completion_receipt_dev__unit_is_one_transaction() {
     assert_eq!(
         dao.apply_completion(&unit_pending)
             .await
-            .expect("apply the reclaimed unit"),
-        CompletionApply::Applied,
-        "and the same unit commits once its process gets there"
+            .expect("quarantine the legacy unit"),
+        CompletionApply::LegacyAmbiguous {
+            command_id: pending.clone()
+        },
+        "the stale legacy unit is quarantined instead of replayed"
     );
     assert!(
         dao.receipt_watermark_ms(&prefix)
             .await
             .expect("watermark")
-            .expect("a committed unit advances the watermark")
+            .expect("the earlier committed unit remains the watermark")
             >= before,
         "the commit is what moves it, and it never moves backwards"
     );
@@ -495,6 +505,32 @@ async fn forge_completion_receipt_dev__unit_is_one_transaction() {
         2,
         "one receipt per task: the idempotent unit and the claimed one"
     );
+
+    // An operator may authorize an atomic replay only after positively establishing that the old pending
+    // receipt produced no effects. This fixture has that controlled history: the quarantine path above wrote
+    // no evidence or counter. The normal transaction consumes the authorization and applies the same unit.
+    sqlx::query(
+        "update workflow_command_receipt \
+            set outcome = 'replay_authorized', request_fingerprint = $2, updated_at = now() \
+          where command_id = $1 and outcome = 'quarantined'",
+    )
+    .bind(&pending)
+    .bind(unit_pending.fingerprint)
+    .execute(db.pool())
+    .await
+    .expect("operator authorization follows fixture proof of no prior effects");
+    assert_eq!(
+        dao.apply_completion(&unit_pending)
+            .await
+            .expect("consume the explicit replay authorization"),
+        CompletionApply::Applied,
+        "operator-authorized replay applies atomically"
+    );
+    assert_eq!(
+        receipt_outcome_pool(&db, &pending).await.as_deref(),
+        Some("success")
+    );
+    assert_eq!(counters(&db, &story).await, (2, 0));
 
     sweep(&db, &story, &instance, &prefix).await;
 }
@@ -660,7 +696,7 @@ async fn forge_completion_receipt_dev__concurrent_units_are_serialized() {
     );
 
     // 5b. A DEAD PROCESS MUST NOT LOCK THE UNIT FOREVER. A `pending` receipt inside the window is a peer
-    //     mid-unit — `Busy`, and left exactly as it was found; past the window it is taken over and applied once.
+    //     mid-unit — `Busy`, and left exactly as it was found; past the window it is quarantined without replay.
     let stale = format!("{prefix}task-stale");
     assert!(
         matches!(
@@ -698,14 +734,16 @@ async fn forge_completion_receipt_dev__concurrent_units_are_serialized() {
     .await
     .expect("inject the age of a process that died holding the receipt");
     assert_eq!(
-        dao.apply_completion(&unit_stale).await.expect("reclaim"),
-        CompletionApply::Applied,
-        "past the window the unit takes the receipt over and applies once"
+        dao.apply_completion(&unit_stale).await.expect("quarantine"),
+        CompletionApply::LegacyAmbiguous {
+            command_id: stale.clone()
+        },
+        "past the window the unit quarantines rather than blindly replaying effects"
     );
     assert_eq!(
         counters(&db, &story).await,
-        (3, 1),
-        "the reclaimed unit spent its budget once, not once per attempt"
+        (2, 1),
+        "the quarantined unit spent no additional budget"
     );
 
     // 5c. CONFLICT. A committed receipt from the SAME task key, holding a different unit, is refused rather

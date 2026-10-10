@@ -105,9 +105,17 @@ impl CompletionLedger for DbCompletionLedger {
                 &command_id,
                 format!("receipt holds {stored}, not {fingerprint}"),
             )),
+            DbApply::UnverifiableLegacy { command_id } => Err(failed(
+                &command_id,
+                "finalized legacy receipt has no full-unit fingerprint; effects were preserved and not replayed",
+            )),
             DbApply::Busy => Err(failed(
                 &command_id,
                 "another process holds this unit mid-write",
+            )),
+            DbApply::LegacyAmbiguous { command_id } => Err(failed(
+                &command_id,
+                format!("legacy pending completion was quarantined; fingerprint={fingerprint}; inspect the accepted event and durable counter/evidence effects before resolving it"),
             )),
         }
     }
@@ -117,10 +125,18 @@ impl CompletionLedger for DbCompletionLedger {
         with_shared(|db, rt| {
             let dao = ForgeEngineDao::new(db.clone());
             rt.block_on(async {
-                dao.read_workflow_receipt_outcome(&command_id)
+                let outcome = dao
+                    .read_workflow_receipt_outcome(&command_id)
                     .await
-                    .map(|outcome| outcome.is_some())
                     .map_err(|error| error.to_string())
+                    ?;
+                match outcome.as_deref() {
+                    Some("success") => Ok(true),
+                    Some("unverifiable_legacy") => Err(
+                        "finalized legacy receipt has no full-unit fingerprint; effects were preserved and not replayed".to_string(),
+                    ),
+                    _ => Ok(false),
+                }
             })
         })
         .map_err(|error| failed("has_final", error))?
