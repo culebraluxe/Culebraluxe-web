@@ -72,8 +72,8 @@ pnpm db:migrate <file> dev|prod   # apply a db/migrations, db/loads or db/seeds 
 Release (`docs/agent/DEV-OPS-RELEASE.md`):
 
 ```sh
-pnpm deploy:prod   # compile here, deploy prebuilt
-pnpm release       # record it - docs/agent/releases.md
+pnpm deploy:prod   # compile here, deploy the Rust container
+pnpm release       # compile, deploy, probe the live SHA, and record it - docs/agent/releases.md
 pnpm smoke:prod    # ask production whether it works, from outside
 ```
 

@@ -15,7 +15,7 @@ Fixed facts, quoted from the scripts (do not retype them elsewhere):
     Vercel team      team_xk8vFaeSyY6CuSkS3OK55tTc
     Canonical site   https://www.culebraluxe.com
     Vercel CLI       59.25.4 (pinned, run through npx)
-    Node             24 (vercel-build-prod.sh refuses anything else)
+    Build path       `pnpm deploy:prod` (local Docker compile + Vercel container deploy)
 
 ## The commands, in the order you actually use them
 
@@ -41,10 +41,11 @@ Fixed facts, quoted from the scripts (do not retype them elsewhere):
    domain, and on any failure it prints the rollback: Vercel → culebraluxe-web-fp → Deployments →
    promote the previous one. A failed deploy leaves production unchanged.
 
-4. **`pnpm release`** — `scripts/release-record.sh`. Build **and** deploy **and** probe **and
+4. **`pnpm release`** — `scripts/release-record.sh`. Run the active production build/deploy **and** probe **and
    record**, in one command, into the append-only `docs/agent/releases.md`.
-   Flags: `--build` (build + record only), `--deploy` (deploy + probe + record), `--probe` (re-check
-   the live SHA), `--last [N]`, `--verify <sha>`.
+   Flags: `--deploy` (same active build + deploy + probe + record, without the informational CI lookup),
+   `--probe` (re-check the live SHA), `--last [N]`, `--verify <sha>`. Build-only mode is retired because
+   the old standalone build produced a different, obsolete frontend artifact.
    **The rule that makes the record worth anything:** *a row is not a receipt.* Three named ways a
    receipt lies — a **stale cite** (a receipt for SHA A read as evidence for candidate B), a
    **partial row** (recorded with no live probe agreeing anything is serving), and a **last-line
@@ -74,13 +75,10 @@ Fixed facts, quoted from the scripts (do not retype them elsewhere):
    unstamped or mis-stamped build answers with no sha and a note naming what to set, so the gate fails
    loudly rather than comparing against nothing. Readiness is `/api/rust-ready` (`ok` + `databaseTarget`)
 
-## Kept for build-only and deploy-only work
+## Retired release path
 
-- `scripts/vercel-build-prod.sh` — the build half alone; refuses Node ≠ 24, pins the CLI.
-- `scripts/vercel-deploy-prod.sh` — the deploy half alone; **must run from `main`**, refuses a
-  changed tree, and exempts generated `docs/agent/manifest/*.md` rows because a release build
-  rewrites their render timestamps by definition.
-- `scripts/vercel-release-prod.sh` — build then deploy, with `main` + clean tree required up front.
+- `scripts/vercel-build-prod.sh`, `scripts/vercel-deploy-prod.sh`, and `scripts/vercel-release-prod.sh` belong to the
+  retired prebuilt frontend path. They are not called by `pnpm release` and must not be used for production.
 - `scripts/rust-container-preflight.sh` — what the container needs before it will boot.
 - `scripts/vercel-provision-rust-project.sh` — project provisioning (one-time).
 - `pnpm container:dry-run` (`scripts/site-container.sh`), `pnpm scan:migrations`
@@ -88,8 +86,8 @@ Fixed facts, quoted from the scripts (do not retype them elsewhere):
 
 ## The guards, stated once
 
-1. Production deploys and releases run from **`main`** only. The scripts enforce it.
-2. A **clean tree** is required (generated manifests excepted). An unrelated dirty file is a
+1. Production releases through `pnpm release` run from **`main`** only. The recorder enforces it.
+2. A **clean tree** is required for recorded production releases. An unrelated dirty file is a
    release blocker, not a detail.
 3. Production deploys are a **captain's call**, and `deploy:prod` names the project, the team and
    the rollback path itself rather than trusting memory.
