@@ -649,6 +649,20 @@ mod tests {
                 .expect("git starts");
             assert!(status.success());
         }
+        fs::write(root.join("README.md"), "base\n").expect("fixture base");
+        let status = Command::new("git")
+            .current_dir(root)
+            .args(["add", "README.md"])
+            .status()
+            .expect("git starts");
+        assert!(status.success());
+        let status = Command::new("git")
+            .current_dir(root)
+            .args(["commit", "-qm", "base fixture"])
+            .status()
+            .expect("git starts");
+        assert!(status.success());
+        let base_revision = discovery::source_revision(root).expect("base revision");
         fs::create_dir_all(root.join("forge/src")).expect("source directory");
         for index in 0..45 {
             fs::write(
@@ -670,7 +684,7 @@ mod tests {
             .expect("git starts");
         assert!(status.success());
         let revision = discovery::source_revision(root).expect("pinned revision");
-        let paths = discovery::changed_paths(root, None, &revision, 0)
+        let paths = discovery::changed_paths(root, Some(&base_revision), &revision, 0)
             .expect("changed paths")
             .into_iter()
             .filter(|path| code_path(path))
