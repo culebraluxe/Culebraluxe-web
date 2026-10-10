@@ -259,8 +259,9 @@ impl EvidenceStore for Evidence {
     fn read(&self, _: &str) -> ForgeGateEvidence {
         self.current.clone()
     }
-    fn merge(&self, _: &str, _: &str, patch: ForgeGateEvidence) {
+    fn merge(&self, _: &str, _: &str, patch: ForgeGateEvidence) -> Result<(), String> {
         self.merged.lock().expect("merged").push(patch);
+        Ok(())
     }
     fn latest_refresh_command_id(&self, _: &str) -> Option<String> {
         None

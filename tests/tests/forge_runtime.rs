@@ -1092,8 +1092,9 @@ fn publish_without_qa_pass_records_conflict() {
                 ..Default::default()
             }
         }
-        fn merge(&self, _: &str, _: &str, patch: ForgeGateEvidence) {
+        fn merge(&self, _: &str, _: &str, patch: ForgeGateEvidence) -> Result<(), String> {
             assert_eq!(patch.publish_succeeded, Some(false));
+            Ok(())
         }
         fn latest_refresh_command_id(&self, _: &str) -> Option<String> {
             None
@@ -1188,8 +1189,9 @@ fn a_publish_refused_by_the_switch_is_not_filed_as_a_git_conflict() {
                 ..Default::default()
             }
         }
-        fn merge(&self, _: &str, _: &str, patch: ForgeGateEvidence) {
+        fn merge(&self, _: &str, _: &str, patch: ForgeGateEvidence) -> Result<(), String> {
             *self.0.lock().expect("spy lock") = patch.failure_class.clone();
+            Ok(())
         }
         fn latest_refresh_command_id(&self, _: &str) -> Option<String> {
             None
