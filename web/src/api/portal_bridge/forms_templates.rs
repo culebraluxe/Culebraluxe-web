@@ -40,7 +40,7 @@ pub(super) const ACTIVE_FORM_TEMPLATE_VERSIONS: &[(&str, i32)] = &[
     ("PR-PNS-AMD", 1),
     ("LISTING-01", 5),
     ("SHOW-INFO", 1),
-    ("SHOW-RPT", 1),
+    ("SHOW-RPT", 2),
 ];
 
 pub(super) const PORTAL_FORM_TEMPLATE_IDS: &[&str] =

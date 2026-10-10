@@ -83,6 +83,7 @@ pub(super) fn parse_participants(
 pub(super) fn parse_signatures(
     element: &Element,
     field_ids: &[String],
+    email_field_ids: &[String],
 ) -> Result<Vec<TemplateSignatureGroup>, TemplateXmlError> {
     let mut groups: Vec<TemplateSignatureGroup> = Vec::new();
     for child in element.elements() {
@@ -109,11 +110,23 @@ pub(super) fn parse_signatures(
             }
         }
         let initials = child.bool_attr("initials", false)?;
+        let email = child
+            .attr("email")
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if let Some(email) = email.as_deref() {
+            if !email_field_ids.iter().any(|id| id == email) {
+                return Err(TemplateXmlError::new(format!(
+                    "Signature group \"{role}\" names \"{email}\", which is not an email field."
+                )));
+            }
+        }
         groups.push(TemplateSignatureGroup {
             role,
             label,
             field,
             initials,
+            email,
         });
     }
     Ok(groups)
@@ -174,7 +187,14 @@ pub fn parse_template_xml(xml: &str) -> Result<TemplateDefinition, TemplateXmlEr
                 "field" => fields.push(parse_field(child, &mut field_ids)?),
                 "section" => sections.push(parse_section(child, &field_ids, &mut section_ids)?),
                 "participants" => participants = parse_participants(child)?,
-                "signatures" => signature_groups = parse_signatures(child, &field_ids)?,
+                "signatures" => {
+                    let email_field_ids: Vec<String> = fields
+                        .iter()
+                        .filter(|field| field.field_type == TemplateFieldType::Email)
+                        .map(|field| field.name.clone())
+                        .collect();
+                    signature_groups = parse_signatures(child, &field_ids, &email_field_ids)?
+                }
                 other => {
                     return Err(TemplateXmlError::new(format!(
                         "Unknown element <{other}> inside <form>."
