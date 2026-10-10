@@ -100,6 +100,7 @@ fn external_context(correlation_id: &str) -> ServiceContext {
 }
 
 #[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (APP_ENV=dev): uses disposable Postgres; production is refused"]
 #[allow(non_snake_case)]
 async fn sec_entitlement_009__vault_document() {
     let db = TestDatabase::connect_from_env()

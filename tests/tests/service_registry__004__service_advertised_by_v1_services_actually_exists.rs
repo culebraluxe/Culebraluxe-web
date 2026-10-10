@@ -50,6 +50,7 @@ async fn connect_isolated() -> ServiceHarness {
 }
 
 #[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (APP_ENV=dev): uses disposable Postgres; production is refused"]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-SERVICE-REGISTRY-004)
 async fn service_registry_004__service_advertised_by_v1_services_actually_exists() {
     // 0. L1 boundary: the real ServiceRegistry composed with deterministic infrastructure.

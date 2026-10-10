@@ -50,6 +50,7 @@ fn root_context(correlation_id: &str) -> ServiceContext {
 }
 
 #[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (APP_ENV=dev): uses disposable Postgres; production is refused"]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-SEC-ENTITLEMENT-001); the file and the assay use it.
 async fn sec_entitlement_001__create() {
     // 1. Setup: isolated DEV database and SecurityService with real DAO.
