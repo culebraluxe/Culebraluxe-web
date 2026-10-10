@@ -234,9 +234,7 @@ pub fn watch_loop() -> i32 {
                         eprintln!("forge-worker: pass returned {code}");
                         let _ = beat("idle", 0, Some(&format!("pass returned {code}")));
                     }
-                    Ok(Ok(_)) => {
-                        state = "idle";
-                    }
+                    Ok(Ok(_)) => {}
                     Ok(Err(error)) => {
                         eprintln!("forge-worker: pass failed: {error}");
                         let _ = beat("idle", 0, Some(&error));

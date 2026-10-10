@@ -27,7 +27,7 @@ struct Elem {
 #[derive(Debug, Clone)]
 enum Node {
     Elem(Elem),
-    Text(String),
+    Text,
 }
 
 struct Cur<'a> {
@@ -211,7 +211,7 @@ fn parse_elem(c: &mut Cur<'_>) -> Result<Elem, XmlError> {
             }
         }
         if !text.trim().is_empty() {
-            children.push(Node::Text(text));
+            children.push(Node::Text);
         }
     }
 }

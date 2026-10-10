@@ -536,7 +536,6 @@ fn append_integration_test(
     }
     let existing = std::fs::read_to_string(abs).unwrap_or_default();
     let needs_header = existing.trim().is_empty();
-    let body = header_block();
     let mut out = existing;
     if needs_header {
         out.push_str(&format!(

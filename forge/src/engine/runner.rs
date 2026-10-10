@@ -203,7 +203,7 @@ pub trait ForgeTurnPorts {
     ///
     /// Returns `Err(WorkflowError::Unavailable)` when the database cannot be reached, which the engine classifies
     /// as an engine fault (retryable). Returns `Err(WorkflowError::Generic)` for other database errors.
-    fn current_for(&self, story_id: &str) -> Result<ForgeGateEvidence> {
+    fn current_for(&self, _story_id: &str) -> Result<ForgeGateEvidence> {
         Ok(self.current().clone())
     }
     fn fork_with_harness(
