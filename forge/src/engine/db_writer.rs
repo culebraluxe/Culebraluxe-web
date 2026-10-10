@@ -156,6 +156,36 @@ impl ForgeStateWriter for DbForgeStateWriter {
                     usage.cost_usd,
                 )
                 .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+            })
+        })
+    }
+
+    fn settle_model_attempt_usage(
+        &self,
+        run_id: &str,
+        generation_id: &str,
+        attempt_key: &str,
+        usage: Option<&crate::engine::harness::HarnessUsage>,
+    ) -> Result<(), String> {
+        self.run(|dao, rt| {
+            rt.block_on(async {
+                dao.settle_model_generation_attempt_usage(
+                    generation_id,
+                    attempt_key,
+                    run_id,
+                    usage.map(|reading| {
+                        (
+                            reading.session_id.as_str(),
+                            reading.tokens_input,
+                            reading.tokens_output,
+                            reading.cost_usd,
+                        )
+                    }),
+                )
+                .await
+                .map(|_| ())
                 .map_err(|e| e.to_string())
             })
         })

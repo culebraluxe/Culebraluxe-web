@@ -279,6 +279,17 @@ impl OpenCodeHarness {
         self_heal: Option<&str>,
         live_turn: &LiveTurnSlot,
     ) -> Result<HarnessOutput> {
+        self.run_role_with_slot_measured(node_id, task, self_heal, live_turn, &mut None)
+    }
+
+    fn run_role_with_slot_measured(
+        &self,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+        live_turn: &LiveTurnSlot,
+        measured_usage: &mut Option<crate::engine::harness::HarnessUsage>,
+    ) -> Result<HarnessOutput> {
         let cwd = self.workspace.to_string_lossy().to_string();
         if !self.workspace.exists() {
             return Err(WorkflowError::generic(format!(
@@ -481,6 +492,7 @@ impl OpenCodeHarness {
                 cost_usd: u.cost_usd,
             })
             .or_else(|| turn.as_ref().ok().and_then(|events| events.usage.clone()));
+        *measured_usage = usage.clone();
         let spent = usage
             .as_ref()
             .map(|u| {
@@ -586,6 +598,26 @@ impl RoleHarness for OpenCodeHarness {
         self.run_role_with_slot(node_id, task, self_heal, &self.live_turn)
     }
 
+    fn run_role_report(
+        &self,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> crate::engine::runner::HarnessTurnReport {
+        let mut measured_usage = None;
+        let outcome = self.run_role_with_slot_measured(
+            node_id,
+            task,
+            self_heal,
+            &self.live_turn,
+            &mut measured_usage,
+        );
+        crate::engine::runner::HarnessTurnReport {
+            outcome,
+            measured_usage,
+        }
+    }
+
     fn run_role_scoped(
         &self,
         execution_id: &str,
@@ -606,6 +638,34 @@ impl RoleHarness for OpenCodeHarness {
             )));
         }
         self.run_role_with_slot(node_id, task, self_heal, &slot)
+    }
+
+    fn run_role_scoped_report(
+        &self,
+        execution_id: &str,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> crate::engine::runner::HarnessTurnReport {
+        let mut measured_usage = None;
+        let outcome = self.execution_slot(execution_id).and_then(|slot| {
+            if slot
+                .lock()
+                .map_err(|_| WorkflowError::generic("execution interrupt slot is poisoned"))?
+                .interrupt_reason
+                .is_some()
+            {
+                return Err(WorkflowError::generic(format!(
+                    "{}: execution was cancelled before model launch",
+                    crate::engine::opencode::TURN_INTERRUPTED_CODE
+                )));
+            }
+            self.run_role_with_slot_measured(node_id, task, self_heal, &slot, &mut measured_usage)
+        });
+        crate::engine::runner::HarnessTurnReport {
+            outcome,
+            measured_usage,
+        }
     }
 
     fn fork_for_workspace(

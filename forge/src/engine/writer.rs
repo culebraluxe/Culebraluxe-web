@@ -44,6 +44,20 @@ pub trait ForgeStateWriter: Send + Sync {
         run_id: &str,
         usage: &crate::engine::harness::HarnessUsage,
     ) -> Result<(), String>;
+    /// Settle spend (or explicit unknown usage) for one stable model attempt. Implementations backed by the DB
+    /// must update the attempt receipt and Story Run totals atomically and idempotently.
+    fn settle_model_attempt_usage(
+        &self,
+        run_id: &str,
+        _generation_id: &str,
+        _attempt_key: &str,
+        usage: Option<&crate::engine::harness::HarnessUsage>,
+    ) -> Result<(), String> {
+        if let Some(usage) = usage {
+            self.record_run_usage(run_id, usage)?;
+        }
+        Ok(())
+    }
 
     /// Whether this writer records durable story state.
     ///
@@ -114,6 +128,15 @@ impl ForgeStateWriter for NullWriter {
     ) -> Result<(), String> {
         Ok(())
     }
+    fn settle_model_attempt_usage(
+        &self,
+        _run_id: &str,
+        _generation_id: &str,
+        _attempt_key: &str,
+        _usage: Option<&crate::engine::harness::HarnessUsage>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub struct RecordingWriter {
@@ -133,6 +156,15 @@ pub struct RecordingWriter {
         std::sync::Mutex<std::collections::HashMap<String, db::forge_assay::AssayReceiptRow>>,
     /// `(run_id, usage)` for every spend reading the engine asked to add to a run.
     pub usage: std::sync::Mutex<Vec<(String, crate::engine::harness::HarnessUsage)>>,
+    /// `(run, generation, attempt, measured usage)`; `None` is an explicit unknown settlement.
+    pub attempt_usage: std::sync::Mutex<
+        Vec<(
+            String,
+            String,
+            String,
+            Option<crate::engine::harness::HarnessUsage>,
+        )>,
+    >,
 }
 
 impl Default for RecordingWriter {
@@ -148,6 +180,7 @@ impl Default for RecordingWriter {
             assay_plan_snapshots: std::sync::Mutex::new(std::collections::HashMap::new()),
             assay_receipts: std::sync::Mutex::new(std::collections::HashMap::new()),
             usage: std::sync::Mutex::new(vec![]),
+            attempt_usage: std::sync::Mutex::new(vec![]),
         }
     }
 }
@@ -222,6 +255,27 @@ impl ForgeStateWriter for RecordingWriter {
             .lock()
             .unwrap()
             .push((run_id.into(), usage.clone()));
+        Ok(())
+    }
+    fn settle_model_attempt_usage(
+        &self,
+        run_id: &str,
+        generation_id: &str,
+        attempt_key: &str,
+        usage: Option<&crate::engine::harness::HarnessUsage>,
+    ) -> Result<(), String> {
+        self.attempt_usage.lock().unwrap().push((
+            run_id.into(),
+            generation_id.into(),
+            attempt_key.into(),
+            usage.cloned(),
+        ));
+        if let Some(usage) = usage {
+            self.usage
+                .lock()
+                .unwrap()
+                .push((run_id.into(), usage.clone()));
+        }
         Ok(())
     }
 }
