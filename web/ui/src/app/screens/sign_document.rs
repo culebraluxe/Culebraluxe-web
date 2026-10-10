@@ -471,7 +471,7 @@ fn page(content: Html) -> Html {
                         class="h-7 w-auto max-w-[60%] object-contain" />
                     <span class="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.2em] text-[#caa36b]">
                         <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#caa36b]"></span>
-                        {"Secure signing"}
+                        {"Luxesign"}
                     </span>
                 </div>
             </header>
@@ -921,7 +921,7 @@ fn completed_view(model: &Model, session: &SignerSession) -> Html {
     page(html! {
         <section class="mx-auto mt-6 max-w-xl rounded-xl border border-black/10 bg-white p-8 text-center shadow-sm">
             <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-xl text-emerald-700">{"✓"}</div>
-            <p class="mt-5 text-[10px] font-medium uppercase tracking-[0.2em] text-[#a88450]">{ name.unwrap_or_else(|| "Secure signing".to_owned()) }</p>
+            <p class="mt-5 text-[10px] font-medium uppercase tracking-[0.2em] text-[#a88450]">{ name.unwrap_or_else(|| "Luxesign".to_owned()) }</p>
             <h1 class="mt-2 font-serif text-3xl font-light text-[#041024]">{ heading }</h1>
             <p class="mx-auto mt-3 max-w-md text-sm font-light leading-6 text-black/55">{ body }</p>
             if sealed {

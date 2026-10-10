@@ -228,7 +228,7 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "property-admin", title: "Data Workbench", path: "/portal/property-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "media-admin", title: "Media Audit", path: "/portal/media-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "property-media", title: "Property Media", path: "/portal/property-media", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
-    Screen { key: "document-signing", title: "Document Signing", path: "/portal/document-signing", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "document-signing", title: "Luxesign", path: "/portal/document-signing", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "identity-quality", title: "Identity Quality", path: "/portal/identity-quality", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "client-admin", title: "Client Administration", path: "/portal/client-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "reporting", title: "Reporting", path: "/portal/reporting", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
@@ -305,7 +305,7 @@ pub const SCREENS: &[Screen] = &[
     // ---- SITE: the public front. Not covered by the portal registry, so these come from the route tree. ----
     // The page a signer reaches from the signing email. It carries no session and no portal nav: the token in the
     // path is the whole of its authority, which is why it is a Site screen rather than a portal one.
-    Screen { key: "sign-document", title: "Secure Signing", path: "/sign/[token]", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
+    Screen { key: "sign-document", title: "Luxesign", path: "/sign/[token]", surface: Surface::Site, nav: Nav::Unlisted, deferred: None, detail_of: None },
     Screen { key: "site-home", title: "Home", path: "/", surface: Surface::Site, nav: Nav::Listed, deferred: None , detail_of: None },
     // NO LIVE ROUTE: the app serves public properties only at /properties/[slug]; there is no index page, and
     // nothing links to one. This screen is a view over the public inventory read model (getProperties/getFilteredProperties)
