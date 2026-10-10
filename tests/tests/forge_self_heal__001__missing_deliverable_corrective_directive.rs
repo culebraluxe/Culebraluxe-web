@@ -17,7 +17,7 @@ use forge::engine::assay::CommandResult;
 use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::runner::{HarnessOutput, RoleHarness};
 use forge::engine::runtime::ActiveForgeRoleTask;
-use forge::roles::hooks::NoRoleHooks;
+use forge::roles::architect::ArchitectHooks;
 use forge::roles::lifecycle::{run_forge_role_turn, ForgeRoleContext};
 use workflow::{Result, TaskStatus};
 
@@ -39,8 +39,14 @@ impl DirectiveRecordingHarness {
     fn complete() -> Self {
         Self {
             seen: Mutex::new(vec![]),
-            reply: "plan ready\nFORGE_EVIDENCE_JSON: {\"researchDisposition\":\"IMPLEMENT\"}"
-                .into(),
+            reply: concat!(
+                "plan ready\n",
+                "FORGE_ARCHITECT_HANDOFF: {\"version\":1,\"baseRef\":\"base\",",
+                "\"findings\":[{\"id\":\"F1\",\"required\":true,",
+                "\"summary\":\"valid handoff\",\"scope\":[\"src/example.rs\"],",
+                "\"proofs\":[],\"risks\":[]}]}"
+            )
+            .into(),
         }
     }
 }
@@ -129,7 +135,7 @@ fn context<'a>(
 fn forge_self_heal_001__missing_deliverable_corrective_directive() {
     std::env::set_var("FORGE_ENFORCE_DELIVERABLES", "1");
     std::env::set_var("FORGE_DELIVERABLE_RETRIES", "1");
-    let hooks = NoRoleHooks;
+    let hooks = ArchitectHooks;
 
     // Positive: an attempt that misses the architect plan is retried WITH a directive.
     let harness = DirectiveRecordingHarness::incomplete();
@@ -164,7 +170,7 @@ fn forge_self_heal_001__missing_deliverable_corrective_directive() {
         "the still-missing deliverable is rejected after the budget runs out"
     );
 
-    // Negative: a turn that delivers on the first attempt is never reprompted.
+    // Negative: a valid Architect handoff is parsed by the production Architect hooks and is never reprompted.
     let clean = DirectiveRecordingHarness::complete();
     let current = ForgeGateEvidence::default();
     let task = role_task("TST-RED-B24-001-CLEAN");
