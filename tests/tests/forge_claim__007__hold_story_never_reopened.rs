@@ -75,6 +75,12 @@ async fn forge_claim_007__hold_story_never_reopened() {
         .expect("the production hold runs");
     assert_eq!(story_status(pool, &held_story).await, "Hold");
 
+    // The boundary is liveness-fenced; make this held claim genuinely stale before recovery.
+    sqlx::query("update agent_work_item set updated_at=now()-interval '2 minutes', heartbeat_at=now()-interval '2 minutes', lease_expires_at=now()-interval '1 minute' where id=$1::uuid")
+        .bind(&item)
+        .execute(pool).await
+        .expect("age the held lease before stale recovery");
+
     // ── THE CONTRACT: recovery ends the claim WITHOUT reopening the story. ──
     harness
         .control()
