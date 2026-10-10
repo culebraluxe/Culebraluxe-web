@@ -825,8 +825,6 @@ fn run_maestro_streaming(
         .map_err(|e| WorkflowError::generic(format!("failed to spawn maestro: {e}")))?;
 
     let mut stdout = String::new();
-    let mut stderr = String::new();
-
     // Spawn stderr reader in a separate thread
     let stderr_pipe = child.stderr.take().unwrap();
     let stderr_handle = std::thread::spawn(move || {

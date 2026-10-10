@@ -47,15 +47,6 @@ fn flag(args: &[String], name: &str) -> Option<String> {
     args.windows(2).find(|w| w[0] == name).map(|w| w[1].clone())
 }
 
-/// The engine's default per-statement ceiling: 5 minutes, against the pool's 30-second request-path default.
-/// See the comment in `main`. Long enough for a cold branch's first write; still a ceiling, so a genuinely stuck
-/// query ends the run instead of holding it forever.
-const ENGINE_STATEMENT_TIMEOUT_MS: &str = "300000";
-
-/// The engine's default wait for an open connection: 60 seconds, against the pool's 10-second request-path
-/// default. A cold Neon branch has to complete the pool's floor of handshakes before the first statement can run.
-const ENGINE_CONNECT_TIMEOUT_MS: &str = "60000";
-
 /// A claim whose launch configuration the engine refuses: terminalize it now, as `Error`.
 ///
 /// Leaving it `Claimed` would hand the row to stale recovery ten minutes later, which reports a dead worker rather
@@ -875,7 +866,6 @@ fn drive<S: TxStore>(
     };
     drive_with_runtime(
         &mut rt,
-        release,
         writer,
         evidence_reader,
         harness,
@@ -924,7 +914,6 @@ fn drive_with_shared_runtime(
     )?;
     drive_with_runtime(
         &rt,
-        release,
         writer,
         evidence_reader,
         harness,
@@ -943,7 +932,6 @@ fn drive_with_shared_runtime(
 /// Common drive logic shared by both memory and shared-engine paths.
 fn drive_with_runtime<S: TxStore>(
     rt: &ForgeRuntime<S>,
-    release: Arc<dyn ForgeReleaseExecutor>,
     writer: Arc<dyn ForgeStateWriter>,
     evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
     harness: Arc<dyn RoleHarness>,

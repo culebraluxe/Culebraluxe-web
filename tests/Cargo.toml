@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+# Contract test names carry their stable work-order identifiers (`__NNN__`) because the files and test names are
+# referenced directly in packets, review evidence, and failure reports. Rust's snake-case lint does not fit this
+# deliberate test-only naming convention; production crates keep the normal lint.
+[lints.rust]
+non_snake_case = "allow"
+
 # The dedicated, Rust-native contract-test harness (TST-HARNESS-FOUNDATION-001).
 #
 # DEPENDENCY DIRECTION IS ONE-WAY: test-harness depends on production crates; production crates never depend on

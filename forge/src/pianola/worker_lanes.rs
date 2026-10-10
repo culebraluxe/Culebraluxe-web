@@ -23,7 +23,7 @@ use std::process::Command;
 
 use crate::engine::worktree::{
     derive_branch_name, git_binary, provision_worker_workspace, resolve_approved_base_ref,
-    resolve_repo_root, sanitize_branch_segment,
+    resolve_repo_root,
 };
 
 /// Sibling directory name for TST lanes, placed beside the repo root so it
@@ -210,6 +210,7 @@ fn detect_mainline_movement_in(repo_root: &Path, base_commit: &str) -> Result<bo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::worktree::sanitize_branch_segment;
 
     #[test]
     fn branch_name_is_agent_scoped_and_sanitized() {

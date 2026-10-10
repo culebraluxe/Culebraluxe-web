@@ -1,9 +1,7 @@
 //! Lane failure settlement.
 
-use workflow::{ProcessOutcome, ProcessStatus, Result, TxStore, WorkflowError};
+use workflow::{Result, TxStore, WorkflowError};
 
-use crate::engine::engine_fault::is_engine_fault_error;
-use crate::engine::executor::drive::ForgeRoleOutcome;
 use crate::engine::runtime::ForgeRuntime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,22 +29,14 @@ pub fn settle_forge_lane_failure<S: TxStore>(
 }
 
 pub fn is_advance_conflict(err: &WorkflowError) -> bool {
-    let m = err.to_string();
-    let c = err.code();
     matches!(
-        c,
+        err.code(),
         "STALE_TASK" | "TASK_ALREADY_COMPLETED" | "PROCESS_NOT_ACTIVE" | "TASK_NOT_CLAIMABLE"
-    ) || m.to_ascii_lowercase().contains("already completed")
-        || m.to_ascii_lowercase().contains("not active")
-        || m.to_ascii_lowercase().contains("state changed")
+    )
 }
 
 pub fn is_completed_release_conflict(err: &WorkflowError) -> bool {
     err.code() == "TASK_ALREADY_COMPLETED"
-        || err
-            .to_string()
-            .to_ascii_lowercase()
-            .contains("cannot be released in status: completed")
 }
 
 #[cfg(test)]
@@ -54,9 +44,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_completed_completed_projects_story_complete() {
-        use workflow::{ProcessOutcome, ProcessStatus};
-        // The process_completes_story function is tested in executor tests
-        // This module's logic is tested via executor tests
+    fn advance_conflicts_are_recognized_by_stable_code() {
+        for code in [
+            "STALE_TASK",
+            "TASK_ALREADY_COMPLETED",
+            "PROCESS_NOT_ACTIVE",
+            "TASK_NOT_CLAIMABLE",
+        ] {
+            assert!(is_advance_conflict(&WorkflowError::conflict(
+                code, "detail"
+            )));
+        }
+        assert!(!is_advance_conflict(&WorkflowError::generic(
+            "task state changed concurrently"
+        )));
+    }
+
+    #[test]
+    fn unrelated_conflict_text_does_not_masquerade_as_an_advance_conflict() {
+        let error = WorkflowError::conflict("UNRELATED", "process is not active");
+        assert!(!is_advance_conflict(&error));
+    }
+
+    #[test]
+    fn completed_release_conflict_uses_its_code() {
+        assert!(is_completed_release_conflict(&WorkflowError::conflict(
+            "TASK_ALREADY_COMPLETED",
+            "completion already committed"
+        )));
+        assert!(!is_completed_release_conflict(&WorkflowError::generic(
+            "cannot be released in status: completed"
+        )));
     }
 }
