@@ -13,6 +13,7 @@ use forge::engine::executor::{
     DurableForgeExecution,
 };
 use forge::engine::facts::ForgeGateEvidence;
+use forge::engine::harness::TurnTermination;
 use forge::engine::hold::OpenHold;
 use forge::engine::job::{ForgeJobBridge, JobService, WorkflowJobService};
 use forge::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};
@@ -218,6 +219,16 @@ impl RoleHarness for SeamHarness {
 
     fn assay_cwd(&self) -> &Path {
         Path::new(".")
+    }
+
+    // SeamHarness returns synchronously and owns no subprocess. Durable jobs still require
+    // the interruption port; when invoked this fake accurately reports that nothing is live.
+    fn supports_interrupt(&self) -> bool {
+        true
+    }
+
+    fn interrupt_execution(&self, _reason: &str) -> WorkflowResult<Option<TurnTermination>> {
+        Ok(Some(TurnTermination::none()))
     }
 
     fn run_command(&self, command: &str) -> CommandResult {
