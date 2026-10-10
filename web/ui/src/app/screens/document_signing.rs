@@ -436,7 +436,7 @@ impl Screen for DocumentSigning {
             <div class="space-y-5">
                 { template::portal_heading(
                     "Operations",
-                    "Document Signing",
+                    "Luxesign",
                     "Send, follow and finish native signing envelopes.",
                 ) }
 

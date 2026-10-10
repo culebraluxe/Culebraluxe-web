@@ -205,9 +205,9 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                             >
                                 {
                                     if signature_active {
-                                        "Docusign sent"
+                                        "Luxesign sent"
                                     } else {
-                                        "Docusign"
+                                        "Luxesign"
                                     }
                                 }
                             </button>

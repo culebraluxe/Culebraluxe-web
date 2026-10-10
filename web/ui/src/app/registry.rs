@@ -175,7 +175,7 @@ pub const ENTRIES: &[Entry] = &[
     entry("marketing-syndication", "/portal/marketing/syndication", Surface::Marketing, "Publishing", Menu::None, "portal.read", "property.read", Kind::Screen(mount::<Publishing>)).of("marketing"),
     entry("property-admin", "/portal/property-admin", Surface::Ops, "Data Workbench", Menu::Rail("Records"), "portal.read", "property.read", Kind::Screen(mount::<Workbench>)),
     entry("property-media", "/portal/property-media", Surface::Ops, "Property Media", Menu::Rail("Listing Media"), "portal.read", "property.read", Kind::Screen(mount::<ListingMedia>)),
-    entry("document-signing", "/portal/document-signing", Surface::Ops, "Document Signing", Menu::Rail("Document Signing"), "portal.read", "documentSign.read", Kind::Screen(mount::<DocumentSigning>)),
+    entry("document-signing", "/portal/document-signing", Surface::Ops, "Luxesign", Menu::Rail("Luxesign"), "portal.read", "documentSign.read", Kind::Screen(mount::<DocumentSigning>)),
     entry("tech", "/portal/tech", Surface::Tech, "Cockpit", Menu::Rail("Cockpit"), "tech.access", "tech.access", Kind::Screen(mount::<TechCockpit>)),
     entry("storyboard", "/portal/storyboard", Surface::Tech, "Story Board", Menu::Rail("Story Board"), "tech.access", "tech.access", Kind::Screen(mount::<Storyboard>)),
     entry("design-lab", "/portal/design-lab", Surface::Tech, "UI Lab", Menu::Rail("UI Lab"), "tech.access", "tech.access", Kind::Screen(mount::<UiLab>)),
@@ -206,7 +206,7 @@ pub const ENTRIES: &[Entry] = &[
     entry("property-record", "/portal/property-admin/:propertyId", Surface::Ops, "Property record", Menu::None, "portal.read", "", Kind::Screen(mount::<Workbench>)).of("property-admin"),
     entry("story-record", "/portal/storyboard/:id", Surface::Tech, "Story", Menu::None, "portal.read", "", Kind::Screen(mount::<StoryRecord>)).of("storyboard"),
     entry("trace-record", "/portal/tech/flight-recorder/:instanceId", Surface::Tech, "Trace", Menu::None, "portal.read", "", Kind::Screen(mount::<FlightRecorder>)).of("tech"),
-    entry("sign-document", "/sign/:token", Surface::Site, "Secure Signing", Menu::None, "", "", Kind::Screen(mount::<SignDocument>)),
+    entry("sign-document", "/sign/:token", Surface::Site, "Luxesign", Menu::None, "", "", Kind::Screen(mount::<SignDocument>)),
     entry("site-home", "/", Surface::Site, "Home", Menu::None, "", "", Kind::Screen(mount::<site::pages::Home>)),
     entry("site-properties", "/properties", Surface::Site, "Properties", Menu::None, "", "", Kind::Screen(mount::<site::pages::Properties>)).of("site-buyers"),
     entry("site-property-detail", "/properties/:slug", Surface::Site, "Property", Menu::None, "", "", Kind::Screen(mount::<site::pages::PropertyDetail>)).of("site-buyers"),
@@ -441,7 +441,7 @@ mod tests {
         );
         assert_eq!(
             labels(Surface::Ops),
-            ["Records", "Listing Media", "Document Signing"]
+            ["Records", "Listing Media", "Luxesign"]
         );
         assert_eq!(
             labels(Surface::Support),
