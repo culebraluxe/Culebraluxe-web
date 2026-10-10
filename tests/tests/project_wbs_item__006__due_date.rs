@@ -55,6 +55,7 @@ async fn query_due_items(
 }
 
 #[tokio::test]
+#[ignore = "needs DATABASE_URL_DEV (APP_ENV=dev): uses disposable Postgres; production is refused"]
 async fn project_wbs_item_006__due_date() {
     let db = Database::connect_target(DbTarget::Dev)
         .await
