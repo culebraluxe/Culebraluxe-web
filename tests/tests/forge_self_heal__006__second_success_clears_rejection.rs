@@ -18,12 +18,18 @@ use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::runner::{HarnessOutput, RoleHarness};
 use forge::engine::runtime::ActiveForgeRoleTask;
 use forge::engine::writer::RecordingWriter;
-use forge::roles::hooks::NoRoleHooks;
+use forge::roles::architect::ArchitectHooks;
 use forge::roles::lifecycle::{run_forge_role_turn, ForgeRoleContext};
 use workflow::{Result, TaskStatus};
 
 const INCOMPLETE: &str = "still thinking, nothing delivered";
-const COMPLETE: &str = "plan ready\nFORGE_EVIDENCE_JSON: {\"researchDisposition\":\"IMPLEMENT\"}";
+const COMPLETE: &str = concat!(
+    "plan ready\n",
+    "FORGE_ARCHITECT_HANDOFF: {\"version\":1,\"baseRef\":\"base\",",
+    "\"findings\":[{\"id\":\"F1\",\"required\":true,",
+    "\"summary\":\"valid handoff\",\"scope\":[\"src/example.rs\"],",
+    "\"proofs\":[],\"risks\":[]}]}"
+);
 
 /// Misses on the first attempt and delivers on the second, recording every directive.
 struct ThenDeliversHarness {
@@ -114,7 +120,8 @@ fn forge_self_heal_006__second_success_clears_rejection() {
         write_surface: None,
         model_attempt_control: None,
     };
-    let outcome = run_forge_role_turn(&ctx, "architect", &task, &NoRoleHooks).expect("turn runs");
+    let outcome =
+        run_forge_role_turn(&ctx, "architect", &task, &ArchitectHooks).expect("turn runs");
 
     assert_eq!(
         harness.calls.load(Ordering::SeqCst),
