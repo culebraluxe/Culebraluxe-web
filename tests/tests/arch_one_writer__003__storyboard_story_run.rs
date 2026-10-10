@@ -12,8 +12,11 @@
 //! THREE FACTS, pinned in **both directions** — a new writer fails here (that is the point) and a pin the
 //! tree no longer matches also fails, so the set can only move by a deliberate edit of this file:
 //!
-//!   1. ONE DAO FILE WRITES THE TABLE DIRECTLY, AND NOBODY ELSE INSERTS A RUN. `db/src/forge_engine.rs` — four:
-//!      `stamp_run_base_commit`, `stamp_run_candidate`, `add_run_usage` and `append_run_detail`.
+//!   1. THE FORGE ENGINE DAO OWNS THE TABLE'S DIRECT WRITES, AND NOBODY ELSE INSERTS A RUN.
+//!      `db/src/forge_engine.rs` owns `stamp_run_base_commit`, `stamp_run_candidate`, `add_run_usage` and
+//!      `append_run_detail`. `db/src/forge_engine/model_attempt_budget.rs` is its dedicated submodule for
+//!      atomic attempt-usage settlement and owns that one UPDATE. These are two physical source files in
+//!      one DAO family, so both are pinned explicitly below; no other DAO may join the set.
 //!      Batch 4 removed the unused learning-DAO `interrupt_story_run` copy from `db/src/forge_control.rs`.
 //!      `db/src/forge_control.rs` and `db/src/forge_reset.rs` also call the fenced recovery function
 //!      (migration 279), which closes a run when its stale claim is recovered (fact 3). Production Rust
@@ -108,19 +111,29 @@ const TABLE: &str = "storyboard_story_run";
 const PREFIX_TABLE: &str = "storyboard_story";
 
 /// The production `.rs` files that execute a write of `storyboard_story_run`, frozen. Growth (or a
-/// removal) fails until the pin is edited deliberately, which is the act of saying "a third file writes
-/// the run ledger".
-const DIRECT_WRITERS: [&str; 1] = ["db/src/forge_engine.rs"];
+/// removal) fails until the pin is edited deliberately. The usage submodule is an explicit member of the
+/// Forge Engine DAO family; it does not create another ownership boundary.
+const DIRECT_WRITERS: [&str; 2] = [
+    "db/src/forge_engine.rs",
+    "db/src/forge_engine/model_attempt_budget.rs",
+];
 /// All Rust entry files that may write the ledger directly or through its pinned database functions.
-const MAY_WRITE: [&str; 3] = [
+const MAY_WRITE: [&str; 4] = [
     "db/src/forge_control.rs",
     "db/src/forge_engine.rs",
+    "db/src/forge_engine/model_attempt_budget.rs",
     "db/src/forge_reset.rs",
 ];
 
 /// Each pinned writer, and text its RAW source must carry — the scan would otherwise pass by reading the
 /// wrong file.
-const READ_PROOF: [(&str, &str); 1] = [("db/src/forge_engine.rs", "update storyboard_story_run")];
+const READ_PROOF: [(&str, &str); 2] = [
+    ("db/src/forge_engine.rs", "update storyboard_story_run"),
+    (
+        "db/src/forge_engine/model_attempt_budget.rs",
+        "update storyboard_story_run",
+    ),
+];
 
 /// The migration functions whose bodies write the table, and the production `.rs` files allowed to invoke
 /// each one from Rust. An empty caller list means the function is SQL-internal: no production Rust file

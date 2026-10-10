@@ -224,9 +224,14 @@ const TABLE_WRITERS_BASELINE: [(&str, &[&str]); 3] = [
     ),
     (
         "storyboard_story_run",
-        // The learning DAO removed its unused story-run writer during Batch 4; the active writer
-        // remains in the Forge Engine DAO.
-        &["db/src/forge_engine.rs"],
+        // The learning DAO removed its unused story-run writer during Batch 4. Model-attempt
+        // settlement now has a dedicated submodule in the same Forge Engine DAO; it is an
+        // intentional second source file because it owns the atomic, idempotent usage receipt
+        // transaction. Keep this explicit so future writers still require a reviewed baseline.
+        &[
+            "db/src/forge_engine.rs",
+            "db/src/forge_engine/model_attempt_budget.rs",
+        ],
     ),
     ("forge_workflow_evidence", &["db/src/forge_engine.rs"]),
 ];

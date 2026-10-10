@@ -259,7 +259,12 @@ impl EvidenceStore for DbReleaseEvidenceStore {
         })
     }
 
-    fn merge(&self, process_instance_id: &str, story_id: &str, patch: ForgeGateEvidence) {
+    fn merge(
+        &self,
+        process_instance_id: &str,
+        story_id: &str,
+        patch: ForgeGateEvidence,
+    ) -> Result<(), String> {
         let mapped = evidence_patch(&patch);
         let resolved = patch.publish_succeeded == Some(true);
         let result = with_shared(|db, rt| {
@@ -271,11 +276,11 @@ impl EvidenceStore for DbReleaseEvidenceStore {
             })
         });
         match result {
-            Ok(Ok(())) => {}
+            Ok(Ok(())) => Ok(()),
             Ok(Err(error)) | Err(error) => {
-                eprintln!(
+                Err(format!(
                     "forge release evidence merge failed story={story_id} process={process_instance_id}: {error}"
-                );
+                ))
             }
         }
     }
