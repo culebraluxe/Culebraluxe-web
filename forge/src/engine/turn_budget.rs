@@ -117,23 +117,34 @@ pub struct ModelAttemptPermit {
 /// only transports the authorization capability through Forge's service layer.
 pub struct DbModelAttemptControl {
     generation_id: String,
+    story_id: String,
+    story_run_id: String,
     cap: u32,
 }
 
 impl DbModelAttemptControl {
-    pub fn initialize(generation_id: impl Into<String>, cap: u32) -> Result<Self, String> {
+    pub fn initialize(
+        generation_id: impl Into<String>,
+        story_id: impl Into<String>,
+        story_run_id: impl Into<String>,
+        cap: u32,
+    ) -> Result<Self, String> {
         let requested_cap = cap.clamp(1, 100);
         let generation_id = generation_id.into();
+        let story_id = story_id.into();
+        let story_run_id = story_run_id.into();
         let budget = crate::engine::vendor_session::with_shared(|db, rt| {
             rt.block_on(async {
                 db::ForgeEngineDao::new(db.clone())
-                    .ensure_model_attempt_budget(&generation_id, requested_cap as i32)
+                    .ensure_model_generation_budget(&generation_id, &story_id, requested_cap as i32)
                     .await
                     .map_err(|error| error.to_string())
             })
         })??;
         Ok(Self {
             generation_id,
+            story_id,
+            story_run_id,
             cap: budget.cap as u32,
         })
     }
@@ -144,7 +155,14 @@ impl ModelAttemptControl for DbModelAttemptControl {
         crate::engine::vendor_session::with_shared(|db, rt| {
             rt.block_on(async {
                 let reservation = db::ForgeEngineDao::new(db.clone())
-                    .reserve_model_attempt(&self.generation_id, self.cap as i32, task_id, role_attempt as i32)
+                    .reserve_model_generation_attempt(
+                        &self.generation_id,
+                        &self.story_id,
+                        &self.story_run_id,
+                        self.cap as i32,
+                        task_id,
+                        role_attempt as i32,
+                    )
                     .await.map_err(|error| error.to_string())?;
                 if reservation.authorized {
                     eprintln!("forge-model-attempt generation={} task={} attempt={} status=authorized used={}/{}", self.generation_id, task_id, role_attempt, reservation.budget.used, reservation.budget.cap);
@@ -156,6 +174,8 @@ impl ModelAttemptControl for DbModelAttemptControl {
                 } else {
                     let reason = if reservation.duplicate {
                         format!("{MODEL_TURN_CAP_CODE}: attempt {} was already authorized; refusing duplicate launch ({} of {} used)", reservation.attempt_key, reservation.budget.used, reservation.budget.cap)
+                    } else if reservation.budget.uncertain {
+                        format!("{MODEL_TURN_CAP_CODE}: generation {} has uncertain legacy attempt history and is held for operator resolution", self.generation_id)
                     } else {
                         format!("{MODEL_TURN_CAP_CODE}: generation {} has used {} of {} model attempts; no allowance remains", self.generation_id, reservation.budget.used, reservation.budget.cap)
                     };
@@ -184,7 +204,12 @@ impl ModelAttemptControl for DbModelAttemptControl {
         crate::engine::vendor_session::with_shared(|db, rt| {
             rt.block_on(async {
                 let changed = db::ForgeEngineDao::new(db.clone())
-                    .mark_model_attempt(&self.generation_id, &permit.attempt_key, status, detail)
+                    .mark_model_generation_attempt(
+                        &self.generation_id,
+                        &permit.attempt_key,
+                        status,
+                        detail,
+                    )
                     .await
                     .map_err(|error| error.to_string())?;
                 if changed {

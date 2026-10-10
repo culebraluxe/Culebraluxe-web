@@ -724,6 +724,7 @@ fn main() {
             &work_type,
             stop_after.clone(),
             story_run_id.clone(),
+            work_item.clone(),
             run_launch_intent.clone(),
             test_mode.clone(),
             contract_assay_commands.clone(),
@@ -740,6 +741,7 @@ fn main() {
             &work_type,
             stop_after.clone(),
             story_run_id.clone(),
+            work_item.clone(),
             run_launch_intent.clone(),
             test_mode.clone(),
             contract_assay_commands.clone(),
@@ -848,6 +850,7 @@ fn drive<S: TxStore>(
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
     story_run_id: Option<String>,
+    model_generation_id: Option<String>,
     bench_intent: Option<String>,
     test_mode: Option<String>,
     contract_assay_commands: Vec<String>,
@@ -880,6 +883,7 @@ fn drive<S: TxStore>(
         work_type,
         stop_after,
         story_run_id,
+        model_generation_id,
         bench_intent,
         test_mode,
         contract_assay_commands,
@@ -897,6 +901,7 @@ fn drive_with_shared_runtime(
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
     story_run_id: Option<String>,
+    model_generation_id: Option<String>,
     bench_intent: Option<String>,
     test_mode: Option<String>,
     contract_assay_commands: Vec<String>,
@@ -927,6 +932,7 @@ fn drive_with_shared_runtime(
         work_type,
         stop_after,
         story_run_id,
+        model_generation_id,
         bench_intent,
         test_mode,
         contract_assay_commands,
@@ -945,6 +951,7 @@ fn drive_with_runtime<S: TxStore>(
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
     story_run_id: Option<String>,
+    model_generation_id: Option<String>,
     bench_intent: Option<String>,
     test_mode: Option<String>,
     contract_assay_commands: Vec<String>,
@@ -969,9 +976,14 @@ fn drive_with_runtime<S: TxStore>(
         .with_contract_acceptance_mapped(contract_acceptance_mapped)
         .with_evidence_reader(evidence_reader.clone());
     if let Some(run_id) = runner.story_run_id.as_deref() {
-        let control =
-            forge::engine::turn_budget::DbModelAttemptControl::initialize(run_id, turn_cap)
-                .map_err(WorkflowError::generic)?;
+        let generation_id = model_generation_id.as_deref().unwrap_or(run_id);
+        let control = forge::engine::turn_budget::DbModelAttemptControl::initialize(
+            generation_id,
+            story,
+            run_id,
+            turn_cap,
+        )
+        .map_err(WorkflowError::generic)?;
         runner = runner.with_model_attempt_control(Arc::new(control));
     }
     // Every canonical Forge lane is composed here, in one place: each service owns its lane's identity,

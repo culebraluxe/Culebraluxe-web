@@ -1,6 +1,6 @@
 //! Slice 5 smoke: the production registry/job composition and durable attempt authority on DEV.
 //!
-//! Run explicitly after migrations 282/283:
+//! Run explicitly after migrations 282/283/286:
 //!   cargo test -p test-harness --test forge_model_attempt_budget_production_dev -- --ignored
 
 #[path = "support/forge_seam.rs"]
@@ -22,7 +22,7 @@ use std::sync::Arc;
 use workflow::NeonStore;
 
 #[test]
-#[ignore = "needs DATABASE_URL_DEV and migrations 282/283"]
+#[ignore = "needs DATABASE_URL_DEV and migrations 282/283/286"]
 fn registered_durable_composition_enforces_the_shared_generation_cap() {
     let tokio = tokio::runtime::Runtime::new().expect("test runtime");
     let database = tokio
@@ -56,6 +56,7 @@ fn registered_durable_composition_enforces_the_shared_generation_cap() {
         .await
         .expect("insert proof generation")
     });
+    let generation_id = uuid::Uuid::new_v4().to_string();
 
     let writer = Arc::new(DbForgeStateWriter);
     let runtime = ForgeRuntime::from_store(
@@ -68,7 +69,7 @@ fn registered_durable_composition_enforces_the_shared_generation_cap() {
     )
     .expect("production-shaped durable Forge runtime");
     let attempt_control = Arc::new(
-        DbModelAttemptControl::initialize(run_id.clone(), 1)
+        DbModelAttemptControl::initialize(generation_id.clone(), story.clone(), run_id.clone(), 1)
             .expect("durable attempt budget for this generation"),
     );
     let harness = Arc::new(support::SeamHarness::default());
@@ -102,9 +103,9 @@ fn registered_durable_composition_enforces_the_shared_generation_cap() {
 
     let budget: (i32, i32) = tokio.block_on(async {
         sqlx::query_as(
-            "select used, cap from forge_model_attempt_budget where story_run_id = $1::uuid",
+            "select used, cap from forge_model_generation_budget where generation_id = $1::uuid",
         )
-        .bind(&run_id)
+        .bind(&generation_id)
         .fetch_one(pool)
         .await
         .expect("durable generation budget")
@@ -128,9 +129,9 @@ fn registered_durable_composition_enforces_the_shared_generation_cap() {
 
     tokio.block_on(async {
         let after: (i32, i32) = sqlx::query_as(
-            "select used, cap from forge_model_attempt_budget where story_run_id = $1::uuid",
+            "select used, cap from forge_model_generation_budget where generation_id = $1::uuid",
         )
-        .bind(&run_id)
+        .bind(&generation_id)
         .fetch_one(pool)
         .await
         .expect("budget after refused launch");
