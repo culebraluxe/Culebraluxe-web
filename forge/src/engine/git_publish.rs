@@ -17,6 +17,7 @@ use crate::engine::evidence_store::evidence_patch;
 use crate::engine::facts::{evidence_from_value, ForgeGateEvidence};
 use crate::engine::release::{
     EvidenceStore, ForgeOperationResult, ForgeReleaseOperations, PublishOutcome,
+    PublishReconciliation,
 };
 use crate::engine::vendor_session::with_shared;
 use db::ForgeEngineDao;
@@ -292,6 +293,70 @@ impl EvidenceStore for DbReleaseEvidenceStore {
     fn frozen_proofs(&self, _story_id: &str) -> Vec<String> {
         Vec::new()
     }
+
+    fn operation_receipt(
+        &self,
+        operation_command_id: &str,
+    ) -> Result<Option<db::ForgeReleaseOperationReceipt>, String> {
+        with_shared(|database, runtime| {
+            let dao = ForgeEngineDao::new(database.clone());
+            runtime.block_on(async {
+                dao.release_operation_receipt(operation_command_id)
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        })
+        .map_err(|error| error.to_string())?
+    }
+
+    fn record_operation_receipt(
+        &self,
+        env: &crate::engine::release::ForgeCommandEnvelope,
+        operation_command_id: &str,
+        result: &serde_json::Value,
+    ) -> Result<(), String> {
+        with_shared(|database, runtime| {
+            let dao = ForgeEngineDao::new(database.clone());
+            runtime.block_on(async {
+                dao.record_release_operation_receipt(
+                    operation_command_id,
+                    &env.process_instance_id,
+                    &env.story_id,
+                    &env.command_type,
+                    result,
+                )
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+            })
+        })
+        .map_err(|error| error.to_string())?
+    }
+
+    fn settle_operation(
+        &self,
+        env: &crate::engine::release::ForgeCommandEnvelope,
+        operation_command_id: &str,
+        patch: ForgeGateEvidence,
+    ) -> Result<(), String> {
+        let mapped = evidence_patch(&patch);
+        let resolved = patch.publish_succeeded == Some(true);
+        with_shared(|database, runtime| {
+            let dao = ForgeEngineDao::new(database.clone());
+            runtime.block_on(async {
+                dao.settle_release_operation_receipt(
+                    operation_command_id,
+                    &env.process_instance_id,
+                    &env.story_id,
+                    &mapped,
+                    resolved,
+                )
+                .await
+                .map_err(|error| error.to_string())
+            })
+        })
+        .map_err(|error| error.to_string())?
+    }
 }
 
 pub struct HostReleaseExecutor {
@@ -319,6 +384,10 @@ impl crate::engine::writer::ForgeReleaseExecutor for HostReleaseExecutor {
             .and_then(|v| v.as_str())
             .unwrap_or(command_type)
             .to_string();
+        let causation_id = input
+            .get("causationId")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
         crate::engine::release::DbForgeReleaseExecutor {
             operations: GitReleaseOps {
                 repo_root: self.ops.repo_root.clone(),
@@ -330,6 +399,7 @@ impl crate::engine::writer::ForgeReleaseExecutor for HostReleaseExecutor {
         .execute(&crate::engine::release::ForgeCommandEnvelope {
             command_type: command_type.into(),
             command_id,
+            causation_id,
             process_instance_id,
             story_id,
         })
@@ -409,5 +479,52 @@ impl ForgeReleaseOperations for GitReleaseOps {
             .cloned()
             .collect();
         publish_candidate(&self.repo_root, sha, &proofs)
+    }
+
+    fn reconcile_publish(&self, candidate_sha: &str) -> PublishReconciliation {
+        let candidate_sha = candidate_sha.trim();
+        if candidate_sha.is_empty() {
+            return PublishReconciliation::Unknown("candidate SHA is empty".into());
+        }
+        if git(
+            &self.repo_root,
+            &["cat-file", "-e", &format!("{candidate_sha}^{{commit}}")],
+        )
+        .is_err()
+        {
+            return PublishReconciliation::Unknown(
+                "candidate commit is unavailable locally".into(),
+            );
+        }
+        if let Err(error) = git(&self.repo_root, &["fetch", "origin", "main"]) {
+            return PublishReconciliation::Unknown(format!("could not read origin/main: {error}"));
+        }
+        let remote_main = match git(
+            &self.repo_root,
+            &["rev-parse", "--verify", "origin/main^{commit}"],
+        ) {
+            Ok(hash) => hash,
+            Err(error) => {
+                return PublishReconciliation::Unknown(format!(
+                    "could not resolve origin/main: {error}"
+                ))
+            }
+        };
+        if remote_main == candidate_sha {
+            return PublishReconciliation::Published(PublishOutcome::Published {
+                published_main_hash: remote_main,
+            });
+        }
+        if git(
+            &self.repo_root,
+            &["merge-base", "--is-ancestor", candidate_sha, &remote_main],
+        )
+        .is_ok()
+        {
+            return PublishReconciliation::Published(PublishOutcome::IntegratedAndPublished {
+                published_main_hash: remote_main,
+            });
+        }
+        PublishReconciliation::NotPublished
     }
 }

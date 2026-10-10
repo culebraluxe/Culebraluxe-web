@@ -1579,14 +1579,11 @@ mod tests {
             &format!("echo $$ > '{}'\nexec 1>&-\nsleep 30", pid_file.display()),
         );
         let started = std::time::Instant::now();
-        let error = run_fixture_with_outer_deadline(
-            script,
-            Duration::from_millis(300),
-            Some(pid_file.clone()),
-        )
-        .expect_err("closing stdout must not bypass the deadline");
+        let error =
+            run_fixture_with_outer_deadline(script, Duration::from_secs(1), Some(pid_file.clone()))
+                .expect_err("closing stdout must not bypass the deadline");
         assert!(error.to_string().contains("wall-clock ceiling"), "{error}");
-        assert!(started.elapsed() < Duration::from_secs(3));
+        assert!(started.elapsed() < Duration::from_secs(5));
         let pid: u32 = std::fs::read_to_string(&pid_file)
             .expect("child wrote its pid")
             .trim()

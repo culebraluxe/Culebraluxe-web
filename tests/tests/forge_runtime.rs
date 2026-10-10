@@ -1096,6 +1096,29 @@ fn publish_without_qa_pass_records_conflict() {
             assert_eq!(patch.publish_succeeded, Some(false));
             Ok(())
         }
+        fn operation_receipt(
+            &self,
+            _: &str,
+        ) -> Result<Option<db::ForgeReleaseOperationReceipt>, String> {
+            Ok(None)
+        }
+        fn record_operation_receipt(
+            &self,
+            _: &ForgeCommandEnvelope,
+            _: &str,
+            _: &serde_json::Value,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn settle_operation(
+            &self,
+            _: &ForgeCommandEnvelope,
+            _: &str,
+            patch: ForgeGateEvidence,
+        ) -> Result<(), String> {
+            assert_eq!(patch.publish_succeeded, Some(false));
+            Ok(())
+        }
         fn latest_refresh_command_id(&self, _: &str) -> Option<String> {
             None
         }
@@ -1111,6 +1134,7 @@ fn publish_without_qa_pass_records_conflict() {
     let r = exec.execute(&ForgeCommandEnvelope {
         command_type: "forge.publish_candidate".into(),
         command_id: "c1".into(),
+        causation_id: None,
         process_instance_id: "p".into(),
         story_id: "s".into(),
     });
@@ -1178,6 +1202,9 @@ fn a_publish_refused_by_the_switch_is_not_filed_as_a_git_conflict() {
                 reason: "publication disabled by FORGE_ALLOW_PUBLISH".into(),
             }
         }
+        fn reconcile_publish(&self, _: &str) -> release::PublishReconciliation {
+            release::PublishReconciliation::NotPublished
+        }
     }
     /// Records the `failure_class` the publisher filed, which is the whole claim under test.
     struct Spy(Arc<Mutex<Option<String>>>);
@@ -1190,6 +1217,29 @@ fn a_publish_refused_by_the_switch_is_not_filed_as_a_git_conflict() {
             }
         }
         fn merge(&self, _: &str, _: &str, patch: ForgeGateEvidence) -> Result<(), String> {
+            *self.0.lock().expect("spy lock") = patch.failure_class.clone();
+            Ok(())
+        }
+        fn operation_receipt(
+            &self,
+            _: &str,
+        ) -> Result<Option<db::ForgeReleaseOperationReceipt>, String> {
+            Ok(None)
+        }
+        fn record_operation_receipt(
+            &self,
+            _: &ForgeCommandEnvelope,
+            _: &str,
+            _: &serde_json::Value,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn settle_operation(
+            &self,
+            _: &ForgeCommandEnvelope,
+            _: &str,
+            patch: ForgeGateEvidence,
+        ) -> Result<(), String> {
             *self.0.lock().expect("spy lock") = patch.failure_class.clone();
             Ok(())
         }
@@ -1210,6 +1260,7 @@ fn a_publish_refused_by_the_switch_is_not_filed_as_a_git_conflict() {
     let result = exec.execute(&ForgeCommandEnvelope {
         command_type: "forge.publish_candidate".into(),
         command_id: "c1".into(),
+        causation_id: None,
         process_instance_id: "p".into(),
         story_id: "s".into(),
     });

@@ -139,6 +139,13 @@ impl ForgeCommandRegistry {
                     Box::new(move |req| match &exec {
                         Some(e) => {
                             let mut input = req.input.clone();
+                            input.insert(
+                                "commandId",
+                                workflow::Value::from(req.command_id.as_str()),
+                            );
+                            if let Some(causation_id) = req.causation_id.as_deref() {
+                                input.insert("causationId", workflow::Value::from(causation_id));
+                            }
                             if input.get("storyId").is_none() {
                                 if let Some(story_id) = req.subject_id.as_deref() {
                                     input.insert("storyId", workflow::Value::from(story_id));

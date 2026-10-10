@@ -201,13 +201,21 @@ impl<S: TxStore> WorkflowEngine<S> {
         let visit_sequence = tx.command_visit_count(&instance.id, &node.id)? + 1;
         let command_id = command_id(&instance.id, &node.id, visit_sequence);
         let input = resolve_input_mappings(node.input_mappings.as_ref(), variables);
+        // A command retried after an explicit settlement hold gets a fresh workflow-command id, but its
+        // external operation must remain attached to the original idempotency identity. Carry that root in
+        // causation_id so the application adapter can settle/read back without repeating the operation.
+        let settlement_cause =
+            unsettled_command_cause(tx, &instance.id, &token.id, Some(&command_type))?;
+        let causation_id = settlement_cause
+            .as_ref()
+            .map(|cause| cause.operation_command_id.clone());
         let request = ApplicationCommandRequest {
             command_id: command_id.clone(),
             command_type: command_type.clone(),
             subject_type: instance.subject_type.clone(),
             subject_id: instance.subject_id.clone(),
             correlation_id: instance.id.clone(),
-            causation_id: None,
+            causation_id: causation_id.clone(),
             input: input.clone(),
         };
         self.event(
@@ -240,6 +248,24 @@ impl<S: TxStore> WorkflowEngine<S> {
         })?;
 
         if result.outcome == ApplicationCommandOutcome::Success {
+            if let Some(operation_command_id) = causation_id.as_deref() {
+                self.event(
+                    tx,
+                    EventInput {
+                        process_instance_id: instance.id.clone(),
+                        token_id: Some(token.id.clone()),
+                        event_type: "command.settlement_resolved",
+                        node_id: Some(node.id.clone()),
+                        actor: actor.to_string(),
+                        data: json!({
+                            "commandId": command_id,
+                            "operationCommandId": operation_command_id,
+                            "commandType": command_type,
+                        }),
+                        ..Default::default()
+                    },
+                )?;
+            }
             self.event(
                 tx,
                 EventInput {
@@ -257,12 +283,33 @@ impl<S: TxStore> WorkflowEngine<S> {
             } else {
                 variables.clone()
             };
-            let transition_name = node.transition.clone().or_else(|| {
-                node.transitions
+            // A hold may route a retry through another command node (for example FAST can
+            // resume through the normal release router). On settlement, continue through the
+            // original command node's success edge so the declared FAST/normal route survives.
+            let success_node = if let Some(cause) = settlement_cause.as_ref() {
+                graph
+                    .nodes
+                    .get(&cause.origin_node_id)
+                    .filter(|origin| {
+                        origin.node_type == "command"
+                            && origin.command_type.as_deref() == Some(cause.command_type.as_str())
+                    })
+                    .ok_or_else(|| {
+                        WorkflowError::generic(format!(
+                            "Settlement origin {} is missing or does not match command type {}",
+                            cause.origin_node_id, cause.command_type
+                        ))
+                    })?
+            } else {
+                node
+            };
+            let transition_name = success_node.transition.clone().or_else(|| {
+                success_node
+                    .transitions
                     .as_ref()
                     .and_then(|ts| ts.first().map(|t| t.name.clone()))
             });
-            let transition = node
+            let transition = success_node
                 .transitions
                 .as_ref()
                 .and_then(|ts| {
@@ -274,7 +321,7 @@ impl<S: TxStore> WorkflowEngine<S> {
                 .ok_or_else(|| {
                     WorkflowError::generic(format!(
                         "Command node {} has no success transition",
-                        node.id
+                        success_node.id
                     ))
                 })?;
             self.move_token(tx, token, &transition.to, &transition.name, actor)?;
@@ -282,6 +329,46 @@ impl<S: TxStore> WorkflowEngine<S> {
             let mut inst = instance.clone();
             inst.variables = current.clone();
             return self.arrive_at_node(tx, &fresh, &inst, graph, actor, None, &current);
+        }
+
+        if result.outcome == ApplicationCommandOutcome::SettlementRequired {
+            let operation_command_id = causation_id.as_deref().unwrap_or(&command_id);
+            let origin_node_id = settlement_cause
+                .as_ref()
+                .map(|cause| cause.origin_node_id.as_str())
+                .unwrap_or(&node.id);
+            let hold = node.transitions.as_ref().and_then(|transitions| {
+                transitions
+                    .iter()
+                    .find(|transition| transition.name == "hold")
+            });
+            if let Some(transition) = hold {
+                self.event(
+                    tx,
+                    EventInput {
+                        process_instance_id: instance.id.clone(),
+                        token_id: Some(token.id.clone()),
+                        event_type: "command.settlement_required",
+                        node_id: Some(node.id.clone()),
+                        actor: actor.to_string(),
+                        data: json!({
+                            "commandId": command_id,
+                            "operationCommandId": operation_command_id,
+                            "originNodeId": origin_node_id,
+                            "commandType": command_type,
+                            "message": result.message.clone(),
+                        }),
+                        ..Default::default()
+                    },
+                )?;
+                self.move_token(tx, token, &transition.to, &transition.name, actor)?;
+                let fresh = tx.get_token(&token.id)?;
+                let mut inst = instance.clone();
+                inst.variables = variables.clone();
+                return self.arrive_at_node(tx, &fresh, &inst, graph, actor, None, variables);
+            }
+            // A settlement-required result without an explicit hold edge cannot be allowed to look
+            // recoverable. Fall through to the ordinary terminal failure path below.
         }
 
         self.event(
@@ -341,6 +428,72 @@ impl<S: TxStore> WorkflowEngine<S> {
             created_at: self.now(),
         })
     }
+}
+
+/// Return the original operation identity for the latest unresolved settlement of this type.
+/// A resumed attempt gets a new command id, but remains causally tied to the original external
+/// operation until a successful settlement records `command.settlement_resolved`.
+pub(super) struct SettlementCause {
+    pub(super) operation_command_id: String,
+    pub(super) origin_node_id: String,
+    pub(super) command_type: String,
+}
+
+pub(super) fn unsettled_command_cause(
+    tx: &mut dyn Store,
+    instance_id: &str,
+    token_id: &str,
+    command_type: Option<&str>,
+) -> Result<Option<SettlementCause>> {
+    let mut events = tx.history(instance_id, usize::MAX)?;
+    events.sort_by_key(|event| event.id);
+    let mut pending: Option<SettlementCause> = None;
+    for event in events {
+        if event.token_id.as_deref() != Some(token_id) {
+            continue;
+        }
+        match event.event_type.as_str() {
+            "command.settlement_required" => {
+                let Some(event_type) = event.data.get("commandType").and_then(Value::as_str) else {
+                    continue;
+                };
+                if command_type.is_some() && Some(event_type) != command_type {
+                    continue;
+                }
+                let operation_command_id = event
+                    .data
+                    .get("operationCommandId")
+                    .and_then(Value::as_str)
+                    .or_else(|| event.data.get("commandId").and_then(Value::as_str));
+                if let (Some(operation_command_id), Some(origin_node_id)) = (
+                    operation_command_id,
+                    event
+                        .data
+                        .get("originNodeId")
+                        .and_then(Value::as_str)
+                        .or(event.node_id.as_deref()),
+                ) {
+                    pending = Some(SettlementCause {
+                        operation_command_id: operation_command_id.to_string(),
+                        origin_node_id: origin_node_id.to_string(),
+                        command_type: event_type.to_string(),
+                    });
+                }
+            }
+            "command.settlement_resolved" => {
+                let resolved = event.data.get("operationCommandId").and_then(Value::as_str);
+                if pending
+                    .as_ref()
+                    .map(|cause| cause.operation_command_id.as_str())
+                    == resolved
+                {
+                    pending = None;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(pending)
 }
 
 #[derive(Default)]
