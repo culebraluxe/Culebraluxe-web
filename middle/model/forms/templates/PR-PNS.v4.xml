@@ -1,0 +1,467 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<form
+  id="PR-PNS"
+  version="4"
+  title="PURCHASE AND SALE AGREEMENT"
+  presentation="agreement"
+  documentType="Purchase and Sale Agreement"
+  issuer="CulebraLuxe Real Estate">
+
+  <participants>
+    <participant role="BUYER" label="Buyer" multiple="true"/>
+    <participant role="SELLER" label="Seller" multiple="true"/>
+    <participant role="BUYER_BROKER" label="Buyer's Broker"/>
+    <participant role="SELLER_BROKER" label="Seller's Broker"/>
+    <participant role="SELLER_SPOUSE" label="Seller's Spouse"/>
+  </participants>
+
+  <field id="buyerName" label="Buyer" type="text" required="true" source="deal.client.name"/>
+  <field id="buyerEmail" label="Buyer Email" type="email" required="false"/>
+  <field id="sellerName" label="Seller" type="text" required="true"/>
+  <field id="sellerEmail" label="Seller Email" type="email" required="false"/>
+  <field id="spouseName" label="Spouse Name" type="text"/>
+  <field id="spouseEmail" label="Spouse Email" type="email" required="false"/>
+  <field id="buyerBrokerName" label="Buyer's Broker" type="text"/>
+  <field id="buyerBrokerEmail" label="Buyer's Broker Email" type="email" required="false"/>
+  <field id="sellerBrokerName" label="Seller's Broker" type="text"/>
+
+  <field id="property" label="Property" type="text" required="true" source="deal.property.label"/>
+  <field id="municipality" label="Municipality" type="text"/>
+  <field id="catastroNumber" label="Catastro Number" type="text"/>
+  <field id="registryEntry" label="Registry Entry" type="text"/>
+  <field id="fincaNumber" label="Finca Number" type="text"/>
+  <field id="registrySection" label="Registry Section" type="text"/>
+
+  <field id="purchasePrice" label="Purchase Price" type="money" required="true" source="deal.offer.amount"/>
+  <field id="deposit" label="Deposit (Escrow)" type="money" required="true"/>
+  <field id="cashAtClosing" label="Buyer Cash at Closing" type="money"/>
+  <field id="closingDate" label="Closing Date" type="date" required="true" source="deal.closing.date"/>
+  <field id="escrowHolder" label="Escrow Holder" type="text"/>
+  <field id="notaryName" label="Closing Notary" type="text"/>
+  <field id="effectiveDate" label="Effective Date" type="date"/>
+
+  <field id="financing" label="Financing" type="select" required="true" source="deal.financing.type" options="Cash, Bank, Owner, Blend, Show All"/>
+  <field id="financingDeadline" label="Financing Commitment Deadline" type="date" when="financing:Bank,Blend"/>
+  <field id="lenderName" label="Lender" type="text" when="financing:Bank,Blend"/>
+  <field id="bankLoanAmount" label="Bank Financed" type="money" when="financing:Bank,Blend"/>
+  <field id="ownerPrincipal" label="Owner Financed" type="money" when="financing:Owner,Blend"/>
+  <field id="ownerRate" label="Owner Note Interest Rate" type="text" when="financing:Owner,Blend"/>
+  <field id="ownerMaturity" label="Owner Note Maturity" type="text" when="financing:Owner,Blend"/>
+
+  <field id="appraisalWaived" label="Appraisal Waived" type="select" options="Yes, No"/>
+  <field id="surveyDeadline" label="Survey Deadline" type="date"/>
+  <field id="inspectionDeadline" label="Inspection Deadline" type="date"/>
+  <field id="sellerCapacity" label="Seller Capacity" type="select" options="Individual, Married, Entity, Attorney-in-fact"/>
+  <field id="entitySignerTitle" label="Entity Signer Title" type="text"/>
+  <field id="poderDate" label="Power of Attorney Date" type="date"/>
+  <field id="sellerPRResident" label="Seller Puerto Rico Resident" type="select" options="Yes, No, Unknown"/>
+  <field id="sellerFirptaForeign" label="Seller Foreign Person (FIRPTA)" type="select" options="Yes, No, Unknown"/>
+  <field id="brokerRepresentation" label="Broker Representation" type="select" options="Seller only, Buyer only, Both"/>
+
+  <section id="parties" title="Parties" editable="false">
+    This Purchase and Sale Agreement is made as of
+    <value field="effectiveDate"/> (the "Effective Date") between
+    <value field="buyerName"/> (the "Buyer") and
+    <value field="sellerName"/> (the "Seller").
+    Brokers named in this Agreement facilitate the transaction and are not
+    parties to the sale covenants except for the limited broker acknowledgment
+    on the signature page. Each Party represents it has capacity and authority
+    to bind itself.
+  </section>
+
+  <section id="capacity" title="Capacity and Authority" editable="false">
+    Seller capacity is <value field="sellerCapacity"/>. If Married, the spouse
+    <value field="spouseName"/> shall join this Agreement and the escritura
+    unless recorded capitulaciones or a court order provides otherwise. If
+    Entity, the person signing warrants title
+    <value field="entitySignerTitle"/> and authority to bind the entity. If
+    Attorney-in-fact, the poder is dated
+    <value field="poderDate"/> and shall be delivered in recordable form
+    the Notary requires. The spouse signs on the signature page of this form.
+  </section>
+
+  <section id="propertyDescription" title="Property" editable="false">
+    Seller agrees to sell and Buyer agrees to buy the property known as
+    <value field="property"/>, Municipality of
+    <value field="municipality"/>, Catastro Number
+    <value field="catastroNumber"/>, Finca
+    <value field="fincaNumber"/>, Registry Section
+    <value field="registrySection"/>, Registry Entry
+    <value field="registryEntry"/> (the "Property"), together with
+    improvements and fixtures permanently attached to it, and any personal
+    property listed in Additional Terms. The controlling legal description is
+    the description in the last recorded escritura and the certified extract
+    of the Registro de la Propiedad. A marketing name has no legal effect.
+    Title shall be conveyed subject only to real-property taxes not yet due,
+    recorded easements and servitudes that do not materially interfere with
+    present use, association documents if any, and public coastal-zone and
+    beach limitations of general application, plus exceptions Buyer does not
+    timely object to (collectively, "Permitted Exceptions").
+  </section>
+
+  <section id="purchasePrice" title="Purchase Price and Consideration" editable="false">
+    The purchase price is <value field="purchasePrice"/> (the "Purchase Price").
+    The elected Transaction Type is <value field="financing"/>.
+    The Deposit of <value field="deposit"/> is held by
+    <value field="escrowHolder"/> and is credited to Buyer at Closing.
+    The remaining Purchase Price may be paid in any combination of
+    Bank Financed <value field="bankLoanAmount"/>,
+    Owner Financed <value field="ownerPrincipal"/>, and
+    Buyer Cash at Closing <value field="cashAtClosing"/>.
+    Any unused leg is $0. Any one, two, or all three legs may be used.
+    Deposit + Buyer Cash at Closing + Bank Financed + Owner Financed
+    must equal the Purchase Price. Buyer shall pay in immediately available
+    U.S. dollars, subject to prorations and required tax withholding.
+  </section>
+
+  <section id="earnestMoney" title="Earnest Money and Escrow" editable="false">
+    Within three Business Days after the Effective Date, Buyer shall deliver
+    the Deposit of <value field="deposit"/> by wire to
+    <value field="escrowHolder"/>. The Deposit is applied to the Purchase Price
+    at Closing. It is refundable if Buyer timely terminates under a contingency
+    this Agreement expressly treats as a refund-out (financing, appraisal if
+    not waived, inspection, title, survey, casualty, condemnation, or Seller
+    default). After those contingencies expire or are waived in writing, the
+    Deposit is non-refundable except on Seller default. Neither Party shall
+    rely on an email that changes wiring instructions. Wiring instructions
+    shall be confirmed by a live telephone call to a number already known to
+    the sender.
+  </section>
+
+  <section id="closing" title="Closing" editable="false">
+    Closing means authorization of the escritura de compraventa before a
+    Puerto Rico notary public, delivery of the Purchase Price net of credits
+    and required withholdings, delivery of possession as provided herein, and
+    presentation of the certified copy to the Registro de la Propiedad.
+    Closing shall occur on or before <value field="closingDate"/> before
+    <value field="notaryName"/>, or another Puerto Rico notary the Parties
+    agree. The Closing Notary is a public officer and is not counsel for
+    either Party. A mainland-style deed does not transfer Puerto Rico real
+    property. Either Party may extend Closing by up to fifteen days if a
+    title, Registry, or governmental certificate item is being cured in good
+    faith. A longer extension requires a written amendment.
+    This private contract does not itself transfer title. Title passes only
+    upon authorization of the escritura de compraventa before a Puerto Rico
+    notary and presentation to the Registro. The Notary, not this form,
+    prepares the escritura and any hipoteca.
+  </section>
+
+  <section id="titleInsurance" title="Title and Title Insurance" editable="false">
+    At Closing Seller shall convey good and marketable title, insurable at
+    regular rates, free of liens other than Permitted Exceptions, by escritura
+    publica acceptable for inscription. Seller shall cause a Puerto Rico title
+    study and a standard title-insurance commitment to be delivered to Buyer
+    at Seller's expense. Buyer shall give written title objections within ten
+    days after receipt of the commitment. Seller shall have fifteen days to
+    cure. Seller must cure monetary liens Seller created or assumed. If a
+    timely objection is not cured and is not waived, Buyer may terminate and
+    recover the Deposit. Seller shall deliver cancellation instruments needed
+    to clear non-permitted liens and shall cooperate with presentation to the
+    Registry.
+  </section>
+
+  <section id="taxes" title="Taxes and CRIM" editable="false">
+    Real-property taxes, CRIM charges, and municipal assessments shall be
+    prorated as of the Closing Date. Seller shall pay items through the day
+    of Closing and shall deliver a current CRIM certification of debt or
+    evidence of payment arrangement acceptable to the Notary. Buyer pays
+    items after Closing. Special assessments levied before the Effective Date
+    are Seller's expense unless Additional Terms state otherwise.
+  </section>
+
+  <section id="closingCosts" title="Closing Costs" editable="false">
+    Unless Additional Terms amend this allocation: Seller pays internal-revenue
+    stamps on the original deed and the cost of cancelling Seller liens;
+    Buyer pays stamps on the certified copy and Registro presentation fees;
+    the notarial tariff on the sale deed is allocated as the Parties agree in
+    Additional Terms (and otherwise as the Notary invoices inside the legal
+    band); title study and commitment are Seller's cost; a lender's policy,
+    bank fees, appraisal, new survey, and inspections are Buyer's cost; HOA
+    documents and estoppel are Seller's cost; each Party pays its own counsel;
+    broker commissions are paid under separate listing and buyer-representation
+    agreements, not as a condition of the validity of this sale.
+  </section>
+
+  <section id="risk" title="Risk of Loss, Casualty and Condemnation" editable="false">
+    Risk of loss remains with Seller until Closing and passes to Buyer upon
+    authorization of the escritura and delivery of possession. Seller shall
+    maintain existing hazard coverage, and flood coverage if the Property is
+    in a Special Flood Hazard Area, through Closing. If the Property suffers
+    Material Casualty before Closing (repair cost exceeding five percent of
+    the Purchase Price, or damage that cannot reasonably be repaired before
+    Closing), Buyer may terminate and recover the Deposit, or proceed with
+    assignment of insurance proceeds and a credit for any deductible. If any
+    material part of the Property is taken or placed under a formal taking
+    proceeding before Closing, Buyer may terminate and recover the Deposit
+    or proceed and take the award.
+  </section>
+
+  <section id="default" title="Default" editable="false">
+    Except for a failure to close on the Closing Date when time is of the
+    essence and the other Party is ready, willing, and able, a Party is not
+    in default until written notice and a five-day cure period have expired.
+    If Buyer defaults, Seller may terminate and retain the Deposit as
+    liquidated damages and not as a penalty. The Parties agree the Deposit
+    is a reasonable pre-estimate of Seller's marketing, carrying, and
+    opportunity losses. Retention of the Deposit is Seller's exclusive
+    pre-Closing remedy for Buyer default. If Seller defaults, Buyer may
+    terminate and recover the Deposit plus documented out-of-pocket title,
+    survey, inspection, and lender fees, or seek specific performance, or
+    terminate and pursue actual damages. Default under an owner-financed
+    note after Closing is governed by that note and the hipoteca, not by
+    the Deposit clause.
+  </section>
+
+  <section id="cashModule" title="Cash Sale" editable="false" when="financing:Cash">
+    If Financing is Cash, Buyer's obligation to close is not conditioned on
+    obtaining a loan. Failure to have immediately available funds on the
+    Closing Date is a Buyer default. Within five Business Days after the
+    Effective Date, Buyer shall deliver evidence reasonably acceptable to
+    Seller that Buyer has liquid funds at least equal to the Purchase Price
+    plus estimated Buyer-side closing costs. Seller shall keep that evidence
+    confidential. Unless Appraisal Waived is No, any appraisal is for
+    Buyer's information only and does not entitle Buyer to terminate or
+    reprice.
+  </section>
+
+  <section id="bankModule" title="Institutional / Bank Financing" editable="false" when="financing:Bank,Blend">
+    If Financing is Bank or Blend, Buyer shall pursue a purchase-money first
+    hipoteca from <value field="lenderName"/> in the amount of
+    <value field="bankLoanAmount"/>. Buyer shall apply promptly, pursue the
+    loan in good faith, and deliver a copy of the commitment letter to Seller
+    within two Business Days after receipt. If, despite good-faith pursuit,
+    Buyer does not receive a written commitment by
+    <value field="financingDeadline"/>, Buyer may terminate on or before that
+    deadline and recover the Deposit. Silence after that deadline waives this
+    contingency. If the lender's appraisal is less than the Purchase Price,
+    Buyer shall within five Business Days elect to add cash, request a price
+    reduction Seller may accept or refuse, or terminate and recover the
+    Deposit. Seller has not promised that Buyer will qualify.
+  </section>
+
+  <section id="ownerModule" title="Owner Financing" editable="false" when="financing:Owner,Blend">
+    If Financing is Owner or Blend, at Closing title will pass to Buyer by
+    escritura, and Seller will be secured by a civil-law hipoteca recorded
+    in the Registry, not by retention of title. Seller-carried principal is
+    <value field="ownerPrincipal"/> at
+    <value field="ownerRate"/>, maturing
+    <value field="ownerMaturity"/>. The Parties shall execute a promissory
+    note and an escritura de hipoteca before the Notary at Closing. Buyer
+    shall keep the Property insured and shall pay CRIM when due. Remedies
+    after Closing are as stated in the note and mortgage deed.
+  </section>
+
+  <section id="blendModule" title="Blended Consideration" editable="false" when="financing:Blend">
+    If Financing is Blend, the Purchase Price is paid in any combination of
+    Bank Financed, Owner Financed, and Buyer Cash at Closing shown above.
+    No leg is required if its amount is $0. Default lien stack when both
+    loan legs are used: the institutional lender holds the first hipoteca in
+    the amount of <value field="bankLoanAmount"/>; Seller holds the second
+    hipoteca in the amount of <value field="ownerPrincipal"/>. Seller shall
+    execute the lender's commercially reasonable subordination so long as it
+    does not increase the permitted first-lien principal above the stated
+    bank loan amount plus ordinary protective advances. If the institutional
+    loan funds at less than the stated bank amount, the shortfall is applied
+    first as Buyer additional cash, then as an increase in the seller note
+    only with Seller's written consent, then as a price reduction only with
+    Seller's written consent, and otherwise Buyer may terminate and recover
+    the Deposit. Sale, first hipoteca, and second hipoteca shall be
+    authorized in one session so priority is clear on presentation to the
+    Registry.
+  </section>
+
+  <section id="appraisal" title="Appraisal" editable="false">
+    Appraisal Waived is <value field="appraisalWaived"/>. If Yes, value is
+    not a Buyer termination right except as the Bank module provides when a
+    lender requires an appraisal. If No, Buyer may terminate and recover the
+    Deposit if a licensed appraisal delivered before Closing concludes that
+    as-is market value is less than ninety-five percent of the Purchase Price
+    and the Parties do not agree in writing on a reduced price or credit
+    within three Business Days.
+  </section>
+
+  <section id="survey" title="Survey" editable="false">
+    Buyer may obtain a new survey at Buyer's cost, with objections due by
+    <value field="surveyDeadline"/>. A survey objection is a title objection
+    if it shows an encroachment, lack of record access, a material cabida
+    variance, or an improvement outside the Registry bounds.
+  </section>
+
+  <section id="inspection" title="Inspection" editable="false">
+    Buyer may inspect the Property, at Buyer's cost, through
+    <value field="inspectionDeadline"/> (the "Inspection Period"). A Material
+    Defect is a condition that is not readily visible, that materially and
+    adversely affects safety, structure, weather-tightness, or permitted use,
+    and that will cost more than one percent of the Purchase Price to repair.
+    Buyer shall give written notice of claimed Material Defects before the
+    Inspection Period expires. Seller shall within five Business Days elect
+    to repair, credit, or refuse. If Seller refuses and the Parties do not
+    agree, Buyer may terminate within three Business Days and recover the
+    Deposit, or proceed as-is.
+  </section>
+
+  <section id="financingTerms" title="Financing Notes" editable="true">
+    Optional deal-specific financing notes.
+  </section>
+
+  <section id="additionalTerms" title="Additional Terms" editable="true">
+    Additional negotiated terms of the transaction.
+  </section>
+
+  <section id="specialConditions" title="Special Conditions" editable="true">
+    Special conditions negotiated by the parties.
+  </section>
+
+  <section id="addenda" title="Addenda and Exhibits" editable="false">
+    The following items, if used, are separate addenda outside this form and
+    control if attached and signed by Buyer and Seller: Exhibit A, legal
+    description from the last escritura; Exhibit B, personal-property and
+    vessel inventory; Exhibit C, owner-finance term sheet (note and hipoteca);
+    Exhibit D, seller property condition disclosure. An unsigned exhibit is
+    not part of this Agreement.
+  </section>
+
+  <section id="islandConditions" title="Island Conditions and Separate Assets" editable="false">
+    Culebra deals often involve items that belong in an addendum if they are
+    part of the bargain: a leased or PPA solar system Seller does not own;
+    a dock, mooring, or maritime concession; vacation guests through Closing;
+    unpermitted cistern, septic, generator, or shoreline work; flood insurance
+    if a lender is involved; and any HOA, co-owner, or concession right of
+    first refusal. Disclose those items in Exhibit D or Additional Terms.
+    Silence in this form is not a representation that none exist.
+  </section>
+
+  <section id="possession" title="Possession and Occupancy" editable="false">
+    Unless a signed post-closing occupancy addendum states otherwise, Seller
+    shall deliver exclusive possession at Closing, broom-clean, free of
+    occupants and of personal property not included in Additional Terms.
+  </section>
+
+  <section id="fixtures" title="Fixtures and Personal Property" editable="false">
+    All fixtures permanently attached to the Property are included, including
+    solar arrays, inverters, and batteries hard-wired to the house. Appliances,
+    furnishings, vehicles, and vessels are included only if listed in
+    Additional Terms or Exhibit B.
+  </section>
+
+  <section id="asIs" title="Condition of Property and Seller Representations" editable="false">
+    Except as required by law and except for the representations in this
+    section and any written Seller disclosure, the Property is sold in its
+    present as-is condition. Seller representations in this section survive
+    Closing for twelve months.
+  </section>
+
+  <section id="walkthrough" title="Pre-Closing Walkthrough" editable="false">
+    Buyer may inspect the Property within forty-eight hours before Closing.
+    The walkthrough is not a second inspection contingency.
+  </section>
+
+  <section id="prorations" title="Prorations and Adjustments" editable="false">
+    Taxes, rents if any, HOA dues, utilities, and similar recurring charges
+    shall be prorated as of the Closing Date. This clause survives Closing.
+  </section>
+
+  <section id="hoa" title="Homeowners Association" editable="false">
+    If the Property is subject to a homeowners or similar regime, Seller shall
+    deliver current governing documents, budget, and a statement of account.
+  </section>
+
+  <section id="utilities" title="Utilities and Services" editable="false">
+    Seller shall maintain utility service through Closing. Buyer shall arrange
+    transfer effective the Closing Date.
+  </section>
+
+  <section id="attorneyNotary" title="Attorney and Notary" editable="false">
+    Each Party may retain independent counsel. Closing shall be conducted
+    before a Puerto Rico notary public. The Notary is not counsel for either
+    Party. Electronic signature of this private contract does not replace the
+    notarial formalities of the escritura or hipoteca.
+  </section>
+
+  <section id="firpta" title="Tax Withholding — Hacienda and FIRPTA" editable="false">
+    A transfer of Puerto Rico real property can trigger Hacienda withholding
+    and federal FIRPTA withholding. Buyer can be personally liable for a
+    required amount that is not withheld. Seller's Puerto Rico residency
+    certification is <value field="sellerPRResident"/>. Seller's FIRPTA
+    foreign-person status is <value field="sellerFirptaForeign"/>. Seller shall
+    deliver the certificates the Notary and Escrow Holder require before
+    Closing. If any part of the Purchase Price is paid after Closing under
+    owner financing, Buyer shall withhold from each later payment to the
+    extent the statute requires. This clause survives Closing.
+  </section>
+
+  <section id="assignment" title="Assignment" editable="false">
+    Buyer may not assign this Agreement without Seller's prior written
+    consent, except to an entity that Buyer controls. No assignment releases
+    Buyer.
+  </section>
+
+  <section id="coastal" title="Coastal Zone, Flood and Permits" editable="false">
+    Buyer acknowledges Culebra property can be affected by coastal-zone
+    regulation, public-beach access, FEMA flood mapping, and storm risk.
+  </section>
+
+  <section id="exchange" title="Like-Kind Exchange" editable="false">
+    Either Party may structure its side as an exchange under Internal Revenue
+    Code section 1031. The other Party shall cooperate at no material cost or
+    delay.
+  </section>
+
+  <section id="brokers" title="Brokers" editable="false">
+    The brokers named in this Agreement are
+    <value field="buyerBrokerName"/> (Buyer's broker) and
+    <value field="sellerBrokerName"/> (Seller's broker).
+    Broker representation on this transaction is
+    <value field="brokerRepresentation"/>.
+    If representation is Both, the named broker is a dual agent and each
+    Party consents to that dual agency. Commission is paid under separate
+    listing and buyer-representation agreements.
+  </section>
+
+  <section id="forceMajeure" title="Death, Incapacity and Force Majeure" editable="false">
+    If a natural-person Party dies or becomes legally incapacitated before
+    Closing, this Agreement binds the estate or representative. Named-storm,
+    earthquake, or Registry or notary closure moves Closing to the third
+    Business Day after the impediment lifts, not later than thirty days after
+    the original Closing Date.
+  </section>
+
+  <section id="notices" title="Notices" editable="false">
+    All notices under this Agreement shall be in writing and delivered by
+    hand, overnight courier, or email with a PDF attached.
+  </section>
+
+  <section id="governingLaw" title="Governing Law, Venue and Fees" editable="false">
+    This Agreement is governed by the laws of the Commonwealth of Puerto
+    Rico. Exclusive venue lies in the Court of First Instance of Puerto Rico.
+  </section>
+
+  <section id="entireAgreement" title="Entire Agreement" editable="false">
+    This Agreement, including any addenda signed by Buyer and Seller,
+    constitutes the entire agreement. Amendments must be in writing and signed
+    by Buyer and Seller.
+  </section>
+
+  <section id="counterparts" title="Counterparts and Electronic Delivery" editable="false">
+    This Agreement may be signed in counterparts. Electronic delivery of a
+    signed counterpart is effective for this private contract.
+  </section>
+
+  <section id="severability" title="Severability" editable="false">
+    If any provision is held unenforceable, the remainder continues in effect.
+  </section>
+
+  <section id="timeOfEssence" title="Time of Essence" editable="false">
+    Time is of the essence. Deadlines that fall on a weekend or legal holiday
+    in Puerto Rico run to the next Business Day. Atlantic Time controls.
+  </section>
+
+  <signatures>
+    <signature-group role="BUYER" label="Buyer" field="buyerName" email="buyerEmail" initials="true"/>
+    <signature-group role="SELLER" label="Seller" field="sellerName" email="sellerEmail" initials="true"/>
+    <signature-group role="SELLER_SPOUSE" label="Seller's Spouse" field="spouseName" email="spouseEmail" initials="true"/>
+    <signature-group role="BUYER_BROKER" label="Buyer's Broker" field="buyerBrokerName" email="buyerBrokerEmail" initials="true"/>
+    <signature-group role="SELLER_BROKER" label="Seller's Broker" field="sellerBrokerName" initials="true"/>
+  </signatures>
+
+</form>

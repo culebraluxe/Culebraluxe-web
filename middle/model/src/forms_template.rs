@@ -149,9 +149,9 @@ mod tests {
     fn the_newest_authored_version_of_each_family_is_the_approved_one() {
         let library = library();
         for (id, approved) in [
-            ("OFFER-01", 2),
+            ("OFFER-01", 3),
             ("LISTING-01", 5),
-            ("PR-PNS", 3),
+            ("PR-PNS", 4),
             ("PR-PNS-AMD", 1),
             ("SHOW-INFO", 1),
             ("SHOW-RPT", 2),

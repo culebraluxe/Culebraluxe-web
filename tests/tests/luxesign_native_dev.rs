@@ -893,6 +893,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
             &ImportAnchorFieldsRequest {
                 signature_request_id: env.request_id.clone(),
                 anchors: vec![anchor("signature"), anchor("date")],
+                absent_roles: Vec::new(),
             },
             &ctx,
         )
@@ -922,6 +923,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
             &ImportAnchorFieldsRequest {
                 signature_request_id: env.request_id.clone(),
                 anchors: vec![anchor("signature")],
+                absent_roles: Vec::new(),
             },
             &ctx,
         )
@@ -963,6 +965,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
             &model::ImportAnchorFieldsRequest {
                 signature_request_id: env.request_id.clone(),
                 anchors: vec![],
+                absent_roles: Vec::new(),
             },
             &ctx,
         )
@@ -989,6 +992,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
                     role: "ghost".into(),
                     ..anchor("signature")
                 }],
+                absent_roles: Vec::new(),
             },
             &ctx,
         )
@@ -1507,6 +1511,7 @@ async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() 
         placement,
         copy_to: vec![],
         reminder_every_days: None,
+        absent_roles: Vec::new(),
     };
 
     // A page the document does not have is refused BEFORE anything is written.
@@ -1675,6 +1680,7 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
                 placement: SendFieldPlacement::LastPage,
                 copy_to: vec![broker.clone(), " ".into(), broker.to_uppercase()],
                 reminder_every_days: Some(3),
+                absent_roles: Vec::new(),
             },
             &ctx,
         )
@@ -1805,10 +1811,12 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
         causation_id: None,
         principal: None,
     };
+    // This run's completion, not an older one to the same address (the DEV database is shared between runs).
     let completion_id: String = sqlx::query_scalar(
-        "select id::text from email_message where message_kind = 'signature_completed' and recipient_email = $1",
+        "select id::text from email_message where message_kind = 'signature_completed' and recipient_email = $1 and correlation_id = $2",
     )
     .bind(&ada)
+    .bind(&tag)
     .fetch_one(db.pool())
     .await
     .unwrap();
@@ -1909,6 +1917,7 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
                 placement: SendFieldPlacement::LastPage,
                 copy_to: vec![],
                 reminder_every_days: None,
+                absent_roles: Vec::new(),
             },
             &ctx,
         )
@@ -2119,6 +2128,7 @@ async fn a_presigned_listing_agreement_is_sent_by_its_own_anchors_signed_and_sea
                 placement: SendFieldPlacement::Template,
                 copy_to: vec![],
                 reminder_every_days: Some(0),
+                absent_roles: Vec::new(),
             },
             &ctx,
         )
