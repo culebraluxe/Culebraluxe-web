@@ -493,6 +493,12 @@ fn template_party_signers(
         .signature_groups
         .iter()
         .filter(|group| group.email.is_some())
+        // A party the form does not name at all (no name, no email: an absent spouse) has no block to sign and no slot.
+        .filter(|group| {
+            let name = group.field.as_deref().map(value).unwrap_or_default();
+            let email = group.email.as_deref().map(value).unwrap_or_default();
+            !(name.is_empty() && email.is_empty())
+        })
         .map(|group| {
             let name = group
                 .field

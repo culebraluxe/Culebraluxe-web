@@ -169,7 +169,9 @@ pub(super) async fn save_form_values(
         }
     }
 
-    if template.field("sellerEmail").is_some() {
+    // The Listing's seller email is the seller's own address, so it is saved to the seller. Other templates' email fields
+    // name parties who are not the form's person, so they are only stored on the form.
+    if current.template_id == "LISTING-01" && template.field("sellerEmail").is_some() {
         // A typo here would be saved as the person's primary address and every later send would fail, so it is
         // refused before anything is written.
         let desired = match field_values

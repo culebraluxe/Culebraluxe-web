@@ -35,8 +35,8 @@ pub(super) fn load_form_templates(
 }
 
 pub(super) const ACTIVE_FORM_TEMPLATE_VERSIONS: &[(&str, i32)] = &[
-    ("OFFER-01", 2),
-    ("PR-PNS", 3),
+    ("OFFER-01", 3),
+    ("PR-PNS", 4),
     ("PR-PNS-AMD", 1),
     ("LISTING-01", 5),
     ("SHOW-INFO", 1),
@@ -330,7 +330,7 @@ pub(super) async fn forms_page(
         .list_signer_people(form_id, &resolved.service)
         .await
         .map_err(failed(resolved))?;
-    if template.field("sellerEmail").is_some() {
+    if form.template_id == "LISTING-01" && template.field("sellerEmail").is_some() {
         // The person's own email is canonical; the form shows it, and the signing link goes there.
         let seller_email = form.person_id.as_deref().and_then(|person_id| {
             signers

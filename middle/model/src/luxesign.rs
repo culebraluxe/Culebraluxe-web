@@ -231,6 +231,9 @@ pub struct SendLuxesignRequest {
     /// People copied on the completed document without signing (a listing's broker). The sender is always copied.
     #[serde(default)]
     pub copy_to: Vec<String>,
+    /// Blocks whose party is not on this form; they are drawn on the document, but nobody signs them.
+    #[serde(default)]
+    pub absent_roles: Vec<String>,
     /// Remind a waiting signer this often, in days (default 3; 0 = never).
     #[serde(default)]
     pub reminder_every_days: Option<i32>,
@@ -281,6 +284,9 @@ pub struct ImportAnchorFieldsRequest {
     /// template's own blocks from Vault's snapshot instead.
     #[serde(default)]
     pub anchors: Vec<TemplateAnchor>,
+    /// Blocks whose party is not on this form (an absent spouse). They are drawn on the document and carry no field.
+    #[serde(default)]
+    pub absent_roles: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

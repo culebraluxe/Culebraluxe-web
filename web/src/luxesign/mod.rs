@@ -762,6 +762,7 @@ where
                     &ImportAnchorFieldsRequest {
                         signature_request_id: signature_request_id.clone(),
                         anchors: Vec::new(),
+                        absent_roles: request.absent_roles.clone(),
                     },
                     context,
                 )
@@ -1522,6 +1523,7 @@ where
                 .iter()
                 .enumerate()
                 .filter(|(position, _)| !claimed[*position])
+                .filter(|(_, group)| !request.absent_roles.contains(&group.role))
                 .map(|(_, group)| match &group.slot {
                     Some(slot) => format!("{}:{slot}", group.role),
                     None => group.role.clone(),

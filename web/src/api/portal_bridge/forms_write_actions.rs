@@ -545,6 +545,7 @@ pub(super) async fn send_signature(
                 &resolved,
             )
         })?;
+    let mut absent_roles: Vec<String> = Vec::new();
     let party_blocks: Vec<_> = template
         .signature_groups
         .iter()
@@ -562,8 +563,18 @@ pub(super) async fn send_signature(
             let name = group.field.as_deref().map(value).unwrap_or_default();
             let typed = group.email.as_deref().map(value).unwrap_or_default();
             if name.is_empty() && typed.is_empty() {
-                // This party is not on this form (a spouse, say): its block stays unsigned.
+                // This party is not on this form (a spouse, say): its block is drawn but nobody signs it.
+                absent_roles.push(group.role.clone());
                 continue;
+            }
+            if name.is_empty() {
+                return Err(correlate(
+                    ApiError::bad_request(
+                        "FORM_SIGNER_NAME_MISSING",
+                        format!("Add the name for {} before sending.", group.label),
+                    ),
+                    &resolved,
+                ));
             }
             if typed.is_empty() {
                 return Err(correlate(
@@ -580,7 +591,7 @@ pub(super) async fn send_signature(
             let order = recipients.len() as i32 + 1;
             recipients.push(json!({
                 "role": "signer",
-                "name": if name.is_empty() { group.label.clone() } else { name },
+                "name": name,
                 "email": email,
                 "signerOrder": order,
                 "signingStep": 1,
@@ -676,6 +687,7 @@ pub(super) async fn send_signature(
         "expiresAt": null,
         "placement": { "kind": "template" },
         "copyTo": copy_to,
+        "absentRoles": absent_roles,
     });
     let Value::Object(input) = input else {
         unreachable!("json! of an object literal is an object")
