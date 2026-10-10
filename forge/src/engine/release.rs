@@ -1,17 +1,20 @@
 //! Port of db-release-executor.ts. Operations are injected; Neon SQL is unchanged.
 
 use crate::engine::facts::{forge_lineage_error, ForgeGateEvidence};
+use serde::{Deserialize, Serialize};
 use workflow::{ApplicationCommandOutcome, ApplicationCommandResult};
 
 #[derive(Debug, Clone)]
 pub struct ForgeCommandEnvelope {
     pub command_type: String,
     pub command_id: String,
+    /// Original operation identity when this invocation is a settlement-only recovery.
+    pub causation_id: Option<String>,
     pub process_instance_id: String,
     pub story_id: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForgeOperationResult {
     pub success: bool,
     pub detail: String,
@@ -28,9 +31,14 @@ pub trait ForgeReleaseOperations: Send + Sync {
     fn refresh_derived(&self, models: &[String], command_id: &str) -> ForgeOperationResult;
     fn verify_derived(&self, models: &[String], attempt_command_id: &str) -> ForgeOperationResult;
     fn publish(&self, candidate_sha: Option<&str>, frozen_proofs: &[String]) -> PublishOutcome;
+    /// Read-only reconciliation after a crash left no saved operation receipt. This must never publish.
+    fn reconcile_publish(&self, _candidate_sha: &str) -> PublishReconciliation {
+        PublishReconciliation::Unknown("publish readback is unavailable".into())
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PublishOutcome {
     Published {
         published_main_hash: String,
@@ -62,12 +70,38 @@ pub enum PublishOutcome {
     },
 }
 
+#[derive(Debug, Clone)]
+pub enum PublishReconciliation {
+    /// Destination history proves the candidate is already published.
+    Published(PublishOutcome),
+    /// Destination history is authoritative and proves the candidate is not present.
+    NotPublished,
+    /// The check could not establish the outcome. Callers must hold without publishing.
+    Unknown(String),
+}
+
 pub trait EvidenceStore: Send + Sync {
     fn read(&self, story_id: &str) -> ForgeGateEvidence;
     fn merge(
         &self,
         process_instance_id: &str,
         story_id: &str,
+        patch: ForgeGateEvidence,
+    ) -> std::result::Result<(), String>;
+    fn operation_receipt(
+        &self,
+        operation_command_id: &str,
+    ) -> std::result::Result<Option<db::ForgeReleaseOperationReceipt>, String>;
+    fn record_operation_receipt(
+        &self,
+        env: &ForgeCommandEnvelope,
+        operation_command_id: &str,
+        result: &serde_json::Value,
+    ) -> std::result::Result<(), String>;
+    fn settle_operation(
+        &self,
+        env: &ForgeCommandEnvelope,
+        operation_command_id: &str,
         patch: ForgeGateEvidence,
     ) -> std::result::Result<(), String>;
     fn latest_refresh_command_id(&self, process_instance_id: &str) -> Option<String>;
@@ -94,6 +128,67 @@ impl<O: ForgeReleaseOperations, E: EvidenceStore> DbForgeReleaseExecutor<O, E> {
             Some(p) => p.merge_over(&stored),
             None => stored,
         };
+        if let Some(operation_command_id) = envelope.causation_id.as_deref() {
+            return self.resume_settlement(envelope, operation_command_id, &evidence);
+        }
+        match self.evidence.operation_receipt(&envelope.command_id) {
+            Ok(Some(receipt)) => {
+                if receipt.command_type != envelope.command_type
+                    || receipt.process_instance_id != envelope.process_instance_id
+                    || receipt.story_id != envelope.story_id
+                {
+                    return settlement_failure(
+                        envelope,
+                        false,
+                        "saved result identity does not match this command".into(),
+                    );
+                }
+                return self.settle_saved_result(envelope, &envelope.command_id, &receipt.result);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                return settlement_failure(
+                    envelope,
+                    false,
+                    format!("could not check for a saved command result: {error}"),
+                )
+            }
+        }
+        if envelope.command_type == "forge.publish_candidate"
+            && forge_lineage_error(&evidence, "qa").is_none()
+        {
+            if let Some(candidate) = evidence.candidate_sha.as_deref() {
+                match self.operations.reconcile_publish(candidate) {
+                    PublishReconciliation::Published(outcome @ (PublishOutcome::Published { .. }
+                    | PublishOutcome::IntegratedAndPublished { .. })) => {
+                        let (patch, detail, succeeded) = publish_patch(outcome.clone());
+                        return self.record_and_settle(
+                            envelope,
+                            &envelope.command_id,
+                            &outcome,
+                            patch,
+                            succeeded,
+                            detail,
+                        );
+                    }
+                    PublishReconciliation::Published(_) => {
+                        return settlement_failure(
+                            envelope,
+                            false,
+                            "destination readback returned a non-success publish result".into(),
+                        )
+                    }
+                    PublishReconciliation::NotPublished => {}
+                    PublishReconciliation::Unknown(reason) => {
+                        return settlement_failure(
+                            envelope,
+                            false,
+                            format!("publish outcome cannot be established; no publish was attempted: {reason}"),
+                        )
+                    }
+                }
+            }
+        }
         match envelope.command_type.as_str() {
             "forge.migrate_dev" => self.migrate(&envelope, &evidence, "dev", false),
             "forge.verify_dev_migration" => self.migrate(&envelope, &evidence, "dev", true),
@@ -107,6 +202,192 @@ impl<O: ForgeReleaseOperations, E: EvidenceStore> DbForgeReleaseExecutor<O, E> {
                 outcome: ApplicationCommandOutcome::PreconditionFailure,
                 message: Some(format!("unsupported Forge release command {other}")),
             },
+        }
+    }
+
+    fn record_and_settle<T: Serialize>(
+        &self,
+        env: &ForgeCommandEnvelope,
+        operation_command_id: &str,
+        result: &T,
+        patch: ForgeGateEvidence,
+        operation_succeeded: bool,
+        detail: String,
+    ) -> ApplicationCommandResult {
+        let serialized = match serde_json::to_value(result) {
+            Ok(value) => value,
+            Err(error) => {
+                return settlement_failure(
+                    env,
+                    operation_succeeded,
+                    format!("could not serialize observed operation result: {error}"),
+                )
+            }
+        };
+        if let Err(error) =
+            self.evidence
+                .record_operation_receipt(env, operation_command_id, &serialized)
+        {
+            return settlement_failure(
+                env,
+                operation_succeeded,
+                format!(
+                    "{}; operation result receipt could not be saved: {error}",
+                    detail
+                ),
+            );
+        }
+        if let Err(error) = self
+            .evidence
+            .settle_operation(env, operation_command_id, patch)
+        {
+            return settlement_failure(
+                env,
+                operation_succeeded,
+                format!("{}; evidence settlement failed: {error}", detail),
+            );
+        }
+        ApplicationCommandResult {
+            command_id: env.command_id.clone(),
+            outcome: ApplicationCommandOutcome::Success,
+            message: Some(detail),
+        }
+    }
+
+    fn resume_settlement(
+        &self,
+        env: &ForgeCommandEnvelope,
+        operation_command_id: &str,
+        evidence: &ForgeGateEvidence,
+    ) -> ApplicationCommandResult {
+        match self.evidence.operation_receipt(operation_command_id) {
+            Ok(Some(receipt)) => {
+                if receipt.command_type != env.command_type
+                    || receipt.process_instance_id != env.process_instance_id
+                    || receipt.story_id != env.story_id
+                {
+                    return settlement_failure(
+                        env,
+                        false,
+                        format!("saved result identity does not match operation {operation_command_id}"),
+                    );
+                }
+                self.settle_saved_result(env, operation_command_id, &receipt.result)
+            }
+            Ok(None) if env.command_type == "forge.publish_candidate" => {
+                let Some(candidate) = evidence.candidate_sha.as_deref() else {
+                    return settlement_failure(
+                        env,
+                        false,
+                        format!("no saved publish result or candidate SHA for {operation_command_id}"),
+                    );
+                };
+                match self.operations.reconcile_publish(candidate) {
+                    PublishReconciliation::Published(outcome @ (PublishOutcome::Published { .. }
+                    | PublishOutcome::IntegratedAndPublished { .. })) => {
+                        let (patch, detail, succeeded) = publish_patch(outcome.clone());
+                        self.record_and_settle(
+                            env,
+                            operation_command_id,
+                            &outcome,
+                            patch,
+                            succeeded,
+                            detail,
+                        )
+                    }
+                    PublishReconciliation::Published(_) => settlement_failure(
+                        env,
+                        false,
+                        "destination readback did not prove a successful publish".into(),
+                    ),
+                    PublishReconciliation::NotPublished => settlement_failure(
+                        env,
+                        false,
+                        format!("no saved publish result for {operation_command_id}; candidate is not in destination history; no publish was repeated"),
+                    ),
+                    PublishReconciliation::Unknown(reason) => settlement_failure(
+                        env,
+                        false,
+                        format!(
+                            "no saved publish result for {operation_command_id}; destination history could not establish the outcome; no publish was repeated: {reason}"
+                        ),
+                    ),
+                }
+            }
+            Ok(None) => settlement_failure(
+                env,
+                false,
+                format!(
+                    "no saved result for {} and {} has no automatic readback; external action was not repeated",
+                    operation_command_id, env.command_type
+                ),
+            ),
+            Err(error) => settlement_failure(
+                env,
+                false,
+                format!("could not read saved result {operation_command_id}: {error}"),
+            ),
+        }
+    }
+
+    fn settle_saved_result(
+        &self,
+        env: &ForgeCommandEnvelope,
+        operation_command_id: &str,
+        result: &serde_json::Value,
+    ) -> ApplicationCommandResult {
+        if env.command_type == "forge.publish_candidate" {
+            return match serde_json::from_value::<PublishOutcome>(result.clone()) {
+                Ok(outcome) => {
+                    let (patch, detail, succeeded) = publish_patch(outcome);
+                    match self
+                        .evidence
+                        .settle_operation(env, operation_command_id, patch)
+                    {
+                        Ok(()) => ApplicationCommandResult {
+                            command_id: env.command_id.clone(),
+                            outcome: ApplicationCommandOutcome::Success,
+                            message: Some(detail),
+                        },
+                        Err(error) => settlement_failure(
+                            env,
+                            succeeded,
+                            format!("saved publish result remains unsettled: {error}"),
+                        ),
+                    }
+                }
+                Err(error) => settlement_failure(
+                    env,
+                    false,
+                    format!("saved publish result is unreadable: {error}"),
+                ),
+            };
+        }
+        let operation = match serde_json::from_value::<ForgeOperationResult>(result.clone()) {
+            Ok(operation) => operation,
+            Err(error) => {
+                return settlement_failure(
+                    env,
+                    false,
+                    format!("saved operation result is unreadable: {error}"),
+                )
+            }
+        };
+        let patch = operation_patch(&env.command_type, &operation);
+        match self
+            .evidence
+            .settle_operation(env, operation_command_id, patch)
+        {
+            Ok(()) => ApplicationCommandResult {
+                command_id: env.command_id.clone(),
+                outcome: ApplicationCommandOutcome::Success,
+                message: Some(operation.detail),
+            },
+            Err(error) => settlement_failure(
+                env,
+                operation.success,
+                format!("saved operation result remains unsettled: {error}"),
+            ),
         }
     }
 
@@ -125,37 +406,16 @@ impl<O: ForgeReleaseOperations, E: EvidenceStore> DbForgeReleaseExecutor<O, E> {
                 .apply_migrations(target, &files, &env.command_id)
         };
         let operation_succeeded = result.success;
-        let stage = if target == "dev" {
-            "DEV_MIGRATION"
-        } else {
-            "PROD_MIGRATION"
-        };
-        let mut patch = ForgeGateEvidence::default();
-        match (target, verify) {
-            ("dev", true) => patch.dev_migration_verified = Some(result.success),
-            ("dev", false) => patch.dev_migration_applied = Some(result.success),
-            (_, true) => patch.prod_migration_verified = Some(result.success),
-            (_, false) => patch.prod_migration_applied = Some(result.success),
-        }
-        if !result.success {
-            patch.failure_class = Some("MIGRATION".into());
-            patch.failed_release_stage = Some(stage.into());
-        }
-        if let Err(error) = self
-            .evidence
-            .merge(&env.process_instance_id, &env.story_id, patch)
-        {
-            return settlement_failure(
-                env,
-                operation_succeeded,
-                format!("{}; {error}", result.detail),
-            );
-        }
-        ApplicationCommandResult {
-            command_id: env.command_id.clone(),
-            outcome: ApplicationCommandOutcome::Success,
-            message: Some(result.detail),
-        }
+        let patch = operation_patch(&env.command_type, &result);
+        let detail = result.detail.clone();
+        self.record_and_settle(
+            env,
+            &env.command_id,
+            &result,
+            patch,
+            operation_succeeded,
+            detail,
+        )
     }
 
     fn derived(
@@ -175,31 +435,16 @@ impl<O: ForgeReleaseOperations, E: EvidenceStore> DbForgeReleaseExecutor<O, E> {
             self.operations.refresh_derived(&models, &env.command_id)
         };
         let operation_succeeded = result.success;
-        let mut patch = ForgeGateEvidence::default();
-        if verify {
-            patch.derived_refresh_verified = Some(result.success);
-        } else {
-            patch.derived_refresh_succeeded = Some(result.success);
-        }
-        if !result.success {
-            patch.failure_class = Some("ENVIRONMENT".into());
-            patch.failed_release_stage = Some("DERIVED_REFRESH".into());
-        }
-        if let Err(error) = self
-            .evidence
-            .merge(&env.process_instance_id, &env.story_id, patch)
-        {
-            return settlement_failure(
-                env,
-                operation_succeeded,
-                format!("{}; {error}", result.detail),
-            );
-        }
-        ApplicationCommandResult {
-            command_id: env.command_id.clone(),
-            outcome: ApplicationCommandOutcome::Success,
-            message: Some(result.detail),
-        }
+        let patch = operation_patch(&env.command_type, &result);
+        let detail = result.detail.clone();
+        self.record_and_settle(
+            env,
+            &env.command_id,
+            &result,
+            patch,
+            operation_succeeded,
+            detail,
+        )
     }
 
     fn publish(
@@ -228,70 +473,107 @@ impl<O: ForgeReleaseOperations, E: EvidenceStore> DbForgeReleaseExecutor<O, E> {
         let outcome = self
             .operations
             .publish(evidence.candidate_sha.as_deref(), &proofs);
-        let operation_succeeded = matches!(
+        let (patch, message, operation_succeeded) = publish_patch(outcome.clone());
+        self.record_and_settle(
+            env,
+            &env.command_id,
             &outcome,
-            PublishOutcome::Published { .. } | PublishOutcome::IntegratedAndPublished { .. }
-        );
-        let mut patch = ForgeGateEvidence::default();
-        let message = match outcome {
-            PublishOutcome::Published {
-                published_main_hash,
-            }
-            | PublishOutcome::IntegratedAndPublished {
-                published_main_hash,
-            } => {
-                patch.publish_succeeded = Some(true);
-                patch.published_sha = Some(published_main_hash.clone());
-                format!("published {published_main_hash}")
-            }
-            PublishOutcome::CandidateSecret { reason } => {
-                patch.publish_succeeded = Some(false);
-                patch.failure_class = Some("HOLD".into());
-                patch.failed_release_stage = Some("PUBLISH".into());
-                patch.last_failure = Some(reason.clone());
-                reason
-            }
-            // The switch, not git. Filed under its own name so an operator greps the cause instead of reading
-            // "remote main advanced" and going looking for a merge conflict that does not exist.
-            PublishOutcome::PublishDisabled { reason } => {
-                patch.publish_succeeded = Some(false);
-                patch.failure_class = Some("PUBLISH_DISABLED".into());
-                patch.failed_release_stage = Some("PUBLISH".into());
-                patch.last_failure = Some(reason.clone());
-                reason
-            }
-            other => {
-                let reason = match other {
-                    PublishOutcome::NoCandidate { reason } => reason,
-                    PublishOutcome::IntegrationUnverified {
-                        integrated_commit,
-                        reason,
-                    } => format!(
-                        "integration produced {integrated_commit} but it did not verify: {reason}"
-                    ),
-                    PublishOutcome::IntegrationConflict { reason } => reason,
-                    PublishOutcome::PublishConflict { reason } => reason,
-                    _ => unreachable!(),
-                };
-                patch.publish_succeeded = Some(false);
-                patch.failure_class = Some("PUBLISH_CONFLICT".into());
-                patch.failed_release_stage = Some("PUBLISH".into());
-                patch.last_failure = Some(reason.clone());
-                reason
-            }
-        };
-        if let Err(error) = self
-            .evidence
-            .merge(&env.process_instance_id, &env.story_id, patch)
-        {
-            return settlement_failure(env, operation_succeeded, format!("{message}; {error}"));
-        }
-        ApplicationCommandResult {
-            command_id: env.command_id.clone(),
-            outcome: ApplicationCommandOutcome::Success,
-            message: Some(message),
-        }
+            patch,
+            operation_succeeded,
+            message,
+        )
     }
+}
+
+fn operation_patch(command_type: &str, result: &ForgeOperationResult) -> ForgeGateEvidence {
+    let mut patch = ForgeGateEvidence::default();
+    match command_type {
+        "forge.migrate_dev" => patch.dev_migration_applied = Some(result.success),
+        "forge.verify_dev_migration" => patch.dev_migration_verified = Some(result.success),
+        "forge.migrate_prod" => patch.prod_migration_applied = Some(result.success),
+        "forge.verify_prod_migration" => patch.prod_migration_verified = Some(result.success),
+        "forge.refresh_derived_models" => patch.derived_refresh_succeeded = Some(result.success),
+        "forge.verify_derived_models" => patch.derived_refresh_verified = Some(result.success),
+        _ => {}
+    }
+    if !result.success {
+        patch.failure_class = Some(
+            if command_type.contains("migration") {
+                "MIGRATION"
+            } else {
+                "ENVIRONMENT"
+            }
+            .into(),
+        );
+        patch.failed_release_stage = Some(
+            if command_type.contains("migration") {
+                if command_type.contains("prod") {
+                    "PROD_MIGRATION"
+                } else {
+                    "DEV_MIGRATION"
+                }
+            } else {
+                "DERIVED_REFRESH"
+            }
+            .into(),
+        );
+        patch.last_failure = Some(result.detail.clone());
+    }
+    patch
+}
+
+fn publish_patch(outcome: PublishOutcome) -> (ForgeGateEvidence, String, bool) {
+    let mut patch = ForgeGateEvidence::default();
+    let succeeded = matches!(
+        &outcome,
+        PublishOutcome::Published { .. } | PublishOutcome::IntegratedAndPublished { .. }
+    );
+    let message = match outcome {
+        PublishOutcome::Published {
+            published_main_hash,
+        }
+        | PublishOutcome::IntegratedAndPublished {
+            published_main_hash,
+        } => {
+            patch.publish_succeeded = Some(true);
+            patch.published_sha = Some(published_main_hash.clone());
+            format!("published {published_main_hash}")
+        }
+        PublishOutcome::CandidateSecret { reason } => {
+            patch.publish_succeeded = Some(false);
+            patch.failure_class = Some("HOLD".into());
+            patch.failed_release_stage = Some("PUBLISH".into());
+            patch.last_failure = Some(reason.clone());
+            reason
+        }
+        PublishOutcome::PublishDisabled { reason } => {
+            patch.publish_succeeded = Some(false);
+            patch.failure_class = Some("PUBLISH_DISABLED".into());
+            patch.failed_release_stage = Some("PUBLISH".into());
+            patch.last_failure = Some(reason.clone());
+            reason
+        }
+        other => {
+            let reason = match other {
+                PublishOutcome::NoCandidate { reason }
+                | PublishOutcome::IntegrationConflict { reason }
+                | PublishOutcome::PublishConflict { reason } => reason,
+                PublishOutcome::IntegrationUnverified {
+                    integrated_commit,
+                    reason,
+                } => format!(
+                    "integration produced {integrated_commit} but it did not verify: {reason}"
+                ),
+                _ => unreachable!(),
+            };
+            patch.publish_succeeded = Some(false);
+            patch.failure_class = Some("PUBLISH_CONFLICT".into());
+            patch.failed_release_stage = Some("PUBLISH".into());
+            patch.last_failure = Some(reason.clone());
+            reason
+        }
+    };
+    (patch, message, succeeded)
 }
 
 fn settlement_failure(
@@ -299,11 +581,12 @@ fn settlement_failure(
     operation_succeeded: bool,
     detail: String,
 ) -> ApplicationCommandResult {
+    let operation_command_id = env.causation_id.as_deref().unwrap_or(&env.command_id);
     ApplicationCommandResult {
         command_id: env.command_id.clone(),
-        outcome: ApplicationCommandOutcome::PreconditionFailure,
+        outcome: ApplicationCommandOutcome::SettlementRequired,
         message: Some(format!(
-            "release evidence settlement failed; external_operation_succeeded={operation_succeeded}; command_id={}; process_instance_id={}; story_id={}; {detail}",
+            "release evidence settlement failed; external_operation_succeeded={operation_succeeded}; command_id={}; operation_command_id={operation_command_id}; process_instance_id={}; story_id={}; {detail}",
             env.command_id, env.process_instance_id, env.story_id
         )),
     }
@@ -340,6 +623,7 @@ impl ForgeReleaseOperations for ClosedReleaseOps {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::sync::Mutex;
 
     struct FakeOps(PublishOutcome);
@@ -371,12 +655,52 @@ mod tests {
         fn publish(&self, _: Option<&str>, _: &[String]) -> PublishOutcome {
             self.0.clone()
         }
+        fn reconcile_publish(&self, _: &str) -> PublishReconciliation {
+            PublishReconciliation::NotPublished
+        }
+    }
+
+    struct RecoveryOps {
+        publishes: std::sync::atomic::AtomicUsize,
+        readback: Option<PublishOutcome>,
+    }
+
+    impl ForgeReleaseOperations for RecoveryOps {
+        fn apply_migrations(&self, _: &str, _: &[String], _: &str) -> ForgeOperationResult {
+            ForgeOperationResult {
+                success: false,
+                detail: "must not reapply during recovery".into(),
+            }
+        }
+        fn verify_migrations(&self, _: &str, _: &[String]) -> ForgeOperationResult {
+            self.apply_migrations("", &[], "")
+        }
+        fn refresh_derived(&self, _: &[String], _: &str) -> ForgeOperationResult {
+            self.apply_migrations("", &[], "")
+        }
+        fn verify_derived(&self, _: &[String], _: &str) -> ForgeOperationResult {
+            self.apply_migrations("", &[], "")
+        }
+        fn publish(&self, _: Option<&str>, _: &[String]) -> PublishOutcome {
+            self.publishes
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            PublishOutcome::PublishConflict {
+                reason: "recovery must not publish".into(),
+            }
+        }
+        fn reconcile_publish(&self, _: &str) -> PublishReconciliation {
+            match self.readback.clone() {
+                Some(outcome) => PublishReconciliation::Published(outcome),
+                None => PublishReconciliation::Unknown("fixture readback unavailable".into()),
+            }
+        }
     }
 
     struct FakeEvidence {
         fail: bool,
         current: ForgeGateEvidence,
         patches: Mutex<Vec<ForgeGateEvidence>>,
+        receipts: Mutex<HashMap<String, db::ForgeReleaseOperationReceipt>>,
     }
     impl EvidenceStore for FakeEvidence {
         fn read(&self, _: &str) -> ForgeGateEvidence {
@@ -391,6 +715,62 @@ mod tests {
             if self.fail {
                 return Err("injected DB failure".into());
             }
+            self.patches.lock().unwrap().push(patch);
+            Ok(())
+        }
+        fn operation_receipt(
+            &self,
+            command_id: &str,
+        ) -> std::result::Result<Option<db::ForgeReleaseOperationReceipt>, String> {
+            Ok(self.receipts.lock().unwrap().get(command_id).cloned())
+        }
+        fn record_operation_receipt(
+            &self,
+            env: &ForgeCommandEnvelope,
+            command_id: &str,
+            result: &serde_json::Value,
+        ) -> std::result::Result<(), String> {
+            let mut receipts = self.receipts.lock().unwrap();
+            let next = db::ForgeReleaseOperationReceipt {
+                command_id: command_id.into(),
+                process_instance_id: env.process_instance_id.clone(),
+                story_id: env.story_id.clone(),
+                command_type: env.command_type.clone(),
+                result: result.clone(),
+                settled: false,
+            };
+            if let Some(existing) = receipts.get(command_id) {
+                if existing.process_instance_id != next.process_instance_id
+                    || existing.story_id != next.story_id
+                    || existing.command_type != next.command_type
+                    || existing.result != next.result
+                {
+                    return Err("release operation identity conflict".into());
+                }
+            } else {
+                receipts.insert(command_id.into(), next);
+            }
+            Ok(())
+        }
+        fn settle_operation(
+            &self,
+            env: &ForgeCommandEnvelope,
+            command_id: &str,
+            patch: ForgeGateEvidence,
+        ) -> std::result::Result<(), String> {
+            if self.fail {
+                return Err("injected DB failure".into());
+            }
+            let mut receipts = self.receipts.lock().unwrap();
+            let receipt = receipts
+                .get_mut(command_id)
+                .ok_or_else(|| "receipt missing".to_string())?;
+            if receipt.process_instance_id != env.process_instance_id
+                || receipt.story_id != env.story_id
+            {
+                return Err("release operation identity conflict".into());
+            }
+            receipt.settled = true;
             self.patches.lock().unwrap().push(patch);
             Ok(())
         }
@@ -417,6 +797,7 @@ mod tests {
                     ..Default::default()
                 },
                 patches: Mutex::new(Vec::new()),
+                receipts: Mutex::new(HashMap::new()),
             },
             pending: None,
         }
@@ -426,6 +807,7 @@ mod tests {
         ForgeCommandEnvelope {
             command_type: "forge.publish_candidate".into(),
             command_id: "cmd-original".into(),
+            causation_id: None,
             process_instance_id: "process-1".into(),
             story_id: "story-1".into(),
         }
@@ -442,7 +824,7 @@ mod tests {
         .execute(&envelope());
         assert_eq!(
             command.outcome,
-            ApplicationCommandOutcome::PreconditionFailure
+            ApplicationCommandOutcome::SettlementRequired
         );
         let message = command.message.unwrap();
         assert!(message.contains("external_operation_succeeded=true"));
@@ -495,7 +877,7 @@ mod tests {
             .execute(&env);
             assert_eq!(
                 command.outcome,
-                ApplicationCommandOutcome::PreconditionFailure
+                ApplicationCommandOutcome::SettlementRequired
             );
             let message = command.message.expect("settlement diagnostic");
             assert!(
@@ -504,5 +886,125 @@ mod tests {
             );
             assert!(message.contains(&env.command_id), "{message}");
         }
+    }
+
+    #[test]
+    fn saved_publish_result_settles_without_repeating_the_operation() {
+        let executor = recovery_executor(None);
+        let original = envelope();
+        let result = PublishOutcome::Published {
+            published_main_hash: "b".repeat(40),
+        };
+        let result_json = serde_json::to_value(&result).unwrap();
+        executor
+            .evidence
+            .record_operation_receipt(&original, &original.command_id, &result_json)
+            .unwrap();
+        executor.evidence.patches.lock().unwrap().clear();
+        let mut resumed = original.clone();
+        resumed.command_id = "cmd-resume".into();
+        resumed.causation_id = Some(original.command_id.clone());
+
+        let command = executor.execute(&resumed);
+        assert_eq!(command.outcome, ApplicationCommandOutcome::Success);
+        assert_eq!(
+            executor
+                .operations
+                .publishes
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        let expected_sha = "b".repeat(40);
+        assert_eq!(
+            executor.evidence.patches.lock().unwrap()[0]
+                .published_sha
+                .as_deref(),
+            Some(expected_sha.as_str())
+        );
+        assert!(
+            executor
+                .evidence
+                .operation_receipt(&original.command_id)
+                .unwrap()
+                .unwrap()
+                .settled
+        );
+    }
+
+    fn recovery_executor(
+        readback: Option<PublishOutcome>,
+    ) -> DbForgeReleaseExecutor<RecoveryOps, FakeEvidence> {
+        DbForgeReleaseExecutor {
+            operations: RecoveryOps {
+                publishes: std::sync::atomic::AtomicUsize::new(0),
+                readback,
+            },
+            evidence: FakeEvidence {
+                fail: false,
+                current: ForgeGateEvidence {
+                    candidate_sha: Some("a".repeat(40)),
+                    qa_verified_sha: Some("a".repeat(40)),
+                    qa_passed: Some(true),
+                    ..Default::default()
+                },
+                patches: Mutex::new(Vec::new()),
+                receipts: Mutex::new(HashMap::new()),
+            },
+            pending: None,
+        }
+    }
+
+    #[test]
+    fn authoritative_publish_readback_reconciles_without_republishing() {
+        let executor = recovery_executor(Some(PublishOutcome::IntegratedAndPublished {
+            published_main_hash: "c".repeat(40),
+        }));
+        let mut resumed = envelope();
+        resumed.command_id = "cmd-resume".into();
+        resumed.causation_id = Some("cmd-original".into());
+        let command = executor.execute(&resumed);
+        assert_eq!(command.outcome, ApplicationCommandOutcome::Success);
+        assert_eq!(
+            executor
+                .operations
+                .publishes
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        let receipt = executor
+            .evidence
+            .operation_receipt("cmd-original")
+            .unwrap()
+            .unwrap();
+        assert!(receipt.settled);
+        assert_eq!(receipt.command_id, "cmd-original");
+        assert_eq!(
+            executor.evidence.patches.lock().unwrap()[0]
+                .published_sha
+                .as_deref(),
+            Some("c".repeat(40).as_str())
+        );
+    }
+
+    #[test]
+    fn inconclusive_publish_readback_remains_held_without_blind_retry() {
+        let executor = recovery_executor(None);
+        let mut resumed = envelope();
+        resumed.command_id = "cmd-resume".into();
+        resumed.causation_id = Some("cmd-original".into());
+        let command = executor.execute(&resumed);
+        assert_eq!(
+            command.outcome,
+            ApplicationCommandOutcome::SettlementRequired
+        );
+        assert!(command.message.unwrap().contains("no publish was repeated"));
+        assert_eq!(
+            executor
+                .operations
+                .publishes
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        assert!(executor.evidence.patches.lock().unwrap().is_empty());
     }
 }

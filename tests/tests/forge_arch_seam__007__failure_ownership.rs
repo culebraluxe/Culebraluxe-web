@@ -34,7 +34,7 @@ use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::job::{execute_claimed_job_unsettled, JobService, WorkflowJobService};
 use forge::engine::release::{
     DbForgeReleaseExecutor, EvidenceStore, ForgeCommandEnvelope, ForgeOperationResult,
-    ForgeReleaseOperations, PublishOutcome,
+    ForgeReleaseOperations, PublishOutcome, PublishReconciliation,
 };
 use forge::engine::runtime::ActiveForgeRoleTask;
 use forge::roles::smith::SmithService;
@@ -248,6 +248,9 @@ impl ForgeReleaseOperations for Release {
             reason: "main moved and the candidate no longer integrates".into(),
         }
     }
+    fn reconcile_publish(&self, _: &str) -> PublishReconciliation {
+        PublishReconciliation::NotPublished
+    }
 }
 
 struct Evidence {
@@ -260,6 +263,29 @@ impl EvidenceStore for Evidence {
         self.current.clone()
     }
     fn merge(&self, _: &str, _: &str, patch: ForgeGateEvidence) -> Result<(), String> {
+        self.merged.lock().expect("merged").push(patch);
+        Ok(())
+    }
+    fn operation_receipt(
+        &self,
+        _: &str,
+    ) -> Result<Option<db::ForgeReleaseOperationReceipt>, String> {
+        Ok(None)
+    }
+    fn record_operation_receipt(
+        &self,
+        _: &ForgeCommandEnvelope,
+        _: &str,
+        _: &serde_json::Value,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    fn settle_operation(
+        &self,
+        _: &ForgeCommandEnvelope,
+        _: &str,
+        patch: ForgeGateEvidence,
+    ) -> Result<(), String> {
         self.merged.lock().expect("merged").push(patch);
         Ok(())
     }
@@ -290,6 +316,7 @@ fn a_release_failure_is_the_release_lanes_result_and_publishes_only_the_reviewed
     let result = executor.execute(&ForgeCommandEnvelope {
         command_type: "forge.publish_candidate".into(),
         command_id: "cmd-publish".into(),
+        causation_id: None,
         process_instance_id: "p-release".into(),
         story_id: arch::STORY.into(),
     });

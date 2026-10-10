@@ -36,6 +36,17 @@ pub struct ModelGenerationReservation {
     pub duplicate: bool,
 }
 
+/// A release operation's observed result, keyed by the original workflow command identity.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeReleaseOperationReceipt {
+    pub command_id: String,
+    pub process_instance_id: String,
+    pub story_id: String,
+    pub command_type: String,
+    pub result: Value,
+    pub settled: bool,
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct ForgeAgentWorkRow {
     pub id: String,
@@ -1294,6 +1305,155 @@ impl ForgeEngineDao {
             .map_err(|error| {
                 DbFailure::from_sqlx("forge_engine.merge_workflow_evidence", &error)
             })?;
+        Ok(())
+    }
+
+    /// Save the external operation's observed result before trying to settle its workflow evidence.
+    /// Replays with the same command identity are accepted only when the result is identical.
+    pub async fn record_release_operation_receipt(
+        &self,
+        command_id: &str,
+        process_instance_id: &str,
+        story_id: &str,
+        command_type: &str,
+        result: &Value,
+    ) -> DbResult<ForgeReleaseOperationReceipt> {
+        sqlx::query(
+            "insert into forge_release_operation_receipt
+                (command_id, process_instance_id, story_id, command_type, result)
+             values ($1, $2::uuid, $3, $4, $5::jsonb)
+             on conflict (command_id) do nothing",
+        )
+        .bind(command_id)
+        .bind(process_instance_id)
+        .bind(story_id)
+        .bind(command_type)
+        .bind(result)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.record_release_receipt", &error))?;
+        let receipt = sqlx::query_as::<_, ForgeReleaseOperationReceipt>(
+            "select command_id, process_instance_id::text as process_instance_id, story_id,
+                    command_type, result, settled
+             from forge_release_operation_receipt where command_id=$1",
+        )
+        .bind(command_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.read_release_receipt", &error))?
+        .ok_or_else(|| {
+            DbFailure::schema_mismatch(
+                "forge_engine.record_release_receipt.missing",
+                format!("release receipt {command_id} disappeared after insert"),
+            )
+        })?;
+        if receipt.process_instance_id != process_instance_id
+            || receipt.story_id != story_id
+            || receipt.command_type != command_type
+            || receipt.result != *result
+        {
+            return Err(DbFailure::schema_mismatch(
+                "forge_engine.record_release_receipt.conflict",
+                format!("release command {command_id} was reused with a different result"),
+            ));
+        }
+        Ok(receipt)
+    }
+
+    pub async fn release_operation_receipt(
+        &self,
+        command_id: &str,
+    ) -> DbResult<Option<ForgeReleaseOperationReceipt>> {
+        sqlx::query_as::<_, ForgeReleaseOperationReceipt>(
+            "select command_id, process_instance_id::text as process_instance_id, story_id,
+                    command_type, result, settled
+             from forge_release_operation_receipt where command_id=$1",
+        )
+        .bind(command_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.release_operation_receipt", &error))
+    }
+
+    /// Merge evidence and mark the original operation receipt settled in one transaction.
+    pub async fn settle_release_operation_receipt(
+        &self,
+        command_id: &str,
+        process_instance_id: &str,
+        story_id: &str,
+        evidence: &ForgeEvidencePatch,
+        release_failure_resolved: bool,
+    ) -> DbResult<()> {
+        let mut tx = self.db.pool().begin().await.map_err(|error| {
+            DbFailure::from_sqlx("forge_engine.settle_release_receipt.begin", &error)
+        })?;
+        let receipt = sqlx::query_as::<_, ForgeReleaseOperationReceipt>(
+            "select command_id, process_instance_id::text as process_instance_id, story_id,
+                    command_type, result, settled
+             from forge_release_operation_receipt where command_id=$1 for update",
+        )
+        .bind(command_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.settle_release_receipt.lock", &error))?
+        .ok_or_else(|| {
+            DbFailure::schema_mismatch(
+                "forge_engine.settle_release_receipt.missing",
+                format!("release receipt {command_id} was not saved before settlement"),
+            )
+        })?;
+        if receipt.process_instance_id != process_instance_id || receipt.story_id != story_id {
+            return Err(DbFailure::schema_mismatch(
+                "forge_engine.settle_release_receipt.identity",
+                format!("release receipt {command_id} belongs to a different story or process"),
+            ));
+        }
+        // A replay after a lost caller response must not reapply an old evidence snapshot over
+        // newer workflow facts. The receipt row lock makes this early return safe against a
+        // concurrent first settlement: only the transaction that first marks it settled writes.
+        if receipt.settled {
+            tx.commit().await.map_err(|error| {
+                DbFailure::from_sqlx("forge_engine.settle_release_receipt.replay_commit", &error)
+            })?;
+            return Ok(());
+        }
+        sqlx::query(WORKFLOW_EVIDENCE_UPSERT_SQL)
+            .bind(process_instance_id)
+            .bind(story_id)
+            .bind(evidence.work_type.as_deref())
+            .bind(evidence.scout_required)
+            .bind(evidence.lead_decision.as_deref())
+            .bind(evidence.qa_review_required)
+            .bind(evidence.qa_review_passed)
+            .bind(evidence.qa_passed)
+            .bind(evidence.failure_class.as_deref())
+            .bind(evidence.failed_release_stage.as_deref())
+            .bind(evidence.last_failure.as_deref())
+            .bind(evidence.publish_succeeded)
+            .bind(evidence.candidate_sha.as_deref())
+            .bind(evidence.qa_verified_sha.as_deref())
+            .bind(evidence.published_sha.as_deref())
+            .bind(evidence.role_output_schema_version)
+            .bind(evidence.role_output_diagnostic.as_deref())
+            .bind(release_failure_resolved)
+            .execute(&mut *tx)
+            .await
+            .map_err(|error| {
+                DbFailure::from_sqlx("forge_engine.settle_release_receipt.evidence", &error)
+            })?;
+        sqlx::query(
+            "update forge_release_operation_receipt set settled=true, updated_at=now()
+              where command_id=$1",
+        )
+        .bind(command_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| {
+            DbFailure::from_sqlx("forge_engine.settle_release_receipt.mark", &error)
+        })?;
+        tx.commit().await.map_err(|error| {
+            DbFailure::from_sqlx("forge_engine.settle_release_receipt.commit", &error)
+        })?;
         Ok(())
     }
 

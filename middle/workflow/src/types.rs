@@ -340,6 +340,9 @@ pub enum ApplicationCommandOutcome {
     Conflict,
     Unauthorized,
     PreconditionFailure,
+    /// An external command may have taken effect, but its durable settlement could not be completed.
+    /// The workflow must park on an explicit hold route instead of treating this as success or failure.
+    SettlementRequired,
 }
 
 impl ApplicationCommandOutcome {
@@ -351,6 +354,7 @@ impl ApplicationCommandOutcome {
             Self::Conflict => "conflict",
             Self::Unauthorized => "unauthorized",
             Self::PreconditionFailure => "precondition_failure",
+            Self::SettlementRequired => "settlement_required",
         }
     }
 }
