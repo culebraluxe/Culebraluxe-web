@@ -884,22 +884,36 @@ fn the_claim_transaction_lives_in_the_database_not_in_rust() {
         dao.contains("from forge_record_tool_artifact("),
         "the DAO calls forge_record_tool_artifact"
     );
-    let recovery =
-        std::fs::read_to_string(root.join("db/migrations/266_forge_stale_recovery.sql")).unwrap();
+    let fenced_recovery =
+        std::fs::read_to_string(root.join("db/migrations/279_forge_stale_recovery_fencing.sql"))
+            .unwrap();
     let control = std::fs::read_to_string(root.join("db/src/forge_control.rs")).unwrap();
     let reset = std::fs::read_to_string(root.join("db/src/forge_reset.rs")).unwrap();
-    for (function, caller) in [
-        ("forge_hold_stale_work", &control),
-        ("forge_requeue_stale_work", &control),
-        ("forge_recover_stale_engine_claim", &reset),
+    let candidates =
+        std::fs::read_to_string(root.join("db/migrations/275_forge_claim_story_brake.sql"))
+            .unwrap();
+    assert!(
+        candidates.contains("create or replace function forge_reapable_claims("),
+        "migration 275 defines the stale-claim candidate snapshot"
+    );
+    assert!(
+        fenced_recovery.contains("create function forge_recover_stale_work("),
+        "migration 279 defines the claim-fenced stale recovery transition"
+    );
+    for caller in [&control, &reset] {
+        assert!(
+            caller.contains("forge_recover_stale_work("),
+            "the DAO delegates stale recovery to the fenced transition"
+        );
+    }
+    for legacy_function in [
+        "forge_hold_stale_work",
+        "forge_requeue_stale_work",
+        "forge_recover_stale_engine_claim",
     ] {
         assert!(
-            recovery.contains(&format!("create or replace function {function}(")),
-            "migration 266 defines {function}"
-        );
-        assert!(
-            caller.contains(&format!("{function}(")),
-            "the DAO calls {function}"
+            fenced_recovery.contains(&format!("drop function {legacy_function}(")),
+            "migration 279 removes the unfenced transition {legacy_function}"
         );
     }
     for (source, choreography) in [
