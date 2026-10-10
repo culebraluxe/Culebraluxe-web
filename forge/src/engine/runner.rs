@@ -27,6 +27,13 @@ pub struct HarnessOutput {
     pub usage: Option<HarnessUsage>,
 }
 
+/// The model's measured spend is independent of whether the turn produced a usable answer.
+/// Adapters that can measure failed turns return that reading here instead of formatting it into an error.
+pub struct HarnessTurnReport {
+    pub outcome: Result<HarnessOutput>,
+    pub measured_usage: Option<HarnessUsage>,
+}
+
 /// What a code-delivering lane needs to JUDGE a candidate: git in the workspace the turn ran in, and the test mode
 /// the packet declared. The harness supplies these facts; the rules that read them are Smith's
 /// (`roles::smith::judge_delivered_candidate`), never the transport's.
@@ -64,6 +71,21 @@ pub trait RoleHarness: Send + Sync {
         task: &ActiveForgeRoleTask,
         self_heal: Option<&str>,
     ) -> Result<HarnessOutput>;
+    /// Structured counterpart to `run_role`. Existing adapters remain source-compatible; adapters that can
+    /// measure spend on failed turns override this method and retain the original outcome alongside the reading.
+    fn run_role_report(
+        &self,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> HarnessTurnReport {
+        let outcome = self.run_role(node_id, task, self_heal);
+        let measured_usage = outcome.as_ref().ok().and_then(|out| out.usage.clone());
+        HarnessTurnReport {
+            outcome,
+            measured_usage,
+        }
+    }
     /// Run a turn under the durable execution identity that owns its cancellation handle.
     /// Compatibility harnesses delegate to `run_role`; process-backed harnesses override this
     /// so a supervisor cannot stop another execution sharing the same harness instance.
@@ -75,6 +97,20 @@ pub trait RoleHarness: Send + Sync {
         self_heal: Option<&str>,
     ) -> Result<HarnessOutput> {
         self.run_role(node_id, task, self_heal)
+    }
+    fn run_role_scoped_report(
+        &self,
+        execution_id: &str,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> HarnessTurnReport {
+        let outcome = self.run_role_scoped(execution_id, node_id, task, self_heal);
+        let measured_usage = outcome.as_ref().ok().and_then(|out| out.usage.clone());
+        HarnessTurnReport {
+            outcome,
+            measured_usage,
+        }
     }
     /// Create a harness with an independent workspace and process slots for
     /// one concurrent lane. Unsupported adapters return `None` so callers can

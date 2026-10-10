@@ -240,14 +240,19 @@ pub fn run_forge_role_turn(
     for attempt in 0..budget {
         let permit = reserve_model_attempt(ctx, task, attempt)?;
         finish_model_attempt(ctx, permit.as_ref(), "launched", None)?;
-        let run_turn = match ctx.execution_id {
-            Some(execution_id) => {
-                ctx.harness
-                    .run_role_scoped(execution_id, node_id, task, self_heal.as_deref())
-            }
-            None => ctx.harness.run_role(node_id, task, self_heal.as_deref()),
+        let report = match ctx.execution_id {
+            Some(execution_id) => ctx.harness.run_role_scoped_report(
+                execution_id,
+                node_id,
+                task,
+                self_heal.as_deref(),
+            ),
+            None => ctx
+                .harness
+                .run_role_report(node_id, task, self_heal.as_deref()),
         };
-        let mut out = match run_turn {
+        let usage = report.measured_usage;
+        let mut out = match report.outcome {
             Ok(out) => out,
             Err(error) => {
                 let detail = error.to_string();
@@ -258,22 +263,53 @@ pub fn run_forge_role_turn(
                 } else {
                     "failed"
                 };
-                let _ = finish_model_attempt(ctx, permit.as_ref(), status, Some(&detail));
-                return Err(error);
+                let settlement = record_turn_usage(
+                    ctx,
+                    node_id,
+                    &task.story_id,
+                    permit.as_ref(),
+                    usage.as_ref(),
+                );
+                let detail = match settlement {
+                    Ok(()) => detail,
+                    Err(accounting) => format!("{detail}; usage settlement failed: {accounting}"),
+                };
+                let finish = finish_model_attempt(ctx, permit.as_ref(), status, Some(&detail));
+                if let Err(finish_error) = finish {
+                    return Err(WorkflowError::generic(format!(
+                        "{detail}; model-attempt status settlement failed: {finish_error}"
+                    )));
+                }
+                return if detail == error.to_string() {
+                    Err(error)
+                } else {
+                    Err(WorkflowError::generic(detail))
+                };
             }
         };
-        finish_model_attempt(ctx, permit.as_ref(), "completed", None)?;
+        out.usage = usage.clone();
         // The harness reported facts; the lane judges them before anything below reads them.
         hooks.judge_output(ctx, node_id, &mut out);
-        // Recorded per attempt, the moment it is known: a later attempt that errors out must not take the
-        // spend of the earlier ones down with it.
-        if let Some(usage) = out.usage.as_ref() {
-            record_turn_usage(ctx, node_id, &task.story_id, usage)?;
+        // The lane judges/captures the candidate before settlement can fail, so accounting cannot make paid code
+        // disappear. Settlement is attempt-keyed and idempotent in the DAO.
+        if let Err(error) = record_turn_usage(
+            ctx,
+            node_id,
+            &task.story_id,
+            permit.as_ref(),
+            usage.as_ref(),
+        ) {
+            let detail = format!("model usage settlement failed after candidate capture: {error}");
+            let _ = finish_model_attempt(ctx, permit.as_ref(), "uncertain", Some(&detail));
+            return Err(WorkflowError::generic(detail));
+        }
+        if let Some(usage) = usage.as_ref() {
             match total_usage.as_mut() {
                 Some(total) => total.absorb(usage),
                 None => total_usage = Some(usage.clone()),
             }
         }
+        finish_model_attempt(ctx, permit.as_ref(), "completed", None)?;
         last_raw = out.raw.clone();
         last_out_sha = out.candidate_sha.clone();
         last_assay = out.assay_commands.clone();
@@ -487,20 +523,45 @@ fn record_turn_usage(
     ctx: &ForgeRoleContext<'_>,
     node_id: &str,
     story_id: &str,
-    usage: &HarnessUsage,
+    permit: Option<&crate::engine::turn_budget::ModelAttemptPermit>,
+    usage: Option<&HarnessUsage>,
 ) -> Result<()> {
-    eprintln!(
-        "spend story={story_id} node={node_id} run={} tokens_in={} tokens_out={} cost_usd={:.6} session={}",
-        ctx.story_run_id.unwrap_or("(none)"),
-        usage.tokens_input,
-        usage.tokens_output,
-        usage.cost_usd,
-        usage.session_id
-    );
+    if let Some(usage) = usage {
+        eprintln!(
+            "spend story={story_id} node={node_id} run={} tokens_in={} tokens_out={} cost_usd={:.6} session={}",
+            ctx.story_run_id.unwrap_or("(none)"),
+            usage.tokens_input,
+            usage.tokens_output,
+            usage.cost_usd,
+            usage.session_id
+        );
+    } else {
+        eprintln!(
+            "spend story={story_id} node={node_id} run={} usage=unknown",
+            ctx.story_run_id.unwrap_or("(none)")
+        );
+    }
     if let (Some(writer), Some(run_id)) = (ctx.writer, ctx.story_run_id) {
-        writer.record_run_usage(run_id, usage).map_err(|error| {
-            WorkflowError::generic(format!("record_run_usage({story_id}, {run_id}): {error}"))
-        })?;
+        if let (Some(control), Some(permit)) = (ctx.model_attempt_control, permit) {
+            writer
+                .settle_model_attempt_usage(
+                    run_id,
+                    control.generation_id(),
+                    &permit.attempt_key,
+                    usage,
+                )
+                .map_err(|error| {
+                    WorkflowError::generic(format!(
+                        "settle_model_attempt_usage({story_id}, {run_id}, {}): {error}",
+                        permit.attempt_key
+                    ))
+                })?;
+        } else if let Some(usage) = usage {
+            // Compatibility for explicit direct runs without a durable attempt controller.
+            writer.record_run_usage(run_id, usage).map_err(|error| {
+                WorkflowError::generic(format!("record_run_usage({story_id}, {run_id}): {error}"))
+            })?;
+        }
     }
     Ok(())
 }
@@ -978,6 +1039,125 @@ mod tests {
         assert_eq!(run_id, "11111111-2222-3333-4444-555555555555");
         assert_eq!((first.tokens_input, first.tokens_output), (26_714, 701));
         assert!((first.cost_usd - 0.005352).abs() < 1e-9);
+    }
+
+    struct MeasuredFailureHarness {
+        usage: Option<HarnessUsage>,
+    }
+
+    impl RoleHarness for MeasuredFailureHarness {
+        fn run_role(
+            &self,
+            _: &str,
+            _: &ActiveForgeRoleTask,
+            _: Option<&str>,
+        ) -> Result<HarnessOutput> {
+            Err(WorkflowError::generic("provider refused after generation"))
+        }
+        fn run_role_report(
+            &self,
+            node_id: &str,
+            task: &ActiveForgeRoleTask,
+            self_heal: Option<&str>,
+        ) -> crate::engine::runner::HarnessTurnReport {
+            crate::engine::runner::HarnessTurnReport {
+                outcome: self.run_role(node_id, task, self_heal),
+                measured_usage: self.usage.clone(),
+            }
+        }
+        fn exists_on_base_ref(&self, _: &str, _: &str) -> bool {
+            true
+        }
+        fn assay_cwd(&self) -> &std::path::Path {
+            std::path::Path::new(".")
+        }
+        fn run_command(&self, command: &str) -> CommandResult {
+            CommandResult {
+                cancelled: false,
+                command: command.into(),
+                exit_code: 1,
+                passed: false,
+                excerpt: "not run".into(),
+                unmeasurable: true,
+                output: String::new(),
+            }
+        }
+    }
+
+    #[test]
+    fn failed_turn_usage_is_settled_without_rewriting_failure() {
+        let harness = MeasuredFailureHarness {
+            usage: Some(HarnessUsage {
+                session_id: "ses_failed".into(),
+                tokens_input: 17,
+                tokens_output: 4,
+                cost_usd: 0.002,
+            }),
+        };
+        let writer = RecordingWriter::default();
+        let control = CountingAttemptControl::default();
+        let current = ForgeGateEvidence::default();
+        let task = role_task("architect", "TST-FAILED-USAGE");
+        let context = ForgeRoleContext {
+            harness: &harness,
+            execution_id: None,
+            write_surface: None,
+            current: &current,
+            writer: Some(&writer),
+            story_run_id: Some("11111111-2222-3333-4444-555555555555"),
+            bench_intent: None,
+            test_mode: None,
+            contract_assay_commands: &[],
+            contract_acceptance_mapped: false,
+            require_prod: false,
+            model_attempt_control: Some(&control),
+        };
+        let error = run_forge_role_turn(&context, "architect", &task, &NoRoleHooks)
+            .err()
+            .expect("provider failure remains a failed turn");
+        assert!(error
+            .to_string()
+            .contains("provider refused after generation"));
+        assert_eq!(writer.attempt_usage.lock().unwrap().len(), 1);
+        let settled = writer.attempt_usage.lock().unwrap();
+        let (_, generation, key, usage) = &settled[0];
+        assert_eq!(generation, "test-generation");
+        assert_eq!(key, "task-1:0");
+        assert_eq!(usage.as_ref().expect("measured spend").tokens_output, 4);
+        assert_eq!(
+            control.finished.lock().unwrap().last().unwrap(),
+            "task-1:0:failed"
+        );
+    }
+
+    #[test]
+    fn failed_turn_without_reading_records_unknown_usage() {
+        let harness = MeasuredFailureHarness { usage: None };
+        let writer = RecordingWriter::default();
+        let control = CountingAttemptControl::default();
+        let current = ForgeGateEvidence::default();
+        let task = role_task("architect", "TST-UNKNOWN-USAGE");
+        let context = ForgeRoleContext {
+            harness: &harness,
+            execution_id: None,
+            write_surface: None,
+            current: &current,
+            writer: Some(&writer),
+            story_run_id: Some("11111111-2222-3333-4444-555555555555"),
+            bench_intent: None,
+            test_mode: None,
+            contract_assay_commands: &[],
+            contract_acceptance_mapped: false,
+            require_prod: false,
+            model_attempt_control: Some(&control),
+        };
+        let _ = run_forge_role_turn(&context, "architect", &task, &NoRoleHooks);
+        let settled = writer.attempt_usage.lock().unwrap();
+        assert_eq!(settled.len(), 1);
+        assert!(
+            settled[0].3.is_none(),
+            "unknown must not be fabricated as zero"
+        );
     }
 
     /// The real lane hooks through the shared turn, counting PAID turns: each of these used to cost two, because the
