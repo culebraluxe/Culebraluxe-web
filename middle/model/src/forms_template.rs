@@ -154,7 +154,7 @@ mod tests {
             ("PR-PNS", 3),
             ("PR-PNS-AMD", 1),
             ("SHOW-INFO", 1),
-            ("SHOW-RPT", 1),
+            ("SHOW-RPT", 2),
         ] {
             assert_eq!(
                 library.newest(id).map(|template| template.version),

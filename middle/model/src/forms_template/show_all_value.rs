@@ -133,6 +133,9 @@ pub struct TemplateSignatureGroup {
     pub label: String,
     pub field: Option<String>,
     pub initials: bool,
+    /// The email field that holds this party's signing address. A block with one is sent to that party for signature;
+    /// a block without one is signed at issuance (the broker's standing pre-signature) or not at all.
+    pub email: Option<String>,
 }
 
 /// One template version, exactly as the XML declares it.

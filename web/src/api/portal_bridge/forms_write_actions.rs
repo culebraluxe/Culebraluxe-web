@@ -447,7 +447,7 @@ pub(super) async fn send_signature(
                 )
             })?;
 
-    save_form_values(&state, &resolved, form_id, field_values, sections).await?;
+    let saved = save_form_values(&state, &resolved, form_id, field_values, sections).await?;
 
     let services = state.services();
     let signature = services.signature();
@@ -528,7 +528,87 @@ pub(super) async fn send_signature(
     // the broker signs nothing here and is copied on the completed document instead.
     let mut recipients: Vec<Value> = Vec::new();
     let mut copy_to: Vec<String> = Vec::new();
-    for signer in &signers {
+    // A template whose signature blocks name email fields sends to the parties it names, typed on the form: each one
+    // signs its own block, and the broker's pre-signed block is not an envelope recipient at all.
+    let library = load_form_templates(resolved)?;
+    let template = library
+        .version(&saved.template_id, saved.template_version)
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found(
+                    "FORM_TEMPLATE_NOT_FOUND",
+                    format!(
+                        "Template {} v{} is not available.",
+                        saved.template_id, saved.template_version
+                    ),
+                ),
+                &resolved,
+            )
+        })?;
+    let party_blocks: Vec<_> = template
+        .signature_groups
+        .iter()
+        .filter(|group| group.email.is_some())
+        .collect();
+    if !party_blocks.is_empty() {
+        for group in party_blocks {
+            let value = |name: &str| {
+                saved
+                    .field_values
+                    .get(name)
+                    .map(|value| value.trim().to_owned())
+                    .unwrap_or_default()
+            };
+            let name = group.field.as_deref().map(value).unwrap_or_default();
+            let typed = group.email.as_deref().map(value).unwrap_or_default();
+            if name.is_empty() && typed.is_empty() {
+                // This party is not on this form (a spouse, say): its block stays unsigned.
+                continue;
+            }
+            if typed.is_empty() {
+                return Err(correlate(
+                    ApiError::bad_request(
+                        "FORM_SIGNER_EMAIL_MISSING",
+                        format!("Add the email for {} before sending.", group.label),
+                    ),
+                    &resolved,
+                ));
+            }
+            let email = crate::security::guest::normalize_email(&typed).map_err(|error| {
+                ApiError::from(error).with_correlation(resolved.service.correlation_id.clone())
+            })?;
+            let order = recipients.len() as i32 + 1;
+            recipients.push(json!({
+                "role": "signer",
+                "name": if name.is_empty() { group.label.clone() } else { name },
+                "email": email,
+                "signerOrder": order,
+                "signingStep": 1,
+                // The block's slot, as the issued document names it (`ROLE:1`): role and slot go together.
+                "executionRole": group.role,
+                "executionSlotId": format!("{}:1", group.role),
+            }));
+        }
+        for signer in signers
+            .iter()
+            .filter(|signer| signer.role == "SELLER_BROKER")
+        {
+            if let Some(email) = signer
+                .email
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+            {
+                copy_to.push(email.to_owned());
+            }
+        }
+    }
+    let legacy_signers: &[model::FormSignerPerson] = if party_blocks_is_empty(&template) {
+        &signers
+    } else {
+        &[]
+    };
+    for signer in legacy_signers {
         let Some(typed) = signer
             .email
             .as_deref()
@@ -767,4 +847,12 @@ mod issue_number_tests {
         );
         assert_eq!(without_issue_number("Offer v2 draft"), "Offer v2 draft");
     }
+}
+
+/// True when the template has no signature block that names an email, so its signers come from the linked people.
+fn party_blocks_is_empty(template: &model::forms_template::TemplateDefinition) -> bool {
+    template
+        .signature_groups
+        .iter()
+        .all(|group| group.email.is_none())
 }

@@ -155,7 +155,16 @@ impl VaultDao {
             };
             let issued_version = prior.as_ref().map_or(1, |(_, version)| version + 1);
             let supersedes_id = prior.as_ref().map(|(id, _)| id.clone());
-            let participants = list_signers_on(tx.connection(), &form.id).await?;
+            // A template whose blocks name their party's email is signed by those parties, one slot per block, named the
+            // way the document's own blocks are; every other template keeps the people linked to the form.
+            let participants = match template_party_signers(
+                &form.template_id,
+                form.template_version,
+                &string_map(form.field_values.clone()),
+            )? {
+                Some(parties) => parties,
+                None => list_signers_on(tx.connection(), &form.id).await?,
+            };
             let form_values = string_map(form.field_values.clone());
 
             // ONE RENDER REQUEST, built before the signature is resolved and carried into both halves. The resolution
@@ -454,4 +463,56 @@ impl VaultDao {
         )
         .await
     }
+}
+
+/// The parties a template sends to, from the blocks that name an email: `None` for a template without them.
+fn template_party_signers(
+    template_id: &str,
+    template_version: i32,
+    field_values: &std::collections::BTreeMap<String, String>,
+) -> DbResult<Option<Vec<model::FormSignerPerson>>> {
+    let library = model::forms_template::TemplateLibrary::load_default()
+        .map_err(|error| DbFailure::schema_mismatch("vault.issue.template", format!("{error}")))?;
+    let Some(template) = library.version(template_id, template_version) else {
+        return Ok(None);
+    };
+    if template
+        .signature_groups
+        .iter()
+        .all(|group| group.email.is_none())
+    {
+        return Ok(None);
+    }
+    let value = |name: &str| {
+        field_values
+            .get(name)
+            .map(|value| value.trim().to_owned())
+            .unwrap_or_default()
+    };
+    let parties = template
+        .signature_groups
+        .iter()
+        .filter(|group| group.email.is_some())
+        .map(|group| {
+            let name = group
+                .field
+                .as_deref()
+                .map(value)
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| group.label.clone());
+            let email = group
+                .email
+                .as_deref()
+                .map(value)
+                .filter(|email| !email.is_empty());
+            model::FormSignerPerson {
+                person_id: None,
+                name,
+                email,
+                role: group.role.clone(),
+                slot_id: Some(format!("{}:1", group.role)),
+            }
+        })
+        .collect();
+    Ok(Some(parties))
 }

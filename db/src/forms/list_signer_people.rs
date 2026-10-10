@@ -162,7 +162,10 @@ impl FormDao {
             }
         }
 
-        if matches!(form.template_id.as_str(), "LISTING-01" | "PR-PNS") {
+        if matches!(
+            form.template_id.as_str(),
+            "LISTING-01" | "PR-PNS" | "OFFER-01" | "SHOW-RPT"
+        ) {
             let brokers = sqlx::query_as::<_, BrokerRow>(
                 r#"
                 select person_id::text as person_id, email
