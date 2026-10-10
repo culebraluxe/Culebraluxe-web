@@ -20,11 +20,11 @@ use forge::engine::executor::{
 };
 use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::harness::TurnTermination;
+use forge::engine::job::WorkflowJobService;
 use forge::engine::qa_plan::{
     AcceptanceJudgment, ApprovedAcceptanceCondition, ApprovedAssayCommand, ApprovedAssayPlan,
     ApprovedAssertionCheck, AssayParser, AssayRunner, CheckAggregation,
 };
-use forge::engine::job::WorkflowJobService;
 use forge::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};
 use forge::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
 use forge::engine::writer::{ForgeEvidenceReader, ForgeReleaseExecutor, RecordingWriter};
@@ -304,12 +304,7 @@ fn drive_fast(qa_passes: bool) -> Run {
 #[test]
 fn a_fast_story_goes_smith_to_qa_to_publish_to_complete() {
     let run = drive_fast(true);
-    assert_eq!(
-        run.calls,
-        vec!["fast_smith"],
-        "{:?}",
-        run.out
-    );
+    assert_eq!(run.calls, vec!["fast_smith"], "{:?}", run.out);
     assert_eq!(run.out.steps, vec!["fast_smith", "fast_qa_verify"]);
     assert_eq!(run.commands, vec!["forge.publish_candidate"]);
     assert_eq!(run.status, ProcessStatus::Completed, "{:?}", run.out);
