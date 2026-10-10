@@ -49,7 +49,7 @@ fn ui_route_002__no_orphan_screen() {
         "marketing-syndication",
         "property-admin",
         "property-media",
-        "document-signing",
+        "luxesign",
         "tech",
         "storyboard",
         "design-lab",

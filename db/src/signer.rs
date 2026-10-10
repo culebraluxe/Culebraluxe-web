@@ -1,7 +1,7 @@
 use crate::{Database, DbFailure, DbResult, DbTransaction};
 use chrono::{DateTime, Utc};
 use model::{
-    DocumentSignRecipient, SignatureField, SignatureFieldType, SignatureRecipientRole,
+    LuxesignRecipient, SignatureField, SignatureFieldType, SignatureRecipientRole,
     SignerRecipientState, SignerState,
 };
 use serde_json::Value;
@@ -183,8 +183,8 @@ impl SignerDao {
                    a.expires_at,
                    a.revoked_at,
                    r.signature_request_id::text as signature_request_id
-              from signature_recipient_access a
-              join signature_envelope_recipient r on r.id = a.recipient_id
+              from luxesign_recipient_access a
+              join luxesign_envelope_recipient r on r.id = a.recipient_id
              where a.id = $1::uuid
              limit 1
             "#,
@@ -211,8 +211,8 @@ impl SignerDao {
                    a.expires_at,
                    a.revoked_at,
                    r.signature_request_id::text as signature_request_id
-              from signature_recipient_access a
-              join signature_envelope_recipient r on r.id = a.recipient_id
+              from luxesign_recipient_access a
+              join luxesign_envelope_recipient r on r.id = a.recipient_id
              where a.recipient_id = $1::uuid
                and a.revoked_at is null
                and a.expires_at > now()
@@ -226,14 +226,14 @@ impl SignerDao {
         Ok(row.map(map_access))
     }
 
-    pub async fn recipient(&self, recipient_id: &str) -> DbResult<Option<DocumentSignRecipient>> {
+    pub async fn recipient(&self, recipient_id: &str) -> DbResult<Option<LuxesignRecipient>> {
         let row = sqlx::query_as::<_, RecipientRow>(
             r#"
             select id::text as id,
                    signature_request_id::text as signature_request_id,
                    recipient_role, recipient_name, recipient_email,
                    signer_order, signing_step, execution_role, execution_slot_id
-              from signature_envelope_recipient
+              from luxesign_envelope_recipient
              where id = $1::uuid
              limit 1
             "#,
@@ -251,7 +251,7 @@ impl SignerDao {
             select recipient_id::text as recipient_id,
                    state, notified_at, first_viewed_at, completed_at,
                    declined_at, expired_at, last_activity_at, revision
-              from signature_recipient_state
+              from luxesign_recipient_state
              where recipient_id = $1::uuid
              limit 1
             "#,
@@ -275,7 +275,7 @@ impl SignerDao {
                    width::float8 as width,
                    height::float8 as height,
                    required, label, configuration, created_at
-              from signature_field
+              from luxesign_field
              where recipient_id = $1::uuid
              order by page_number, position_y, position_x, id
             "#,
@@ -292,7 +292,7 @@ impl SignerDao {
             r#"
             select exists(
                 select 1
-                  from signature_recipient_consent
+                  from luxesign_recipient_consent
                  where recipient_id = $1::uuid
             )
             "#,
@@ -314,10 +314,10 @@ impl SignerDao {
             sqlx::query_as(
                 r#"
             select sr.status, td.title, d.subject, sr.message
-              from signature_envelope_recipient r
-              join signature_request sr on sr.id = r.signature_request_id
+              from luxesign_envelope_recipient r
+              join luxesign_request sr on sr.id = r.signature_request_id
               join transaction_document td on td.id = sr.transaction_document_id
-              left join document_sign_request d on d.signature_request_id = sr.id
+              left join luxesign_config d on d.signature_request_id = sr.id
              where r.id = $1::uuid
             "#,
             )
@@ -328,8 +328,8 @@ impl SignerDao {
         let answered: Vec<String> = sqlx::query_scalar(
             r#"
             select f.id::text
-              from signature_field f
-              join signature_field_response resp on resp.field_id = f.id
+              from luxesign_field f
+              join luxesign_field_response resp on resp.field_id = f.id
              where f.recipient_id = $1::uuid
                and resp.recipient_id = $1::uuid
             "#,
@@ -341,10 +341,10 @@ impl SignerDao {
         let parties: Vec<(String, String, String, bool)> = sqlx::query_as(
             r#"
             select r2.recipient_name, r2.recipient_role, s.state, r2.id = r1.id
-              from signature_envelope_recipient r1
-              join signature_envelope_recipient r2
+              from luxesign_envelope_recipient r1
+              join luxesign_envelope_recipient r2
                 on r2.signature_request_id = r1.signature_request_id
-              join signature_recipient_state s on s.recipient_id = r2.id
+              join luxesign_recipient_state s on s.recipient_id = r2.id
              where r1.id = $1::uuid
              order by r2.signing_step, r2.signer_order
             "#,
@@ -379,16 +379,16 @@ impl SignerDao {
                 when ds.signing_mode = 'parallel' then true
                 else not exists (
                     select 1
-                      from signature_envelope_recipient earlier
-                      left join signature_recipient_state earlier_state
+                      from luxesign_envelope_recipient earlier
+                      left join luxesign_recipient_state earlier_state
                         on earlier_state.recipient_id = earlier.id
                      where earlier.signature_request_id = r.signature_request_id
                        and earlier.signing_step < r.signing_step
                        and coalesce(earlier_state.state, 'pending') <> 'completed'
                 )
             end
-              from signature_envelope_recipient r
-              join document_sign_request ds
+              from luxesign_envelope_recipient r
+              join luxesign_config ds
                 on ds.signature_request_id = r.signature_request_id
              where r.id = $1::uuid
             "#,
@@ -408,14 +408,14 @@ impl SignerDao {
     ) -> DbResult<SignerAccessRecord> {
         let row = sqlx::query_as::<_, AccessRow>(
             r#"
-            insert into signature_recipient_access (
+            insert into luxesign_recipient_access (
                 recipient_id, expires_at, token_version
             )
             values ($1::uuid, $2, 1)
             on conflict (recipient_id) do update
                 set expires_at = excluded.expires_at,
                     revoked_at = null,
-                    token_version = signature_recipient_access.token_version + 1
+                    token_version = luxesign_recipient_access.token_version + 1
             returning id::text as id,
                       recipient_id::text as recipient_id,
                       token_version,
@@ -423,8 +423,8 @@ impl SignerDao {
                       revoked_at,
                       (
                         select r.signature_request_id::text
-                          from signature_envelope_recipient r
-                         where r.id = signature_recipient_access.recipient_id
+                          from luxesign_envelope_recipient r
+                         where r.id = luxesign_recipient_access.recipient_id
                       ) as signature_request_id
             "#,
         )
@@ -443,7 +443,7 @@ impl SignerDao {
     ) -> DbResult<()> {
         sqlx::query(
             r#"
-            insert into signature_recipient_state (recipient_id, state)
+            insert into luxesign_recipient_state (recipient_id, state)
             values ($1::uuid, 'pending')
             on conflict (recipient_id) do nothing
             "#,
@@ -462,7 +462,7 @@ impl SignerDao {
     ) -> DbResult<()> {
         sqlx::query(
             r#"
-            update signature_recipient_state
+            update luxesign_recipient_state
                set state = case when state = 'pending' then 'notified' else state end,
                    notified_at = coalesce(notified_at, now()),
                    last_activity_at = now(),
@@ -481,7 +481,7 @@ impl SignerDao {
     pub async fn mark_open_tx(&self, tx: &mut DbTransaction, recipient_id: &str) -> DbResult<bool> {
         let result = sqlx::query(
             r#"
-            update signature_recipient_state
+            update luxesign_recipient_state
                set state = case
                             when state in ('pending','notified') then 'viewed'
                             else state
@@ -513,7 +513,7 @@ impl SignerDao {
     ) -> DbResult<bool> {
         let result = sqlx::query(
             r#"
-            insert into signature_recipient_consent (
+            insert into luxesign_recipient_consent (
                 recipient_id, consent_version, consent_text,
                 consent_text_sha256, accepted_at, ip_address, user_agent
             )
@@ -542,17 +542,17 @@ impl SignerDao {
     ) -> DbResult<bool> {
         let result = sqlx::query(
             r#"
-            insert into signature_field_response (
+            insert into luxesign_field_response (
                 field_id, recipient_id, value, completed_at
             )
             select f.id, f.recipient_id, $3, now()
-              from signature_field f
+              from luxesign_field f
              where f.id = $2::uuid
                and f.recipient_id = $1::uuid
             on conflict (field_id) do update
                 set value = excluded.value,
                     completed_at = now()
-              where signature_field_response.recipient_id = excluded.recipient_id
+              where luxesign_field_response.recipient_id = excluded.recipient_id
             "#,
         )
         .bind(recipient_id)
@@ -567,7 +567,7 @@ impl SignerDao {
 
         sqlx::query(
             r#"
-            update signature_recipient_state
+            update luxesign_recipient_state
                set state = case
                             when state in ('pending','notified','viewed') then 'in_progress'
                             else state
@@ -594,12 +594,12 @@ impl SignerDao {
             r#"
             select not exists (
                 select 1
-                  from signature_field f
+                  from luxesign_field f
                  where f.recipient_id = $1::uuid
                    and f.required
                    and not exists (
                         select 1
-                          from signature_field_response response
+                          from luxesign_field_response response
                          where response.field_id = f.id
                            and response.recipient_id = f.recipient_id
                    )
@@ -619,7 +619,7 @@ impl SignerDao {
     ) -> DbResult<bool> {
         let result = sqlx::query(
             r#"
-            update signature_recipient_state
+            update luxesign_recipient_state
                set state = 'completed',
                    completed_at = coalesce(completed_at, now()),
                    last_activity_at = now(),
@@ -642,7 +642,7 @@ impl SignerDao {
     ) -> DbResult<bool> {
         let result = sqlx::query(
             r#"
-            update signature_recipient_state
+            update luxesign_recipient_state
                set state = 'declined',
                    declined_at = coalesce(declined_at, now()),
                    last_activity_at = now(),
@@ -667,13 +667,13 @@ impl SignerDao {
             r#"
             select exists (
                 select 1
-                  from signature_envelope_recipient
+                  from luxesign_envelope_recipient
                  where signature_request_id = $1::uuid
             )
             and not exists (
                 select 1
-                  from signature_envelope_recipient r
-                  left join signature_recipient_state s on s.recipient_id = r.id
+                  from luxesign_envelope_recipient r
+                  left join luxesign_recipient_state s on s.recipient_id = r.id
                  where r.signature_request_id = $1::uuid
                    and coalesce(s.state, 'pending') <> 'completed'
             )
@@ -692,10 +692,10 @@ impl SignerDao {
     ) -> DbResult<usize> {
         let access = sqlx::query(
             r#"
-            update signature_recipient_access a
+            update luxesign_recipient_access a
                set revoked_at = coalesce(a.revoked_at, now()),
                    token_version = a.token_version + 1
-              from signature_envelope_recipient r
+              from luxesign_envelope_recipient r
              where r.id = a.recipient_id
                and r.signature_request_id = $1::uuid
                and a.revoked_at is null
@@ -708,14 +708,14 @@ impl SignerDao {
 
         sqlx::query(
             r#"
-            update signature_recipient_state s
+            update luxesign_recipient_state s
                set state = case
                             when s.state in ('completed','declined','expired') then s.state
                             else 'revoked'
                            end,
                    last_activity_at = now(),
                    revision = revision + 1
-              from signature_envelope_recipient r
+              from luxesign_envelope_recipient r
              where r.id = s.recipient_id
                and r.signature_request_id = $1::uuid
                and s.state <> 'revoked'
@@ -742,7 +742,7 @@ impl SignerDao {
     ) -> DbResult<()> {
         sqlx::query(
             r#"
-            insert into signature_evidence_event (
+            insert into luxesign_evidence_event (
                 signature_request_id, recipient_id, event_type,
                 actor_id, correlation_id, causation_id, evidence
             )
@@ -772,14 +772,14 @@ impl SignerDao {
     ) -> DbResult<Vec<(String, String)>> {
         sqlx::query_as::<_, (String, String)>(
             r#"
-            update signature_recipient_state s
+            update luxesign_recipient_state s
                set state = 'expired',
                    expired_at = coalesce(s.expired_at, now()),
                    last_activity_at = now(),
                    revision = revision + 1
-              from signature_envelope_recipient r
-              left join signature_recipient_access a on a.recipient_id = r.id
-              left join document_sign_request ds on ds.signature_request_id = r.signature_request_id
+              from luxesign_envelope_recipient r
+              left join luxesign_recipient_access a on a.recipient_id = r.id
+              left join luxesign_config ds on ds.signature_request_id = r.signature_request_id
              where s.recipient_id = r.id
                and s.state not in ('completed', 'declined', 'expired', 'revoked')
                and (
@@ -815,9 +815,9 @@ impl SignerDao {
                    c.consent_text_sha256 as consent_sha256,
                    c.accepted_at as consent_accepted_at,
                    s.completed_at as completed_at
-              from signature_envelope_recipient r
-              left join signature_recipient_state s on s.recipient_id = r.id
-              left join signature_recipient_consent c on c.recipient_id = r.id
+              from luxesign_envelope_recipient r
+              left join luxesign_recipient_state s on s.recipient_id = r.id
+              left join luxesign_recipient_consent c on c.recipient_id = r.id
              where r.signature_request_id = $1::uuid
              order by r.signer_order, r.id
             "#,
@@ -840,8 +840,8 @@ impl SignerDao {
                    f.height::float8 as height,
                    resp.value as value,
                    resp.completed_at as completed_at
-              from signature_field f
-              left join signature_field_response resp on resp.field_id = f.id
+              from luxesign_field f
+              left join luxesign_field_response resp on resp.field_id = f.id
              where f.signature_request_id = $1::uuid
              order by f.page_number, f.position_y, f.position_x, f.id
             "#,
@@ -857,7 +857,7 @@ impl SignerDao {
                    actor_id,
                    recipient_id::text as recipient_id,
                    evidence
-              from signature_evidence_event
+              from luxesign_evidence_event
              where signature_request_id = $1::uuid
              order by occurred_at, id
             "#,
@@ -925,7 +925,7 @@ fn map_access(row: AccessRow) -> SignerAccessRecord {
     }
 }
 
-fn map_recipient(row: RecipientRow) -> DbResult<DocumentSignRecipient> {
+fn map_recipient(row: RecipientRow) -> DbResult<LuxesignRecipient> {
     let role = match row.recipient_role.as_str() {
         "signer" => SignatureRecipientRole::Signer,
         "approver" => SignatureRecipientRole::Approver,
@@ -936,7 +936,7 @@ fn map_recipient(row: RecipientRow) -> DbResult<DocumentSignRecipient> {
             ))
         }
     };
-    Ok(DocumentSignRecipient {
+    Ok(LuxesignRecipient {
         id: row.id,
         signature_request_id: row.signature_request_id,
         role,

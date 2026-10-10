@@ -94,7 +94,7 @@ fn signature_routes_are_declared_and_mounted() {
             "routes.rs no longer declares {path}"
         );
     }
-    for handler in ["signature_send", "signature_request", "signature_refresh"] {
+    for handler in ["signature_send", "luxesign_request", "signature_refresh"] {
         assert!(
             source.contains(&format!("post({handler})"))
                 || source.contains(&format!("get({handler})")),
@@ -106,7 +106,7 @@ fn signature_routes_are_declared_and_mounted() {
 #[test]
 fn every_signature_handler_exists_and_uses_the_provider() {
     let source = api_sources();
-    for handler in ["signature_send", "signature_request", "signature_refresh"] {
+    for handler in ["signature_send", "luxesign_request", "signature_refresh"] {
         assert!(
             source.contains(&format!("async fn {handler}(")),
             "handler {handler} is mounted by the router but not defined"

@@ -4,12 +4,12 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum DocumentSigningMode {
+pub enum LuxesignSigningMode {
     Sequential,
     Parallel,
 }
 
-impl DocumentSigningMode {
+impl LuxesignSigningMode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Sequential => "sequential",
@@ -18,7 +18,7 @@ impl DocumentSigningMode {
     }
 }
 
-impl TryFrom<&str> for DocumentSigningMode {
+impl TryFrom<&str> for LuxesignSigningMode {
     type Error = String;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
@@ -84,7 +84,7 @@ impl TryFrom<&str> for SignatureFieldType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentSignRecipientInput {
+pub struct LuxesignRecipientInput {
     pub role: SignatureRecipientRole,
     pub name: String,
     pub email: String,
@@ -96,7 +96,7 @@ pub struct DocumentSignRecipientInput {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentSignRecipient {
+pub struct LuxesignRecipient {
     pub id: String,
     pub signature_request_id: String,
     pub role: SignatureRecipientRole,
@@ -106,7 +106,7 @@ pub struct DocumentSignRecipient {
     pub signing_step: i32,
     pub execution_role: Option<String>,
     pub execution_slot_id: Option<String>,
-    /// Runtime state from `signature_recipient_state`, when the read joins
+    /// Runtime state from `luxesign_recipient_state`, when the read joins
     /// it. Absent on writes and on reads that do not need liveness.
     #[serde(default)]
     pub state: Option<String>,
@@ -133,10 +133,10 @@ pub struct SignatureField {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentSignConfig {
+pub struct LuxesignConfig {
     pub signature_request_id: String,
     pub subject: Option<String>,
-    pub signing_mode: DocumentSigningMode,
+    pub signing_mode: LuxesignSigningMode,
     pub expires_at: Option<String>,
     pub issued_at: Option<String>,
     pub created_at: String,
@@ -145,29 +145,29 @@ pub struct DocumentSignConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentSignSnapshot {
-    pub signature_request: SignatureRequest,
-    pub config: DocumentSignConfig,
-    pub recipients: Vec<DocumentSignRecipient>,
+pub struct LuxesignSnapshot {
+    pub luxesign_request: SignatureRequest,
+    pub config: LuxesignConfig,
+    pub recipients: Vec<LuxesignRecipient>,
     pub fields: Vec<SignatureField>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PrepareDocumentSignRequest {
+pub struct PrepareLuxesignRequest {
     pub transaction_document_id: String,
-    pub recipients: Vec<DocumentSignRecipientInput>,
+    pub recipients: Vec<LuxesignRecipientInput>,
     pub subject: Option<String>,
     pub message: Option<String>,
-    pub signing_mode: DocumentSigningMode,
+    pub signing_mode: LuxesignSigningMode,
     pub expires_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SetDocumentSignRecipientsRequest {
+pub struct SetLuxesignRecipientsRequest {
     pub signature_request_id: String,
-    pub recipients: Vec<DocumentSignRecipientInput>,
+    pub recipients: Vec<LuxesignRecipientInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -198,7 +198,7 @@ pub struct RemoveSignatureFieldRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct IssueDocumentSignRequest {
+pub struct IssueLuxesignRequest {
     pub signature_request_id: String,
 }
 
@@ -219,12 +219,12 @@ pub enum SendFieldPlacement {
 /// Prepare, place the signature fields, and issue in ONE transaction: the envelope is never left half-built.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SendDocumentSignRequest {
+pub struct SendLuxesignRequest {
     pub transaction_document_id: String,
-    pub recipients: Vec<DocumentSignRecipientInput>,
+    pub recipients: Vec<LuxesignRecipientInput>,
     pub subject: Option<String>,
     pub message: Option<String>,
-    pub signing_mode: DocumentSigningMode,
+    pub signing_mode: LuxesignSigningMode,
     pub expires_at: Option<String>,
     #[serde(default)]
     pub placement: SendFieldPlacement,
@@ -238,14 +238,14 @@ pub struct SendDocumentSignRequest {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentSignSendResult {
-    pub snapshot: DocumentSignSnapshot,
-    pub issued: DocumentSignIssueResult,
+pub struct LuxesignSendResult {
+    pub snapshot: LuxesignSnapshot,
+    pub issued: LuxesignIssueResult,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentSignIssueResult {
+pub struct LuxesignIssueResult {
     pub signature_request_id: String,
     pub invitation_message_ids: Vec<String>,
     pub expires_at: String,
@@ -292,7 +292,7 @@ pub struct ImportAnchorFieldsResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentSignSweepResult {
+pub struct LuxesignSweepResult {
     pub expired_recipients: Vec<String>,
     pub expired_envelopes: Vec<String>,
     /// Reminders queued for signers whose turn it is and who have not acted (one message each).
@@ -302,7 +302,7 @@ pub struct DocumentSignSweepResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentSignFinalizeResult {
+pub struct LuxesignFinalizeResult {
     pub signature_request_id: String,
     pub audit_media_id: Option<String>,
     pub signed_media_id: Option<String>,
@@ -314,7 +314,7 @@ pub struct DocumentSignFinalizeResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentSignEnvelopeSummary {
+pub struct LuxesignEnvelopeSummary {
     pub signature_request_id: String,
     pub transaction_document_id: String,
     pub subject: Option<String>,
@@ -327,7 +327,7 @@ pub struct DocumentSignEnvelopeSummary {
     pub completed_total: i64,
 }
 
-pub fn validate_document_sign_recipients(recipients: &[DocumentSignRecipientInput]) -> Vec<String> {
+pub fn validate_luxesign_recipients(recipients: &[LuxesignRecipientInput]) -> Vec<String> {
     use std::collections::BTreeSet;
 
     if recipients.is_empty() {
@@ -388,8 +388,8 @@ pub fn validate_document_sign_recipients(recipients: &[DocumentSignRecipientInpu
 mod tests {
     use super::*;
 
-    fn recipient(email: &str, order: i32, step: i32) -> DocumentSignRecipientInput {
-        DocumentSignRecipientInput {
+    fn recipient(email: &str, order: i32, step: i32) -> LuxesignRecipientInput {
+        LuxesignRecipientInput {
             role: SignatureRecipientRole::Signer,
             name: "Signer".into(),
             email: email.into(),
@@ -402,14 +402,14 @@ mod tests {
 
     #[test]
     fn signing_steps_allow_parallel_groups_but_orders_stay_unique() {
-        assert!(validate_document_sign_recipients(&[
+        assert!(validate_luxesign_recipients(&[
             recipient("one@example.test", 1, 1),
             recipient("two@example.test", 2, 1),
             recipient("three@example.test", 3, 2),
         ])
         .is_empty());
 
-        let errors = validate_document_sign_recipients(&[
+        let errors = validate_luxesign_recipients(&[
             recipient("one@example.test", 1, 1),
             recipient("two@example.test", 1, 1),
         ]);

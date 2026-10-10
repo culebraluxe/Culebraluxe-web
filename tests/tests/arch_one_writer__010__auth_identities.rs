@@ -24,7 +24,7 @@ fn arch_one_writer_010__auth_identities() {
     assert_eq!(policy_domain_for("security.users.read"), "security");
     assert_eq!(policy_domain_for("contract.execute"), "contract");
     assert_eq!(policy_domain_for("tech"), "tech");
-    assert_eq!(policy_domain_for("documentSign.finalize"), "document-sign");
+    assert_eq!(policy_domain_for("luxesign.finalize"), "luxesign");
     assert_eq!(policy_domain_for("something.unknown"), "application");
 
     // The catalog only ever returns actions it knows; anything else is refused, not defaulted.

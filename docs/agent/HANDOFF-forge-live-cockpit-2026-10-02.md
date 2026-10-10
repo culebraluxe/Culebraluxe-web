@@ -90,7 +90,7 @@ One receipt caveat, stated because the shape of this file is the point: `a75859c
     `middle/workflow/src/neon/new_id.rs` 900,
     `rust/test-harness/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs` 902,
     `rust/test-harness/tests/wf_join__002__optional_siblings_handled_correctly.rs` 856). Four more were already over
-    before this stack and stayed over, two of them shrinking (`web/src/document_sign/mod.rs` 1184→1170,
+    before this stack and stayed over, two of them shrinking (`web/src/luxesign/mod.rs` 1184→1170,
     `web/src/command_runtime.rs` 1447→1430, `web/src/signature/mod.rs` 932→935,
     `web/src/signer/mod.rs` 1145→1151). The policy this step does not implement is stated in
     `docs/agent/UI-SCREEN-ARCHITECTURE.md:301`: such a file "is split the next time it is edited".

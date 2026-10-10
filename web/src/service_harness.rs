@@ -69,7 +69,7 @@ impl ServiceHarness {
         let commands = CommandDispatcher::for_kernel(
             db.clone(),
             kernel.contract(),
-            catalog.document_sign(),
+            catalog.luxesign(),
             catalog.signer(),
             catalog.email(),
         )
@@ -84,7 +84,7 @@ impl ServiceHarness {
                 kernel.registry(),
             );
             let email_delivery = EmailDeliverySubscriber::new(catalog.email());
-            let finalizer = crate::document_sign::worker::DocumentSignFinalizeSubscriber::new(
+            let finalizer = crate::luxesign::worker::LuxesignFinalizeSubscriber::new(
                 commands.clone(),
                 kernel.registry(),
             );
@@ -116,7 +116,7 @@ impl ServiceHarness {
         }
         if self.sweep_signing {
             // Ends with the kernel's own cancellation, like every other background task it owns.
-            crate::document_sign::worker::spawn_sweeper(
+            crate::luxesign::worker::spawn_sweeper(
                 self.commands.clone(),
                 self.kernel.registry(),
                 self.kernel.child_token(),

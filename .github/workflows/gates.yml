@@ -439,7 +439,7 @@ jobs:
           deferred='cli/src/apple_mail(\.rs|/)|cli/src/forge/lint(\.rs|/)|middle/model/src/applemail(\.rs|/)|middle/model/src/apple_messages(\.rs|/)'
           test_estate='(^|/)tests/'
           # Files already over the ceiling when it first ran (2026-10-01), each with the line count it held then.
-          baselined='middle/workflow/src/neon/new_id.rs|web/ui/src/flight_recorder.rs|web/ui/src/app/screens/flight_recorder.rs|web/src/command_runtime.rs|web/src/signer/mod.rs|web/src/signature/mod.rs|web/src/document_sign/mod.rs|forge/src/engine/opencode.rs|forge/src/engine/job.rs|forge/src/engine/opencode_agents.rs|forge/src/engine/opencode_client.rs|db/src/signature/database.rs|db/src/forge_engine.rs|db/src/pool.rs'
+          baselined='middle/workflow/src/neon/new_id.rs|web/ui/src/flight_recorder.rs|web/ui/src/app/screens/flight_recorder.rs|web/src/command_runtime.rs|web/src/signer/mod.rs|web/src/signature/mod.rs|web/src/luxesign/mod.rs|forge/src/engine/opencode.rs|forge/src/engine/job.rs|forge/src/engine/opencode_agents.rs|forge/src/engine/opencode_client.rs|db/src/signature/database.rs|db/src/forge_engine.rs|db/src/pool.rs'
           is_baselined() {
             case "|$baselined|" in *"|$1|"*) return 0 ;; esac
             return 1

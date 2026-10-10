@@ -1,11 +1,11 @@
 //! The two background jobs native signing cannot work without.
 //!
-//! * **Finalize.** When the last signer completes, the command emits `DOCUMENT_SIGN_READY_TO_FINALIZE`. Nothing used to
+//! * **Finalize.** When the last signer completes, the command emits `LUXESIGN_READY_TO_FINALIZE`. Nothing used to
 //!   listen, so a fully signed envelope stayed `signed` forever: no sealed PDF, no certificate, no completion email.
-//!   [`DocumentSignFinalizeSubscriber`] listens, and runs `documentSign.finalize` through the same durable dispatcher a
+//!   [`LuxesignFinalizeSubscriber`] listens, and runs `luxesign.finalize` through the same durable dispatcher a
 //!   person would.
 //! * **Sweep.** Overdue signers and envelopes expire, and signers who have gone quiet get their reminders
-//!   (`documentSign.sweepDue`). Nothing ran it either; [`spawn_sweeper`] does, on a timer.
+//!   (`luxesign.sweepDue`). Nothing ran it either; [`spawn_sweeper`] does, on a timer.
 //!
 //! Both run as narrow SYSTEM actors that Casbin admits for exactly these operations (`security/entitlements.rs`), so a
 //! worker holds no standing authority beyond its one job.
@@ -19,10 +19,10 @@ use services::{CommandOutcome, CommandRequest, ServiceActor, ServiceActorKind, S
 use std::{sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
 
-pub const FINALIZE_SUBSCRIPTION_ID: &str = "document-sign.finalize";
-pub const READY_TO_FINALIZE_ROUTING_KEY: &str = "DOCUMENT_SIGN_READY_TO_FINALIZE";
-pub const DOCUMENT_SIGN_FINALIZER_ACTOR: &str = "document-sign-finalizer";
-pub const DOCUMENT_SIGN_SWEEPER_ACTOR: &str = "document-sign-sweeper";
+pub const FINALIZE_SUBSCRIPTION_ID: &str = "luxesign.finalize";
+pub const READY_TO_FINALIZE_ROUTING_KEY: &str = "LUXESIGN_READY_TO_FINALIZE";
+pub const LUXESIGN_FINALIZER_ACTOR: &str = "luxesign-finalizer";
+pub const LUXESIGN_SWEEPER_ACTOR: &str = "luxesign-sweeper";
 
 /// How often the sweeper looks. Reminders are counted in days, so a quarter of an hour is far finer than needed and
 /// still cheap: one indexed query when nothing is due.
@@ -82,24 +82,24 @@ async fn run(
 
 /// The command's own refusals that no retry can change.
 fn is_permanent(error: &str) -> bool {
-    ["DOCUMENT_SIGN_NOT_FOUND", "DOCUMENT_SIGN_NOT_MUTABLE"]
+    ["LUXESIGN_NOT_FOUND", "LUXESIGN_NOT_MUTABLE"]
         .iter()
         .any(|code| error.starts_with(code))
 }
 
-pub struct DocumentSignFinalizeSubscriber {
+pub struct LuxesignFinalizeSubscriber {
     commands: CommandDispatcher,
     registry: Arc<ServiceRegistry>,
 }
 
-impl DocumentSignFinalizeSubscriber {
+impl LuxesignFinalizeSubscriber {
     pub fn new(commands: CommandDispatcher, registry: Arc<ServiceRegistry>) -> Self {
         Self { commands, registry }
     }
 }
 
 #[async_trait]
-impl MqSubscriber for DocumentSignFinalizeSubscriber {
+impl MqSubscriber for LuxesignFinalizeSubscriber {
     fn id(&self) -> &str {
         FINALIZE_SUBSCRIPTION_ID
     }
@@ -124,21 +124,19 @@ impl MqSubscriber for DocumentSignFinalizeSubscriber {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| {
-                MqSubscriberError::new(
-                    "DOCUMENT_SIGN_READY_TO_FINALIZE requires signatureRequestId.",
-                )
+                MqSubscriberError::new("LUXESIGN_READY_TO_FINALIZE requires signatureRequestId.")
             })?;
         // One id per envelope: a redelivered event replays the first result instead of sealing twice.
         let request = CommandRequest {
-            command_id: format!("document-sign:finalize:{signature_request_id}"),
-            command_type: "documentSign.finalize".into(),
-            aggregate_type: "signature_request".into(),
+            command_id: format!("luxesign:finalize:{signature_request_id}"),
+            command_type: "luxesign.finalize".into(),
+            aggregate_type: "luxesign_request".into(),
             aggregate_id: Some(signature_request_id.to_owned()),
             requested_at: delivery.occurred_at.to_rfc3339(),
             input: Map::new(),
         };
         let context = system_context(
-            DOCUMENT_SIGN_FINALIZER_ACTOR,
+            LUXESIGN_FINALIZER_ACTOR,
             delivery
                 .correlation_id
                 .clone()
@@ -151,7 +149,7 @@ impl MqSubscriber for DocumentSignFinalizeSubscriber {
             // will never become sealable: retrying five times only fills the log. Acknowledge it and say so.
             Err(error) if is_permanent(&error) => {
                 tracing::warn!(
-                    target: "culebraluxe::document_sign",
+                    target: "culebraluxe::luxesign",
                     %signature_request_id, %error,
                     "not finalizing: this envelope cannot be sealed, so the event is acknowledged"
                 );
@@ -162,7 +160,7 @@ impl MqSubscriber for DocumentSignFinalizeSubscriber {
     }
 }
 
-/// Run `documentSign.sweepDue` every [`SWEEP_PERIOD`] until `shutdown`. A failed sweep is logged and tried again next
+/// Run `luxesign.sweepDue` every [`SWEEP_PERIOD`] until `shutdown`. A failed sweep is logged and tried again next
 /// period; it never stops the loop.
 pub fn spawn_sweeper(
     commands: CommandDispatcher,
@@ -177,20 +175,20 @@ pub fn spawn_sweeper(
             }
             let now = chrono::Utc::now();
             let request = CommandRequest {
-                command_id: format!("document-sign:sweep:{}", now.timestamp_millis()),
-                command_type: "documentSign.sweepDue".into(),
-                aggregate_type: "signature_request".into(),
+                command_id: format!("luxesign:sweep:{}", now.timestamp_millis()),
+                command_type: "luxesign.sweepDue".into(),
+                aggregate_type: "luxesign_request".into(),
                 aggregate_id: None,
                 requested_at: now.to_rfc3339(),
                 input: Map::new(),
             };
             let context = system_context(
-                DOCUMENT_SIGN_SWEEPER_ACTOR,
-                format!("document-sign-sweep-{}", now.timestamp()),
+                LUXESIGN_SWEEPER_ACTOR,
+                format!("luxesign-sweep-{}", now.timestamp()),
                 None,
             );
             if let Err(error) = run(&commands, &registry, request, context).await {
-                tracing::warn!(target: "culebraluxe::document_sign", %error, "signing sweep failed; will retry");
+                tracing::warn!(target: "culebraluxe::luxesign", %error, "signing sweep failed; will retry");
             }
         }
     })
@@ -214,10 +212,10 @@ mod tests {
     #[test]
     fn a_refusal_no_retry_can_change_is_acknowledged_and_a_transient_one_is_not() {
         assert!(is_permanent(
-            "DOCUMENT_SIGN_NOT_FOUND: Canonical signature request not found."
+            "LUXESIGN_NOT_FOUND: Canonical signature request not found."
         ));
         assert!(is_permanent(
-            "DOCUMENT_SIGN_NOT_MUTABLE: Only a signed envelope can be finalized."
+            "LUXESIGN_NOT_MUTABLE: Only a signed envelope can be finalized."
         ));
         assert!(!is_permanent("DATABASE: connection reset"));
         assert!(!is_permanent("EMAIL_DELIVERY_FAILED: timeout"));

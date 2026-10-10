@@ -310,7 +310,7 @@ pub fn router(state: ApiState) -> Router {
         // Signature (BoldSign). Mirrors the production endpoints the TypeScript path already serves, so the webhook
         // and the operator actions can be pointed at Rust without changing a client contract.
         .route("/v1/signature/requests", post(signature_send))
-        .route("/v1/signature/requests/{id}", get(signature_request))
+        .route("/v1/signature/requests/{id}", get(luxesign_request))
         .route(
             "/v1/signature/requests/{id}/refresh",
             post(signature_refresh),

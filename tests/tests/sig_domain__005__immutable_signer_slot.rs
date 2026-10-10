@@ -2,7 +2,7 @@
 //!
 //! Contract: within a single signature request, each signer must have a unique execution_slot_id.
 //! The database enforces this via a unique partial index on
-//! `signature_envelope_recipient(signature_request_id, execution_slot_id) WHERE execution_slot_id IS NOT NULL`.
+//! `luxesign_envelope_recipient(signature_request_id, execution_slot_id) WHERE execution_slot_id IS NOT NULL`.
 //!
 //! This test verifies that the database rejects attempts to assign the same execution_slot_id
 //! to multiple signers within the same signature request.
@@ -115,12 +115,12 @@ async fn sig_domain_005__immutable_signer_slot() {
         )
         .await
         .expect("prepare must succeed");
-    let req_id = result.signature_request.id.clone();
+    let req_id = result.luxesign_request.id.clone();
     tx.commit().await.expect("commit");
 
     // 3. Verify the signer slot was created correctly.
     let slot_id: Option<String> = sqlx::query_scalar(
-        "select execution_slot_id from signature_envelope_recipient where signature_request_id = $1::uuid",
+        "select execution_slot_id from luxesign_envelope_recipient where signature_request_id = $1::uuid",
     )
     .bind(&req_id)
     .fetch_one(database.database().pool())
@@ -182,7 +182,7 @@ async fn sig_domain_005__immutable_signer_slot() {
 
     // 5. Verify the original slot is unchanged.
     let slot_id: Option<String> = sqlx::query_scalar(
-        "select execution_slot_id from signature_envelope_recipient where signature_request_id = $1::uuid",
+        "select execution_slot_id from luxesign_envelope_recipient where signature_request_id = $1::uuid",
     )
     .bind(&req_id)
     .fetch_one(database.database().pool())

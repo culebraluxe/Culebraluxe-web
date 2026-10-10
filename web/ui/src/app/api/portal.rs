@@ -376,8 +376,8 @@ impl Endpoint for SigningDeskList {
     }
     fn body(&self) -> Option<serde_json::Value> {
         Some(serde_json::json!({
-            "domain": "document-sign",
-            "operation": "documentSign.list",
+            "domain": "luxesign",
+            "operation": "luxesign.list",
             "payload": {},
         }))
     }
@@ -397,8 +397,8 @@ impl Endpoint for SigningEnvelopeGet {
     }
     fn body(&self) -> Option<serde_json::Value> {
         Some(serde_json::json!({
-            "domain": "document-sign",
-            "operation": "documentSign.get",
+            "domain": "luxesign",
+            "operation": "luxesign.get",
             "payload": { "signatureRequestId": self.signature_request_id },
         }))
     }
@@ -409,7 +409,7 @@ impl Endpoint for SigningEnvelopeGet {
 pub struct SigningDeskCommand {
     pub command_id: String,
     pub command_type: &'static str,
-    /// `signature_request` for a command on an existing envelope; `transaction_document` for send.
+    /// `luxesign_request` for a command on an existing envelope; `transaction_document` for send.
     pub aggregate_type: &'static str,
     pub aggregate_id: String,
     pub requested_at: String,
@@ -428,14 +428,14 @@ impl SigningDeskCommand {
         Self {
             command_id,
             command_type,
-            aggregate_type: "signature_request",
+            aggregate_type: "luxesign_request",
             aggregate_id: signature_request_id,
             requested_at,
             input,
         }
     }
 
-    /// `documentSign.send`: the envelope does not exist yet, so the aggregate is the document. Prepares, places the
+    /// `luxesign.send`: the envelope does not exist yet, so the aggregate is the document. Prepares, places the
     /// signature fields and issues in one transaction.
     pub fn send(
         command_id: String,
@@ -445,7 +445,7 @@ impl SigningDeskCommand {
     ) -> Self {
         Self {
             command_id,
-            command_type: "documentSign.send",
+            command_type: "luxesign.send",
             aggregate_type: "transaction_document",
             aggregate_id: transaction_document_id,
             requested_at,
@@ -462,7 +462,7 @@ impl Endpoint for SigningDeskCommand {
     }
     fn body(&self) -> Option<serde_json::Value> {
         let mut input = self.input.as_object().cloned().unwrap_or_default();
-        if self.aggregate_type == "signature_request" {
+        if self.aggregate_type == "luxesign_request" {
             input.insert(
                 "signatureRequestId".into(),
                 serde_json::Value::String(self.aggregate_id.clone()),

@@ -12,7 +12,7 @@
 //! hand before the ledger existed, so "every file under `db/migrations/`" is not a set either live database
 //! can satisfy, and a gate built on it would refuse to boot a healthy system. The list below is the tail the
 //! running code actually depends on — Forge's work queue, worker heartbeat, runtime control, claim brake and
-//! the native document-signing surface — and every name in it is recorded on both DEV and PROD as of
+//! the native luxesign surface — and every name in it is recorded on both DEV and PROD as of
 //! 2026-10-08, so a healthy deploy passes and an empty one is refused. A migration added later is not
 //! required until somebody adds it here, deliberately: this is a floor, not a ceiling.
 //!

@@ -1,6 +1,6 @@
 //! "Send for signature": the desk's compose step, as plain data.
 //!
-//! The desk picks a Vault document and the people who must act, and ONE durable command, `documentSign.send`,
+//! The desk picks a Vault document and the people who must act, and ONE durable command, `luxesign.send`,
 //! prepares the envelope, places each signer's own signature box and issues it, atomically. Everything here is pure —
 //! checking the draft and building the command's input — so the screen only moves data.
 
@@ -131,7 +131,7 @@ pub fn validate(draft: &Draft) -> Result<(), String> {
     Ok(())
 }
 
-/// The `documentSign.send` input. `expires_at` is computed by the caller (it needs a clock).
+/// The `luxesign.send` input. `expires_at` is computed by the caller (it needs a clock).
 pub fn send_input(draft: &Draft, expires_at: Option<String>) -> Value {
     let recipients: Vec<Value> = draft
         .recipients

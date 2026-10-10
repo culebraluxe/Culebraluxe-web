@@ -199,7 +199,7 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                             </button>
                             <button
                                 type="button"
-                                disabled={working || signature_active || !ctx.can("documentSign.issue")}
+                                disabled={working || signature_active || !ctx.can("luxesign.issue")}
                                 onclick={link.callback(|_: MouseEvent| Msg::SendSignature)}
                                 class={GHOST_BUTTON}
                             >

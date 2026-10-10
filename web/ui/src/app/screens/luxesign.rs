@@ -1,7 +1,7 @@
 //! OPS desk for native document signing, wired live.
 //!
-//! The envelope list comes from `documentSign.list`; selecting one reads its
-//! detail (`documentSign.get`) with live recipient states. Resend and void
+//! The envelope list comes from `luxesign.list`; selecting one reads its
+//! detail (`luxesign.get`) with live recipient states. Resend and void
 //! go through the durable command dispatcher as the signed-in operator.
 
 use yew::prelude::*;
@@ -247,7 +247,7 @@ fn command_id(model: &mut Model, what: &str) -> String {
     format!("desk-{what}-{}-{}", now_rfc3339(), model.seq)
 }
 
-pub struct DocumentSigning;
+pub struct LuxesignSigning;
 
 fn reload_list() -> Cmd<Msg> {
     Cmd::request(SigningDeskList, Msg::ListLoaded)
@@ -262,7 +262,7 @@ fn read_detail(id: &str) -> Cmd<Msg> {
     )
 }
 
-impl Screen for DocumentSigning {
+impl Screen for LuxesignSigning {
     type Model = Model;
     type Msg = Msg;
 
@@ -316,7 +316,7 @@ impl Screen for DocumentSigning {
                 Cmd::request(
                     SigningDeskCommand::on_envelope(
                         command_id,
-                        "documentSign.resend",
+                        "luxesign.resend",
                         id,
                         now_rfc3339(),
                         serde_json::json!({ "recipientId": recipient_id }),
@@ -332,7 +332,7 @@ impl Screen for DocumentSigning {
                 Cmd::request(
                     SigningDeskCommand::on_envelope(
                         command_id,
-                        "documentSign.importFields",
+                        "luxesign.importFields",
                         id,
                         now_rfc3339(),
                         serde_json::json!({}),
@@ -348,7 +348,7 @@ impl Screen for DocumentSigning {
                 Cmd::request(
                     SigningDeskCommand::on_envelope(
                         command_id,
-                        "documentSign.void",
+                        "luxesign.void",
                         id,
                         now_rfc3339(),
                         serde_json::json!({}),
@@ -802,7 +802,7 @@ mod tests {
 
     #[test]
     fn desk_reads_live_and_selects_detail() {
-        let (mut model, cmd) = DocumentSigning::init(&ScreenCtx::default());
+        let (mut model, cmd) = LuxesignSigning::init(&ScreenCtx::default());
         let request = cmd.into_requests().remove(0);
         assert_eq!(request.path, "/api/portal/rust-ui/signing/dispatch");
 
@@ -819,7 +819,7 @@ mod tests {
             completed_total: 1,
         }];
         let cmd =
-            DocumentSigning::update(&mut model, Msg::ListLoaded(Ok(rows)), &ScreenCtx::default());
+            LuxesignSigning::update(&mut model, Msg::ListLoaded(Ok(rows)), &ScreenCtx::default());
         // First row auto-selects and reads its detail.
         assert_eq!(model.selected_id.as_deref(), Some("req-1"));
         let request = cmd.into_requests().remove(0);
@@ -827,17 +827,17 @@ mod tests {
 
         // Actions address the durable dispatcher with verified ids.
         model.seq = 7;
-        let cmd = DocumentSigning::update(&mut model, Msg::VoidEnvelope, &ScreenCtx::default());
+        let cmd = LuxesignSigning::update(&mut model, Msg::VoidEnvelope, &ScreenCtx::default());
         let request = cmd.into_requests().remove(0);
         assert_eq!(request.path, "/api/portal/rust-ui/signing/command");
     }
 
     #[test]
     fn import_sends_the_envelope_without_geometry() {
-        let (mut model, _) = DocumentSigning::init(&ScreenCtx::default());
+        let (mut model, _) = LuxesignSigning::init(&ScreenCtx::default());
         model.selected_id = Some("req-9".into());
         model.seq = 3;
-        let cmd = DocumentSigning::update(&mut model, Msg::ImportFields, &ScreenCtx::default());
+        let cmd = LuxesignSigning::update(&mut model, Msg::ImportFields, &ScreenCtx::default());
         let request = cmd.into_requests().remove(0);
         assert_eq!(request.path, "/api/portal/rust-ui/signing/command");
     }
@@ -845,34 +845,34 @@ mod tests {
     #[test]
     fn sending_is_one_command_and_closes_the_panel_when_it_succeeds() {
         let ctx = ScreenCtx::default();
-        let (mut model, _) = DocumentSigning::init(&ctx);
-        DocumentSigning::update(&mut model, Msg::OpenCompose, &ctx);
+        let (mut model, _) = LuxesignSigning::init(&ctx);
+        LuxesignSigning::update(&mut model, Msg::OpenCompose, &ctx);
         for edit in [
             ComposeEdit::Document("doc-1".into()),
             ComposeEdit::Name(0, "Ada".into()),
             ComposeEdit::Email(0, "ada@example.com".into()),
         ] {
-            DocumentSigning::update(&mut model, Msg::Compose(edit), &ctx);
+            LuxesignSigning::update(&mut model, Msg::Compose(edit), &ctx);
         }
         // An incomplete draft is refused without a request.
         let mut bad = model.clone();
-        DocumentSigning::update(
+        LuxesignSigning::update(
             &mut bad,
             Msg::Compose(ComposeEdit::Email(0, "nope".into())),
             &ctx,
         );
-        let cmd = DocumentSigning::update(&mut bad, Msg::SendCompose, &ctx);
+        let cmd = LuxesignSigning::update(&mut bad, Msg::SendCompose, &ctx);
         assert!(cmd.into_requests().is_empty());
         assert!(bad.compose.as_ref().unwrap().error.is_some());
 
-        let cmd = DocumentSigning::update(&mut model, Msg::SendCompose, &ctx);
+        let cmd = LuxesignSigning::update(&mut model, Msg::SendCompose, &ctx);
         assert_eq!(model.compose.as_ref().unwrap().stage, Stage::Sending);
         let requests = cmd.into_requests();
         assert_eq!(requests.len(), 1, "one command, not a chain");
         assert_eq!(requests[0].path, "/api/portal/rust-ui/signing/command");
 
         let sent = serde_json::json!({ "outcome": "success", "value": { "issued": {} } });
-        DocumentSigning::update(&mut model, Msg::ComposeStepped(Ok(sent)), &ctx);
+        LuxesignSigning::update(&mut model, Msg::ComposeStepped(Ok(sent)), &ctx);
         assert!(model.compose.is_none());
         assert!(model
             .notice
@@ -884,7 +884,7 @@ mod tests {
     #[test]
     fn a_refused_send_keeps_the_panel_and_says_why() {
         let ctx = ScreenCtx::default();
-        let (mut model, _) = DocumentSigning::init(&ctx);
+        let (mut model, _) = LuxesignSigning::init(&ctx);
         model.compose = Some(Compose {
             stage: Stage::Sending,
             ..Compose::default()
@@ -893,7 +893,7 @@ mod tests {
             "outcome": "rejected",
             "error": { "message": "Page 5 does not exist: the document has 3 page(s)." }
         });
-        DocumentSigning::update(&mut model, Msg::ComposeStepped(Ok(refused)), &ctx);
+        LuxesignSigning::update(&mut model, Msg::ComposeStepped(Ok(refused)), &ctx);
         let compose = model.compose.as_ref().unwrap();
         assert_eq!(compose.stage, Stage::Idle);
         assert!(compose.error.as_deref().unwrap().contains("3 page"));

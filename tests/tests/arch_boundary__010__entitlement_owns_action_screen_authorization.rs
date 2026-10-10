@@ -52,7 +52,7 @@ const SCREEN_ENTITLEMENTS: [&str; 12] = [
     "accounting.read",
     "cockpit.read",
     "deal.read",
-    "documentSign.read",
+    "luxesign.read",
     "form.read",
     "person.read",
     "portal.read",

@@ -348,18 +348,18 @@ fn render_email(message: &EmailMessage) -> Result<OutgoingMail, CoreServiceError
 
     let subject = string("subject").unwrap_or_else(|| match message.message_kind {
         EmailMessageKind::SignatureInvitation => {
-            "Document ready for your signature — CulebraLuxe".into()
+            "Document ready for your signature — Luxesign".into()
         }
         EmailMessageKind::SignatureReminder => {
-            "Reminder: document waiting for your signature — CulebraLuxe".into()
+            "Reminder: document waiting for your signature — Luxesign".into()
         }
         EmailMessageKind::SignatureCompleted => match string("documentTitle") {
-            Some(title) => format!("Signed: {title} — CulebraLuxe"),
-            None => "Document signing completed — CulebraLuxe".into(),
+            Some(title) => format!("Signed: {title} — Luxesign"),
+            None => "Document signing completed — Luxesign".into(),
         },
         EmailMessageKind::SignatureDeclined => match string("documentTitle") {
-            Some(title) => format!("Declined: {title} — CulebraLuxe"),
-            None => "Document signing declined — CulebraLuxe".into(),
+            Some(title) => format!("Declined: {title} — Luxesign"),
+            None => "Document signing declined — Luxesign".into(),
         },
     });
 
@@ -375,16 +375,16 @@ fn render_email(message: &EmailMessage) -> Result<OutgoingMail, CoreServiceError
             let note = string("message");
             let reminder = message.message_kind == EmailMessageKind::SignatureReminder;
             let lead = if reminder {
-                "A CulebraLuxe document is still waiting for your signature."
+                "A document from CulebraLuxe is still waiting for your signature in Luxesign."
             } else {
-                "A CulebraLuxe document is ready for you to review and sign."
+                "A document from CulebraLuxe is ready for you to review and sign in Luxesign."
             };
             let note_text = note
                 .as_deref()
                 .map(|value| format!("\n\nMessage from CulebraLuxe:\n{value}"))
                 .unwrap_or_default();
             let text = format!(
-                "Hello {name},\n\n{lead}\n\nOpen and review it here:\n{url}{note_text}\n\nThis link is unique to you. Do not forward it."
+                "Hello {name},\n\n{lead}\n\nOpen and review it here:\n{url}{note_text}\n\nThis link is unique to you. Do not forward it.\n\nLuxesign · CulebraLuxe"
             );
             let html = signature_request_html(&name, lead, &url, note.as_deref());
             (text, Some(html))
@@ -424,7 +424,8 @@ fn render_email(message: &EmailMessage) -> Result<OutgoingMail, CoreServiceError
                 "Your CulebraLuxe contact has the signed document and its certificate of completion."
             };
             let greeting = greeting_for(name.as_deref());
-            let text = format!("{greeting}\n\n{lead}\n{detail}\n\n{files}\n\nCulebraLuxe");
+            let text =
+                format!("{greeting}\n\n{lead}\n{detail}\n\n{files}\n\nLuxesign · CulebraLuxe");
             let html = branded_html(&Branded {
                 heading: &greeting,
                 paragraphs: &[&lead, &detail, files],
@@ -449,7 +450,8 @@ fn render_email(message: &EmailMessage) -> Result<OutgoingMail, CoreServiceError
                 .as_deref()
                 .map(|reason| format!("\n\nTheir reason:\n{reason}"))
                 .unwrap_or_default();
-            let text = format!("{greeting}\n\n{lead}{reason_text}\n\n{outcome}\n\nCulebraLuxe");
+            let text =
+                format!("{greeting}\n\n{lead}{reason_text}\n\n{outcome}\n\nLuxesign · CulebraLuxe");
             let html = branded_html(&Branded {
                 heading: &greeting,
                 paragraphs: &[&lead, outcome],
@@ -721,7 +723,7 @@ mod tests {
             id: "11111111-1111-4111-8111-111111111111".into(),
             message_kind: EmailMessageKind::SignatureInvitation,
             recipient_email: "buyer@example.test".into(),
-            template_key: "document-sign.invitation".into(),
+            template_key: "luxesign.invitation".into(),
             template_payload: payload,
             dedupe_key: "invite-1".into(),
             status: EmailMessageStatus::Queued,
@@ -808,7 +810,7 @@ mod tests {
                 "signatureRequestId": "req-1"
             }),
         );
-        assert_eq!(mail.subject, "Signed: Listing Agreement — CulebraLuxe");
+        assert_eq!(mail.subject, "Signed: Listing Agreement — Luxesign");
         assert!(mail
             .text
             .contains("Listing Agreement has been signed by everyone"));
@@ -845,7 +847,7 @@ mod tests {
                 "reason": "Price & terms <script>x</script>"
             }),
         );
-        assert_eq!(mail.subject, "Declined: Listing Agreement — CulebraLuxe");
+        assert_eq!(mail.subject, "Declined: Listing Agreement — Luxesign");
         assert!(mail.text.contains("declined to sign Listing Agreement"));
         assert!(mail.text.contains("Price & terms"));
         let html = mail.html.unwrap();

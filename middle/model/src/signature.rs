@@ -198,14 +198,14 @@ pub struct ApplySignatureStatusRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignatureRequestResult {
-    pub signature_request: SignatureRequest,
+    pub luxesign_request: SignatureRequest,
     pub existing: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignatureStatusResult {
-    pub signature_request: SignatureRequest,
+    pub luxesign_request: SignatureRequest,
     pub transitioned: bool,
 }
 

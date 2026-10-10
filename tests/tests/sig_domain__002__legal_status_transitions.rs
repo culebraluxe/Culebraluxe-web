@@ -48,7 +48,7 @@ async fn create_signature_request(
     status: &str,
 ) -> String {
     sqlx::query_scalar(
-        "insert into signature_request (id, transaction_document_id, status, created_at, updated_at)
+        "insert into luxesign_request (id, transaction_document_id, status, created_at, updated_at)
          values (gen_random_uuid(), $1::uuid, $2, now(), now())
          returning id::text",
     )
@@ -65,7 +65,7 @@ async fn attempt_transition(
     new_status: &str,
 ) -> Result<(), String> {
     let result = sqlx::query(
-        "update signature_request set status = $2, updated_at = now() where id = $1::uuid",
+        "update luxesign_request set status = $2, updated_at = now() where id = $1::uuid",
     )
     .bind(req_id)
     .bind(new_status)
@@ -96,7 +96,7 @@ async fn sig_domain_002__legal_status_transitions() {
         "requested -> sent must succeed"
     );
     let status: String =
-        sqlx::query_scalar("select status from signature_request where id = $1::uuid")
+        sqlx::query_scalar("select status from luxesign_request where id = $1::uuid")
             .bind(&req1)
             .fetch_one(database.database().pool())
             .await

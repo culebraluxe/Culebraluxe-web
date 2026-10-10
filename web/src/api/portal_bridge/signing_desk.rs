@@ -6,7 +6,7 @@
 //! included. These routes take the browser's own session, like every other portal screen, and then run the same
 //! gateway, harness and vault read the internal routes run.
 //!
-//! They are narrower than the internal routes on purpose: the document-sign domain and `documentSign.*` commands
+//! They are narrower than the internal routes on purpose: the luxesign domain and `luxesign.*` commands
 //! only, so a signed-in browser is never handed the whole dispatcher.
 
 use crate::api::routes::{service_dispatch_error, success, ApiSuccess};
@@ -17,10 +17,10 @@ use model::VaultActorScope;
 use serde_json::Value;
 use services::{CommandRequest, CommandResult, ServiceEnvelope};
 
-const SIGNING_DOMAIN: &str = "document-sign";
-const SIGNING_COMMAND_PREFIX: &str = "documentSign.";
+const SIGNING_DOMAIN: &str = "luxesign";
+const SIGNING_COMMAND_PREFIX: &str = "luxesign.";
 
-/// `documentSign.list` and `documentSign.get`: the desk's reads, through the same gateway the internal route uses.
+/// `luxesign.list` and `luxesign.get`: the desk's reads, through the same gateway the internal route uses.
 pub(super) async fn signing_dispatch(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -30,7 +30,7 @@ pub(super) async fn signing_dispatch(
     if envelope.domain != SIGNING_DOMAIN {
         return Err(ApiError::forbidden(
             "SIGNING_DESK_SCOPE",
-            "The signing desk only reads the document-sign service.",
+            "The signing desk only reads the luxesign service.",
         )
         .with_correlation(resolved.service.correlation_id.clone()));
     }
@@ -53,7 +53,7 @@ pub(super) async fn signing_command(
     if !request.command_type.starts_with(SIGNING_COMMAND_PREFIX) {
         return Err(ApiError::forbidden(
             "SIGNING_DESK_SCOPE",
-            "The signing desk only sends documentSign commands.",
+            "The signing desk only sends luxesign commands.",
         )
         .with_correlation(resolved.service.correlation_id.clone()));
     }

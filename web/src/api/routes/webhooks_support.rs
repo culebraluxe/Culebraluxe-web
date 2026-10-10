@@ -184,7 +184,7 @@ pub(super) async fn signature_send(
     Ok(success(value, &resolved))
 }
 
-pub(super) async fn signature_request(
+pub(super) async fn luxesign_request(
     State(state): State<ApiState>,
     headers: HeaderMap,
     Path(id): Path<String>,

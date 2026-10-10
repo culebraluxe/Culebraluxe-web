@@ -57,7 +57,7 @@ fn test_context() -> ServiceContext {
             level: "system".into(),
             role_codes: vec!["root".into()],
             account_type: "internal".into(),
-            entitlement_codes: vec!["signature.write".into(), "documentSign.write".into()],
+            entitlement_codes: vec!["signature.write".into(), "luxesign.write".into()],
         }),
     }
 }
@@ -107,7 +107,7 @@ async fn create_completed_request(
         )
         .await
         .expect("prepare must succeed");
-    let req_id = result.signature_request.id.clone();
+    let req_id = result.luxesign_request.id.clone();
     // Transition through the full lifecycle to completed
     service
         .transition_transactional(&mut tx, &req_id, SignatureRequestStatus::Sent, &internal)
@@ -185,7 +185,7 @@ async fn sig_domain_003__terminal_state_cannot_reopen() {
 
     // 3. Verify the request is still completed.
     let status: String =
-        sqlx::query_scalar("select status from signature_request where id = $1::uuid")
+        sqlx::query_scalar("select status from luxesign_request where id = $1::uuid")
             .bind(&req_id)
             .fetch_one(database.database().pool())
             .await
@@ -199,7 +199,7 @@ async fn sig_domain_003__terminal_state_cannot_reopen() {
     for terminal in vec!["declined", "voided", "expired", "error"] {
         let tx_doc_id = create_transaction_document(&database, &ns).await;
         let req_id: String = sqlx::query_scalar(
-            "insert into signature_request (id, transaction_document_id, status, created_at, updated_at)
+            "insert into luxesign_request (id, transaction_document_id, status, created_at, updated_at)
              values (gen_random_uuid(), $1::uuid, $2, now(), now())
              returning id::text",
         )

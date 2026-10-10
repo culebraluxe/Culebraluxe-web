@@ -1240,8 +1240,8 @@ mod tests {
     #[test]
     fn the_page_names_the_document_by_the_senders_subject_first_and_joins_the_line_with_spaces() {
         let mut session = test_session(true);
-        session.document_title = Some("docsign proof".into());
-        assert_eq!(session.document_name(), Some("docsign proof"));
+        session.document_title = Some("luxesign proof".into());
+        assert_eq!(session.document_name(), Some("luxesign proof"));
         session.subject = Some("  Listing Agreement  ".into());
         assert_eq!(session.document_name(), Some("Listing Agreement"));
         assert_eq!(

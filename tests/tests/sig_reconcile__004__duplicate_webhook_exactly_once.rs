@@ -38,7 +38,7 @@ async fn sig_reconcile_004__duplicate_webhook_exactly_once() {
     .await
     .expect("document fixture");
     let request: String = sqlx::query_scalar(
-        "insert into signature_request (transaction_document_id, status) \
+        "insert into luxesign_request (transaction_document_id, status) \
          values ($1::uuid, 'sent') returning id::text",
     )
     .bind(&doc)
@@ -98,7 +98,7 @@ async fn sig_reconcile_004__duplicate_webhook_exactly_once() {
     assert_eq!(media_count, 1, "the webhook's artifact lands exactly once");
 
     // Clean up.
-    sqlx::query("delete from signature_request where transaction_document_id = $1::uuid")
+    sqlx::query("delete from luxesign_request where transaction_document_id = $1::uuid")
         .bind(&doc)
         .execute(db.pool())
         .await

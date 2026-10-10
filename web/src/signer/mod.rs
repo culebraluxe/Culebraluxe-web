@@ -6,8 +6,8 @@ use db::{DbResult, DbTransaction, FinalizeInputs, SignerAccessRecord, SignerDao}
 use hmac::{Hmac, Mac};
 use model::{
     AcceptSignerConsentRequest, CompleteSignatureFieldRequest, CompleteSignerRequest,
-    DeclineSignerRequest, DocumentSignRecipient, OpenSignerRequest, SignatureField,
-    SignerAccessGrant, SignerActionResult, SignerRecipientState, SignerSession, SignerState,
+    DeclineSignerRequest, LuxesignRecipient, OpenSignerRequest, SignatureField, SignerAccessGrant,
+    SignerActionResult, SignerRecipientState, SignerSession, SignerState,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -19,7 +19,7 @@ use services::{
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
-pub const DOCSIGN_EDGE_ACTOR: &str = "document-sign-edge";
+pub const LUXESIGN_EDGE_ACTOR: &str = "luxesign-edge";
 const DEFAULT_ACCESS_DAYS: i64 = 7;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,7 +50,7 @@ impl SignerAccessTokenCodec {
                     .to_owned()
             })?;
         let mut hasher = Sha256::new();
-        hasher.update(b"culebraluxe-docsign-access:v1:");
+        hasher.update(b"culebraluxe-luxesign-access:v1:");
         hasher.update(secret.as_bytes());
         let key = hasher.finalize().to_vec();
         let site_url = std::env::var("PUBLIC_SITE_URL")
@@ -67,7 +67,7 @@ impl SignerAccessTokenCodec {
 
     pub fn for_test(secret: &str, site_url: &str) -> Self {
         let mut hasher = Sha256::new();
-        hasher.update(b"culebraluxe-docsign-access:v1:");
+        hasher.update(b"culebraluxe-luxesign-access:v1:");
         hasher.update(secret.as_bytes());
         Self {
             key: Some(Arc::new(hasher.finalize().to_vec())),
@@ -156,7 +156,7 @@ impl SignerAccessTokenCodec {
 #[async_trait]
 pub trait SignerRepository: Send + Sync {
     async fn access(&self, access_id: &str) -> DbResult<Option<SignerAccessRecord>>;
-    async fn recipient(&self, recipient_id: &str) -> DbResult<Option<DocumentSignRecipient>>;
+    async fn recipient(&self, recipient_id: &str) -> DbResult<Option<LuxesignRecipient>>;
     async fn state(&self, recipient_id: &str) -> DbResult<Option<SignerRecipientState>>;
     async fn fields(&self, recipient_id: &str) -> DbResult<Vec<SignatureField>>;
     async fn consent_exists(&self, recipient_id: &str) -> DbResult<bool>;
@@ -246,7 +246,7 @@ impl SignerRepository for SignerDao {
     async fn access(&self, access_id: &str) -> DbResult<Option<SignerAccessRecord>> {
         SignerDao::access(self, access_id).await
     }
-    async fn recipient(&self, recipient_id: &str) -> DbResult<Option<DocumentSignRecipient>> {
+    async fn recipient(&self, recipient_id: &str) -> DbResult<Option<LuxesignRecipient>> {
         SignerDao::recipient(self, recipient_id).await
     }
     async fn state(&self, recipient_id: &str) -> DbResult<Option<SignerRecipientState>> {
@@ -420,7 +420,7 @@ pub(crate) fn validate_signature_value(value: &serde_json::Value) -> Result<(), 
         if text.len() > MAX_ENCODED_BYTES {
             return Err(invalid("it is too large"));
         }
-        let bytes = crate::document_sign::decode_data_url_png(text)
+        let bytes = crate::luxesign::decode_data_url_png(text)
             .ok_or_else(|| invalid("it must be a base64 PNG data URL"))?;
         crate::vault::signing_overlay::decode_signature_png(&bytes)
             .map_err(|detail| invalid(&detail))?;
@@ -1162,7 +1162,7 @@ fn validate_actor_binding(
     context: &ServiceContext,
     recipient_id: &str,
 ) -> Result<(), CoreServiceError> {
-    if context.actor.id.as_deref() == Some(DOCSIGN_EDGE_ACTOR) || context.principal.is_some() {
+    if context.actor.id.as_deref() == Some(LUXESIGN_EDGE_ACTOR) || context.principal.is_some() {
         return Ok(());
     }
     let expected = format!("signature-recipient:{recipient_id}");

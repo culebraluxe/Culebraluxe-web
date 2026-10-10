@@ -228,7 +228,7 @@ pub const SCREENS: &[Screen] = &[
     Screen { key: "property-admin", title: "Data Workbench", path: "/portal/property-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "media-admin", title: "Media Audit", path: "/portal/media-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "property-media", title: "Property Media", path: "/portal/property-media", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
-    Screen { key: "document-signing", title: "Luxesign", path: "/portal/document-signing", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
+    Screen { key: "luxesign", title: "Luxesign", path: "/portal/luxesign", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "identity-quality", title: "Identity Quality", path: "/portal/identity-quality", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "client-admin", title: "Client Administration", path: "/portal/client-admin", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },
     Screen { key: "reporting", title: "Reporting", path: "/portal/reporting", surface: Surface::Ops, nav: Nav::Listed, deferred: None, detail_of: None },

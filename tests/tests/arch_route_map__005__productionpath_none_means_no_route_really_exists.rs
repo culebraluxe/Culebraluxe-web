@@ -57,7 +57,7 @@ fn arch_route_map_005__productionpath_none_means_no_route_really_exists() {
     for none in [
         "legacy/agent-runtime/index.ts",
         "scripts/dev.sh",
-        "tests/tests/docsign_native_dev.rs",
+        "tests/tests/luxesign_native_dev.rs",
         "docs/agent/MEMORY.md",
         "experiments/bench.rs",
         "",

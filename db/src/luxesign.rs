@@ -1,7 +1,7 @@
 use crate::{Database, DbFailure, DbResult, DbTransaction};
 use chrono::{DateTime, Utc};
 use model::{
-    DocumentSignConfig, DocumentSignEnvelopeSummary, DocumentSignRecipient, DocumentSigningMode,
+    LuxesignConfig, LuxesignEnvelopeSummary, LuxesignRecipient, LuxesignSigningMode,
     PutSignatureFieldRequest, SignatureField, SignatureFieldType, SignatureRecipientRole,
 };
 use serde_json::Value;
@@ -65,11 +65,11 @@ struct FieldRow {
 }
 
 #[derive(Clone)]
-pub struct DocumentSignDao {
+pub struct LuxesignDao {
     db: Database,
 }
 
-impl DocumentSignDao {
+impl LuxesignDao {
     pub fn new(db: Database) -> Self {
         Self { db }
     }
@@ -78,13 +78,13 @@ impl DocumentSignDao {
         self.db.clone()
     }
 
-    pub async fn config(&self, signature_request_id: &str) -> DbResult<Option<DocumentSignConfig>> {
+    pub async fn config(&self, signature_request_id: &str) -> DbResult<Option<LuxesignConfig>> {
         let row = sqlx::query_as::<_, ConfigRow>(
             r#"
             select signature_request_id::text as signature_request_id,
                    subject, signing_mode, expires_at, issued_at,
                    created_at, updated_at
-              from document_sign_request
+              from luxesign_config
              where signature_request_id = $1::uuid
              limit 1
             "#,
@@ -92,14 +92,11 @@ impl DocumentSignDao {
         .bind(signature_request_id)
         .fetch_optional(&mut *self.db.connection().await?)
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.config", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.config", &error))?;
         row.map(map_config).transpose()
     }
 
-    pub async fn recipients(
-        &self,
-        signature_request_id: &str,
-    ) -> DbResult<Vec<DocumentSignRecipient>> {
+    pub async fn recipients(&self, signature_request_id: &str) -> DbResult<Vec<LuxesignRecipient>> {
         let rows = sqlx::query_as::<_, RecipientRow>(
             r#"
             select r.id::text as id,
@@ -107,8 +104,8 @@ impl DocumentSignDao {
                    r.recipient_role, r.recipient_name, r.recipient_email,
                    r.signer_order, r.signing_step, r.execution_role, r.execution_slot_id,
                    s.state as state
-              from signature_envelope_recipient r
-              left join signature_recipient_state s on s.recipient_id = r.id
+              from luxesign_envelope_recipient r
+              left join luxesign_recipient_state s on s.recipient_id = r.id
              where signature_request_id = $1::uuid
              order by signer_order, id
             "#,
@@ -116,7 +113,7 @@ impl DocumentSignDao {
         .bind(signature_request_id)
         .fetch_all(&mut *self.db.connection().await?)
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.recipients", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.recipients", &error))?;
         rows.into_iter().map(map_recipient).collect()
     }
 
@@ -124,7 +121,7 @@ impl DocumentSignDao {
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
-    ) -> DbResult<Vec<DocumentSignRecipient>> {
+    ) -> DbResult<Vec<LuxesignRecipient>> {
         let rows = sqlx::query_as::<_, RecipientRow>(
             r#"
             select r.id::text as id,
@@ -132,8 +129,8 @@ impl DocumentSignDao {
                    r.recipient_role, r.recipient_name, r.recipient_email,
                    r.signer_order, r.signing_step, r.execution_role, r.execution_slot_id,
                    s.state as state
-              from signature_envelope_recipient r
-              left join signature_recipient_state s on s.recipient_id = r.id
+              from luxesign_envelope_recipient r
+              left join luxesign_recipient_state s on s.recipient_id = r.id
              where signature_request_id = $1::uuid
              order by signer_order, id
             "#,
@@ -141,7 +138,7 @@ impl DocumentSignDao {
         .bind(signature_request_id)
         .fetch_all(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.recipients_tx", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.recipients_tx", &error))?;
         rows.into_iter().map(map_recipient).collect()
     }
 
@@ -157,7 +154,7 @@ impl DocumentSignDao {
                    width::float8 as width,
                    height::float8 as height,
                    required, label, configuration, created_at
-              from signature_field
+              from luxesign_field
              where signature_request_id = $1::uuid
              order by page_number, position_y, position_x, id
             "#,
@@ -165,7 +162,7 @@ impl DocumentSignDao {
         .bind(signature_request_id)
         .fetch_all(&mut *self.db.connection().await?)
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.fields", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.fields", &error))?;
         rows.into_iter().map(map_field).collect()
     }
 
@@ -185,7 +182,7 @@ impl DocumentSignDao {
                    width::float8 as width,
                    height::float8 as height,
                    required, label, configuration, created_at
-              from signature_field
+              from luxesign_field
              where signature_request_id = $1::uuid
              order by page_number, position_y, position_x, id
             "#,
@@ -193,7 +190,7 @@ impl DocumentSignDao {
         .bind(signature_request_id)
         .fetch_all(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.fields_tx", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.fields_tx", &error))?;
         rows.into_iter().map(map_field).collect()
     }
 
@@ -202,12 +199,12 @@ impl DocumentSignDao {
         tx: &mut DbTransaction,
         signature_request_id: &str,
         subject: Option<&str>,
-        signing_mode: DocumentSigningMode,
+        signing_mode: LuxesignSigningMode,
         expires_at: Option<DateTime<Utc>>,
-    ) -> DbResult<DocumentSignConfig> {
+    ) -> DbResult<LuxesignConfig> {
         let row = sqlx::query_as::<_, ConfigRow>(
             r#"
-            insert into document_sign_request (
+            insert into luxesign_config (
                 signature_request_id, subject, signing_mode, expires_at
             )
             values ($1::uuid, $2, $3, $4)
@@ -223,7 +220,7 @@ impl DocumentSignDao {
         .bind(expires_at)
         .fetch_optional(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.create", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.create", &error))?;
 
         if let Some(row) = row {
             return map_config(row);
@@ -234,7 +231,7 @@ impl DocumentSignDao {
             select signature_request_id::text as signature_request_id,
                    subject, signing_mode, expires_at, issued_at,
                    created_at, updated_at
-              from document_sign_request
+              from luxesign_config
              where signature_request_id = $1::uuid
              limit 1
             "#,
@@ -242,7 +239,7 @@ impl DocumentSignDao {
         .bind(signature_request_id)
         .fetch_one(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.create.existing", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.create.existing", &error))?;
         map_config(row)
     }
 
@@ -256,7 +253,7 @@ impl DocumentSignDao {
     ) -> DbResult<()> {
         sqlx::query(
             r#"
-            update document_sign_request
+            update luxesign_config
                set copy_to_emails = $2,
                    reminder_every_days = $3
              where signature_request_id = $1::uuid
@@ -267,7 +264,7 @@ impl DocumentSignDao {
         .bind(reminder_every_days)
         .execute(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.notice.set", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.notice.set", &error))?;
         Ok(())
     }
 
@@ -279,14 +276,14 @@ impl DocumentSignDao {
         sqlx::query_as::<_, (Vec<String>, i32)>(
             r#"
             select copy_to_emails, reminder_every_days
-              from document_sign_request
+              from luxesign_config
              where signature_request_id = $1::uuid
             "#,
         )
         .bind(signature_request_id)
         .fetch_one(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.notice.read", &error))
+        .map_err(|error| DbFailure::from_sqlx("luxesign.notice.read", &error))
     }
 
     /// The email of the app user who prepared the envelope, when there is one and they are active.
@@ -298,7 +295,7 @@ impl DocumentSignDao {
         let row: Option<(Option<String>,)> = sqlx::query_as(
             r#"
             select u.email
-              from signature_request sr
+              from luxesign_request sr
               join app_user u on u.id = sr.created_by_user_id and u.active
              where sr.id = $1::uuid
             "#,
@@ -306,7 +303,7 @@ impl DocumentSignDao {
         .bind(signature_request_id)
         .fetch_optional(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.operator_email", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.operator_email", &error))?;
         Ok(row
             .and_then(|(email,)| email)
             .map(|email| email.trim().to_owned())
@@ -322,7 +319,7 @@ impl DocumentSignDao {
         let row: Option<(Option<String>,)> = sqlx::query_as(
             r#"
             select td.title
-              from signature_request sr
+              from luxesign_request sr
               join transaction_document td on td.id = sr.transaction_document_id
              where sr.id = $1::uuid
             "#,
@@ -330,7 +327,7 @@ impl DocumentSignDao {
         .bind(signature_request_id)
         .fetch_optional(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.document_title", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.document_title", &error))?;
         // The Vault keeps every issue as a version and titles it "Name vN"; the people signing see the name.
         Ok(row
             .and_then(|(title,)| title)
@@ -349,16 +346,16 @@ impl DocumentSignDao {
         sqlx::query_as::<_, (String, String)>(
             r#"
             select r.signature_request_id::text, r.id::text
-              from signature_envelope_recipient r
-              join signature_request sr
+              from luxesign_envelope_recipient r
+              join luxesign_request sr
                 on sr.id = r.signature_request_id
                and sr.status in ('requested', 'sent', 'viewed')
-              join document_sign_request d
+              join luxesign_config d
                 on d.signature_request_id = sr.id
                and d.issued_at is not null
                and d.reminder_every_days > 0
                and (d.expires_at is null or d.expires_at > now())
-              join signature_recipient_state s
+              join luxesign_recipient_state s
                 on s.recipient_id = r.id
                and s.state in ('pending', 'notified', 'viewed', 'in_progress')
               left join lateral (
@@ -369,8 +366,8 @@ impl DocumentSignDao {
               ) rem on true
              where r.signing_step = (
                        select min(r2.signing_step)
-                         from signature_envelope_recipient r2
-                         join signature_recipient_state s2 on s2.recipient_id = r2.id
+                         from luxesign_envelope_recipient r2
+                         join luxesign_recipient_state s2 on s2.recipient_id = r2.id
                         where r2.signature_request_id = r.signature_request_id
                           and s2.state <> 'completed')
                and rem.sent < $1
@@ -383,7 +380,7 @@ impl DocumentSignDao {
         .bind(max_reminders)
         .fetch_all(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.reminders_due", &error))
+        .map_err(|error| DbFailure::from_sqlx("luxesign.reminders_due", &error))
     }
 
     pub async fn put_field_tx(
@@ -394,7 +391,7 @@ impl DocumentSignDao {
         let row = if let Some(field_id) = request.field_id.as_deref() {
             sqlx::query_as::<_, FieldRow>(
                 r#"
-                update signature_field
+                update luxesign_field
                    set recipient_id = $3::uuid,
                        field_key = $4,
                        field_type = $5,
@@ -434,11 +431,11 @@ impl DocumentSignDao {
             .bind(&request.configuration)
             .fetch_optional(tx.connection())
             .await
-            .map_err(|error| DbFailure::from_sqlx("document_sign.field.update", &error))?
+            .map_err(|error| DbFailure::from_sqlx("luxesign.field.update", &error))?
         } else {
             sqlx::query_as::<_, FieldRow>(
                 r#"
-                insert into signature_field (
+                insert into luxesign_field (
                     signature_request_id, recipient_id, field_key, field_type,
                     page_number, position_x, position_y, width, height,
                     required, label, configuration
@@ -472,7 +469,7 @@ impl DocumentSignDao {
             .bind(&request.configuration)
             .fetch_optional(tx.connection())
             .await
-            .map_err(|error| DbFailure::from_sqlx("document_sign.field.insert", &error))?
+            .map_err(|error| DbFailure::from_sqlx("luxesign.field.insert", &error))?
         };
 
         row.map(map_field).transpose()
@@ -486,7 +483,7 @@ impl DocumentSignDao {
     ) -> DbResult<bool> {
         let result = sqlx::query(
             r#"
-            delete from signature_field
+            delete from luxesign_field
              where id = $2::uuid
                and signature_request_id = $1::uuid
             "#,
@@ -495,7 +492,7 @@ impl DocumentSignDao {
         .bind(field_id)
         .execute(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.field.delete", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.field.delete", &error))?;
         Ok(result.rows_affected() == 1)
     }
 
@@ -503,13 +500,13 @@ impl DocumentSignDao {
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
-    ) -> DbResult<Option<DocumentSignConfig>> {
+    ) -> DbResult<Option<LuxesignConfig>> {
         let row = sqlx::query_as::<_, ConfigRow>(
             r#"
             select signature_request_id::text as signature_request_id,
                    subject, signing_mode, expires_at, issued_at,
                    created_at, updated_at
-              from document_sign_request
+              from luxesign_config
              where signature_request_id = $1::uuid
              for update
             "#,
@@ -517,7 +514,7 @@ impl DocumentSignDao {
         .bind(signature_request_id)
         .fetch_optional(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.lock", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.lock", &error))?;
         row.map(map_config).transpose()
     }
 
@@ -529,7 +526,7 @@ impl DocumentSignDao {
     ) -> DbResult<bool> {
         let result = sqlx::query(
             r#"
-            update document_sign_request
+            update luxesign_config
                set expires_at = $2,
                    issued_at = now()
              where signature_request_id = $1::uuid
@@ -540,7 +537,7 @@ impl DocumentSignDao {
         .bind(expires_at)
         .execute(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.issue", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.issue", &error))?;
         Ok(result.rows_affected() == 1)
     }
 
@@ -552,12 +549,12 @@ impl DocumentSignDao {
         sqlx::query_scalar::<_, String>(
             r#"
             select r.id::text
-              from signature_envelope_recipient r
+              from luxesign_envelope_recipient r
              where r.signature_request_id = $1::uuid
                and r.recipient_role = 'signer'
                and not exists (
                     select 1
-                      from signature_field f
+                      from luxesign_field f
                      where f.signature_request_id = r.signature_request_id
                        and f.recipient_id = r.id
                        and f.required
@@ -568,7 +565,7 @@ impl DocumentSignDao {
         .bind(signature_request_id)
         .fetch_all(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.required_fields", &error))
+        .map_err(|error| DbFailure::from_sqlx("luxesign.required_fields", &error))
     }
 
     /// Store a derived audit document and link it to the transaction
@@ -595,7 +592,7 @@ impl DocumentSignDao {
         .bind(bytes.len() as i64)
         .fetch_one(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.audit_media", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.audit_media", &error))?;
         sqlx::query(
             r#"
             update transaction_document
@@ -608,7 +605,7 @@ impl DocumentSignDao {
         .bind(&media_id)
         .execute(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.audit_link", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.audit_link", &error))?;
         Ok(media_id)
     }
 
@@ -637,7 +634,7 @@ impl DocumentSignDao {
         .bind(bytes.len() as i64)
         .fetch_one(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.signed_media", &error))
+        .map_err(|error| DbFailure::from_sqlx("luxesign.signed_media", &error))
     }
 
     /// Link the sealed signed PDF. The renderer step owns the bytes;
@@ -661,7 +658,7 @@ impl DocumentSignDao {
         .bind(media_id)
         .execute(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.signed_link", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.signed_link", &error))?;
         Ok(())
     }
 
@@ -676,7 +673,7 @@ impl DocumentSignDao {
             r#"
             select td.signed_audit_media_id::text
               from transaction_document td
-              join signature_request sr on sr.transaction_document_id = td.id
+              join luxesign_request sr on sr.transaction_document_id = td.id
              where sr.id = $1::uuid
              limit 1
             "#,
@@ -684,7 +681,7 @@ impl DocumentSignDao {
         .bind(signature_request_id)
         .fetch_one(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.audit_media_read", &error))
+        .map_err(|error| DbFailure::from_sqlx("luxesign.audit_media_read", &error))
     }
 
     /// Envelopes past their clock with an open canonical status. The
@@ -693,8 +690,8 @@ impl DocumentSignDao {
         sqlx::query_scalar::<_, String>(
             r#"
             select ds.signature_request_id::text
-              from document_sign_request ds
-              join signature_request sr on sr.id = ds.signature_request_id
+              from luxesign_config ds
+              join luxesign_request sr on sr.id = ds.signature_request_id
              where ds.expires_at is not null
                and ds.expires_at <= now()
                and sr.status in ('sent', 'viewed', 'signed')
@@ -703,7 +700,7 @@ impl DocumentSignDao {
         )
         .fetch_all(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.overdue", &error))
+        .map_err(|error| DbFailure::from_sqlx("luxesign.overdue", &error))
     }
 
     /// The template anchor blocks recorded on the issued document's
@@ -726,7 +723,7 @@ impl DocumentSignDao {
                                 d.source_snapshot -> 'signatureAnchors') as anchors,
                        coalesce(d.source_snapshot -> 'render' -> 'appliedSignatures', '[]'::jsonb) as applied
                   from transaction_document d
-                  join signature_request sr on sr.transaction_document_id = d.id
+                  join luxesign_request sr on sr.transaction_document_id = d.id
                  where sr.id = $1::uuid
                  limit 1
             )
@@ -747,7 +744,7 @@ impl DocumentSignDao {
         .bind(signature_request_id)
         .fetch_optional(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.template_anchors", &error))
+        .map_err(|error| DbFailure::from_sqlx("luxesign.template_anchors", &error))
         .map(|row| row.flatten())
     }
 
@@ -760,7 +757,7 @@ impl DocumentSignDao {
             r#"
             select td.signed_media_id::text
               from transaction_document td
-              join signature_request sr on sr.transaction_document_id = td.id
+              join luxesign_request sr on sr.transaction_document_id = td.id
              where sr.id = $1::uuid
              limit 1
             "#,
@@ -768,7 +765,7 @@ impl DocumentSignDao {
         .bind(signature_request_id)
         .fetch_optional(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.signed_media_read", &error))
+        .map_err(|error| DbFailure::from_sqlx("luxesign.signed_media_read", &error))
     }
 
     pub async fn canonical_status_tx(
@@ -778,17 +775,17 @@ impl DocumentSignDao {
     ) -> DbResult<Option<(String, String)>> {
         sqlx::query_as::<_, (String, String)>(
             "select status, transaction_document_id::text \
-             from signature_request where id = $1::uuid limit 1",
+             from luxesign_request where id = $1::uuid limit 1",
         )
         .bind(signature_request_id)
         .fetch_optional(tx.connection())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.canonical_status", &error))
+        .map_err(|error| DbFailure::from_sqlx("luxesign.canonical_status", &error))
     }
 
     /// Recent native envelopes with recipient progress, newest first. The
     /// ops desk list; detail still comes from `config` + `recipients`.
-    pub async fn list_envelopes(&self, limit: i64) -> DbResult<Vec<DocumentSignEnvelopeSummary>> {
+    pub async fn list_envelopes(&self, limit: i64) -> DbResult<Vec<LuxesignEnvelopeSummary>> {
         let rows = sqlx::query_as::<_, EnvelopeSummaryRow>(
             r#"
             select ds.signature_request_id::text as signature_request_id,
@@ -798,15 +795,15 @@ impl DocumentSignDao {
                    sr.status as status,
                    ds.issued_at as issued_at,
                    ds.expires_at as expires_at,
-                   (select r2.recipient_name from signature_envelope_recipient r2
+                   (select r2.recipient_name from luxesign_envelope_recipient r2
                      where r2.signature_request_id = ds.signature_request_id
                      order by r2.signer_order, r2.id limit 1) as client_name,
                    count(r.id)::bigint as recipient_total,
                    count(case when s.state = 'completed' then 1 end)::bigint as completed_total
-              from document_sign_request ds
-              join signature_request sr on sr.id = ds.signature_request_id
-              left join signature_envelope_recipient r on r.signature_request_id = ds.signature_request_id
-              left join signature_recipient_state s on s.recipient_id = r.id
+              from luxesign_config ds
+              join luxesign_request sr on sr.id = ds.signature_request_id
+              left join luxesign_envelope_recipient r on r.signature_request_id = ds.signature_request_id
+              left join luxesign_recipient_state s on s.recipient_id = r.id
              group by ds.signature_request_id, sr.transaction_document_id, ds.subject,
                       ds.signing_mode, sr.status, ds.issued_at, ds.expires_at, sr.updated_at
              order by sr.updated_at desc
@@ -816,10 +813,10 @@ impl DocumentSignDao {
         .bind(limit.clamp(1, 100))
         .fetch_all(self.db.pool())
         .await
-        .map_err(|error| DbFailure::from_sqlx("document_sign.list", &error))?;
+        .map_err(|error| DbFailure::from_sqlx("luxesign.list", &error))?;
         rows.into_iter()
             .map(|row| {
-                Ok(DocumentSignEnvelopeSummary {
+                Ok(LuxesignEnvelopeSummary {
                     signature_request_id: row.signature_request_id,
                     transaction_document_id: row.transaction_document_id,
                     subject: row.subject,
@@ -836,12 +833,12 @@ impl DocumentSignDao {
     }
 }
 
-fn map_config(row: ConfigRow) -> DbResult<DocumentSignConfig> {
-    Ok(DocumentSignConfig {
+fn map_config(row: ConfigRow) -> DbResult<LuxesignConfig> {
+    Ok(LuxesignConfig {
         signature_request_id: row.signature_request_id,
         subject: row.subject,
-        signing_mode: DocumentSigningMode::try_from(row.signing_mode.as_str())
-            .map_err(|error| DbFailure::schema_mismatch("document_sign.map_config", error))?,
+        signing_mode: LuxesignSigningMode::try_from(row.signing_mode.as_str())
+            .map_err(|error| DbFailure::schema_mismatch("luxesign.map_config", error))?,
         expires_at: row.expires_at.map(|value| value.to_rfc3339()),
         issued_at: row.issued_at.map(|value| value.to_rfc3339()),
         created_at: row.created_at.to_rfc3339(),
@@ -849,18 +846,18 @@ fn map_config(row: ConfigRow) -> DbResult<DocumentSignConfig> {
     })
 }
 
-fn map_recipient(row: RecipientRow) -> DbResult<DocumentSignRecipient> {
+fn map_recipient(row: RecipientRow) -> DbResult<LuxesignRecipient> {
     let role = match row.recipient_role.as_str() {
         "signer" => SignatureRecipientRole::Signer,
         "approver" => SignatureRecipientRole::Approver,
         other => {
             return Err(DbFailure::schema_mismatch(
-                "document_sign.map_recipient",
+                "luxesign.map_recipient",
                 format!("unknown recipient role: {other}"),
             ))
         }
     };
-    Ok(DocumentSignRecipient {
+    Ok(LuxesignRecipient {
         id: row.id,
         signature_request_id: row.signature_request_id,
         role,
@@ -881,7 +878,7 @@ fn map_field(row: FieldRow) -> DbResult<SignatureField> {
         recipient_id: row.recipient_id,
         field_key: row.field_key,
         field_type: SignatureFieldType::try_from(row.field_type.as_str())
-            .map_err(|error| DbFailure::schema_mismatch("document_sign.map_field", error))?,
+            .map_err(|error| DbFailure::schema_mismatch("luxesign.map_field", error))?,
         page_number: row.page_number,
         position_x: row.position_x,
         position_y: row.position_y,

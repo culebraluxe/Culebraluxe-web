@@ -1,6 +1,6 @@
 //! ARCH.ONE_WRITER — signature request state (TST-ARCH-ONE-WRITER-008).
 //!
-//! Contract: the canonical `signature_request.status` moves by compare-and-swap
+//! Contract: the canonical `luxesign_request.status` moves by compare-and-swap
 //! only. Every production `UPDATE` of that column carries an expected-status
 //! guard (`and status = $N`), so two lanes racing the same envelope cannot both
 //! advance it: the loser matches zero rows instead of overwriting the winner.
@@ -19,7 +19,7 @@ use test_harness::source;
 /// so `updated` and `updated_at` do not count).
 fn updates_status(line: &str) -> bool {
     let code = source::code_of(line).to_lowercase();
-    source::contains_word(&code, "update") && code.contains("signature_request")
+    source::contains_word(&code, "update") && code.contains("luxesign_request")
 }
 
 /// True when a file guards its status update with an expected-status predicate.
@@ -62,7 +62,7 @@ fn arch_one_writer_008__signature_request_state() {
         let text = source::read(&root.join(relative));
         assert!(
             has_status_guard(&text),
-            "{relative} updates signature_request without an expected-status guard"
+            "{relative} updates luxesign_request without an expected-status guard"
         );
     }
 
@@ -80,13 +80,13 @@ fn arch_one_writer_008__signature_request_state() {
 
     // Negative controls: the detector fires on an update and stays quiet on reads and prose.
     assert!(updates_status(
-        "update signature_request set status = $3 where id = $1::uuid"
+        "update luxesign_request set status = $3 where id = $1::uuid"
     ));
     assert!(!updates_status(
-        "select status from signature_request where id = $1::uuid"
+        "select status from luxesign_request where id = $1::uuid"
     ));
     assert!(!updates_status(
-        "// the service updates signature_request for us"
+        "// the service updates luxesign_request for us"
     ));
-    assert!(!updates_status("signature_request: updated,"));
+    assert!(!updates_status("luxesign_request: updated,"));
 }

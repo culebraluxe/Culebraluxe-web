@@ -111,7 +111,7 @@ async fn sig_domain_004__unique_signer_mailbox() {
         )
         .await
         .expect("prepare must succeed");
-    let req_id = result.signature_request.id.clone();
+    let req_id = result.luxesign_request.id.clone();
     tx.commit().await.expect("commit");
 
     // 3. Attempt to add a second signer with the same email - must be rejected.
@@ -167,7 +167,7 @@ async fn sig_domain_004__unique_signer_mailbox() {
 
     // 4. Verify the original request still has only one signer.
     let count: i64 = sqlx::query_scalar(
-        "select count(*) from signature_envelope_recipient where signature_request_id = $1::uuid",
+        "select count(*) from luxesign_envelope_recipient where signature_request_id = $1::uuid",
     )
     .bind(&req_id)
     .fetch_one(database.database().pool())
