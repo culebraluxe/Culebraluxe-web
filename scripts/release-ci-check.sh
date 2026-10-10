@@ -49,6 +49,7 @@ case "$RELEASE_CI_CHECK" in
     ;;
 esac
 RELEASE_CI_WORKFLOW="${RELEASE_CI_WORKFLOW:-gates.yml}"
+RELEASE_CI_CMD="${RELEASE_CI_CMD:-}"
 
 sha="${1:-}"
 if [ -z "$sha" ]; then
