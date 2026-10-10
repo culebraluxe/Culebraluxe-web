@@ -1506,7 +1506,7 @@ async fn dispatch_without_its_trigger_is_a_schema_mismatch_and_moves_nothing() {
     assert_ne!(enabled, "D", "the trigger is enabled again on DEV");
 }
 
-/// One stale engine claim recovered (migration 266), proven inside a transaction that is always rolled back: the
+/// One stale engine claim recovered (migration 279), proven inside a transaction that is always rolled back: the
 /// DAO's sweep would also recover genuine DEV claims, so the routine is driven directly on fixture rows that never
 /// commit. A stale claim is interrupted and its item released; a fresh one, and a second pass, write nothing.
 #[tokio::test]
@@ -1539,10 +1539,16 @@ async fn a_stale_engine_claim_is_recovered_once_and_a_fresh_one_never() {
         .await
         .unwrap();
         let item: String = sqlx::query_scalar(
-            "insert into agent_work_item (story_id, state, priority, claimed_by, claimed_at)
-             values ($1, 'Running', 0, 'stale-worker', now()) returning id::text",
+            "insert into agent_work_item
+                 (story_id, state, priority, claimed_by, claimed_at, updated_at, heartbeat_at, lease_expires_at)
+             values ($1, 'Running', 0, 'stale-worker', now() - make_interval(mins => $2),
+                     now() - make_interval(mins => $2), now() - make_interval(mins => $2),
+                     case when $2 > 0 then now() - make_interval(mins => $2)
+                          else now() + interval '15 minutes' end)
+             returning id::text",
         )
         .bind(story)
+        .bind(age_minutes)
         .fetch_one(&mut *tx)
         .await
         .unwrap();
@@ -1588,15 +1594,22 @@ async fn a_stale_engine_claim_is_recovered_once_and_a_fresh_one_never() {
         (task, instance, item)
     }
     async fn recover(tx: &mut sqlx::PgConnection, ids: &(String, String, String)) -> bool {
-        sqlx::query_scalar(
-            "select forge_recover_stale_engine_claim($1::uuid, $2::uuid, $3::uuid, 10)",
+        let result: String = sqlx::query_scalar(
+            "select forge_recover_stale_work(
+                 i.id, i.story_id, i.claimed_by, i.claim_generation, i.state,
+                 i.updated_at, i.heartbeat_at, i.lease_expires_at, 10,
+                 'stale claim recovered', 'ENGINE_RUNTIME_INTERRUPTED',
+                 e.task_id, e.status, e.heartbeat_at)
+               from agent_work_item i
+               join forge_engine_task_execution e on e.work_item_id=i.id
+              where i.id=$1::uuid and e.task_id=$2::uuid",
         )
-        .bind(&ids.0)
-        .bind(&ids.1)
         .bind(&ids.2)
+        .bind(&ids.0)
         .fetch_one(&mut *tx)
         .await
-        .unwrap()
+        .unwrap();
+        result == "recovered"
     }
     async fn shape(
         tx: &mut sqlx::PgConnection,
@@ -1633,7 +1646,7 @@ async fn a_stale_engine_claim_is_recovered_once_and_a_fresh_one_never() {
             Some("stale claim recovered".into()),
             "Ready".into(),
             None,
-            Some("stale claim recovered; awaiting fresh attempt".into())
+            None
         )
     );
     assert!(
