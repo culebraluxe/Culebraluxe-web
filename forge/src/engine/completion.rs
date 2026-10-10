@@ -15,6 +15,7 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
+use sha2::{Digest, Sha256};
 use workflow::{Result, WorkflowError};
 
 use crate::engine::facts::ForgeGateEvidence;
@@ -43,16 +44,27 @@ impl CompletionRecord {
     }
 
     /// The identity of the unit's receipt key: the one story this unit's effects belong to.
-    ///
-    /// The key itself is the task (`completion_receipt_id`), and a task id is the engine's, not the
-    /// caller's. This pins WHICH story the unit behind that key is, so a receipt left by another story — a
-    /// reused or leaked task id — is refused as a conflict instead of being answered "already applied",
-    /// which would drop this unit's evidence and budget on the floor without a trace.
+    /// The versioned digest covers every persisted effect and immutable event identity. `task_id` remains
+    /// the receipt key, while incidental transport/logging metadata is intentionally excluded.
     pub fn fingerprint(&self) -> String {
-        match self.assay_receipt_key() {
-            Some(key) => format!("story:{};assay-receipt:{key}", self.story_id),
-            None => format!("story:{}", self.story_id),
-        }
+        let unit = CompletionFingerprint {
+            version: 2,
+            task_id: &self.task_id,
+            process_instance_id: &self.process_instance_id,
+            story_id: &self.story_id,
+            node_id: &self.node_id,
+            spend: self.spend().map(|spend| match spend {
+                CompletionSpend::Repair => "repair",
+                CompletionSpend::Replan => "replan",
+            }),
+            evidence: evidence_fingerprint_value(&self.evidence),
+        };
+        // All fields are typed in-memory values and serde_json's serializer is infallible for this
+        // structure; object maps are canonicalized before hashing to make key order irrelevant.
+        let mut value = serde_json::to_value(unit).expect("completion fingerprint serialization");
+        canonicalize_json(&mut value);
+        let bytes = serde_json::to_vec(&value).expect("canonical completion serialization");
+        format!("completion:v2:{:x}", Sha256::digest(bytes))
     }
 
     /// The durable assay receipt linked to this task, when the completed evidence carries one.
@@ -87,13 +99,140 @@ impl CompletionRecord {
             candidate_sha: get_optional("candidateSha")?,
         }))
     }
+}
 
-    fn assay_receipt_key(&self) -> Option<&str> {
-        self.evidence
-            .extra
-            .get("assayReceipt")?
-            .get("idempotencyKey")?
-            .as_str()
+#[derive(serde::Serialize)]
+struct CompletionFingerprint<'a> {
+    version: u8,
+    task_id: &'a str,
+    process_instance_id: &'a str,
+    story_id: &'a str,
+    node_id: &'a Option<String>,
+    spend: Option<&'static str>,
+    evidence: serde_json::Value,
+}
+
+fn workflow_value_json(value: &workflow::Value) -> serde_json::Value {
+    match value {
+        workflow::Value::Null => serde_json::Value::Null,
+        workflow::Value::Bool(value) => serde_json::Value::Bool(*value),
+        workflow::Value::Number(value) => serde_json::Number::from_f64(*value)
+            .map(serde_json::Value::Number)
+            .unwrap_or_else(|| serde_json::Value::String(format!("non-finite:{value:?}"))),
+        workflow::Value::String(value) => serde_json::Value::String(value.clone()),
+        workflow::Value::Array(values) => {
+            serde_json::Value::Array(values.iter().map(workflow_value_json).collect())
+        }
+        workflow::Value::Object(values) => {
+            let mut object = serde_json::Map::new();
+            for (key, value) in values {
+                object.insert(key.clone(), workflow_value_json(value));
+            }
+            serde_json::Value::Object(object)
+        }
+    }
+}
+
+fn evidence_fingerprint_value(evidence: &ForgeGateEvidence) -> serde_json::Value {
+    use serde_json::{Map, Value};
+    let mut object = Map::new();
+    macro_rules! add {
+        ($field:ident) => {
+            object.insert(
+                stringify!($field).to_string(),
+                serde_json::to_value(&evidence.$field).expect("typed evidence serialization"),
+            );
+        };
+    }
+    macro_rules! add_workflow_value {
+        ($field:ident) => {
+            object.insert(
+                stringify!($field).to_string(),
+                evidence
+                    .$field
+                    .as_ref()
+                    .map(workflow_value_json)
+                    .unwrap_or(Value::Null),
+            );
+        };
+    }
+    add!(work_type);
+    add!(research_disposition);
+    add!(scout_required);
+    add!(root_cause_known);
+    add!(diagnosis_blocked);
+    add!(architecture_suspect);
+    add!(architecture_review_required);
+    add!(lead_decision);
+    add!(split_count);
+    add_workflow_value!(lead_routing);
+    add!(deployment_deferred_to_batch);
+    add_workflow_value!(findings);
+    add!(deliverable_rejection);
+    add!(qa_review_required);
+    add!(qa_review_passed);
+    add!(qa_passed);
+    add!(disposition);
+    add!(verification_gap);
+    add!(no_progress);
+    add!(repair_attempts);
+    add!(replan_attempts);
+    add!(last_failure);
+    add!(failure_class);
+    add!(failed_release_stage);
+    add!(classifier_failure_class);
+    add!(stage_failure_class);
+    add!(publish_succeeded);
+    add!(migration_required);
+    add!(migration_files);
+    add!(dev_migration_applied);
+    add!(dev_migration_verified);
+    add!(prod_migration_applied);
+    add!(prod_migration_verified);
+    add!(derived_refresh_required);
+    add!(derived_models);
+    add!(derived_refresh_succeeded);
+    add!(derived_refresh_verified);
+    add!(deployment_required);
+    add!(deployment_succeeded);
+    add!(deployment_deferred);
+    add!(release_deferred);
+    add!(deployment_receipt);
+    add!(production_verified);
+    add!(production_verification_receipt);
+    add!(candidate_sha);
+    add!(qa_verified_sha);
+    add!(published_sha);
+    add!(deployed_sha);
+    add!(production_verified_sha);
+    add!(batch_released_sha);
+    add!(batch_released_at);
+    add!(batch_release_receipt);
+    add!(resume_target);
+    add!(role_output_schema_version);
+    add!(role_output_diagnostic);
+    object.insert("extra".into(), workflow_value_json(&evidence.extra));
+    Value::Object(object)
+}
+
+fn canonicalize_json(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Array(items) => items.iter_mut().for_each(canonicalize_json),
+        serde_json::Value::Object(object) => {
+            let mut entries = object
+                .iter_mut()
+                .map(|(key, value)| {
+                    canonicalize_json(value);
+                    (key.clone(), value.clone())
+                })
+                .collect::<Vec<_>>();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            object.clear();
+            for (key, value) in entries {
+                object.insert(key, value);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -386,10 +525,7 @@ mod assay_receipt_link_tests {
     #[test]
     fn assay_receipt_identity_is_part_of_completion_fingerprint_and_link() {
         let record = record_with_assay_receipt();
-        assert_eq!(
-            record.fingerprint(),
-            "story:STORY-1;assay-receipt:assay-key"
-        );
+        assert!(record.fingerprint().starts_with("completion:v2:"));
         assert_eq!(
             record.assay_receipt_link().unwrap(),
             Some(AssayReceiptLink {
@@ -416,6 +552,66 @@ mod assay_receipt_link_tests {
             }),
         );
         assert_ne!(record.fingerprint(), different.fingerprint());
+    }
+
+    #[test]
+    fn fingerprint_covers_every_effect_and_provenance_field() {
+        let record = record_with_assay_receipt();
+        let baseline = record.fingerprint();
+        let mut variants = Vec::new();
+        let mut changed = record.clone();
+        changed.process_instance_id.push_str("-other");
+        variants.push(changed);
+        let mut changed = record.clone();
+        changed.node_id = Some("repair_smith".into());
+        variants.push(changed);
+        let mut changed = record.clone();
+        changed.story_id.push_str("-other");
+        variants.push(changed);
+        let mut changed = record.clone();
+        changed.evidence.last_failure = Some("different accepted failure".into());
+        variants.push(changed);
+        let mut changed = record.clone();
+        changed.evidence.qa_passed = Some(false);
+        variants.push(changed);
+        let mut changed = record.clone();
+        changed.evidence.extra.insert(
+            "assayReceipt",
+            workflow::json!({
+                "artifactId": "artifact-1",
+                "storyRunId": "run-1",
+                "idempotencyKey": "assay-key",
+                "measurementNode": "qa_verify",
+                "gateVerdict": "Fail",
+                "planSha256": "plan-hash",
+                "candidateSha": "candidate-sha",
+            }),
+        );
+        variants.push(changed);
+        for variant in variants {
+            assert_ne!(baseline, variant.fingerprint());
+        }
+    }
+
+    #[test]
+    fn fingerprint_is_stable_for_equivalent_json_object_key_order() {
+        let mut first = record_with_assay_receipt();
+        let mut second = first.clone();
+        let mut left = std::collections::BTreeMap::new();
+        left.insert("alpha".to_string(), workflow::Value::from("one"));
+        left.insert("omega".to_string(), workflow::Value::from("two"));
+        let mut right = std::collections::BTreeMap::new();
+        right.insert("omega".to_string(), workflow::Value::from("two"));
+        right.insert("alpha".to_string(), workflow::Value::from("one"));
+        first
+            .evidence
+            .extra
+            .insert("payload", workflow::Value::Object(left));
+        second
+            .evidence
+            .extra
+            .insert("payload", workflow::Value::Object(right));
+        assert_eq!(first.fingerprint(), second.fingerprint());
     }
 
     #[test]
