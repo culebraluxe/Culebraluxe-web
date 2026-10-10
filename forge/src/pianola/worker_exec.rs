@@ -617,6 +617,17 @@ mod tests {
     }
 
     #[test]
+    fn pianola_summary_serializes_long_unicode_without_truncating_a_character() {
+        let summary = format!("Tests: {}🙂 trailing", "a".repeat(298));
+        let line = tests_summary_line(&summary);
+        let serialized = serde_json::to_string(&line).expect("receipt summary serializes");
+        assert!(line.ends_with('…'));
+        assert!(line.len() <= crate::engine::packet::TESTS_SUMMARY_MAX_LENGTH + 7);
+        assert!(serialized.contains('…'));
+        assert!(serialized.contains("Tests:"));
+    }
+
+    #[test]
     fn an_unreadable_summary_is_not_guessed_at() {
         assert!(!ran_no_tests(
             "cargo test -p test-harness --test x",

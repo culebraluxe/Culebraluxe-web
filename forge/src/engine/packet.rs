@@ -179,6 +179,45 @@ pub fn extract_tests_summary(output: &str, fallback: &str) -> String {
     match summary {
         None => fallback.to_string(),
         Some(s) if s.len() <= TESTS_SUMMARY_MAX_LENGTH => s,
-        Some(s) => format!("{}…", &s[..TESTS_SUMMARY_MAX_LENGTH - 1]),
+        Some(s) => {
+            let suffix = "…";
+            let budget = TESTS_SUMMARY_MAX_LENGTH.saturating_sub(suffix.len());
+            let mut end = budget.min(s.len());
+            while !s.is_char_boundary(end) {
+                end -= 1;
+            }
+            format!("{}{suffix}", &s[..end])
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summary_truncation_preserves_utf8_and_byte_limit() {
+        assert_eq!(extract_tests_summary("no summary", "fallback"), "fallback");
+        assert_eq!(
+            extract_tests_summary("Tests: first\nTests:\nTests: last", "fallback"),
+            "last"
+        );
+
+        let exact = "a".repeat(TESTS_SUMMARY_MAX_LENGTH);
+        assert_eq!(
+            extract_tests_summary(&format!("Tests: {exact}"), "fallback"),
+            exact
+        );
+
+        for value in [
+            "a".repeat(TESTS_SUMMARY_MAX_LENGTH + 1),
+            format!("{}🙂 trailing", "a".repeat(298)),
+            format!("{}漢é🙂", "a".repeat(297)),
+        ] {
+            let summary = extract_tests_summary(&format!("Tests: {value}"), "fallback");
+            assert!(summary.ends_with('…'));
+            assert!(summary.len() <= TESTS_SUMMARY_MAX_LENGTH);
+            assert!(std::str::from_utf8(summary.as_bytes()).is_ok());
+        }
     }
 }

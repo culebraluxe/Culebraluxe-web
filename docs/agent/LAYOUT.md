@@ -9,6 +9,7 @@ Written 2026-10-01, when the tree moved out of `~/Documents`. This is the machin
 /Users/Shared/dev/
 ├── src/
 │   ├── Culebraluxe-web/     main checkout,   branch main        (the repo you are in)
+│   ├── lane-forge-observations/ git worktree, branch lane/forge-observations
 │   ├── lane-claude/         git worktree,    branch lane/claude
 │   ├── lane-deep/           git worktree,    branch lane/deep
 │   ├── lane-fledge/         git worktree,    branch lane/fledge
@@ -63,6 +64,7 @@ re-founding it in place is `git worktree move` plus `git branch -m`.
 | `lane-nemotron-2` | Nemotron 3 Ultra — second seat | a second session of `lane-nemotron`'s model, run beside it (Captain, 2026-10-04) |
 | `lane-nemotron-lightning` | Nemotron 3.5 Lightning — a seat beside `lane-lightning` | a session on the Lightning model, created through `pnpm lane:new` (Captain, 2026-10-05) |
 | `lane-fledge` | Fledge | the model's seat, created through `pnpm lane:new` on the Captain's call (2026-10-05); rank not yet recorded |
+| `lane-forge-observations` | Codex | temporary isolated lane for the five verified Forge repairs (2026-10-10) |
 
 The six model lanes were created 2026-10-03 as **light lanes** (see "A lane is 84 MB" below): checkout plus env links,
 no `node_modules` until a lane actually needs to build the website. `pnpm wip:now` covers them from their first minute,
@@ -352,4 +354,3 @@ layout — it moves the crate directories and re-spells the paths, and a lane's 
 because every step is a `git mv`. And it does not run `cargo fmt`: four module trees are deferred on purpose (a live
 agent owns them), and a sweep that formats everything would collide with that agent's edits. Format the files you
 touched, as always.
-
