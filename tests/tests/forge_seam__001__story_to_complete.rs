@@ -33,7 +33,13 @@ fn story_to_complete_uses_one_workflow_owned_role_chain() {
         .engine()
         .get_process_instance(&instance_id)
         .expect("read terminal process");
-    assert_eq!(instance.status, ProcessStatus::Completed);
+    assert_eq!(
+        instance.status,
+        ProcessStatus::Completed,
+        "story ended before the FEATURE chain completed; calls={:?} holds={:?}",
+        fixture.harness.calls(),
+        fixture.holds()
+    );
     assert_eq!(instance.outcome, Some(ProcessOutcome::Completed));
 
     let calls = fixture.harness.calls();
@@ -45,9 +51,8 @@ fn story_to_complete_uses_one_workflow_owned_role_chain() {
             "smith".to_string(),
             "lead_post".to_string(),
             "qa_review".to_string(),
-            "qa_verify".to_string(),
         ],
-        "Workflow, not Rust branching, owns the complete FEATURE role order"
+        "Workflow, not Rust branching, owns the FEATURE model-turn order; deterministic assay runs without a model call"
     );
     let unique_calls: BTreeSet<_> = calls.iter().collect();
     assert_eq!(unique_calls.len(), calls.len(), "no role executes twice");
@@ -55,8 +60,14 @@ fn story_to_complete_uses_one_workflow_owned_role_chain() {
     let all_jobs = fixture.jobs_for_instance(&instance_id);
     assert_eq!(
         all_jobs.len(),
-        calls.len(),
-        "one durable role job exists for each executed Workflow task"
+        calls.len() + 1,
+        "each model turn has a job, and the model-free qa_verify assay has its own durable job"
+    );
+    assert!(
+        all_jobs
+            .iter()
+            .any(|job| job.payload.get("nodeId").and_then(Value::as_str) == Some("qa_verify")),
+        "deterministic QA is still a Workflow-owned job"
     );
     let mut task_ids = BTreeSet::new();
     for job in &all_jobs {

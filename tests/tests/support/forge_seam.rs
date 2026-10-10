@@ -16,7 +16,11 @@ use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::harness::TurnTermination;
 use forge::engine::hold::OpenHold;
 use forge::engine::job::{ForgeJobBridge, JobService, WorkflowJobService};
-use forge::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};
+use forge::engine::qa_plan::{
+    AcceptanceJudgment, ApprovedAcceptanceCondition, ApprovedAssayCommand, ApprovedAssayPlan,
+    ApprovedAssertionCheck, AssayParser, AssayRunner, CheckAggregation,
+};
+use forge::engine::runner::{CandidateProbe, HarnessOutput, ProductionRoleRunner, RoleHarness};
 use forge::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
 use forge::engine::writer::{ForgeEvidenceReader, ForgeStateWriter};
 use forge::roles::ForgeLaneServices;
@@ -28,6 +32,7 @@ pub const WORK_TYPE: &str = "FEATURE";
 pub const WORKER: &str = "forge-seam-worker";
 pub const CANDIDATE_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 pub const WRONG_HEAD_SHA: &str = "fedcba9876543210fedcba9876543210fedcba98";
+pub const SEAM_ASSAY_COMMAND: &str = "cargo test --manifest-path Cargo.toml -p forge";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapturedHold {
@@ -49,6 +54,7 @@ pub struct SeamWriter {
     pub details: Mutex<Vec<(String, String)>>,
     pub opened_holds: Mutex<Vec<CapturedHold>>,
     pub artifacts: Mutex<Vec<NewToolArtifact>>,
+    pub assay_plan_snapshots: Mutex<BTreeMap<String, db::forge_assay::AssayPlanSnapshotRow>>,
 }
 
 impl ForgeStateWriter for SeamWriter {
@@ -112,6 +118,18 @@ impl ForgeStateWriter for SeamWriter {
         let id = format!("artifact-{}", artifacts.len() + 1);
         artifacts.push(input.clone());
         Ok(Some(id))
+    }
+
+    fn read_assay_plan_snapshot(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<db::forge_assay::AssayPlanSnapshotRow>, String> {
+        Ok(self
+            .assay_plan_snapshots
+            .lock()
+            .expect("assay plan snapshots")
+            .get(run_id)
+            .cloned())
     }
 
     fn record_run_usage(
@@ -196,7 +214,7 @@ impl RoleHarness for SeamHarness {
             "qa_verify" | "fast_qa_verify" => (
                 "deterministic assay\n".to_string(),
                 None,
-                vec!["cargo test --manifest-path Cargo.toml -p forge".to_string()],
+                vec![SEAM_ASSAY_COMMAND.to_string()],
                 true,
             ),
             other => (format!("{other} complete\n"), None, vec![], false),
@@ -208,7 +226,7 @@ impl RoleHarness for SeamHarness {
             assay_commands,
             acceptance_mapped,
             refusal: None,
-            execution_base: None,
+            execution_base: Some(WRONG_HEAD_SHA.to_string()),
             usage: None,
         })
     }
@@ -219,6 +237,14 @@ impl RoleHarness for SeamHarness {
 
     fn assay_cwd(&self) -> &Path {
         Path::new(".")
+    }
+
+    fn execution_base_commit(&self) -> Option<&str> {
+        Some(WRONG_HEAD_SHA)
+    }
+
+    fn candidate_probe(&self) -> Option<&dyn CandidateProbe> {
+        Some(self)
     }
 
     // SeamHarness returns synchronously and owns no subprocess. Durable jobs still require
@@ -244,12 +270,81 @@ impl RoleHarness for SeamHarness {
             excerpt: String::new(),
             unmeasurable: false,
             output: if command.trim() == "git rev-parse HEAD" {
-                WRONG_HEAD_SHA.to_string()
+                CANDIDATE_SHA.to_string()
+            } else if command.starts_with("git diff --name-only") {
+                "forge/src/example.rs\n".to_string()
+            } else if command.starts_with("git diff ") {
+                "diff --git a/forge/src/example.rs b/forge/src/example.rs\n+change\n".to_string()
             } else {
-                String::new()
+                "test seam::production_contract ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n".to_string()
             },
         }
     }
+}
+
+impl CandidateProbe for SeamHarness {
+    fn git(&self, args: &[&str]) -> Option<String> {
+        if args.contains(&"rev-parse") {
+            Some(CANDIDATE_SHA.into())
+        } else if args.first() == Some(&"merge-base") || args.first() == Some(&"status") {
+            Some(String::new())
+        } else if args.first() == Some(&"diff") {
+            Some("forge/src/example.rs\n".into())
+        } else {
+            None
+        }
+    }
+
+    fn declared_test_mode(&self) -> Option<&str> {
+        None
+    }
+}
+
+fn approved_seam_assay_snapshot(writer: &SeamWriter) {
+    let plan = ApprovedAssayPlan {
+        schema_version: 1,
+        plan_id: "plan-forge-seam-test".into(),
+        plan_version: 1,
+        commands: vec![ApprovedAssayCommand {
+            id: "cmd-seam-check".into(),
+            command: SEAM_ASSAY_COMMAND.into(),
+            runner: AssayRunner::RustLibtest,
+            parser: AssayParser::RustLibtest,
+            working_directory: "lane_root".into(),
+            environment_identity: "forge-inherited-shell-v1".into(),
+        }],
+        checks: vec![ApprovedAssertionCheck {
+            id: "check-seam".into(),
+            command_id: "cmd-seam-check".into(),
+            assertion: "seam::production_contract".into(),
+        }],
+        conditions: vec![ApprovedAcceptanceCondition {
+            id: "AC-product".into(),
+            check_ids: vec!["check-seam".into()],
+            aggregation: CheckAggregation::AllRequired,
+            judgment: AcceptanceJudgment::Product,
+        }],
+        negative_control: None,
+    };
+    let identity = plan.identity().expect("plan hashes");
+    writer
+        .assay_plan_snapshots
+        .lock()
+        .expect("assay plan snapshots")
+        .insert(
+            STORY_RUN.into(),
+            db::forge_assay::AssayPlanSnapshotRow {
+                story_run_id: STORY_RUN.into(),
+                story_id: STORY.into(),
+                assay_commands_snapshot: Some(SEAM_ASSAY_COMMAND.into()),
+                snapshot: Some(serde_json::json!({
+                    "plan": plan,
+                    "approved_by": "test-operator",
+                    "approved_at": "2026-10-09T12:00:00Z",
+                    "approved_hash": identity.hash,
+                })),
+            },
+        );
 }
 
 struct LedgerEvidence(Arc<MemoryLedger>);
@@ -285,6 +380,7 @@ impl SeamFixture {
     pub fn new() -> Self {
         let memory = MemoryStore::new();
         let writer = Arc::new(SeamWriter::default());
+        approved_seam_assay_snapshot(&writer);
         let ledger = Arc::new(MemoryLedger::new());
         let reader: Arc<dyn ForgeEvidenceReader> = Arc::new(LedgerEvidence(ledger.clone()));
         let rt = ForgeRuntime::from_store(
