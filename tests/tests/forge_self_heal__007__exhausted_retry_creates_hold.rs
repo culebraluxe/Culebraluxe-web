@@ -19,7 +19,7 @@ use forge::engine::facts::ForgeGateEvidence;
 use forge::engine::runner::{HarnessOutput, RoleHarness};
 use forge::engine::runtime::ActiveForgeRoleTask;
 use forge::engine::writer::RecordingWriter;
-use forge::roles::hooks::NoRoleHooks;
+use forge::roles::architect::ArchitectHooks;
 use forge::roles::lifecycle::{run_forge_role_turn, ForgeRoleContext};
 use workflow::{Result, TaskStatus};
 
@@ -86,9 +86,13 @@ impl RoleHarness for DeliversHarness {
         _task: &ActiveForgeRoleTask,
         _self_heal: Option<&str>,
     ) -> Result<HarnessOutput> {
-        Ok(output(
-            "plan ready\nFORGE_EVIDENCE_JSON: {\"researchDisposition\":\"IMPLEMENT\"}",
-        ))
+        Ok(output(concat!(
+            "plan ready\n",
+            "FORGE_ARCHITECT_HANDOFF: {\"version\":1,\"baseRef\":\"base\",",
+            "\"findings\":[{\"id\":\"F1\",\"required\":true,",
+            "\"summary\":\"valid handoff\",\"scope\":[\"src/example.rs\"],",
+            "\"proofs\":[],\"risks\":[]}]}",
+        )))
     }
 
     fn exists_on_base_ref(&self, _base_ref: &str, _path: &str) -> bool {
@@ -122,7 +126,7 @@ fn role_task(task_id: &str, story_id: &str) -> ActiveForgeRoleTask {
 fn forge_self_heal_007__exhausted_retry_creates_hold() {
     std::env::set_var("FORGE_ENFORCE_DELIVERABLES", "1");
     std::env::set_var("FORGE_DELIVERABLE_RETRIES", "1");
-    let hooks = NoRoleHooks;
+    let hooks = ArchitectHooks;
 
     // Positive: the budget runs out with nothing delivered, so the story holds.
     let harness = NeverDeliversHarness {
@@ -158,7 +162,7 @@ fn forge_self_heal_007__exhausted_retry_creates_hold() {
         .as_deref()
         .expect("the exhausted turn carries a rejection");
     assert!(
-        rejection.contains("architect-plan"),
+        rejection.contains("no readable handoff"),
         "the rejection names the undelivered requirement: {rejection}"
     );
     let holds = writer.holds.lock().unwrap().clone();
@@ -172,7 +176,7 @@ fn forge_self_heal_007__exhausted_retry_creates_hold() {
         "the hold is against this story"
     );
     assert!(
-        holds[0].1.contains("architect-plan"),
+        holds[0].1.contains("no readable handoff"),
         "the hold reason names the undelivered requirement: {:?}",
         holds[0].1
     );
