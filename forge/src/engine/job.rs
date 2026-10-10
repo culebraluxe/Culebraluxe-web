@@ -357,9 +357,9 @@ fn run_with_lease_heartbeat<T>(
         interrupt,
         work,
     )?;
-    if turn_outcome.lease_lost {
+    if let Some(authority_failure) = turn_outcome.authority_failure {
         Err(WorkflowError::generic(format!(
-            "Forge job {job_id} lost its lease after role completed; outcome preserved for reconciliation"
+            "Forge job {job_id} authority is unproven after role execution; outcome preserved for reconciliation: {authority_failure}"
         )))
     } else {
         Ok(turn_outcome.outcome)
@@ -371,6 +371,8 @@ fn run_with_lease_heartbeat<T>(
 pub struct RoleTurnOutcome<T> {
     pub outcome: T,
     pub lease_lost: bool,
+    /// Typed at the role-turn boundary as a durable explanation, not just a boolean that callers can drop.
+    pub authority_failure: Option<String>,
 }
 
 fn run_with_lease_heartbeat_interval<T>(
@@ -422,13 +424,17 @@ fn run_with_lease_heartbeat_interval<T>(
                     .unwrap_or(interval);
                 match stop_rx.recv_timeout(wait_for) {
                     Ok(()) | Err(RecvTimeoutError::Disconnected) => return None,
-                    Err(RecvTimeoutError::Timeout) => match jobs.heartbeat(&job_id_owned, &worker_id_owned) {
-                        Ok(_) => {
+                    Err(RecvTimeoutError::Timeout) => match std::panic::catch_unwind(
+                        std::panic::AssertUnwindSafe(|| {
+                            jobs.heartbeat(&job_id_owned, &worker_id_owned)
+                        }),
+                    ) {
+                        Ok(Ok(_)) => {
                             // Reset consecutive failures on success.
                             let mut failures = heartbeat_state.consecutive_db_failures.lock().unwrap();
                             *failures = 0;
                         }
-                        Err(error) if error.is_connection_failure() => {
+                        Ok(Err(error)) if error.is_connection_failure() => {
                             let mut failures = heartbeat_state.consecutive_db_failures.lock().unwrap();
                             *failures += 1;
                             eprintln!(
@@ -448,11 +454,24 @@ fn run_with_lease_heartbeat_interval<T>(
                                 )));
                             }
                         }
-                        Err(error) => {
+                        Ok(Err(error)) => {
                             if let Some(interrupt) = &heartbeat_state.interrupt {
                                 interrupt("durable job was cancelled or its lease was lost");
                             }
                             return Some(error);
+                        }
+                        Err(payload) => {
+                            let panic = payload
+                                .downcast_ref::<&str>()
+                                .map(|message| (*message).to_string())
+                                .or_else(|| payload.downcast_ref::<String>().cloned())
+                                .unwrap_or_else(|| "non-string panic payload".to_string());
+                            if let Some(interrupt) = &heartbeat_state.interrupt {
+                                interrupt("heartbeat supervisor panicked; lease authority is unproven");
+                            }
+                            return Some(WorkflowError::generic(format!(
+                                "Forge job {job_id_owned} heartbeat supervisor panicked: {panic}"
+                            )));
                         }
                     },
                 }
@@ -466,7 +485,19 @@ fn run_with_lease_heartbeat_interval<T>(
         drop(stop_tx);
 
         // Wait for heartbeat thread to finish.
-        let heartbeat_error = heartbeat.join().ok().flatten();
+        let heartbeat_error = match heartbeat.join() {
+            Ok(error) => error,
+            Err(payload) => {
+                let panic = payload
+                    .downcast_ref::<&str>()
+                    .map(|message| (*message).to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "non-string panic payload".to_string());
+                Some(WorkflowError::generic(format!(
+                    "Forge job {job_id} heartbeat supervisor panicked: {panic}"
+                )))
+            }
+        };
 
         (heartbeat_error, work_result)
     });
@@ -476,8 +507,9 @@ fn run_with_lease_heartbeat_interval<T>(
     // If the heartbeat thread lost the lease, we still return the outcome
     // but mark lease_lost = true. The caller must reconcile and not advance
     // the Workflow task under a lease it no longer owns.
-    let lease_lost = heartbeat_error.is_some();
+    let mut authority_failures = Vec::new();
     if let Some(error) = heartbeat_error {
+        authority_failures.push(error.to_string());
         if work_result.is_ok() {
             eprintln!(
                 "forge-job: job {job_id} lost its lease after role completed; outcome preserved for reconciliation: {error}"
@@ -492,13 +524,31 @@ fn run_with_lease_heartbeat_interval<T>(
     // Fence Workflow completion with one final ownership renewal after the
     // role returns. If recovery somehow won the race, the caller must not
     // advance the Workflow task under a lease it no longer owns.
-    // We still attempt the final heartbeat but don't fail if it fails;
-    // the lease_lost flag tells the caller the truth.
-    let _ = jobs.heartbeat(&job_id, &worker_id);
+    // The final renewal is part of the authority decision. A role result is not
+    // accepted when its lease could not be proven after the role returned.
+    let final_heartbeat_error = jobs.heartbeat(&job_id, &worker_id).err();
+    if let Some(error) = final_heartbeat_error {
+        authority_failures.push(format!("final ownership renewal failed: {error}"));
+        eprintln!(
+            "forge-job: job {job_id} final ownership renewal failed; outcome preserved for reconciliation: {error}"
+        );
+    }
 
+    let authority_failure = (!authority_failures.is_empty()).then(|| authority_failures.join("; "));
+    let outcome = match work_result {
+        Ok(outcome) => outcome,
+        Err(work_error) if authority_failure.is_some() => {
+            return Err(WorkflowError::generic(format!(
+                "{work_error}; lease authority is unproven: {}",
+                authority_failure.as_deref().unwrap_or_default()
+            )));
+        }
+        Err(work_error) => return Err(work_error),
+    };
     Ok(RoleTurnOutcome {
-        outcome: work_result?,
-        lease_lost,
+        outcome,
+        lease_lost: authority_failure.is_some(),
+        authority_failure,
     })
 }
 
@@ -606,6 +656,63 @@ mod tests {
     use workflow::{
         EngineOptions, MemoryStore, ProcessInstance, ProcessStatus, Value, WorkflowEngine,
     };
+
+    struct HeartbeatFaultService {
+        main_thread: std::thread::ThreadId,
+        panic_on_background_heartbeat: bool,
+        fail_final_heartbeat: bool,
+    }
+
+    impl JobService for HeartbeatFaultService {
+        fn enqueue(&self, _: &ForgeJobRequest) -> Result<String> {
+            unreachable!()
+        }
+        fn claim(&self, _: &str, _: usize) -> Result<Vec<ForgeJobLease>> {
+            unreachable!()
+        }
+        fn claim_one(&self, _: &str, _: &str) -> Result<ForgeJobLease> {
+            unreachable!()
+        }
+        fn heartbeat(&self, _: &str, _: &str) -> Result<i64> {
+            let on_main = std::thread::current().id() == self.main_thread;
+            if !on_main && self.panic_on_background_heartbeat {
+                panic!("injected heartbeat supervisor panic");
+            }
+            if on_main && self.fail_final_heartbeat {
+                return Err(WorkflowError::generic("injected final renewal failure"));
+            }
+            Ok(1)
+        }
+        fn inspect(&self, _: &str) -> Result<ForgeJobState> {
+            unreachable!()
+        }
+        fn complete(&self, _: &str, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        fn fail(&self, _: &str, _: &str, _: &str, _: bool) -> Result<()> {
+            unreachable!()
+        }
+        fn cancel(&self, _: &str, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        fn requeue(&self, _: &str, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        fn recover_stale(&self, _: usize) -> Result<usize> {
+            unreachable!()
+        }
+    }
+
+    fn heartbeat_fault_service(
+        panic_on_background_heartbeat: bool,
+        fail_final_heartbeat: bool,
+    ) -> HeartbeatFaultService {
+        HeartbeatFaultService {
+            main_thread: std::thread::current().id(),
+            panic_on_background_heartbeat,
+            fail_final_heartbeat,
+        }
+    }
 
     struct RecordingRunner {
         calls: Mutex<Vec<String>>,
@@ -1136,6 +1243,77 @@ mod tests {
             result.is_err(),
             "the stopped role cannot produce a successful business outcome"
         );
+    }
+
+    #[test]
+    fn final_heartbeat_failure_blocks_successful_role_outcome() {
+        let jobs = heartbeat_fault_service(false, true);
+        let turn = run_with_lease_heartbeat_interval(
+            &jobs,
+            "worker",
+            "job",
+            Duration::from_millis(1),
+            LeaseFenceConfig::default(),
+            None,
+            || {
+                std::thread::sleep(Duration::from_millis(8));
+                Ok("role succeeded")
+            },
+        )
+        .expect("turn result remains available for reconciliation");
+        assert_eq!(turn.outcome, "role succeeded");
+        assert!(turn.lease_lost, "final authority failure must be surfaced");
+        assert!(turn
+            .authority_failure
+            .as_deref()
+            .unwrap()
+            .contains("final ownership renewal failed"));
+    }
+
+    #[test]
+    fn final_heartbeat_failure_rejects_success_at_the_job_boundary() {
+        let jobs = heartbeat_fault_service(false, true);
+        let result = run_with_lease_heartbeat(
+            &jobs,
+            "worker",
+            "job",
+            LeaseFenceConfig::default(),
+            None,
+            || Ok("role succeeded"),
+        );
+        let error = result.expect_err("unproven ownership cannot advance the task");
+        assert!(error.to_string().contains("final ownership renewal failed"));
+    }
+
+    #[test]
+    fn heartbeat_supervisor_panic_blocks_success_even_if_final_renewal_succeeds() {
+        let jobs = heartbeat_fault_service(true, false);
+        let interrupted = Arc::new(AtomicBool::new(false));
+        let interrupt_flag = Arc::clone(&interrupted);
+        let interrupt: InterruptHandle = Arc::new(move |_| {
+            interrupt_flag.store(true, Ordering::SeqCst);
+        });
+        let turn = run_with_lease_heartbeat_interval(
+            &jobs,
+            "worker",
+            "job",
+            Duration::from_millis(1),
+            LeaseFenceConfig::default(),
+            Some(interrupt),
+            || {
+                std::thread::sleep(Duration::from_millis(8));
+                Ok("role succeeded")
+            },
+        )
+        .expect("turn result remains available for reconciliation");
+        assert_eq!(turn.outcome, "role succeeded");
+        assert!(turn.lease_lost, "supervisor panic must not become no error");
+        assert!(turn
+            .authority_failure
+            .as_deref()
+            .unwrap()
+            .contains("heartbeat supervisor panicked"));
+        assert!(interrupted.load(Ordering::SeqCst));
     }
 
     #[test]

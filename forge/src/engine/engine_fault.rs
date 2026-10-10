@@ -24,6 +24,9 @@ pub fn is_engine_fault_error(error: &WorkflowError) -> bool {
 pub fn is_engine_fault(message: &str) -> bool {
     const MARKS: &[&str] = &[
         "databaseunavailable",
+        // Failed ownership proof is retryable engine authority, never a story verdict. The settlement DAO still
+        // fences this requeue against the current owner/generation before changing durable job state.
+        "authority is unproven",
         "sqlstate 25p03",
         "sqlstate 57p02",
         "sqlstate 53300",
@@ -66,6 +69,7 @@ mod tests {
     fn plumbing_failures_are_the_engines() {
         for message in [
             "DatabaseUnavailable during workflow.step (incident 5e575d72, sqlstate 25P03)",
+            "Forge job job-1 authority is unproven after role execution; outcome preserved for reconciliation",
             "db: sqlstate 25P03 idle_in_transaction_session_timeout",
             "db error: sqlstate 53300 too many connections",
             "sqlstate 57P02 terminating connection due to crash of another server process",
