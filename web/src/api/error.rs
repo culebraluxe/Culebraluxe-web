@@ -194,7 +194,7 @@ impl From<ServiceDispatchError> for ApiError {
                 };
                 let mut out = Self::new(status, code.clone(), message.clone(), retryable);
                 // The envelope path (`service_gateway::core_error`, `email::service_error`,
-                // `document_sign`/`signer` equivalents) converts `DbFailure` into a plain
+                // `luxesign`/`signer` equivalents) converts `DbFailure` into a plain
                 // `infrastructure("DATABASE", ...)` error, dropping the incident id the
                 // database layer already announced. Recover it from the message so the
                 // response carries the original incident and the choke point below does

@@ -10,7 +10,7 @@ TST-CRM-PERSON-006 contains a meaningful assertion that search-box text must not
 
 The parcel-merge test calls PropertyDao directly. The actual PropertyService::merge_parcel_record already calls db::service_mutation; Database::connection joins that task-local transaction. Its direct-DAO failure does not establish that the application service lacks a transaction. No merge code was changed. The story asks for person merges but its test merges properties, so it requires test repair before its result is used to change production behavior.
 
-BoldSign is excluded at the owner's direction; native DocumentSign work is being completed separately. No BoldSign code, migration, story status, or native signing code was changed.
+BoldSign is excluded at the owner's direction; native Luxesign work is being completed separately. No BoldSign code, migration, story status, or native signing code was changed.
 
 Migration ledger/numbering findings require migration-history investigation rather than silently renumbering applied files or claiming full application from a column-presence spot check. Startup test 007 fails unconditionally rather than exercising startup. No production change was made from those tests.
 

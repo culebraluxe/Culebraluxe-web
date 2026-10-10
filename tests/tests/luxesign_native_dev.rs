@@ -1,7 +1,7 @@
 //! Native signing boundary proofs against DEV (DocuSign clone).
 //!
 //! Run explicitly with:
-//!   DATABASE_URL_DEV=... cargo test -p test-harness --test docsign_native_dev -- --ignored
+//!   DATABASE_URL_DEV=... cargo test -p test-harness --test luxesign_native_dev -- --ignored
 //!
 //! WHY THESE EXIST. The three signing services carry only pure-logic unit
 //! tests (validation, codec, renderer). The properties that make this a
@@ -30,18 +30,18 @@ use std::sync::Arc;
 use uuid::Uuid;
 use web::email::EmailService;
 use web::service_support::CoreServiceError;
-use web::signer::{SignerAccessTokenCodec, SignerService, DOCSIGN_EDGE_ACTOR};
+use web::signer::{SignerAccessTokenCodec, SignerService, LUXESIGN_EDGE_ACTOR};
 
 fn context(tag: &str) -> ServiceContext {
     ServiceContext {
         actor: ServiceActor {
-            id: Some(DOCSIGN_EDGE_ACTOR.into()),
+            id: Some(LUXESIGN_EDGE_ACTOR.into()),
             kind: ServiceActorKind::System,
         },
         correlation_id: tag.into(),
         causation_id: None,
         principal: Some(ServicePrincipal {
-            app_user_id: "docsign-proof".into(),
+            app_user_id: "luxesign-proof".into(),
             level: "USER".into(),
             role_codes: vec![],
             account_type: "internal".into(),
@@ -69,7 +69,7 @@ struct Envelope {
 
 async fn recipient(db: &Database, request_id: &str, order: i32, step: i32, email: &str) -> String {
     sqlx::query_scalar::<_, String>(
-        "insert into signature_envelope_recipient \
+        "insert into luxesign_envelope_recipient \
          (signature_request_id, recipient_name, recipient_email, signer_order, signing_step) \
          values ($1::uuid, $2, $3, $4, $5) returning id::text",
     )
@@ -101,28 +101,28 @@ async fn envelope(db: &Database, tag: &str) -> Envelope {
          values ($1::uuid, 'agreement', $2, 'draft', 'generated') returning id::text",
     )
     .bind(&deal)
-    .bind(format!("docsign proof {tag}"))
+    .bind(format!("luxesign proof {tag}"))
     .fetch_one(db.pool())
     .await
     .expect("transaction_document fixture");
     let request_id: String = sqlx::query_scalar(
-        "insert into signature_request (transaction_document_id, status) \
+        "insert into luxesign_request (transaction_document_id, status) \
          values ($1::uuid, 'requested') returning id::text",
     )
     .bind(&txdoc)
     .fetch_one(db.pool())
     .await
-    .expect("signature_request fixture");
-    sqlx::query("insert into document_sign_request (signature_request_id) values ($1::uuid)")
+    .expect("luxesign_request fixture");
+    sqlx::query("insert into luxesign_config (signature_request_id) values ($1::uuid)")
         .bind(&request_id)
         .execute(db.pool())
         .await
-        .expect("document_sign_request fixture");
+        .expect("luxesign_config fixture");
     let a = recipient(db, &request_id, 1, 1, &format!("{tag}-a")).await;
     let b = recipient(db, &request_id, 2, 1, &format!("{tag}-b")).await;
     let c = recipient(db, &request_id, 3, 2, &format!("{tag}-c")).await;
     let field_a: String = sqlx::query_scalar(
-        "insert into signature_field \
+        "insert into luxesign_field \
          (signature_request_id, recipient_id, field_key, field_type, page_number, \
           position_x, position_y, width, height, required) \
          values ($1::uuid, $2::uuid, 'sig-a', 'signature', 1, 10, 10, 30, 10, true) \
@@ -152,7 +152,7 @@ async fn cleanup(db: &Database, env: &Envelope) {
 /// document (cascading the request, recipients, fields, states, access and
 /// consent), then the email and outbox rows keyed by correlation id.
 async fn sweep_tag(db: &Database, tag: &str) {
-    let title = format!("docsign proof {tag}");
+    let title = format!("luxesign proof {tag}");
     // Unlink first: both media links are `on delete restrict`. The
     // returning clause hands back every linked id (audit, sealed, and
     // the fixture original) so no proof bytes survive the sweep.
@@ -182,8 +182,8 @@ async fn sweep_tag(db: &Database, tag: &str) {
         }
     }
     sqlx::query(
-        "delete from signature_evidence_event where signature_request_id in ( \
-           select sr.id from signature_request sr \
+        "delete from luxesign_evidence_event where signature_request_id in ( \
+           select sr.id from luxesign_request sr \
            join transaction_document td on td.id = sr.transaction_document_id \
            where td.title = $1)",
     )
@@ -212,7 +212,7 @@ async fn sweep_tag(db: &Database, tag: &str) {
 fn signer(db: &Database) -> SignerService<SignerDao> {
     SignerService::new(
         SignerDao::new(db.clone()),
-        SignerAccessTokenCodec::for_test("docsign-proof-secret", "https://example.test"),
+        SignerAccessTokenCodec::for_test("luxesign-proof-secret", "https://example.test"),
         infra(),
     )
 }
@@ -223,7 +223,7 @@ async fn grant(
     recipient: &str,
     ctx: &ServiceContext,
 ) -> String {
-    let mut tx = db.begin("docsign-proof-grant").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-grant").await.unwrap();
     let grant = service
         .issue_access_transactional(&mut tx, recipient, None, ctx)
         .await
@@ -240,7 +240,7 @@ async fn complete_field(
     field: &str,
     ctx: &ServiceContext,
 ) {
-    let mut tx = db.begin("docsign-proof-field").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-field").await.unwrap();
     service
         .complete_field_transactional(
             &mut tx,
@@ -266,7 +266,7 @@ async fn complete(
     token: &str,
     ctx: &ServiceContext,
 ) -> model::SignerActionResult {
-    let mut tx = db.begin("docsign-proof-complete").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-complete").await.unwrap();
     let action = service
         .complete_transactional(
             &mut tx,
@@ -293,7 +293,7 @@ async fn consent(
 ) {
     // 64 lowercase hex chars: the service requires the exact-evidence shape.
     let sha = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
-    let mut tx = db.begin("docsign-proof-consent").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-consent").await.unwrap();
     service
         .accept_consent_transactional(
             &mut tx,
@@ -360,7 +360,7 @@ async fn consent_gates_completion_and_field_ownership_holds() {
     let token_a = grant(&service, &db, &env.a, &ctx).await;
 
     // No consent yet: completion refuses.
-    let mut tx = db.begin("docsign-proof-gate").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-gate").await.unwrap();
     let refused = service
         .complete_transactional(
             &mut tx,
@@ -381,7 +381,7 @@ async fn consent_gates_completion_and_field_ownership_holds() {
 
     // A cannot touch a field it does not own (use C's... C has no field, so
     // mint the refusal with a foreign id: the SQL owner-scope rejects it).
-    let mut tx = db.begin("docsign-proof-gate").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-gate").await.unwrap();
     let foreign = service
         .complete_field_transactional(
             &mut tx,
@@ -405,7 +405,7 @@ async fn consent_gates_completion_and_field_ownership_holds() {
     // Same-recipient wrong-field: B's own token against A's field id.
     let token_b = grant(&service, &db, &env.b, &ctx).await;
     consent(&service, &db, &env.b, &token_b, &ctx).await;
-    let mut tx = db.begin("docsign-proof-gate").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-gate").await.unwrap();
     let refused = service
         .complete_field_transactional(
             &mut tx,
@@ -438,7 +438,7 @@ async fn consent_is_immutable_and_completion_replays_safely() {
     consent(&service, &db, &env.a, &token_a, &ctx).await;
     // A second acceptance with different text returns the existing evidence.
     let other_sha = "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35";
-    let mut tx = db.begin("docsign-proof-consent").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-consent").await.unwrap();
     service
         .accept_consent_transactional(
             &mut tx,
@@ -457,7 +457,7 @@ async fn consent_is_immutable_and_completion_replays_safely() {
         .expect("second acceptance returns existing evidence");
     tx.commit().await.unwrap();
     let kept: String = sqlx::query_scalar(
-        "select consent_text from signature_recipient_consent where recipient_id = $1::uuid",
+        "select consent_text from luxesign_recipient_consent where recipient_id = $1::uuid",
     )
     .bind(&env.a)
     .fetch_one(db.pool())
@@ -484,7 +484,7 @@ async fn email_dedupe_keeps_one_invitation_per_key() {
     let request = QueueEmailRequest {
         message_kind: EmailMessageKind::SignatureInvitation,
         recipient_email: format!("{tag}@example.test"),
-        template_key: "document-sign.invitation".into(),
+        template_key: "luxesign.invitation".into(),
         template_payload: serde_json::json!({
             "recipientName": "Proof",
             "signingUrl": "https://example.test/sign/x",
@@ -493,14 +493,14 @@ async fn email_dedupe_keeps_one_invitation_per_key() {
         correlation_id: Some(tag.to_owned()),
         causation_id: None,
     };
-    let mut tx = db.begin("docsign-proof-email").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-email").await.unwrap();
     let first = service
         .queue_transactional(&mut tx, &request, &ctx)
         .await
         .expect("first queue");
     tx.commit().await.unwrap();
     assert!(!first.existing);
-    let mut tx = db.begin("docsign-proof-email").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-email").await.unwrap();
     let second = service
         .queue_transactional(&mut tx, &request, &ctx)
         .await
@@ -511,16 +511,17 @@ async fn email_dedupe_keeps_one_invitation_per_key() {
     sweep_tag(&db, &tag).await;
 }
 
-async fn document_sign(
+async fn luxesign_with_runtime(
     db: &Database,
-) -> web::document_sign::DocumentSignService<
-    db::DocumentSignDao,
+    runtime: ServiceInfrastructure,
+) -> web::luxesign::LuxesignService<
+    db::LuxesignDao,
     db::SignatureDao,
     SignerDao,
     EmailDao,
     db::VaultDao,
 > {
-    use web::document_sign::DocumentSignService;
+    use web::luxesign::LuxesignService;
     use web::security::CasbinAuthorizationPort;
     use web::signature::SignatureService;
     // The finalize path transitions the canonical request under the
@@ -536,8 +537,8 @@ async fn document_sign(
         Arc::new(services::CapturingAuditPort::default()),
         Arc::new(services::CapturingDomainEventPort::default()),
     );
-    DocumentSignService::new(
-        db::DocumentSignDao::new(db.clone()),
+    LuxesignService::new(
+        db::LuxesignDao::new(db.clone()),
         Arc::new(SignatureService::new_optional(
             db::SignatureDao::new(db.clone()),
             None,
@@ -550,8 +551,20 @@ async fn document_sign(
             web::vault::artifact::shared(),
             infra(),
         )),
-        infra(),
+        runtime,
     )
+}
+
+async fn luxesign(
+    db: &Database,
+) -> web::luxesign::LuxesignService<
+    db::LuxesignDao,
+    db::SignatureDao,
+    SignerDao,
+    EmailDao,
+    db::VaultDao,
+> {
+    luxesign_with_runtime(db, infra()).await
 }
 
 #[tokio::test]
@@ -576,15 +589,26 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
         complete(&signing, &db, recipient, &token, &ctx).await;
     }
 
-    let service = document_sign(&db).await;
+    // The service the production subscriber uses, composed the way production composes it.
+    let service = luxesign_production(&db).await;
+    // Production seals an envelope under the finalizer's own system actor (the subscriber), not the signer edge.
+    let finalizer = ServiceContext {
+        actor: ServiceActor {
+            id: Some(web::luxesign::worker::LUXESIGN_FINALIZER_ACTOR.into()),
+            kind: ServiceActorKind::System,
+        },
+        correlation_id: tag.clone(),
+        causation_id: None,
+        principal: None,
+    };
     // Finalize before Signed refuses: the envelope is still requested.
-    let mut tx = db.begin("docsign-proof-finalize").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-finalize").await.unwrap();
     let refused = service
-        .finalize_transactional(&mut tx, &env.request_id, &ctx)
+        .finalize_transactional(&mut tx, &env.request_id, &finalizer)
         .await
         .expect_err("requested envelopes cannot finalize");
     tx.rollback().await.unwrap();
-    assert_eq!(refused.code(), "DOCUMENT_SIGN_NOT_MUTABLE");
+    assert_eq!(refused.code(), "LUXESIGN_NOT_MUTABLE");
 
     // The envelope's original: a one-page PDF stored the Vault way, so
     // finalize has bytes to seal.
@@ -620,7 +644,7 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
     .await
     .unwrap();
     sqlx::query("update transaction_document set media_id = $2::uuid where title = $1")
-        .bind(format!("docsign proof {tag}"))
+        .bind(format!("luxesign proof {tag}"))
         .bind(&original_id)
         .execute(db.pool())
         .await
@@ -632,7 +656,7 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
         None,
         infra(),
     );
-    let mut tx = db.begin("docsign-proof-finalize").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-finalize").await.unwrap();
     for target in [SignatureRequestStatus::Sent, SignatureRequestStatus::Signed] {
         signature
             .transition_transactional(&mut tx, &env.request_id, target, &ctx)
@@ -640,9 +664,9 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
             .expect("step the canonical machine");
     }
     tx.commit().await.unwrap();
-    let mut tx = db.begin("docsign-proof-finalize").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-finalize").await.unwrap();
     let done = service
-        .finalize_transactional(&mut tx, &env.request_id, &ctx)
+        .finalize_transactional(&mut tx, &env.request_id, &finalizer)
         .await
         .expect("finalize");
     tx.commit().await.unwrap();
@@ -651,7 +675,7 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
 
     // The canonical request is Completed and the audit trail is linked.
     let status: String =
-        sqlx::query_scalar("select status from signature_request where id = $1::uuid")
+        sqlx::query_scalar("select status from luxesign_request where id = $1::uuid")
             .bind(&env.request_id)
             .fetch_one(db.pool())
             .await
@@ -659,7 +683,7 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
     assert_eq!(status, "completed");
     let linked: Option<String> = sqlx::query_scalar(
         "select td.signed_audit_media_id::text from transaction_document td \
-         join signature_request sr on sr.transaction_document_id = td.id \
+         join luxesign_request sr on sr.transaction_document_id = td.id \
          where sr.id = $1::uuid",
     )
     .bind(&env.request_id)
@@ -681,7 +705,7 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
     let _ = sealed_len;
     let signed_id: Option<String> = sqlx::query_scalar(
         "select td.signed_media_id::text from transaction_document td \
-         join signature_request sr on sr.transaction_document_id = td.id \
+         join luxesign_request sr on sr.transaction_document_id = td.id \
          where sr.id = $1::uuid",
     )
     .bind(&env.request_id)
@@ -721,9 +745,9 @@ async fn finalize_closes_a_signed_envelope_with_its_audit_trail() {
         .fetch_one(db.pool())
         .await
         .unwrap();
-    let mut tx = db.begin("docsign-proof-finalize").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-finalize").await.unwrap();
     let replay = service
-        .finalize_transactional(&mut tx, &env.request_id, &ctx)
+        .finalize_transactional(&mut tx, &env.request_id, &finalizer)
         .await
         .expect("replay answers");
     tx.commit().await.unwrap();
@@ -749,19 +773,19 @@ async fn sweep_expires_overdue_grants_and_envelopes() {
     let env = envelope(&db, &tag).await;
     let signing = signer(&db);
     let ctx = context(&tag);
-    let service = document_sign(&db).await;
+    let service = luxesign(&db).await;
 
     // Grant already lapsed for A, envelope clock in the past. The grant
     // is issued normally then aged back (keeping expires_at > created_at,
     // which the table constrains); only time travel is faked, not the rows.
-    let mut tx = db.begin("docsign-proof-sweep").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-sweep").await.unwrap();
     signing
         .issue_access_transactional(&mut tx, &env.a, None, &ctx)
         .await
         .expect("grant");
     tx.commit().await.unwrap();
     sqlx::query(
-        "update signature_recipient_access          set created_at = now() - interval '10 days', expires_at = now() - interval '2 days'          where recipient_id = $1::uuid",
+        "update luxesign_recipient_access          set created_at = now() - interval '10 days', expires_at = now() - interval '2 days'          where recipient_id = $1::uuid",
     )
     .bind(&env.a)
     .execute(db.pool())
@@ -769,7 +793,7 @@ async fn sweep_expires_overdue_grants_and_envelopes() {
     .unwrap();
     let past = chrono::Utc::now() - chrono::Duration::days(2);
     sqlx::query(
-        "update document_sign_request          set created_at = now() - interval '10 days', expires_at = $2          where signature_request_id = $1::uuid",
+        "update luxesign_config          set created_at = now() - interval '10 days', expires_at = $2          where signature_request_id = $1::uuid",
     )
     .bind(&env.request_id)
     .bind(past)
@@ -782,7 +806,7 @@ async fn sweep_expires_overdue_grants_and_envelopes() {
         None,
         infra(),
     );
-    let mut tx = db.begin("docsign-proof-sweep").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-sweep").await.unwrap();
     signature
         .transition_transactional(
             &mut tx,
@@ -794,7 +818,7 @@ async fn sweep_expires_overdue_grants_and_envelopes() {
         .expect("sent");
     tx.commit().await.unwrap();
 
-    let mut tx = db.begin("docsign-proof-sweep").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-sweep").await.unwrap();
     let swept = service
         .sweep_due_transactional(&mut tx, &ctx)
         .await
@@ -804,7 +828,7 @@ async fn sweep_expires_overdue_grants_and_envelopes() {
     assert!(swept.expired_envelopes.contains(&env.request_id));
 
     let state: String = sqlx::query_scalar(
-        "select state from signature_recipient_state where recipient_id = $1::uuid",
+        "select state from luxesign_recipient_state where recipient_id = $1::uuid",
     )
     .bind(&env.a)
     .fetch_one(db.pool())
@@ -812,7 +836,7 @@ async fn sweep_expires_overdue_grants_and_envelopes() {
     .unwrap();
     assert_eq!(state, "expired");
     let status: String =
-        sqlx::query_scalar("select status from signature_request where id = $1::uuid")
+        sqlx::query_scalar("select status from luxesign_request where id = $1::uuid")
             .bind(&env.request_id)
             .fetch_one(db.pool())
             .await
@@ -820,7 +844,7 @@ async fn sweep_expires_overdue_grants_and_envelopes() {
     assert_eq!(status, "expired");
 
     // Second sweep is a no-op: terminal states never reopen.
-    let mut tx = db.begin("docsign-proof-sweep").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-sweep").await.unwrap();
     let swept = service
         .sweep_due_transactional(&mut tx, &ctx)
         .await
@@ -840,7 +864,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
     let env = envelope(&db, &tag).await;
     // B claims the seller slot; A and C stay slotless.
     sqlx::query(
-        "update signature_envelope_recipient          set execution_role = 'seller', execution_slot_id = 's1' where id = $1::uuid",
+        "update luxesign_envelope_recipient          set execution_role = 'seller', execution_slot_id = 's1' where id = $1::uuid",
     )
     .bind(&env.b)
     .execute(db.pool())
@@ -860,9 +884,9 @@ async fn import_builds_owned_fields_from_template_anchors() {
             height: 20.0,
         },
     };
-    let service = document_sign(&db).await;
+    let service = luxesign(&db).await;
     let ctx = context(&tag);
-    let mut tx = db.begin("docsign-proof-import").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-import").await.unwrap();
     let imported = service
         .import_fields_transactional(
             &mut tx,
@@ -879,7 +903,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
 
     // The imported fields belong to B; the fixture field stays with A.
     let mut owners: Vec<String> = sqlx::query_scalar(
-        "select distinct recipient_id::text from signature_field where signature_request_id = $1::uuid",
+        "select distinct recipient_id::text from luxesign_field where signature_request_id = $1::uuid",
     )
     .bind(&env.request_id)
     .fetch_all(db.pool())
@@ -891,7 +915,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
     assert_eq!(owners, expected);
 
     // Re-import upserts by key: no duplicates.
-    let mut tx = db.begin("docsign-proof-import").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-import").await.unwrap();
     let replay = service
         .import_fields_transactional(
             &mut tx,
@@ -906,7 +930,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
     tx.commit().await.unwrap();
     assert_eq!(replay.created_field_ids.len(), 1);
     let count: i64 = sqlx::query_scalar(
-        "select count(*) from signature_field where signature_request_id = $1::uuid",
+        "select count(*) from luxesign_field where signature_request_id = $1::uuid",
     )
     .bind(&env.request_id)
     .fetch_one(db.pool())
@@ -920,7 +944,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
     sqlx::query(
         "update transaction_document set source_snapshot = $2, issued_checksum_sha256 = 'proof', template_id = 'proof', template_version = 1, issued_version = 1 where title = $1",
     )
-    .bind(format!("docsign proof {tag}"))
+    .bind(format!("luxesign proof {tag}"))
     .bind(serde_json::json!({
         "signatureAnchors": [{
             "role": "seller", "slotId": "s1", "kind": "initials",
@@ -931,8 +955,8 @@ async fn import_builds_owned_fields_from_template_anchors() {
     .execute(db.pool())
     .await
     .unwrap();
-    let service = document_sign(&db).await;
-    let mut tx = db.begin("docsign-proof-import").await.unwrap();
+    let service = luxesign(&db).await;
+    let mut tx = db.begin("luxesign-proof-import").await.unwrap();
     let from_template = service
         .import_fields_transactional(
             &mut tx,
@@ -947,7 +971,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
     tx.commit().await.unwrap();
     assert_eq!(from_template.created_field_ids.len(), 1);
     let owner: String =
-        sqlx::query_scalar("select recipient_id::text from signature_field where id = $1::uuid")
+        sqlx::query_scalar("select recipient_id::text from luxesign_field where id = $1::uuid")
             .bind(&from_template.created_field_ids[0])
             .fetch_one(db.pool())
             .await
@@ -955,7 +979,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
     assert_eq!(owner, env.b);
 
     // An anchor no recipient claims fails loud instead of half-mapping.
-    let mut tx = db.begin("docsign-proof-import").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-import").await.unwrap();
     let refused = service
         .import_fields_transactional(
             &mut tx,
@@ -971,7 +995,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
         .await
         .expect_err("unclaimed anchor refuses");
     tx.rollback().await.unwrap();
-    assert_eq!(refused.code(), "DOCUMENT_SIGN_FIELD_INVALID");
+    assert_eq!(refused.code(), "LUXESIGN_FIELD_INVALID");
     cleanup(&db, &env).await;
 }
 
@@ -983,7 +1007,7 @@ async fn import_builds_owned_fields_from_template_anchors() {
 // router builds from the environment — so what is proven is the path a person's click takes: token → session → open →
 // consent → field → complete, the durable command dispatcher in between, and the refusals at each door.
 
-const HTTP_KEY: &str = "docsign-http-proof-internal-key";
+const HTTP_KEY: &str = "luxesign-http-proof-internal-key";
 const CONSENT_SHA: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
 
 async fn post(
@@ -1009,7 +1033,7 @@ fn outcome(body: &serde_json::Value) -> String {
 
 async fn recipient_state(db: &Database, recipient: &str) -> (String, bool) {
     sqlx::query_as::<_, (String, bool)>(
-        "select state, completed_at is not null from signature_recipient_state where recipient_id = $1::uuid",
+        "select state, completed_at is not null from luxesign_recipient_state where recipient_id = $1::uuid",
     )
     .bind(recipient)
     .fetch_one(db.pool())
@@ -1192,7 +1216,7 @@ async fn signers_complete_an_envelope_over_the_public_http_edge() {
 
     // ── What the database holds is the audit trail ──────────────────────────────────────────────────────────────
     let responses: i64 = sqlx::query_scalar(
-        "select count(*) from signature_field_response where field_id = $1::uuid",
+        "select count(*) from luxesign_field_response where field_id = $1::uuid",
     )
     .bind(&env.field_a)
     .fetch_one(db.pool())
@@ -1200,7 +1224,7 @@ async fn signers_complete_an_envelope_over_the_public_http_edge() {
     .unwrap();
     assert_eq!(responses, 1, "A's field response was recorded once");
     let events: Vec<String> = sqlx::query_scalar(
-        "select event_type from signature_evidence_event where signature_request_id = $1::uuid order by id",
+        "select event_type from luxesign_evidence_event where signature_request_id = $1::uuid order by id",
     )
     .bind(&env.request_id)
     .fetch_all(db.pool())
@@ -1255,7 +1279,7 @@ async fn attach_original(db: &Database, tag: &str, original: &[u8]) {
     .await
     .expect("original media");
     sqlx::query("update transaction_document set media_id = $2::uuid where title = $1")
-        .bind(format!("docsign proof {tag}"))
+        .bind(format!("luxesign proof {tag}"))
         .bind(&media_id)
         .execute(db.pool())
         .await
@@ -1313,7 +1337,7 @@ async fn a_signer_is_shown_the_document_they_are_asked_to_sign() {
 
     // ISSUED: both recipients of the envelope see the envelope's own PDF, byte for byte, as a PDF the browser can open.
     sqlx::query(
-        "update document_sign_request set issued_at = now() where signature_request_id = $1::uuid",
+        "update luxesign_config set issued_at = now() where signature_request_id = $1::uuid",
     )
     .bind(&env.request_id)
     .execute(db.pool())
@@ -1364,7 +1388,7 @@ async fn a_signer_is_shown_the_document_they_are_asked_to_sign() {
         .starts_with("attachment"));
 
     // A VOIDED envelope shows nothing, even to a recipient whose link has not expired.
-    sqlx::query("update signature_request set status = 'voided' where id = $1::uuid")
+    sqlx::query("update luxesign_request set status = 'voided' where id = $1::uuid")
         .bind(&env.request_id)
         .execute(db.pool())
         .await
@@ -1380,13 +1404,13 @@ async fn a_signer_is_shown_the_document_they_are_asked_to_sign() {
 
 /// The service as production composes it: the real policy, so the system-actor steps inside "send" are decided by
 /// the same rules that decide them in production.
-async fn document_sign_production(
+async fn luxesign_production(
     db: &Database,
-) -> std::sync::Arc<web::document_sign::ProductionDocumentSignService> {
+) -> std::sync::Arc<web::luxesign::ProductionLuxesignService> {
     let infrastructure = web::service_bootstrap::production_service_infrastructure(db)
         .await
         .expect("the production service infrastructure composes");
-    web::composition::ServiceCatalog::new(db.clone(), infrastructure).document_sign()
+    web::composition::ServiceCatalog::new(db.clone(), infrastructure).luxesign()
 }
 
 /// A PDF with `pages` pages, each carrying its number.
@@ -1428,7 +1452,7 @@ async fn bare_document(db: &Database, tag: &str, pages: usize) -> String {
          values ($1::uuid, 'agreement', $2, 'draft', 'generated') returning id::text",
     )
     .bind(&deal)
-    .bind(format!("docsign proof {tag}"))
+    .bind(format!("luxesign proof {tag}"))
     .fetch_one(db.pool())
     .await
     .unwrap();
@@ -1436,8 +1460,8 @@ async fn bare_document(db: &Database, tag: &str, pages: usize) -> String {
     id
 }
 
-fn person(name: &str, email: &str, order: i32) -> model::DocumentSignRecipientInput {
-    model::DocumentSignRecipientInput {
+fn person(name: &str, email: &str, order: i32) -> model::LuxesignRecipientInput {
+    model::LuxesignRecipientInput {
         role: model::SignatureRecipientRole::Signer,
         name: name.into(),
         email: email.into(),
@@ -1451,12 +1475,12 @@ fn person(name: &str, email: &str, order: i32) -> model::DocumentSignRecipientIn
 #[tokio::test]
 #[ignore = "requires DATABASE_URL_DEV"]
 async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() {
-    use model::{DocumentSigningMode, SendDocumentSignRequest, SendFieldPlacement};
+    use model::{LuxesignSigningMode, SendFieldPlacement, SendLuxesignRequest};
     let db = Database::connect_target(DbTarget::Dev).await.unwrap();
     let tag = format!("send-{}", Uuid::new_v4());
     sweep_tag(&db, &tag).await;
     let document = bare_document(&db, &tag, 3).await;
-    let service = document_sign_production(&db).await;
+    let service = luxesign_production(&db).await;
     // The author is a real app user: the draft records who prepared it.
     let author: String = sqlx::query_scalar("select id::text from app_user limit 1")
         .fetch_one(db.pool())
@@ -1470,7 +1494,7 @@ async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() 
         principal.level = "BUSINESS_POWER_USER".into();
         principal.role_codes = vec!["owner".into()];
     }
-    let request = |placement| SendDocumentSignRequest {
+    let request = |placement| SendLuxesignRequest {
         transaction_document_id: document.clone(),
         recipients: vec![
             person("Ada", &format!("{tag}-a@example.test"), 1),
@@ -1478,7 +1502,7 @@ async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() 
         ],
         subject: Some("Purchase agreement".into()),
         message: None,
-        signing_mode: DocumentSigningMode::Parallel,
+        signing_mode: LuxesignSigningMode::Parallel,
         expires_at: None,
         placement,
         copy_to: vec![],
@@ -1486,7 +1510,7 @@ async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() 
     };
 
     // A page the document does not have is refused BEFORE anything is written.
-    let mut tx = db.begin("docsign-proof-send").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-send").await.unwrap();
     let refused = service
         .send_transactional(
             &mut tx,
@@ -1501,7 +1525,7 @@ async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() 
         "the refusal names the real page count: {refused:?}"
     );
     let drafts: i64 = sqlx::query_scalar(
-        "select count(*) from signature_request where transaction_document_id = $1::uuid",
+        "select count(*) from luxesign_request where transaction_document_id = $1::uuid",
     )
     .bind(&document)
     .fetch_one(db.pool())
@@ -1510,7 +1534,7 @@ async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() 
     assert_eq!(drafts, 0, "a refused send leaves no draft behind");
 
     // The last page: one signature per signer, issued, one invitation each.
-    let mut tx = db.begin("docsign-proof-send").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-send").await.unwrap();
     let sent = service
         .send_transactional(&mut tx, &request(SendFieldPlacement::LastPage), &ctx)
         .await
@@ -1533,9 +1557,9 @@ async fn send_prepares_places_and_issues_in_one_step_and_knows_the_page_count() 
         .collect();
     assert_eq!(owners.len(), 2, "each person has their own box");
     let issued: bool = sqlx::query_scalar(
-        "select issued_at is not null from document_sign_request where signature_request_id = $1::uuid",
+        "select issued_at is not null from luxesign_config where signature_request_id = $1::uuid",
     )
-    .bind(&sent.snapshot.signature_request.id)
+    .bind(&sent.snapshot.luxesign_request.id)
     .fetch_one(db.pool())
     .await
     .unwrap();
@@ -1596,7 +1620,7 @@ async fn http(
 #[tokio::test]
 #[ignore = "requires DATABASE_URL_DEV"]
 async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and_why() {
-    use model::{DocumentSigningMode, SendDocumentSignRequest, SendFieldPlacement};
+    use model::{LuxesignSigningMode, SendFieldPlacement, SendLuxesignRequest};
     let db = Database::connect_target(DbTarget::Dev).await.unwrap();
     let tag = format!("seal-{}", Uuid::new_v4());
     sweep_tag(&db, &tag).await;
@@ -1623,7 +1647,7 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
         .await
         .expect("production infrastructure");
     let catalog = web::composition::ServiceCatalog::new(db.clone(), infrastructure.clone());
-    let service = catalog.document_sign();
+    let service = catalog.luxesign();
     let router = web::api::build_router(
         db.clone(),
         infrastructure.clone(),
@@ -1637,16 +1661,16 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
     let ada = format!("{tag}-ada@example.test");
     let bo = format!("{tag}-bo@example.test");
     let broker = format!("{tag}-broker@example.test");
-    let mut tx = db.begin("docsign-proof-seal").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-seal").await.unwrap();
     let sent = service
         .send_transactional(
             &mut tx,
-            &SendDocumentSignRequest {
+            &SendLuxesignRequest {
                 transaction_document_id: document.clone(),
                 recipients: vec![person("Ada Alvarez", &ada, 1), person("Bo Díaz", &bo, 2)],
                 subject: Some("Listing Agreement".into()),
                 message: Some("Please sign today.".into()),
-                signing_mode: DocumentSigningMode::Parallel,
+                signing_mode: LuxesignSigningMode::Parallel,
                 expires_at: None,
                 placement: SendFieldPlacement::LastPage,
                 copy_to: vec![broker.clone(), " ".into(), broker.to_uppercase()],
@@ -1657,7 +1681,7 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
         .await
         .expect("send");
     tx.commit().await.unwrap();
-    let request_id = sent.snapshot.signature_request.id.clone();
+    let request_id = sent.snapshot.luxesign_request.id.clone();
 
     // ── Both sign, over the public edge, as people do ────────────────────────────────────────────────────────────
     for (name, email) in [("Ada Alvarez", &ada), ("Bo Díaz", &bo)] {
@@ -1679,7 +1703,7 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
         );
         assert_eq!(
             session["value"]["documentTitle"],
-            format!("docsign proof {tag}")
+            format!("luxesign proof {tag}")
         );
         assert_eq!(session["value"]["message"], "Please sign today.");
         assert_eq!(
@@ -1722,7 +1746,7 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
         }
     }
     let seen: i64 = sqlx::query_scalar(
-        "select count(*) from signature_evidence_event where signature_request_id = $1::uuid \
+        "select count(*) from luxesign_evidence_event where signature_request_id = $1::uuid \
             and evidence->>'ipAddress' = '203.0.113.7' and evidence->>'userAgent' = 'DocsignProof/1.0'",
     )
     .bind(&request_id)
@@ -1735,7 +1759,7 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
     );
 
     // ── Seal ─────────────────────────────────────────────────────────────────────────────────────────────────────
-    let mut tx = db.begin("docsign-proof-seal").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-seal").await.unwrap();
     let done = service
         .finalize_transactional(&mut tx, &request_id, &ctx)
         .await
@@ -1797,7 +1821,7 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
     let mail = &sent_mail[0];
     assert_eq!(
         mail.subject,
-        format!("Signed: docsign proof {tag} — CulebraLuxe")
+        format!("Signed: luxesign proof {tag} — Luxesign")
     );
     assert!(mail
         .html
@@ -1871,16 +1895,16 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
         account_type: "internal".into(),
         entitlement_codes: vec![],
     });
-    let mut tx = db.begin("docsign-proof-decline").await.unwrap();
+    let mut tx = db.begin("luxesign-proof-decline").await.unwrap();
     let sent = service
         .send_transactional(
             &mut tx,
-            &SendDocumentSignRequest {
+            &SendLuxesignRequest {
                 transaction_document_id: document,
                 recipients: vec![person("Cat", &cat, 1), person("Dan", &dan, 2)],
                 subject: None,
                 message: None,
-                signing_mode: DocumentSigningMode::Parallel,
+                signing_mode: LuxesignSigningMode::Parallel,
                 expires_at: None,
                 placement: SendFieldPlacement::LastPage,
                 copy_to: vec![],
@@ -1916,7 +1940,7 @@ async fn a_signed_envelope_is_sealed_everyone_is_told_and_a_decline_says_who_and
         "select recipient_email, template_payload->>'declinerName', template_payload->>'reason' from email_message \
           where message_kind = 'signature_declined' and template_payload->>'signatureRequestId' = $1 order by recipient_email",
     )
-    .bind(&sent.snapshot.signature_request.id)
+    .bind(&sent.snapshot.luxesign_request.id)
     .fetch_all(db.pool())
     .await
     .unwrap();
@@ -1976,7 +2000,7 @@ async fn a_presigned_listing_agreement_is_sent_by_its_own_anchors_signed_and_sea
 {
     use base64::Engine as _;
     use model::{
-        forms::FormSignerPerson, DocumentSigningMode, SendDocumentSignRequest, SendFieldPlacement,
+        forms::FormSignerPerson, LuxesignSigningMode, SendFieldPlacement, SendLuxesignRequest,
         VaultRenderRequest,
     };
     let db = Database::connect_target(DbTarget::Dev).await.unwrap();
@@ -2050,7 +2074,7 @@ async fn a_presigned_listing_agreement_is_sent_by_its_own_anchors_signed_and_sea
          returning id::text",
     )
     .bind(&deal)
-    .bind(format!("docsign proof {tag}"))
+    .bind(format!("luxesign proof {tag}"))
     .bind(serde_json::json!({ "render": metadata, "templateId": "LISTING-01" }))
     .fetch_one(db.pool())
     .await
@@ -2070,7 +2094,7 @@ async fn a_presigned_listing_agreement_is_sent_by_its_own_anchors_signed_and_sea
         .await
         .unwrap();
     let catalog = web::composition::ServiceCatalog::new(db.clone(), infrastructure.clone());
-    let service = catalog.document_sign();
+    let service = catalog.luxesign();
     let router = web::api::build_router(
         db.clone(),
         infrastructure,
@@ -2085,12 +2109,12 @@ async fn a_presigned_listing_agreement_is_sent_by_its_own_anchors_signed_and_sea
     let sent = service
         .send_transactional(
             &mut tx,
-            &SendDocumentSignRequest {
+            &SendLuxesignRequest {
                 transaction_document_id: document.clone(),
                 recipients: vec![person("Ada Alvarez", &ada, 1)],
                 subject: Some("Listing Agreement".into()),
                 message: None,
-                signing_mode: DocumentSigningMode::Parallel,
+                signing_mode: LuxesignSigningMode::Parallel,
                 expires_at: None,
                 placement: SendFieldPlacement::Template,
                 copy_to: vec![],
@@ -2249,7 +2273,7 @@ async fn a_presigned_listing_agreement_is_sent_by_its_own_anchors_signed_and_sea
 
     let mut tx = db.begin("anchors").await.unwrap();
     let done = service
-        .finalize_transactional(&mut tx, &sent.snapshot.signature_request.id, &ctx)
+        .finalize_transactional(&mut tx, &sent.snapshot.luxesign_request.id, &ctx)
         .await
         .expect("finalize");
     tx.commit().await.unwrap();

@@ -462,7 +462,7 @@ impl<R: SignatureRepository> SignatureService<R> {
             };
             if current.status == target {
                 return Ok(SignatureStatusResult {
-                    signature_request: current,
+                    luxesign_request: current,
                     transitioned: false,
                 });
             }
@@ -487,7 +487,7 @@ impl<R: SignatureRepository> SignatureService<R> {
                 ));
             };
             Ok(SignatureStatusResult {
-                signature_request: updated,
+                luxesign_request: updated,
                 transitioned: true,
             })
         }
@@ -561,13 +561,13 @@ impl<R: SignatureRepository> SignatureService<R> {
             let provider = self.provider()?;
             let delivery = provider
                 .send(SignatureProviderSendRequest {
-                    signature_request_id: recorded.signature_request.id.clone(),
+                    signature_request_id: recorded.luxesign_request.id.clone(),
                     transaction_document_id: recorded
-                        .signature_request
+                        .luxesign_request
                         .transaction_document_id
                         .clone(),
                     recipients: request.recipients.clone(),
-                    message: recorded.signature_request.message.clone(),
+                    message: recorded.luxesign_request.message.clone(),
                     signature_role: request
                         .signature_role
                         .clone()
@@ -586,7 +586,7 @@ impl<R: SignatureRepository> SignatureService<R> {
                 .apply_status(
                     &ApplySignatureStatusRequest {
                         command_id: Uuid::new_v4().to_string(),
-                        signature_request_id: recorded.signature_request.id,
+                        signature_request_id: recorded.luxesign_request.id,
                         target_status: Some(target),
                     },
                     actor,

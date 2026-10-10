@@ -13,7 +13,7 @@ fix the repo chain, rewrite the bad specs, write the rest, defer BoldSign, build
 | S4 | Migration numbers are unique and the ledger agrees with the repo in both directions on DEV | `db_migration__004` ok 4.72s, `db_migration__005` ok 1.08s |
 | S5 | The boot gate exists and refuses by name: `db/src/boot_gate.rs`, called from `web/src/http_runtime.rs:15` | `db_migration__007` ok 15.93s |
 | S6 | DEV is shared: three Maestro bots are finishing runs in it | do NOT reset it; every fixture must be marker-scoped |
-| S7 | No remaining `TST-%` story mentions BoldSign; the BoldSign code is still in the tree | `grep -rli boldsign --include='*.rs' .` → `middle/apis/src/boldsign/*`, `web/src/document_sign/mod.rs` |
+| S7 | No remaining `TST-%` story mentions BoldSign; the BoldSign code is still in the tree | `grep -rli boldsign --include='*.rs' .` → `middle/apis/src/boldsign/*`, `web/src/luxesign/mod.rs` |
 | S8 | DEV holds **zero** leftover fixtures from this session's contract tests, including the two runs this lane's terminal window killed mid-test (they left five `TST-CRM-PERSON-002-%` rows behind; deleted by marker before the re-run) | `psql "$DATABASE_URL_DEV" -c "select count(*) from person where display_name like 'TST-CRM-%'"` → `0`, and the same for `app_user` |
 | S9 | The screen host's staleness rule is a public, tested predicate instead of an inline comparison; the UI extraction changed no behaviour | `answer_lands` / `classify_change`, `web/ui/src/app/host.rs:40,59`; `pnpm ui:check` Finished 6.79s; `ui_model__007__stale_response` ok 0.00s |
 

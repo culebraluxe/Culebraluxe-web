@@ -1,7 +1,7 @@
 //! DB.CONCURRENCY — two signature webhooks (TST-DB-CONCURRENCY-009).
 //!
 //! Contract: two concurrent webhook deliveries for the same signature request
-//! converge to one legal durable state. The `signature_request` table uses
+//! converge to one legal durable state. The `luxesign_request` table uses
 //! a partial unique index on `(transaction_document_id)` where status is
 //! active; exactly one webhook creates the request, the other finds the existing one.
 //!
@@ -22,12 +22,12 @@ use test_harness::fault::{Fault, FaultInjector};
 use uuid::Uuid;
 
 async fn sweep(db: &Database, doc_id: &str) {
-    sqlx::query("delete from signature_envelope_recipient where signature_request_id in (select id from signature_request where transaction_document_id = $1::uuid)")
+    sqlx::query("delete from luxesign_envelope_recipient where signature_request_id in (select id from luxesign_request where transaction_document_id = $1::uuid)")
         .bind(doc_id)
         .execute(db.pool())
         .await
         .expect("recipient sweep");
-    sqlx::query("delete from signature_request where transaction_document_id = $1::uuid")
+    sqlx::query("delete from luxesign_request where transaction_document_id = $1::uuid")
         .bind(doc_id)
         .execute(db.pool())
         .await
@@ -55,7 +55,7 @@ async fn create_document(db: &Database, doc_id: &str) {
 
 async fn count_signature_requests(db: &Database, doc_id: &str) -> i64 {
     sqlx::query_scalar(
-        "select count(*)::bigint from signature_request where transaction_document_id = $1::uuid",
+        "select count(*)::bigint from luxesign_request where transaction_document_id = $1::uuid",
     )
     .bind(doc_id)
     .fetch_one(db.pool())

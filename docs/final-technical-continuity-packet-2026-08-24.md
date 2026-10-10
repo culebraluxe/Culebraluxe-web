@@ -486,7 +486,7 @@ CRM-27 is not business-complete until the required execution policy is resolved/
 
 ### Defect 7 — Single active signature request constraint creates sequential evidence
 
-Current `signature_request` semantics appear to assume sequential role requests. That may be acceptable operationally, but it is not the same as native multi-signer envelope completion.
+Current `luxesign_request` semantics appear to assume sequential role requests. That may be acceptable operationally, but it is not the same as native multi-signer envelope completion.
 
 Do not redesign this provider seam casually.
 

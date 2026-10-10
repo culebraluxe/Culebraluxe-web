@@ -49,7 +49,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/HANDOFF-c1-to-first-landing-2026-10-03.md` — index · top-level harness page · last touched 2026-10-03
 - `docs/agent/HANDOFF-contacts-port-2026-09-28.md` — index · top-level harness page · last touched untracked
 - `docs/agent/HANDOFF-deploy-exposure-2026-10-05.md` — index · top-level harness page · last touched 2026-10-05
-- `docs/agent/HANDOFF-docsign-native-2026-10-07.md` — index · top-level harness page · last touched 2026-10-08
+- `docs/agent/HANDOFF-luxesign-native-2026-10-07.md` — index · top-level harness page · last touched 2026-10-08
 - `docs/agent/HANDOFF-engine-run-2026-09-29.md` — index · top-level harness page · last touched untracked
 - `docs/agent/HANDOFF-failed-29-adjudication-2026-10-08.md` — index · top-level harness page · last touched 2026-10-08
 - `docs/agent/HANDOFF-forge-live-cockpit-2026-10-02.md` — index · top-level harness page · last touched untracked

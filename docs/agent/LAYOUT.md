@@ -223,12 +223,12 @@ you are reading, run `cargo clean -p <crate>` before believing it, and never rep
 after a clean.** A phantom red is as expensive as a phantom green.
 
 **The same trap has a second shape, hit on 2026-10-04: a missing FIELD, not a method.** `cargo test -p cli` in `lane-deep`
-died on `E0063: missing field \`signed_media_id\` in initializer of \`DocumentSignFinalizeResult\`` at
-`web/src/document_sign/mod.rs:1283` and `:1350` — while `middle/model/src/document_sign.rs` defines that struct with three
+died on `E0063: missing field \`signed_media_id\` in initializer of \`LuxesignFinalizeResult\`` at
+`web/src/luxesign/mod.rs:1283` and `:1350` — while `middle/model/src/luxesign.rs` defines that struct with three
 fields and the string `signed_media_id` exists in no model source in either checkout. What forced the mismatch was a
 `web → forge` path dependency that had just changed (the adapter commit), so `web` recompiled while the `model` artifact
 beside it stayed "fresh" by mtime from another lane's build: the recompile answered about *that* lane's struct. `touch
-middle/model/src/document_sign.rs web/src/document_sign/mod.rs` — no `cargo clean` needed — and the identical command
+middle/model/src/luxesign.rs web/src/luxesign/mod.rs` — no `cargo clean` needed — and the identical command
 went green in 13.6s. So the rule generalizes to any symbol: **when a compile error names a method, field, type or variant
 that the file you are reading does not have, you are compiling a stale artifact; bump the mtime of the files that define
 it, fall back to `cargo clean -p <crate>`, and never report the red.** (Until 2026-10-07 that stale artifact could be

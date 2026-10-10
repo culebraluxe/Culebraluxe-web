@@ -80,7 +80,7 @@ Files
 
 Tables
 - Read-only: `project`, `wbs_item`, `document_form_instance`, `document_form_participant`, `deal`, `deal_participant`,
-  `signature_request`, `transaction_document`, `media`/`property_media`, `syndication`/placement tables,
+  `luxesign_request`, `transaction_document`, `media`/`property_media`, `syndication`/placement tables,
   `account_receivable`/`account_expense`, `property`, `person`/`mv_client_directory`, `contract`. No DDL.
 
 Routes

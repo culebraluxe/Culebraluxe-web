@@ -3,7 +3,7 @@
 //!
 //! Contract: the ordinary internal USER starts with nothing — every query and every command is denied until a grant
 //! names it — and each explicitly granted entitlement opens exactly what it says: the named action in the named kind.
-//! On top of grants sit two level floors the grant cannot lower: `contract.execute` and `documentSign.issue` demand
+//! On top of grants sit two level floors the grant cannot lower: `contract.execute` and `luxesign.issue` demand
 //! BUSINESS_POWER_USER even when the grant is held. In production this is one decision in one place:
 //! `CasbinAuthorizationPort::authorize` (`web/src/security/entitlements.rs`), driven here through the public
 //! `services::AuthorizationPort` with an in-memory enforcer seeded from the production action catalog (no database,
@@ -16,7 +16,7 @@
 //! - **Explicit grants open exactly their action and kind.** `person.read` opens the query; `person.write` opens the
 //!   command; neither opens anything else.
 //! - **A grant never travels.** `person.read` authorizes no other action.
-//! - **Grants do not lower floors.** `contract.execute` and `documentSign.issue` stay refused for a USER holding the
+//! - **Grants do not lower floors.** `contract.execute` and `luxesign.issue` stay refused for a USER holding the
 //!   grant: the level floor is checked before the grant, so an accidental grant cannot escalate.
 //!
 //! Level: L3 Composition — the real authorizer, the real catalog-seeded policy, the real principal shape.
@@ -168,12 +168,12 @@ async fn sec_role_003__user_is_read_only_by_default_except_explicitly_granted_cr
         "a grant for one action must not read another"
     );
 
-    // 4. GRANTS DO NOT LOWER FLOORS. `contract.execute` and `documentSign.issue` demand BUSINESS_POWER_USER: a USER
+    // 4. GRANTS DO NOT LOWER FLOORS. `contract.execute` and `luxesign.issue` demand BUSINESS_POWER_USER: a USER
     //    holding the grant is still refused, by the floor rule rather than by the grant check — so an accidental
     //    grant cannot escalate a high-value, near-irreversible command.
     for (action, domain, operation) in [
         ("contract.execute", "contract", "contract.execute"),
-        ("documentSign.issue", "document-sign", "documentSign.issue"),
+        ("luxesign.issue", "luxesign", "luxesign.issue"),
     ] {
         let (actor, principal) = user(&[action]);
         let floored = auth

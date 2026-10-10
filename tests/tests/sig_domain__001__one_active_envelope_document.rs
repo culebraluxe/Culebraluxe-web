@@ -1,7 +1,7 @@
 //! SIG.DOMAIN — one active envelope/document (TST-SIG-DOMAIN-001).
 //!
 //! Contract: at most one active signature request exists per transaction document at any time.
-//! The database enforces this via a unique partial index on `signature_request(transaction_document_id)`
+//! The database enforces this via a unique partial index on `luxesign_request(transaction_document_id)`
 //! where status is active ('requested', 'sent', 'viewed', 'signed').
 //!
 //! This test verifies that the production SignatureDao enforces this constraint by rejecting
@@ -50,7 +50,7 @@ async fn sig_domain_001__one_active_envelope_document() {
     // 2. Create the first active signature request (status = 'requested') by direct insert.
     //    This bypasses the DAO validation but exercises the database constraint directly.
     let req1_id: String = sqlx::query_scalar(
-        "insert into signature_request (id, transaction_document_id, status, created_at, updated_at)
+        "insert into luxesign_request (id, transaction_document_id, status, created_at, updated_at)
          values (gen_random_uuid(), $1::uuid, 'requested', now(), now())
          returning id::text",
     )
@@ -62,7 +62,7 @@ async fn sig_domain_001__one_active_envelope_document() {
     // 3. Attempt to create a second active signature request for the same document.
     //    This should be rejected by the database unique partial index.
     let result = sqlx::query(
-        "insert into signature_request (id, transaction_document_id, status, created_at, updated_at)
+        "insert into luxesign_request (id, transaction_document_id, status, created_at, updated_at)
          values (gen_random_uuid(), $1::uuid, 'requested', now(), now())",
     )
     .bind(&tx_doc_id)
@@ -82,7 +82,7 @@ async fn sig_domain_001__one_active_envelope_document() {
 
     // 5. Verify the first request still exists and is active.
     let count: i64 = sqlx::query_scalar(
-        "select count(*) from signature_request where transaction_document_id = $1::uuid and status in ('requested', 'sent', 'viewed', 'signed')",
+        "select count(*) from luxesign_request where transaction_document_id = $1::uuid and status in ('requested', 'sent', 'viewed', 'signed')",
     )
     .bind(&tx_doc_id)
     .fetch_one(database.database().pool())
@@ -93,7 +93,7 @@ async fn sig_domain_001__one_active_envelope_document() {
         "{HARNESS}: exactly one active signature request must exist"
     );
 
-    // 6. Cleanup - delete the transaction document (cascades to signature_request).
+    // 6. Cleanup - delete the transaction document (cascades to luxesign_request).
     sqlx::query("delete from transaction_document where id = $1::uuid")
         .bind(&tx_doc_id)
         .execute(database.database().pool())
@@ -101,4 +101,4 @@ async fn sig_domain_001__one_active_envelope_document() {
         .expect("cleanup must work");
 }
 
-const DOCUMENT_SIGN_SERVICE_ACTOR: &str = "document-sign-service";
+const LUXESIGN_SERVICE_ACTOR: &str = "luxesign-service";

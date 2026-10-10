@@ -73,12 +73,7 @@ async fn service_abstract_010__events_emitted_through_common_boundary() {
     let mut payload = BTreeMap::new();
     payload.insert("signatureRequestId".to_owned(), serde_json::json!("sr-1"));
     runtime
-        .emit(
-            "DOCUMENT_SIGN_ISSUED",
-            Some("sr-1".into()),
-            payload,
-            &context,
-        )
+        .emit("LUXESIGN_ISSUED", Some("sr-1".into()), payload, &context)
         .await
         .expect("emitting through the common boundary must not fail");
     let emitted = events.events();
@@ -87,7 +82,7 @@ async fn service_abstract_010__events_emitted_through_common_boundary() {
         1,
         "{HARNESS}: one emit must record exactly one domain event"
     );
-    assert_eq!(emitted[0].event_type, "DOCUMENT_SIGN_ISSUED");
+    assert_eq!(emitted[0].event_type, "LUXESIGN_ISSUED");
     assert_eq!(emitted[0].aggregate_id.as_deref(), Some("sr-1"));
     assert_eq!(
         emitted[0].payload.get("signatureRequestId"),
@@ -109,7 +104,7 @@ async fn service_abstract_010__events_emitted_through_common_boundary() {
         ..context.clone()
     };
     runtime
-        .emit("DOCUMENT_SIGN_SWEPT", None, BTreeMap::new(), &context_bare)
+        .emit("LUXESIGN_SWEPT", None, BTreeMap::new(), &context_bare)
         .await
         .expect("a bare emit must not fail");
     let emitted = events.events();
@@ -121,7 +116,7 @@ async fn service_abstract_010__events_emitted_through_common_boundary() {
     let broken = make_runtime(Arc::new(FailingEventPort));
     let error = broken
         .emit(
-            "DOCUMENT_SIGN_ISSUED",
+            "LUXESIGN_ISSUED",
             Some("sr-1".into()),
             BTreeMap::new(),
             &context,

@@ -65,7 +65,7 @@ struct StoredRequest {
     request: SignatureRequest,
 }
 
-/// The in-memory store standing in for `signature_request`, wired to the REAL `SignatureService`.
+/// The in-memory store standing in for `luxesign_request`, wired to the REAL `SignatureService`.
 ///
 /// The fake records every mutating call so a test can assert that an error from the provider short-circuits BEFORE
 /// any state change — the invariant the "provider error mapping" and "download failure rolls back" contracts
@@ -96,7 +96,7 @@ impl SignatureHarness {
         }
     }
 
-    /// Seed a request directly, the way `signature_request` would hold it after `send`.
+    /// Seed a request directly, the way `luxesign_request` would hold it after `send`.
     pub fn with_request(
         self,
         id: &str,
@@ -250,7 +250,7 @@ impl SignatureRepository for SignatureHarness {
         };
         let value = SignatureRequestResult {
             existing: false,
-            signature_request: stored.clone(),
+            luxesign_request: stored.clone(),
         };
         self.requests
             .lock()
@@ -259,7 +259,7 @@ impl SignatureRepository for SignatureHarness {
         Ok(SignatureCommandResult {
             command_id: request.command_id.clone(),
             outcome: SignatureCommandOutcome::Success,
-            aggregate_id: Some(value.signature_request.id.clone()),
+            aggregate_id: Some(value.luxesign_request.id.clone()),
             message: None,
             replayed: false,
             value: Some(serde_json::to_value(value).map_err(|error| {
@@ -309,10 +309,10 @@ impl SignatureRepository for SignatureHarness {
             }
         };
         let value = SignatureStatusResult {
-            signature_request: stored.request.clone(),
+            luxesign_request: stored.request.clone(),
             transitioned,
         };
-        debug_assert_eq!(value.signature_request.status, target);
+        debug_assert_eq!(value.luxesign_request.status, target);
         Ok(SignatureCommandResult {
             command_id: request.command_id.clone(),
             outcome: SignatureCommandOutcome::Success,

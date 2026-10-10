@@ -51,7 +51,7 @@ async fn sig_reconcile_002__original_remains_unchanged() {
         .await
         .unwrap();
     let request: String = sqlx::query_scalar(
-        "insert into signature_request (transaction_document_id, status) \
+        "insert into luxesign_request (transaction_document_id, status) \
          values ($1::uuid, 'completed') returning id::text",
     )
     .bind(&doc)
@@ -117,7 +117,7 @@ async fn sig_reconcile_002__original_remains_unchanged() {
     assert!(signed_media.is_some());
 
     // Clean up.
-    sqlx::query("delete from signature_request where transaction_document_id = $1::uuid")
+    sqlx::query("delete from luxesign_request where transaction_document_id = $1::uuid")
         .bind(&doc)
         .execute(db.pool())
         .await

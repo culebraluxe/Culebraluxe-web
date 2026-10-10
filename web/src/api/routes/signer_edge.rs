@@ -6,14 +6,14 @@
 //! actor (`signature-recipient:<id>`) from the VERIFIED token — never from
 //! request JSON — and runs mutations through the durable command dispatcher
 //! with that context. Casbin admits exactly the six signer ops for the
-//! `document-sign-edge` actor; everything else stays refused.
+//! `luxesign-edge` actor; everything else stays refused.
 
 #[allow(unused_imports)]
 use super::*;
 
 use services::{ServiceActor, ServiceActorKind};
 
-use crate::signer::DOCSIGN_EDGE_ACTOR;
+use crate::signer::LUXESIGN_EDGE_ACTOR;
 
 async fn edge_session(
     state: &ApiState,
@@ -42,7 +42,7 @@ async fn edge_session(
 fn edge_context(correlation_id: &str) -> ServiceContext {
     ServiceContext {
         actor: ServiceActor {
-            id: Some(DOCSIGN_EDGE_ACTOR.into()),
+            id: Some(LUXESIGN_EDGE_ACTOR.into()),
             kind: ServiceActorKind::System,
         },
         correlation_id: correlation_id.into(),
@@ -118,7 +118,7 @@ async fn edge_command(
     let request = CommandRequest {
         command_id: uuid::Uuid::new_v4().to_string(),
         command_type: command_type.into(),
-        aggregate_type: "signature_recipient".into(),
+        aggregate_type: "luxesign_recipient".into(),
         aggregate_id: Some(recipient_id.clone()),
         requested_at: chrono::Utc::now().to_rfc3339(),
         input: body.as_object().cloned().unwrap_or_default(),
@@ -253,7 +253,7 @@ pub(super) async fn signer_preview(
             .with_correlation(correlation_id.clone())
         })?;
     let text = |key: &str| body.get(key).and_then(serde_json::Value::as_str);
-    let bytes = crate::document_sign::preview_pdf(
+    let bytes = crate::luxesign::preview_pdf(
         &original.bytes,
         &session.fields,
         &session.recipient.name,

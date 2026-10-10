@@ -1,4 +1,4 @@
-use crate::document_sign::{DocumentSignRecipient, SignatureField};
+use crate::luxesign::{LuxesignRecipient, SignatureField};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -84,7 +84,7 @@ pub struct SignerRecipientState {
 #[serde(rename_all = "camelCase")]
 pub struct SignerSession {
     pub signature_request_id: String,
-    pub recipient: DocumentSignRecipient,
+    pub recipient: LuxesignRecipient,
     pub state: SignerRecipientState,
     pub fields: Vec<SignatureField>,
     pub consented: bool,

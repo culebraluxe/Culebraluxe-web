@@ -35,7 +35,7 @@ async fn sig_reconcile_001__signed_bytes_appended_as_new_media() {
     .await
     .expect("document fixture");
     let request: String = sqlx::query_scalar(
-        "insert into signature_request (transaction_document_id, status) \
+        "insert into luxesign_request (transaction_document_id, status) \
          values ($1::uuid, 'completed') returning id::text",
     )
     .bind(&doc)
@@ -111,7 +111,7 @@ async fn sig_reconcile_001__signed_bytes_appended_as_new_media() {
     .fetch_one(db.pool())
     .await
     .unwrap();
-    sqlx::query("delete from signature_request where transaction_document_id = $1::uuid")
+    sqlx::query("delete from luxesign_request where transaction_document_id = $1::uuid")
         .bind(&doc)
         .execute(db.pool())
         .await

@@ -8,7 +8,6 @@ use crate::{
     communications::CommsService,
     contracts::ContractService,
     deals::DealPortalService,
-    document_sign::{DocumentSignService, ProductionDocumentSignService},
     email::{transport_from_env as email_transport_from_env, EmailService},
     firms::FirmService,
     flight_recorder::FlightRecorderService,
@@ -17,6 +16,7 @@ use crate::{
     intake::IntakeService,
     issues::IssueService,
     lookup::ServiceDirectory,
+    luxesign::{LuxesignService, ProductionLuxesignService},
     marketing::MarketingService,
     media::MediaService,
     people::PersonService,
@@ -42,11 +42,11 @@ use apis::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use async_trait::async_trait;
 use db::{
     AccountingDao, CalendarDao, CatchUpDao, ClientDao, ClientRoomDao, CockpitDao, CommsDao,
-    ContractDao, Database, DealPortalDao, DocumentSignDao, EmailDao, FirmDao, FlightRecorderDao,
-    FormDao, GuestDao, GuideDao, IntakeDao, IssueDao, MarketingDao, MediaDao, PersonDao,
-    ProjectDao, PropertyDao, PublicListingDao, PublishingDao, RelationshipEvidenceDao, SecurityDao,
-    ShowingDao, SignatureDao, SignerDao, SupportDiagnosticsDao, TaskDao, TechCockpitDao, VaultDao,
-    WbsDao, WebsiteLeadDao, WhatsAppDao, WorkflowPortalDao,
+    ContractDao, Database, DealPortalDao, EmailDao, FirmDao, FlightRecorderDao, FormDao, GuestDao,
+    GuideDao, IntakeDao, IssueDao, LuxesignDao, MarketingDao, MediaDao, PersonDao, ProjectDao,
+    PropertyDao, PublicListingDao, PublishingDao, RelationshipEvidenceDao, SecurityDao, ShowingDao,
+    SignatureDao, SignerDao, SupportDiagnosticsDao, TaskDao, TechCockpitDao, VaultDao, WbsDao,
+    WebsiteLeadDao, WhatsAppDao, WorkflowPortalDao,
 };
 use forge::ForgeService;
 use services::{
@@ -233,7 +233,7 @@ pub struct ServiceCatalog {
     signature: Arc<SignatureService<SignatureDao>>,
     email: Arc<EmailService<EmailDao>>,
     signer: Arc<SignerService<SignerDao>>,
-    document_sign: Arc<ProductionDocumentSignService>,
+    luxesign: Arc<ProductionLuxesignService>,
     support: Arc<SupportDiagnosticsService<SupportDiagnosticsDao>>,
     security: Arc<SecurityService<SecurityDao>>,
     vault: Arc<VaultService<VaultDao>>,
@@ -348,8 +348,8 @@ impl ServiceCatalog {
             signer_codec,
             infrastructure.clone(),
         ));
-        let document_sign = Arc::new(DocumentSignService::new(
-            DocumentSignDao::new(db.clone()),
+        let luxesign = Arc::new(LuxesignService::new(
+            LuxesignDao::new(db.clone()),
             signature.clone(),
             signer.clone(),
             email.clone(),
@@ -469,7 +469,7 @@ impl ServiceCatalog {
             signature,
             email,
             signer,
-            document_sign,
+            luxesign,
             support: Arc::new(SupportDiagnosticsService::new(
                 SupportDiagnosticsDao::new(db.clone()),
                 infrastructure.clone(),
@@ -546,7 +546,7 @@ impl ServiceCatalog {
             self.signature.clone(),
             self.email.clone(),
             self.signer.clone(),
-            self.document_sign.clone(),
+            self.luxesign.clone(),
             self.support.clone(),
             self.security.clone(),
             self.vault.clone(),
@@ -580,7 +580,7 @@ catalog_accessors! {
     relationship_evidence: RelationshipEvidenceService<RelationshipEvidenceDao>, property: PropertyService<PropertyDao>,
     calendar: CalendarService<CalendarDao>, comms: CommsService<CommsDao>, deal_portal: DealPortalService<DealPortalDao>,
     contract: ContractService<ContractDao>, showing: ShowingService<ShowingDao>, support: SupportDiagnosticsService<SupportDiagnosticsDao>,
-    email: EmailService<EmailDao>, signer: SignerService<SignerDao>, document_sign: ProductionDocumentSignService,
+    email: EmailService<EmailDao>, signer: SignerService<SignerDao>, luxesign: ProductionLuxesignService,
     security: SecurityService<SecurityDao>, vault: VaultService<VaultDao>, task: TaskService<TaskDao>, wbs: WbsService<WbsDao>,
     workflow_portal: WorkflowPortalService<WorkflowPortalDao>, flight_recorder: FlightRecorderService<FlightRecorderDao>,
     tech: TechCockpitService<TechCockpitDao>, whatsapp: WhatsAppService<WhatsAppDao>, accounting: AccountingService<AccountingDao>,

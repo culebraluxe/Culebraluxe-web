@@ -20,7 +20,7 @@ impl SignatureDao {
                    status, message, execution_role, execution_slot_id,
                    created_by_user_id::text as created_by_user_id,
                    created_at, updated_at
-            from signature_request
+            from luxesign_request
             where id = $1::uuid
             limit 1
             "#,
@@ -43,7 +43,7 @@ impl SignatureDao {
                    status, message, execution_role, execution_slot_id,
                    created_by_user_id::text as created_by_user_id,
                    created_at, updated_at
-            from signature_request
+            from luxesign_request
             where transaction_document_id = $1::uuid
               and status in ('requested', 'sent', 'viewed', 'signed')
             order by created_at asc, id
@@ -68,7 +68,7 @@ impl SignatureDao {
                    status, message, execution_role, execution_slot_id,
                    created_by_user_id::text as created_by_user_id,
                    created_at, updated_at
-            from signature_request
+            from luxesign_request
             where transaction_document_id = $1::uuid
             order by created_at asc, id
             "#,
@@ -144,7 +144,7 @@ impl SignatureDao {
 
         let inserted = sqlx::query_as::<_, SignatureRow>(
             r#"
-            insert into signature_request (
+            insert into luxesign_request (
                 transaction_document_id, status, message, created_by_user_id
             )
             values ($1::uuid, 'requested', $2, $3::uuid)
@@ -170,7 +170,7 @@ impl SignatureDao {
             for recipient in &request.recipients {
                 sqlx::query(
                     r#"
-                    insert into signature_envelope_recipient (
+                    insert into luxesign_envelope_recipient (
                         signature_request_id, execution_role, execution_slot_id,
                         recipient_name, recipient_email, signer_order,
                         recipient_role, signing_step
@@ -199,7 +199,7 @@ impl SignatureDao {
                        status, message, execution_role, execution_slot_id,
                        created_by_user_id::text as created_by_user_id,
                        created_at, updated_at
-                  from signature_request
+                  from luxesign_request
                  where transaction_document_id = $1::uuid
                    and status in ('requested', 'sent', 'viewed', 'signed')
                  order by created_at, id
@@ -214,7 +214,7 @@ impl SignatureDao {
         };
 
         Ok(SignatureRequestResult {
-            signature_request: signature,
+            luxesign_request: signature,
             existing,
         })
     }
@@ -248,7 +248,7 @@ impl SignatureDao {
         let row = sqlx::query_as::<_, (String, Option<Value>)>(
             r#"
             select sr.status, td.source_snapshot
-              from signature_request sr
+              from luxesign_request sr
               join transaction_document td on td.id = sr.transaction_document_id
              where sr.id = $1::uuid
              for update of sr
@@ -282,7 +282,7 @@ impl SignatureDao {
         }
 
         sqlx::query(
-            "delete from signature_envelope_recipient where signature_request_id = $1::uuid",
+            "delete from luxesign_envelope_recipient where signature_request_id = $1::uuid",
         )
         .bind(signature_request_id)
         .execute(tx.connection())
@@ -292,7 +292,7 @@ impl SignatureDao {
         for recipient in recipients {
             sqlx::query(
                 r#"
-                insert into signature_envelope_recipient (
+                insert into luxesign_envelope_recipient (
                     signature_request_id, execution_role, execution_slot_id,
                     recipient_name, recipient_email, signer_order,
                     recipient_role, signing_step
@@ -327,7 +327,7 @@ impl SignatureDao {
                    status, message, execution_role, execution_slot_id,
                    created_by_user_id::text as created_by_user_id,
                    created_at, updated_at
-              from signature_request
+              from luxesign_request
              where id = $1::uuid
              for update
             "#,
@@ -348,7 +348,7 @@ impl SignatureDao {
     ) -> DbResult<Option<SignatureRequest>> {
         let row = sqlx::query_as::<_, SignatureRow>(
             r#"
-            update signature_request
+            update luxesign_request
                set status = $3, updated_at = now()
              where id = $1::uuid
                and status = $2
@@ -551,7 +551,7 @@ impl SignatureDao {
 
             let inserted = sqlx::query_as::<_, SignatureRow>(
                 r#"
-                insert into signature_request (
+                insert into luxesign_request (
                     transaction_document_id, status, message, created_by_user_id,
                     execution_role, execution_slot_id
                 )
@@ -579,7 +579,7 @@ impl SignatureDao {
                 for recipient in &request.recipients {
                     sqlx::query(
                         r#"
-                        insert into signature_envelope_recipient (
+                        insert into luxesign_envelope_recipient (
                             signature_request_id, execution_role, execution_slot_id,
                             recipient_name, recipient_email, signer_order,
                             recipient_role, signing_step
@@ -610,7 +610,7 @@ impl SignatureDao {
                            status, message, execution_role, execution_slot_id,
                            created_by_user_id::text as created_by_user_id,
                            created_at, updated_at
-                    from signature_request
+                    from luxesign_request
                     where transaction_document_id = $1::uuid
                       and status in ('requested', 'sent', 'viewed', 'signed')
                     order by created_at asc, id
@@ -669,7 +669,7 @@ impl SignatureDao {
 
             let aggregate_id = signature.id.clone();
             let value = serde_json::to_value(SignatureRequestResult {
-                signature_request: signature,
+                luxesign_request: signature,
                 existing,
             })
             .map_err(|error| {
@@ -782,7 +782,7 @@ impl SignatureDao {
                    td.signed_media_id::text as signed_media_id,
                    td.signed_audit_media_id::text as signed_audit_media_id,
                    td.signed_at
-            from signature_request sr
+            from luxesign_request sr
             join transaction_document td on td.id = sr.transaction_document_id
             where sr.id = $1::uuid
             limit 1

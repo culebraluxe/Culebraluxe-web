@@ -552,9 +552,9 @@ impl VaultDao {
         let row = sqlx::query_as::<_, MediaRow>(
             r#"
             select m.file_data, m.filename, m.mime_type
-            from signature_envelope_recipient r
-            join signature_request sr on sr.id = r.signature_request_id
-            join document_sign_request dsr on dsr.signature_request_id = sr.id
+            from luxesign_envelope_recipient r
+            join luxesign_request sr on sr.id = r.signature_request_id
+            join luxesign_config dsr on dsr.signature_request_id = sr.id
             join transaction_document td on td.id = sr.transaction_document_id
             join media m on m.id = td.media_id
             where r.id = $2::uuid
@@ -590,8 +590,8 @@ impl VaultDao {
         let row = sqlx::query_as::<_, MediaRow>(
             r#"
             select m.file_data, m.filename, m.mime_type
-            from signature_envelope_recipient r
-            join signature_request sr on sr.id = r.signature_request_id
+            from luxesign_envelope_recipient r
+            join luxesign_request sr on sr.id = r.signature_request_id
             join transaction_document td on td.id = sr.transaction_document_id
             join media m on m.id = td.signed_media_id
             where r.id = $2::uuid
@@ -623,7 +623,7 @@ impl VaultDao {
         let rows = sqlx::query_as::<_, MediaRow>(
             r#"
             select m.file_data, m.filename, m.mime_type
-            from signature_request sr
+            from luxesign_request sr
             join transaction_document td on td.id = sr.transaction_document_id
             join media m on m.id in (td.signed_media_id, td.signed_audit_media_id)
             where sr.id = $1::uuid

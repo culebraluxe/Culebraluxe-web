@@ -6,18 +6,18 @@ use crate::vault::{VaultRepository, VaultService};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use db::{
-    DbResult, DbTransaction, DocumentSignDao, EmailDao, FinalizeInputs, SignatureDao, SignerDao,
+    DbResult, DbTransaction, EmailDao, FinalizeInputs, LuxesignDao, SignatureDao, SignerDao,
     VaultDao,
 };
 use model::{
-    validate_document_sign_recipients, DocumentSignConfig, DocumentSignEnvelopeSummary,
-    DocumentSignFinalizeResult, DocumentSignIssueResult, DocumentSignRecipient,
-    DocumentSignSendResult, DocumentSignSnapshot, DocumentSignSweepResult, EmailMessageKind,
-    ImportAnchorFieldsRequest, ImportAnchorFieldsResult, IssueDocumentSignRequest,
-    PrepareDocumentSignRequest, PrepareSignatureRequest, PreparedSignatureRecipient,
-    PutSignatureFieldRequest, QueueEmailRequest, RemoveSignatureFieldRequest,
-    SendDocumentSignRequest, SendFieldPlacement, SetDocumentSignRecipientsRequest, SignatureField,
-    SignatureFieldType, SignatureRecipientRole, SignatureRequestStatus, TemplateAnchor,
+    validate_luxesign_recipients, EmailMessageKind, ImportAnchorFieldsRequest,
+    ImportAnchorFieldsResult, IssueLuxesignRequest, LuxesignConfig, LuxesignEnvelopeSummary,
+    LuxesignFinalizeResult, LuxesignIssueResult, LuxesignRecipient, LuxesignSendResult,
+    LuxesignSnapshot, LuxesignSweepResult, PrepareLuxesignRequest, PrepareSignatureRequest,
+    PreparedSignatureRecipient, PutSignatureFieldRequest, QueueEmailRequest,
+    RemoveSignatureFieldRequest, SendFieldPlacement, SendLuxesignRequest,
+    SetLuxesignRecipientsRequest, SignatureField, SignatureFieldType, SignatureRecipientRole,
+    SignatureRequestStatus, TemplateAnchor,
 };
 use serde_json::{json, Value};
 use services::{
@@ -29,19 +29,19 @@ pub mod worker;
 
 use std::sync::Arc;
 
-pub const DOCUMENT_SIGN_SERVICE_ACTOR: &str = "document-sign-service";
+pub const LUXESIGN_SERVICE_ACTOR: &str = "luxesign-service";
 const DEFAULT_EXPIRY_DAYS: i64 = 7;
 
 #[async_trait]
-pub trait DocumentSignRepository: Send + Sync {
-    async fn config(&self, signature_request_id: &str) -> DbResult<Option<DocumentSignConfig>>;
-    async fn list_envelopes(&self, limit: i64) -> DbResult<Vec<DocumentSignEnvelopeSummary>>;
-    async fn recipients(&self, signature_request_id: &str) -> DbResult<Vec<DocumentSignRecipient>>;
+pub trait LuxesignRepository: Send + Sync {
+    async fn config(&self, signature_request_id: &str) -> DbResult<Option<LuxesignConfig>>;
+    async fn list_envelopes(&self, limit: i64) -> DbResult<Vec<LuxesignEnvelopeSummary>>;
+    async fn recipients(&self, signature_request_id: &str) -> DbResult<Vec<LuxesignRecipient>>;
     async fn recipients_tx(
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
-    ) -> DbResult<Vec<DocumentSignRecipient>>;
+    ) -> DbResult<Vec<LuxesignRecipient>>;
     async fn fields(&self, signature_request_id: &str) -> DbResult<Vec<SignatureField>>;
     async fn fields_tx(
         &self,
@@ -53,9 +53,9 @@ pub trait DocumentSignRepository: Send + Sync {
         tx: &mut DbTransaction,
         signature_request_id: &str,
         subject: Option<&str>,
-        signing_mode: model::DocumentSigningMode,
+        signing_mode: model::LuxesignSigningMode,
         expires_at: Option<DateTime<Utc>>,
-    ) -> DbResult<DocumentSignConfig>;
+    ) -> DbResult<LuxesignConfig>;
     async fn set_notice_tx(
         &self,
         tx: &mut DbTransaction,
@@ -98,7 +98,7 @@ pub trait DocumentSignRepository: Send + Sync {
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
-    ) -> DbResult<Option<DocumentSignConfig>>;
+    ) -> DbResult<Option<LuxesignConfig>>;
     async fn mark_issued_tx(
         &self,
         tx: &mut DbTransaction,
@@ -159,32 +159,32 @@ pub trait DocumentSignRepository: Send + Sync {
 }
 
 #[async_trait]
-impl DocumentSignRepository for DocumentSignDao {
-    async fn config(&self, signature_request_id: &str) -> DbResult<Option<DocumentSignConfig>> {
-        DocumentSignDao::config(self, signature_request_id).await
+impl LuxesignRepository for LuxesignDao {
+    async fn config(&self, signature_request_id: &str) -> DbResult<Option<LuxesignConfig>> {
+        LuxesignDao::config(self, signature_request_id).await
     }
-    async fn list_envelopes(&self, limit: i64) -> DbResult<Vec<DocumentSignEnvelopeSummary>> {
-        DocumentSignDao::list_envelopes(self, limit).await
+    async fn list_envelopes(&self, limit: i64) -> DbResult<Vec<LuxesignEnvelopeSummary>> {
+        LuxesignDao::list_envelopes(self, limit).await
     }
-    async fn recipients(&self, signature_request_id: &str) -> DbResult<Vec<DocumentSignRecipient>> {
-        DocumentSignDao::recipients(self, signature_request_id).await
+    async fn recipients(&self, signature_request_id: &str) -> DbResult<Vec<LuxesignRecipient>> {
+        LuxesignDao::recipients(self, signature_request_id).await
     }
     async fn recipients_tx(
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
-    ) -> DbResult<Vec<DocumentSignRecipient>> {
-        DocumentSignDao::recipients_tx(self, tx, signature_request_id).await
+    ) -> DbResult<Vec<LuxesignRecipient>> {
+        LuxesignDao::recipients_tx(self, tx, signature_request_id).await
     }
     async fn fields(&self, signature_request_id: &str) -> DbResult<Vec<SignatureField>> {
-        DocumentSignDao::fields(self, signature_request_id).await
+        LuxesignDao::fields(self, signature_request_id).await
     }
     async fn fields_tx(
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<Vec<SignatureField>> {
-        DocumentSignDao::fields_tx(self, tx, signature_request_id).await
+        LuxesignDao::fields_tx(self, tx, signature_request_id).await
     }
     async fn set_notice_tx(
         &self,
@@ -193,7 +193,7 @@ impl DocumentSignRepository for DocumentSignDao {
         copy_to_emails: &[String],
         reminder_every_days: i32,
     ) -> DbResult<()> {
-        DocumentSignDao::set_notice_tx(
+        LuxesignDao::set_notice_tx(
             self,
             tx,
             signature_request_id,
@@ -207,38 +207,38 @@ impl DocumentSignRepository for DocumentSignDao {
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<(Vec<String>, i32)> {
-        DocumentSignDao::notice_tx(self, tx, signature_request_id).await
+        LuxesignDao::notice_tx(self, tx, signature_request_id).await
     }
     async fn operator_email_tx(
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<Option<String>> {
-        DocumentSignDao::operator_email_tx(self, tx, signature_request_id).await
+        LuxesignDao::operator_email_tx(self, tx, signature_request_id).await
     }
     async fn document_title_tx(
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<Option<String>> {
-        DocumentSignDao::document_title_tx(self, tx, signature_request_id).await
+        LuxesignDao::document_title_tx(self, tx, signature_request_id).await
     }
     async fn reminders_due_tx(
         &self,
         tx: &mut DbTransaction,
         max_reminders: i64,
     ) -> DbResult<Vec<(String, String)>> {
-        DocumentSignDao::reminders_due_tx(self, tx, max_reminders).await
+        LuxesignDao::reminders_due_tx(self, tx, max_reminders).await
     }
     async fn create_config_tx(
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
         subject: Option<&str>,
-        signing_mode: model::DocumentSigningMode,
+        signing_mode: model::LuxesignSigningMode,
         expires_at: Option<DateTime<Utc>>,
-    ) -> DbResult<DocumentSignConfig> {
-        DocumentSignDao::create_config_tx(
+    ) -> DbResult<LuxesignConfig> {
+        LuxesignDao::create_config_tx(
             self,
             tx,
             signature_request_id,
@@ -253,7 +253,7 @@ impl DocumentSignRepository for DocumentSignDao {
         tx: &mut DbTransaction,
         request: &PutSignatureFieldRequest,
     ) -> DbResult<Option<SignatureField>> {
-        DocumentSignDao::put_field_tx(self, tx, request).await
+        LuxesignDao::put_field_tx(self, tx, request).await
     }
     async fn remove_field_tx(
         &self,
@@ -261,14 +261,14 @@ impl DocumentSignRepository for DocumentSignDao {
         signature_request_id: &str,
         field_id: &str,
     ) -> DbResult<bool> {
-        DocumentSignDao::remove_field_tx(self, tx, signature_request_id, field_id).await
+        LuxesignDao::remove_field_tx(self, tx, signature_request_id, field_id).await
     }
     async fn lock_config_tx(
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
-    ) -> DbResult<Option<DocumentSignConfig>> {
-        DocumentSignDao::lock_config_tx(self, tx, signature_request_id).await
+    ) -> DbResult<Option<LuxesignConfig>> {
+        LuxesignDao::lock_config_tx(self, tx, signature_request_id).await
     }
     async fn mark_issued_tx(
         &self,
@@ -276,14 +276,14 @@ impl DocumentSignRepository for DocumentSignDao {
         signature_request_id: &str,
         expires_at: DateTime<Utc>,
     ) -> DbResult<bool> {
-        DocumentSignDao::mark_issued_tx(self, tx, signature_request_id, expires_at).await
+        LuxesignDao::mark_issued_tx(self, tx, signature_request_id, expires_at).await
     }
     async fn required_field_gaps_tx(
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<Vec<String>> {
-        DocumentSignDao::required_field_gaps_tx(self, tx, signature_request_id).await
+        LuxesignDao::required_field_gaps_tx(self, tx, signature_request_id).await
     }
     async fn store_audit_artifact_tx(
         &self,
@@ -293,7 +293,7 @@ impl DocumentSignRepository for DocumentSignDao {
         mime_type: &str,
         bytes: &[u8],
     ) -> DbResult<String> {
-        DocumentSignDao::store_audit_artifact_tx(
+        LuxesignDao::store_audit_artifact_tx(
             self,
             tx,
             transaction_document_id,
@@ -308,7 +308,7 @@ impl DocumentSignRepository for DocumentSignDao {
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<Option<String>> {
-        DocumentSignDao::audit_media_for_request_tx(self, tx, signature_request_id).await
+        LuxesignDao::audit_media_for_request_tx(self, tx, signature_request_id).await
     }
     async fn link_signed_media_tx(
         &self,
@@ -316,7 +316,7 @@ impl DocumentSignRepository for DocumentSignDao {
         transaction_document_id: &str,
         media_id: &str,
     ) -> DbResult<()> {
-        DocumentSignDao::link_signed_media_tx(self, tx, transaction_document_id, media_id).await
+        LuxesignDao::link_signed_media_tx(self, tx, transaction_document_id, media_id).await
     }
     async fn store_signed_artifact_tx(
         &self,
@@ -325,35 +325,35 @@ impl DocumentSignRepository for DocumentSignDao {
         mime_type: &str,
         bytes: &[u8],
     ) -> DbResult<String> {
-        DocumentSignDao::store_signed_artifact_tx(self, tx, filename, mime_type, bytes).await
+        LuxesignDao::store_signed_artifact_tx(self, tx, filename, mime_type, bytes).await
     }
     async fn overdue_envelopes_tx(&self, tx: &mut DbTransaction) -> DbResult<Vec<String>> {
-        DocumentSignDao::overdue_envelopes_tx(self, tx).await
+        LuxesignDao::overdue_envelopes_tx(self, tx).await
     }
     async fn canonical_status_tx(
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<Option<(String, String)>> {
-        DocumentSignDao::canonical_status_tx(self, tx, signature_request_id).await
+        LuxesignDao::canonical_status_tx(self, tx, signature_request_id).await
     }
     async fn signed_media_for_request_tx(
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<Option<String>> {
-        DocumentSignDao::signed_media_for_request_tx(self, tx, signature_request_id).await
+        LuxesignDao::signed_media_for_request_tx(self, tx, signature_request_id).await
     }
     async fn template_anchors_tx(
         &self,
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<Option<serde_json::Value>> {
-        DocumentSignDao::template_anchors_tx(self, tx, signature_request_id).await
+        LuxesignDao::template_anchors_tx(self, tx, signature_request_id).await
     }
 }
 
-pub struct DocumentSignService<R, SR, SGR, ER, VR> {
+pub struct LuxesignService<R, SR, SGR, ER, VR> {
     repository: R,
     signature: Arc<SignatureService<SR>>,
     signer: Arc<SignerService<SGR>>,
@@ -362,9 +362,9 @@ pub struct DocumentSignService<R, SR, SGR, ER, VR> {
     runtime: ServiceRuntime,
 }
 
-impl<R, SR, SGR, ER, VR> DocumentSignService<R, SR, SGR, ER, VR>
+impl<R, SR, SGR, ER, VR> LuxesignService<R, SR, SGR, ER, VR>
 where
-    R: DocumentSignRepository,
+    R: LuxesignRepository,
     SR: SignatureRepository,
     SGR: SignerRepository,
     ER: EmailRepository,
@@ -392,12 +392,12 @@ where
         &self,
         signature_request_id: &str,
         context: &ServiceContext,
-    ) -> Result<Option<DocumentSignSnapshot>, CoreServiceError> {
-        const OP: &str = "documentSign.get";
+    ) -> Result<Option<LuxesignSnapshot>, CoreServiceError> {
+        const OP: &str = "luxesign.get";
         let decision = authorize(
             &self.runtime,
-            "document-sign",
-            "documentSign.read",
+            "luxesign",
+            "luxesign.read",
             OP,
             OperationKind::Query,
             context,
@@ -408,20 +408,20 @@ where
             let Some(config) = self.repository.config(signature_request_id).await? else {
                 return Ok(None);
             };
-            let signature_request = self
+            let luxesign_request = self
                 .signature
                 .get(signature_request_id, context)
                 .await?
                 .ok_or_else(|| {
                     CoreServiceError::business(
-                        "DOCUMENT_SIGN_NOT_FOUND",
+                        "LUXESIGN_NOT_FOUND",
                         "Canonical signature request not found.",
                     )
                 })?;
             let recipients = self.repository.recipients(signature_request_id).await?;
             let fields = self.repository.fields(signature_request_id).await?;
-            Ok(Some(DocumentSignSnapshot {
-                signature_request,
+            Ok(Some(LuxesignSnapshot {
+                luxesign_request,
                 config,
                 recipients,
                 fields,
@@ -429,15 +429,7 @@ where
         }
         .await;
 
-        audit_result(
-            &self.runtime,
-            "document-sign",
-            OP,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
         result
     }
 
@@ -446,27 +438,19 @@ where
     pub async fn list(
         &self,
         context: &ServiceContext,
-    ) -> Result<Vec<DocumentSignEnvelopeSummary>, CoreServiceError> {
-        const OP: &str = "documentSign.list";
+    ) -> Result<Vec<LuxesignEnvelopeSummary>, CoreServiceError> {
+        const OP: &str = "luxesign.list";
         let decision = authorize(
             &self.runtime,
-            "document-sign",
-            "documentSign.read",
+            "luxesign",
+            "luxesign.read",
             OP,
             OperationKind::Query,
             context,
         )
         .await?;
         let result = self.repository.list_envelopes(50).await.map_err(Into::into);
-        audit_result(
-            &self.runtime,
-            "document-sign",
-            OP,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
         result
     }
 
@@ -475,11 +459,11 @@ where
         signature_request_id: &str,
         context: &ServiceContext,
     ) -> Result<Vec<SignatureField>, CoreServiceError> {
-        const OP: &str = "documentSign.fields";
+        const OP: &str = "luxesign.fields";
         let decision = authorize(
             &self.runtime,
-            "document-sign",
-            "documentSign.read",
+            "luxesign",
+            "luxesign.read",
             OP,
             OperationKind::Query,
             context,
@@ -490,29 +474,21 @@ where
             .fields(signature_request_id)
             .await
             .map_err(Into::into);
-        audit_result(
-            &self.runtime,
-            "document-sign",
-            OP,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
         result
     }
 
     pub async fn prepare_transactional(
         &self,
         tx: &mut DbTransaction,
-        request: &PrepareDocumentSignRequest,
+        request: &PrepareLuxesignRequest,
         context: &ServiceContext,
-    ) -> Result<DocumentSignSnapshot, CoreServiceError> {
-        const OP: &str = "documentSign.prepare";
+    ) -> Result<LuxesignSnapshot, CoreServiceError> {
+        const OP: &str = "luxesign.prepare";
         let decision = authorize(
             &self.runtime,
-            "document-sign",
-            "documentSign.write",
+            "luxesign",
+            "luxesign.write",
             OP,
             OperationKind::Command,
             context,
@@ -543,11 +519,11 @@ where
 
             let config = if canonical.existing {
                 self.repository
-                    .lock_config_tx(tx, &canonical.signature_request.id)
+                    .lock_config_tx(tx, &canonical.luxesign_request.id)
                     .await?
                     .ok_or_else(|| {
                         CoreServiceError::business(
-                            "DOCUMENT_SIGN_ACTIVE_SIGNATURE_EXISTS",
+                            "LUXESIGN_ACTIVE_SIGNATURE_EXISTS",
                             "This document already has an active non-native signature request.",
                         )
                     })?
@@ -555,7 +531,7 @@ where
                 self.repository
                     .create_config_tx(
                         tx,
-                        &canonical.signature_request.id,
+                        &canonical.luxesign_request.id,
                         request.subject.as_deref(),
                         request.signing_mode,
                         expires_at.clone(),
@@ -565,23 +541,23 @@ where
 
             let recipients = self
                 .repository
-                .recipients_tx(tx, &canonical.signature_request.id)
+                .recipients_tx(tx, &canonical.luxesign_request.id)
                 .await?;
             if canonical.existing
                 && !prepare_intent_matches(&config, &recipients, request, expires_at)
             {
                 return Err(CoreServiceError::business(
-                    "DOCUMENT_SIGN_ALREADY_PREPARED",
+                    "LUXESIGN_ALREADY_PREPARED",
                     "This document already has an active native signing draft with different intent.",
                 ));
             }
             let fields = self
                 .repository
-                .fields_tx(tx, &canonical.signature_request.id)
+                .fields_tx(tx, &canonical.luxesign_request.id)
                 .await?;
 
-            Ok(DocumentSignSnapshot {
-                signature_request: canonical.signature_request,
+            Ok(LuxesignSnapshot {
+                luxesign_request: canonical.luxesign_request,
                 config,
                 recipients,
                 fields,
@@ -589,29 +565,21 @@ where
         }
         .await;
 
-        audit_result(
-            &self.runtime,
-            "document-sign",
-            OP,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
         result
     }
 
     pub async fn set_recipients_transactional(
         &self,
         tx: &mut DbTransaction,
-        request: &SetDocumentSignRecipientsRequest,
+        request: &SetLuxesignRecipientsRequest,
         context: &ServiceContext,
-    ) -> Result<Vec<DocumentSignRecipient>, CoreServiceError> {
-        const OP: &str = "documentSign.setRecipients";
+    ) -> Result<Vec<LuxesignRecipient>, CoreServiceError> {
+        const OP: &str = "luxesign.setRecipients";
         let decision = authorize(
             &self.runtime,
-            "document-sign",
-            "documentSign.write",
+            "luxesign",
+            "luxesign.write",
             OP,
             OperationKind::Command,
             context,
@@ -620,10 +588,10 @@ where
 
         let result = async {
             ensure_mutable_config(&self.repository, tx, &request.signature_request_id).await?;
-            let errors = validate_document_sign_recipients(&request.recipients);
+            let errors = validate_luxesign_recipients(&request.recipients);
             if !errors.is_empty() {
                 return Err(CoreServiceError::business(
-                    "DOCUMENT_SIGN_RECIPIENT_INVALID",
+                    "LUXESIGN_RECIPIENT_INVALID",
                     errors.join(" "),
                 ));
             }
@@ -643,15 +611,7 @@ where
         }
         .await;
 
-        audit_result(
-            &self.runtime,
-            "document-sign",
-            OP,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
         result
     }
 
@@ -661,11 +621,11 @@ where
         request: &PutSignatureFieldRequest,
         context: &ServiceContext,
     ) -> Result<SignatureField, CoreServiceError> {
-        const OP: &str = "documentSign.putField";
+        const OP: &str = "luxesign.putField";
         let decision = authorize(
             &self.runtime,
-            "document-sign",
-            "documentSign.write",
+            "luxesign",
+            "luxesign.write",
             OP,
             OperationKind::Command,
             context,
@@ -680,22 +640,14 @@ where
                 .await?
                 .ok_or_else(|| {
                     CoreServiceError::business(
-                        "DOCUMENT_SIGN_FIELD_INVALID",
+                        "LUXESIGN_FIELD_INVALID",
                         "Field was not found in this signature request.",
                     )
                 })
         }
         .await;
 
-        audit_result(
-            &self.runtime,
-            "document-sign",
-            OP,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
         result
     }
 
@@ -705,11 +657,11 @@ where
         request: &RemoveSignatureFieldRequest,
         context: &ServiceContext,
     ) -> Result<(), CoreServiceError> {
-        const OP: &str = "documentSign.removeField";
+        const OP: &str = "luxesign.removeField";
         let decision = authorize(
             &self.runtime,
-            "document-sign",
-            "documentSign.write",
+            "luxesign",
+            "luxesign.write",
             OP,
             OperationKind::Command,
             context,
@@ -726,34 +678,26 @@ where
                 Ok(())
             } else {
                 Err(CoreServiceError::business(
-                    "DOCUMENT_SIGN_FIELD_INVALID",
+                    "LUXESIGN_FIELD_INVALID",
                     "Field was not found in this signature request.",
                 ))
             }
         }
         .await;
 
-        audit_result(
-            &self.runtime,
-            "document-sign",
-            OP,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
         result
     }
 
     /// Prepare, place every signer's signature field, and issue — in the caller's one transaction, so an envelope is
-    /// never left half-built. Each step is still authorized on its own (`documentSign.write`, then
-    /// `documentSign.issue`), so this grants nothing the three commands did not.
+    /// never left half-built. Each step is still authorized on its own (`luxesign.write`, then
+    /// `luxesign.issue`), so this grants nothing the three commands did not.
     pub async fn send_transactional(
         &self,
         tx: &mut DbTransaction,
-        request: &SendDocumentSignRequest,
+        request: &SendLuxesignRequest,
         context: &ServiceContext,
-    ) -> Result<DocumentSignSendResult, CoreServiceError> {
+    ) -> Result<LuxesignSendResult, CoreServiceError> {
         // The page count is read first (under the caller's authority) so a request for "the last page" is resolved
         // against the real document, and so a bad page is refused before anything is written.
         let page_count = self
@@ -764,14 +708,14 @@ where
             SendFieldPlacement::Template => None,
             SendFieldPlacement::LastPage => Some(page_count.ok_or_else(|| {
                 CoreServiceError::business(
-                    "DOCUMENT_SIGN_FIELD_INVALID",
+                    "LUXESIGN_FIELD_INVALID",
                     "The document has no readable PDF, so its last page is unknown.",
                 )
             })? as i32),
             SendFieldPlacement::Page { page_number } => {
                 if *page_number < 1 || page_count.is_some_and(|count| *page_number as u32 > count) {
                     return Err(CoreServiceError::business(
-                        "DOCUMENT_SIGN_FIELD_INVALID",
+                        "LUXESIGN_FIELD_INVALID",
                         match page_count {
                             Some(count) => format!(
                                 "Page {page_number} does not exist: the document has {count} page(s)."
@@ -787,7 +731,7 @@ where
         let snapshot = self
             .prepare_transactional(
                 tx,
-                &PrepareDocumentSignRequest {
+                &PrepareLuxesignRequest {
                     transaction_document_id: request.transaction_document_id.clone(),
                     recipients: request.recipients.clone(),
                     subject: request.subject.clone(),
@@ -798,12 +742,12 @@ where
                 context,
             )
             .await?;
-        let signature_request_id = snapshot.signature_request.id.clone();
+        let signature_request_id = snapshot.luxesign_request.id.clone();
         let copy_to = clean_copy_to(&request.copy_to)?;
         let reminder_every_days = request.reminder_every_days.unwrap_or(DEFAULT_REMINDER_DAYS);
         if !(0..=60).contains(&reminder_every_days) {
             return Err(CoreServiceError::business(
-                "DOCUMENT_SIGN_REMINDER_INVALID",
+                "LUXESIGN_REMINDER_INVALID",
                 "Reminders must be every 0 to 60 days (0 turns them off).",
             ));
         }
@@ -864,7 +808,7 @@ where
         let issued = self
             .issue_transactional(
                 tx,
-                &IssueDocumentSignRequest {
+                &IssueLuxesignRequest {
                     signature_request_id: signature_request_id.clone(),
                 },
                 context,
@@ -875,8 +819,8 @@ where
             .recipients_tx(tx, &signature_request_id)
             .await?;
         let fields = self.repository.fields_tx(tx, &signature_request_id).await?;
-        Ok(DocumentSignSendResult {
-            snapshot: DocumentSignSnapshot {
+        Ok(LuxesignSendResult {
+            snapshot: LuxesignSnapshot {
                 recipients,
                 fields,
                 ..snapshot
@@ -888,14 +832,14 @@ where
     pub async fn issue_transactional(
         &self,
         tx: &mut DbTransaction,
-        request: &IssueDocumentSignRequest,
+        request: &IssueLuxesignRequest,
         context: &ServiceContext,
-    ) -> Result<DocumentSignIssueResult, CoreServiceError> {
-        const OP: &str = "documentSign.issue";
+    ) -> Result<LuxesignIssueResult, CoreServiceError> {
+        const OP: &str = "luxesign.issue";
         let decision = authorize(
             &self.runtime,
-            "document-sign",
-            "documentSign.issue",
+            "luxesign",
+            "luxesign.issue",
             OP,
             OperationKind::Command,
             context,
@@ -909,15 +853,15 @@ where
                 .await?
                 .ok_or_else(|| {
                     CoreServiceError::business(
-                        "DOCUMENT_SIGN_NOT_FOUND",
-                        "Native document-sign request not found.",
+                        "LUXESIGN_NOT_FOUND",
+                        "Native luxesign request not found.",
                     )
                 })?;
 
             if config.issued_at.is_some() {
                 return Err(CoreServiceError::business(
-                    "DOCUMENT_SIGN_ALREADY_ISSUED",
-                    "This document-sign request has already been issued.",
+                    "LUXESIGN_ALREADY_ISSUED",
+                    "This luxesign request has already been issued.",
                 ));
             }
 
@@ -927,7 +871,7 @@ where
                 .await?;
             if !gaps.is_empty() {
                 return Err(CoreServiceError::business(
-                    "DOCUMENT_SIGN_FIELD_INVALID",
+                    "LUXESIGN_FIELD_INVALID",
                     format!(
                         "{} signing recipient(s) have no required field.",
                         gaps.len()
@@ -952,7 +896,7 @@ where
                         .find(|field| field.page_number < 1 || field.page_number as u32 > pages)
                     {
                         return Err(CoreServiceError::business(
-                            "DOCUMENT_SIGN_FIELD_INVALID",
+                            "LUXESIGN_FIELD_INVALID",
                             format!(
                                 "Field '{}' is on page {}, but the document has {pages} page(s).",
                                 field.field_key, field.page_number
@@ -968,7 +912,7 @@ where
                 .await?;
             if recipients.is_empty() {
                 return Err(CoreServiceError::business(
-                    "DOCUMENT_SIGN_RECIPIENT_INVALID",
+                    "LUXESIGN_RECIPIENT_INVALID",
                     "At least one recipient is required before issue.",
                 ));
             }
@@ -977,7 +921,7 @@ where
                 Some(value) => DateTime::parse_from_rfc3339(value)
                     .map_err(|_| {
                         CoreServiceError::business(
-                            "DOCUMENT_SIGN_EXPIRY_INVALID",
+                            "LUXESIGN_EXPIRY_INVALID",
                             "Stored signing expiry is invalid.",
                         )
                     })?
@@ -986,7 +930,7 @@ where
             };
             if expires_at <= Utc::now() {
                 return Err(CoreServiceError::business(
-                    "DOCUMENT_SIGN_EXPIRY_INVALID",
+                    "LUXESIGN_EXPIRY_INVALID",
                     "Signing expiry must be in the future.",
                 ));
             }
@@ -1010,7 +954,7 @@ where
                         &QueueEmailRequest {
                             message_kind: EmailMessageKind::SignatureInvitation,
                             recipient_email: recipient.email.clone(),
-                            template_key: "document-sign.invitation".into(),
+                            template_key: "luxesign.invitation".into(),
                             template_payload: json!({
                                 "recipientName": recipient.name,
                                 "signingUrl": grant.signing_url,
@@ -1052,12 +996,12 @@ where
                 .await?
             {
                 return Err(CoreServiceError::business(
-                    "DOCUMENT_SIGN_ALREADY_ISSUED",
-                    "This document-sign request changed while it was being issued.",
+                    "LUXESIGN_ALREADY_ISSUED",
+                    "This luxesign request changed while it was being issued.",
                 ));
             }
 
-            Ok(DocumentSignIssueResult {
+            Ok(LuxesignIssueResult {
                 signature_request_id: request.signature_request_id.clone(),
                 invitation_message_ids,
                 expires_at: expires_at.to_rfc3339(),
@@ -1065,15 +1009,7 @@ where
         }
         .await;
 
-        audit_result(
-            &self.runtime,
-            "document-sign",
-            OP,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
         result
     }
 
@@ -1164,7 +1100,7 @@ where
         let (kind, template_key, dedupe_kind, skip_recipient, decliner, reason) = match notice {
             OutcomeNotice::Completed => (
                 EmailMessageKind::SignatureCompleted,
-                "document-sign.completed",
+                "luxesign.completed",
                 "signature-completed",
                 None,
                 None,
@@ -1175,7 +1111,7 @@ where
                 reason,
             } => (
                 EmailMessageKind::SignatureDeclined,
-                "document-sign.declined",
+                "luxesign.declined",
                 "signature-declined",
                 Some(*decliner_recipient_id),
                 recipients
@@ -1288,7 +1224,7 @@ where
                 &QueueEmailRequest {
                     message_kind: EmailMessageKind::SignatureReminder,
                     recipient_email: recipient.email.clone(),
-                    template_key: "document-sign.reminder".into(),
+                    template_key: "luxesign.reminder".into(),
                     template_payload: json!({
                         "recipientName": recipient.name,
                         "signingUrl": signing_url,
@@ -1314,11 +1250,11 @@ where
         signature_request_id: &str,
         context: &ServiceContext,
     ) -> Result<(), CoreServiceError> {
-        const OP: &str = "documentSign.void";
+        const OP: &str = "luxesign.void";
         let decision = authorize(
             &self.runtime,
-            "document-sign",
-            "documentSign.void",
+            "luxesign",
+            "luxesign.void",
             OP,
             OperationKind::Command,
             context,
@@ -1331,8 +1267,8 @@ where
                 .await?
                 .ok_or_else(|| {
                     CoreServiceError::business(
-                        "DOCUMENT_SIGN_NOT_FOUND",
-                        "Native document-sign request not found.",
+                        "LUXESIGN_NOT_FOUND",
+                        "Native luxesign request not found.",
                     )
                 })?;
             let internal = internal_context(context);
@@ -1351,15 +1287,7 @@ where
         }
         .await;
 
-        audit_result(
-            &self.runtime,
-            "document-sign",
-            OP,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
         result
     }
 
@@ -1375,11 +1303,11 @@ where
         as_reminder: bool,
         context: &ServiceContext,
     ) -> Result<String, CoreServiceError> {
-        const OP: &str = "documentSign.resend";
+        const OP: &str = "luxesign.resend";
         let decision = authorize(
             &self.runtime,
-            "document-sign",
-            "documentSign.write",
+            "luxesign",
+            "luxesign.write",
             OP,
             OperationKind::Command,
             context,
@@ -1393,13 +1321,13 @@ where
                 .await?
                 .ok_or_else(|| {
                     CoreServiceError::business(
-                        "DOCUMENT_SIGN_NOT_FOUND",
-                        "Native document-sign request not found.",
+                        "LUXESIGN_NOT_FOUND",
+                        "Native luxesign request not found.",
                     )
                 })?;
             if config.issued_at.is_none() {
                 return Err(CoreServiceError::business(
-                    "DOCUMENT_SIGN_NOT_MUTABLE",
+                    "LUXESIGN_NOT_MUTABLE",
                     "There is nothing to resend before issue.",
                 ));
             }
@@ -1411,7 +1339,7 @@ where
                 .find(|recipient| recipient.id == recipient_id)
                 .ok_or_else(|| {
                     CoreServiceError::business(
-                        "DOCUMENT_SIGN_RECIPIENT_INVALID",
+                        "LUXESIGN_RECIPIENT_INVALID",
                         "Recipient does not belong to this signing request.",
                     )
                 })?;
@@ -1427,7 +1355,7 @@ where
                 (
                     self.signer.active_signing_url(tx, recipient_id).await?,
                     EmailMessageKind::SignatureReminder,
-                    "document-sign.reminder",
+                    "luxesign.reminder",
                     "signature-reminder",
                 )
             } else {
@@ -1438,7 +1366,7 @@ where
                 (
                     grant.signing_url,
                     EmailMessageKind::SignatureInvitation,
-                    "document-sign.invitation",
+                    "luxesign.invitation",
                     "signature-resend",
                 )
             };
@@ -1472,15 +1400,7 @@ where
         }
         .await;
 
-        audit_result(
-            &self.runtime,
-            "document-sign",
-            OP,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
         result
     }
 
@@ -1505,11 +1425,11 @@ where
         request: &ImportAnchorFieldsRequest,
         context: &ServiceContext,
     ) -> Result<ImportAnchorFieldsResult, CoreServiceError> {
-        const OP: &str = "documentSign.importFields";
+        const OP: &str = "luxesign.importFields";
         let decision = authorize(
             &self.runtime,
-            "document-sign",
-            "documentSign.write",
+            "luxesign",
+            "luxesign.write",
             OP,
             OperationKind::Command,
             context,
@@ -1528,13 +1448,13 @@ where
                     .await?
                     .ok_or_else(|| {
                         CoreServiceError::business(
-                            "DOCUMENT_SIGN_FIELD_INVALID",
+                            "LUXESIGN_FIELD_INVALID",
                             "The issued document carries no template anchor blocks.",
                         )
                     })?;
                 serde_json::from_value::<Vec<TemplateAnchor>>(raw).map_err(|_| {
                     CoreServiceError::business(
-                        "DOCUMENT_SIGN_FIELD_INVALID",
+                        "LUXESIGN_FIELD_INVALID",
                         "The issued document's anchor blocks are unreadable.",
                     )
                 })?
@@ -1557,7 +1477,7 @@ where
             // inserts. Nothing is written before every group is claimed, so
             // an unmapped template fails before touching the envelope.
             let mut claimed = vec![false; groups.len()];
-            let mut plan: Vec<(&model::DocumentSignRecipient, Vec<GroupedAnchor>)> = Vec::new();
+            let mut plan: Vec<(&model::LuxesignRecipient, Vec<GroupedAnchor>)> = Vec::new();
             for (index, recipient) in recipients.iter().enumerate() {
                 let role = recipient.execution_role.as_deref();
                 let slot = recipient.execution_slot_id.as_deref();
@@ -1580,7 +1500,7 @@ where
                     explicit
                 } else if !explicit.is_empty() {
                     return Err(CoreServiceError::business(
-                        "DOCUMENT_SIGN_FIELD_INVALID",
+                        "LUXESIGN_FIELD_INVALID",
                         format!(
                             "Ambiguous template blocks for recipient {} (execution role + slot must name one block).",
                             recipient.email
@@ -1609,7 +1529,7 @@ where
                 .collect();
             if !unclaimed.is_empty() {
                 return Err(CoreServiceError::business(
-                    "DOCUMENT_SIGN_FIELD_INVALID",
+                    "LUXESIGN_FIELD_INVALID",
                     format!(
                         "Template blocks no recipient claims: {}. Give a recipient the matching execution role + slot.",
                         unclaimed.join(", ")
@@ -1656,15 +1576,7 @@ where
         }
         .await;
 
-        audit_result(
-            &self.runtime,
-            "document-sign",
-            OP,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
         result
     }
 
@@ -1673,14 +1585,14 @@ where
         tx: &mut DbTransaction,
         signature_request_id: &str,
         context: &ServiceContext,
-    ) -> Result<DocumentSignFinalizeResult, CoreServiceError> {
+    ) -> Result<LuxesignFinalizeResult, CoreServiceError> {
         // Finalizing seals another party's document and mails it out: it is a write, decided like one. The
         // automatic finalizer is the narrow system actor Casbin admits for exactly this operation.
-        const OP: &str = "documentSign.finalize";
+        const OP: &str = "luxesign.finalize";
         let decision = authorize(
             &self.runtime,
-            "document-sign",
-            "documentSign.write",
+            "luxesign",
+            "luxesign.write",
             OP,
             OperationKind::Command,
             context,
@@ -1689,15 +1601,7 @@ where
         let result = self
             .finalize_authorized_transactional(tx, signature_request_id, context)
             .await;
-        audit_result(
-            &self.runtime,
-            "document-sign",
-            OP,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
         result
     }
 
@@ -1706,7 +1610,7 @@ where
         tx: &mut DbTransaction,
         signature_request_id: &str,
         context: &ServiceContext,
-    ) -> Result<DocumentSignFinalizeResult, CoreServiceError> {
+    ) -> Result<LuxesignFinalizeResult, CoreServiceError> {
         let internal = internal_context(context);
         let (status, transaction_document_id) = self
             .repository
@@ -1714,7 +1618,7 @@ where
             .await?
             .ok_or_else(|| {
                 CoreServiceError::business(
-                    "DOCUMENT_SIGN_NOT_FOUND",
+                    "LUXESIGN_NOT_FOUND",
                     "Canonical signature request not found.",
                 )
             })?;
@@ -1727,7 +1631,7 @@ where
                 .repository
                 .signed_media_for_request_tx(tx, signature_request_id)
                 .await?;
-            return Ok(DocumentSignFinalizeResult {
+            return Ok(LuxesignFinalizeResult {
                 signature_request_id: signature_request_id.to_owned(),
                 audit_media_id,
                 signed_media_id,
@@ -1737,7 +1641,7 @@ where
         }
         if status != SignatureRequestStatus::Signed.as_str() {
             return Err(CoreServiceError::business(
-                "DOCUMENT_SIGN_NOT_MUTABLE",
+                "LUXESIGN_NOT_MUTABLE",
                 "Only a signed envelope can be finalized.",
             ));
         }
@@ -1747,7 +1651,7 @@ where
             .await?
         {
             return Err(CoreServiceError::business(
-                "DOCUMENT_SIGN_NOT_MUTABLE",
+                "LUXESIGN_NOT_MUTABLE",
                 "All required recipients must complete before finalize.",
             ));
         }
@@ -1808,7 +1712,7 @@ where
         )
         .map_err(|error| {
             CoreServiceError::business(
-                "DOCUMENT_SIGN_FINALIZE_FAILED",
+                "LUXESIGN_FINALIZE_FAILED",
                 format!("Completion certificate could not be rendered: {error}"),
             )
         })?;
@@ -1862,7 +1766,7 @@ where
         let notification_message_ids = self
             .queue_outcome_emails_tx(tx, signature_request_id, &OutcomeNotice::Completed, context)
             .await?;
-        Ok(DocumentSignFinalizeResult {
+        Ok(LuxesignFinalizeResult {
             signature_request_id: signature_request_id.to_owned(),
             audit_media_id: Some(audit_media_id),
             signed_media_id,
@@ -1880,27 +1784,19 @@ where
         &self,
         tx: &mut DbTransaction,
         context: &ServiceContext,
-    ) -> Result<DocumentSignSweepResult, CoreServiceError> {
-        const OP: &str = "documentSign.sweepDue";
+    ) -> Result<LuxesignSweepResult, CoreServiceError> {
+        const OP: &str = "luxesign.sweepDue";
         let decision = authorize(
             &self.runtime,
-            "document-sign",
-            "documentSign.write",
+            "luxesign",
+            "luxesign.write",
             OP,
             OperationKind::Command,
             context,
         )
         .await?;
         let result = self.sweep_due_authorized_transactional(tx, context).await;
-        audit_result(
-            &self.runtime,
-            "document-sign",
-            OP,
-            context,
-            decision,
-            &result,
-        )
-        .await?;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
         result
     }
 
@@ -1908,7 +1804,7 @@ where
         &self,
         tx: &mut DbTransaction,
         context: &ServiceContext,
-    ) -> Result<DocumentSignSweepResult, CoreServiceError> {
+    ) -> Result<LuxesignSweepResult, CoreServiceError> {
         let internal = internal_context(context);
         let mut expired_recipients = Vec::new();
         for (recipient_id, signature_request_id) in self
@@ -1952,7 +1848,7 @@ where
                 reminder_message_ids.push(message_id);
             }
         }
-        Ok(DocumentSignSweepResult {
+        Ok(LuxesignSweepResult {
             expired_recipients,
             expired_envelopes,
             reminder_message_ids,
@@ -2145,7 +2041,7 @@ fn seal_overlay(inputs: &FinalizeInputs, original: &[u8]) -> Result<Vec<u8>, Cor
     }
     overlay_fields(original, &fields).map_err(|error| {
         CoreServiceError::business(
-            "DOCUMENT_SIGN_FINALIZE_FAILED",
+            "LUXESIGN_FINALIZE_FAILED",
             format!("Signed PDF could not be sealed: {error}"),
         )
     })
@@ -2154,7 +2050,7 @@ fn seal_overlay(inputs: &FinalizeInputs, original: &[u8]) -> Result<Vec<u8>, Cor
 fn internal_context(context: &ServiceContext) -> ServiceContext {
     ServiceContext {
         actor: services::ServiceActor {
-            id: Some(DOCUMENT_SIGN_SERVICE_ACTOR.into()),
+            id: Some(LUXESIGN_SERVICE_ACTOR.into()),
             kind: services::ServiceActorKind::System,
         },
         correlation_id: context.correlation_id.clone(),
@@ -2164,7 +2060,7 @@ fn internal_context(context: &ServiceContext) -> ServiceContext {
 }
 
 fn prepared_recipients(
-    recipients: &[model::DocumentSignRecipientInput],
+    recipients: &[model::LuxesignRecipientInput],
 ) -> Vec<PreparedSignatureRecipient> {
     recipients
         .iter()
@@ -2181,9 +2077,9 @@ fn prepared_recipients(
 }
 
 fn prepare_intent_matches(
-    config: &DocumentSignConfig,
-    existing: &[DocumentSignRecipient],
-    request: &PrepareDocumentSignRequest,
+    config: &LuxesignConfig,
+    existing: &[LuxesignRecipient],
+    request: &PrepareLuxesignRequest,
     requested_expiry: Option<DateTime<Utc>>,
 ) -> bool {
     if config.signing_mode != request.signing_mode || config.subject != request.subject {
@@ -2245,7 +2141,7 @@ fn clean_copy_to(values: &[String]) -> Result<Vec<String>, CoreServiceError> {
         });
         if !plausible {
             return Err(CoreServiceError::business(
-                "DOCUMENT_SIGN_RECIPIENT_INVALID",
+                "LUXESIGN_RECIPIENT_INVALID",
                 format!("'{value}' is not a valid email address to copy."),
             ));
         }
@@ -2269,10 +2165,10 @@ fn default_signature_box(slot: usize) -> (f64, f64, f64, f64) {
     )
 }
 
-fn validate_prepare(request: &PrepareDocumentSignRequest) -> Result<(), CoreServiceError> {
+fn validate_prepare(request: &PrepareLuxesignRequest) -> Result<(), CoreServiceError> {
     if request.transaction_document_id.trim().is_empty() {
         return Err(CoreServiceError::business(
-            "DOCUMENT_SIGN_DOCUMENT_REQUIRED",
+            "LUXESIGN_DOCUMENT_REQUIRED",
             "transactionDocumentId is required.",
         ));
     }
@@ -2282,14 +2178,14 @@ fn validate_prepare(request: &PrepareDocumentSignRequest) -> Result<(), CoreServ
         .is_some_and(|value| value.chars().count() > 500)
     {
         return Err(CoreServiceError::business(
-            "DOCUMENT_SIGN_SUBJECT_INVALID",
+            "LUXESIGN_SUBJECT_INVALID",
             "subject must be 500 characters or fewer.",
         ));
     }
-    let errors = validate_document_sign_recipients(&request.recipients);
+    let errors = validate_luxesign_recipients(&request.recipients);
     if !errors.is_empty() {
         return Err(CoreServiceError::business(
-            "DOCUMENT_SIGN_RECIPIENT_INVALID",
+            "LUXESIGN_RECIPIENT_INVALID",
             errors.join(" "),
         ));
     }
@@ -2302,12 +2198,12 @@ fn parse_future_expiry(value: Option<&str>) -> Result<Option<DateTime<Utc>>, Cor
     };
     let parsed = DateTime::parse_from_rfc3339(value)
         .map_err(|_| {
-            CoreServiceError::business("DOCUMENT_SIGN_EXPIRY_INVALID", "expiresAt must be RFC3339.")
+            CoreServiceError::business("LUXESIGN_EXPIRY_INVALID", "expiresAt must be RFC3339.")
         })?
         .with_timezone(&Utc);
     if parsed <= Utc::now() {
         return Err(CoreServiceError::business(
-            "DOCUMENT_SIGN_EXPIRY_INVALID",
+            "LUXESIGN_EXPIRY_INVALID",
             "expiresAt must be in the future.",
         ));
     }
@@ -2363,7 +2259,7 @@ fn slug(text: &str) -> String {
 fn parse_anchor(anchor: &TemplateAnchor, index: usize) -> Result<GroupedAnchor, CoreServiceError> {
     let invalid = |detail: &str| {
         CoreServiceError::business(
-            "DOCUMENT_SIGN_FIELD_INVALID",
+            "LUXESIGN_FIELD_INVALID",
             format!("Template anchor {index} is unusable: {detail}."),
         )
     };
@@ -2480,30 +2376,27 @@ fn validate_field(request: &PutSignatureFieldRequest) -> Result<(), CoreServiceE
         || !valid_geometry
     {
         return Err(CoreServiceError::business(
-            "DOCUMENT_SIGN_FIELD_INVALID",
+            "LUXESIGN_FIELD_INVALID",
             "Field owner, key, object configuration and valid page geometry are required.",
         ));
     }
     Ok(())
 }
 
-async fn ensure_mutable_config<R: DocumentSignRepository>(
+async fn ensure_mutable_config<R: LuxesignRepository>(
     repository: &R,
     tx: &mut DbTransaction,
     signature_request_id: &str,
-) -> Result<DocumentSignConfig, CoreServiceError> {
+) -> Result<LuxesignConfig, CoreServiceError> {
     let config = repository
         .lock_config_tx(tx, signature_request_id)
         .await?
         .ok_or_else(|| {
-            CoreServiceError::business(
-                "DOCUMENT_SIGN_NOT_FOUND",
-                "Native document-sign request not found.",
-            )
+            CoreServiceError::business("LUXESIGN_NOT_FOUND", "Native luxesign request not found.")
         })?;
     if config.issued_at.is_some() {
         return Err(CoreServiceError::business(
-            "DOCUMENT_SIGN_NOT_MUTABLE",
+            "LUXESIGN_NOT_MUTABLE",
             "Issued recipients and fields are immutable.",
         ));
     }
@@ -2529,9 +2422,9 @@ fn capability(
 }
 
 #[async_trait]
-impl<R, SR, SGR, ER, VR> AbstractService for DocumentSignService<R, SR, SGR, ER, VR>
+impl<R, SR, SGR, ER, VR> AbstractService for LuxesignService<R, SR, SGR, ER, VR>
 where
-    R: DocumentSignRepository + 'static,
+    R: LuxesignRepository + 'static,
     SR: SignatureRepository + 'static,
     SGR: SignerRepository + 'static,
     ER: EmailRepository + 'static,
@@ -2539,119 +2432,119 @@ where
 {
     fn descriptor(&self) -> ServiceDescriptor {
         ServiceDescriptor {
-            domain: "document-sign".into(),
+            domain: "luxesign".into(),
             version: "1".into(),
-            description: "Native CulebraLuxe document-sign orchestration service".into(),
+            description: "Native CulebraLuxe luxesign orchestration service".into(),
             capabilities: vec![
                 capability(
-                    "documentSign.get",
+                    "luxesign.get",
                     OperationKind::Query,
-                    "Read one native document-sign envelope.",
-                    "documentSign.read",
+                    "Read one native luxesign envelope.",
+                    "luxesign.read",
                     true,
                     ServiceExecutionPolicy::inline(),
                 ),
                 capability(
-                    "documentSign.fields",
+                    "luxesign.fields",
                     OperationKind::Query,
                     "Read native recipient-owned signing fields.",
-                    "documentSign.read",
+                    "luxesign.read",
                     true,
                     ServiceExecutionPolicy::inline(),
                 ),
                 capability(
-                    "documentSign.list",
+                    "luxesign.list",
                     OperationKind::Query,
                     "List recent native envelopes with recipient progress.",
-                    "documentSign.read",
+                    "luxesign.read",
                     true,
                     ServiceExecutionPolicy::inline(),
                 ),
                 capability(
-                    "documentSign.prepare",
+                    "luxesign.prepare",
                     OperationKind::Command,
                     "Prepare a native signing envelope without external-provider delivery.",
-                    "documentSign.write",
+                    "luxesign.write",
                     true,
                     ServiceExecutionPolicy::ordered("transactionDocumentId"),
                 ),
                 capability(
-                    "documentSign.setRecipients",
+                    "luxesign.setRecipients",
                     OperationKind::Command,
                     "Replace draft recipients before issue.",
-                    "documentSign.write",
+                    "luxesign.write",
                     true,
                     ServiceExecutionPolicy::ordered("signatureRequestId"),
                 ),
                 capability(
-                    "documentSign.putField",
+                    "luxesign.putField",
                     OperationKind::Command,
                     "Create or edit a recipient-owned draft signing field.",
-                    "documentSign.write",
+                    "luxesign.write",
                     true,
                     ServiceExecutionPolicy::ordered("signatureRequestId"),
                 ),
                 capability(
-                    "documentSign.removeField",
+                    "luxesign.removeField",
                     OperationKind::Command,
                     "Remove a draft signing field.",
-                    "documentSign.write",
+                    "luxesign.write",
                     true,
                     ServiceExecutionPolicy::ordered("signatureRequestId"),
                 ),
                 capability(
-                    "documentSign.send",
+                    "luxesign.send",
                     OperationKind::Command,
                     "Prepare, place signature fields, and issue an envelope in one transaction.",
-                    "documentSign.issue",
+                    "luxesign.issue",
                     true,
                     ServiceExecutionPolicy::ordered("transactionDocumentId"),
                 ),
                 capability(
-                    "documentSign.issue",
+                    "luxesign.issue",
                     OperationKind::Command,
                     "Atomically issue a native envelope and queue signer invitations.",
-                    "documentSign.issue",
+                    "luxesign.issue",
                     true,
                     ServiceExecutionPolicy::ordered("signatureRequestId"),
                 ),
                 capability(
-                    "documentSign.void",
+                    "luxesign.void",
                     OperationKind::Command,
                     "Void a native envelope.",
-                    "documentSign.void",
+                    "luxesign.void",
                     true,
                     ServiceExecutionPolicy::ordered("signatureRequestId"),
                 ),
                 capability(
-                    "documentSign.finalize",
+                    "luxesign.finalize",
                     OperationKind::Command,
                     "Close a fully-signed envelope with its audit artifact.",
-                    "documentSign.write",
+                    "luxesign.write",
                     true,
                     ServiceExecutionPolicy::ordered("signatureRequestId"),
                 ),
                 capability(
-                    "documentSign.sweepDue",
+                    "luxesign.sweepDue",
                     OperationKind::Command,
                     "Expire overdue recipients and envelopes.",
-                    "documentSign.write",
+                    "luxesign.write",
                     true,
                     ServiceExecutionPolicy::inline(),
                 ),
                 capability(
-                    "documentSign.resend",
+                    "luxesign.resend",
                     OperationKind::Command,
                     "Re-send an invitation (fresh link) or a reminder (live link) to one recipient.",
-                    "documentSign.write",
+                    "luxesign.write",
                     true,
                     ServiceExecutionPolicy::ordered("signatureRequestId"),
                 ),
                 capability(
-                    "documentSign.importFields",
+                    "luxesign.importFields",
                     OperationKind::Command,
                     "Build recipient-owned fields from template anchor blocks.",
-                    "documentSign.write",
+                    "luxesign.write",
                     true,
                     ServiceExecutionPolicy::ordered("signatureRequestId"),
                 ),
@@ -2663,7 +2556,7 @@ where
                 "vault".into(),
             ],
             invariants: vec![
-                "signature_request is the only canonical envelope lifecycle.".into(),
+                "luxesign_request is the only canonical envelope lifecycle.".into(),
                 "Issued recipient identity and field ownership are immutable.".into(),
                 "Issuance and durable invitation queueing commit atomically.".into(),
                 "Document bytes remain owned and authorized by Vault.".into(),
@@ -2680,31 +2573,31 @@ where
         context: &ServiceContext,
     ) -> Result<Value, ServiceDispatchError> {
         match envelope.operation.as_str() {
-            "documentSign.get" => {
+            "luxesign.get" => {
                 let id = required_string(envelope, "signatureRequestId")?;
                 serde_json::to_value(self.get(&id, context).await.map_err(service_error)?)
                     .map_err(serialization_error)
             }
-            "documentSign.fields" => {
+            "luxesign.fields" => {
                 let id = required_string(envelope, "signatureRequestId")?;
                 serde_json::to_value(self.fields(&id, context).await.map_err(service_error)?)
                     .map_err(serialization_error)
             }
-            "documentSign.list" => {
+            "luxesign.list" => {
                 serde_json::to_value(self.list(context).await.map_err(service_error)?)
                     .map_err(serialization_error)
             }
-            "documentSign.prepare"
-            | "documentSign.setRecipients"
-            | "documentSign.putField"
-            | "documentSign.removeField"
-            | "documentSign.issue"
-            | "documentSign.void"
-            | "documentSign.resend"
-            | "documentSign.finalize"
-            | "documentSign.sweepDue"
-            | "documentSign.send"
-            | "documentSign.importFields" => Err(ServiceDispatchError::business(
+            "luxesign.prepare"
+            | "luxesign.setRecipients"
+            | "luxesign.putField"
+            | "luxesign.removeField"
+            | "luxesign.issue"
+            | "luxesign.void"
+            | "luxesign.resend"
+            | "luxesign.finalize"
+            | "luxesign.sweepDue"
+            | "luxesign.send"
+            | "luxesign.importFields" => Err(ServiceDispatchError::business(
                 "DURABLE_COMMAND_REQUIRED",
                 format!(
                     "{} must enter through the durable command dispatcher.",
@@ -2713,7 +2606,7 @@ where
                 false,
             )),
             operation => Err(ServiceDispatchError::UnknownOperation {
-                domain: "document-sign".into(),
+                domain: "luxesign".into(),
                 operation: operation.into(),
             }),
         }
@@ -2756,8 +2649,8 @@ fn serialization_error(error: serde_json::Error) -> ServiceDispatchError {
     ServiceDispatchError::infrastructure("SERVICE_SERIALIZATION_FAILED", error.to_string(), false)
 }
 
-pub type ProductionDocumentSignService =
-    DocumentSignService<DocumentSignDao, SignatureDao, SignerDao, EmailDao, VaultDao>;
+pub type ProductionLuxesignService =
+    LuxesignService<LuxesignDao, SignatureDao, SignerDao, EmailDao, VaultDao>;
 
 #[cfg(test)]
 mod tests {

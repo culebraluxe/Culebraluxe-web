@@ -31,12 +31,12 @@ mod command_receipt;
 mod comms;
 mod contract;
 mod deal_portal;
-mod document_sign;
 mod email;
 mod error;
 mod firm;
 mod flight_recorder;
 mod forge_control;
+mod luxesign;
 // The reads behind `forge doctor`: the control plane in one command, read-only.
 pub mod forge_doctor;
 // The Forge reset / recover / clean writer. One writer, three modes, all of them deliberate.
@@ -106,7 +106,6 @@ pub use command_receipt::{CommandReceiptDao, CommandReceiptRow};
 pub use comms::CommsDao;
 pub use contract::{ContractDao, ContractTxDao};
 pub use deal_portal::DealPortalDao;
-pub use document_sign::DocumentSignDao;
 pub use email::EmailDao;
 pub use error::{DbFailure, DbFailureKind, DbResult};
 pub use firm::FirmDao;
@@ -142,6 +141,7 @@ pub use issue::IssueDao;
 pub use landing::{
     CallLanding, ImessageLanding, LandingDao, LatestInteraction, LatestInteractionOutcome,
 };
+pub use luxesign::LuxesignDao;
 pub use marketing::MarketingDao;
 pub use media::{
     BeginMediaUpload, MediaDao, MediaDerivativeInput, MediaUploadAssembly, MediaUploadStatus,

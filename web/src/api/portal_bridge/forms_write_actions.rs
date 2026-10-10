@@ -605,7 +605,7 @@ pub(super) async fn send_signature(
         .execute_command(
             &services::CommandRequest {
                 command_id: uuid::Uuid::new_v4().to_string(),
-                command_type: "documentSign.send".into(),
+                command_type: "luxesign.send".into(),
                 aggregate_type: "transaction_document".into(),
                 aggregate_id: Some(issued.document_id.clone()),
                 requested_at: chrono::Utc::now().to_rfc3339(),

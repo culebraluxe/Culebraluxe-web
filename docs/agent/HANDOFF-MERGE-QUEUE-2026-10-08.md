@@ -57,7 +57,7 @@ them in exactly that position. **Recommendation: REBASE, not RESOLVE**, which is
     lane/spacebunny            30 ahead  5   HANDOFF-TST-REDIRECT-2026-10-08.md · MEMORY.md · tests/Cargo.toml · tests/src/lib.rs · tests/src/security.rs
     lane/longcat               5 ahead   6   docs_forms_template__005/006/007 · docs_vault__001/002 · docs_vault__005
     lane/nemotron-lightning    75 ahead  24  tests/Cargo.toml · tests/src/crm.rs · mvi.rs · 6 × crm_* · web/src/api/routes.rs
-                                             · web/src/document_sign/mod.rs · web/src/signer/mod.rs
+                                             · web/src/luxesign/mod.rs · web/src/signer/mod.rs
                                              · web/ui/src/app/screens/forms/editor.rs · sign_document.rs …
 
 Order that costs least: the four fix-carrying lanes first (fledge, muse, nemotron, nemotron-2), then

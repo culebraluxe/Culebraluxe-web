@@ -105,9 +105,8 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         // NATIVE DOCUMENT SIGNING: the orchestrator may call exactly the canonical
         // service operations needed to prepare/issue a native envelope. This is service-to-service
         // authority, not a grant to an anonymous caller or to every System actor.
-        let document_sign_service = system
-            && request.actor.id.as_deref()
-                == Some(crate::document_sign::DOCUMENT_SIGN_SERVICE_ACTOR)
+        let luxesign_service = system
+            && request.actor.id.as_deref() == Some(crate::luxesign::LUXESIGN_SERVICE_ACTOR)
             && request.kind == OperationKind::Command
             && matches!(
                 (request.domain, request.operation, request.action),
@@ -124,7 +123,7 @@ impl AuthorizationPort for CasbinAuthorizationPort {
         // The public signing edge has no portal principal. Its signed recipient capability is
         // validated by SignerService; Casbin admits only the signer operations named here.
         //
-        // TWO ACTORS, ONE RULE. The edge reads a session as itself (`document-sign-edge`), then runs every mutation as
+        // TWO ACTORS, ONE RULE. The edge reads a session as itself (`luxesign-edge`), then runs every mutation as
         // the RECIPIENT-BOUND actor `signature-recipient:<id>`, derived from the verified token and never from request
         // JSON (`api/routes/signer_edge.rs`), which `SignerService` re-checks against the capability's own recipient. This
         // rule admitted only the shared edge actor, so every signer's open, consent, field and complete was refused
@@ -167,10 +166,10 @@ impl AuthorizationPort for CasbinAuthorizationPort {
                 .as_deref()
                 .and_then(|id| id.strip_prefix("signature-recipient:"))
                 .is_some_and(|recipient| !recipient.trim().is_empty());
-        let document_sign_edge = signing_document
+        let luxesign_edge = signing_document
             || signing_recipient
             || (system
-                && request.actor.id.as_deref() == Some(crate::signer::DOCSIGN_EDGE_ACTOR)
+                && request.actor.id.as_deref() == Some(crate::signer::LUXESIGN_EDGE_ACTOR)
                 && request.domain == "signer"
                 && (matches!(
                     (request.operation, request.action, request.kind),
@@ -178,26 +177,25 @@ impl AuthorizationPort for CasbinAuthorizationPort {
                 ) || (request.kind == OperationKind::Command
                     && signer_command(request.operation, request.action))));
         // THE SIGNING WORKERS. Each is one system actor with one job. The finalizer seals a fully signed envelope: it
-        // runs `documentSign.finalize`, and reads that one document's PDF through the Vault (the caller's authority,
+        // runs `luxesign.finalize`, and reads that one document's PDF through the Vault (the caller's authority,
         // which for the automatic path is its own). The sweeper expires overdue signers and queues reminders.
         let signing_finalizer = system
             && request.actor.id.as_deref()
-                == Some(crate::document_sign::worker::DOCUMENT_SIGN_FINALIZER_ACTOR)
+                == Some(crate::luxesign::worker::LUXESIGN_FINALIZER_ACTOR)
             && ((request.kind == OperationKind::Command
-                && request.domain == "document-sign"
-                && request.operation == "documentSign.finalize"
-                && request.action == "documentSign.write")
+                && request.domain == "luxesign"
+                && request.operation == "luxesign.finalize"
+                && request.action == "luxesign.write")
                 || (request.kind == OperationKind::Query
                     && request.domain == "vault"
                     && matches!(request.operation, "vault.getDocument" | "vault.mediaBytes")
                     && request.action == "vault.read"));
         let signing_sweeper = system
-            && request.actor.id.as_deref()
-                == Some(crate::document_sign::worker::DOCUMENT_SIGN_SWEEPER_ACTOR)
+            && request.actor.id.as_deref() == Some(crate::luxesign::worker::LUXESIGN_SWEEPER_ACTOR)
             && request.kind == OperationKind::Command
-            && request.domain == "document-sign"
-            && request.operation == "documentSign.sweepDue"
-            && request.action == "documentSign.write";
+            && request.domain == "luxesign"
+            && request.operation == "luxesign.sweepDue"
+            && request.action == "luxesign.write";
         // THE COMPLETION EMAIL'S FILES. The delivery worker reads the sealed document and its certificate for one
         // envelope, through the Vault's own door, to attach them. Nothing else may use this action.
         let completion_artifacts = system
@@ -266,8 +264,8 @@ impl AuthorizationPort for CasbinAuthorizationPort {
             || db_diagnostics
             || website_intake
             || agreement_execution
-            || document_sign_service
-            || document_sign_edge
+            || luxesign_service
+            || luxesign_edge
             || signing_finalizer
             || signing_sweeper
             || completion_artifacts
@@ -314,11 +312,11 @@ impl AuthorizationPort for CasbinAuthorizationPort {
                 && principal.level != "BUSINESS_POWER_USER"
             {
                 (false, "rule:contract.execute.level")
-            } else if request.domain == "document-sign"
-                && matches!(request.action, "documentSign.issue" | "documentSign.void")
+            } else if request.domain == "luxesign"
+                && matches!(request.action, "luxesign.issue" | "luxesign.void")
                 && principal.level != "BUSINESS_POWER_USER"
             {
-                (false, "rule:document-sign.issue.level")
+                (false, "rule:luxesign.issue.level")
             } else {
                 let kind = match request.kind {
                     OperationKind::Query => "query",
@@ -408,12 +406,12 @@ mod tests {
         );
 
         let mut issue = request(
-            "documentSign.issue",
+            "luxesign.issue",
             OperationKind::Command,
-            &["documentSign.issue"],
+            &["luxesign.issue"],
         );
-        issue.domain = "document-sign";
-        issue.operation = "documentSign.issue";
+        issue.domain = "luxesign";
+        issue.operation = "luxesign.issue";
         issue.principal.as_mut().unwrap().level = "USER".into();
         assert!(
             !auth.authorize(issue.clone()).await.unwrap().allowed,
@@ -422,7 +420,7 @@ mod tests {
         issue.principal.as_mut().unwrap().level = "BUSINESS_POWER_USER".into();
         assert!(
             auth.authorize(issue).await.unwrap().allowed,
-            "BUSINESS_POWER_USER is the floor for documentSign.issue"
+            "BUSINESS_POWER_USER is the floor for luxesign.issue"
         );
 
         // A missing principal (GUEST) never commands, whatever the action.
@@ -528,25 +526,25 @@ mod tests {
         assert!(!auth.authorize(req.clone()).await.unwrap().allowed);
 
         // Native document signing system actors are narrow and operation-specific.
-        let mut docsign = request("signature.write", OperationKind::Command, &[]);
-        docsign.principal = None;
-        docsign.actor = ServiceActor {
-            id: Some(crate::document_sign::DOCUMENT_SIGN_SERVICE_ACTOR.into()),
+        let mut luxesign = request("signature.write", OperationKind::Command, &[]);
+        luxesign.principal = None;
+        luxesign.actor = ServiceActor {
+            id: Some(crate::luxesign::LUXESIGN_SERVICE_ACTOR.into()),
             kind: ServiceActorKind::System,
         };
-        docsign.domain = "signature";
-        docsign.operation = "signature.prepare";
-        assert!(auth.authorize(docsign.clone()).await.unwrap().allowed);
-        docsign.operation = "signature.send";
+        luxesign.domain = "signature";
+        luxesign.operation = "signature.prepare";
+        assert!(auth.authorize(luxesign.clone()).await.unwrap().allowed);
+        luxesign.operation = "signature.send";
         assert!(
-            !auth.authorize(docsign.clone()).await.unwrap().allowed,
+            !auth.authorize(luxesign.clone()).await.unwrap().allowed,
             "native orchestration must not inherit raw provider send authority"
         );
 
         let mut signer = request("signer.act", OperationKind::Command, &[]);
         signer.principal = None;
         signer.actor = ServiceActor {
-            id: Some(crate::signer::DOCSIGN_EDGE_ACTOR.into()),
+            id: Some(crate::signer::LUXESIGN_EDGE_ACTOR.into()),
             kind: ServiceActorKind::System,
         };
         signer.domain = "signer";
@@ -588,10 +586,10 @@ mod tests {
         );
         recipient.operation = "signer.complete";
         recipient.action = "signer.act";
-        recipient.domain = "documentSign";
+        recipient.domain = "luxesign";
         assert!(
             !auth.authorize(recipient.clone()).await.unwrap().allowed,
-            "the recipient-bound actor is a signer actor, not a document-sign one"
+            "the recipient-bound actor is a signer actor, not a luxesign one"
         );
         recipient.domain = "signer";
         // The signer's document door: the recipient-bound actor, its own reserved action, a Query — nothing wider.
@@ -621,7 +619,7 @@ mod tests {
             "the signing document door is a query"
         );
         let mut other_actor = document.clone();
-        other_actor.actor.id = Some(crate::signer::DOCSIGN_EDGE_ACTOR.into());
+        other_actor.actor.id = Some(crate::signer::LUXESIGN_EDGE_ACTOR.into());
         assert!(
             !auth.authorize(other_actor).await.unwrap().allowed,
             "the shared edge actor has no recipient to read for, so it has no document door"

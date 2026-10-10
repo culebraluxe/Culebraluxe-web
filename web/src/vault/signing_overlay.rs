@@ -29,7 +29,7 @@ pub struct OverlayField {
     pub kind: OverlayKind,
     /// 1-based page number in document order.
     pub page_number: i32,
-    /// 0–100, top-left origin, as stored on `signature_field`.
+    /// 0–100, top-left origin, as stored on `luxesign_field`.
     pub x_percent: f64,
     pub y_percent: f64,
     /// The box the value belongs in, as a percent of the page. Zero falls back to a text line at the anchor.

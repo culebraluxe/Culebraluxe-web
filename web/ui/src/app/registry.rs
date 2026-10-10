@@ -26,10 +26,10 @@ use crate::app::screens::clients::{ClientRecord, Clients};
 use crate::app::screens::cockpit::{Attention, Cockpit};
 use crate::app::screens::db_test::DbTest;
 use crate::app::screens::deals::{DealRecord, Deals};
-use crate::app::screens::document_signing::DocumentSigning;
 use crate::app::screens::flight_recorder::FlightRecorder;
 use crate::app::screens::forms::{FormRecord, Forms};
 use crate::app::screens::listing_media::ListingMedia;
+use crate::app::screens::luxesign::LuxesignSigning;
 use crate::app::screens::projects::Projects;
 use crate::app::screens::publishing::Publishing;
 use crate::app::screens::security::Security;
@@ -175,7 +175,7 @@ pub const ENTRIES: &[Entry] = &[
     entry("marketing-syndication", "/portal/marketing/syndication", Surface::Marketing, "Publishing", Menu::None, "portal.read", "property.read", Kind::Screen(mount::<Publishing>)).of("marketing"),
     entry("property-admin", "/portal/property-admin", Surface::Ops, "Data Workbench", Menu::Rail("Records"), "portal.read", "property.read", Kind::Screen(mount::<Workbench>)),
     entry("property-media", "/portal/property-media", Surface::Ops, "Property Media", Menu::Rail("Listing Media"), "portal.read", "property.read", Kind::Screen(mount::<ListingMedia>)),
-    entry("document-signing", "/portal/document-signing", Surface::Ops, "Luxesign", Menu::Rail("Luxesign"), "portal.read", "documentSign.read", Kind::Screen(mount::<DocumentSigning>)),
+    entry("luxesign", "/portal/luxesign", Surface::Ops, "Luxesign", Menu::Rail("Luxesign"), "portal.read", "luxesign.read", Kind::Screen(mount::<LuxesignSigning>)),
     entry("tech", "/portal/tech", Surface::Tech, "Cockpit", Menu::Rail("Cockpit"), "tech.access", "tech.access", Kind::Screen(mount::<TechCockpit>)),
     entry("storyboard", "/portal/storyboard", Surface::Tech, "Story Board", Menu::Rail("Story Board"), "tech.access", "tech.access", Kind::Screen(mount::<Storyboard>)),
     entry("design-lab", "/portal/design-lab", Surface::Tech, "UI Lab", Menu::Rail("UI Lab"), "tech.access", "tech.access", Kind::Screen(mount::<UiLab>)),

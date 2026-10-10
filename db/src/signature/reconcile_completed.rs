@@ -27,7 +27,7 @@ impl SignatureDao {
                        td.signed_media_id::text as signed_media_id,
                        td.signed_audit_media_id::text as signed_audit_media_id,
                        td.signed_at
-                from signature_request sr
+                from luxesign_request sr
                 join transaction_document td on td.id = sr.transaction_document_id
                 where sr.id = $1::uuid
                 limit 1
@@ -272,7 +272,7 @@ impl SignatureDao {
                        status, message, execution_role, execution_slot_id,
                        created_by_user_id::text as created_by_user_id,
                        created_at, updated_at
-                from signature_request
+                from luxesign_request
                 where id = $1::uuid
                 limit 1
                 "#,
@@ -337,7 +337,7 @@ impl SignatureDao {
                 Some(target) => {
                     let updated = sqlx::query_as::<_, SignatureRow>(
                         r#"
-                        update signature_request
+                        update luxesign_request
                         set status = $2, updated_at = now()
                         where id = $1::uuid and status = $3
                         returning id::text as id,
@@ -383,7 +383,7 @@ impl SignatureDao {
 
             let aggregate_id = signature.id.clone();
             let value = serde_json::to_value(SignatureStatusResult {
-                signature_request: signature,
+                luxesign_request: signature,
                 transitioned,
             })
             .map_err(|error| {

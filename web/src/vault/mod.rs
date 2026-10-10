@@ -439,7 +439,7 @@ impl<R: VaultRepository> VaultService<R> {
     ///
     /// The preview pane and the issued document must draw the same signature, and that is why both ask this one
     /// resolver: the pane that resolves it for itself drifts from the document the moment either side changes
-    /// (`docs/agent/HANDOFF-docsign-native-2026-10-07.md`).
+    /// (`docs/agent/HANDOFF-luxesign-native-2026-10-07.md`).
     ///
     /// It is a query: nothing is applied, nothing is written and no version moves. It resolves under
     /// `OwnerByConstruction`, so the person looking at the draft is not required to be the person who will sign it —

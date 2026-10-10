@@ -84,7 +84,7 @@ fn arch_one_writer_009__document_state() {
     );
 
     // The media links are not state: the signing module links artifacts without joining this set.
-    let signing = source::read(&root.join("db/src/document_sign.rs"));
+    let signing = source::read(&root.join("db/src/luxesign.rs"));
     assert!(
         !sets_document_state(&signing),
         "artifact links must not become a fourth state writer"

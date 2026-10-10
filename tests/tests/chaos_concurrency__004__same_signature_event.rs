@@ -1,7 +1,7 @@
 //! CHAOS.CONCURRENCY — same signature event (TST-CHAOS-CONCURRENCY-004).
 //!
 //! Contract: two deliveries of the same signature state-change converge to one
-//! transition. `SignatureDao::set_status_tx` updates `signature_request.status`
+//! transition. `SignatureDao::set_status_tx` updates `luxesign_request.status`
 //! only from the expected status, so two concurrent `Sent → Signed` deliveries
 //! produce exactly one winner; the loser matches zero rows instead of
 //! overwriting. A replay of the same move afterwards matches nothing: the
@@ -41,7 +41,7 @@ async fn chaos_concurrency_004__same_signature_event() {
     .await
     .expect("document fixture");
     let request: String = sqlx::query_scalar(
-        "insert into signature_request (transaction_document_id, status) \
+        "insert into luxesign_request (transaction_document_id, status) \
          values ($1::uuid, 'sent') returning id::text",
     )
     .bind(&txdoc)
@@ -96,14 +96,14 @@ async fn chaos_concurrency_004__same_signature_event() {
     );
     tx.commit().await.unwrap();
     let status: String =
-        sqlx::query_scalar("select status from signature_request where id = $1::uuid")
+        sqlx::query_scalar("select status from luxesign_request where id = $1::uuid")
             .bind(&request)
             .fetch_one(db.pool())
             .await
             .expect("status read");
     assert_eq!(status, "signed", "one event, one terminal state");
 
-    sqlx::query("delete from signature_request where id = $1::uuid")
+    sqlx::query("delete from luxesign_request where id = $1::uuid")
         .bind(&request)
         .execute(db.pool())
         .await

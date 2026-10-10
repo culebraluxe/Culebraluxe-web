@@ -283,7 +283,7 @@ async fn seed(pool: &PgPool, db: &Database, marker: &str) -> Fixture {
         "{HARNESS}: the fixture send must succeed"
     );
     let request_id: String = sqlx::query_scalar(
-        "select id::text from signature_request where transaction_document_id = $1::uuid",
+        "select id::text from luxesign_request where transaction_document_id = $1::uuid",
     )
     .bind(&document_id)
     .fetch_one(pool)
@@ -301,7 +301,7 @@ async fn seed(pool: &PgPool, db: &Database, marker: &str) -> Fixture {
 }
 
 async fn request_status(pool: &PgPool, request_id: &str) -> String {
-    sqlx::query_scalar("select status from signature_request where id = $1::uuid")
+    sqlx::query_scalar("select status from luxesign_request where id = $1::uuid")
         .bind(request_id)
         .fetch_one(pool)
         .await
@@ -340,12 +340,12 @@ async fn sweep(pool: &PgPool, fixture: &Fixture, marker: &str) {
     .fetch_one(pool)
     .await
     .expect("the audit media id reads");
-    sqlx::query("delete from signature_envelope_recipient where signature_request_id = $1::uuid")
+    sqlx::query("delete from luxesign_envelope_recipient where signature_request_id = $1::uuid")
         .bind(&fixture.request_id)
         .execute(pool)
         .await
         .expect("recipient sweep");
-    sqlx::query("delete from signature_request where id = $1::uuid")
+    sqlx::query("delete from luxesign_request where id = $1::uuid")
         .bind(&fixture.request_id)
         .execute(pool)
         .await
@@ -392,7 +392,7 @@ async fn sweep(pool: &PgPool, fixture: &Fixture, marker: &str) {
         .expect("actor sweep");
 
     let leftover: i64 = sqlx::query_scalar(
-        "select count(*)::bigint from signature_request where transaction_document_id = $1::uuid",
+        "select count(*)::bigint from luxesign_request where transaction_document_id = $1::uuid",
     )
     .bind(&fixture.document_id)
     .fetch_one(pool)

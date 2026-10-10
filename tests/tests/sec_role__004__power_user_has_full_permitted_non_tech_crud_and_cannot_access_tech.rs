@@ -14,7 +14,7 @@
 //! - **TECH is denied by domain.** `tech.access` as a query and as a command are both refused with the domain rule.
 //! - **A held TECH grant cannot override the domain.** The denial precedes the grant check, so an accidental TECH
 //!   grant escalates nothing.
-//! - **The floor still binds sideways.** `documentSign.issue` needs the grant as well as the level here (unlike the
+//! - **The floor still binds sideways.** `luxesign.issue` needs the grant as well as the level here (unlike the
 //!   USER story, where the floor alone decides): level without grant is still denied, by the grant check.
 //!
 //! Level: L3 Composition — the real authorizer, the real catalog-seeded policy, the real principal shape.
@@ -145,14 +145,14 @@ async fn sec_role_004__power_user_has_full_permitted_non_tech_crud_and_cannot_ac
     );
     assert_eq!(granted_tech.policy_id, "domain:tech");
 
-    // 4. THE FLOOR STILL BINDS SIDEWAYS. `documentSign.issue` needs the grant as well as the level: a power user at
+    // 4. THE FLOOR STILL BINDS SIDEWAYS. `luxesign.issue` needs the grant as well as the level: a power user at
     //    the right level but without the grant is denied by the grant check, not waved through by the level.
     let (actor, principal) = power_user(&["person.read"]);
     let ungranted_issue = auth
         .authorize(request(
-            "documentSign.issue",
-            "document-sign",
-            "documentSign.issue",
+            "luxesign.issue",
+            "luxesign",
+            "luxesign.issue",
             OperationKind::Command,
             actor,
             principal,

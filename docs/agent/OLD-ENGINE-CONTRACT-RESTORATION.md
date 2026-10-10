@@ -26,7 +26,7 @@ Read from the database on 2026-09-29 (DEV target, `information_schema`, read-onl
 ```
 TABLES: agent_work_item, calendar_intake_receipt, forge_dispatch_score, forge_engine_task_execution,
         forge_hold_record, forge_migration_ledger, forge_open_holds, forge_story_run_receipt,
-        relationship_follow_up_receipt, signature_envelope_recipient, workflow_command_receipt
+        relationship_follow_up_receipt, luxesign_envelope_recipient, workflow_command_receipt
 
 agent_work_item COLUMNS (35): id, story_id, state, priority, queued_at, claimed_at, claimed_by, started_at,
         finished_at, story_run_id, error_text, created_at, updated_at, role, model_profile,
