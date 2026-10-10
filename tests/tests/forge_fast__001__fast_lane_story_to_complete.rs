@@ -19,6 +19,11 @@ use forge::engine::executor::{
     DurableForgeExecution,
 };
 use forge::engine::facts::ForgeGateEvidence;
+use forge::engine::harness::TurnTermination;
+use forge::engine::qa_plan::{
+    AcceptanceJudgment, ApprovedAcceptanceCondition, ApprovedAssayCommand, ApprovedAssayPlan,
+    ApprovedAssertionCheck, AssayParser, AssayRunner, CheckAggregation,
+};
 use forge::engine::job::WorkflowJobService;
 use forge::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};
 use forge::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
@@ -30,6 +35,8 @@ use workflow::{
 };
 
 const STORY: &str = "TST-FORGE-FAST-001";
+const RUN: &str = "TST-FORGE-FAST-RUN-001";
+const BASE: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const CANDIDATE: &str = "0123456789abcdef0123456789abcdef01234567";
 
 /// The roles, scripted: Smith delivers a candidate; Assay measures one command whose result the case decides.
@@ -42,8 +49,8 @@ impl RoleHarness for FastHarness {
     fn run_role(
         &self,
         node: &str,
-        _: &ActiveForgeRoleTask,
-        _: Option<&str>,
+        _task: &ActiveForgeRoleTask,
+        _self_heal: Option<&str>,
     ) -> WfResult<HarnessOutput> {
         self.calls.lock().unwrap().push(node.to_string());
         let (raw, candidate, assay) = match node {
@@ -59,7 +66,7 @@ impl RoleHarness for FastHarness {
             assay_commands: assay,
             acceptance_mapped: true,
             refusal: None,
-            execution_base: None,
+            execution_base: Some(BASE.into()),
             usage: None,
         })
     }
@@ -69,17 +76,61 @@ impl RoleHarness for FastHarness {
     fn assay_cwd(&self) -> &Path {
         Path::new(".")
     }
+    fn execution_base_commit(&self) -> Option<&str> {
+        Some(BASE)
+    }
+    fn candidate_probe(&self) -> Option<&dyn forge::engine::runner::CandidateProbe> {
+        Some(self)
+    }
     fn run_command(&self, command: &str) -> CommandResult {
+        let git_diff = command.starts_with("git diff ");
+        let passed = git_diff || self.qa_passes;
         CommandResult {
             command: command.into(),
-            exit_code: if self.qa_passes { 0 } else { 101 },
-            passed: self.qa_passes,
+            exit_code: if passed { 0 } else { 101 },
+            passed,
             excerpt: String::new(),
             unmeasurable: false,
-            output: String::new(),
+            output: if git_diff && command.contains("--name-only") {
+                "forge/src/example.rs\n".into()
+            } else if git_diff {
+                "diff --git a/forge/src/example.rs b/forge/src/example.rs\n+change\n".into()
+            } else if self.qa_passes {
+                "test fast_lane::contract ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n".into()
+            } else {
+                "test fast_lane::contract ... FAILED\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n".into()
+            },
 
             cancelled: false,
         }
+    }
+
+    // This scripted harness has no subprocess to kill; each turn returns immediately. It
+    // advertises the durable runner's interruption port and correctly reports no live process.
+    fn supports_interrupt(&self) -> bool {
+        true
+    }
+
+    fn interrupt_execution(&self, _reason: &str) -> WfResult<Option<TurnTermination>> {
+        Ok(Some(TurnTermination::none()))
+    }
+}
+
+impl forge::engine::runner::CandidateProbe for FastHarness {
+    fn git(&self, args: &[&str]) -> Option<String> {
+        if args.contains(&"rev-parse") {
+            Some(CANDIDATE.into())
+        } else if args.first() == Some(&"merge-base") || args.first() == Some(&"status") {
+            Some(String::new())
+        } else if args.first() == Some(&"diff") {
+            Some("forge/src/example.rs".into())
+        } else {
+            None
+        }
+    }
+
+    fn declared_test_mode(&self) -> Option<&str> {
+        None
     }
 }
 
@@ -134,6 +185,50 @@ fn fast_evidence() -> ForgeGateEvidence {
     }
 }
 
+fn approved_fast_assay_snapshot(writer: &RecordingWriter) {
+    let command = "cargo test -p forge";
+    let plan = ApprovedAssayPlan {
+        schema_version: 1,
+        plan_id: "plan-fast-lane-test".into(),
+        plan_version: 1,
+        commands: vec![ApprovedAssayCommand {
+            id: "cmd-check".into(),
+            command: command.into(),
+            runner: AssayRunner::RustLibtest,
+            parser: AssayParser::RustLibtest,
+            working_directory: "lane_root".into(),
+            environment_identity: "forge-inherited-shell-v1".into(),
+        }],
+        checks: vec![ApprovedAssertionCheck {
+            id: "check-fast-lane".into(),
+            command_id: "cmd-check".into(),
+            assertion: "fast_lane::contract".into(),
+        }],
+        conditions: vec![ApprovedAcceptanceCondition {
+            id: "AC-product".into(),
+            check_ids: vec!["check-fast-lane".into()],
+            aggregation: CheckAggregation::AllRequired,
+            judgment: AcceptanceJudgment::Product,
+        }],
+        negative_control: None,
+    };
+    let identity = plan.identity().expect("plan hashes");
+    writer.assay_plan_snapshots.lock().unwrap().insert(
+        RUN.into(),
+        db::forge_assay::AssayPlanSnapshotRow {
+            story_run_id: RUN.into(),
+            story_id: STORY.into(),
+            assay_commands_snapshot: Some(command.into()),
+            snapshot: Some(serde_json::json!({
+                "plan": plan,
+                "approved_by": "test-operator",
+                "approved_at": "2026-10-09T12:00:00Z",
+                "approved_hash": identity.hash,
+            })),
+        },
+    );
+}
+
 struct Run {
     out: DriveForgeStoryResult,
     status: ProcessStatus,
@@ -145,6 +240,8 @@ struct Run {
 fn drive_fast(qa_passes: bool) -> Run {
     let memory = MemoryStore::new();
     let ledger = Arc::new(MemoryLedger::new());
+    let writer = Arc::new(RecordingWriter::default());
+    approved_fast_assay_snapshot(&writer);
     let release = Arc::new(Release::default());
     let reader: Arc<dyn ForgeEvidenceReader> = Arc::new(Reader {
         ledger: ledger.clone(),
@@ -152,7 +249,7 @@ fn drive_fast(qa_passes: bool) -> Run {
     });
     let rt = ForgeRuntime::from_store(
         memory,
-        Arc::new(RecordingWriter::default()),
+        writer.clone(),
         Some(release.clone() as Arc<dyn ForgeReleaseExecutor>),
         Some(reader.clone()),
         ledger,
@@ -164,7 +261,9 @@ fn drive_fast(qa_passes: bool) -> Run {
         qa_passes,
     });
     let runner = ProductionRoleRunner::new(harness.clone(), fast_evidence())
-        .with_evidence_reader(Some(reader));
+        .with_evidence_reader(Some(reader))
+        .with_story_run(Some(RUN.into()))
+        .with_writer(writer.clone());
     let lanes = ForgeLaneServices::new(&runner);
     let registry = lanes.registry().expect("the production lane composition");
     let jobs = WorkflowJobService::new(rt.engine());
@@ -207,10 +306,11 @@ fn a_fast_story_goes_smith_to_qa_to_publish_to_complete() {
     let run = drive_fast(true);
     assert_eq!(
         run.calls,
-        vec!["fast_smith", "fast_qa_verify"],
+        vec!["fast_smith"],
         "{:?}",
         run.out
     );
+    assert_eq!(run.out.steps, vec!["fast_smith", "fast_qa_verify"]);
     assert_eq!(run.commands, vec!["forge.publish_candidate"]);
     assert_eq!(run.status, ProcessStatus::Completed, "{:?}", run.out);
     assert_eq!(run.outcome, Some(ProcessOutcome::Completed));
