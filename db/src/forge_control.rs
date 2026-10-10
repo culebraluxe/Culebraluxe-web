@@ -69,6 +69,7 @@ pub struct LearnScanStateRow {
     pub active_revision: Option<String>,
     pub pending_files: Vec<String>,
     pub pending_observations: serde_json::Value,
+    pub deferred_observations: serde_json::Value,
 }
 
 #[derive(Debug, Clone)]
@@ -94,7 +95,7 @@ impl ForgeControlDao {
         repository_key: &str,
     ) -> DbResult<Option<LearnScanStateRow>> {
         sqlx::query_as::<_, LearnScanStateRow>(
-            "select cursor_revision, active_revision, pending_files, pending_observations
+            "select cursor_revision, active_revision, pending_files, pending_observations, deferred_observations
              from forge_learn_scan_state where repository_key=$1",
         )
         .bind(repository_key)
@@ -127,7 +128,7 @@ impl ForgeControlDao {
             .await
             .map_err(|error| DbFailure::from_sqlx("forge_control.learn_scan.create", &error))?;
             let mut state = sqlx::query_as::<_, LearnScanStateRow>(
-                "select cursor_revision, active_revision, pending_files, pending_observations
+                "select cursor_revision, active_revision, pending_files, pending_observations, deferred_observations
                  from forge_learn_scan_state where repository_key=$1 for update",
             )
             .bind(repository_key)
@@ -173,12 +174,14 @@ impl ForgeControlDao {
         remaining_files: &[String],
         expected_observations: &serde_json::Value,
         observations: &serde_json::Value,
+        expected_deferred_observations: &serde_json::Value,
+        deferred_observations: &serde_json::Value,
     ) -> DbResult<bool> {
         let result = sqlx::query(
             "update forge_learn_scan_state
-             set pending_files=$4, pending_observations=$6, updated_at=now()
+             set pending_files=$4, pending_observations=$6, deferred_observations=$8, updated_at=now()
              where repository_key=$1 and active_revision=$2 and pending_files=$3
-               and pending_observations=$5",
+               and pending_observations=$5 and deferred_observations=$7",
         )
         .bind(repository_key)
         .bind(revision)
@@ -186,6 +189,8 @@ impl ForgeControlDao {
         .bind(remaining_files)
         .bind(expected_observations)
         .bind(observations)
+        .bind(expected_deferred_observations)
+        .bind(deferred_observations)
         .execute(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_control.learn_scan.progress", &error))?;

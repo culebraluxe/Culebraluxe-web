@@ -302,6 +302,30 @@ fn rust_rule_candidate(candidate: &Candidate) -> bool {
     candidate.key.starts_with("RUST-")
 }
 
+fn rust_rule_observation(observation: &RuleObservation) -> bool {
+    observation.rule_id.starts_with("RUST-")
+}
+
+fn partition_rule_observations(
+    mut actionable: Vec<RuleObservation>,
+    mut deferred: Vec<RuleObservation>,
+    allow_rust_rules: bool,
+) -> (Vec<RuleObservation>, Vec<RuleObservation>) {
+    if allow_rust_rules {
+        actionable.append(&mut deferred);
+        return (actionable, Vec::new());
+    }
+    let mut retained = Vec::with_capacity(actionable.len());
+    for observation in actionable {
+        if rust_rule_observation(&observation) {
+            deferred.push(observation);
+        } else {
+            retained.push(observation);
+        }
+    }
+    (retained, deferred)
+}
+
 fn rust_rules_enabled() -> bool {
     std::env::var("FORGE_LEARN_RUST_RULES_ENABLED")
         .ok()
@@ -315,6 +339,8 @@ fn save_progress(
     remaining_files: &[String],
     expected_observations: &serde_json::Value,
     observations: &serde_json::Value,
+    expected_deferred_observations: &serde_json::Value,
+    deferred_observations: &serde_json::Value,
 ) -> Result<(), String> {
     let saved = with_shared(|db, rt| {
         let dao = ForgeControlDao::new(db.clone());
@@ -325,6 +351,8 @@ fn save_progress(
             remaining_files,
             expected_observations,
             observations,
+            expected_deferred_observations,
+            deferred_observations,
         ))
         .map_err(|error| error.to_string())
     })??;
@@ -375,13 +403,20 @@ fn run_learn_pass_inner(root: &Path, stale_after_minutes: i64) -> Result<LearnPa
         rt.block_on(dao.learn_scan_state(&repository_key))
             .map_err(|error| error.to_string())
     })??;
+    let allow_rust_rules = rust_rules_enabled();
     let state = match state {
         Some(state) if state.active_revision.is_some() => state,
         prior => {
             let cursor = prior
                 .as_ref()
                 .and_then(|state| state.cursor_revision.as_deref());
-            if cursor == Some(revision.as_str()) {
+            let deferred = prior.as_ref().is_some_and(|state| {
+                state
+                    .deferred_observations
+                    .as_array()
+                    .is_some_and(|rows| !rows.is_empty())
+            });
+            if cursor == Some(revision.as_str()) && !(allow_rust_rules && deferred) {
                 return Ok(LearnPassReport::complete(revision));
             }
             let paths = discovery::changed_paths(root, cursor, &revision, floor)?
@@ -395,6 +430,11 @@ fn run_learn_pass_inner(root: &Path, stale_after_minutes: i64) -> Result<LearnPa
             })??;
             if started.active_revision.is_none()
                 && started.cursor_revision.as_deref() == Some(revision.as_str())
+                && !(allow_rust_rules
+                    && started
+                        .deferred_observations
+                        .as_array()
+                        .is_some_and(|rows| !rows.is_empty()))
             {
                 return Ok(LearnPassReport::complete(revision));
             }
@@ -407,8 +447,13 @@ fn run_learn_pass_inner(root: &Path, stale_after_minutes: i64) -> Result<LearnPa
         .unwrap_or_else(|| revision.clone());
     let pending_files = state.pending_files;
     let old_value = state.pending_observations;
-    let mut observations: Vec<RuleObservation> = serde_json::from_value(old_value.clone())
+    let old_deferred_value = state.deferred_observations;
+    let active_observations: Vec<RuleObservation> = serde_json::from_value(old_value.clone())
         .map_err(|error| format!("durable learning observations are invalid: {error}"))?;
+    let deferred_observations: Vec<RuleObservation> =
+        serde_json::from_value(old_deferred_value.clone()).map_err(|error| {
+            format!("durable deferred learning observations are invalid: {error}")
+        })?;
     let (processed, newly_found, parse_issues) =
         scan_pinned_chunk(root, &revision, &pending_files)?;
     if !parse_issues.is_empty() {
@@ -427,10 +472,14 @@ fn run_learn_pass_inner(root: &Path, stale_after_minutes: i64) -> Result<LearnPa
         .skip(processed)
         .cloned()
         .collect::<Vec<_>>();
-    observations.extend(newly_found);
+    let active_observations = active_observations.into_iter().chain(newly_found).collect();
+    let (mut observations, mut deferred_observations) =
+        partition_rule_observations(active_observations, deferred_observations, allow_rust_rules);
     let mut new_value = serde_json::to_value(&observations)
         .map_err(|error| format!("could not persist learning observations: {error}"))?;
-    if processed > 0 {
+    let mut deferred_value = serde_json::to_value(&deferred_observations)
+        .map_err(|error| format!("could not persist deferred learning observations: {error}"))?;
+    if processed > 0 || new_value != old_value || deferred_value != old_deferred_value {
         save_progress(
             &repository_key,
             &revision,
@@ -438,11 +487,18 @@ fn run_learn_pass_inner(root: &Path, stale_after_minutes: i64) -> Result<LearnPa
             &remaining_files,
             &old_value,
             &new_value,
+            &old_deferred_value,
+            &deferred_value,
         )?;
     }
 
     let open = open_pattern_keys()?;
-    let open_source_groups = observations_to_candidates(observations.clone())
+    let all_observations = observations
+        .iter()
+        .chain(deferred_observations.iter())
+        .cloned()
+        .collect();
+    let open_source_groups = observations_to_candidates(all_observations)
         .into_iter()
         .filter(|candidate| {
             open.contains(&format!("{repository_key}:{}", candidate.key))
@@ -453,8 +509,12 @@ fn run_learn_pass_inner(root: &Path, stale_after_minutes: i64) -> Result<LearnPa
     if !open_source_groups.is_empty() {
         observations
             .retain(|observation| !open_source_groups.contains(&candidate_group_key(observation)));
+        deferred_observations
+            .retain(|observation| !open_source_groups.contains(&candidate_group_key(observation)));
         let pruned_value = serde_json::to_value(&observations)
             .map_err(|error| format!("could not prune open findings: {error}"))?;
+        let pruned_deferred_value = serde_json::to_value(&deferred_observations)
+            .map_err(|error| format!("could not prune deferred findings: {error}"))?;
         save_progress(
             &repository_key,
             &revision,
@@ -462,14 +522,16 @@ fn run_learn_pass_inner(root: &Path, stale_after_minutes: i64) -> Result<LearnPa
             &remaining_files,
             &new_value,
             &pruned_value,
+            &deferred_value,
+            &pruned_deferred_value,
         )?;
         new_value = pruned_value;
+        deferred_value = pruned_deferred_value;
     }
     let mut candidates = observations_to_candidates(observations.clone());
     if let Some(stale) = stale_candidate(stale_after_minutes)? {
         candidates.push(stale);
     }
-    let allow_rust_rules = rust_rules_enabled();
     candidates.retain(|candidate| {
         !open.contains(&format!("{repository_key}:{}", candidate.key))
             && !open.contains(&candidate.key)
@@ -484,7 +546,12 @@ fn run_learn_pass_inner(root: &Path, stale_after_minutes: i64) -> Result<LearnPa
             .then_with(|| a.key.cmp(&b.key)),
     });
     let filed = if let Some(candidate) = candidates.first() {
-        let story_id = file_candidate(&repository_key, &revision, candidate)?;
+        let finding_revision = candidate
+            .observations
+            .last()
+            .map(|observation| observation.source_revision.as_str())
+            .unwrap_or(&revision);
+        let story_id = file_candidate(&repository_key, finding_revision, candidate)?;
         if candidate.key != "stale-claim" {
             let group = candidate
                 .observations
@@ -505,6 +572,8 @@ fn run_learn_pass_inner(root: &Path, stale_after_minutes: i64) -> Result<LearnPa
                 &remaining_files,
                 &new_value,
                 &retained,
+                &deferred_value,
+                &deferred_value,
             )?;
             observations = serde_json::from_value(retained)
                 .map_err(|error| format!("could not reload finding backlog: {error}"))?;
@@ -529,7 +598,8 @@ fn run_learn_pass_inner(root: &Path, stale_after_minutes: i64) -> Result<LearnPa
         // This file is a local convenience cache; a cache write failure cannot undo or fail the DB cursor commit.
         let _ = write_anchor(root, None);
     }
-    let deferred_findings = observations_to_candidates(observations).len();
+    let deferred_findings = observations_to_candidates(observations).len()
+        + observations_to_candidates(deferred_observations).len();
     Ok(LearnPassReport {
         status: if scan_complete {
             ScanStatus::Complete
@@ -631,6 +701,54 @@ mod tests {
         };
         assert!(rust_rule_candidate(&rust));
         assert!(!rust_rule_candidate(&js));
+    }
+
+    #[test]
+    fn disabled_rust_findings_move_to_backlog_and_reenable_with_original_revision() {
+        let rust = RuleObservation {
+            rule_id: "RUST-EMPTY-ERROR-ARM".into(),
+            rule_version: 1,
+            key: "rust-key".into(),
+            source_revision: "revision-a".into(),
+            path: "src/lib.rs".into(),
+            start_line: 4,
+            end_line: 5,
+            normalized_context: "match result".into(),
+            rationale: "empty error arm".into(),
+            severity: "normal".into(),
+            confidence: "high".into(),
+            limitations: "review candidate".into(),
+        };
+        let js = RuleObservation {
+            rule_id: "JS-EMPTY-CATCH".into(),
+            rule_version: 1,
+            key: "js-key".into(),
+            source_revision: "revision-a".into(),
+            path: "app/route.ts".into(),
+            start_line: 8,
+            end_line: 9,
+            normalized_context: "catch".into(),
+            rationale: "empty catch".into(),
+            severity: "normal".into(),
+            confidence: "high".into(),
+            limitations: "review candidate".into(),
+        };
+
+        let (actionable, deferred) =
+            partition_rule_observations(vec![rust.clone(), js.clone()], Vec::new(), false);
+        assert_eq!(actionable, vec![js]);
+        assert_eq!(deferred, vec![rust.clone()]);
+
+        let (actionable, deferred) = partition_rule_observations(actionable, deferred, true);
+        assert!(deferred.is_empty());
+        assert!(actionable.contains(&rust));
+        assert_eq!(
+            actionable
+                .iter()
+                .find(|observation| observation.rule_id.starts_with("RUST-"))
+                .map(|observation| observation.source_revision.as_str()),
+            Some("revision-a")
+        );
     }
 
     #[test]
