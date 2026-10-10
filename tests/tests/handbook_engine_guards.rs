@@ -125,9 +125,10 @@ fn the_qa_release_path_runs_no_git_command_and_checks_no_lineage() {
 
 /// AGENTS.md:161 — "Push, merge, or rebase from a worker."
 ///
-/// The engine has exactly one pusher: the DevOps publish path (`git_publish.rs`), and it pushes only
-/// behind `FORGE_ALLOW_PUBLISH=1`. This fails if any other engine source names a `push`, `merge` or
-/// `rebase` git subcommand. `merge-base` is a lineage read, not a merge, and is not matched.
+/// Mainline publication has exactly one pusher: the DevOps publish path (`git_publish.rs`), and it
+/// pushes only behind `FORGE_ALLOW_PUBLISH=1`. The story worktree coordinator may merge completed
+/// lane candidates into its isolated run branch; that is not a mainline publish. Rebase stays
+/// forbidden. `merge-base` is a lineage read, not a merge, and is not matched.
 #[test]
 fn only_the_publish_path_may_push_merge_or_rebase() {
     let mut files: Vec<PathBuf> = Vec::new();
@@ -149,7 +150,8 @@ fn only_the_publish_path_may_push_merge_or_rebase() {
     }
 
     let allowed = |path: &str, subcommand: &str| {
-        subcommand == "\"push\"" && path.ends_with("engine/git_publish.rs")
+        (subcommand == "\"push\"" && path.ends_with("engine/git_publish.rs"))
+            || (subcommand == "\"merge\"" && path.ends_with("engine/worktree.rs"))
     };
     assert!(
         findings.iter().any(|(_, sub)| *sub == "\"push\""),
