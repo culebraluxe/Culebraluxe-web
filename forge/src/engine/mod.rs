@@ -38,6 +38,7 @@ pub mod job;
 mod job_payload;
 mod learn;
 pub mod planning;
+pub mod profile_analysis;
 pub mod runaway;
 pub mod trajectory;
 pub use learn::run_learn_dry_run;
