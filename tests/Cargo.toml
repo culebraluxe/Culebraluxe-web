@@ -45,6 +45,9 @@ workflow = { path = "../middle/workflow" }
 web = { path = "../web" }
 
 [dev-dependencies]
+# The image crate generates valid JPEG fixtures for the media finalize assay (the production
+# `imaging::derive_web_and_thumb` decodes the assembled upload, so the fixture must be a real JPEG).
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 # The Mux configuration boundary under test (TST-INT-MUX-001): `MuxConfig::from_env`
 # is the production config reader the video routes build their client from. Test-only,
 # so the harness's own modules never link a provider edge — the read is the same one

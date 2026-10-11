@@ -3109,6 +3109,7 @@ dependencies = [
  "forge",
  "futures",
  "hmac 0.12.1",
+ "image",
  "libc",
  "model",
  "proptest",
