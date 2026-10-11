@@ -29,9 +29,12 @@ use crate::{Database, DbFailure, DbResult, SchemaMigrationDao};
 
 /// The migrations whose absence means the booted code does not match the database it was pointed at.
 ///
-/// Every name here is recorded on DEV and PROD (260-276 verified 2026-10-08, 292 verified 2026-10-11).
-/// Add a name when the code being deployed cannot run without the file; do not add one merely because
-/// it is new.
+/// Every name here is recorded on DEV (260-276 verified 2026-10-08, 292 on 2026-10-11, 293 on 2026-10-11) and
+/// 260-292 are recorded on PROD. 293 is listed because the code below it writes the columns it adds and no longer
+/// writes the key 292 defined: a binary carrying this list must not serve a database that still holds 292's shape,
+/// and the fix is the one the refusal message names — apply 293 to the target, then start. PROD therefore needs
+/// `293_run_trajectory_turn_identity.sql` applied before the binary that writes turn-keyed rows is deployed.
+/// Add a name when the code being deployed cannot run without the file; do not add one merely because it is new.
 pub const REQUIRED_BOOT_MIGRATIONS: &[&str] = &[
     "260_docsign_native.sql",
     "261_docsign_entitlements.sql",
@@ -51,6 +54,7 @@ pub const REQUIRED_BOOT_MIGRATIONS: &[&str] = &[
     "275_forge_claim_story_brake.sql",
     "276_docsign_copy_and_reminders.sql",
     "292_storyboard_run_trajectory.sql",
+    "293_run_trajectory_turn_identity.sql",
 ];
 
 /// The required migrations that hold no ledger row for this database's declared target, in list order.

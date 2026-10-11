@@ -44,13 +44,19 @@ pub trait ForgeStateWriter: Send + Sync {
         run_id: &str,
         usage: &crate::engine::harness::HarnessUsage,
     ) -> Result<(), String>;
-    /// Record what one turn did, against its Story Run and the harness profile it ran under. Measurement only: nothing
-    /// reads it to decide the workflow. A writer without durable storage records nothing.
+    /// Record what one turn did, keyed by the turn's own identity: what it did, which attempt it was, which
+    /// generation paid for it and what it produced. Measurement only — nothing reads it to decide the workflow. A
+    /// writer without durable storage records nothing.
+    ///
+    /// `measured_usage` is the spend the harness reported for this turn, and `usage_unknown` says the turn paid for
+    /// something whose reading could not be taken. One turn, one reading: the row is where the turn's spend lives,
+    /// and a retried settlement of the same turn rewrites that one row rather than adding another.
     fn record_run_trajectory(
         &self,
         _run_id: &str,
-        _profile_id: &str,
-        _trajectory: &crate::engine::trajectory::TrajectoryMetrics,
+        _turn: &crate::engine::trajectory::TurnTrajectory,
+        _measured_usage: Option<&crate::engine::harness::HarnessUsage>,
+        _usage_unknown: bool,
     ) -> Result<(), String> {
         Ok(())
     }
