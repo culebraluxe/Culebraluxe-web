@@ -59,8 +59,8 @@ const ALIASES: &[(&[&str], &str)] = &[
         "opencode/big-pickle",
     ),
     (
-        &["fledge", "fledge-alpha", "fledgealpha"],
-        "opencode/fledge-alpha-free",
+        &["step5", "step-5", "step-5-preview"],
+        "opencode/step-5-preview-free",
     ),
     (
         &["ling", "ling-3.1", "ling-3.1-flash"],
@@ -164,6 +164,10 @@ mod tests {
         assert_eq!(
             normalize_model_name("spacebunny").expect("alias"),
             "opencode/space-bunny-free"
+        );
+        assert_eq!(
+            normalize_model_name("step5").expect("alias"),
+            "opencode/step-5-preview-free"
         );
     }
 

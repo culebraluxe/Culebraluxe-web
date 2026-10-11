@@ -70,7 +70,7 @@ pub fn agent_alias(raw: &str) -> Option<&'static str> {
         "claude" => Some("Claude"),
         "codex" | "gpt" => Some("ChatGPT"),
         "pianola" => Some("Pianola"),
-        "fledge" | "fledgealpha" => Some("FledgeAlpha"),
+        "step5" | "step-5" => Some("Step5"),
         _ => None,
     }
 }
@@ -1811,7 +1811,7 @@ mod tests {
   {"name":"numetronlightning","toolType":"opencode","cwd":"/Users/Shared/dev/src/lane-nemotron-lightning"},
   {"name":"LongCat","toolType":"opencode","cwd":"/Users/Shared/dev/src/lane-longcat"},
   {"name":"Ling","toolType":"opencode","cwd":"/Users/Shared/dev/src/lane-ling"},
-  {"name":"FledgeAlpha","toolType":"opencode","cwd":"/Users/Shared/dev/src/lane-fledge"}
+  {"name":"Step5","toolType":"opencode","cwd":"/Users/Shared/dev/src/lane-step5"}
 ]"#;
 
     /// Every shorthand an operator can type. Each one must resolve into the roster above.
@@ -1836,8 +1836,8 @@ mod tests {
         "codex",
         "gpt",
         "pianola",
-        "fledge",
-        "fledgealpha",
+        "step5",
+        "step-5",
     ];
 
     #[test]
