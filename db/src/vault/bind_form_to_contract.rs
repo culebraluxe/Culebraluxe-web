@@ -480,8 +480,8 @@ fn template_party_signers(
         return Ok(None);
     };
     if template
-        .signature_groups
-        .iter()
+        .active_signature_groups(field_values)
+        .into_iter()
         .all(|group| group.email.is_none())
     {
         return Ok(None);
@@ -496,8 +496,8 @@ fn template_party_signers(
     let lisa_role = model::forms_broker_signature::policy_for_form(template_id, field_values)
         .map(|policy| policy.role);
     let parties = template
-        .signature_groups
-        .iter()
+        .active_signature_groups(field_values)
+        .into_iter()
         .filter(|group| group.email.is_some())
         .filter(|group| Some(group.role.as_str()) != lisa_role)
         // A party the form does not name at all (no name, no email: an absent spouse) has no block to sign and no slot.

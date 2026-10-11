@@ -115,12 +115,12 @@ impl Composer {
         values: &BTreeMap<String, String>,
         participants: &[Participant],
     ) -> Result<(), PdfError> {
-        if template.signature_groups.is_empty() {
+        let groups = template.active_signature_groups(values);
+        if groups.is_empty() {
             return Ok(());
         }
         // A signature section that fits on a page of its own starts one; otherwise it only has to not be orphaned.
-        let block_count: usize = template
-            .signature_groups
+        let block_count: usize = groups
             .iter()
             .map(|group| {
                 participants
@@ -151,7 +151,7 @@ impl Composer {
             .text("FBodyBold", 12.0, MARGIN_X, y, NAVY, &heading);
         self.cursor_y -= 23.0;
 
-        for group in &template.signature_groups {
+        for group in groups {
             let matching: Vec<&Participant> = participants
                 .iter()
                 .filter(|participant| participant.role == group.role)

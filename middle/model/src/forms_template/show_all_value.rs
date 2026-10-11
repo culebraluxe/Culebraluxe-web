@@ -142,6 +142,9 @@ pub struct TemplateSignatureGroup {
     /// The field holding the name of the person who signs this block, when that is not the block's own text (an entity's
     /// block reads "Company, by Rep, Title" but the envelope is addressed to the Rep).
     pub signer: Option<String>,
+    /// The condition under which this block is on the form at all. A block whose condition is not met is not drawn, not
+    /// sent and not signed: a spouse block for an unmarried seller is not part of the document.
+    pub when: Option<TemplateWhen>,
 }
 
 /// One template version, exactly as the XML declares it.
@@ -169,6 +172,18 @@ impl TemplateDefinition {
             .iter()
             .filter(|field| field.required)
             .map(|field| field.name.as_str())
+            .collect()
+    }
+
+    /// The signature blocks that are on this form for the values supplied, in template order. Every consumer that draws,
+    /// sends, issues or signs a block reads this, so a block whose condition is not met is absent everywhere at once.
+    pub fn active_signature_groups(
+        &self,
+        values: &BTreeMap<String, String>,
+    ) -> Vec<&TemplateSignatureGroup> {
+        self.signature_groups
+            .iter()
+            .filter(|group| Self::when_satisfied(group.when.as_ref(), values))
             .collect()
     }
 

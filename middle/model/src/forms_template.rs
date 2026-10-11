@@ -131,13 +131,13 @@ mod tests {
     fn a_persisted_version_resolves_to_that_exact_version() {
         let library = library();
         // The reason versions are files rather than one mutable active template: live records point at exact versions.
-        for version in [2, 3, 4, 5, 6] {
+        for version in [2, 3, 4, 5, 6, 7] {
             let template = library
                 .version("LISTING-01", version)
                 .unwrap_or_else(|| panic!("LISTING-01 v{version} is not loadable"));
             assert_eq!(template.version, version);
         }
-        assert_eq!(library.newest("LISTING-01").map(|t| t.version), Some(6));
+        assert_eq!(library.newest("LISTING-01").map(|t| t.version), Some(7));
         assert!(library.version("LISTING-01", 99).is_none());
     }
 
@@ -150,7 +150,7 @@ mod tests {
         let library = library();
         for (id, approved) in [
             ("OFFER-01", 5),
-            ("LISTING-01", 6),
+            ("LISTING-01", 7),
             ("PR-PNS", 7),
             ("PR-PNS-AMD", 1),
             ("SHOW-INFO", 1),
@@ -312,5 +312,102 @@ mod tests {
             Some(&gate),
             &values(&[("financing", "Show All")])
         ));
+    }
+
+    /// The roles a LISTING-01 v7 form draws for these answers, after the derivations a save applies.
+    fn listing_roles(answers: &[(&str, &str)]) -> Vec<String> {
+        let library = library();
+        let template = library
+            .version("LISTING-01", 7)
+            .expect("LISTING-01 v7 loads");
+        let mut form: BTreeMap<String, String> = answers
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        crate::forms_parties::apply_party_derivations("LISTING-01", &mut form);
+        template
+            .active_signature_groups(&form)
+            .iter()
+            .map(|group| group.role.clone())
+            .collect()
+    }
+
+    #[test]
+    fn an_entity_seller_has_no_spouse_block_even_when_a_married_status_is_still_stored() {
+        // Jessica's LLC: a stale "Married" from an earlier answer must not bring a spouse onto an entity's listing.
+        let roles = listing_roles(&[
+            ("sellerName", "Jessica Doe"),
+            ("sellerKind", "Entity"),
+            ("sellerCivilStatus", "Married"),
+            ("sellerSpouseName", "John Doe"),
+            ("sellerEntityName", "Caribe Holdings LLC"),
+            ("sellerEntityState", "Puerto Rico"),
+            ("sellerEntityRegister", "12345"),
+            ("sellerRepName", "Jessica Doe"),
+            ("sellerRepTitle", "Managing Member"),
+        ]);
+        assert_eq!(
+            roles,
+            vec!["SELLER".to_string(), "SELLER_BROKER".to_string()]
+        );
+    }
+
+    #[test]
+    fn an_unmarried_individual_seller_with_no_cobroker_has_only_the_seller_and_the_broker() {
+        let roles = listing_roles(&[
+            ("sellerName", "Ana Ruiz"),
+            ("sellerKind", "Individual"),
+            ("sellerCivilStatus", "Single"),
+        ]);
+        assert_eq!(
+            roles,
+            vec!["SELLER".to_string(), "SELLER_BROKER".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_married_seller_without_a_prenup_draws_the_spouse_and_a_named_cobroker_draws_theirs() {
+        let roles = listing_roles(&[
+            ("sellerName", "Luis Ruiz"),
+            ("sellerKind", "Individual"),
+            ("sellerCivilStatus", "Married"),
+            ("sellerSpouseName", "Marta Ruiz"),
+            ("hasCobroker", "Yes"),
+            ("cobrokerName", "Pat Cobroker"),
+        ]);
+        assert_eq!(
+            roles,
+            vec![
+                "SELLER".to_string(),
+                "SELLER_SPOUSE".to_string(),
+                "BUYER_BROKER".to_string(),
+                "SELLER_BROKER".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_prenup_seller_draws_no_spouse_block_because_the_spouse_does_not_sign() {
+        let roles = listing_roles(&[
+            ("sellerName", "Pedro Soto"),
+            ("sellerKind", "Individual"),
+            ("sellerCivilStatus", "Married"),
+            ("sellerPrenup", "Yes"),
+            ("sellerSpouseName", "Marta Soto"),
+        ]);
+        assert!(!roles.contains(&"SELLER_SPOUSE".to_string()));
+    }
+
+    #[test]
+    fn a_when_on_a_signature_group_must_name_a_real_field() {
+        let xml = std::fs::read_to_string(templates_dir_in_repo().join("LISTING-01.v7.xml"))
+            .expect("v7 reads");
+        let broken = xml.replace(
+            r#"role="SELLER_BROKER" label="Broker" field="brokerName" initials="true"/>"#,
+            r#"role="SELLER_BROKER" label="Broker" field="brokerName" initials="true" when="noSuchField:Yes"/>"#,
+        );
+        assert_ne!(broken, xml, "the test must actually break the template");
+        let error = parse_template_xml(&broken).expect_err("a gate on a missing field is refused");
+        assert!(error.to_string().contains("noSuchField"));
     }
 }

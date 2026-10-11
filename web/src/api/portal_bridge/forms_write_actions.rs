@@ -547,8 +547,8 @@ pub(super) async fn send_signature(
         })?;
     let mut absent_roles: Vec<String> = Vec::new();
     let party_blocks: Vec<_> = template
-        .signature_groups
-        .iter()
+        .active_signature_groups(&saved.field_values)
+        .into_iter()
         .filter(|group| group.email.is_some())
         .collect();
     if !party_blocks.is_empty() {
