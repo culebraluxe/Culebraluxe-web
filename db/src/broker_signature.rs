@@ -12,7 +12,7 @@ use model::forms_applied_signature::{
     BROKER_SIGNATURE_DATE_SEMANTIC,
 };
 use model::forms_broker_signature::{
-    declared_signer_matches, normalized, policy_for_template, requires_execution_slot,
+    declared_signer_matches, normalized, policy_for_form, requires_execution_slot,
     BrokerSignatureConfig, SignatureAuthority, DEFAULT_BROKER_SIGNATURE_PURPOSE,
 };
 use model::forms_execution::IssuedExecutionSlot;
@@ -92,7 +92,7 @@ pub async fn resolve_for_issuance(
             "is incomplete; signer name and license are required.",
         ));
     }
-    let Some(policy) = policy_for_template(template_id) else {
+    let Some(policy) = policy_for_form(template_id, field_values) else {
         return Ok(Vec::new());
     };
     // Lisa is not occupying this document's broker role: no signature is applied, and that is not a failure.

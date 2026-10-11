@@ -489,10 +489,14 @@ fn template_party_signers(
             .map(|value| value.trim().to_owned())
             .unwrap_or_default()
     };
+    // Lisa's own side is pre-signed at issuance, so it is never a party to sign.
+    let lisa_role = model::forms_broker_signature::policy_for_form(template_id, field_values)
+        .map(|policy| policy.role);
     let parties = template
         .signature_groups
         .iter()
         .filter(|group| group.email.is_some())
+        .filter(|group| Some(group.role.as_str()) != lisa_role)
         // A party the form does not name at all (no name, no email: an absent spouse) has no block to sign and no slot.
         .filter(|group| {
             let name = group.field.as_deref().map(value).unwrap_or_default();

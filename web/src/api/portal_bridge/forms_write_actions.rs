@@ -552,7 +552,15 @@ pub(super) async fn send_signature(
         .filter(|group| group.email.is_some())
         .collect();
     if !party_blocks.is_empty() {
+        let lisa_role =
+            model::forms_broker_signature::policy_for_form(&saved.template_id, &saved.field_values)
+                .map(|policy| policy.role);
         for group in party_blocks {
+            if Some(group.role.as_str()) == lisa_role {
+                // Lisa's own side is signed at issuance; it is drawn on the document and nobody else signs it.
+                absent_roles.push(group.role.clone());
+                continue;
+            }
             let value = |name: &str| {
                 saved
                     .field_values

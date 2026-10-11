@@ -93,6 +93,37 @@ pub(super) async fn save_form_values(
             )
         })?;
 
+    // Purchase and Sale: Lisa is named on the side she represents, and only there. The other side's broker is typed.
+    if current.template_id == "PR-PNS" {
+        let lisa = model::forms_broker_signature::DEFAULT_BROKER_SIGNER_NAME;
+        let side = field_values
+            .get("lisaRepresents")
+            .map(|side| side.trim().to_owned())
+            .filter(|side| !side.is_empty())
+            .unwrap_or_else(|| "Seller".to_owned());
+        field_values.insert("lisaRepresents".to_owned(), side.clone());
+        let buyer_side = side == "Buyer";
+        let (lisa_field, other_field) = if buyer_side {
+            ("buyerBrokerName", "sellerBrokerName")
+        } else {
+            ("sellerBrokerName", "buyerBrokerName")
+        };
+        field_values.insert(lisa_field.to_owned(), lisa.to_owned());
+        // Lisa is not an envelope party, so the address on her side is not kept.
+        let lisa_email = if buyer_side {
+            "buyerBrokerEmail"
+        } else {
+            "sellerBrokerEmail"
+        };
+        field_values.insert(lisa_email.to_owned(), String::new());
+        if field_values
+            .get(other_field)
+            .is_some_and(|name| name.trim() == lisa)
+        {
+            field_values.insert(other_field.to_owned(), String::new());
+        }
+    }
+
     // A fixed field holds the template's value whatever the client sent.
     for field in &template.fields {
         if let Some(fixed) = field.fixed.as_deref() {
