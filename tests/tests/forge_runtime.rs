@@ -947,7 +947,16 @@ fn a_qa_lane_records_its_measurement_as_an_artifact() {
     assert_eq!(artifact.tool, "assay");
     assert_eq!(artifact.kind, "qa-assay-evidence");
     assert_eq!(artifact.verdict.as_deref(), Some("PASS"));
-    assert_eq!(artifact.sha.as_deref(), Some(candidate_sha.as_str()));
+    // The artifact names what QA measured — the story, the run, the lane's own verdict — and NO Git identity.
+    // QA has no Git authority: "QA reports measurements only. Candidate and release lineage belong to Forge's
+    // publisher path and must never be attached to a QA finding" (`forge/src/roles/qa.rs`), and
+    // `docs/agent/FORGE-QA-BOUNDARY.md` binds QA to not own a commit SHA. This assertion said
+    // `Some(candidate_sha)` until c2c556adc removed that authority and left it stale; the replacement at the
+    // contract level is `forge_assay__006__qa_verdict_independent_of_git_identity`.
+    assert_eq!(
+        artifact.sha, None,
+        "a QA finding must never be bound to a candidate SHA"
+    );
 }
 
 /// A failing assay records `FAIL`, and a lane that measured nothing records `UNPROVEN` — three answers, because a
