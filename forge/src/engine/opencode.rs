@@ -279,9 +279,14 @@ impl OpenCodeHarness {
         self_heal: Option<&str>,
         live_turn: &LiveTurnSlot,
     ) -> Result<HarnessOutput> {
-        self.run_role_with_slot_measured(node_id, task, self_heal, live_turn, &mut None)
+        self.run_role_with_slot_measured(node_id, task, self_heal, live_turn, &mut None, &mut None)
     }
 
+    /// One turn, with the two measurements it produces published even when the turn does not succeed.
+    ///
+    /// `measured_usage` and `measured_trajectory` are OUT-parameters rather than parts of the return value because the
+    /// failure paths below return `Err` — and a reading that only exists on the success path is exactly how a failed
+    /// turn gets recorded as a turn that nothing happened in.
     fn run_role_with_slot_measured(
         &self,
         node_id: &str,
@@ -289,6 +294,7 @@ impl OpenCodeHarness {
         self_heal: Option<&str>,
         live_turn: &LiveTurnSlot,
         measured_usage: &mut Option<crate::engine::harness::HarnessUsage>,
+        measured_trajectory: &mut Option<crate::engine::trajectory::TrajectoryMetrics>,
     ) -> Result<HarnessOutput> {
         let cwd = self.workspace.to_string_lossy().to_string();
         if !self.workspace.exists() {
@@ -493,6 +499,16 @@ impl OpenCodeHarness {
             })
             .or_else(|| turn.as_ref().ok().and_then(|events| events.usage.clone()));
         *measured_usage = usage.clone();
+        // WHAT THE TURN DID — captured HERE, before any verdict below can return.
+        //
+        // Every exit from this point on (a Forge stop, a vendor failure, a stream Forge cannot read) still emitted
+        // tool calls, and those calls ARE the measurement. Summarizing only on the success path recorded a failed
+        // turn as a turn in which nothing happened, which is how a lane that thrashed for twenty edits and then
+        // died looked identical to one that never started. `None` stays `None` when the stream could not be parsed:
+        // unmeasured is not the same as measured zero, and a zero here would be a fabricated reading.
+        if let Ok(events) = &turn {
+            *measured_trajectory = Some(crate::engine::trajectory::summarize(&events.tool_calls));
+        }
         let spent = usage
             .as_ref()
             .map(|u| {
@@ -577,7 +593,9 @@ impl OpenCodeHarness {
             self.assay_commands.clone()
         };
         Ok(HarnessOutput {
-            trajectory: Some(crate::engine::trajectory::summarize(&turn.tool_calls)),
+            // The same summary captured above, not a second reading: the success path and the failure paths must
+            // report the turn's work from one source or they can disagree about it.
+            trajectory: (*measured_trajectory).clone(),
             raw,
             candidate_sha,
             assay_commands: assay,
@@ -599,6 +617,11 @@ impl RoleHarness for OpenCodeHarness {
         self.run_role_with_slot(node_id, task, self_heal, &self.live_turn)
     }
 
+    /// The structured report for a turn: the outcome AND the two readings taken from the vendor's own stream.
+    ///
+    /// `trajectory` is what the turn DID, however the turn ended. A failed or interrupted turn whose stream Forge
+    /// could read reports the calls it made before it died; only an unreadable stream reports `None`, which is
+    /// UNMEASURED — never a zero.
     fn run_role_report(
         &self,
         node_id: &str,
@@ -606,15 +629,17 @@ impl RoleHarness for OpenCodeHarness {
         self_heal: Option<&str>,
     ) -> crate::engine::runner::HarnessTurnReport {
         let mut measured_usage = None;
+        let mut measured_trajectory = None;
         let outcome = self.run_role_with_slot_measured(
             node_id,
             task,
             self_heal,
             &self.live_turn,
             &mut measured_usage,
+            &mut measured_trajectory,
         );
         crate::engine::runner::HarnessTurnReport {
-            trajectory: None,
+            trajectory: measured_trajectory,
             outcome,
             measured_usage,
         }
@@ -650,6 +675,7 @@ impl RoleHarness for OpenCodeHarness {
         self_heal: Option<&str>,
     ) -> crate::engine::runner::HarnessTurnReport {
         let mut measured_usage = None;
+        let mut measured_trajectory = None;
         let outcome = self.execution_slot(execution_id).and_then(|slot| {
             if slot
                 .lock()
@@ -657,15 +683,24 @@ impl RoleHarness for OpenCodeHarness {
                 .interrupt_reason
                 .is_some()
             {
+                // Cancelled BEFORE launch: no vendor process ran, so there is nothing observed to report. That is
+                // the one case where an empty report is the honest one — the turn never spent anything.
                 return Err(WorkflowError::generic(format!(
                     "{}: execution was cancelled before model launch",
                     crate::engine::opencode::TURN_INTERRUPTED_CODE
                 )));
             }
-            self.run_role_with_slot_measured(node_id, task, self_heal, &slot, &mut measured_usage)
+            self.run_role_with_slot_measured(
+                node_id,
+                task,
+                self_heal,
+                &slot,
+                &mut measured_usage,
+                &mut measured_trajectory,
+            )
         });
         crate::engine::runner::HarnessTurnReport {
-            trajectory: None,
+            trajectory: measured_trajectory,
             outcome,
             measured_usage,
         }
