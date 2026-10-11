@@ -365,6 +365,10 @@ pub fn run_forge_role_turn(
     }
     let out_raw = last_raw;
     let out = HarnessOutput {
+        // Not a lost reading: each attempt's trajectory was settled for itself as that turn ended (see
+        // `record_turn_usage` above, keyed by the attempt), and this roll-up is the value the LANE returns, not the
+        // value stored. A trajectory is not summable in any case — `first_edit_at_ms` and `last_edit_at_ms` are
+        // positions inside ONE turn, so adding attempts together would invent a reading. Absent is honest here.
         trajectory: None,
         raw: out_raw.clone(),
         candidate_sha: last_out_sha,
