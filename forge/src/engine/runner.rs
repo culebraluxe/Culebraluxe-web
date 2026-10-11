@@ -30,6 +30,10 @@ pub struct HarnessOutput {
 
 /// The model's measured spend is independent of whether the turn produced a usable answer.
 /// Adapters that can measure failed turns return that reading here instead of formatting it into an error.
+///
+/// The same rule governs `trajectory`: it is what the turn DID, and a turn that failed to produce an answer must
+/// not erase what was already observed of it. `None` means UNMEASURED (the harness could not read the vendor's
+/// stream), never "measured zero".
 pub struct HarnessTurnReport {
     pub outcome: Result<HarnessOutput>,
     pub measured_usage: Option<HarnessUsage>,
