@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OFFER-01 v2 — Contract-first Offer Letter.
+
+  Deal is no longer canonical input. A Deal may still launch creation long
+  enough to resolve an explicit Person + Property, but the saved v2 Form is
+  bound directly to those services and its offer economics become Contract
+  draft facts.
+-->
+<form
+  id="OFFER-01"
+  version="5"
+  title="OFFER LETTER"
+  presentation="letter"
+  documentType="Offer Letter"
+  issuer="CulebraLuxe Real Estate">
+
+  <participants>
+    <participant role="BUYER" label="Buyer" multiple="true"/>
+    <participant role="SELLER" label="Seller" multiple="true"/>
+    <participant role="BUYER_BROKER" label="Buyer's Broker"/>
+  </participants>
+
+  <field id="buyerName" label="Buyer / Client" type="text" required="true" source="person.displayName"/>
+  <field id="buyerEmail" label="Buyer Email (the person who signs)" type="email" required="false"/>
+  <field id="buyerCivilStatus" label="Buyer Civil Status" type="select" options="Single, Married, Divorced, Widowed"/>
+  <field id="buyerKind" label="Buyer Type" type="select" required="true" options="Individual, Entity, Power of Attorney"/>
+  <field id="buyerPrenup" label="Buyer Prenuptial Agreement (capitulaciones)" type="select" options="No, Yes" when="buyerCivilStatus:Married"/>
+  <field id="buyerSpouseName" label="Buyer Spouse Name" type="text" when="buyerCivilStatus:Married"/>
+  <field id="buyerSpouseEmail" label="Buyer Spouse Email" type="email" required="false" when="buyerCivilStatus:Married"/>
+  <field id="buyerEntityName" label="Company Name" type="text" when="buyerKind:Entity"/>
+  <field id="buyerEntityState" label="State of Formation" type="text" when="buyerKind:Entity"/>
+  <field id="buyerEntityRegister" label="PR Department of State Register No." type="text" when="buyerKind:Entity"/>
+  <field id="buyerRepName" label="Authorized Representative" type="text" when="buyerKind:Entity"/>
+  <field id="buyerRepTitle" label="Representative Title (Member, Manager, President)" type="text" when="buyerKind:Entity"/>
+  <field id="buyerPoaAgent" label="Attorney-in-Fact" type="text" when="buyerKind:Power of Attorney"/>
+  <field id="buyerPoaDate" label="Power of Attorney Date" type="date" when="buyerKind:Power of Attorney"/>
+  <field id="buyerPoaNotary" label="Notary (name)" type="text" when="buyerKind:Power of Attorney"/>
+  <field id="buyerPoaDeed" label="Deed / Affidavit No." type="text" when="buyerKind:Power of Attorney"/>
+  <field id="buyerDescription" label="Party description" type="textarea" derived="true"/>
+  <field id="buyerSignBlock" label="Signature line" type="text" derived="true"/>
+  <field id="buyerSignerName" label="Signer" type="text" derived="true"/>
+  <field id="buyerSpouseSign" label="Spouse signature line" type="text" derived="true"/>
+  <field id="buyerSpouseSignEmail" label="Spouse signer email" type="email" derived="true"/>
+  <field id="sellerName" label="Seller / Owner" type="text" required="true"/>
+  <field id="brokerName" label="Buyer's Broker" type="text" required="true" fixed="Lisa Penfield"/>
+  <field id="property" label="Property" type="text" required="true" source="property.name"/>
+  <field id="offerAmount" label="Offer amount" type="money" required="true"/>
+  <field id="deposit" label="Deposit" type="money"/>
+  <field id="financing" label="Cash / Financing" type="select" required="true" options="Cash, Financed"/>
+  <field id="closingDate" label="Proposed closing date" type="date" required="true"/>
+  <field id="expiration" label="Offer expiration" type="date" required="true"/>
+  <field id="contingencies" label="Contingencies" type="textarea"/>
+
+  <section id="parties" title="Buyer" editable="false">
+    The Buyer is <value field="buyerDescription"/>.
+  </section>
+
+  <section id="specialTerms" title="Special Terms" editable="true"/>
+
+  <signatures>
+    <signature-group role="BUYER" label="Buyer" field="buyerSignBlock" signer="buyerSignerName" email="buyerEmail" initials="true"/>
+    <signature-group role="BUYER_SPOUSE" label="Buyer's Spouse" field="buyerSpouseSign" email="buyerSpouseSignEmail" initials="true"/>
+    <signature-group role="BUYER_BROKER" label="Buyer's Broker" field="brokerName" initials="true"/>
+  </signatures>
+
+</form>

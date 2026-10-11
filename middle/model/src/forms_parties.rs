@@ -26,6 +26,8 @@ pub struct DerivedParty {
 pub fn party_prefixes(template_id: &str) -> &'static [&'static str] {
     match template_id {
         "PR-PNS" => &["buyer", "seller"],
+        "LISTING-01" => &["seller"],
+        "OFFER-01" => &["buyer"],
         _ => &[],
     }
 }
@@ -88,7 +90,7 @@ pub fn derive_party(prefix: &str, values: &BTreeMap<String, String>) -> DerivedP
             let agent = get("PoaAgent");
             (
                 format!(
-                    "{name}, represented by {agent}, attorney-in-fact under a special power of attorney dated {date} before Notary {notary}, Deed/Affidavit No. {deed}",
+                    "{name}, represented by {agent}, attorney-in-fact under a special power of attorney dated {date} before {notary}, Deed/Affidavit No. {deed}",
                     date = get("PoaDate"),
                     notary = get("PoaNotary"),
                     deed = get("PoaDeed"),
@@ -217,7 +219,9 @@ mod tests {
             "Caribe Holdings LLC, by Lisa Penfield, Attorney-in-Fact"
         );
         assert_eq!(d.signer_name, "Lisa Penfield");
-        assert!(d.description.contains("special power of attorney dated 2026-09-01 before Notary Maria Notary, Deed/Affidavit No. 42"));
+        assert!(d.description.contains(
+            "special power of attorney dated 2026-09-01 before Maria Notary, Deed/Affidavit No. 42"
+        ));
     }
 
     #[test]
