@@ -338,6 +338,13 @@ fn spawn_run(opts: &OpenCodeStartOptions<'_>) -> std::io::Result<Child> {
 /// claim forever. Same 120 minutes as `engine::opencode::DEFAULT_TURN_CEILING_MINUTES`.
 pub const UNBOUNDED_REAP_FALLBACK: Duration = Duration::from_secs(120 * 60);
 
+/// After the direct child has exited, a descendant that inherited the pipes gets this long from the exit (or
+/// from its last line, whichever is later) to go quiet before the tree is stopped. Reaping is not running: the
+/// owner is gone, so a descendant that has stopped writing is not producing the turn's output, and waiting on
+/// it holds this worker — and its claim — for whatever is left of the turn ceiling. Same scale as
+/// `TERMINATE_GRACE`, so a stopped tree is gone within a couple of seconds either way.
+pub const POST_EXIT_DRAIN_GRACE: Duration = Duration::from_secs(2);
+
 pub fn start_opencode_run(opts: OpenCodeStartOptions<'_>) -> OpenCodeRunResult {
     match spawn_run(&opts) {
         Err(err) => OpenCodeRunResult {

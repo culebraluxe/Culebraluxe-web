@@ -902,6 +902,7 @@ fn run_maestro_streaming(
     let mut stderr_result = None;
     let mut status = None;
     let mut direct_child_exited_at = None;
+    let mut last_stdout_at: Option<std::time::Instant> = None;
     loop {
         if let Some(ceiling) = max_turn {
             if start_time.elapsed() >= ceiling {
@@ -916,7 +917,8 @@ fn run_maestro_streaming(
         loop {
             match rx.try_recv() {
                 Ok(line) => {
-                    accept_maestro_stdout_line(line, &mut stdout, spend_cap, &mut child, running)?
+                    accept_maestro_stdout_line(line, &mut stdout, spend_cap, &mut child, running)?;
+                    last_stdout_at = Some(std::time::Instant::now());
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     stdout_done = true;
@@ -962,22 +964,31 @@ fn run_maestro_streaming(
             break;
         }
 
-        // An operator may explicitly disable the turn ceiling. Still bound pipe draining after the direct
-        // child exits: an inherited pipe must not hold a completed execution forever.
-        if max_turn.is_none()
-            && direct_child_exited_at.is_some_and(|exited| {
-                exited.elapsed() >= crate::engine::opencode_client::UNBOUNDED_REAP_FALLBACK
-            })
-        {
-            stop_maestro_process_tree(&mut child, running);
-            return Err(WorkflowError::generic(
-                "maestro descendants kept output pipes open past the bounded reap window",
-            ));
+        // The direct child is gone, so anything still holding the pipes is a descendant that inherited them, and
+        // this is a reap, not a run. A descendant that is STILL WRITING is still producing the turn's output and
+        // keeps being read (to the ceiling); one that has gone quiet for `POST_EXIT_DRAIN_GRACE` — measured from
+        // the exit at the earliest, so the grace is always honored — is producing nothing, and waiting on it
+        // holds this worker and its claim for whatever is left of the ceiling.
+        //
+        // The bound used to be reachable only when an operator had turned the ceiling OFF, which is the mode
+        // production never runs: with the default ceiling a quiet pipe-holder held the worker for the whole
+        // 120 minutes and then reported "exceeded wall-clock ceiling" for a child that had already exited.
+        if let Some(exited) = direct_child_exited_at {
+            let quiet_since = last_stdout_at.filter(|at| *at > exited).unwrap_or(exited);
+            if quiet_since.elapsed() >= crate::engine::opencode_client::POST_EXIT_DRAIN_GRACE
+                || exited.elapsed() >= crate::engine::opencode_client::UNBOUNDED_REAP_FALLBACK
+            {
+                stop_maestro_process_tree(&mut child, running);
+                return Err(WorkflowError::generic(
+                    "maestro descendants kept output pipes open past the bounded reap window",
+                ));
+            }
         }
 
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(line) => {
-                accept_maestro_stdout_line(line, &mut stdout, spend_cap, &mut child, running)?
+                accept_maestro_stdout_line(line, &mut stdout, spend_cap, &mut child, running)?;
+                last_stdout_at = Some(std::time::Instant::now());
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => stdout_done = true,
@@ -1650,6 +1661,52 @@ mod tests {
             .expect("sibling completed independently")
             .expect("sibling succeeded");
         assert!(sibling.stdout.contains("sibling-ok"));
+        let descendant: u32 = std::fs::read_to_string(&descendant_pid_file)
+            .expect("descendant wrote its pid")
+            .trim()
+            .parse()
+            .expect("pid is numeric");
+        assert!(
+            !std::process::Command::new("kill")
+                .args(["-0", &descendant.to_string()])
+                .status()
+                .expect("kill command")
+                .success(),
+            "owned descendant was stopped"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn maestro_quiet_descendant_pipe_is_reaped_after_exit_with_a_ceiling_set() {
+        // The same fixture as the test above, with the ceiling LONG. The reap bound used to be reachable only
+        // when an operator had turned the ceiling off, so this case — the mode production runs — sat on the
+        // ceiling for a child that had already exited, then reported "exceeded wall-clock ceiling" for a
+        // pipe-holder. A quiet descendant is a reap, not a run: it is stopped at the reap window.
+        let dir = std::env::temp_dir().join(format!("forge-maestro-reap-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("fixture dir");
+        let parent_pid_file = dir.join("parent-pid");
+        let descendant_pid_file = dir.join("descendant-pid");
+        let script = write_fixture_script(
+            &dir,
+            "quiet-descendant.sh",
+            &format!(
+                "echo $$ > '{}'\nsleep 30 &\necho $! > '{}'\nexit 0",
+                parent_pid_file.display(),
+                descendant_pid_file.display()
+            ),
+        );
+
+        let started = std::time::Instant::now();
+        let error =
+            run_fixture_with_outer_deadline(script, Duration::from_secs(30), Some(parent_pid_file))
+                .expect_err("a quiet descendant holding the pipes must not hold the worker");
+        assert!(error.to_string().contains("bounded reap window"), "{error}");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "reaped at the drain grace, not the ceiling: {:?}",
+            started.elapsed()
+        );
         let descendant: u32 = std::fs::read_to_string(&descendant_pid_file)
             .expect("descendant wrote its pid")
             .trim()
