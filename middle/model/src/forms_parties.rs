@@ -45,6 +45,14 @@ pub fn apply_party_derivations(template_id: &str, values: &mut BTreeMap<String, 
             values.insert(kind_key.clone(), "Individual".to_owned());
         }
         let derived = derive_party(prefix, values);
+        // The spouse's block is on the form only when the spouse signs. The gate reads this, not the civil status, so a
+        // seller who was married and is now an entity (or has a prenup) has no spouse block.
+        let spouse_on_form = if derived.spouse_sign.is_empty() {
+            ""
+        } else {
+            "Yes"
+        };
+        values.insert(format!("{prefix}SpouseOnForm"), spouse_on_form.to_owned());
         values.insert(format!("{prefix}Description"), derived.description);
         values.insert(format!("{prefix}SignBlock"), derived.sign_block);
         values.insert(format!("{prefix}SignerName"), derived.signer_name);

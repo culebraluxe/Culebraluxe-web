@@ -132,6 +132,15 @@ pub(super) fn parse_signatures(
                 )));
             }
         }
+        let when = parse_when(child.attr("when"), &format!("Signature group \"{role}\""))?;
+        if let Some(gate) = when.as_ref() {
+            if !field_ids.iter().any(|id| id == &gate.field) {
+                return Err(TemplateXmlError::new(format!(
+                    "Signature group \"{role}\" is gated on \"{}\", which is not a field.",
+                    gate.field
+                )));
+            }
+        }
         groups.push(TemplateSignatureGroup {
             role,
             label,
@@ -139,6 +148,7 @@ pub(super) fn parse_signatures(
             initials,
             email,
             signer,
+            when,
         });
     }
     Ok(groups)

@@ -171,8 +171,8 @@ mod tests {
         values: &BTreeMap<String, String>,
     ) -> Vec<Participant> {
         template
-            .signature_groups
-            .iter()
+            .active_signature_groups(values)
+            .into_iter()
             .map(|group| Participant {
                 role: group.role.clone(),
                 slot_id: Some(format!("{}:1", group.role)),
