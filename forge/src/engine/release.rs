@@ -81,7 +81,10 @@ pub enum PublishReconciliation {
 }
 
 pub trait EvidenceStore: Send + Sync {
-    fn read(&self, story_id: &str) -> ForgeGateEvidence;
+    /// A read that FAILED is not a read that found nothing. The publish gate cannot be evaluated without the
+    /// durable evidence, so the caller must be told: defaulting here is how a story with sound evidence got
+    /// `publishSucceeded=false` written onto it, and how the originating error never reached the receipt.
+    fn read(&self, story_id: &str) -> std::result::Result<ForgeGateEvidence, String>;
     fn merge(
         &self,
         process_instance_id: &str,
@@ -123,7 +126,14 @@ impl<O: ForgeReleaseOperations, E: EvidenceStore> DbForgeReleaseExecutor<O, E> {
                 message: Some("Forge release command is missing process/story context".into()),
             };
         }
-        let stored = self.evidence.read(&envelope.story_id);
+        // An unreadable store holds the command; it does not become empty evidence. With default evidence the
+        // lineage check fails for a missing candidate SHA and, if the merge below then succeeds, the run writes
+        // `publishSucceeded=false` onto a story whose evidence was never read — a settlement failure reported as
+        // a publish failure. `settlement_failure` carries this error into the receipt, where it can be read.
+        let stored = match self.evidence.read(&envelope.story_id) {
+            Ok(stored) => stored,
+            Err(error) => return settlement_failure(envelope, false, error),
+        };
         let evidence = match &self.pending {
             Some(p) => p.merge_over(&stored),
             None => stored,
@@ -698,13 +708,17 @@ mod tests {
 
     struct FakeEvidence {
         fail: bool,
+        read_failure: Option<String>,
         current: ForgeGateEvidence,
         patches: Mutex<Vec<ForgeGateEvidence>>,
         receipts: Mutex<HashMap<String, db::ForgeReleaseOperationReceipt>>,
     }
     impl EvidenceStore for FakeEvidence {
-        fn read(&self, _: &str) -> ForgeGateEvidence {
-            self.current.clone()
+        fn read(&self, _: &str) -> std::result::Result<ForgeGateEvidence, String> {
+            match &self.read_failure {
+                Some(detail) => Err(detail.clone()),
+                None => Ok(self.current.clone()),
+            }
         }
         fn merge(
             &self,
@@ -790,6 +804,7 @@ mod tests {
             operations: FakeOps(outcome),
             evidence: FakeEvidence {
                 fail: fail_merge,
+                read_failure: None,
                 current: ForgeGateEvidence {
                     candidate_sha: Some("a".repeat(40)),
                     qa_verified_sha: Some("a".repeat(40)),
@@ -845,6 +860,38 @@ mod tests {
         assert_eq!(
             executor.evidence.patches.lock().unwrap()[0].publish_succeeded,
             Some(true)
+        );
+    }
+
+    #[test]
+    fn unreadable_release_evidence_holds_instead_of_reading_as_empty() {
+        let mut executor = executor(
+            PublishOutcome::Published {
+                published_main_hash: "b".repeat(40),
+            },
+            false,
+        );
+        executor.evidence.read_failure = Some("injected evidence read failure".into());
+
+        let command = executor.execute(&envelope());
+
+        assert_eq!(
+            command.outcome,
+            ApplicationCommandOutcome::SettlementRequired,
+            "a gate that could not be read is not a gate that passed"
+        );
+        let message = command.message.expect("settlement diagnostic");
+        assert!(
+            message.contains("injected evidence read failure"),
+            "{message}"
+        );
+        assert!(
+            message.contains("external_operation_succeeded=false"),
+            "{message}"
+        );
+        assert!(
+            executor.evidence.patches.lock().unwrap().is_empty(),
+            "no evidence may be written when the evidence could not be read"
         );
     }
 
@@ -941,6 +988,7 @@ mod tests {
             },
             evidence: FakeEvidence {
                 fail: false,
+                read_failure: None,
                 current: ForgeGateEvidence {
                     candidate_sha: Some("a".repeat(40)),
                     qa_verified_sha: Some("a".repeat(40)),

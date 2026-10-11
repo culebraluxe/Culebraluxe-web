@@ -253,11 +253,14 @@ pub fn publish_switch_off(value: Option<&str>) -> bool {
 pub struct DbReleaseEvidenceStore;
 
 impl EvidenceStore for DbReleaseEvidenceStore {
-    fn read(&self, story_id: &str) -> ForgeGateEvidence {
-        crate::engine::db_writer::read_story_evidence(story_id).unwrap_or_else(|db_failure| {
-            eprintln!("forge release evidence read failed for {story_id}: {db_failure}");
-            ForgeGateEvidence::default()
-        })
+    // No default, and no `eprintln!`: the error is returned so the release command can hold and put the
+    // original failure in its receipt, where a human reads it. The old arm printed to stderr and returned
+    // `ForgeGateEvidence::default()`, which the publisher then read as "no candidate SHA" and settled as a
+    // failed publish onto a story whose evidence may have been fine — the same fail-open this week removed
+    // from settlement, left on the read that settlement depends on.
+    fn read(&self, story_id: &str) -> Result<ForgeGateEvidence, String> {
+        crate::engine::db_writer::read_story_evidence(story_id)
+            .map_err(|db_failure| format!("forge release evidence read failed for {story_id}: {db_failure}"))
     }
 
     fn merge(

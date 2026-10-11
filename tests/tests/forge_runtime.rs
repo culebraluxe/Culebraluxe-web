@@ -1085,12 +1085,12 @@ fn publish_without_qa_pass_records_conflict() {
     use release::{ClosedReleaseOps, DbForgeReleaseExecutor, EvidenceStore, ForgeCommandEnvelope};
     struct Mem;
     impl EvidenceStore for Mem {
-        fn read(&self, _: &str) -> ForgeGateEvidence {
-            ForgeGateEvidence {
+        fn read(&self, _: &str) -> Result<ForgeGateEvidence, String> {
+            Ok(ForgeGateEvidence {
                 candidate_sha: Some("abc1234".into()),
                 qa_passed: Some(false),
                 ..Default::default()
-            }
+            })
         }
         fn merge(&self, _: &str, _: &str, patch: ForgeGateEvidence) -> Result<(), String> {
             assert_eq!(patch.publish_succeeded, Some(false));
@@ -1209,12 +1209,12 @@ fn a_publish_refused_by_the_switch_is_not_filed_as_a_git_conflict() {
     /// Records the `failure_class` the publisher filed, which is the whole claim under test.
     struct Spy(Arc<Mutex<Option<String>>>);
     impl EvidenceStore for Spy {
-        fn read(&self, _: &str) -> ForgeGateEvidence {
-            ForgeGateEvidence {
+        fn read(&self, _: &str) -> Result<ForgeGateEvidence, String> {
+            Ok(ForgeGateEvidence {
                 candidate_sha: Some("a".repeat(40)),
                 qa_passed: Some(true),
                 ..Default::default()
-            }
+            })
         }
         fn merge(&self, _: &str, _: &str, patch: ForgeGateEvidence) -> Result<(), String> {
             *self.0.lock().expect("spy lock") = patch.failure_class.clone();
