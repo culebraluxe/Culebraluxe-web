@@ -163,6 +163,8 @@ pub fn overview_fields(
     let filled: Vec<(TemplateFieldDefinition, String)> = template
         .fields
         .iter()
+        // The worked-out lines (a party's description, its signature line) are not facts the overview lists.
+        .filter(|field| !field.derived)
         .map(|field| {
             let raw = values
                 .get(&field.name)

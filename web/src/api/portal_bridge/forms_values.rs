@@ -28,7 +28,10 @@ pub(super) fn prefill_form_values(
             }
         }
 
+        // A conditional date (a power of attorney's date, say) has no default: it is only a date when the answer that
+        // asks for it is given.
         if value.trim().is_empty()
+            && field.when.is_none()
             && matches!(
                 field.field_type,
                 model::forms_template::TemplateFieldType::Date
@@ -93,36 +96,7 @@ pub(super) async fn save_form_values(
             )
         })?;
 
-    // Purchase and Sale: Lisa is named on the side she represents, and only there. The other side's broker is typed.
-    if current.template_id == "PR-PNS" {
-        let lisa = model::forms_broker_signature::DEFAULT_BROKER_SIGNER_NAME;
-        let side = field_values
-            .get("lisaRepresents")
-            .map(|side| side.trim().to_owned())
-            .filter(|side| !side.is_empty())
-            .unwrap_or_else(|| "Seller".to_owned());
-        field_values.insert("lisaRepresents".to_owned(), side.clone());
-        let buyer_side = side == "Buyer";
-        let (lisa_field, other_field) = if buyer_side {
-            ("buyerBrokerName", "sellerBrokerName")
-        } else {
-            ("sellerBrokerName", "buyerBrokerName")
-        };
-        field_values.insert(lisa_field.to_owned(), lisa.to_owned());
-        // Lisa is not an envelope party, so the address on her side is not kept.
-        let lisa_email = if buyer_side {
-            "buyerBrokerEmail"
-        } else {
-            "sellerBrokerEmail"
-        };
-        field_values.insert(lisa_email.to_owned(), String::new());
-        if field_values
-            .get(other_field)
-            .is_some_and(|name| name.trim() == lisa)
-        {
-            field_values.insert(other_field.to_owned(), String::new());
-        }
-    }
+    settle_values(&current.template_id, &mut field_values);
 
     // A fixed field holds the template's value whatever the client sent.
     for field in &template.fields {
@@ -439,12 +413,14 @@ pub(super) async fn forms_preview(
     // and is never re-implemented here — a pane that resolved her signature for itself drifted from the document,
     // which is exactly what the operator saw: an unsigned broker line on screen, her signature and initials in the
     // issued PDF.
+    let mut field_values = body.field_values;
+    settle_values(&form.template_id, &mut field_values);
     let render_request = model::VaultRenderRequest {
         form_instance_id: form.id.clone(),
         contract_id: form.contract_id.clone(),
         template_id: form.template_id.clone(),
         template_version: form.template_version,
-        field_values: body.field_values,
+        field_values,
         sections: body.sections,
         issued_version,
         participants,
@@ -475,4 +451,44 @@ pub(super) async fn forms_preview(
         "dataUri": format!("data:application/pdf;base64,{encoded}"),
         "filename": artifact.filename,
     })))
+}
+
+/// The answers a form's values settle to before they are stored or rendered: the derived party lines, and Lisa's side of
+/// a Purchase and Sale. Save and the preview both call this, so the preview is the document issuance will produce.
+pub(super) fn settle_values(
+    template_id: &str,
+    field_values: &mut std::collections::BTreeMap<String, String>,
+) {
+    model::forms_parties::apply_party_derivations(template_id, field_values);
+    if template_id != "PR-PNS" {
+        return;
+    }
+    // Lisa is named on the side she represents, and only there. The other side's broker is typed.
+    let lisa = model::forms_broker_signature::DEFAULT_BROKER_SIGNER_NAME;
+    let side = field_values
+        .get("lisaRepresents")
+        .map(|side| side.trim().to_owned())
+        .filter(|side| !side.is_empty())
+        .unwrap_or_else(|| "Seller".to_owned());
+    field_values.insert("lisaRepresents".to_owned(), side.clone());
+    let buyer_side = side == "Buyer";
+    let (lisa_field, other_field) = if buyer_side {
+        ("buyerBrokerName", "sellerBrokerName")
+    } else {
+        ("sellerBrokerName", "buyerBrokerName")
+    };
+    field_values.insert(lisa_field.to_owned(), lisa.to_owned());
+    // Lisa is not an envelope party, so the address on her side is not kept.
+    let lisa_email = if buyer_side {
+        "buyerBrokerEmail"
+    } else {
+        "sellerBrokerEmail"
+    };
+    field_values.insert(lisa_email.to_owned(), String::new());
+    if field_values
+        .get(other_field)
+        .is_some_and(|name| name.trim() == lisa)
+    {
+        field_values.insert(other_field.to_owned(), String::new());
+    }
 }
