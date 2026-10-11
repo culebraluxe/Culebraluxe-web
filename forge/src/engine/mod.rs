@@ -9,6 +9,7 @@ pub mod commands;
 pub mod completion;
 pub mod config;
 pub mod constants;
+pub mod context_policy;
 pub mod db_budget;
 pub mod db_ledger;
 pub mod db_writer;
