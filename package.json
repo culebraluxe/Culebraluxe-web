@@ -26,6 +26,8 @@
     "opencode:guard:repair": "bash scripts/opencode-service-guard.sh --repair",
     "opencode:guard:install": "bash scripts/opencode-service-guard.sh --install",
     "opencode:guard:uninstall": "bash scripts/opencode-service-guard.sh --uninstall",
+    "opencode:session:list": "bash scripts/opencode-session-stop.sh --list",
+    "opencode:session:stop": "bash scripts/opencode-session-stop.sh --stop",
     "lane:new": "bash scripts/lane-new.sh",
     "mail:test": "bash scripts/mail-test.sh",
     "mail:preview": "bash scripts/mail-test.sh --preview",
