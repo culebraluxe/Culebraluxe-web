@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <form
   id="SHOW-RPT"
-  version="2"
+  version="3"
   title="SHOWING REPORT"
   presentation="report"
   documentType="Showing Report"
@@ -16,8 +16,7 @@
   <field id="visitorName" label="Visitor" type="text" required="true" source="person.displayName"/>
   <field id="visitorEmail" label="Visitor Email" type="email" required="false"/>
   <field id="propertyOwnerName" label="Property Owner" type="text" required="true"/>
-  <field id="propertyOwnerEmail" label="Property Owner Email" type="email" required="false"/>
-  <field id="agentName" label="Showing Agent" type="text" required="true"/>
+  <field id="agentName" label="Showing Agent" type="text" required="true" fixed="Lisa Penfield"/>
   <field id="property" label="Property" type="text" required="true" source="property.name"/>
   <field id="showingDate" label="Date" type="date" required="true"/>
   <field id="duration" label="Duration" type="text"/>
@@ -41,7 +40,6 @@
 
   <signatures>
     <signature-group role="BUYER" label="Visitor" field="visitorName" email="visitorEmail" initials="true"/>
-    <signature-group role="SELLER" label="Property Owner" field="propertyOwnerName" email="propertyOwnerEmail" initials="true"/>
     <signature-group role="BUYER_BROKER" label="Showing Agent" field="agentName" initials="true"/>
   </signatures>
 </form>

@@ -9,7 +9,7 @@
 -->
 <form
   id="OFFER-01"
-  version="3"
+  version="4"
   title="OFFER LETTER"
   presentation="letter"
   documentType="Offer Letter"
@@ -24,8 +24,7 @@
   <field id="buyerName" label="Buyer / Client" type="text" required="true" source="person.displayName"/>
   <field id="buyerEmail" label="Buyer Email" type="email" required="false"/>
   <field id="sellerName" label="Seller / Owner" type="text" required="true"/>
-  <field id="sellerEmail" label="Seller Email" type="email" required="false"/>
-  <field id="brokerName" label="Buyer's Broker" type="text" required="true"/>
+  <field id="brokerName" label="Buyer's Broker" type="text" required="true" fixed="Lisa Penfield"/>
   <field id="property" label="Property" type="text" required="true" source="property.name"/>
   <field id="offerAmount" label="Offer amount" type="money" required="true"/>
   <field id="deposit" label="Deposit" type="money"/>
@@ -38,7 +37,6 @@
 
   <signatures>
     <signature-group role="BUYER" label="Buyer" field="buyerName" email="buyerEmail" initials="true"/>
-    <signature-group role="SELLER" label="Seller / Owner" field="sellerName" email="sellerEmail" initials="true"/>
     <signature-group role="BUYER_BROKER" label="Buyer's Broker" field="brokerName" initials="true"/>
   </signatures>
 
