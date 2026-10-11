@@ -384,7 +384,7 @@ fn render_email(message: &EmailMessage) -> Result<OutgoingMail, CoreServiceError
                 .map(|value| format!("\n\nMessage from CulebraLuxe:\n{value}"))
                 .unwrap_or_default();
             let text = format!(
-                "Hello {name},\n\n{lead}\n\nOpen and review it here:\n{url}{note_text}\n\nThis link is unique to you. Do not forward it.\n\nLuxesign · CulebraLuxe"
+                "Dear {name},\n\n{lead}\n\nOpen and review it here:\n{url}{note_text}\n\nThis link is unique to you. Do not forward it.\n\nLuxesign · CulebraLuxe"
             );
             let html = signature_request_html(&name, lead, &url, note.as_deref());
             (text, Some(html))
@@ -491,8 +491,8 @@ fn escape_html(value: &str) -> String {
 
 fn greeting_for(name: Option<&str>) -> String {
     match name.map(str::trim).filter(|name| !name.is_empty()) {
-        Some(name) => format!("Hello {name},"),
-        None => "Hello,".to_owned(),
+        Some(name) => format!("Dear {name},"),
+        None => "Dear Client,".to_owned(),
     }
 }
 
@@ -576,10 +576,9 @@ fn branded_html(mail: &Branded<'_>) -> String {
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:{NAVY};border-radius:6px;font-family:Georgia,'Times New Roman',serif;color:{IVORY}">
 <tr><td align="center" style="background:{NAVY};padding:26px 24px 22px"><img src="{logo}" alt="CulebraLuxe" width="300" style="display:block;border:0;outline:none;width:300px;max-width:100%;height:auto"></td></tr>
 <tr><td style="height:2px;line-height:2px;font-size:0;background:{GOLD}">&nbsp;</td></tr>
-<tr><td style="padding:34px 40px 8px;font-family:Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:2.6px;text-transform:uppercase;color:{GOLD}">Luxesign</td></tr>
-<tr><td style="padding:0 40px 16px;font-size:27px;line-height:34px;font-weight:300;color:{IVORY}">{heading}</td></tr>
+<tr><td style="padding:34px 40px 16px;font-size:27px;line-height:34px;font-weight:300;color:{IVORY}">{heading}</td></tr>
 {paragraphs}{note}{button}
-<tr><td style="padding:14px 40px 30px;border-top:1px solid #1d2c47;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:19px;color:{MUTED}">{footer}<br>Sent with <span style="color:{GOLD};letter-spacing:1.4px">LUXESIGN</span> &middot; <span style="color:{GOLD};letter-spacing:1.4px">CULEBRALUXE</span> &middot; Culebra, Puerto Rico</td></tr>
+<tr><td style="padding:18px 40px 30px;border-top:1px solid #1d2c47;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:19px;color:{MUTED}">{footer}<div style="margin-top:18px;font-family:Georgia,'Times New Roman',serif;font-size:20px;letter-spacing:4px;color:{GOLD}">LUXESIGN</div><div style="margin-top:2px">Secure electronic signing by CulebraLuxe &middot; Culebra, Puerto Rico</div></td></tr>
 </table></td></tr></table></body></html>"##,
         heading = escape_html(mail.heading),
         footer = escape_html(mail.footer),
@@ -817,7 +816,7 @@ mod tests {
         assert!(mail.text.contains("Maria Alvarez, Pedro Diaz"));
         assert!(mail.text.contains("attached"));
         let html = mail.html.expect("an HTML part");
-        assert!(html.contains("Hello Maria,"));
+        assert!(html.contains("Dear Maria,"));
         assert!(
             !html.contains("Review and sign"),
             "a completed notice has no signing button"
@@ -830,7 +829,7 @@ mod tests {
             EmailMessageKind::SignatureCompleted,
             serde_json::json!({ "recipientName": "", "documentTitle": "Deed" }),
         );
-        assert!(mail.text.starts_with("Hello,\n"));
+        assert!(mail.text.starts_with("Dear Client,\n"));
         assert!(mail
             .text
             .contains("Your CulebraLuxe contact has the signed document"));
