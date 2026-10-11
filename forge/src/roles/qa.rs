@@ -138,12 +138,7 @@ fn run_frozen_assay(
         )));
     }
 
-    let mut current = ctx.current.clone();
-    if let Some(base) = ctx.harness.execution_base_commit() {
-        current
-            .extra
-            .insert("recordedBase", workflow::Value::from(base));
-    }
+    let current = ctx.current.clone();
     let (mut evidence, verdict) = measure_frozen_plan(ctx, task, node_id, current, rust_contract)?;
     dispose_failure(&mut evidence, &verdict);
     if let Some(reason) = evidence.deliverable_rejection.as_deref() {
@@ -204,7 +199,9 @@ pub fn assay_tool_artifact(
             .clone()
             .or_else(|| evidence.last_failure.clone()),
         detail: None,
-        sha: evidence.candidate_sha.clone(),
+        // QA reports measurements only. Candidate and release lineage belong to Forge's
+        // publisher path and must never be attached to a QA finding.
+        sha: None,
         idempotency_key: None,
     }
 }
@@ -281,17 +278,14 @@ fn measure_frozen_plan(
         plan_errors.push("assay requires a durable Story Run and state writer".into());
     }
 
-    let candidate = normalize_candidate_sha(evidence.candidate_sha.as_deref());
-    let mut candidate_workspace_matches = false;
     let idempotency_key = ctx.story_run_id.map(|run_id| {
         format!(
-            "forge-assay-v1:{run_id}:{}:{node_id}:{}:{}",
+            "forge-assay-v2:{run_id}:{}:{node_id}:{}",
             task.task_id,
             identity
                 .as_ref()
                 .map(|id| id.hash.as_str())
-                .unwrap_or("plan-missing"),
-            candidate.as_deref().unwrap_or("candidate-missing")
+                .unwrap_or("plan-missing")
         )
     });
     if let (Some(writer), Some(key)) = (ctx.writer, idempotency_key.as_deref()) {
@@ -317,12 +311,6 @@ fn measure_frozen_plan(
                 || receipt
                     .detail
                     .as_ref()
-                    .and_then(|detail| detail.get("candidate_sha"))
-                    .and_then(Value::as_str)
-                    != candidate.as_deref()
-                || receipt
-                    .detail
-                    .as_ref()
                     .and_then(|detail| detail.get("measurement_node"))
                     .and_then(Value::as_str)
                     != Some(node_id)
@@ -331,11 +319,15 @@ fn measure_frozen_plan(
                     .as_ref()
                     .and_then(|detail| detail.get("receipt_schema_version"))
                     .and_then(Value::as_u64)
-                    != Some(1)
-                || normalize_candidate_sha(receipt.sha.as_deref()) != candidate
+                    != Some(2)
+                || receipt.detail.as_ref().is_some_and(|detail| {
+                    detail.get("candidate_sha").is_some()
+                        || detail.get("candidate_attestation_source").is_some()
+                })
+                || receipt.sha.is_some()
             {
                 return Err(WorkflowError::generic(
-                    "assay receipt idempotency key conflicts with run, plan, candidate, or measurement node",
+                    "assay receipt idempotency key conflicts with run, plan, or measurement node",
                 ));
             }
             let detail = receipt.detail.as_ref().expect("validated receipt detail");
@@ -357,9 +349,6 @@ fn measure_frozen_plan(
                 ));
             }
             evidence.qa_passed = Some(verdict == AssayVerdict::Pass);
-            evidence.qa_verified_sha = (verdict == AssayVerdict::Pass)
-                .then(|| candidate.clone())
-                .flatten();
             if let Some(blockers) = detail.get("blockers").and_then(Value::as_array) {
                 let blockers = blockers
                     .iter()
@@ -395,37 +384,13 @@ fn measure_frozen_plan(
         }
     }
 
-    // The candidate checkout authorizes a NEW measurement only. A valid durable receipt above is
-    // self-contained evidence and can be replayed after its worktree has advanced or disappeared.
-    if let Some(candidate) = candidate.as_deref() {
-        match ctx.harness.candidate_probe() {
-            Some(probe) => {
-                let actual = probe
-                    .workspace_head(ctx.harness.assay_cwd())
-                    .and_then(|sha| normalize_candidate_sha(Some(&sha)));
-                candidate_workspace_matches = actual.as_deref() == Some(candidate);
-                if !candidate_workspace_matches {
-                    plan_errors.push(match actual {
-                        Some(actual) => format!(
-                            "candidate workspace HEAD {actual} does not match reviewed candidate {candidate}"
-                        ),
-                        None => "candidate workspace HEAD could not be verified".into(),
-                    });
-                }
-            }
-            None => plan_errors.push("candidate workspace Git probe is unavailable".into()),
-        }
-    }
-
-    if candidate_workspace_matches {
-        if let Some(valid_plan) = plan.as_ref() {
-            for command in &valid_plan.commands {
-                let began = chrono::Utc::now().to_rfc3339();
-                let result = ctx.harness.run_command(&command.command);
-                let ended = chrono::Utc::now().to_rfc3339();
-                timings.push((command.id.clone(), began, ended));
-                results.push(result);
-            }
+    if let Some(valid_plan) = plan.as_ref() {
+        for command in &valid_plan.commands {
+            let began = chrono::Utc::now().to_rfc3339();
+            let result = ctx.harness.run_command(&command.command);
+            let ended = chrono::Utc::now().to_rfc3339();
+            timings.push((command.id.clone(), began, ended));
+            results.push(result);
         }
     }
 
@@ -463,18 +428,11 @@ fn measure_frozen_plan(
         artifact_report = rust_contract.then_some(judgments.test_artifact);
     }
 
-    if candidate.is_none() {
-        blockers.push("CANDIDATE_IDENTITY_MISSING".into());
-        verdict = AssayVerdict::Unproven;
-    }
     if !plan_errors.is_empty() {
         verdict = AssayVerdict::Unproven;
     }
 
     evidence.qa_passed = Some(verdict == AssayVerdict::Pass);
-    evidence.qa_verified_sha = (verdict == AssayVerdict::Pass)
-        .then(|| candidate.clone())
-        .flatten();
     if rust_contract {
         if let Some(product) = product_report.as_ref() {
             if product.verdict == AssayVerdict::Fail {
@@ -490,7 +448,7 @@ fn measure_frozen_plan(
             "QA {:?}: {}",
             verdict,
             if blockers.is_empty() {
-                "acceptance plan did not prove the candidate".to_string()
+                "acceptance plan did not prove its stated criteria".to_string()
             } else {
                 blockers.join("; ")
             }
@@ -502,7 +460,6 @@ fn measure_frozen_plan(
         task,
         node_id,
         ctx.story_run_id,
-        candidate.as_deref(),
         plan.as_ref(),
         identity.as_ref(),
         approval.as_ref(),
@@ -576,7 +533,6 @@ fn attach_assay_receipt_identity(
             "measurementNode": measurement_node,
             "gateVerdict": required("gate_verdict")?,
             "planSha256": optional("plan_sha256"),
-            "candidateSha": optional("candidate_sha"),
         }),
     );
     Ok(())
@@ -586,7 +542,6 @@ fn build_assay_receipt(
     task: &ActiveForgeRoleTask,
     node_id: &str,
     run_id: Option<&str>,
-    candidate_sha: Option<&str>,
     plan: Option<&ApprovedAssayPlan>,
     identity: Option<&PlanIdentity>,
     approval: Option<&(String, String)>,
@@ -679,15 +634,13 @@ fn build_assay_receipt(
         })
         .collect::<Vec<_>>();
     json!({
-        "receipt_schema_version": 1,
+        "receipt_schema_version": 2,
         "story_id": task.story_id,
         "story_run_id": run_id,
         "process_instance_id": task.process_instance_id,
         "task_id": task.task_id,
         "measurement_node": node_id,
         "gate_verdict": format!("{gate_verdict:?}"),
-        "candidate_sha": candidate_sha,
-        "candidate_attestation_source": "durable_evidence_matched_to_assay_workspace_head",
         "plan_id": identity.map(|id| id.plan_id.as_str()),
         "plan_version": identity.map(|id| id.plan_version),
         "plan_schema_version": identity.map(|id| id.schema_version),
@@ -797,20 +750,10 @@ fn assay_receipt_artifact(
     idempotency_key: Option<String>,
 ) -> db::NewToolArtifact {
     let mut artifact = assay_tool_artifact(story_id, story_run_id, evidence, verdict);
-    artifact.sha = detail
-        .get("candidate_sha")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+    artifact.sha = None;
     artifact.detail = Some(detail);
     artifact.idempotency_key = idempotency_key;
     artifact
-}
-
-fn normalize_candidate_sha(candidate: Option<&str>) -> Option<String> {
-    candidate
-        .map(str::trim)
-        .filter(|sha| sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .map(str::to_ascii_lowercase)
 }
 
 #[cfg(test)]
@@ -821,9 +764,9 @@ mod tests {
         AcceptanceJudgment, ApprovedAcceptanceCondition, ApprovedAssayCommand, ApprovedAssayPlan,
         ApprovedAssertionCheck, AssayParser, AssayRunner, CheckAggregation,
     };
-    use crate::engine::runner::{CandidateProbe, HarnessOutput, ProductionRoleRunner, RoleHarness};
+    use crate::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};
     use crate::engine::writer::RecordingWriter;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
     /// A harness that runs whatever it is told and counts any turn it is asked for. Its commands pass or fail
@@ -834,9 +777,6 @@ mod tests {
         command_passes: bool,
         commands: Vec<String>,
         output: String,
-        workspace_sha: std::sync::Mutex<String>,
-        candidate_probes: AtomicUsize,
-        probe_available: AtomicBool,
     }
 
     impl MeasurementHarness {
@@ -847,9 +787,6 @@ mod tests {
                 command_passes,
                 commands: Vec::new(),
                 output: String::new(),
-                workspace_sha: std::sync::Mutex::new("a".repeat(40)),
-                candidate_probes: AtomicUsize::new(0),
-                probe_available: AtomicBool::new(true),
             }
         }
 
@@ -862,19 +799,6 @@ mod tests {
         fn with_output(mut self, output: &str) -> Self {
             self.output = output.into();
             self
-        }
-
-        fn with_workspace_sha(mut self, sha: &str) -> Self {
-            *self.workspace_sha.get_mut().unwrap() = sha.into();
-            self
-        }
-
-        fn disable_candidate_probe(&self) {
-            self.probe_available.store(false, Ordering::SeqCst);
-        }
-
-        fn enable_candidate_probe(&self) {
-            self.probe_available.store(true, Ordering::SeqCst);
         }
 
         fn turns(&self) -> usize {
@@ -922,22 +846,6 @@ mod tests {
                 output: self.output.clone(),
             }
         }
-        fn candidate_probe(&self) -> Option<&dyn CandidateProbe> {
-            self.probe_available
-                .load(Ordering::SeqCst)
-                .then_some(self as &dyn CandidateProbe)
-        }
-    }
-
-    impl CandidateProbe for MeasurementHarness {
-        fn git(&self, _: &[&str]) -> Option<String> {
-            self.candidate_probes.fetch_add(1, Ordering::SeqCst);
-            Some(self.workspace_sha.lock().unwrap().clone())
-        }
-
-        fn declared_test_mode(&self) -> Option<&str> {
-            Some("RUST_CONTRACT")
-        }
     }
 
     fn qa_task() -> ActiveForgeRoleTask {
@@ -967,7 +875,7 @@ mod tests {
                 runner: AssayRunner::CommandExit,
                 parser: AssayParser::CommandExit,
                 working_directory: "lane_root".into(),
-                environment_identity: "forge-inherited-shell-v1".into(),
+                environment_identity: "forge-sanitized-assay-v2".into(),
             }],
             checks: vec![ApprovedAssertionCheck {
                 id: "check-build".into(),
@@ -1015,7 +923,6 @@ mod tests {
         let writer = Arc::new(RecordingWriter::default());
         approved_plan_snapshot(&writer, "cargo check --all-targets");
         let mut evidence = ForgeGateEvidence::default();
-        evidence.candidate_sha = Some("a".repeat(40));
         let runner = ProductionRoleRunner::new(harness.clone(), evidence)
             .with_writer(writer.clone())
             .with_story_run(Some(RUN_ID.into()))
@@ -1060,13 +967,13 @@ mod tests {
     }
 
     #[test]
-    fn a_mismatched_workspace_candidate_is_neither_measured_nor_accepted() {
-        let harness = Arc::new(MeasurementHarness::new(true).with_workspace_sha(&"b".repeat(40)));
+    fn qa_measurement_does_not_consult_candidate_identity() {
+        let harness = Arc::new(MeasurementHarness::new(true));
         let (turns, verdict, summary) = measure(&harness, false);
         assert_eq!(turns, 0);
-        assert_eq!(harness.commands_run(), 0);
-        assert_eq!(verdict, "UNPROVEN");
-        assert!(summary.contains("does not match reviewed candidate"));
+        assert_eq!(harness.commands_run(), 1);
+        assert_eq!(verdict, "PASS");
+        assert!(summary.is_empty());
     }
 
     /// Verification is deterministic and model-free under both product and test-authoring plans.
@@ -1098,7 +1005,6 @@ mod tests {
         let harness = Arc::new(MeasurementHarness::new(true));
         let writer = Arc::new(RecordingWriter::default());
         let mut evidence = ForgeGateEvidence::default();
-        evidence.candidate_sha = Some("a".repeat(40));
         let runner = ProductionRoleRunner::new(harness, evidence)
             .with_writer(writer.clone())
             .with_story_run(Some(RUN_ID.into()))
@@ -1122,7 +1028,6 @@ mod tests {
         let writer = Arc::new(RecordingWriter::default());
         approved_plan_snapshot(&writer, "cargo check --all-targets");
         let mut evidence = ForgeGateEvidence::default();
-        evidence.candidate_sha = Some("A".repeat(40));
         let runner = ProductionRoleRunner::new(harness.clone(), evidence)
             .with_writer(writer.clone())
             .with_story_run(Some(RUN_ID.into()));
@@ -1152,11 +1057,12 @@ mod tests {
                 .as_deref()
         );
         assert_eq!(harness.commands_run(), 1);
-        assert_eq!(harness.candidate_probes.load(Ordering::SeqCst), 1);
         let artifact = writer.artifacts.lock().unwrap()[0].clone();
         let key = artifact.idempotency_key.clone().expect("receipt key");
         let detail = artifact.detail.clone().expect("durable detail");
-        assert_eq!(detail["receipt_schema_version"], 1);
+        assert_eq!(detail["receipt_schema_version"], 2);
+        assert!(detail.get("candidate_sha").is_none());
+        assert!(artifact.sha.is_none());
         assert_eq!(detail["plan_approved_by"], "test-operator");
         assert_eq!(detail["redactions_applied"], true);
         assert!(!detail.to_string().contains("secret-value"));
@@ -1174,7 +1080,6 @@ mod tests {
             },
         );
 
-        harness.disable_candidate_probe();
         let replay = AssayService::new(&runner)
             .execute("qa_verify", &qa_task())
             .expect("stored receipt reconciles");
@@ -1194,16 +1099,10 @@ mod tests {
             1,
             "reconciliation does not rerun a command"
         );
-        assert_eq!(
-            harness.candidate_probes.load(Ordering::SeqCst),
-            1,
-            "durable receipt replay succeeds after the workspace probe becomes unavailable"
-        );
         assert_eq!(writer.artifacts.lock().unwrap().len(), 1);
 
         let mut retry_task = qa_task();
         retry_task.task_id = "task-qa-retry".into();
-        harness.enable_candidate_probe();
         AssayService::new(&runner)
             .execute("qa_verify", &retry_task)
             .expect("a new task invocation measures again");
@@ -1234,7 +1133,6 @@ mod tests {
             let writer = Arc::new(RecordingWriter::default());
             approved_plan_snapshot(&writer, "cargo check --all-targets");
             let mut evidence = ForgeGateEvidence::default();
-            evidence.candidate_sha = Some("a".repeat(40));
             let runner = ProductionRoleRunner::new(harness.clone(), evidence)
                 .with_writer(writer.clone())
                 .with_story_run(Some(RUN_ID.into()))

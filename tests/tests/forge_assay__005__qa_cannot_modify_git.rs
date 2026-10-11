@@ -3,12 +3,9 @@
 //! CONTRACT. The QA lane (Assay/Inspector) measures and reports; it never mutates the
 //! repository. Two facts pin this at the production boundary:
 //!
-//!   1. THE LANE MODULE OWNS NO GIT DOOR. `forge/src/roles/qa.rs` names no mutation verb
-//!      (`push`/`merge`/`rebase`/`commit`/`checkout`/`worktree` as git arguments), spawns no
-//!      process of its own (`Command::new`), and holds no release handle. Its one git read
-//!      (`git rev-parse HEAD`) goes through the engine's command port
-//!      (`ctx.harness.run_command`), the same port every lane uses — a read through the port
-//!      is measurement, not a door.
+//!   1. THE LANE MODULE OWNS NO GIT ACCESS. `forge/src/roles/qa.rs` has no Git probe, Git
+//!      command, candidate SHA attestation, shell spawn, code-write tool, or release handle.
+//!      Frozen assay plans are constrained to test/check entry points by `qa_plan.rs`.
 //!   2. QA ROUTING NEVER ROUTES TO A MUTATION. `route_qa_result` answers every QA outcome
 //!      with Pass, Smith repair, Architect replan, or Hold — none of which is a git mutation,
 //!      and no Hold reason instructs one.
@@ -28,7 +25,12 @@ const QA_LANE: &str = "forge/src/roles/qa.rs";
 
 /// Git mutation verbs as argument literals, the process spawn a lane would need to run git
 /// itself, and the release surface. A QA module naming any of these owns a git door.
-const GIT_DOOR_TOKENS: [&str; 10] = [
+const GIT_DOOR_TOKENS: [&str; 15] = [
+    "\"git\"",
+    "\"rev-parse\"",
+    "candidate_probe",
+    "CandidateProbe",
+    "workspace_head",
     "\"push\"",
     "\"merge\"",
     "\"rebase\"",
@@ -89,9 +91,8 @@ fn forge_assay_005__qa_cannot_modify_git() {
     for token in GIT_DOOR_TOKENS {
         assert!(
             !lane_code.contains(token),
-            "{QA_LANE} names `{token}`: the QA lane owns no git door — it measures through the \
-             engine's command port and routes through policy, it never pushes, merges, rebases, \
-             commits, spawns git, or holds the release handle"
+            "{QA_LANE} names `{token}`: QA has no Git access, Git-derived candidate attestation, \
+             shell spawn, code-write authority, or release handle"
         );
     }
 

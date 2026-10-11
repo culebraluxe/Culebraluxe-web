@@ -147,10 +147,37 @@ pub fn sanitize_model_env(mut env: HashMap<String, String>) -> HashMap<String, S
     env
 }
 
-/// Assay environment: same secret filtering as `sanitize_model_env` but without git push disable.
-/// Toolchain vars (PATH, RUSTUP_HOME, CARGO_HOME, etc.) are preserved by `blocked_model_env_key`.
+/// Test-only assay environment. It preserves toolchain configuration while removing database,
+/// provider, Git, and release credentials before either harness launches a frozen test command.
 pub fn sanitize_assay_env(mut env: HashMap<String, String>) -> HashMap<String, String> {
-    env.retain(|key, _| !blocked_model_env_key(key));
+    env.retain(|key, _| {
+        let upper = key.to_ascii_uppercase();
+        !blocked_model_env_key(key)
+            && !upper.starts_with("GIT_")
+            && !upper.starts_with("GH_")
+            && !upper.starts_with("GITHUB_")
+            && !upper.starts_with("VERCEL_")
+            && !upper.starts_with("AWS_")
+            && !upper.starts_with("AZURE_")
+            && !upper.starts_with("GOOGLE_")
+            && !matches!(
+                upper.as_str(),
+                "FORGE_ALLOW_PUBLISH" | "FORGE_ALLOW_DEPLOY" | "FORGE_RELEASE_ENABLED"
+            )
+            && !upper.starts_with("FORGE_PUBLISH_")
+            && !upper.starts_with("FORGE_DEPLOY_")
+            && !upper.starts_with("FORGE_RELEASE_")
+            && ![
+                "_TOKEN",
+                "_SECRET",
+                "_PASSWORD",
+                "_CREDENTIALS",
+                "_PRIVATE_KEY",
+                "_API_KEY",
+            ]
+                .iter()
+                .any(|suffix| upper.ends_with(suffix))
+    });
     env
 }
 

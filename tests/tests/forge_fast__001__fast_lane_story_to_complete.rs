@@ -197,7 +197,7 @@ fn approved_fast_assay_snapshot(writer: &RecordingWriter) {
             runner: AssayRunner::RustLibtest,
             parser: AssayParser::RustLibtest,
             working_directory: "lane_root".into(),
-            environment_identity: "forge-inherited-shell-v1".into(),
+            environment_identity: "forge-sanitized-assay-v2".into(),
         }],
         checks: vec![ApprovedAssertionCheck {
             id: "check-fast-lane".into(),

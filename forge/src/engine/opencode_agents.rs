@@ -311,7 +311,7 @@ const INSPECT_SHELL: [&str; 6] = [
     "rg --files",
 ];
 
-/// Test commands. Assay and Inspector may execute tests; neither may edit the application to make one pass.
+/// Test commands for read-only analyst subagents. QA runs its separately constrained frozen assay plan.
 const TEST_SHELL: [&str; 6] = [
     "cargo test",
     "cargo nextest",
@@ -385,21 +385,21 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
         id: AGENT_INSPECTOR,
         mode: AgentMode::Primary,
         authority: Authority::ReadOnly,
-        description: "Forge QA review: inspects the candidate and runs tests. QA DOES NOT WRITE CODE.",
+        description: "Forge Inspector: reads source and reports findings. No Git access, edits, or release-management authority.",
         steps: ROLE_MAX_STEPS,
         skills: &INSPECTOR_SKILLS,
         children: &NO_CHILDREN,
-        shell_allow: &TEST_SHELL,
+        shell_allow: &[],
     },
     V2AgentProfile {
         id: AGENT_ASSAY,
         mode: AgentMode::Primary,
         authority: Authority::ReadOnly,
-        description: "Forge assay: executes the authoritative tests and reports. Cannot repair the application.",
+        description: "Forge Assay: runs approved tests and reports measurements. No Git access, edits, or release-management authority.",
         steps: ROLE_MAX_STEPS,
         skills: &ASSAY_SKILLS,
         children: &NO_CHILDREN,
-        shell_allow: &TEST_SHELL,
+        shell_allow: &[],
     },
     V2AgentProfile {
         id: AGENT_DEVOPS,

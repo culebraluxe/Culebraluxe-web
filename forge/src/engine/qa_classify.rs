@@ -31,14 +31,9 @@ pub fn parse_failure_class(notes: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-pub fn build_classify_directive(
-    evaluated_sha: &str,
-    blockers: &[String],
-    excerpts: &[String],
-) -> String {
+pub fn build_classify_directive(blockers: &[String], excerpts: &[String]) -> String {
     format!(
         "Assay already FAILED. Do not re-run tests. Do not change the verdict.\n\
-evaluatedSha={evaluated_sha}\n\
 blockers={}\n\
 command excerpts: {}\n\
 Pick one FAILURE_CLASS: {}\n\

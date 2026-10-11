@@ -7,7 +7,6 @@ use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::harness::{HarnessUsage, TurnTermination};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::writer::{ForgeEvidenceReader, ForgeStateWriter};
-use std::path::Path;
 use std::sync::Arc;
 use workflow::{Result, WorkflowError};
 
@@ -34,17 +33,11 @@ pub struct HarnessTurnReport {
     pub measured_usage: Option<HarnessUsage>,
 }
 
-/// What a code-delivering lane needs to JUDGE a candidate: git in the workspace the turn ran in, and the test mode
-/// the packet declared. The harness supplies these facts; the rules that read them are Smith's
-/// (`roles::smith::judge_delivered_candidate`), never the transport's.
+/// Git facts consumed by Smith's candidate-acceptance rule. The QA service does not call this probe or check
+/// workspace lineage; its evidence is the approved test plan and the measured results.
 pub trait CandidateProbe {
     /// `git <args>` in the turn's workspace: trimmed stdout, or `None` when git failed.
     fn git(&self, args: &[&str]) -> Option<String>;
-    /// The workspace's current commit, exposed as a fact so QA does not need raw Git commands.
-    fn workspace_head(&self, workspace: &Path) -> Option<String> {
-        let workspace = workspace.to_string_lossy();
-        self.git(&["-C", workspace.as_ref(), "rev-parse", "HEAD"])
-    }
     /// The test mode the packet the harness was started with declared (`RUST_CONTRACT`, …).
     fn declared_test_mode(&self) -> Option<&str>;
 }
@@ -159,11 +152,10 @@ pub trait RoleHarness: Send + Sync {
     /// reached for it through the harness and got `E0599`. Both errors were the same missing line. The full path
     /// is spelled out rather than imported so this file needs no new `use`.
     fn assay_cwd(&self) -> &std::path::Path;
-    /// Versioned identity for the command environment policy. The current production harnesses
-    /// inherit the Forge process environment for scoped assay shells; receipts store this policy
-    /// name and never persist environment values.
+    /// Versioned identity for the test-only, credential-filtered assay environment. Receipts store
+    /// this policy name and never persist environment values.
     fn assay_environment_identity(&self) -> &str {
-        "forge-inherited-shell-v1"
+        "forge-sanitized-assay-v2"
     }
     fn execution_base_commit(&self) -> Option<&str> {
         None
