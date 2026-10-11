@@ -35,12 +35,12 @@ pub(super) fn load_form_templates(
 }
 
 pub(super) const ACTIVE_FORM_TEMPLATE_VERSIONS: &[(&str, i32)] = &[
-    ("OFFER-01", 3),
+    ("OFFER-01", 4),
     ("PR-PNS", 4),
     ("PR-PNS-AMD", 1),
     ("LISTING-01", 5),
     ("SHOW-INFO", 1),
-    ("SHOW-RPT", 2),
+    ("SHOW-RPT", 3),
 ];
 
 pub(super) const PORTAL_FORM_TEMPLATE_IDS: &[&str] =

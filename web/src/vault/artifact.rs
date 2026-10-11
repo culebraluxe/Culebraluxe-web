@@ -462,13 +462,13 @@ mod tests {
 
         // Drop a second template in: no restart, and the very next issue finds it.
         std::fs::copy(
-            repository_path("../middle/model/forms/templates/OFFER-01.v3.xml"),
-            directory.join("OFFER-01.v3.xml"),
+            repository_path("../middle/model/forms/templates/OFFER-01.v4.xml"),
+            directory.join("OFFER-01.v4.xml"),
         )
         .expect("the second template is copied");
         let mut offer = request();
         offer.template_id = "OFFER-01".to_string();
-        offer.template_version = 3;
+        offer.template_version = 4;
         assert!(
             renderer.render_issued_document(offer).await.is_ok(),
             "an added template is live at once"
