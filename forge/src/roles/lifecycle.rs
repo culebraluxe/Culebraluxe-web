@@ -606,10 +606,7 @@ fn turn_trajectory(
         turn_started_at: Some(facts.started_at),
         turn_ended_at: Some(facts.ended_at),
         outcome: Some(facts.outcome.to_string()),
-        first_edit_latency_ms: time_to_first_edit_ms(
-            facts.started_at.timestamp_millis(),
-            metrics,
-        ),
+        first_edit_latency_ms: time_to_first_edit_ms(facts.started_at.timestamp_millis(), metrics),
         candidate_sha: facts.candidate_sha.map(str::to_owned),
         metrics: metrics.clone(),
     }
@@ -647,7 +644,8 @@ fn record_turn_usage(
         );
     }
     // What the turn did, keyed by the turn's own identity. Measurement only.
-    if let (Some(writer), Some(run_id), Some(metrics)) = (ctx.writer, ctx.story_run_id, trajectory) {
+    if let (Some(writer), Some(run_id), Some(metrics)) = (ctx.writer, ctx.story_run_id, trajectory)
+    {
         // The row carries what the harness reported for THIS turn. The attempt ledger's receipt is a settlement —
         // what was authorised for a stable attempt — not a second reading of the same turn, and its usage columns
         // (289) are not on every database yet, so the turn's own row is the one home for its spend. A turn with no

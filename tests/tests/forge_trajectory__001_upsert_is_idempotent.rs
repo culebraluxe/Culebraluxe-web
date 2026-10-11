@@ -69,12 +69,12 @@ async fn a_repeated_trajectory_replaces_the_summary_for_its_run_and_turn() {
     assert_eq!(tool_calls, 3, "the retry does not double the counts");
     assert_eq!(outcome.as_deref(), Some("completed"));
 
-    sqlx::query("delete from storyboard_run_trajectory where run_id = $1::uuid and attempt_key = $2")
-        .bind(&run_id)
-        .bind(attempt_key)
-        .execute(db.pool())
-        .await
-        .expect("the test row is removed");
+    sqlx::query(
+        "delete from storyboard_run_trajectory where run_id = $1::uuid and attempt_key = $2",
+    )
+    .bind(&run_id)
+    .bind(attempt_key)
+    .execute(db.pool())
+    .await
+    .expect("the test row is removed");
 }
-
-

@@ -141,7 +141,22 @@ carries the run and its turns. The five original views, their layouts and the cr
   (`cargo check -p ui --features wasm --target wasm32-unknown-unknown`) clean; `cargo test -p db flight_recorder` →
   **9 passed** (the mapper: truncation past `TURN_LIMIT`, unknown spend carried without a number, a non-uuid id);
   `cargo test -p ui` → **190 passed** (the pure rules — spend/tokens/verdict/labels/duration/run-spend — and the screen
-  tests); `rustfmt --edition 2021 --check` clean on every file touched.
+  tests); `rustfmt --edition 2021 --check` clean on the files that pass edited — which was **not** the whole slice, as the
+  correction below records.
+- **Correction (same day): rustfmt was dirty in two files this slice landed, and `cargo fmt --all` fixed them.**
+  `forge/src/roles/lifecycle.rs` and `tests/tests/forge_trajectory__001_upsert_is_idempotent.rs` were unformatted when
+  the first commit landed, so the sentence above (and that commit's message) was wrong. `pnpm slice:check` caught it on
+  the *next* slice, whose FMT stage scoped to the following changed set: once the first commit landed, those two files
+  were in neither the working tree's nor the slice's changed set, so their diffs fell into the script's unprinted
+  `theirs` bucket (`scripts/ops/gate/slice-check.sh:163-172`). Formatting only — line joins, an `if let` head wrap, a
+  wrapped `sqlx::query(` and two trailing blank lines — and `cargo fmt --all -- --check` reports 0 diffs afterwards.
+- **The T1 section run stopped on one failure that is not this slice.** `pnpm slice:check` on the cockpit slice (T0
+  PASS 28s, FMT PASS 1s) ran the `app-core`/`app-portal`/`forge-engine`/`harness` sections and stopped at
+  `docs_forms_execution__002__signer_selection`: it asserts the two-template literal
+  `matches!(form.template_id.as_str(), "LISTING-01" | "PR-PNS")` in `db/src/forms/list_signer_people.rs`, a file this
+  slice never opens, and that file's line 166 already read `"LISTING-01" | "PR-PNS" | "OFFER-01" | "SHOW-RPT"` at
+  `abb9176c4` — the tip this branch started from. The mismatch arrived with `e4ad48336` (2026-10-10). Reported, not
+  fixed here: the fence belongs to the forms story that widened the selection.
 - **The read against real DEV:**
   `APP_ENV=development cargo test -p test-harness --test forge_trajectory__003_turns_keep_their_own_identity -- --ignored --test-threads=1`
   → **3 passed**, including the new case `a_process_instance_resolves_to_its_run_with_that_runs_turns`, which resolves
