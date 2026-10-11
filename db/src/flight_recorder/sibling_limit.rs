@@ -99,6 +99,11 @@ impl FlightRecorderDao {
             .then(|| primary.subject_id.clone())
             .flatten();
 
+        // The Forge Story Run behind this instance, with its turns, when the instance is Forge's at all. Read beside
+        // the trace rather than as a second request: the console renders the turns for the SAME instance it is
+        // tracing, and a page that had to ask twice could show one instance's events against another's turns.
+        let story_run = self.story_run(&primary.instance_id).await?;
+
         let (sibling_ids, total_instances) = match deal_id.as_deref() {
             Some(id) if Uuid::parse_str(id).is_ok() => {
                 tokio::try_join!(self.deal_instance_ids(id), self.deal_instance_count(id))?
@@ -170,6 +175,7 @@ impl FlightRecorderDao {
             workflows,
             events,
             instances,
+            story_run,
         }))
     }
 

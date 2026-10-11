@@ -102,6 +102,71 @@ default selection), `format.ts` (`formatClock`, `formatDisplayTime`, `formatDura
 No change to the trace read or its SQL; no new trace data; no JavaScript (no virtualizer library, no graph library);
 no Forge changes.
 
+## The Turns view — added 2026-10-11 (the port's five views are untouched)
+
+The port kept the console to its original five views. The Forge telemetry work then named what was still missing from
+the whole read: *"the Flight Recorder screens (MVI views), and the store query that joins trajectories, run cost and QA
+acceptance into these records"* (Phase 7's commit). That is this sixth view, and it is the one part of the console that
+is NOT in the original.
+
+- **`storyRun` on the same authorized read.** `db/src/forge_engine/trajectory.rs` resolves the Story Run behind the
+  traced process instance — the run's earliest task execution, the rule the turns select already embeds in its lateral
+  subquery — and returns its turns from that one shared select; `db/src/flight_recorder/turns.rs` maps them into
+  `FlightRecorderStoryRun` / `FlightRecorderTurn`; the screen renders them as `Tab::Turns`. No second request: a page
+  that asked twice could show one instance's events beside another run's turns.
+- **`None` is not an empty run.** An instance that is not Forge's is reported as such; a Forge run that has recorded no
+  turn says that instead. The store, the DTO and the screen all keep the two apart, because "wrong page" and
+  "telemetry that recorded nothing" are different investigations.
+- **UNKNOWN IS NOT ZERO, all the way into the table.** `usageKnown` stays three-valued (no reading taken / measured and
+  unknown / measured) and only the third prints money — a measured `$0.0000` is a real zero and prints as one, while an
+  unmeasured turn prints `unknown` or `not measured`. A QA verdict is printed against a turn only when `qaVerifiedSha`
+  names the candidate that turn produced; a verdict for another candidate is dropped rather than shown beside it.
+- **The read is bounded and says so.** At most `TURN_LIMIT` (500) turns, with one row over-read so a longer run reports
+  `turnsTruncated` instead of letting the oldest turns read as the whole run.
+- **The run's own spend, with the floor rule.** The header carries the run's accumulated `costUsd`, its tokens and its
+  `costSource` (`none` | `widgets` | `vendor`). `NULL` prints `not measured` (the columns are written only for usage
+  that was measured), and a total prints as `$0.5000+` with the count of unpriced turns whenever a turn of the run went
+  unpriced — the run's number is a FLOOR then, stated the way the profile readout states it. The work order named
+  "run cost and QA acceptance" as what these records must join; this is the cost half, and `qaVerifiedSha` beside
+  `qaPassed` is the other.
+- **The export carries it raw.** `trace_to_json` includes `storyRun` with `usageKnown` intact, so a downloaded trace
+  cannot turn an unknown reading into a zero.
+
+This supersedes the port-era non-goal "no change to the trace read or its SQL" for this one addition: the trace now
+carries the run and its turns. The five original views, their layouts and the cross-selection are unchanged.
+
+## Verification (2026-10-11) — the Turns view
+
+- **Gates.** `cargo check -p db --all-targets` clean; `pnpm ui:check`
+  (`cargo check -p ui --features wasm --target wasm32-unknown-unknown`) clean; `cargo test -p db flight_recorder` →
+  **9 passed** (the mapper: truncation past `TURN_LIMIT`, unknown spend carried without a number, a non-uuid id);
+  `cargo test -p ui` → **190 passed** (the pure rules — spend/tokens/verdict/labels/duration/run-spend — and the screen
+  tests); `rustfmt --edition 2021 --check` clean on every file touched.
+- **The read against real DEV:**
+  `APP_ENV=development cargo test -p test-harness --test forge_trajectory__003_turns_keep_their_own_identity -- --ignored --test-threads=1`
+  → **3 passed**, including the new case `a_process_instance_resolves_to_its_run_with_that_runs_turns`, which resolves
+  a real instance to its run through the real schema, reads that run's turns back (a settled-unknown turn carrying no
+  number beside a measured turn carrying its own), and confirms a missing id — and an id that is not a UUID — answer
+  `None` rather than an empty run. This case is what caught the one real defect in the slice: the run's `integer`
+  token columns need explicit `::bigint` casts, because the store decodes them as `i64` — the read failed against DEV
+  until they were cast, which no amount of compiling could have shown.
+- **Migrations.** 289 (`forge_model_attempt_usage_receipts`) was recorded on **neither** target before 2026-10-11 and
+  is now on **DEV and PROD**. 293 (`run_trajectory_turn_identity`) was already on DEV and was applied to **PROD** at
+  20:19 UTC — the boot gate requires it before this binary may serve PROD (`db/src/boot_gate.rs`), and PROD's
+  trajectory table was empty, so the primary-key swap re-keyed no row.
+- **The migration gate names 293; the finding is recorded, not silenced.** `BASE_REF=origin/main pnpm scan:migrations`
+  (squawk 2.65.0 — the version CI installs) reports **8 findings on 293**: no `set lock_timeout`/`set statement_timeout`
+  before the DDL, two `integer` columns (`role_attempt`, `profile_version`) beside the bigint ones, `alter column
+  attempt_key set not null`, the primary-key swap, and the non-concurrent `create index`. 293 is applied on DEV **and
+  PROD** with a recorded checksum, and `docs/agent/NAMING-AND-PROTECTION.md` §1 is explicit — *never rewrite an applied
+  migration; a correction needed **before prod sees it** is re-applied with `--force`* — so the file is not edited here.
+  289 (2 findings) and 292 (7) are already on `main` in exactly this state. The timeout rules' durable fix belongs to
+  the applier (`ENG-FORGE-MIGRATION-LINT-01`, the limitation migration 192 records in its own body); any schema-side
+  correction belongs to a new migration.
+- **Not done here — the browser pass.** The dev server on the owner's machine was serving a two-day-old wasm build, so
+  the new tab needs a `pnpm dev` restart before it can be seen; the literal Safari/WebKit confirmation therefore remains
+  the owner's manual step, exactly as it was in the 2026-09-29 verification above.
+
 ## Verification (2026-09-29)
 
 Landed by `dcf2be3f` (the port: `web/ui/src/flight_recorder.rs`, the screen, the portal route

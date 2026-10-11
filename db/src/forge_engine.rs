@@ -15,7 +15,119 @@ pub struct RunTrajectoryCounts {
 }
 use sqlx::FromRow;
 
+/// One turn's trajectory: what the turn did, plus the identity every reader needs to interpret it.
+///
+/// `None` is unknown, and it stays unknown all the way out. `usage` is filled ONLY for a turn that has no durable
+/// attempt row to hold its spend (a hand-run lane with no attempt controller); a controlled turn leaves it empty and
+/// the reader joins `forge_model_generation_attempt`, so one number never has two homes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunTrajectoryTurn {
+    /// The turn's stable execution key within its run (see `forge::engine::trajectory::trajectory_attempt_key`).
+    pub attempt_key: String,
+    pub profile_id: String,
+    pub generation_id: Option<String>,
+    pub task_id: Option<String>,
+    pub role_attempt: Option<i32>,
+    pub workflow_node: Option<String>,
+    pub role: Option<String>,
+    pub profile_version: Option<i32>,
+    pub model: Option<String>,
+    pub provider: Option<String>,
+    pub turn_started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub turn_ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub outcome: Option<String>,
+    pub first_edit_latency_ms: Option<i64>,
+    pub candidate_sha: Option<String>,
+    pub counts: RunTrajectoryCounts,
+    /// Set only when the ledger cannot hold this turn's reading (no attempt row).
+    pub usage: Option<TurnUsage>,
+    /// True when the turn's spend was settled as explicitly unknown: the row says so, rather than leaving a reader
+    /// to guess whether nothing was measured or the measurement was lost.
+    pub usage_unknown: bool,
+}
+
+/// A measured vendor reading of one turn's spend, in the shape the attempt ledger stores.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TurnUsage {
+    pub tokens_input: i64,
+    pub tokens_output: i64,
+    pub cost_usd: f64,
+}
+
+/// One recorded turn as read back: the measurement, the joins that give it meaning, and the RAW QA fields the pure
+/// layer grades. Nothing here is pre-judged — `qa_passed` beside `qa_verified_sha` is this turn's verdict only when
+/// that SHA names the candidate the turn produced.
+#[derive(Debug, Clone, FromRow, PartialEq)]
+pub struct TurnTrajectoryRow {
+    pub attempt_key: String,
+    pub generation_id: Option<String>,
+    pub task_id: Option<String>,
+    pub role_attempt: Option<i32>,
+    pub workflow_node: Option<String>,
+    pub role: Option<String>,
+    pub harness_profile_id: String,
+    pub profile_version: Option<i32>,
+    pub model: Option<String>,
+    pub provider: Option<String>,
+    pub turn_started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub turn_ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub outcome: Option<String>,
+    pub first_edit_latency_ms: Option<i64>,
+    pub candidate_sha: Option<String>,
+    pub tool_call_count: i32,
+    pub edit_call_count: i32,
+    pub shell_call_count: i32,
+    pub structured_call_count: i32,
+    pub first_edit_at_ms: Option<i64>,
+    pub last_edit_at_ms: Option<i64>,
+    pub verification_calls_after_last_edit: i32,
+    pub tokens_input: Option<i64>,
+    pub tokens_output: Option<i64>,
+    pub cost_usd: Option<f64>,
+    pub usage_known: Option<bool>,
+    pub story_id: String,
+    pub run_phase: Option<String>,
+    pub result_status: Option<String>,
+    pub work_type: Option<String>,
+    pub last_failure: Option<String>,
+    pub qa_passed: Option<bool>,
+    pub qa_verified_sha: Option<String>,
+}
+
+/// The Story Run behind one process instance, with the turns recorded against it.
+///
+/// WHY THE RUN IS READ EVEN WHEN NO TURN WAS. The Flight Recorder is keyed by process instance; a turn is keyed by
+/// Story Run. `None` from the read that builds this means the instance is not a Forge run at all, and that is a
+/// different statement from a run that exists and has recorded no turn yet — a console that collapses the two
+/// cannot tell a broken telemetry path from a workflow that was never Forge's. The header is therefore read on its
+/// own, and the turns come from the single select in `forge_engine::trajectory`, so this read cannot disagree with
+/// the comparison read about what a turn is.
+///
+/// The QA columns travel RAW, exactly as `TurnTrajectoryRow` carries them: `qa_passed` grades this run's turn only
+/// when `qa_verified_sha` names the candidate that turn produced, and that decision belongs to the reader.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoryRunTurns {
+    pub run_id: String,
+    pub story_id: String,
+    pub run_phase: Option<String>,
+    pub result_status: Option<String>,
+    /// The run's accumulated spend, in the same three states as a turn's: `None` is "no measured spend recorded"
+    /// (the column is written only for measured usage), and a total that exists is a FLOOR when a turn of the run is
+    /// unpriced — that turn's spend is absent from it. A reader may not print it as the run's final cost.
+    pub cost_usd: Option<f64>,
+    pub tokens_input: Option<i64>,
+    pub tokens_output: Option<i64>,
+    /// Where the run's number came from: `none` | `widgets` | `vendor`.
+    pub cost_source: Option<String>,
+    pub work_type: Option<String>,
+    pub last_failure: Option<String>,
+    pub qa_passed: Option<bool>,
+    pub qa_verified_sha: Option<String>,
+    pub turns: Vec<TurnTrajectoryRow>,
+}
+
 mod model_attempt_budget;
+mod trajectory;
 
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct ModelAttemptBudget {
@@ -677,42 +789,6 @@ impl ForgeEngineDao {
     /// already filed the row as `widgets`, whose label this does not rewrite (migration 190's boundary).
     /// One turn's trajectory against its Story Run. A repeat for the same run and profile replaces the summary, so a
     /// retried settlement cannot double it.
-    pub async fn upsert_run_trajectory(
-        &self,
-        run_id: &str,
-        profile_id: &str,
-        t: &RunTrajectoryCounts,
-    ) -> DbResult<()> {
-        sqlx::query(
-            "insert into storyboard_run_trajectory (
-                run_id, harness_profile_id, tool_call_count, edit_call_count, shell_call_count,
-                structured_call_count, first_edit_at_ms, last_edit_at_ms, verification_calls_after_last_edit
-             ) values ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9)
-             on conflict (run_id, harness_profile_id) do update set
-                tool_call_count = excluded.tool_call_count,
-                edit_call_count = excluded.edit_call_count,
-                shell_call_count = excluded.shell_call_count,
-                structured_call_count = excluded.structured_call_count,
-                first_edit_at_ms = excluded.first_edit_at_ms,
-                last_edit_at_ms = excluded.last_edit_at_ms,
-                verification_calls_after_last_edit = excluded.verification_calls_after_last_edit,
-                recorded_at = now()",
-        )
-        .bind(run_id)
-        .bind(profile_id)
-        .bind(i32::try_from(t.tool_call_count).unwrap_or(i32::MAX))
-        .bind(i32::try_from(t.edit_call_count).unwrap_or(i32::MAX))
-        .bind(i32::try_from(t.shell_call_count).unwrap_or(i32::MAX))
-        .bind(i32::try_from(t.structured_call_count).unwrap_or(i32::MAX))
-        .bind(t.first_edit_at_ms)
-        .bind(t.last_edit_at_ms)
-        .bind(i32::try_from(t.verification_calls_after_last_edit).unwrap_or(i32::MAX))
-        .execute(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("forge_engine.upsert_run_trajectory", &error))?;
-        Ok(())
-    }
-
     pub async fn add_run_usage(
         &self,
         run_id: &str,

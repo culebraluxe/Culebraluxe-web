@@ -145,23 +145,47 @@ impl ForgeStateWriter for DbForgeStateWriter {
     fn record_run_trajectory(
         &self,
         run_id: &str,
-        profile_id: &str,
-        trajectory: &crate::engine::trajectory::TrajectoryMetrics,
+        turn: &crate::engine::trajectory::TurnTrajectory,
+        measured_usage: Option<&crate::engine::harness::HarnessUsage>,
+        usage_unknown: bool,
     ) -> Result<(), String> {
         self.run(|dao, rt| {
             rt.block_on(async {
-                dao.upsert_run_trajectory(
+                dao.upsert_run_trajectory_turn(
                     run_id,
-                    profile_id,
-                    &db::RunTrajectoryCounts {
-                        tool_call_count: trajectory.tool_call_count,
-                        edit_call_count: trajectory.edit_call_count,
-                        shell_call_count: trajectory.shell_call_count,
-                        structured_call_count: trajectory.structured_call_count,
-                        first_edit_at_ms: trajectory.first_edit_at_ms,
-                        last_edit_at_ms: trajectory.last_edit_at_ms,
-                        verification_calls_after_last_edit: trajectory
-                            .verification_calls_after_last_edit,
+                    &db::RunTrajectoryTurn {
+                        attempt_key: turn.attempt_key.clone(),
+                        profile_id: turn.profile_id.clone(),
+                        profile_version: turn.profile_version,
+                        generation_id: turn.generation_id.clone(),
+                        task_id: turn.task_id.clone(),
+                        role_attempt: turn.role_attempt,
+                        workflow_node: turn.workflow_node.clone(),
+                        role: turn.role.clone(),
+                        model: turn.model.clone(),
+                        provider: turn.provider.clone(),
+                        turn_started_at: turn.turn_started_at,
+                        turn_ended_at: turn.turn_ended_at,
+                        outcome: turn.outcome.clone(),
+                        first_edit_latency_ms: turn.first_edit_latency_ms,
+                        candidate_sha: turn.candidate_sha.clone(),
+                        counts: db::RunTrajectoryCounts {
+                            tool_call_count: turn.metrics.tool_call_count,
+                            edit_call_count: turn.metrics.edit_call_count,
+                            shell_call_count: turn.metrics.shell_call_count,
+                            structured_call_count: turn.metrics.structured_call_count,
+                            first_edit_at_ms: turn.metrics.first_edit_at_ms,
+                            last_edit_at_ms: turn.metrics.last_edit_at_ms,
+                            verification_calls_after_last_edit: turn
+                                .metrics
+                                .verification_calls_after_last_edit,
+                        },
+                        usage: measured_usage.map(|usage| db::TurnUsage {
+                            tokens_input: usage.tokens_input,
+                            tokens_output: usage.tokens_output,
+                            cost_usd: usage.cost_usd,
+                        }),
+                        usage_unknown,
                     },
                 )
                 .await

@@ -532,6 +532,64 @@ pub struct FlightRecorderTrace {
     pub summary: TraceSummary,
     pub events: Vec<TraceEvent>,
     pub workflow: Option<ConsoleWorkflowView>,
+    /// The Forge Story Run behind the traced instance, with the turns recorded against it. `None` says this instance
+    /// is not a Forge run at all; `Some` with no turns says Forge owns the run and nothing has been recorded yet.
+    pub story_run: Option<ConsoleRunTurns>,
+}
+
+/// The Story Run behind the traced instance, as the console prints it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ConsoleRunTurns {
+    pub run_id: String,
+    pub story_id: String,
+    pub phase: Option<String>,
+    pub status: Option<String>,
+    /// The run's accumulated spend: `None` means nothing was measured, and a value is a FLOOR while any turn is
+    /// unpriced. Rendered only through [`format_run_spend`], which is where that rule is stated and tested.
+    pub cost_usd: Option<f64>,
+    pub tokens_input: Option<i64>,
+    pub tokens_output: Option<i64>,
+    pub cost_source: Option<String>,
+    pub work_type: Option<String>,
+    pub last_failure: Option<String>,
+    pub qa_passed: Option<bool>,
+    pub qa_verified_sha: Option<String>,
+    /// More turns are recorded against this run than were read. The list is then the OLDEST turns, and the view says
+    /// so: a truncated list that stayed silent would be read as the whole run.
+    pub turns_truncated: bool,
+    pub turns: Vec<TraceTurn>,
+}
+
+/// One recorded turn, exactly as the store answered it.
+///
+/// Every measurement is an `Option` because the store's is. `usage_known` is three-valued and the view must keep it
+/// that way: `Some(true)` means the numbers are this turn's reading, `Some(false)` means the turn ended without one,
+/// and `None` means no reading was taken at all. None of the three is a zero.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TraceTurn {
+    pub attempt_key: String,
+    pub workflow_node: Option<String>,
+    pub role: Option<String>,
+    pub role_attempt: Option<i32>,
+    pub harness_profile_id: String,
+    pub profile_version: Option<i32>,
+    pub model: Option<String>,
+    pub provider: Option<String>,
+    pub generation_id: Option<String>,
+    pub started_at: Option<String>,
+    pub ended_at: Option<String>,
+    pub outcome: Option<String>,
+    pub first_edit_latency_ms: Option<i64>,
+    pub tool_call_count: i64,
+    pub edit_call_count: i64,
+    pub shell_call_count: i64,
+    pub structured_call_count: i64,
+    pub verification_calls_after_last_edit: i64,
+    pub tokens_input: Option<i64>,
+    pub tokens_output: Option<i64>,
+    pub cost_usd: Option<f64>,
+    pub usage_known: Option<bool>,
+    pub candidate_sha: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -714,7 +772,205 @@ pub fn adapt_flight_recorder_transaction(tx: &FlightRecorderTransaction) -> Flig
         summary,
         events,
         workflow,
+        story_run: tx.story_run.as_ref().map(console_run_turns),
     }
+}
+
+/// The run and its turns, row for row.
+///
+/// The adapter adds nothing and drops nothing: a turn's spend, its three-valued `usage_known` and its candidate SHA
+/// arrive here exactly as the store held them. The rules about how they may be SHOWN are the `format_turn_*` and
+/// `turn_verdict` functions below, which is where they can be tested without a browser.
+fn console_run_turns(run: &model::FlightRecorderStoryRun) -> ConsoleRunTurns {
+    ConsoleRunTurns {
+        run_id: run.run_id.clone(),
+        story_id: run.story_id.clone(),
+        phase: run.phase.clone(),
+        status: run.status.clone(),
+        cost_usd: run.cost_usd,
+        tokens_input: run.tokens_input,
+        tokens_output: run.tokens_output,
+        cost_source: run.cost_source.clone(),
+        work_type: run.work_type.clone(),
+        last_failure: run.last_failure.clone(),
+        qa_passed: run.qa_passed,
+        qa_verified_sha: run.qa_verified_sha.clone(),
+        turns_truncated: run.turns_truncated,
+        turns: run
+            .turns
+            .iter()
+            .map(|turn| TraceTurn {
+                attempt_key: turn.attempt_key.clone(),
+                workflow_node: turn.workflow_node.clone(),
+                role: turn.role.clone(),
+                role_attempt: turn.role_attempt,
+                harness_profile_id: turn.harness_profile_id.clone(),
+                profile_version: turn.profile_version,
+                model: turn.model.clone(),
+                provider: turn.provider.clone(),
+                generation_id: turn.generation_id.clone(),
+                started_at: turn.started_at.clone(),
+                ended_at: turn.ended_at.clone(),
+                outcome: turn.outcome.clone(),
+                first_edit_latency_ms: turn.first_edit_latency_ms,
+                tool_call_count: turn.tool_call_count,
+                edit_call_count: turn.edit_call_count,
+                shell_call_count: turn.shell_call_count,
+                structured_call_count: turn.structured_call_count,
+                verification_calls_after_last_edit: turn.verification_calls_after_last_edit,
+                tokens_input: turn.tokens_input,
+                tokens_output: turn.tokens_output,
+                cost_usd: turn.cost_usd,
+                usage_known: turn.usage_known,
+                candidate_sha: turn.candidate_sha.clone(),
+            })
+            .collect(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Turn rendering (pure)
+// ---------------------------------------------------------------------------
+
+/// The spend cell of one turn.
+///
+/// THE RULE THE WHOLE VIEW RESTS ON: a turn nobody measured is not a turn that cost nothing. `Some(false)` is a
+/// reading that was asked for and could not be taken, `None` is a reading nobody ever took, and only `Some(true)`
+/// lets a price be printed — a measured `$0.0000` is a real zero and is printed as one.
+pub fn format_turn_spend(cost_usd: Option<f64>, usage_known: Option<bool>) -> String {
+    match usage_known {
+        Some(true) => cost_usd
+            .map(|cost| format!("${cost:.4}"))
+            .unwrap_or_else(|| "measured, unpriced".into()),
+        Some(false) => "unknown".into(),
+        None => "not measured".into(),
+    }
+}
+
+/// The token cell of one turn, under the same three-valued rule as the spend cell.
+pub fn format_turn_tokens(
+    tokens_input: Option<i64>,
+    tokens_output: Option<i64>,
+    usage_known: Option<bool>,
+) -> String {
+    if usage_known == Some(true) {
+        if let (Some(input), Some(output)) = (tokens_input, tokens_output) {
+            return format!("{input} in / {output} out");
+        }
+    }
+    if usage_known == Some(false) {
+        return "unknown".into();
+    }
+    "not measured".into()
+}
+
+/// The run's spend, under the rule the profile readout already states.
+///
+/// NOTHING MEASURED IS NOT A ZERO. The run's total is written only for usage that was measured, so `None` is "no
+/// measured spend recorded at all" and prints as `not measured` — never `$0.0000`. A total that exists is a FLOOR
+/// while any turn of the run went unpriced, because that turn's spend is not in it, so the line names the unpriced
+/// turns beside the price and marks the number with `+`. A measured zero is a real zero and prints as one.
+pub fn format_run_spend(run: &ConsoleRunTurns) -> String {
+    let unpriced = run
+        .turns
+        .iter()
+        .filter(|turn| turn.usage_known != Some(true))
+        .count();
+    let Some(cost) = run.cost_usd else {
+        return "spend: not measured".into();
+    };
+    // The `+` belongs on the NUMBER, the way the profile readout writes it: `$0.2500+` is the price with a floor, and
+    // the note beside it says how many turns are missing from it.
+    let floor = if unpriced > 0 { "+" } else { "" };
+    let mut line = format!("spend: ${cost:.4}{floor}");
+    if let Some(source) = run
+        .cost_source
+        .as_deref()
+        .filter(|source| *source != "none")
+    {
+        line.push_str(&format!(" · {source}"));
+    }
+    if let (Some(input), Some(output)) = (run.tokens_input, run.tokens_output) {
+        line.push_str(&format!(" · {input} in / {output} out"));
+    }
+    match unpriced {
+        0 => line,
+        1 => format!("{line} (+1 unpriced turn)"),
+        turns => format!("{line} (+{turns} unpriced turns)"),
+    }
+}
+
+/// What a turn is called: its role or node, plus which attempt of that role it was.
+///
+/// A row written before 293 carries `legacy:<profile>` as its key and no attempt index. It is named as what it is — a
+/// row that predates turn identity — rather than as attempt 0, which would claim an identity it never had.
+pub fn turn_label(turn: &TraceTurn) -> String {
+    let who = turn
+        .role
+        .clone()
+        .or_else(|| turn.workflow_node.clone())
+        .unwrap_or_else(|| "unknown role".into());
+    if turn_is_pre_identity(turn) {
+        return format!("{who} · pre-293 row");
+    }
+    match turn.role_attempt {
+        Some(0) => format!("{who} · first turn"),
+        Some(attempt) => format!("{who} · repair {attempt}"),
+        None => who,
+    }
+}
+
+/// True when the row predates turn identity: the key is the migration's `legacy:<profile>` marker, not an attempt.
+pub fn turn_is_pre_identity(turn: &TraceTurn) -> bool {
+    turn.attempt_key.starts_with("legacy:")
+}
+
+/// The profile a turn ran under, with its version when the profile is versioned.
+pub fn turn_profile_label(turn: &TraceTurn) -> String {
+    match turn.profile_version {
+        Some(version) => format!("{} · v{version}", turn.harness_profile_id),
+        None => turn.harness_profile_id.clone(),
+    }
+}
+
+/// What the turn did, as counts: the summary Phase 1 records, in the order an operator reads it.
+pub fn turn_calls_label(turn: &TraceTurn) -> String {
+    if turn_is_pre_identity(turn) && turn.tool_call_count == 0 {
+        return "not recorded".into();
+    }
+    format!(
+        "{} calls ({} edit, {} shell, {} structured) · {} verifying after last edit",
+        turn.tool_call_count,
+        turn.edit_call_count,
+        turn.shell_call_count,
+        turn.structured_call_count,
+        turn.verification_calls_after_last_edit
+    )
+}
+
+/// How long the turn took, when both ends were observed. One observed end is not a duration.
+pub fn turn_duration_ms(turn: &TraceTurn) -> Option<i64> {
+    let start = turn.started_at.as_deref().map(epoch_ms)?;
+    let end = turn.ended_at.as_deref().map(epoch_ms)?;
+    (end >= start).then_some(end - start)
+}
+
+/// The QA verdict for one turn — and only for the candidate it graded.
+///
+/// QA runs after the turn is written, sometimes never, and `qa_verified_sha` is the candidate the verdict is about. A
+/// verdict that names a different SHA than the turn produced says nothing about this turn, so it is dropped rather
+/// than shown beside it: a verdict for candidate A rendered on candidate B's row is worse than no verdict at all.
+pub fn turn_verdict(
+    qa_verified_sha: Option<&str>,
+    candidate_sha: Option<&str>,
+    qa_passed: Option<bool>,
+) -> Option<bool> {
+    let verified = qa_verified_sha?;
+    let candidate = candidate_sha?;
+    if verified != candidate {
+        return None;
+    }
+    qa_passed
 }
 
 fn dedupe(values: Vec<String>) -> Vec<String> {
@@ -1622,6 +1878,51 @@ pub fn trace_to_json(trace: &FlightRecorderTrace) -> Value {
             })).collect::<Vec<_>>(),
         })
     });
+    let story_run = trace.story_run.as_ref().map(|run| {
+        serde_json::json!({
+            "runId": run.run_id,
+            "storyId": run.story_id,
+            "phase": run.phase,
+            "status": run.status,
+            "costUsd": run.cost_usd,
+            "tokensInput": run.tokens_input,
+            "tokensOutput": run.tokens_output,
+            "costSource": run.cost_source,
+            "workType": run.work_type,
+            "lastFailure": run.last_failure,
+            "qaPassed": run.qa_passed,
+            "qaVerifiedSha": run.qa_verified_sha,
+            "turnsTruncated": run.turns_truncated,
+            // The export carries the turns RAW, exactly as the read did: `usageKnown` is three-valued and a reader of
+            // the file has to be able to tell "not measured" from "measured, and it was zero" — which a rendered
+            // string in the export could not have done.
+            "turns": run.turns.iter().map(|turn| serde_json::json!({
+                "attemptKey": turn.attempt_key,
+                "workflowNode": turn.workflow_node,
+                "role": turn.role,
+                "roleAttempt": turn.role_attempt,
+                "harnessProfileId": turn.harness_profile_id,
+                "profileVersion": turn.profile_version,
+                "model": turn.model,
+                "provider": turn.provider,
+                "generationId": turn.generation_id,
+                "startedAt": turn.started_at,
+                "endedAt": turn.ended_at,
+                "outcome": turn.outcome,
+                "firstEditLatencyMs": turn.first_edit_latency_ms,
+                "toolCallCount": turn.tool_call_count,
+                "editCallCount": turn.edit_call_count,
+                "shellCallCount": turn.shell_call_count,
+                "structuredCallCount": turn.structured_call_count,
+                "verificationCallsAfterLastEdit": turn.verification_calls_after_last_edit,
+                "tokensInput": turn.tokens_input,
+                "tokensOutput": turn.tokens_output,
+                "costUsd": turn.cost_usd,
+                "usageKnown": turn.usage_known,
+                "candidateSha": turn.candidate_sha,
+            })).collect::<Vec<_>>(),
+        })
+    });
     serde_json::json!({
         "summary": {
             "correlationId": trace.summary.correlation_id,
@@ -1634,6 +1935,7 @@ pub fn trace_to_json(trace: &FlightRecorderTrace) -> Value {
         },
         "events": events_to_json(&trace.events),
         "workflow": workflow,
+        "storyRun": story_run,
     })
 }
 
@@ -1992,5 +2294,222 @@ mod tests {
         assert_eq!(graph.nodes.len(), 1, "three linear persistence writes fuse");
         assert_eq!(graph.nodes[0].count, 3);
         assert!(graph.edges.is_empty());
+    }
+
+    #[test]
+    fn the_export_carries_the_run_with_its_three_valued_spend() {
+        let transaction = tx(json!({
+            "transaction": {"correlationId": "c"},
+            "workflows": [],
+            "events": [],
+            "storyRun": {
+                "runId": "11111111-1111-1111-1111-111111111111",
+                "storyId": "ENG-FORGE-01",
+                "turns": [
+                    {"attemptKey": "smith:0", "harnessProfileId": "smith-structured-v1", "usageKnown": false}
+                ]
+            }
+        }));
+        let exported = trace_to_json(&adapt_flight_recorder_transaction(&transaction));
+
+        assert_eq!(exported["storyRun"]["storyId"], "ENG-FORGE-01");
+        assert_eq!(exported["storyRun"]["turns"][0]["usageKnown"], false);
+        assert!(
+            exported["storyRun"]["turns"][0]["costUsd"].is_null(),
+            "an unpriced turn stays unpriced in the file, not zero"
+        );
+    }
+
+    /// A turn fixture with everything unmeasured, so each test states only what it is about.
+    fn turn(run: FlightRecorderTransaction, index: usize) -> TraceTurn {
+        adapt_flight_recorder_transaction(&run)
+            .story_run
+            .expect("the fixture carries a run")
+            .turns
+            .remove(index)
+    }
+
+    #[test]
+    fn a_turn_nobody_measured_is_never_shown_as_a_turn_that_cost_nothing() {
+        // The two ways a reading can be missing are different answers, and neither of them is $0.0000.
+        assert_eq!(format_turn_spend(None, None), "not measured");
+        assert_eq!(format_turn_spend(None, Some(false)), "unknown");
+        assert_eq!(format_turn_tokens(None, None, Some(false)), "unknown");
+        // A price exists only where the turn's own reading does; a measured zero is a real zero and prints as one.
+        assert_eq!(format_turn_spend(Some(0.0), Some(true)), "$0.0000");
+        assert_eq!(format_turn_spend(Some(0.25), Some(true)), "$0.2500");
+        assert_eq!(format_turn_spend(Some(0.25), Some(false)), "unknown");
+        assert_eq!(
+            format_turn_tokens(Some(10), Some(4), Some(true)),
+            "10 in / 4 out"
+        );
+        assert_eq!(
+            format_turn_tokens(Some(10), Some(4), Some(false)),
+            "unknown"
+        );
+        assert_eq!(format_turn_tokens(Some(10), Some(4), None), "not measured");
+    }
+
+    #[test]
+    fn an_unread_turn_travels_without_the_adapter_inventing_numbers() {
+        let transaction = tx(json!({
+            "transaction": {"correlationId": "c"},
+            "workflows": [],
+            "events": [],
+            "storyRun": {
+                "runId": "11111111-1111-1111-1111-111111111111",
+                "storyId": "ENG-FORGE-01",
+                "phase": "build",
+                "status": "completed",
+                "turns": [
+                    {"attemptKey": "smith:0", "role": "smith", "roleAttempt": 0,
+                     "harnessProfileId": "smith-structured-v1", "usageKnown": false},
+                    {"attemptKey": "smith:1", "role": "smith", "roleAttempt": 1,
+                     "harnessProfileId": "smith-structured-v1", "usageKnown": true,
+                     "costUsd": 0.25, "tokensInput": 120, "tokensOutput": 30}
+                ]
+            }
+        }));
+        let first = turn(transaction.clone(), 0);
+        assert_eq!(first.usage_known, Some(false));
+        assert!(
+            first.cost_usd.is_none() && first.tokens_input.is_none(),
+            "a settlement that reported unknown carries no numbers"
+        );
+        assert_eq!(
+            format_turn_spend(first.cost_usd, first.usage_known),
+            "unknown"
+        );
+        let second = turn(transaction, 1);
+        assert_eq!(
+            format_turn_spend(second.cost_usd, second.usage_known),
+            "$0.2500"
+        );
+    }
+
+    #[test]
+    fn a_run_with_nothing_measured_has_no_price_and_a_total_beside_unpriced_turns_is_a_floor() {
+        let turns = vec![
+            TraceTurn {
+                attempt_key: "smith:0".into(),
+                usage_known: Some(true),
+                ..TraceTurn::default()
+            },
+            TraceTurn {
+                attempt_key: "smith:1".into(),
+                usage_known: None,
+                ..TraceTurn::default()
+            },
+        ];
+        let measured = ConsoleRunTurns {
+            cost_usd: Some(0.5),
+            tokens_input: Some(120),
+            tokens_output: Some(30),
+            cost_source: Some("vendor".into()),
+            turns: turns.clone(),
+            ..ConsoleRunTurns::default()
+        };
+        let floor = format_run_spend(&measured);
+        assert!(floor.starts_with("spend: $0.5000+"), "{floor}");
+        assert!(floor.contains("· vendor"), "{floor}");
+        assert!(floor.contains("120 in / 30 out"), "{floor}");
+        assert!(floor.contains("(+1 unpriced turn)"), "{floor}");
+
+        // Every turn priced: the price is the run's, with no floor marker.
+        let priced = ConsoleRunTurns {
+            turns: vec![turns[0].clone()],
+            ..measured.clone()
+        };
+        assert_eq!(
+            format_run_spend(&priced),
+            "spend: $0.5000 · vendor · 120 in / 30 out"
+        );
+
+        // Nothing measured: a run whose total was never written says so, and a source of `none` is not a source.
+        let unmeasured = ConsoleRunTurns {
+            cost_usd: None,
+            cost_source: Some("none".into()),
+            ..measured
+        };
+        assert_eq!(format_run_spend(&unmeasured), "spend: not measured");
+    }
+
+    #[test]
+    fn a_first_turn_a_repair_turn_and_a_pre_identity_row_are_named_differently() {
+        let mut first = TraceTurn {
+            attempt_key: "smith:0".into(),
+            role: Some("smith".into()),
+            role_attempt: Some(0),
+            harness_profile_id: "smith-structured-v1".into(),
+            profile_version: Some(2),
+            tool_call_count: 9,
+            ..TraceTurn::default()
+        };
+        assert_eq!(turn_label(&first), "smith · first turn");
+        assert_eq!(turn_profile_label(&first), "smith-structured-v1 · v2");
+        assert!(turn_calls_label(&first).starts_with("9 calls"));
+        first.role_attempt = Some(2);
+        assert_eq!(turn_label(&first), "smith · repair 2");
+
+        let pre_identity = TraceTurn {
+            attempt_key: "legacy:smith-structured-v1".into(),
+            role: Some("smith".into()),
+            harness_profile_id: "smith-structured-v1".into(),
+            ..TraceTurn::default()
+        };
+        assert!(turn_is_pre_identity(&pre_identity));
+        assert_eq!(turn_label(&pre_identity), "smith · pre-293 row");
+        assert_eq!(turn_calls_label(&pre_identity), "not recorded");
+    }
+
+    #[test]
+    fn a_verdict_is_shown_only_beside_the_candidate_it_graded() {
+        assert_eq!(
+            turn_verdict(Some("abc"), Some("abc"), Some(true)),
+            Some(true)
+        );
+        assert_eq!(
+            turn_verdict(Some("abc"), Some("abc"), Some(false)),
+            Some(false)
+        );
+        assert_eq!(
+            turn_verdict(Some("def"), Some("abc"), Some(true)),
+            None,
+            "a verdict for another candidate is not this turn's"
+        );
+        assert_eq!(turn_verdict(Some("abc"), None, Some(true)), None);
+        assert_eq!(turn_verdict(None, Some("abc"), Some(true)), None);
+        assert_eq!(turn_verdict(Some("abc"), Some("abc"), None), None);
+    }
+
+    #[test]
+    fn a_duration_needs_both_ends_observed() {
+        let mut observed = TraceTurn {
+            started_at: Some("2026-09-22T12:00:00.000Z".into()),
+            ended_at: Some("2026-09-22T12:00:01.500Z".into()),
+            ..TraceTurn::default()
+        };
+        assert_eq!(turn_duration_ms(&observed), Some(1_500));
+        observed.ended_at = None;
+        assert_eq!(turn_duration_ms(&observed), None);
+        observed.ended_at = Some("2026-09-22T11:59:59.000Z".into());
+        assert_eq!(
+            turn_duration_ms(&observed),
+            None,
+            "an end before its start is not a negative duration"
+        );
+    }
+
+    #[test]
+    fn an_instance_that_is_not_forges_has_no_run_rather_than_an_empty_one() {
+        let transaction = tx(json!({
+            "transaction": {"correlationId": "c"},
+            "workflows": [],
+            "events": []
+        }));
+
+        assert!(adapt_flight_recorder_transaction(&transaction)
+            .story_run
+            .is_none());
     }
 }

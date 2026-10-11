@@ -240,6 +240,9 @@ pub fn run_forge_role_turn(
     for attempt in 0..budget {
         let permit = reserve_model_attempt(ctx, task, attempt)?;
         finish_model_attempt(ctx, permit.as_ref(), "launched", None)?;
+        // The turn's clock is read HERE, at the seam, and handed to the trajectory row with the outcome: that is
+        // what makes "time to first edit" a latency relative to a real turn rather than to a run.
+        let turn_started_at = chrono::Utc::now();
         let report = match ctx.execution_id {
             Some(execution_id) => ctx.harness.run_role_scoped_report(
                 execution_id,
@@ -251,6 +254,12 @@ pub fn run_forge_role_turn(
                 .harness
                 .run_role_report(node_id, task, self_heal.as_deref()),
         };
+        let turn_ended_at = chrono::Utc::now();
+        // The generation that paid for this turn. It is the discriminator a REPLAN changes, which is why it is part
+        // of the turn's key and not merely a column.
+        let generation_id = ctx
+            .model_attempt_control
+            .map(|control| control.generation_id());
         let usage = report.measured_usage;
         let trajectory = report.trajectory;
         let mut out = match report.outcome {
@@ -267,10 +276,18 @@ pub fn run_forge_role_turn(
                 let settlement = record_turn_usage(
                     ctx,
                     node_id,
-                    &task.story_id,
+                    task,
                     permit.as_ref(),
                     usage.as_ref(),
                     trajectory.as_ref(),
+                    &TurnFacts {
+                        generation_id,
+                        role_attempt: attempt,
+                        started_at: turn_started_at,
+                        ended_at: turn_ended_at,
+                        outcome: status,
+                        candidate_sha: None,
+                    },
                 );
                 let detail = match settlement {
                     Ok(()) => detail,
@@ -297,10 +314,18 @@ pub fn run_forge_role_turn(
         if let Err(error) = record_turn_usage(
             ctx,
             node_id,
-            &task.story_id,
+            task,
             permit.as_ref(),
             usage.as_ref(),
             trajectory.as_ref(),
+            &TurnFacts {
+                generation_id,
+                role_attempt: attempt,
+                started_at: turn_started_at,
+                ended_at: turn_ended_at,
+                outcome: "completed",
+                candidate_sha: out.candidate_sha.as_deref(),
+            },
         ) {
             let detail = format!("model usage settlement failed after candidate capture: {error}");
             let _ = finish_model_attempt(ctx, permit.as_ref(), "uncertain", Some(&detail));
@@ -522,19 +547,90 @@ pub fn hold_rejected_deliverable(
     Ok(())
 }
 
+/// What the seam observed about the turn it just paid for, carried to the accounting call in one piece.
+///
+/// It is a struct rather than a handful of arguments because these facts belong together: the clock read around the
+/// harness call, the generation that paid, the attempt index, how the turn ended and what it produced.
+struct TurnFacts<'a> {
+    /// The paid model generation, when a durable attempt controller minted one.
+    generation_id: Option<&'a str>,
+    /// The attempt index within the role: 0 is the first turn.
+    role_attempt: u32,
+    started_at: chrono::DateTime<chrono::Utc>,
+    ended_at: chrono::DateTime<chrono::Utc>,
+    /// `completed`, `failed`, `cancelled` (interrupted) or `uncertain` (engine fault).
+    outcome: &'a str,
+    candidate_sha: Option<&'a str>,
+}
+
+/// The trajectory row for one turn, keyed by the turn's own identity.
+///
+/// The key mirrors `forge_model_generation_attempt`'s identity — the task, the role attempt and the generation that
+/// paid — so a REPLAN keeps the turn before it instead of overwriting it, and a retried settlement lands on its own
+/// row. `UNKNOWN` fields stay `None`: the harness does not report the model or provider it ran under back to the
+/// lane, so those are absent rather than guessed from a profile id.
+fn turn_trajectory(
+    node_id: &str,
+    task: &ActiveForgeRoleTask,
+    permit: Option<&crate::engine::turn_budget::ModelAttemptPermit>,
+    metrics: &crate::engine::trajectory::TrajectoryMetrics,
+    facts: &TurnFacts<'_>,
+) -> crate::engine::trajectory::TurnTrajectory {
+    use crate::engine::trajectory::{
+        profile_id_for_node, profile_version, time_to_first_edit_ms, trajectory_attempt_key,
+        TurnTrajectory,
+    };
+    let profile_id = profile_id_for_node(node_id).to_string();
+    let attempt_key = match permit {
+        Some(permit) => trajectory_attempt_key(&permit.attempt_key, facts.generation_id),
+        // No controller meant no permit, so the attempt identity is composed from the task and the attempt index the
+        // loop is on — the same pair the ledger itself would have keyed on.
+        None => trajectory_attempt_key(
+            &format!("{}:role-attempt:{}", task.task_id, facts.role_attempt),
+            facts.generation_id,
+        ),
+    };
+    TurnTrajectory {
+        profile_version: profile_version(&profile_id),
+        profile_id,
+        attempt_key,
+        generation_id: facts.generation_id.map(str::to_owned),
+        task_id: Some(task.task_id.clone()),
+        role_attempt: i32::try_from(facts.role_attempt).ok(),
+        workflow_node: Some(node_id.to_string()),
+        role: crate::engine::service_binding::lane_for_node(node_id)
+            .ok()
+            .map(|lane| lane.service_key().to_string()),
+        model: None,
+        provider: None,
+        turn_started_at: Some(facts.started_at),
+        turn_ended_at: Some(facts.ended_at),
+        outcome: Some(facts.outcome.to_string()),
+        first_edit_latency_ms: time_to_first_edit_ms(
+            facts.started_at.timestamp_millis(),
+            metrics,
+        ),
+        candidate_sha: facts.candidate_sha.map(str::to_owned),
+        metrics: metrics.clone(),
+    }
+}
+
 /// Put one model turn's spend on the record: always on stderr, and on the Story Run row when this lane has one.
 ///
 /// The hand-run lane (`forge --story …`, no `--work-item`) opens no run row, so its spend has nowhere durable to
 /// go; the stderr line is then the only reading, and it is printed for every lane so the burn is never silent.
-/// A write that fails fails the lane, like every other state write here.
+/// A write that fails fails the lane, like every other state write here. The turn's own trajectory row is written
+/// here too, keyed by the turn's identity rather than by its run and profile.
 fn record_turn_usage(
     ctx: &ForgeRoleContext<'_>,
     node_id: &str,
-    story_id: &str,
+    task: &ActiveForgeRoleTask,
     permit: Option<&crate::engine::turn_budget::ModelAttemptPermit>,
     usage: Option<&HarnessUsage>,
     trajectory: Option<&crate::engine::trajectory::TrajectoryMetrics>,
+    facts: &TurnFacts<'_>,
 ) -> Result<()> {
+    let story_id = task.story_id.as_str();
     if let Some(usage) = usage {
         eprintln!(
             "spend story={story_id} node={node_id} run={} tokens_in={} tokens_out={} cost_usd={:.6} session={}",
@@ -550,16 +646,15 @@ fn record_turn_usage(
             ctx.story_run_id.unwrap_or("(none)")
         );
     }
-    // What the turn did, recorded against its run under the profile its node runs. Measurement only.
-    if let (Some(writer), Some(run_id), Some(trajectory)) =
-        (ctx.writer, ctx.story_run_id, trajectory)
-    {
+    // What the turn did, keyed by the turn's own identity. Measurement only.
+    if let (Some(writer), Some(run_id), Some(metrics)) = (ctx.writer, ctx.story_run_id, trajectory) {
+        // The row carries what the harness reported for THIS turn. The attempt ledger's receipt is a settlement —
+        // what was authorised for a stable attempt — not a second reading of the same turn, and its usage columns
+        // (289) are not on every database yet, so the turn's own row is the one home for its spend. A turn with no
+        // reading at all is recorded as explicitly unknown, never as a free turn.
+        let turn = turn_trajectory(node_id, task, permit, metrics, facts);
         writer
-            .record_run_trajectory(
-                run_id,
-                crate::engine::trajectory::profile_id_for_node(node_id),
-                trajectory,
-            )
+            .record_run_trajectory(run_id, &turn, usage, usage.is_none())
             .map_err(|error| {
                 WorkflowError::generic(format!(
                     "record_run_trajectory({story_id}, {run_id}): {error}"

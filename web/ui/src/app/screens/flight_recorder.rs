@@ -2,9 +2,13 @@
 //!
 //! The trace console was a JavaScript widget and was deleted with the rest of the TypeScript (owner decision,
 //! 2026-09-26). This is the Rust port: Yew owns the read, the 30-second refresh, the keep-the-last-good-trace
-//! failure, the filters and the selection; the console renders FIVE views — Timeline, Workflow Graph, Causality
-//! Graph, System Swimlane and Raw Events — all from one immutable transaction snapshot. No virtualizer library
-//! and no graph library: the pure layouts live in `crate::flight_recorder` and the SVG is drawn by hand.
+//! failure, the filters and the selection; the console renders SIX views — Timeline, Workflow Graph, Causality
+//! Graph, System Swimlane, Turns and Raw Events — all from one immutable transaction snapshot. No virtualizer
+//! library and no graph library: the pure layouts live in `crate::flight_recorder` and the SVG is drawn by hand.
+//!
+//! TURNS is the Forge view: the Story Run behind the traced instance and what each of its role turns did, as
+//! migration 293 records it. It is the one view that says `unknown` rather than a number where a measurement was
+//! never taken (the rendering rules are `format_turn_spend` / `turn_verdict` in the pure crate).
 //!
 //! FAITHFUL TO THE OWNER'S CONSOLE: three columns, the same tabs, the same semantic colours, the same
 //! cross-selection (an event highlights its workflow node and vice versa), and the same keyboard (Up/Down/Escape)
@@ -18,9 +22,11 @@ use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::flight_recorder::{
     self as fr, adapt_flight_recorder_transaction, build_causal_event_pairs, build_causal_graph,
     build_selection_causality, build_unresolved_causes, format_clock, format_display_time,
-    format_duration, format_offset, group_events_by_system, is_selected_causal_edge,
-    layout_causal_graph, layout_master_workflow, raw_event_fields, CausalLayout,
-    ConsoleWorkflowView, EventKind, EventStatus, FlightRecorderTrace, SystemId, TraceEvent,
+    format_duration, format_offset, format_run_spend, format_turn_spend, format_turn_tokens,
+    group_events_by_system, is_selected_causal_edge, layout_causal_graph, layout_master_workflow,
+    raw_event_fields, turn_calls_label, turn_duration_ms, turn_label, turn_profile_label,
+    turn_verdict, CausalLayout, ConsoleRunTurns, ConsoleWorkflowView, EventKind, EventStatus,
+    FlightRecorderTrace, SystemId, TraceEvent, TraceTurn,
 };
 
 /// How often the open console re-reads its trace.
@@ -33,15 +39,17 @@ pub enum Tab {
     Workflow,
     Causality,
     Swimlane,
+    Turns,
     Raw,
 }
 
 impl Tab {
-    const ALL: [Tab; 5] = [
+    const ALL: [Tab; 6] = [
         Tab::Timeline,
         Tab::Workflow,
         Tab::Causality,
         Tab::Swimlane,
+        Tab::Turns,
         Tab::Raw,
     ];
 
@@ -51,6 +59,7 @@ impl Tab {
             Tab::Workflow => "Workflow Graph",
             Tab::Causality => "Causality Graph",
             Tab::Swimlane => "System Swimlane",
+            Tab::Turns => "Turns",
             Tab::Raw => "Raw Events",
         }
     }
@@ -569,6 +578,7 @@ fn main_view(trace: &FlightRecorderTrace, model: &Model, link: &Link<Msg>) -> Ht
         Tab::Workflow => master_map(trace.workflow.as_ref(), model, link, true),
         Tab::Causality => causality(trace, model, link),
         Tab::Swimlane => swimlane(trace, model, link),
+        Tab::Turns => turns_view(trace.story_run.as_ref()),
         Tab::Raw => raw_events(trace, model, link),
     }
 }
@@ -1171,6 +1181,186 @@ fn event_details(event: Option<&TraceEvent>, link: &Link<Msg>) -> Html {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Turns (the Forge Story Run behind this instance)
+// ---------------------------------------------------------------------------
+
+/// The run behind the traced instance and what each of its role turns did.
+///
+/// THREE ANSWERS, THREE SENTENCES. `None` is an instance that is not a Forge Story Run at all; a run with no recorded
+/// turn is a Forge run whose telemetry has nothing to show yet; and a run with turns lists them. Collapsing the first
+/// two would hide exactly what an operator opens this view to find out.
+fn turns_view(run: Option<&ConsoleRunTurns>) -> Html {
+    let Some(run) = run else {
+        return empty_view(
+            "This process instance is not a Forge Story Run: no turns belong to it.",
+        );
+    };
+    html! {
+        <div class="min-h-0 flex-1 overflow-auto">
+            <div class="flex flex-wrap items-baseline gap-x-5 gap-y-1 border-b border-white/5 px-3 py-3 text-xs">
+                <span class="font-mono text-[11px] text-slate-200">{ run.story_id.clone() }</span>
+                { run_trait("phase", run.phase.as_deref()) }
+                { run_trait("status", run.status.as_deref()) }
+                { run_trait("work", run.work_type.as_deref()) }
+                { run_trait("run", Some(run.run_id.as_str())) }
+                <span class="text-[11px] text-slate-400">{ format_run_spend(run) }</span>
+                <span class="text-[11px] text-slate-400">{ run_qa_line(run) }</span>
+            </div>
+            if let Some(failure) = run.last_failure.as_deref().filter(|value| !value.is_empty()) {
+                <div class="border-b border-white/5 px-3 py-2 text-[11px] text-rose-300">
+                    { format!("Last failure: {failure}") }
+                </div>
+            }
+            if run.turns.is_empty() {
+                <div class="px-3 py-6 text-sm text-slate-500">
+                    { "No turn has been recorded against this run yet: a Forge run records one row per role turn as the turn settles." }
+                </div>
+            } else {
+                { turn_table(run) }
+            }
+        </div>
+    }
+}
+
+/// One `label value` pair of the run header. A field the run does not carry prints an em dash rather than a blank.
+fn run_trait(label: &str, value: Option<&str>) -> Html {
+    html! {
+        <span class="inline-flex items-baseline gap-1">
+            <span class="text-[10px] uppercase tracking-wide text-slate-500">{ label.to_owned() }</span>
+            <span class={classes!("font-mono", "text-[11px]",
+                if value.is_some() { "text-slate-200" } else { "text-slate-500" })}>
+                { value.unwrap_or("—").to_owned() }
+            </span>
+        </span>
+    }
+}
+
+/// The run's QA line, which is only a verdict where a turn produced the candidate it names.
+///
+/// `qa_verified_sha` is the candidate the verdict is about; when no turn of this run produced it, the line says so
+/// instead of letting a verdict for another candidate read as this run's.
+fn run_qa_line(run: &ConsoleRunTurns) -> String {
+    let Some(sha) = run.qa_verified_sha.as_deref() else {
+        return "QA: no verdict recorded for this run".into();
+    };
+    let short: String = sha.chars().take(12).collect();
+    let graded = run.turns.iter().any(|turn| {
+        turn_verdict(
+            run.qa_verified_sha.as_deref(),
+            turn.candidate_sha.as_deref(),
+            run.qa_passed,
+        )
+        .is_some()
+    });
+    if !graded {
+        return format!("QA verified {short} — no turn of this run produced that candidate");
+    }
+    match run.qa_passed {
+        Some(true) => format!("QA: passed · verified {short}"),
+        Some(false) => format!("QA: failed · verified {short}"),
+        None => format!("QA verified {short} · verdict not recorded"),
+    }
+}
+
+fn turn_table(run: &ConsoleRunTurns) -> Html {
+    html! {
+        <div>
+            if run.turns_truncated {
+                <div class="border-b border-white/5 px-3 py-2 text-[11px] text-amber-300">
+                    { format!("Showing the first {} of this run's turns: more are recorded than this read returned.", run.turns.len()) }
+                </div>
+            }
+            <table class="w-full border-collapse text-left text-xs">
+                <thead class="sticky top-0 bg-[#0b1220] text-[10px] uppercase tracking-wide text-slate-500">
+                    <tr>
+                        <th class="px-3 py-2">{ "Turn" }</th>
+                        <th class="px-3 py-2">{ "Node" }</th>
+                        <th class="px-3 py-2">{ "Profile" }</th>
+                        <th class="px-3 py-2">{ "Model" }</th>
+                        <th class="px-3 py-2">{ "Outcome" }</th>
+                        <th class="px-3 py-2">{ "Duration" }</th>
+                        <th class="px-3 py-2">{ "First edit" }</th>
+                        <th class="px-3 py-2">{ "Calls" }</th>
+                        <th class="px-3 py-2">{ "Tokens" }</th>
+                        <th class="px-3 py-2">{ "Spend" }</th>
+                        <th class="px-3 py-2">{ "QA" }</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    { for run.turns.iter().map(|turn| turn_row(run, turn)) }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+fn turn_row(run: &ConsoleRunTurns, turn: &TraceTurn) -> Html {
+    let verdict = turn_verdict(
+        run.qa_verified_sha.as_deref(),
+        turn.candidate_sha.as_deref(),
+        run.qa_passed,
+    );
+    // A price is only printed where the turn's own reading exists; the cell says which kind of unknown it is.
+    let measured = turn.usage_known == Some(true);
+    html! {
+        <tr class="border-b border-white/5">
+            <td class="px-3 py-1.5">
+                <div class="text-[11px] text-slate-200">{ turn_label(turn) }</div>
+                <div class="font-mono text-[10px] text-slate-500">{ turn.attempt_key.clone() }</div>
+            </td>
+            <td class="px-3 py-1.5 font-mono text-[11px] text-slate-400">
+                { turn.workflow_node.clone().unwrap_or_else(|| "—".into()) }
+            </td>
+            <td class="px-3 py-1.5 text-[11px] text-slate-300">{ turn_profile_label(turn) }</td>
+            <td class="px-3 py-1.5 text-[11px] text-slate-300">
+                { match (turn.model.as_deref(), turn.provider.as_deref()) {
+                    (Some(model), Some(provider)) => format!("{model} · {provider}"),
+                    (Some(model), None) => model.to_owned(),
+                    _ => "—".into(),
+                } }
+            </td>
+            <td class="px-3 py-1.5">
+                <span class={classes!("text-[11px]", outcome_class(turn.outcome.as_deref()))}>
+                    { turn.outcome.clone().unwrap_or_else(|| "not recorded".into()) }
+                </span>
+            </td>
+            <td class="px-3 py-1.5 font-mono text-[11px] text-slate-300">
+                { turn_duration_ms(turn).map(format_duration).unwrap_or_else(|| "—".into()) }
+            </td>
+            <td class="px-3 py-1.5 font-mono text-[11px] text-slate-300">
+                { turn.first_edit_latency_ms.map(format_duration).unwrap_or_else(|| "—".into()) }
+            </td>
+            <td class="px-3 py-1.5 text-[11px] text-slate-400">{ turn_calls_label(turn) }</td>
+            <td class="px-3 py-1.5 font-mono text-[11px] text-slate-300">
+                { format_turn_tokens(turn.tokens_input, turn.tokens_output, turn.usage_known) }
+            </td>
+            <td class="px-3 py-1.5 font-mono text-[11px]">
+                <span class={classes!(if measured { "text-slate-200" } else { "text-amber-300" })}>
+                    { format_turn_spend(turn.cost_usd, turn.usage_known) }
+                </span>
+            </td>
+            <td class="px-3 py-1.5 text-[11px]">
+                { match verdict {
+                    Some(true) => html! { <span class="text-emerald-400">{ "pass" }</span> },
+                    Some(false) => html! { <span class="text-rose-400">{ "fail" }</span> },
+                    None => html! { <span class="text-slate-500">{ "—" }</span> },
+                } }
+            </td>
+        </tr>
+    }
+}
+
+/// How a turn ended, coloured: a completed turn is not a failed one, and `uncertain` (an engine fault) is neither.
+fn outcome_class(outcome: Option<&str>) -> &'static str {
+    match outcome {
+        Some("completed") => "text-emerald-400",
+        Some("failed") => "text-rose-400",
+        Some("cancelled") | Some("uncertain") => "text-amber-300",
+        _ => "text-slate-500",
+    }
+}
+
 fn empty_view(message: &str) -> Html {
     html! {
         <div class="grid flex-1 place-items-center text-sm text-slate-500">{ message.to_owned() }</div>
@@ -1362,5 +1552,48 @@ mod tests {
         assert!(filtered_ids(&model).is_empty());
         FlightRecorder::update(&mut model, Msg::FiltersCleared, &ctx);
         assert_eq!(filtered_ids(&model).len(), 2);
+    }
+
+    #[test]
+    fn the_turns_tab_is_selectable_and_leaves_the_trace_alone() {
+        let ctx = ctx();
+        let mut model = Model {
+            read: Remote::Loaded(trace()),
+            ..Model::default()
+        };
+        assert!(Tab::ALL.contains(&Tab::Turns));
+        assert_eq!(Tab::Turns.label(), "Turns");
+        FlightRecorder::update(&mut model, Msg::TabSelected(Tab::Turns), &ctx);
+        assert_eq!(model.tab, Tab::Turns);
+        assert!(
+            model.read.loaded().is_some(),
+            "switching views never drops the read"
+        );
+    }
+
+    #[test]
+    fn a_run_verdict_is_printed_only_beside_the_candidate_it_graded() {
+        let mut run = ConsoleRunTurns {
+            run_id: "11111111-1111-1111-1111-111111111111".into(),
+            story_id: "ENG-FORGE-01".into(),
+            ..ConsoleRunTurns::default()
+        };
+        assert_eq!(run_qa_line(&run), "QA: no verdict recorded for this run");
+
+        run.qa_passed = Some(true);
+        run.qa_verified_sha = Some("abcdef0123456789".into());
+        assert_eq!(
+            run_qa_line(&run),
+            "QA verified abcdef012345 — no turn of this run produced that candidate"
+        );
+
+        run.turns.push(TraceTurn {
+            attempt_key: "smith:0".into(),
+            candidate_sha: Some("abcdef0123456789".into()),
+            ..TraceTurn::default()
+        });
+        assert_eq!(run_qa_line(&run), "QA: passed · verified abcdef012345");
+        run.qa_passed = Some(false);
+        assert_eq!(run_qa_line(&run), "QA: failed · verified abcdef012345");
     }
 }

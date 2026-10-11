@@ -132,6 +132,65 @@ pub fn time_to_first_edit_ms(started_at_ms: i64, metrics: &TrajectoryMetrics) ->
         .map(|first| (first - started_at_ms).max(0))
 }
 
+/// The turn identity a trajectory row is keyed by within its run.
+///
+/// The key is COMPOSED, never clocked: a repeat of the same settlement lands on the same row, and nothing else can
+/// land on it. It mirrors the attempt ledger's own identity — `forge_model_generation_attempt` is unique on
+/// `(generation_id, task_id, role_attempt)` — so a REPLAN, which mints a new generation for the same task and role
+/// attempt, produces a new key and keeps the previous turn's row instead of overwriting it.
+///
+/// An uncontrolled lane (hand-run, no attempt controller) has no generation to tell a re-dispatch from a retry, so
+/// its key is the task/attempt pair alone; re-dispatching that same task and attempt index then replaces the row,
+/// which is the same collapse every pre-293 row had. The format is OPAQUE — a reader must not parse it, and nothing
+/// outside this module may compose one.
+pub fn trajectory_attempt_key(attempt_key: &str, generation_id: Option<&str>) -> String {
+    match generation_id {
+        Some(generation) => format!("{attempt_key}@{generation}"),
+        None => attempt_key.to_string(),
+    }
+}
+
+/// The profile's declared version, read from the profile id's trailing `-vN`.
+///
+/// Profiles carry their version in their id (`smith-structured-v1`), so a comparison can group by version without a
+/// second column to keep in step. An id that declares no version has no version — `None`, never a fabricated `v1`.
+pub fn profile_version(profile_id: &str) -> Option<i32> {
+    let (_, version) = profile_id.rsplit_once("-v")?;
+    if version.is_empty() || !version.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    version.parse().ok()
+}
+
+/// One turn's trajectory as the lane measured it: the measurement, the identity that makes it findable, and the
+/// clock readings taken around the harness call.
+///
+/// Every optional field means "not known at this seam". The model and provider the harness was started with are not
+/// reported back to the lane, so they stay `None` rather than being guessed from a profile id.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TurnTrajectory {
+    pub profile_id: String,
+    pub profile_version: Option<i32>,
+    /// Opaque, stable within the run. See [`trajectory_attempt_key`].
+    pub attempt_key: String,
+    pub generation_id: Option<String>,
+    pub task_id: Option<String>,
+    /// The attempt index within the role: 0 is the first turn, N>0 a repair/reprompt turn.
+    pub role_attempt: Option<i32>,
+    pub workflow_node: Option<String>,
+    /// The lane's service key — the identity a lane is registered under.
+    pub role: Option<String>,
+    pub model: Option<String>,
+    pub provider: Option<String>,
+    pub turn_started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub turn_ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// How the turn ended: `completed`, `failed`, `cancelled` (interrupted) or `uncertain` (engine fault).
+    pub outcome: Option<String>,
+    pub first_edit_latency_ms: Option<i64>,
+    pub candidate_sha: Option<String>,
+    pub metrics: TrajectoryMetrics,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,5 +268,35 @@ mod tests {
         assert_eq!(profile_id_for_role("assay"), ASSAY_DETERMINISTIC_V1);
         assert_eq!(profile_id_for_role("dev_ops"), DEVOPS_RELEASE_V1);
         assert_eq!(profile_id_for_role("something-new"), GENERIC_V1);
+    }
+
+    #[test]
+    fn a_replan_gets_a_new_key_and_a_retried_settlement_reuses_its_own() {
+        let attempt = "task-1:role-attempt:0";
+        // A retry of the same settlement: same generation, so the same row.
+        assert_eq!(
+            trajectory_attempt_key(attempt, Some("gen-1")),
+            trajectory_attempt_key(attempt, Some("gen-1"))
+        );
+        // A repair turn is a different attempt, and a REPLAN mints a new generation: neither overwrites the first.
+        assert_ne!(
+            trajectory_attempt_key(attempt, Some("gen-1")),
+            trajectory_attempt_key("task-1:role-attempt:1", Some("gen-1"))
+        );
+        assert_ne!(
+            trajectory_attempt_key(attempt, Some("gen-1")),
+            trajectory_attempt_key(attempt, Some("gen-2"))
+        );
+        // No controller at all: the key is the attempt identity alone, never a clock reading.
+        assert_eq!(trajectory_attempt_key(attempt, None), attempt);
+    }
+
+    #[test]
+    fn a_profile_version_is_read_from_the_id_and_never_invented() {
+        assert_eq!(profile_version(SMITH_STRUCTURED_V1), Some(1));
+        assert_eq!(profile_version("smith-structured-v12"), Some(12));
+        assert_eq!(profile_version("generic"), None);
+        assert_eq!(profile_version("thing-v"), None);
+        assert_eq!(profile_version("thing-vNext"), None);
     }
 }
