@@ -593,14 +593,20 @@ async fn carry_forward(args: &[String]) -> Result<u8, Failure> {
 
         // The email the product itself resolves for this form's own signer — the same rule the signing flow uses
         // (`FormDao::list_signer_people`), so a filled address is the address a signing link would go to.
-        let derived_email = forms
-            .list_signer_people(&source.id)
-            .await?
-            .into_iter()
-            .find(|person| person.person_id.as_deref() == source.person_id.as_deref())
-            .and_then(|person| person.email)
-            .map(|email| email.trim().to_string())
-            .filter(|email| !email.is_empty());
+        // Only the Listing Agreement's party IS the form's person; another template's email fields name other parties,
+        // who are typed on the form, so they never take this person's address.
+        let derived_email = if source.template_id == "LISTING-01" {
+            forms
+                .list_signer_people(&source.id)
+                .await?
+                .into_iter()
+                .find(|person| person.person_id.as_deref() == source.person_id.as_deref())
+                .and_then(|person| person.email)
+                .map(|email| email.trim().to_string())
+                .filter(|email| !email.is_empty())
+        } else {
+            None
+        };
 
         let carried = carried_values(
             older,
