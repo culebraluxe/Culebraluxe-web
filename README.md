@@ -48,7 +48,7 @@ Run the CLI from the repository root: it reads `.env.local` there.
 ## Checking it
 
 ```bash
-cd rust && cargo check --workspace --all-targets     # every crate, the UI app included
+cargo check --workspace --all-targets                # every crate, the UI app included (from the repository root)
 cargo test -p ui -p db -p web -p forge -p workflow
 pnpm ui:check                                        # the UI for the wasm target — what the deploy compiles
 pnpm forge:harness                                   # the harness gates

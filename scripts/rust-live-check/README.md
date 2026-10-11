@@ -13,7 +13,7 @@ query, and a panic that killed a request without leaving a record. Run these bef
 > all of it: `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` §1.
 
 ```bash
-pnpm dev                              # or: cd rust && cargo run -p web --bin web
+pnpm dev                              # or: cargo run --manifest-path Cargo.toml -p web --bin web
 node scripts/rust-live-check/engine-routes.mjs
 node scripts/rust-live-check/pool-counters.mjs 5
 ```

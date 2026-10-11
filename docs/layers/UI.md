@@ -23,12 +23,12 @@ The contract every screen implements, the holds, and the recipe for a new screen
 The browser reaches `/api/portal/*` only (session cookie, `web/src/api/portal_bridge.rs`); `/v1/*` is the
 internal API. Sign-in is Rust too (`web/src/api/google_auth.rs`, `ui_auth.rs`).
 
-## Where the port stands (checked 2026-09-28)
+## Where the port stands (entry counts re-counted 2026-10-10)
 
-`ENTRIES` in `web/ui/src/app/registry.rs` has **58** lines: **56** `Kind::Screen`, **2** `Kind::External` (WhatsApp
-Activation and `/portal`). The pre-trait global loop (`view.rs`, `update.rs`, `yew_effects.rs`, `yew_views/`,
-`yew_portal.rs`, `document.rs`) was deleted on 2026-09-28; the public site's copy it held is in
-`web/ui/src/app/screens/site/content.rs`.
+`ENTRIES` in `web/ui/src/app/registry.rs` has **60** `entry(...)` lines: **58** `Kind::Screen`, **2** `Kind::External`
+(`/portal/admin/whatsapp-coexistence` — WhatsApp Activation — and `/portal` itself). The pre-trait global loop
+(`view.rs`, `update.rs`, `yew_effects.rs`, `yew_views/`, `yew_portal.rs`, `document.rs`) was deleted on 2026-09-28; the
+public site's copy it held is in `web/ui/src/app/screens/site/content.rs`.
 
 ## Building and checking it
 

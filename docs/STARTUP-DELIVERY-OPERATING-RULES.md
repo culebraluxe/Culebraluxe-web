@@ -49,20 +49,28 @@ unchanged about *what* promotion means; what changed on 2026-09-21 is *who autho
 story's implementation authorisation implicitly covered its PROD promotion. It does not any more: production is
 frozen to agent action. Prepare, verify in DEV, and stop.
 
-### The Rust service's mechanics (added with the port)
+### The application's deploy mechanics (rewritten 2026-10-10 — the old text described the retired two-service Vercel setup)
 
-- The API is a **Vercel container service**, declared in `vercel.json` (`services.rust_api`, entrypoint
-  `rust/Dockerfile.vercel`, root `rust/`) and bound to the frontend as `RUST_API_BASE_URL`. Automatic deploys from git
-  are disabled in that file: **a deploy is a deliberate act, not a push.**
+- The application is **one Vercel container project**, `culebraluxe-web-fp`, which serves `culebraluxe.com` and
+  `www.culebraluxe.com`. One Rust server (`web/src/site.rs`) answers every path — the website, the portal and the API.
+  There is no second service, no `RUST_API_BASE_URL` and no Next.js half, so a release is one artifact, not two.
+- `vercel.json` sets `git.deploymentEnabled: false`: **a deploy is a deliberate act, not a push.**
+- **The live path is `pnpm deploy:prod` (`scripts/deploy-prod.sh`)**, and it compiles here, on this Mac: the stylesheet,
+  then the application inside Docker (`devops/Dockerfile.build` — the Yew UI to wasm, the server cross-compiled for
+  Vercel's x86_64 Linux), then it packs the finished files with `devops/Dockerfile.runtime` and `vercel deploy --prod`s
+  the staging directory. Vercel unpacks; it does not compile. `pnpm release` (`scripts/release-record.sh`) is that build
+  + deploy + a live probe + the receipt in `docs/agent/releases.md`; the written-down set is
+  `docs/agent/DEV-OPS-RELEASE.md`. `scripts/vercel-build-prod.sh` and `scripts/vercel-release-prod.sh` belong to the
+  older prebuilt path and say so in their own headers — they are not the release.
 - It chooses its database from the environment and **fails closed**: `VERCEL_ENV=production` (or
   `APP_ENV=production`/`prod`) selects PROD, `preview`/`development` selects DEV, and anything ambiguous refuses to
   start rather than guessing. This is the enforcement of §5 below.
 - **Migrations are not applied by the deploy.** There is no migration step in the build. `pnpm db:migrate` runs against
   whatever target it is given, from an explicit env file. That means step 4 above is a manual, human-authorised step —
   it does not happen because code shipped.
-- Both halves of a release must be built together: the Next application (`next build`) and the Rust binary
-  (`cargo build --release -p web --bin web`, which is what the container does). A release that ships one without
-  the other is not one release.
+- One release is one artifact: `pnpm deploy:prod` builds the wasm and the server binary in the same run and packs them
+  into the one container, which is why a release goes through it rather than a hand-built binary or a hand-copied
+  `public/rust-ui/`. A wasm from one commit serving a server from another is not one release.
 
 Do **not** return with:
 

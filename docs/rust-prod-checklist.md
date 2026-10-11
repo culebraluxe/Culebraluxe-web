@@ -5,10 +5,8 @@ Short on purpose. Run the checks, set the knobs, know what to watch, know how to
 ## Pre-flight (all of these must be true)
 
 ```bash
-cd rust
-cargo check --workspace --all-targets           # expect 0 errors (the CI gate)
+cargo check --workspace --all-targets           # expect 0 errors (the CI gate); run from the repository root
 cargo test --workspace --all-targets            # expect 0 failures (the same gate)
-cd ..
 pnpm forge:packet-lint                          # cli `forge harness-lint` — expect 0 failures
 git status --porcelain                          # expect empty
 ```
@@ -45,10 +43,10 @@ curl -s -H "x-culebra-internal-key: $KEY" localhost:8080/v1/diagnostics/db
 
 1. **The stylesheet** — Tailwind over `web/ui/styles/app.css` into `public/app.css` (Tailwind scans the Rust sources,
    so the CSS is built after the UI source is final).
-2. **The compile** — `docker build -f deploy/Dockerfile.build`: the Yew UI to wasm, and the server cross-compiled for
+2. **The compile** — `docker build -f devops/Dockerfile.build`: the Yew UI to wasm, and the server cross-compiled for
    Vercel's x86_64 Linux. Local and free; Vercel never compiles.
 3. **The pack** — `culebraluxe.gz` (the binary), `public/` minus the wasm, `ui.js`, `ui_bg.wasm.gz`, `templates/`, and
-   `deploy/Dockerfile.runtime` renamed to `Dockerfile` as the thing Vercel builds. Seconds to unpack.
+   `devops/Dockerfile.runtime` renamed to `Dockerfile` as the thing Vercel builds. Seconds to unpack.
 4. **The deploy** — the Vercel project `culebraluxe-web-fp` is set to `framework: container` through the API, then
    `vercel deploy --prod` uploads the staged directory.
 5. **The smoke** — `/`, `/buyers`, `/app.css`, `/rust-ui/ui.js`, `/rust-ui/ui_bg.wasm`, the public-page API and `/login`
@@ -110,6 +108,6 @@ Two things this checklist cannot verify for you, because they live outside the r
   serve", not as a warning.
 - **`devops/Dockerfile.vercel`** is a leftover from the two-service deploy (a Next frontend plus a `rust_api` container)
   that no longer exists — the file is still in the tree, and nothing deploys it. The image that ships is
-  `deploy/Dockerfile.runtime`; if you find `Dockerfile.vercel` named as the deploy path anywhere, the reference is
+  `devops/Dockerfile.runtime`; if you find `Dockerfile.vercel` named as the deploy path anywhere, the reference is
   stale, not the deploy.
 

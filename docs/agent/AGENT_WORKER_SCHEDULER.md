@@ -13,7 +13,7 @@ Node.)
 ```
 PROD Story Board ── status -> Ready ──▶ DB trigger ──▶ agent_work_item (Ready)
                                                           │
-    every 5 minutes: launchd ──▶ deployed wrapper copy
+    every 3 minutes: launchd ──▶ deployed wrapper copy
                                   (~/Library/Application Support/CulebraLuxe/
                                    agent-worker-once.sh)
                                       │ local no-overlap lock
