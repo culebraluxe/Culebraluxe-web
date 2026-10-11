@@ -171,10 +171,14 @@ impl Composer {
                     .iter()
                     .enumerate()
                     .map(|(index, participant)| {
-                        (
-                            participant.slot_id.clone(),
-                            signature_block_display_name(&participant.name, &bound, index),
-                        )
+                        // A block that names its signer (an entity's line reads "Company, by Rep, Title") shows its own text under
+                        // the line; the envelope is still addressed to the signer.
+                        let shown = if group.signer.is_some() && index == 0 && !bound.is_empty() {
+                            bound.clone()
+                        } else {
+                            signature_block_display_name(&participant.name, &bound, index)
+                        };
+                        (participant.slot_id.clone(), shown)
                     })
                     .collect()
             };

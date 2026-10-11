@@ -121,12 +121,24 @@ pub(super) fn parse_signatures(
                 )));
             }
         }
+        let signer = child
+            .attr("signer")
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if let Some(signer) = signer.as_deref() {
+            if !field_ids.iter().any(|id| id == signer) {
+                return Err(TemplateXmlError::new(format!(
+                    "Signature group \"{role}\" names signer \"{signer}\", which is not a field."
+                )));
+            }
+        }
         groups.push(TemplateSignatureGroup {
             role,
             label,
             field,
             initials,
             email,
+            signer,
         });
     }
     Ok(groups)

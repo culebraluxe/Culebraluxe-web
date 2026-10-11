@@ -224,6 +224,7 @@ mod tests {
             options: Vec::new(),
             when: None,
             fixed: None,
+            derived: false,
         }
     }
 

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <form
   id="PR-PNS"
-  version="5"
+  version="6"
   title="PURCHASE AND SALE AGREEMENT"
   presentation="agreement"
   documentType="Purchase and Sale Agreement"
@@ -16,11 +16,47 @@
   </participants>
 
   <field id="buyerName" label="Buyer" type="text" required="true" source="deal.client.name"/>
-  <field id="buyerEmail" label="Buyer Email" type="email" required="false"/>
+  <field id="buyerEmail" label="Buyer Email (the person who signs)" type="email" required="false"/>
+  <field id="buyerKind" label="Buyer Type" type="select" required="true" options="Individual, Entity, Power of Attorney"/>
+  <field id="buyerCivilStatus" label="Buyer Civil Status" type="select" options="Single, Married, Divorced, Widowed" when="buyerKind:Individual,Power of Attorney"/>
+  <field id="buyerPrenup" label="Buyer Prenuptial Agreement (capitulaciones)" type="select" options="No, Yes" when="buyerCivilStatus:Married"/>
+  <field id="buyerSpouseName" label="Buyer Spouse Name" type="text" when="buyerCivilStatus:Married"/>
+  <field id="buyerSpouseEmail" label="Buyer Spouse Email" type="email" required="false" when="buyerCivilStatus:Married"/>
+  <field id="buyerEntityName" label="Company Name" type="text" when="buyerKind:Entity"/>
+  <field id="buyerEntityState" label="State of Formation" type="text" when="buyerKind:Entity"/>
+  <field id="buyerEntityRegister" label="PR Department of State Register No." type="text" when="buyerKind:Entity"/>
+  <field id="buyerRepName" label="Authorized Representative" type="text" when="buyerKind:Entity"/>
+  <field id="buyerRepTitle" label="Representative Title (Member, Manager, President)" type="text" when="buyerKind:Entity"/>
+  <field id="buyerPoaAgent" label="Attorney-in-Fact" type="text" when="buyerKind:Power of Attorney"/>
+  <field id="buyerPoaDate" label="Power of Attorney Date" type="date" when="buyerKind:Power of Attorney"/>
+  <field id="buyerPoaNotary" label="Notary" type="text" when="buyerKind:Power of Attorney"/>
+  <field id="buyerPoaDeed" label="Deed / Affidavit No." type="text" when="buyerKind:Power of Attorney"/>
+  <field id="buyerDescription" label="Party description" type="textarea" derived="true"/>
+  <field id="buyerSignBlock" label="Signature line" type="text" derived="true"/>
+  <field id="buyerSignerName" label="Signer" type="text" derived="true"/>
+  <field id="buyerSpouseSign" label="Spouse signature line" type="text" derived="true"/>
+  <field id="buyerSpouseSignEmail" label="Spouse signer email" type="email" derived="true"/>
   <field id="sellerName" label="Seller" type="text" required="true"/>
-  <field id="sellerEmail" label="Seller Email" type="email" required="false"/>
-  <field id="spouseName" label="Spouse Name" type="text"/>
-  <field id="spouseEmail" label="Spouse Email" type="email" required="false"/>
+  <field id="sellerEmail" label="Seller Email (the person who signs)" type="email" required="false"/>
+  <field id="sellerKind" label="Seller Type" type="select" required="true" options="Individual, Entity, Power of Attorney"/>
+  <field id="sellerCivilStatus" label="Seller Civil Status" type="select" options="Single, Married, Divorced, Widowed" when="sellerKind:Individual,Power of Attorney"/>
+  <field id="sellerPrenup" label="Seller Prenuptial Agreement (capitulaciones)" type="select" options="No, Yes" when="sellerCivilStatus:Married"/>
+  <field id="sellerSpouseName" label="Seller Spouse Name" type="text" when="sellerCivilStatus:Married"/>
+  <field id="sellerSpouseEmail" label="Seller Spouse Email" type="email" required="false" when="sellerCivilStatus:Married"/>
+  <field id="sellerEntityName" label="Company Name" type="text" when="sellerKind:Entity"/>
+  <field id="sellerEntityState" label="State of Formation" type="text" when="sellerKind:Entity"/>
+  <field id="sellerEntityRegister" label="PR Department of State Register No." type="text" when="sellerKind:Entity"/>
+  <field id="sellerRepName" label="Authorized Representative" type="text" when="sellerKind:Entity"/>
+  <field id="sellerRepTitle" label="Representative Title (Member, Manager, President)" type="text" when="sellerKind:Entity"/>
+  <field id="sellerPoaAgent" label="Attorney-in-Fact" type="text" when="sellerKind:Power of Attorney"/>
+  <field id="sellerPoaDate" label="Power of Attorney Date" type="date" when="sellerKind:Power of Attorney"/>
+  <field id="sellerPoaNotary" label="Notary" type="text" when="sellerKind:Power of Attorney"/>
+  <field id="sellerPoaDeed" label="Deed / Affidavit No." type="text" when="sellerKind:Power of Attorney"/>
+  <field id="sellerDescription" label="Party description" type="textarea" derived="true"/>
+  <field id="sellerSignBlock" label="Signature line" type="text" derived="true"/>
+  <field id="sellerSignerName" label="Signer" type="text" derived="true"/>
+  <field id="sellerSpouseSign" label="Spouse signature line" type="text" derived="true"/>
+  <field id="sellerSpouseSignEmail" label="Spouse signer email" type="email" derived="true"/>
   <field id="buyerBrokerName" label="Buyer's Broker" type="text"/>
   <field id="buyerBrokerEmail" label="Buyer's Broker Email" type="email" required="false"/>
   <field id="sellerBrokerName" label="Seller's Broker" type="text"/>
@@ -53,9 +89,6 @@
   <field id="appraisalWaived" label="Appraisal Waived" type="select" options="Yes, No"/>
   <field id="surveyDeadline" label="Survey Deadline" type="date"/>
   <field id="inspectionDeadline" label="Inspection Deadline" type="date"/>
-  <field id="sellerCapacity" label="Seller Capacity" type="select" options="Individual, Married, Entity, Attorney-in-fact"/>
-  <field id="entitySignerTitle" label="Entity Signer Title" type="text"/>
-  <field id="poderDate" label="Power of Attorney Date" type="date"/>
   <field id="sellerPRResident" label="Seller Puerto Rico Resident" type="select" options="Yes, No, Unknown"/>
   <field id="sellerFirptaForeign" label="Seller Foreign Person (FIRPTA)" type="select" options="Yes, No, Unknown"/>
   <field id="brokerRepresentation" label="Broker Representation" type="select" options="Seller only, Buyer only, Both"/>
@@ -63,8 +96,8 @@
   <section id="parties" title="Parties" editable="false">
     This Purchase and Sale Agreement is made as of
     <value field="effectiveDate"/> (the "Effective Date") between
-    <value field="buyerName"/> (the "Buyer") and
-    <value field="sellerName"/> (the "Seller").
+    <value field="buyerDescription"/> (the "Buyer") and
+    <value field="sellerDescription"/> (the "Seller").
     Brokers named in this Agreement facilitate the transaction and are not
     parties to the sale covenants except for the limited broker acknowledgment
     on the signature page. Each Party represents it has capacity and authority
@@ -72,14 +105,12 @@
   </section>
 
   <section id="capacity" title="Capacity and Authority" editable="false">
-    Seller capacity is <value field="sellerCapacity"/>. If Married, the spouse
-    <value field="spouseName"/> shall join this Agreement and the escritura
-    unless recorded capitulaciones or a court order provides otherwise. If
-    Entity, the person signing warrants title
-    <value field="entitySignerTitle"/> and authority to bind the entity. If
-    Attorney-in-fact, the poder is dated
-    <value field="poderDate"/> and shall be delivered in recordable form
-    the Notary requires. The spouse signs on the signature page of this form.
+    A spouse named in the description of a Party who is married to that Party,
+    without recorded capitulaciones, joins this Agreement and the escritura and
+    signs on the signature page. An entity Party is bound by the representative
+    named above, who warrants authority to bind it. A Party acting through an
+    attorney-in-fact is bound by the power identified above, which shall be
+    delivered in the recordable form the Notary requires.
   </section>
 
   <section id="propertyDescription" title="Property" editable="false">
@@ -459,9 +490,10 @@
   </section>
 
   <signatures>
-    <signature-group role="BUYER" label="Buyer" field="buyerName" email="buyerEmail" initials="true"/>
-    <signature-group role="SELLER" label="Seller" field="sellerName" email="sellerEmail" initials="true"/>
-    <signature-group role="SELLER_SPOUSE" label="Seller's Spouse" field="spouseName" email="spouseEmail" initials="true"/>
+    <signature-group role="BUYER" label="Buyer" field="buyerSignBlock" signer="buyerSignerName" email="buyerEmail" initials="true"/>
+    <signature-group role="SELLER" label="Seller" field="sellerSignBlock" signer="sellerSignerName" email="sellerEmail" initials="true"/>
+    <signature-group role="BUYER_SPOUSE" label="Buyer's Spouse" field="buyerSpouseSign" email="buyerSpouseSignEmail" initials="true"/>
+    <signature-group role="SELLER_SPOUSE" label="Seller's Spouse" field="sellerSpouseSign" email="sellerSpouseSignEmail" initials="true"/>
     <signature-group role="BUYER_BROKER" label="Buyer's Broker" field="buyerBrokerName" email="buyerBrokerEmail" initials="true"/>
     <signature-group role="SELLER_BROKER" label="Seller's Broker" field="sellerBrokerName" email="sellerBrokerEmail" initials="true"/>
   </signatures>

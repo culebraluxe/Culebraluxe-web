@@ -267,7 +267,7 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                                 for template
                                     .fields
                                     .iter()
-                                    .filter(|field| field.fixed.is_none())
+                                    .filter(|field| field.fixed.is_none() && !field.derived)
                                     .filter(|field| when_visible(field.when.as_ref(), &model.values))
                                     .map(|field| field_control(
                                         field,

@@ -504,9 +504,11 @@ fn template_party_signers(
             !(name.is_empty() && email.is_empty())
         })
         .map(|group| {
+            // The envelope is addressed to the block's signer (an entity's representative), not to the line's own text.
             let name = group
-                .field
+                .signer
                 .as_deref()
+                .or(group.field.as_deref())
                 .map(value)
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| group.label.clone());

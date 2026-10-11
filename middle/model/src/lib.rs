@@ -26,6 +26,7 @@ pub mod forms_font;
 pub mod forms_font_metrics;
 pub mod forms_format;
 pub mod forms_geometry;
+pub mod forms_parties;
 pub mod forms_template;
 pub mod gmail;
 pub mod guide;

@@ -73,6 +73,9 @@ pub struct TemplateFieldDefinition {
     /// from this version holds exactly this, whatever was typed or saved before. A fixed fact lives in the template, not
     /// in a screen that hides it.
     pub fixed: Option<String>,
+    /// Worked out from other answers when the form is saved (a party's signature line, its description). It is not
+    /// shown and nobody types it.
+    pub derived: bool,
 }
 
 /// One run of a section's prose: literal text, or the value of a field.
@@ -136,6 +139,9 @@ pub struct TemplateSignatureGroup {
     /// The email field that holds this party's signing address. A block with one is sent to that party for signature;
     /// a block without one is signed at issuance (the broker's standing pre-signature) or not at all.
     pub email: Option<String>,
+    /// The field holding the name of the person who signs this block, when that is not the block's own text (an entity's
+    /// block reads "Company, by Rep, Title" but the envelope is addressed to the Rep).
+    pub signer: Option<String>,
 }
 
 /// One template version, exactly as the XML declares it.
@@ -595,6 +601,7 @@ pub(super) fn parse_field(
             "Field \"{name}\" is fixed, so it cannot be a select."
         )));
     }
+    let derived = element.bool_attr("derived", false)?;
     Ok(TemplateFieldDefinition {
         name,
         label,
@@ -604,5 +611,6 @@ pub(super) fn parse_field(
         options,
         when,
         fixed,
+        derived,
     })
 }

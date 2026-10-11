@@ -78,6 +78,8 @@ pub struct FormTemplateField {
     pub when: Option<FormWhen>,
     /// The template's own value; the screen does not ask for it.
     pub fixed: Option<String>,
+    /// Worked out from the other answers on save; the screen does not show it.
+    pub derived: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]

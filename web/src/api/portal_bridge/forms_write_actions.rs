@@ -568,7 +568,12 @@ pub(super) async fn send_signature(
                     .map(|value| value.trim().to_owned())
                     .unwrap_or_default()
             };
-            let name = group.field.as_deref().map(value).unwrap_or_default();
+            let name = group
+                .signer
+                .as_deref()
+                .or(group.field.as_deref())
+                .map(value)
+                .unwrap_or_default();
             let typed = group.email.as_deref().map(value).unwrap_or_default();
             if name.is_empty() && typed.is_empty() {
                 // This party is not on this form (a spouse, say): its block is drawn but nobody signs it.
