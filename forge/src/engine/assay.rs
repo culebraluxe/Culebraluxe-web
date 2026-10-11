@@ -560,7 +560,10 @@ mod rust_contract_tests {
             "cargo test --manifest-path Cargo.toml -p test-harness --test contract".to_string(),
             "cargo check --manifest-path Cargo.toml --workspace --all-targets".to_string(),
         ];
-        let observed = std::sync::Mutex::new(Vec::new());
+        // The element type is `String`, because the assertion below compares against `Vec<String>`; without the
+        // annotation `command.into()` is ambiguous (E0282/E0283), which kept this whole test target from
+        // compiling since c2c556adc. The harness does not run `cargo test`, so nothing reported it.
+        let observed: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
         let evidence = collect_rust_contract_assay_evidence(
             contract_gate(),
             Some(&|command| {
