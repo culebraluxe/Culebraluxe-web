@@ -141,6 +141,7 @@ impl VaultDao {
                     where deal_id is not distinct from $1::uuid
                       and contract_id is null
                       and template_id = $2
+                      and form_instance_id = $3::uuid
                       and source = 'generated'
                       and issued_version is not null
                     order by issued_version desc, created_at desc
@@ -149,6 +150,8 @@ impl VaultDao {
                 )
                 .bind(form.deal_id.as_deref())
                 .bind(&form.template_id)
+                // A form with no contract has its own lineage: another client's Listing is never superseded by this one.
+                .bind(&form.id)
                 .fetch_optional(tx.connection())
                 .await
                 .map_err(|error| DbFailure::from_sqlx("vault.issue.prior_legacy", &error))?
