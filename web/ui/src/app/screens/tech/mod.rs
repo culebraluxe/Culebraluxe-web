@@ -68,6 +68,9 @@ pub enum Msg {
     Loaded(Result<PortalPage, ApiError>),
     Tick,
     TechStorySelected(String),
+    /// Open the Flight Recorder on a story the engine has already finished — the done work's own way into the third
+    /// tab, so the operator does not have to select the story, then change tabs, then hope.
+    TechTraceStoryRequested(String),
     TechRefreshRequested,
     TechScheduleChanged(String),
     TechClearWorkbenchRequested,
@@ -210,6 +213,15 @@ impl Screen for TechCockpit {
             }
             Msg::TechStorySelected(id) => {
                 model.selected = Some(id);
+                model.flight = None;
+                model.flight_instance_id = None;
+                read(model)
+            }
+            // Selecting the story and switching the tab in ONE step: the re-read that follows carries the story's
+            // latest instance, and `Loaded` opens the recorder because the tab is already the Flight Recorder.
+            Msg::TechTraceStoryRequested(id) => {
+                model.selected = Some(id);
+                model.tab = TechTab::FlightRecorder;
                 model.flight = None;
                 model.flight_instance_id = None;
                 read(model)
@@ -473,5 +485,41 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert!(requests[0].path.contains("wf-123"));
         assert_eq!(model.flight_instance_id.as_deref(), Some("wf-123"));
+    }
+
+    /// The third tab is reached FROM finished work, not by selecting a story and changing tabs by hand. Trace carries
+    /// the story into the recorder's own read in one step, and the answer mounts that story's latest instance.
+    #[test]
+    fn trace_from_finished_work_opens_the_recorder_in_one_step() {
+        let ctx = ScreenCtx::default();
+        let (mut model, _) = TechCockpit::init(&ctx);
+        let requests = TechCockpit::update(
+            &mut model,
+            Msg::TechTraceStoryRequested("FORGE-7".into()),
+            &ctx,
+        )
+        .into_requests();
+        assert_eq!(model.tab, TechTab::FlightRecorder);
+        assert_eq!(model.selected.as_deref(), Some("FORGE-7"));
+        assert_eq!(requests.len(), 1, "tracing rereads for that story's run");
+        assert!(requests[0].path.contains("selected=FORGE-7"));
+
+        let request = requests.into_iter().next().unwrap();
+        let flight = TechCockpit::update(
+            &mut model,
+            request.respond(Ok(json!({
+                "tech": { "ready": true, "recorderInstanceId": "wf-last" }
+            }))),
+            &ctx,
+        )
+        .into_requests();
+        assert_eq!(model.flight_instance_id.as_deref(), Some("wf-last"));
+        assert!(model.flight.is_some(), "the recorder mounts on the answer");
+        assert_eq!(
+            flight.len(),
+            1,
+            "mounting the recorder asks for the trace it replays"
+        );
+        assert!(flight[0].path.contains("wf-last"));
     }
 }

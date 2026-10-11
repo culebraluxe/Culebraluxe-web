@@ -2,7 +2,9 @@
 //!
 //! Engine Queue owns story preparation, dispatch and engine work status.
 //! Work in Flight reads the parent ForgeService's live execution model.
-//! Flight Recorder mounts the existing forensic console for the selected story's latest run.
+//! Flight Recorder mounts the existing forensic console for the selected story's latest run, and falls back to the most
+//! recent run anywhere when no story is selected — the third tab is where you look when you do not yet know which story
+//! you are looking at.
 
 use yew::prelude::*;
 
@@ -103,15 +105,20 @@ fn live_tab(model: &Model, link: &Link<Msg>) -> Html {
 
 fn flight_tab(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
     let Some(instance_id) = model.flight_instance_id.as_deref() else {
+        // A read in flight on the way here (the tab was just opened, or Trace was clicked) must say "opening", not
+        // "no run recorded": the instance arrives with the answer to that read.
+        if model.loading {
+            return flight_opening();
+        }
         return html! {
             <section class="grid min-h-[34rem] place-items-center rounded-xl border border-white/10 bg-[#0b1220] p-8 text-center">
                 <div class="max-w-lg">
                     <div class="mx-auto grid h-12 w-12 place-items-center rounded-xl border border-brand-gold/25 bg-brand-gold/10 font-serif text-lg text-[#e0c489]">
                         {"FR"}
                     </div>
-                    <h2 class="mt-4 font-serif text-xl font-semibold text-white">{"Select a recorded story first"}</h2>
+                    <h2 class="mt-4 font-serif text-xl font-semibold text-white">{"No run recorded yet"}</h2>
                     <p class="mt-2 text-sm leading-6 text-slate-400">
-                        {"The Flight Recorder tab opens the latest process instance for the story selected in Engine Queue. Choose a story with execution history, then return here."}
+                        {"This tab replays the last run the engine recorded, and opens by itself as soon as there is one — no story has to be picked first. Nothing has run yet, so there is nothing to replay."}
                     </p>
                     <button
                         type="button"
@@ -126,15 +133,20 @@ fn flight_tab(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
     };
 
     let Some(flight) = model.flight.as_ref() else {
-        return html! {
-            <section class="grid min-h-[34rem] place-items-center rounded-xl border border-white/10 bg-[#0b1220] text-sm text-slate-400">
-                {"Opening Flight Recorder…"}
-            </section>
-        };
+        return flight_opening();
     };
 
     let mut child_ctx = ctx.clone();
     child_ctx.id = Some(instance_id.to_string());
     let child_link = Link::new(link.callback(|msg: FlightMsg| Msg::Flight(msg)));
     FlightRecorder::view(flight, &child_ctx, &child_link)
+}
+
+/// The recorder's own instance is being fetched; the console has nothing to mount until it lands.
+fn flight_opening() -> Html {
+    html! {
+        <section class="grid min-h-[34rem] place-items-center rounded-xl border border-white/10 bg-[#0b1220] text-sm text-slate-400">
+            {"Opening Flight Recorder…"}
+        </section>
+    }
 }

@@ -251,6 +251,23 @@ impl TechCockpitDao {
             (vec![], None, None)
         };
 
+        // The Flight Recorder tab opens the LAST run Forge recorded when the selected story has none, and when nothing
+        // is selected at all. The third tab answers "what just came out of the engine", and making an operator pick a
+        // Work Item before the black box will open is what made that entrance read as broken. The console names the
+        // instance it replays, so a fallback is legible rather than quietly someone else's run.
+        let recorder_instance_id = match recorder_instance_id {
+            Some(instance_id) => Some(instance_id),
+            None => sqlx::query_scalar::<_, String>(
+                r#"
+              select process_instance_id::text from forge_engine_task_execution
+              order by created_at desc limit 1
+            "#,
+            )
+            .fetch_optional(self.db.pool())
+            .await
+            .map_err(|e| DbFailure::from_sqlx("tech.last_instance", &e))?,
+        };
+
         Ok(TechCockpitSnapshot {
             stories,
             executions,
