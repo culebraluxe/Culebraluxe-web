@@ -1,5 +1,13 @@
 # The Rust UI port — state of play
 
+> **STATUS (2026-10-10): the port is finished, and the host this file was written against is retired.** The Next.js
+> application — `lib/rust-ui/**`, `components/rust-ui/host.tsx` and the two `app/api/rust-ui/*` routes — was deleted with
+> the rest of the TypeScript estate, and `web/ui/examples/` (the `view-dump` example the recipes below use) went with it.
+> `web/src/site.rs` now answers every path with the one Yew app, and the payload feeds are the Rust server's
+> `/api/rust-ui/*` routes. Read the body as the **record of the port** — kept for the traps, which are still the traps —
+> not as a description of the tree. Live UI truth: `docs/agent/UI-SCREEN-ARCHITECTURE.md` (the screen contract) and
+> `docs/layers/UI.md` (the layer page).
+
 Read this before touching `web/ui/**`, `lib/rust-ui/**`, `components/rust-ui/host.tsx`, or the two
 `app/api/rust-ui/*` routes. It exists so a new session does not have to rediscover any of it.
 
@@ -55,9 +63,10 @@ The one thing that will eventually have to change outside `web/ui/**` is a serve
    else: the price arrives as a formatted string (`$2,400,000`) rather than a number, so `listing_price` reads the
    digits — and the view filter has no `views` field to read at all, so it renders disabled rather than pretending.
    Before wiring a control, check the payload has its field; adding one is a server change, not a Rust one.
-8. **`view-dump --page` reads the payload from stdin.** Running it without a pipe waits forever, which is why several
-   "hangs" were not hang. Correct form:
-   `curl -s '<host>/api/rust-ui/public-page?screen=site-buyers' | cargo run -q -p ui --example view-dump -- site-buyers --page`
+8. **Read the payload off the wire before you trust a screen.** `view-dump --page`, the example that used to print it,
+   was deleted with the port host (`web/ui/examples/` is gone), so read the JSON itself:
+   `curl -s '<host>/api/rust-ui/public-page?screen=site-buyers' | python3 -m json.tool | head -40`. Keep the example's
+   lesson: it read the body from **stdin**, so several "hangs" reported against it were a missing pipe, not a hang.
 9. **The browser runs the WASM, not the source.** `cargo check` proves the source compiles and says nothing about what
    the page executes: a fix can be committed, pushed and invisible for days while the browser runs an artifact built
    before it. `pnpm ui:build:release` owns the artifact and the artifact is committed with the slice that changed it —
@@ -99,9 +108,10 @@ The one thing that will eventually have to change outside `web/ui/**` is a serve
 Verify a payload, then the render, then look at the page — in that order, and never claim a page works from a green
 build:
 
-```
+```bash
 curl -s -o /tmp/p.json -w '%{http_code}' '<host>/api/rust-ui/public-page?screen=site-sellers'
-cd rust && cargo run -q -p ui --example view-dump -- site-sellers --page < /tmp/p.json | head -c 400
+python3 -m json.tool < /tmp/p.json | head -40   # the `view-dump` example that used to print this went with the port host
+pnpm debug:portal-nav                           # the headless walk of every registry path
 ```
 
 ## Not done

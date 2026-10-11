@@ -3,14 +3,17 @@
 **Status:** the map. One page. If you need more than this, read the code — the layer docs below point at the exact
 files, and the code is the authority.
 
-Last rewritten 2026-09-28, after the port finished moving the UI to Rust. (The 2026-09-21 version still described a
+Last rewritten 2026-09-28, after the port finished moving the UI to Rust (paths re-swept 2026-10-10, before the
+`rust/` subtree references could mislead a fresh session). (The 2026-09-21 version still described a
 TypeScript/Next.js UI.) The longer narrative is the `ARCH-HANDOFF` story (`docs/agent/ARCH-HANDOFF.md`); the start-here
 map is `docs/agent/ORIENTATION.md`.
 
 ## The rule that explains the whole layout
 
 **CulebraLuxe is one Rust application.** The website and the portal are a Yew/WebAssembly app served by the Rust server;
-the domain, the database access and the HTTP API are Rust crates under `rust/`. There is no TypeScript in the product —
+the domain, the database access and the HTTP API are Rust crates in the three tiers (`web/`, `middle/`, `db/`) with the
+entry points (`cli/`, `forge/`) beside them — one Cargo workspace at the repository root (`rust/` was the old subtree
+and is gone). There is no TypeScript in the product —
 even Google sign-in is Rust. `legacy/` and the bannered files under `scripts/` and `agent-runtime/` are retired
 TypeScript: reference only, never imported, never repaired (`AGENTS.md`, `docs/agent/BROKEN-TS-INVENTORY.md`).
 

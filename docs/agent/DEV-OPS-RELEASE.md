@@ -1,11 +1,12 @@
 # DEV_OPS — the clean production compile, deploy and release set
 
 This is the production path as it exists in the repository, written down so it does not have to be
-rediscovered. Nothing here is new; every command already exists.
+rediscovered. Nothing here is new; every command already exists. (Container paths re-swept 2026-10-10:
+the files live under `devops/` — `deploy/` was the pre-restructure directory and is gone.)
 
 **The shape of it.** Everything is compiled **on this Mac, for free**, inside Docker
-(`deploy/Dockerfile.build`): the Yew UI to WebAssembly, and the server cross-compiled for Vercel's
-x86_64 Linux. Vercel only unpacks the finished files (`deploy/Dockerfile.runtime`), so a deploy costs
+(`devops/Dockerfile.build`): the Yew UI to WebAssembly, and the server cross-compiled for Vercel's
+x86_64 Linux. Vercel only unpacks the finished files (`devops/Dockerfile.runtime`), so a deploy costs
 seconds instead of a paid ~14-minute Vercel compile. That is what "clean" means here — a local,
 reproducible compile of exactly the bits that get uploaded.
 
@@ -24,13 +25,13 @@ Fixed facts, quoted from the scripts (do not retype them elsewhere):
 
 2. **`pnpm build:all`** — `scripts/build-all.sh`. Everything locally: `cargo check --workspace
    --all-targets`, the release server, `cargo test -p db -p web -p forge -p workflow`, then the
-   WASM + Next build. **This is the pre-push verification path, not the deploy path** — the deploy
+   wasm + stylesheet build (`scripts/site-build.sh`). **This is the pre-push verification path, not the deploy path** — the deploy
    does not run it and should not, because the server is built in a Linux container.
 
 3. **`pnpm deploy:prod`** — `scripts/deploy-prod.sh`. **The clean path.** Five steps, each failing
    closed:
    1/5 build the stylesheet (`tailwindcss` over `web/ui/styles/app.css`);
-   2/5 compile locally with `docker build -f deploy/Dockerfile.build`, and refuse to continue unless
+   2/5 compile locally with `docker build -f devops/Dockerfile.build`, and refuse to continue unless
    both `culebraluxe` and `ui_bg.wasm` came out;
    3/5 pack the upload (`Dockerfile.runtime`, the binary and the wasm gzipped -9, `public/`, and
    `middle/model/forms/templates/`);

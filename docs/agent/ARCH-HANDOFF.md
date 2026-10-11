@@ -823,13 +823,14 @@ top-nav item is removed; the public-site Portal link is the far-right final navi
 > (104 scripts, and the 12 that name a file all resolve). The 2026-09-28 numbers below stand as that day's record.
 > So do the dead-command rows that follow, whose failure mode is fixed by construction: a command whose target is
 > gone is now caught by the same check this line reports. The one token in the menu that does not resolve is
-> `start` → `rust/target/release/http` — an unbuilt release artifact, not a missing source file.
+> `start` → `target/release/web` (`package.json`) — an unbuilt release artifact, not a missing source file.
 
 
 
-- **UI.** `web/ui/src/app/registry.rs` has 58 entries: 56 on the `Screen` trait (Marketing became the
-  native Publishing Center on 2026-09-28, and the old global loop was then deleted), 2 external
-  (WhatsApp Activation, `/portal`). `docs/agent/UI-SCREEN-ARCHITECTURE.md` STATUS.
+- **UI.** `web/ui/src/app/registry.rs` has 60 entries (re-counted 2026-10-10): 58 on the `Screen` trait
+  (Marketing became the native Publishing Center on 2026-09-28, and the old global loop was then deleted),
+  2 external (`/portal/admin/whatsapp-coexistence` — WhatsApp Activation — and `/portal`).
+  `docs/agent/UI-SCREEN-ARCHITECTURE.md` STATUS.
 - **TypeScript.** No Next.js application; Google sign-in is Rust. `pnpm broken:ts:sweep`: 251 files
   scanned under `scripts/` + `agent-runtime/`, 187 marked broken on purpose, tree and inventory
   agree. **51 tracked `.ts` files outside `legacy/` carry no banner** (agent-runtime 29, scripts 16,
