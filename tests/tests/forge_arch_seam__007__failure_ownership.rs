@@ -259,8 +259,8 @@ struct Evidence {
 }
 
 impl EvidenceStore for Evidence {
-    fn read(&self, _: &str) -> ForgeGateEvidence {
-        self.current.clone()
+    fn read(&self, _: &str) -> Result<ForgeGateEvidence, String> {
+        Ok(self.current.clone())
     }
     fn merge(&self, _: &str, _: &str, patch: ForgeGateEvidence) -> Result<(), String> {
         self.merged.lock().expect("merged").push(patch);
