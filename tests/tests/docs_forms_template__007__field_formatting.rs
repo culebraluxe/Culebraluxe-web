@@ -28,6 +28,11 @@ fn field(field_type: TemplateFieldType) -> TemplateFieldDefinition {
         // normal field has. This field already existed when the case was authored; the case simply had
         // never been compiled, which is what 2026-10-08 found when these files were first executed.
         fixed: None,
+        // `derived` is the value the workflow works out when the form is saved (a party's signature line, its
+        // description) — the same convention as `fixed` above: not what this case is about, and `false` is the
+        // shape an ordinary field has. Added to the model after this case was written; the case had not been
+        // compiled since, so nothing said so until the suite was run.
+        derived: false,
     }
 }
 
