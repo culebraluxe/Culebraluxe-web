@@ -36,6 +36,7 @@ pub mod integration;
 pub mod job;
 mod job_payload;
 mod learn;
+pub mod runaway;
 pub mod trajectory;
 pub use learn::run_learn_dry_run;
 pub mod maestro;
