@@ -17,6 +17,7 @@ pub mod db_writer;
 pub mod decisions;
 pub mod definition;
 pub mod deploy;
+pub mod diagnostics;
 pub mod dispatch;
 pub mod engine_fault;
 pub mod evidence_gate;
