@@ -259,8 +259,9 @@ impl EvidenceStore for DbReleaseEvidenceStore {
     // failed publish onto a story whose evidence may have been fine — the same fail-open this week removed
     // from settlement, left on the read that settlement depends on.
     fn read(&self, story_id: &str) -> Result<ForgeGateEvidence, String> {
-        crate::engine::db_writer::read_story_evidence(story_id)
-            .map_err(|db_failure| format!("forge release evidence read failed for {story_id}: {db_failure}"))
+        crate::engine::db_writer::read_story_evidence(story_id).map_err(|db_failure| {
+            format!("forge release evidence read failed for {story_id}: {db_failure}")
+        })
     }
 
     fn merge(
