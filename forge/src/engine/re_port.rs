@@ -9,7 +9,8 @@ use crate::engine::re_commands::*;
 use crate::engine::re_facts::{
     contract_workflow_facts, deal_workflow_facts, resolve_legacy_deal_id_for_contract,
 };
-use crate::engine::re_receipt::{claim_receipt, finalize_receipt};
+use crate::engine::re_receipt::{claim_receipt, finalize_receipt, Receipt, ReceiptClaim};
+use crate::engine::receipt::{replay_outcome, CommandReceipt, ReceiptOutcome};
 use crate::engine::vendor_session::with_shared;
 use db::ForgeEngineDao;
 
@@ -24,6 +25,40 @@ impl ReApplicationPort {
 impl Default for ReApplicationPort {
     fn default() -> Self {
         Self
+    }
+}
+
+/// Replay a stored receipt through the ONE parser (`receipt.rs`, which mirrors `db/workflow-command-receipt.ts`).
+///
+/// This used to be a hand-rolled six-arm match with `_ => ApplicationCommandOutcome::Success` at the end, so a
+/// stored `unauthorized` — or an outcome string this build has never heard of, or a corrupt row — replayed as a
+/// successful command and could advance a deal. `replay_outcome` also refuses to call a stored `pending` (the
+/// claim sentinel) a terminal outcome.
+fn replay_stored(command_id: &str, stored: &Receipt) -> ApplicationCommandResult {
+    let decision = replay_outcome(Some(&CommandReceipt {
+        command_id: command_id.to_string(),
+        outcome: ReceiptOutcome::parse(&stored.outcome),
+        aggregate_id: None,
+        message: stored.message.clone(),
+    }));
+    result(
+        command_id,
+        application_outcome(decision.outcome),
+        decision.message.unwrap_or_else(|| "replayed".into()),
+    )
+}
+
+fn application_outcome(outcome: ReceiptOutcome) -> ApplicationCommandOutcome {
+    match outcome {
+        ReceiptOutcome::Success => ApplicationCommandOutcome::Success,
+        ReceiptOutcome::ValidationFailure => ApplicationCommandOutcome::ValidationFailure,
+        ReceiptOutcome::NotFound => ApplicationCommandOutcome::NotFound,
+        ReceiptOutcome::Conflict => ApplicationCommandOutcome::Conflict,
+        ReceiptOutcome::Unauthorized => ApplicationCommandOutcome::Unauthorized,
+        ReceiptOutcome::PreconditionFailure => ApplicationCommandOutcome::PreconditionFailure,
+        // A `pending` row is the claim sentinel, never a terminal engine outcome, and `replay_outcome` has
+        // already turned it into a conflict before it can reach here.
+        ReceiptOutcome::Pending => ApplicationCommandOutcome::Conflict,
     }
 }
 
@@ -143,24 +178,32 @@ impl ReApplicationPort {
                 format!("Unknown command type: {}", req.command_type),
             );
         }
+        // One claim, three answers, and none of them is "run it anyway":
+        //   Final    → replay the decided outcome (normalized through `receipt.rs`, never a `_ => Success`);
+        //   Held     → another owner's LIVE claim: answer "in flight" instead of applying the command twice;
+        //   Acquired → the claim is ours, so the command runs;
+        //   Err      → the claim could not be taken, so idempotency is unknown and the command does NOT run.
+        // `HeldByAnother` used to be folded into `Acquired`'s arm ("both mean run it"), which made this port
+        // concurrent rather than idempotent, and `Err(_) => {}` ran the command after a failed claim.
         match claim_receipt(&req.command_id, None) {
-            Ok(Some(existing)) => {
-                let outcome = match existing.outcome.as_str() {
-                    "success" => ApplicationCommandOutcome::Success,
-                    "conflict" => ApplicationCommandOutcome::Conflict,
-                    "not_found" => ApplicationCommandOutcome::NotFound,
-                    "precondition_failure" => ApplicationCommandOutcome::PreconditionFailure,
-                    "validation_failure" => ApplicationCommandOutcome::ValidationFailure,
-                    _ => ApplicationCommandOutcome::Success,
-                };
+            Ok(ReceiptClaim::Final(existing)) => {
+                return replay_stored(&req.command_id, &existing);
+            }
+            Ok(ReceiptClaim::HeldByAnother) => {
                 return result(
                     &req.command_id,
-                    outcome,
-                    existing.message.unwrap_or_else(|| "replayed".into()),
+                    ApplicationCommandOutcome::Conflict,
+                    "Command is held by another owner; it is not applied twice.",
                 );
             }
-            Ok(None) => {}
-            Err(_) => {}
+            Ok(ReceiptClaim::Acquired) => {}
+            Err(error) => {
+                return result(
+                    &req.command_id,
+                    ApplicationCommandOutcome::Conflict,
+                    format!("Command receipt claim failed, so the command was not run: {error}"),
+                );
+            }
         }
         if req.subject_type.as_deref() == Some("contract")
             && req.command_type == DEAL_SET_STAGE_UNDER_CONTRACT
@@ -291,5 +334,60 @@ impl ApplicationPort for CompositeApplicationPort {
             "deal" | "contract" => self.re.read_facts(subject),
             _ => Value::object(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stored(outcome: &str) -> Receipt {
+        Receipt {
+            outcome: outcome.into(),
+            message: None,
+        }
+    }
+
+    #[test]
+    fn a_decided_success_still_replays_as_success() {
+        assert_eq!(
+            replay_stored("cmd-1", &stored("success")).outcome,
+            ApplicationCommandOutcome::Success
+        );
+    }
+
+    #[test]
+    fn an_unauthorized_receipt_does_not_replay_as_success() {
+        // The hand-rolled match had no `unauthorized` arm, so this replayed as Success and advanced the deal.
+        assert_eq!(
+            replay_stored("cmd-1", &stored("unauthorized")).outcome,
+            ApplicationCommandOutcome::Unauthorized
+        );
+    }
+
+    #[test]
+    fn an_outcome_this_build_does_not_know_is_not_a_success() {
+        assert_eq!(
+            replay_stored("cmd-1", &stored("teleported")).outcome,
+            ApplicationCommandOutcome::Conflict
+        );
+    }
+
+    #[test]
+    fn a_pending_receipt_replays_as_an_in_flight_conflict() {
+        assert_eq!(
+            replay_stored("cmd-1", &stored("pending")).outcome,
+            ApplicationCommandOutcome::Conflict
+        );
+    }
+
+    #[test]
+    fn settlement_required_is_not_a_replayable_engine_outcome() {
+        // A stored `settlement_required` is not one of the receipt's terminal outcomes either: it must not
+        // replay as a success, and it is not silently dropped.
+        assert_eq!(
+            replay_stored("cmd-1", &stored("settlement_required")).outcome,
+            ApplicationCommandOutcome::Conflict
+        );
     }
 }

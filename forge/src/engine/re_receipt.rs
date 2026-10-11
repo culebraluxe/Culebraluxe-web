@@ -8,18 +8,31 @@ pub struct Receipt {
     pub message: Option<String>,
 }
 
-pub fn claim_receipt(command_id: &str, actor: Option<&str>) -> Result<Option<Receipt>, String> {
+/// What taking the claim said, with `Acquired` and `HeldByAnother` kept APART.
+///
+/// They used to be folded into one `None` ("run it"), on the reasoning that the ledger's distinction is not
+/// this caller's. It is this caller's: the `pending` row that makes a claim `HeldByAnother` exists precisely
+/// to stop a second process from applying the same command, so a caller that runs the command in both cases
+/// is not idempotent — it is concurrent. A deal command applied twice is a deal advanced twice.
+pub enum ReceiptClaim {
+    /// The claim is this caller's (fresh, or stale and legitimately re-taken). Run the command.
+    Acquired,
+    /// Another owner holds a live claim. Do not run; the caller answers "in flight".
+    HeldByAnother,
+    /// Already decided. Replay this outcome; do not run the command again.
+    Final(Receipt),
+}
+
+pub fn claim_receipt(command_id: &str, actor: Option<&str>) -> Result<ReceiptClaim, String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
             dao.claim_workflow_receipt(command_id, actor)
                 .await
                 .map(|claim| match claim {
-                    // This caller only replays a decided command: "I own it now" and "another process owns
-                    // it" both mean the same thing here — run it (`WorkflowReceiptClaim` is the ledger's
-                    // distinction, not this one's).
-                    WorkflowReceiptClaim::Acquired | WorkflowReceiptClaim::HeldByAnother => None,
-                    WorkflowReceiptClaim::AlreadyFinal(row) => Some(Receipt {
+                    WorkflowReceiptClaim::Acquired => ReceiptClaim::Acquired,
+                    WorkflowReceiptClaim::HeldByAnother => ReceiptClaim::HeldByAnother,
+                    WorkflowReceiptClaim::AlreadyFinal(row) => ReceiptClaim::Final(Receipt {
                         outcome: row.outcome,
                         message: row.message.filter(|value| !value.is_empty()),
                     }),
