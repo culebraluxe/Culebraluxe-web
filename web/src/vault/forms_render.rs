@@ -230,7 +230,7 @@ mod tests {
     fn the_purchase_and_sale_agreement_renders_every_field_and_every_mark() {
         let library = library();
         // THE HARDEST TEMPLATE: PR-PNS, its fields and five signature groups, each carrying initials.
-        let template = library.version("PR-PNS", 4).expect("PR-PNS v4");
+        let template = library.version("PR-PNS", 5).expect("PR-PNS v5");
         assert!(
             template.fields.len() >= 30,
             "the fixture is the real template, not a smaller stand-in"

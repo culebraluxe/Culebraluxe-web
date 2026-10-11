@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <form
   id="PR-PNS"
-  version="4"
+  version="5"
   title="PURCHASE AND SALE AGREEMENT"
   presentation="agreement"
   documentType="Purchase and Sale Agreement"
@@ -24,6 +24,8 @@
   <field id="buyerBrokerName" label="Buyer's Broker" type="text"/>
   <field id="buyerBrokerEmail" label="Buyer's Broker Email" type="email" required="false"/>
   <field id="sellerBrokerName" label="Seller's Broker" type="text"/>
+  <field id="sellerBrokerEmail" label="Seller's Broker Email" type="email" required="false"/>
+  <field id="lisaRepresents" label="Lisa Penfield represents" type="select" required="true" options="Seller, Buyer"/>
 
   <field id="property" label="Property" type="text" required="true" source="deal.property.label"/>
   <field id="municipality" label="Municipality" type="text"/>
@@ -461,7 +463,7 @@
     <signature-group role="SELLER" label="Seller" field="sellerName" email="sellerEmail" initials="true"/>
     <signature-group role="SELLER_SPOUSE" label="Seller's Spouse" field="spouseName" email="spouseEmail" initials="true"/>
     <signature-group role="BUYER_BROKER" label="Buyer's Broker" field="buyerBrokerName" email="buyerBrokerEmail" initials="true"/>
-    <signature-group role="SELLER_BROKER" label="Seller's Broker" field="sellerBrokerName" initials="true"/>
+    <signature-group role="SELLER_BROKER" label="Seller's Broker" field="sellerBrokerName" email="sellerBrokerEmail" initials="true"/>
   </signatures>
 
 </form>

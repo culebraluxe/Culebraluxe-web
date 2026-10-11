@@ -55,6 +55,33 @@ pub fn policy_for_template(template_id: &str) -> Option<BrokerSignaturePolicy> {
     }
 }
 
+/// The policy for THIS form. A purchase and sale can have Lisa on either side: she originates the contract for the seller
+/// (the default), or represents the buyer, and then the seller's broker is the other party who signs. The side is the
+/// form's own `lisaRepresents` answer. Every other template has one fixed answer.
+pub fn policy_for_form(
+    template_id: &str,
+    values: &BTreeMap<String, String>,
+) -> Option<BrokerSignaturePolicy> {
+    if template_id == "PR-PNS" {
+        let side = values
+            .get("lisaRepresents")
+            .map(|value| value.trim())
+            .unwrap_or_default();
+        return Some(if side == "Buyer" {
+            BrokerSignaturePolicy {
+                role: "BUYER_BROKER",
+                signer_field: "buyerBrokerName",
+            }
+        } else {
+            BrokerSignaturePolicy {
+                role: "SELLER_BROKER",
+                signer_field: "sellerBrokerName",
+            }
+        });
+    }
+    policy_for_template(template_id)
+}
+
 /// The templates that must resolve an execution slot before issuance: the slot is what the external envelope fills.
 pub fn requires_execution_slot(template_id: &str) -> bool {
     matches!(template_id, "PR-PNS" | "LISTING-01")
@@ -235,5 +262,34 @@ mod tests {
         assert_eq!(slot.name, DEFAULT_BROKER_SIGNER_NAME);
         assert!(slot.required);
         assert_eq!(slot.order, 3);
+    }
+}
+
+#[cfg(test)]
+mod lisa_side_tests {
+    use super::*;
+
+    #[test]
+    fn lisa_is_the_seller_side_unless_the_form_says_she_represents_the_buyer() {
+        let mut values = BTreeMap::new();
+        values.insert("lisaRepresents".to_string(), "Seller".to_string());
+        let seller = policy_for_form("PR-PNS", &values).unwrap();
+        assert_eq!(
+            (seller.role, seller.signer_field),
+            ("SELLER_BROKER", "sellerBrokerName")
+        );
+
+        values.insert("lisaRepresents".to_string(), "Buyer".to_string());
+        let buyer = policy_for_form("PR-PNS", &values).unwrap();
+        assert_eq!(
+            (buyer.role, buyer.signer_field),
+            ("BUYER_BROKER", "buyerBrokerName")
+        );
+
+        // Every other template keeps its one answer.
+        assert_eq!(
+            policy_for_form("OFFER-01", &BTreeMap::new()),
+            policy_for_template("OFFER-01")
+        );
     }
 }
