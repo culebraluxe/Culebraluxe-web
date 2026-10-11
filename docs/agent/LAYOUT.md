@@ -12,7 +12,7 @@ Written 2026-10-01, when the tree moved out of `~/Documents`. This is the machin
 │   ├── lane-forge-observations/ git worktree, branch lane/forge-observations
 │   ├── lane-claude/         git worktree,    branch lane/claude
 │   ├── lane-deep/           git worktree,    branch lane/deep
-│   ├── lane-fledge/         git worktree,    branch lane/fledge
+│   ├── lane-step5/          git worktree,    branch lane/step5
 │   ├── lane-gpt/            git worktree,    branch lane/gpt
 │   ├── lane-grok/           git worktree,    branch lane/grok
 │   ├── lane-muse/           git worktree,    branch lane/muse
@@ -63,7 +63,7 @@ re-founding it in place is `git worktree move` plus `git branch -m`.
 | `lane-muse-2` | Muse — second seat | a second session of `lane-muse`'s model, run beside it (Captain, 2026-10-04) |
 | `lane-nemotron-2` | Nemotron 3 Ultra — second seat | a second session of `lane-nemotron`'s model, run beside it (Captain, 2026-10-04) |
 | `lane-nemotron-lightning` | Nemotron 3.5 Lightning — a seat beside `lane-lightning` | a session on the Lightning model, created through `pnpm lane:new` (Captain, 2026-10-05) |
-| `lane-fledge` | Fledge | the model's seat, created through `pnpm lane:new` on the Captain's call (2026-10-05); rank not yet recorded |
+| `lane-step5` | Step 5 Preview | the model's seat (renamed from `lane-fledge` on 2026-10-10), created through `pnpm lane:new` on the Captain's call (2026-10-05); rank not yet recorded |
 | `lane-forge-observations` | Codex | temporary isolated lane for the five verified Forge repairs (2026-10-10) |
 
 The six model lanes were created 2026-10-03 as **light lanes** (see "A lane is 84 MB" below): checkout plus env links,
@@ -72,7 +72,7 @@ because the snapshot job walks `git worktree list` rather than a list of names. 
 recipe on 2026-10-04 through `pnpm lane:new` — 85 MB each by `du -sh`, no `node_modules`, upstream unset — so the snapshot
 job covers them from their first minute too. `lane-nemotron-lightning` followed that recipe again on 2026-10-05 — 86 MB by
 `du -sh`, 0 dirty files, no `node_modules`, no target of its own, upstream unset — so the snapshot job covers it from its
-first minute as well. `lane-fledge` followed that recipe on 2026-10-05 — 87 MB by `du -sh`, 0 dirty files, no
+first minute as well. `lane-step5` (then `lane-fledge`) followed that recipe on 2026-10-05 — 87 MB by `du -sh`, 0 dirty files, no
 `node_modules`, no target of its own, upstream unset — so the snapshot job covers it from its first minute too. The same day,
 `lane-ling` and `lane-longcat` — the two of the three names the Captain asked for that already existed — were rebased from
 `08717aea` onto `07d7f482`, closing a 103-commit gap without a merge.
