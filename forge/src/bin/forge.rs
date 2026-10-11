@@ -170,6 +170,23 @@ fn main() {
     // The engine's own database budgets, and the rule behind them: `forge::engine::db_budget`. Both binaries that
     // talk to the control plane install these, because the process that was dying was the worker.
     let budget = forge::engine::db_budget::install_engine_db_budget();
+    // `forge profile-compare [limit]`: print what the recorded turns say each harness profile costs per ACCEPTED
+    // candidate, read from the run trajectory the engine writes (293). Read-only and environment-declared, because it
+    // reports measurement rather than announcing a verdict; the limit keeps the read bounded (default 2000 turns).
+    if args.get(1).map(|s| s.as_str()) == Some("profile-compare") {
+        let limit = args
+            .get(2)
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(2000);
+        match forge::engine::profile_report::run(limit) {
+            Ok(report) => println!("{report}"),
+            Err(error) => {
+                eprintln!("forge profile-compare: {error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     // `forge harness-info`: print the resolved vendor identity and exit — the proof line for the A/B/C
     // acceptance criteria without parsing a turn log.
     if args.get(1).map(|s| s.as_str()) == Some("harness-info") {

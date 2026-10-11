@@ -28,7 +28,7 @@ pub(super) fn assembly(model: &Vm<'_>, tech: &PortalTechPage, on_msg: &Callback<
             { kpis(tech) }
             { command_notice(model) }
             { sorter(model, tech, on_msg) }
-            { engine_line(tech) }
+            { engine_line(tech, on_msg) }
             { flight_strip(model, tech, on_msg) }
             { workbench(model, tech, on_msg) }
         </div>
