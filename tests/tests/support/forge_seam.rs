@@ -221,6 +221,7 @@ impl RoleHarness for SeamHarness {
         };
 
         Ok(HarnessOutput {
+            trajectory: None,
             raw,
             candidate_sha,
             assay_commands,

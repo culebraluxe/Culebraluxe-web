@@ -124,7 +124,7 @@ pub use forge_engine::{
     DispatchReconcile, EnsureDispatch, ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao,
     ForgeEvidencePatch, ForgeHoldRow, ForgeReleaseOperationReceipt, ModelAttemptBudget,
     ModelAttemptReservation, ModelGenerationBudget, ModelGenerationReservation, NewToolArtifact,
-    ProcessDefinitionRow, SettlementResult, StoryPacketRow, ToolArtifactRow,
+    ProcessDefinitionRow, RunTrajectoryCounts, SettlementResult, StoryPacketRow, ToolArtifactRow,
     UnfinishedForgeCompletion, WorkflowCommandReceiptRow, WorkflowReceiptClaim,
 };
 pub use forge_read::{

@@ -24,6 +24,8 @@ pub struct HarnessOutput {
     pub execution_base: Option<String>,
     /// What this turn spent, as the harness's own session store reports it. `None` is unmeasured, never zero.
     pub usage: Option<HarnessUsage>,
+    /// What the turn DID, as observable tool calls summarized (trajectory telemetry). `None` when the harness did not measure it.
+    pub trajectory: Option<crate::engine::trajectory::TrajectoryMetrics>,
 }
 
 /// The model's measured spend is independent of whether the turn produced a usable answer.
@@ -31,6 +33,7 @@ pub struct HarnessOutput {
 pub struct HarnessTurnReport {
     pub outcome: Result<HarnessOutput>,
     pub measured_usage: Option<HarnessUsage>,
+    pub trajectory: Option<crate::engine::trajectory::TrajectoryMetrics>,
 }
 
 /// Git facts consumed by Smith's candidate-acceptance rule. The QA service does not call this probe or check
@@ -75,6 +78,7 @@ pub trait RoleHarness: Send + Sync {
         let outcome = self.run_role(node_id, task, self_heal);
         let measured_usage = outcome.as_ref().ok().and_then(|out| out.usage.clone());
         HarnessTurnReport {
+            trajectory: outcome.as_ref().ok().and_then(|out| out.trajectory.clone()),
             outcome,
             measured_usage,
         }
@@ -101,6 +105,7 @@ pub trait RoleHarness: Send + Sync {
         let outcome = self.run_role_scoped(execution_id, node_id, task, self_heal);
         let measured_usage = outcome.as_ref().ok().and_then(|out| out.usage.clone());
         HarnessTurnReport {
+            trajectory: outcome.as_ref().ok().and_then(|out| out.trajectory.clone()),
             outcome,
             measured_usage,
         }
@@ -469,6 +474,7 @@ mod tests {
         ) -> Result<HarnessOutput> {
             self.turns.fetch_add(1, Ordering::SeqCst);
             Ok(HarnessOutput {
+                trajectory: None,
                 raw: format!("{node_id} answered\n"),
                 candidate_sha: None,
                 assay_commands: vec![],

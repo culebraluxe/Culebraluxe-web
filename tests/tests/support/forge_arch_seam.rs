@@ -268,6 +268,7 @@ impl RoleHarness for ScriptedHarness {
     ) -> WfResult<HarnessOutput> {
         self.trace.push(format!("harness.turn {node_id}"));
         Ok(HarnessOutput {
+            trajectory: None,
             raw: self.raw.clone(),
             candidate_sha: self.candidate_sha.clone(),
             assay_commands: vec![],

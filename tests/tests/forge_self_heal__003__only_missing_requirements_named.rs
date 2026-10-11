@@ -39,6 +39,7 @@ impl RoleHarness for OnlyMissingHarness {
             .unwrap()
             .push(self_heal.map(str::to_string));
         Ok(HarnessOutput {
+            trajectory: None,
             raw: "still thinking, nothing delivered".into(),
             candidate_sha: None,
             assay_commands: vec![],

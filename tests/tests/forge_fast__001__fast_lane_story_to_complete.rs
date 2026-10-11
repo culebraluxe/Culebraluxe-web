@@ -61,6 +61,7 @@ impl RoleHarness for FastHarness {
             other => panic!("the FAST lane must not reach {other}"),
         };
         Ok(HarnessOutput {
+            trajectory: None,
             raw: raw.into(),
             candidate_sha: candidate,
             assay_commands: assay,

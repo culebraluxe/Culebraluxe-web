@@ -819,6 +819,7 @@ mod tests {
         ) -> Result<HarnessOutput> {
             self.turns.fetch_add(1, Ordering::SeqCst);
             Ok(HarnessOutput {
+                trajectory: None,
                 raw: format!("{node_id} described its own work\n"),
                 candidate_sha: None,
                 assay_commands: self.commands.clone(),

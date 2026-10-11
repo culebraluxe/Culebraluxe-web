@@ -680,6 +680,7 @@ impl runner::RoleHarness for ScriptedHarness {
         _d: Option<&str>,
     ) -> workflow::Result<runner::HarnessOutput> {
         Ok(runner::HarnessOutput {
+            trajectory: None,
             raw: self.raw.clone(),
             candidate_sha: self.sha.clone(),
             assay_commands: self.commands.clone(),

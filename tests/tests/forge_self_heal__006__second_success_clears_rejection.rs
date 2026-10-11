@@ -51,6 +51,7 @@ impl RoleHarness for ThenDeliversHarness {
             .push(self_heal.map(str::to_string));
         let raw = if call == 0 { INCOMPLETE } else { COMPLETE };
         Ok(HarnessOutput {
+            trajectory: None,
             raw: raw.into(),
             candidate_sha: None,
             assay_commands: vec![],

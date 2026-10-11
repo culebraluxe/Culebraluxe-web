@@ -252,6 +252,7 @@ pub fn run_forge_role_turn(
                 .run_role_report(node_id, task, self_heal.as_deref()),
         };
         let usage = report.measured_usage;
+        let trajectory = report.trajectory;
         let mut out = match report.outcome {
             Ok(out) => out,
             Err(error) => {
@@ -269,6 +270,7 @@ pub fn run_forge_role_turn(
                     &task.story_id,
                     permit.as_ref(),
                     usage.as_ref(),
+                    trajectory.as_ref(),
                 );
                 let detail = match settlement {
                     Ok(()) => detail,
@@ -298,6 +300,7 @@ pub fn run_forge_role_turn(
             &task.story_id,
             permit.as_ref(),
             usage.as_ref(),
+            trajectory.as_ref(),
         ) {
             let detail = format!("model usage settlement failed after candidate capture: {error}");
             let _ = finish_model_attempt(ctx, permit.as_ref(), "uncertain", Some(&detail));
@@ -362,6 +365,7 @@ pub fn run_forge_role_turn(
     }
     let out_raw = last_raw;
     let out = HarnessOutput {
+        trajectory: None,
         raw: out_raw.clone(),
         candidate_sha: last_out_sha,
         assay_commands: last_assay,
@@ -525,6 +529,7 @@ fn record_turn_usage(
     story_id: &str,
     permit: Option<&crate::engine::turn_budget::ModelAttemptPermit>,
     usage: Option<&HarnessUsage>,
+    trajectory: Option<&crate::engine::trajectory::TrajectoryMetrics>,
 ) -> Result<()> {
     if let Some(usage) = usage {
         eprintln!(
@@ -540,6 +545,22 @@ fn record_turn_usage(
             "spend story={story_id} node={node_id} run={} usage=unknown",
             ctx.story_run_id.unwrap_or("(none)")
         );
+    }
+    // What the turn did, recorded against its run under the profile its node runs. Measurement only.
+    if let (Some(writer), Some(run_id), Some(trajectory)) =
+        (ctx.writer, ctx.story_run_id, trajectory)
+    {
+        writer
+            .record_run_trajectory(
+                run_id,
+                crate::engine::trajectory::profile_id_for_node(node_id),
+                trajectory,
+            )
+            .map_err(|error| {
+                WorkflowError::generic(format!(
+                    "record_run_trajectory({story_id}, {run_id}): {error}"
+                ))
+            })?;
     }
     if let (Some(writer), Some(run_id)) = (ctx.writer, ctx.story_run_id) {
         if let (Some(control), Some(permit)) = (ctx.model_attempt_control, permit) {
@@ -668,6 +689,7 @@ mod tests {
         ) -> Result<HarnessOutput> {
             self.turns.fetch_add(1, Ordering::SeqCst);
             Ok(HarnessOutput {
+                trajectory: None,
                 raw: self.raw.clone(),
                 candidate_sha: self.candidate_sha.clone(),
                 assay_commands: vec![],
@@ -970,6 +992,7 @@ mod tests {
             _: Option<&str>,
         ) -> Result<HarnessOutput> {
             Ok(HarnessOutput {
+                trajectory: None,
                 raw: "added the candidate\n".into(),
                 candidate_sha: Some("a".repeat(40)),
                 assay_commands: vec![],
@@ -1061,6 +1084,7 @@ mod tests {
             self_heal: Option<&str>,
         ) -> crate::engine::runner::HarnessTurnReport {
             crate::engine::runner::HarnessTurnReport {
+                trajectory: None,
                 outcome: self.run_role(node_id, task, self_heal),
                 measured_usage: self.usage.clone(),
             }

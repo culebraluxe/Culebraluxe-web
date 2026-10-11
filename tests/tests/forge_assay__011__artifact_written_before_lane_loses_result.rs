@@ -88,6 +88,7 @@ fn smith_task() -> ActiveForgeRoleTask {
 
 fn delivered_outcome() -> HarnessOutput {
     HarnessOutput {
+        trajectory: None,
         raw: "smith answered".into(),
         candidate_sha: Some(CANDIDATE.into()),
         assay_commands: vec![],

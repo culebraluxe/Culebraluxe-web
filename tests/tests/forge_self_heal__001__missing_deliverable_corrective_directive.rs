@@ -63,6 +63,7 @@ impl RoleHarness for DirectiveRecordingHarness {
             .unwrap()
             .push(self_heal.map(str::to_string));
         Ok(HarnessOutput {
+            trajectory: None,
             raw: self.reply.clone(),
             candidate_sha: None,
             assay_commands: vec![],

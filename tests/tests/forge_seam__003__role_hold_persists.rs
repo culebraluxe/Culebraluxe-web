@@ -26,6 +26,7 @@ impl RoleHarness for HoldHarness {
         _self_heal: Option<&str>,
     ) -> WorkflowResult<HarnessOutput> {
         Ok(HarnessOutput {
+            trajectory: None,
             raw: "Lead cannot safely choose an execution shape yet.\n".into(),
             candidate_sha: None,
             assay_commands: vec![],

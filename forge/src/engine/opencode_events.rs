@@ -58,6 +58,9 @@ pub(crate) struct OpenCodeTurnEvents {
     pub(crate) error: Option<String>,
     /// Every parsed event, kept for diagnostics and tests. Not a source of `assistant_text`.
     pub(crate) events: Vec<Value>,
+    /// Every tool call the turn made, in the order the vendor reported it. Trajectory telemetry summarizes this; it
+    /// drives no behavior.
+    pub(crate) tool_calls: Vec<crate::engine::trajectory::ToolCall>,
 }
 
 /// Parse the NDJSON stream `--format json` produced.
@@ -158,6 +161,19 @@ fn fold_event(turn: &mut OpenCodeTurnEvents, event: Value) {
                     totals.tokens_output += output.unwrap_or(0);
                     totals.cost_usd += cost.unwrap_or(0.0);
                 }
+            }
+        }
+        Some("tool_use") => {
+            let tool = event
+                .get("part")
+                .and_then(|part| part.get("tool"))
+                .and_then(Value::as_str);
+            let at_ms = event.get("timestamp").and_then(Value::as_i64);
+            if let (Some(tool), Some(at_ms)) = (tool, at_ms) {
+                turn.tool_calls.push(crate::engine::trajectory::ToolCall {
+                    at_ms,
+                    tool: tool.to_string(),
+                });
             }
         }
         Some("error") => {
@@ -397,5 +413,44 @@ mod tests {
             r#"{"type":"text","part":{"sessionID":"ses_only_in_part","type":"text","text":"x"}}"#;
         let turn = parse_run_events(stream).expect("parses");
         assert_eq!(turn.session_id.as_deref(), Some("ses_only_in_part"));
+    }
+}
+
+#[cfg(test)]
+mod trajectory_capture_tests {
+    use super::*;
+
+    #[test]
+    fn every_tool_call_is_kept_in_the_order_the_vendor_reported_it() {
+        let stream = concat!(
+            r#"{"type":"tool_use","timestamp":100,"sessionID":"ses_t","part":{"type":"tool","tool":"read","state":{"status":"completed"}}}"#,
+            "\n",
+            r#"{"type":"tool_use","timestamp":200,"sessionID":"ses_t","part":{"type":"tool","tool":"apply_patch","state":{"status":"completed"}}}"#,
+            "\n",
+            r#"{"type":"tool_use","timestamp":300,"sessionID":"ses_t","part":{"type":"tool","tool":"shell","state":{"status":"completed"}}}"#,
+            "\n",
+        );
+        let turn = parse_run_events(stream).expect("the stream parses");
+        let tools: Vec<(i64, &str)> = turn
+            .tool_calls
+            .iter()
+            .map(|call| (call.at_ms, call.tool.as_str()))
+            .collect();
+        assert_eq!(
+            tools,
+            vec![(100, "read"), (200, "apply_patch"), (300, "shell")]
+        );
+    }
+
+    #[test]
+    fn a_tool_event_without_a_name_or_a_time_is_not_invented_into_a_call() {
+        let stream = concat!(
+            r#"{"type":"tool_use","timestamp":100,"part":{"type":"tool"}}"#,
+            "\n",
+            r#"{"type":"tool_use","part":{"type":"tool","tool":"shell"}}"#,
+            "\n",
+        );
+        let turn = parse_run_events(stream).expect("the stream parses");
+        assert!(turn.tool_calls.is_empty());
     }
 }

@@ -142,6 +142,34 @@ impl ForgeStateWriter for DbForgeStateWriter {
         })
     }
 
+    fn record_run_trajectory(
+        &self,
+        run_id: &str,
+        profile_id: &str,
+        trajectory: &crate::engine::trajectory::TrajectoryMetrics,
+    ) -> Result<(), String> {
+        self.run(|dao, rt| {
+            rt.block_on(async {
+                dao.upsert_run_trajectory(
+                    run_id,
+                    profile_id,
+                    &db::RunTrajectoryCounts {
+                        tool_call_count: trajectory.tool_call_count,
+                        edit_call_count: trajectory.edit_call_count,
+                        shell_call_count: trajectory.shell_call_count,
+                        structured_call_count: trajectory.structured_call_count,
+                        first_edit_at_ms: trajectory.first_edit_at_ms,
+                        last_edit_at_ms: trajectory.last_edit_at_ms,
+                        verification_calls_after_last_edit: trajectory
+                            .verification_calls_after_last_edit,
+                    },
+                )
+                .await
+                .map_err(|e| e.to_string())
+            })
+        })
+    }
+
     fn record_run_usage(
         &self,
         run_id: &str,
