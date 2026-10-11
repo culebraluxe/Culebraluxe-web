@@ -6,7 +6,7 @@ This is the **boot sheet for a fresh engineering session**. It is not a handoff 
 - **`SOP1` in Neon** (title "SOP1 — Pippin Forge Watch SOP") = operating authority / how the system is run.
 - **`DEEP1` in Neon** (title "DEEP1 — Data Pipeline Doctrine … READ SECOND") = data-pipeline authority / how data travels from intake to screen. Read it second, after ARCH-HANDOFF.
 - **This file** = what is on the bench, who may touch it, and how to choose a mode.
-- **Git + Neon live state** = what is actually true right now.
+- **Authorized live sources** = what is actually true right now; each role uses only the sources its authority permits.
 - **Tool authority** = `legacy/workflow_app/forge/forge-tool-catalog.ts` (`resolveForgeToolPermissions`). Recomputed every lane transition. A session cannot keep a stale grant.
 
 > **Story ids, so nobody hunts again:** the board ids are `ARCH-HANDOFF`, `SOP1` and `DEEP1`.
@@ -14,9 +14,9 @@ This is the **boot sheet for a fresh engineering session**. It is not a handoff 
 > no row — searching for them returns nothing. All three are reference stories:
 > `workstream = ARCH`, `rollup = false`, so they never create an agent work item.
 > ARCH-HANDOFF and SOP1 were last written before a lot changed; treat their content as
-> authoritative only where it does not contradict Git + live Neon state.
+> authoritative only where it does not contradict authorized live state. QA must not consult Git.
 
-Before substantial work, inspect current Git and relevant Neon Story / Story Run / Forge evidence. Do not assume any snapshot in this file is newer than the repository or database.
+Before substantial work, inspect current Git and relevant Neon Story / Story Run / Forge evidence. **This general instruction does not apply to QA:** QA must not inspect, query, or communicate with Git under [`FORGE-QA-BOUNDARY.md`](FORGE-QA-BOUNDARY.md). Do not assume any snapshot in this file is newer than the repository or database.
 
 ---
 
@@ -32,7 +32,7 @@ The desk must be the right shade of messy:
 
 - Too clean → the model rediscovers the repo for 13 minutes and invents seams.
 - Too dirty → 20-hour transcript, RTK exhaust, failed JSON; 2+2 breaks.
-- Right mess → baseRef, declared surfaces, frozen proofs, last accepted handoff **row**, candidate SHA if any, last good machine line. Not the novel.
+- Right mess → baseRef, declared surfaces, frozen proofs, last accepted handoff **row**, candidate SHA if needed by an authorized non-QA role, last good machine line. Never pass Git identity to QA. Not the novel.
 
 **Cabinet (Neon rows) survives the chair. The chair does not survive a dirty window.**
 
@@ -156,14 +156,16 @@ Rehab: one pass, feed the tail of the last reply, name the miss. Second identica
 
 ### QA / Inspector
 
-- fresh context after candidate freeze;
-- independent semantic review of the exact candidate;
+- fresh context for an independent review of the supplied source;
+- no Git access or Git-derived identity: QA does not inspect `HEAD`, commits, branches, diffs, status, lineage, or worktrees;
+- no code edits, Git operations, publication, promotion, deployment, migration, or release authority;
 - worker self-report is not proof.
 
 ### Assay
 
 - deterministic / model-free verification;
-- runs the frozen command plan against the exact candidate;
+- runs only the approved command plan against the supplied source/test surface; it does not establish Git identity;
+- may record QA measurement evidence and verdict through its designated evidence mechanism, but may not edit code or perform Git/release operations;
 - PASS / FAIL / INCOMPLETE — an empty plan is a gap, never a pass;
 - failure is evidence, not permission to silently declare success.
 
@@ -171,6 +173,8 @@ Rehab: one pass, feed the tail of the last reply, name the miss. Second identica
 
 - promotion, migrations, deploy and smoke;
 - production actions remain separately governed.
+
+QA's binding authority boundary, including the no-Git rule and change-review rule, is [`FORGE-QA-BOUNDARY.md`](FORGE-QA-BOUNDARY.md). It applies to all lanes and chains.
 
 ---
 
@@ -230,7 +234,7 @@ Transparent compaction of noisy command output (`git` / `ls` / `tree` / `gh` shi
 
 ### Cruiser (dependency-cruiser)
 
-Architecture boundaries and cycles. **Hard gate** on the exact candidate.
+Architecture boundaries and cycles. **Hard gate** on the source supplied for QA; the QA role does not establish Git identity.
 
 - Class: deterministic
 - Positions: Assay · Inspector
@@ -240,7 +244,7 @@ Architecture boundaries and cycles. **Hard gate** on the exact candidate.
 
 ### Semgrep
 
-Static and dataflow checks on the exact candidate. Informational. Must never recall Smith.
+Static and dataflow checks on the source supplied for QA. Informational. Must never recall Smith. The QA role does not establish Git identity.
 
 - Class: deterministic
 - Positions: Assay · Inspector
@@ -401,7 +405,7 @@ Stop or HOLD rather than silently expanding when any of these occurs:
 
 ## What is live vs what you must re-verify
 
-This section is **orientation, not authority**. Git HEAD + Neon win.
+This section is **orientation, not authority**. Live system state wins where each role is authorized to inspect it. QA must not inspect Git; see [`FORGE-QA-BOUNDARY.md`](FORGE-QA-BOUNDARY.md).
 
 Landed and should be treated as the intended machine:
 
@@ -427,7 +431,7 @@ When handed a pile of work with the HELM:
 
 1. Read this file.
 2. Retrieve the reference stories from Neon when relevant: `ARCH-HANDOFF` (architecture), `SOP1` (operations), `DEEP1` (data pipeline: ODS -> warehouse -> screen, and the traps in it).
-3. Inspect current Git HEAD/status/recent commits and the relevant source surfaces.
+3. Inspect current Git HEAD/status/recent commits and the relevant source surfaces when acting in an authorized non-QA role. QA must not inspect Git and follows [`FORGE-QA-BOUNDARY.md`](FORGE-QA-BOUNDARY.md).
 4. Inspect relevant Neon Story, Story Run, Forge task/evidence/artifact state when the work touches Forge or active workflows.
 5. `pnpm forge:tools` if the work will touch analyzer tools — believe the live grant, not memory.
 6. Decide DIRECT/SOLO vs FORGE vs HOLD before spending heavily.

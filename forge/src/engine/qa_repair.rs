@@ -99,7 +99,7 @@ pub fn route_qa_result(
     }
     if no_progress {
         return RepairRouting::Hold {
-            reason: "NO_PROGRESS: the same candidate SHA re-failed the same machine classification with no new candidate in between — do not auto-launch another repair cycle.".into(),
+            reason: "NO_PROGRESS: the same machine classification failed again without a new implementation attempt — do not auto-launch another repair cycle.".into(),
         };
     }
     match disposition {

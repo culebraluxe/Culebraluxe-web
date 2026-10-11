@@ -604,13 +604,21 @@ impl RoleHarness for MaestroHarness {
 
     fn run_command(&self, command: &str) -> CommandResult {
         use crate::engine::assay::{
-            assay_timeout, cancellation_signal, spawn_scoped_shell, CeilingOutcome,
+            assay_timeout, cancellation_signal, spawn_scoped_shell_with_env, CeilingOutcome,
             CMD_CANCELLED_EXIT, CMD_TIMEOUT_CODE, CMD_TIMEOUT_EXIT,
         };
         let cwd = self.assay_cwd();
+        let mut assay_env =
+            crate::engine::opencode::sanitize_assay_env(std::env::vars().collect());
+        assay_env.insert(
+            "CARGO_TARGET_DIR".into(),
+            crate::engine::opencode::derive_cargo_target_dir(cwd)
+                .to_string_lossy()
+                .to_string(),
+        );
         // FIX-005: bounded, same contract as the OpenCode harness — a hung assay must kill its tree
         // at the ceiling and return `CMD_TIMEOUT` so the claim is released and the story requeues.
-        let child = match spawn_scoped_shell(command, cwd) {
+        let child = match spawn_scoped_shell_with_env(command, cwd, &assay_env) {
             Ok(child) => child,
             Err(e) => {
                 return CommandResult {

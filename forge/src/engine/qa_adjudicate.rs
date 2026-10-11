@@ -782,7 +782,7 @@ mod tests {
                 runner: AssayRunner::RustLibtest,
                 parser: AssayParser::RustLibtest,
                 working_directory: "lane_root".into(),
-                environment_identity: "forge-inherited-shell-v1".into(),
+                environment_identity: "forge-sanitized-assay-v2".into(),
             }],
             checks: vec![
                 ApprovedAssertionCheck {
@@ -844,7 +844,7 @@ mod tests {
             runner: AssayRunner::RustLibtest,
             parser: AssayParser::RustLibtest,
             working_directory: "lane_root".into(),
-            environment_identity: "forge-inherited-shell-v1".into(),
+            environment_identity: "forge-sanitized-assay-v2".into(),
         });
         plan.negative_control = Some(crate::engine::qa_plan::ApprovedNegativeControl {
             command_id: "control-command".into(),
@@ -952,7 +952,7 @@ mod tests {
                     runner: AssayRunner::CommandExit,
                     parser: AssayParser::CommandExit,
                     working_directory: "lane_root".into(),
-                    environment_identity: "forge-inherited-shell-v1".into(),
+                    environment_identity: "forge-sanitized-assay-v2".into(),
                 },
                 ApprovedAssayCommand {
                     id: "runtime".into(),
@@ -960,7 +960,7 @@ mod tests {
                     runner: AssayRunner::RustLibtest,
                     parser: AssayParser::RustLibtest,
                     working_directory: "lane_root".into(),
-                    environment_identity: "forge-inherited-shell-v1".into(),
+                    environment_identity: "forge-sanitized-assay-v2".into(),
                 },
             ],
             checks: vec![

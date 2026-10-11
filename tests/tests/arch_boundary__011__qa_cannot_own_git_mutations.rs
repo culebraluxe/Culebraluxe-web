@@ -105,7 +105,7 @@ const QA_SURFACE: [&str; 8] = [
 /// lineage subcommands (a QA lane that resolves ancestry is the guard `ENG-FORGE-QA-NO-GIT-GUARD-01` deleted),
 /// a process spawn of its own, and the release surface — the handle type, its ops, its preview, its SQL
 /// sibling, and the switch that permits a publish.
-const QA_GIT_TOKENS: [&str; 21] = [
+const QA_GIT_TOKENS: [&str; 25] = [
     "\"git\"",
     "\"push\"",
     "\"merge\"",
@@ -127,13 +127,17 @@ const QA_GIT_TOKENS: [&str; 21] = [
     "DbForgeReleaseExecutor",
     "ForgeReleaseOperations",
     "FORGE_ALLOW_PUBLISH",
+    "CandidateProbe",
+    "candidate_probe",
+    "workspace_head",
+    "execution_base_commit",
 ];
 
 /// Two QA files that must still say the thing they are for. Without these the scan could pass by reading the
 /// wrong file, or an empty one — the failure mode `source.rs` warns about.
 const QA_READ_PROOF: [(&str, &str); 2] = [
     ("forge/src/engine/qa_repair.rs", "route_qa_result"),
-    ("forge/src/engine/qa_classify.rs", "evaluated_sha"),
+    ("forge/src/engine/qa_classify.rs", "blockers.join"),
 ];
 /// The three mutation verbs the handbook refuses from a worker, as an author writes them in code.
 const MUTATION_VERBS: [&str; 3] = ["\"push\"", "\"merge\"", "\"rebase\""];

@@ -78,10 +78,9 @@ fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
 /// The QA/Assay release path answers only "did the tests pass"; it has no relationship to git. This fails
 /// if any QA-named engine module runs a git command or checks lineage.
 ///
-/// The blind spot, named: it does not fail on a sha-shaped identifier. `qa_classify.rs` carries
-/// `evaluatedSha` into the failure-classifier directive, which is naming the candidate, not gating on it;
-/// a name scan would be red before it guarded anything. The decidable defect is the git CALL. Reach: the
-/// scan is by module NAME (`qa_*.rs` plus `assay.rs`), so a new QA module is covered the day it exists.
+/// QA may not inspect Git or attach findings to a candidate SHA. The scan covers both Git operations and
+/// Git-derived lineage fields. Reach: it is by module NAME (`qa_*.rs` plus `assay.rs`), so a new QA module is
+/// covered the day it exists.
 #[test]
 fn the_qa_release_path_runs_no_git_command_and_checks_no_lineage() {
     let dir = repo_root().join("forge/src/engine");
@@ -107,6 +106,10 @@ fn the_qa_release_path_runs_no_git_command_and_checks_no_lineage() {
         "merge-base",
         "is-ancestor",
         "descendant",
+        "candidate_sha",
+        "evaluated_sha",
+        "evaluatedSha",
+        "verified_sha",
     ];
     let mut findings: Vec<String> = Vec::new();
     for file in &files {

@@ -234,6 +234,22 @@ fn v2_read_only_roles_cannot_write_the_workspace() {
     ] {
         assert_eq!(rule_str(&config, read_only, "edit", "*"), "deny");
         assert_eq!(rule_str(&config, read_only, "bash", "*"), "deny");
+        if matches!(read_only, agents::AGENT_INSPECTOR | agents::AGENT_ASSAY) {
+            let profile = agents::V2_AGENT_PROFILES
+                .iter()
+                .find(|profile| profile.id == read_only)
+                .expect("QA profile exists");
+            assert!(
+                profile.shell_allow.is_empty(),
+                "{read_only} must not expose shell commands"
+            );
+            let bash_rules = agent_entry(&config, read_only)
+                .get("permission")
+                .and_then(|permissions| permissions.get("bash"))
+                .and_then(Value::as_object)
+                .expect("read-only QA bash rule is an object");
+            assert_eq!(bash_rules.len(), 1, "{read_only} grants no bash prefixes");
+        }
     }
     // Only Smith and the solo-implement lead may write at all.
     let writers: Vec<&str> = agents::V2_AGENT_PROFILES

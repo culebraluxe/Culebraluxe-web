@@ -211,6 +211,7 @@ Always
   the report. A claim with no output is not evidence, and a summary of output nobody saw is a claim about a
   claim. (2026-09-29: the captain asked for this after a report he could only take on trust.)
 - Commit on the worker branch only when the role is Builder.
+- **Forge QA has no Git, code-writing, or release authority.** Every Inspector and Assay instance, across every lane and agent chain, must follow [`docs/agent/FORGE-QA-BOUNDARY.md`](docs/agent/FORGE-QA-BOUNDARY.md). A review or fix must not expand QA's authority; escalate any proposed boundary change to the application manager.
 - Route every failure that reaches a seam through the durable error-capture framework (see "Error Capture Obligation"). Never let an exception vanish as a silent 500/fallback or only a console.error.
 
 Ask first
@@ -313,6 +314,7 @@ Never
   QA-held sha that `ENG-FORGE-QA-NO-GIT-GUARD-01` deleted for refusing every release. When a review or an
   order asks for a policy the code explicitly refuses, name the conflict and stop. See `docs/agent/MEMORY.md`.
   guard: tests/tests/handbook_engine_guards.rs
+- QA must not touch, inspect, query, or communicate with Git, or use Git-derived identity in findings, receipts, caching, retry, or verdict decisions. QA must not write application code or perform Git, release, publishing, deployment, promotion, or migration operations. Its authority is limited to source review, approved test/check execution, and its designated QA measurement evidence. See [`docs/agent/FORGE-QA-BOUNDARY.md`](docs/agent/FORGE-QA-BOUNDARY.md); this applies to every lane and chain. A code review or fix cannot grant QA more authority; escalate proposed policy changes to the application manager.
 - Push, merge, or rebase from a worker. guard: tests/tests/handbook_engine_guards.rs
 - Run Forge against DEV. Forge runs (engine lanes, dogfoods, splits, role attempts) execute against PROD only — the environment is not something a run may flip (see `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` §0). guard: db/src/pool.rs
 - Reset PROD, copy DEV over PROD, or truncate canonical history. guard: NONE — no automated check; a destructive database action is a human decision the operator makes himself, and no test can stand between him and his own console. When he directs one it is authorized — name the target he named, run it, and report what it destroyed.
@@ -586,7 +588,7 @@ Known issues:
 - Checks regressions, hardcoding, architecture drift, responsiveness, and build results.
 - Does not silently fix findings unless explicitly instructed.
 
-Forge maps Lead → Architect/Inspector (git), Builder → Smith, Reviewer/QA → Assay. See `docs/FORGE-V2.md`.
+Historical V2 mapping: Lead → Architect/Inspector, Builder → Smith, Reviewer/QA → Assay. Inspector is a QA capability and has no Git authority under [`docs/agent/FORGE-QA-BOUNDARY.md`](docs/agent/FORGE-QA-BOUNDARY.md).
 
 > Superseded: the Forge control plane has since grown past the V2 three-role map.
 > The authoritative role model is the six-role FORGE_SDLC engine

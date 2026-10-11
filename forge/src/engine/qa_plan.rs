@@ -216,6 +216,12 @@ impl ApprovedAssayPlan {
                     command.id
                 ));
             }
+            if let Some(reason) = qa_command_policy_error(&command.command) {
+                errors.push(format!(
+                    "assay command {} is not permitted: {reason}",
+                    command.id
+                ));
+            }
             if command.working_directory != "lane_root" {
                 errors.push(format!(
                     "unsupported working directory for command {}",
@@ -374,6 +380,28 @@ impl ApprovedAssayPlan {
     }
 }
 
+/// QA may invoke only the project's test/check entry points. The command is still run by the
+/// harness, but shell composition and every other executable are rejected before dispatch so a
+/// frozen packet cannot turn the QA lane into a Git or release-management shell.
+fn qa_command_policy_error(command: &str) -> Option<&'static str> {
+    let shell_operator = |ch| {
+        matches!(ch, ';' | '|' | '&' | '>' | '<' | '`' | '$' | '#' | '(' | ')')
+    };
+    if command.chars().any(|ch| ch.is_control() || shell_operator(ch)) {
+        return Some("shell operators, substitutions, and control characters are forbidden");
+    }
+
+    let mut words = command.split_whitespace();
+    let executable = words.next()?;
+    let action = words.next()?;
+    match (executable, action) {
+        ("cargo", "test" | "check") => None,
+        ("cargo", "nextest") if words.next() == Some("run") => None,
+        ("pnpm", "test" | "forge:harness") => None,
+        _ => Some("only cargo test/check/nextest run and pnpm test/harness commands are allowed"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -389,7 +417,7 @@ mod tests {
                 runner: AssayRunner::RustLibtest,
                 parser: AssayParser::RustLibtest,
                 working_directory: "lane_root".into(),
-                environment_identity: "forge-inherited-shell-v1".into(),
+                environment_identity: "forge-sanitized-assay-v2".into(),
             }],
             checks: vec![ApprovedAssertionCheck {
                 id: "check-1".into(),
@@ -413,6 +441,15 @@ mod tests {
             .validate("STORY-1", &["cargo test -p app".into()])
             .is_ok());
         assert!(plan.validate("STORY-1", &["cargo test".into()]).is_err());
+
+        for command in ["git status", "cargo test; git status", "cargo publish", "pnpm deploy"] {
+            let mut unsafe_plan = plan();
+            unsafe_plan.commands[0].command = command.into();
+            assert!(
+                unsafe_plan.validate("STORY-1", &[command.into()]).is_err(),
+                "QA must refuse `{command}` even when a packet approves it"
+            );
+        }
     }
 
     #[test]

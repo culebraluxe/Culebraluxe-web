@@ -635,7 +635,7 @@ fn approved_assay_snapshot(writer: &RecordingWriter, story_id: &str, run_id: &st
             runner: AssayRunner::CommandExit,
             parser: AssayParser::CommandExit,
             working_directory: "lane_root".into(),
-            environment_identity: "forge-inherited-shell-v1".into(),
+            environment_identity: "forge-sanitized-assay-v2".into(),
         }],
         checks: vec![ApprovedAssertionCheck {
             id: "check-exit".into(),

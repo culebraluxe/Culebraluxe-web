@@ -311,7 +311,7 @@ fn approved_seam_assay_snapshot(writer: &SeamWriter) {
             runner: AssayRunner::RustLibtest,
             parser: AssayParser::RustLibtest,
             working_directory: "lane_root".into(),
-            environment_identity: "forge-inherited-shell-v1".into(),
+            environment_identity: "forge-sanitized-assay-v2".into(),
         }],
         checks: vec![ApprovedAssertionCheck {
             id: "check-seam".into(),
