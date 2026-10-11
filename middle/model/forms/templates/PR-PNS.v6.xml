@@ -29,7 +29,7 @@
   <field id="buyerRepTitle" label="Representative Title (Member, Manager, President)" type="text" when="buyerKind:Entity"/>
   <field id="buyerPoaAgent" label="Attorney-in-Fact" type="text" when="buyerKind:Power of Attorney"/>
   <field id="buyerPoaDate" label="Power of Attorney Date" type="date" when="buyerKind:Power of Attorney"/>
-  <field id="buyerPoaNotary" label="Notary" type="text" when="buyerKind:Power of Attorney"/>
+  <field id="buyerPoaNotary" label="Notary (name)" type="text" when="buyerKind:Power of Attorney"/>
   <field id="buyerPoaDeed" label="Deed / Affidavit No." type="text" when="buyerKind:Power of Attorney"/>
   <field id="buyerDescription" label="Party description" type="textarea" derived="true"/>
   <field id="buyerSignBlock" label="Signature line" type="text" derived="true"/>
@@ -50,7 +50,7 @@
   <field id="sellerRepTitle" label="Representative Title (Member, Manager, President)" type="text" when="sellerKind:Entity"/>
   <field id="sellerPoaAgent" label="Attorney-in-Fact" type="text" when="sellerKind:Power of Attorney"/>
   <field id="sellerPoaDate" label="Power of Attorney Date" type="date" when="sellerKind:Power of Attorney"/>
-  <field id="sellerPoaNotary" label="Notary" type="text" when="sellerKind:Power of Attorney"/>
+  <field id="sellerPoaNotary" label="Notary (name)" type="text" when="sellerKind:Power of Attorney"/>
   <field id="sellerPoaDeed" label="Deed / Affidavit No." type="text" when="sellerKind:Power of Attorney"/>
   <field id="sellerDescription" label="Party description" type="textarea" derived="true"/>
   <field id="sellerSignBlock" label="Signature line" type="text" derived="true"/>
