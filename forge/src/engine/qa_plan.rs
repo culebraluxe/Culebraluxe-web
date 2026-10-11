@@ -436,11 +436,15 @@ mod tests {
 
     #[test]
     fn validates_command_identity_and_references() {
-        let plan = plan();
-        assert!(plan
+        // Named `approved`, not `plan`: a local called `plan` shadows the `plan()` constructor and made the
+        // `let mut unsafe_plan = plan();` below an E0618 ("expected function, found ApprovedAssayPlan").
+        let approved = plan();
+        assert!(approved
             .validate("STORY-1", &["cargo test -p app".into()])
             .is_ok());
-        assert!(plan.validate("STORY-1", &["cargo test".into()]).is_err());
+        assert!(approved
+            .validate("STORY-1", &["cargo test".into()])
+            .is_err());
 
         for command in ["git status", "cargo test; git status", "cargo publish", "pnpm deploy"] {
             let mut unsafe_plan = plan();
