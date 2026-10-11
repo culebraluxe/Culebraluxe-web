@@ -1,5 +1,18 @@
 use crate::{Database, DbFailure, DbResult, DbTarget, DbTransaction};
 use serde_json::Value;
+
+/// What one turn did, as plain counts. The forge crate's trajectory summary converts into this; the database layer does not
+/// depend on the forge crate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RunTrajectoryCounts {
+    pub tool_call_count: usize,
+    pub edit_call_count: usize,
+    pub shell_call_count: usize,
+    pub structured_call_count: usize,
+    pub first_edit_at_ms: Option<i64>,
+    pub last_edit_at_ms: Option<i64>,
+    pub verification_calls_after_last_edit: usize,
+}
 use sqlx::FromRow;
 
 mod model_attempt_budget;
@@ -662,6 +675,44 @@ impl ForgeEngineDao {
     /// and the row is their sum. The quantity is the vendor's own reading taken from the harness's session store —
     /// never a model's self-report and never widgets — so the label becomes `vendor`, unless an older writer
     /// already filed the row as `widgets`, whose label this does not rewrite (migration 190's boundary).
+    /// One turn's trajectory against its Story Run. A repeat for the same run and profile replaces the summary, so a
+    /// retried settlement cannot double it.
+    pub async fn upsert_run_trajectory(
+        &self,
+        run_id: &str,
+        profile_id: &str,
+        t: &RunTrajectoryCounts,
+    ) -> DbResult<()> {
+        sqlx::query(
+            "insert into storyboard_run_trajectory (
+                run_id, harness_profile_id, tool_call_count, edit_call_count, shell_call_count,
+                structured_call_count, first_edit_at_ms, last_edit_at_ms, verification_calls_after_last_edit
+             ) values ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9)
+             on conflict (run_id, harness_profile_id) do update set
+                tool_call_count = excluded.tool_call_count,
+                edit_call_count = excluded.edit_call_count,
+                shell_call_count = excluded.shell_call_count,
+                structured_call_count = excluded.structured_call_count,
+                first_edit_at_ms = excluded.first_edit_at_ms,
+                last_edit_at_ms = excluded.last_edit_at_ms,
+                verification_calls_after_last_edit = excluded.verification_calls_after_last_edit,
+                recorded_at = now()",
+        )
+        .bind(run_id)
+        .bind(profile_id)
+        .bind(i32::try_from(t.tool_call_count).unwrap_or(i32::MAX))
+        .bind(i32::try_from(t.edit_call_count).unwrap_or(i32::MAX))
+        .bind(i32::try_from(t.shell_call_count).unwrap_or(i32::MAX))
+        .bind(i32::try_from(t.structured_call_count).unwrap_or(i32::MAX))
+        .bind(t.first_edit_at_ms)
+        .bind(t.last_edit_at_ms)
+        .bind(i32::try_from(t.verification_calls_after_last_edit).unwrap_or(i32::MAX))
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.upsert_run_trajectory", &error))?;
+        Ok(())
+    }
+
     pub async fn add_run_usage(
         &self,
         run_id: &str,

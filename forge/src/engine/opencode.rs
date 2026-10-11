@@ -577,6 +577,7 @@ impl OpenCodeHarness {
             self.assay_commands.clone()
         };
         Ok(HarnessOutput {
+            trajectory: Some(crate::engine::trajectory::summarize(&turn.tool_calls)),
             raw,
             candidate_sha,
             assay_commands: assay,
@@ -613,6 +614,7 @@ impl RoleHarness for OpenCodeHarness {
             &mut measured_usage,
         );
         crate::engine::runner::HarnessTurnReport {
+            trajectory: None,
             outcome,
             measured_usage,
         }
@@ -663,6 +665,7 @@ impl RoleHarness for OpenCodeHarness {
             self.run_role_with_slot_measured(node_id, task, self_heal, &slot, &mut measured_usage)
         });
         crate::engine::runner::HarnessTurnReport {
+            trajectory: None,
             outcome,
             measured_usage,
         }

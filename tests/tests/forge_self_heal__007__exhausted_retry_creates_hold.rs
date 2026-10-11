@@ -33,6 +33,7 @@ struct DeliversHarness;
 
 fn output(raw: &str) -> HarnessOutput {
     HarnessOutput {
+        trajectory: None,
         raw: raw.into(),
         candidate_sha: None,
         assay_commands: vec![],

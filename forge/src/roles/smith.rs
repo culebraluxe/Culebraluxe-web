@@ -652,6 +652,7 @@ mod tests {
             _: Option<&str>,
         ) -> Result<HarnessOutput> {
             Ok(HarnessOutput {
+                trajectory: None,
                 raw: String::new(),
                 candidate_sha: self.candidate.clone(),
                 assay_commands: vec![],
@@ -933,6 +934,7 @@ mod candidate_judgement_tests {
 
     fn output(after: Option<&str>) -> HarnessOutput {
         HarnessOutput {
+            trajectory: None,
             raw: "smith answered".into(),
             candidate_sha: after.map(str::to_string),
             assay_commands: vec![],

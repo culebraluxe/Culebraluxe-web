@@ -550,6 +550,7 @@ impl RoleHarness for MaestroHarness {
         };
 
         Ok(HarnessOutput {
+            trajectory: None,
             raw: parsed.assistant_text,
             candidate_sha,
             assay_commands: assay,

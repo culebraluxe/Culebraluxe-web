@@ -38,6 +38,7 @@ impl RoleHarness for PreviousAnswerHarness {
             .unwrap()
             .push(self_heal.map(str::to_string));
         Ok(HarnessOutput {
+            trajectory: None,
             raw: "first-draft-plan-needs-handoff-002".into(),
             candidate_sha: None,
             assay_commands: vec![],

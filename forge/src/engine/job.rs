@@ -758,6 +758,7 @@ mod tests {
                 )));
             }
             Ok(HarnessOutput {
+                trajectory: None,
                 raw: "scout findings".into(),
                 candidate_sha: None,
                 assay_commands: Vec::new(),

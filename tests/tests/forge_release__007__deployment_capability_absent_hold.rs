@@ -78,6 +78,7 @@ impl RoleHarness for ScriptedDeployHarness {
         _self_heal: Option<&str>,
     ) -> workflow::Result<HarnessOutput> {
         Ok(HarnessOutput {
+            trajectory: None,
             raw: self.raw.clone(),
             candidate_sha: None,
             assay_commands: Vec::new(),

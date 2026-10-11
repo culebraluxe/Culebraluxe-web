@@ -44,6 +44,16 @@ pub trait ForgeStateWriter: Send + Sync {
         run_id: &str,
         usage: &crate::engine::harness::HarnessUsage,
     ) -> Result<(), String>;
+    /// Record what one turn did, against its Story Run and the harness profile it ran under. Measurement only: nothing
+    /// reads it to decide the workflow. A writer without durable storage records nothing.
+    fn record_run_trajectory(
+        &self,
+        _run_id: &str,
+        _profile_id: &str,
+        _trajectory: &crate::engine::trajectory::TrajectoryMetrics,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     /// Settle spend (or explicit unknown usage) for one stable model attempt. Implementations backed by the DB
     /// must update the attempt receipt and Story Run totals atomically and idempotently.
     fn settle_model_attempt_usage(

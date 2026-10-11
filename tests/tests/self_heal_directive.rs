@@ -27,6 +27,7 @@ impl runner::RoleHarness for DirectiveRecordingHarness {
             .unwrap()
             .push(self_heal.map(str::to_string));
         Ok(runner::HarnessOutput {
+            trajectory: None,
             raw: "I thought about the plan".into(),
             candidate_sha: None,
             assay_commands: vec![],

@@ -37,6 +37,7 @@ impl RoleHarness for CountingHarness {
     ) -> Result<HarnessOutput> {
         self.turns.fetch_add(1, Ordering::SeqCst);
         Ok(HarnessOutput {
+            trajectory: None,
             raw: "still thinking, nothing delivered".into(),
             candidate_sha: None,
             assay_commands: vec![],
