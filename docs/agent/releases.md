@@ -11,3 +11,4 @@ passed **for the sha in this row** — that, and only that, is a receipt. Everyt
 | 2026-09-18T12:37:17Z | 2026-09-18T12:37:20Z | `c8fde5295b03` | main | clean | 1 | blocked-by-build | 1 | no | BUILD_FAILED |
 | 2026-09-18T12:42:22Z | 2026-09-18T12:46:24Z | `7bd9e3d267c9` | main | clean | 0 | 0 | 0 | yes | ok |
 | 2026-09-18T20:23:47Z | 2026-09-18T20:31:04Z | `9a3a785883d7` | main | clean | 0 | 0 | 0 | yes | ok |
+| 2026-10-11T12:04:56Z | 2026-10-11T12:08:09Z | `ea905dabb41c` | main | clean | 0 | 0 | 0 | yes | ok |
