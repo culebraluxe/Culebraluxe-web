@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  CulebraLuxe — Maestro model-guard, run once at login.
+
+  Maestro restores the model name each chat tab last used from
+  ~/Library/Application Support/Maestro/maestro-sessions.json. When the provider
+  retires a model, that stored name is a dead pin and every resumed tab fails with
+  "Model unavailable", which reads as a broken OpenCode model list. This job
+  repairs the stored pins BEFORE the operator opens Maestro, so the dead pin is
+  never restored.
+
+  Generated from this template by `pnpm maestro:model-guard:install`
+  (scripts/maestro-model-guard.sh --install), which substitutes {{REPO_ROOT}},
+  {{HOME}}, {{LOG_DIR}} and {{LABEL}}, validates the result with plutil, and
+  bootstraps it into launchd (gui/$(id -u)).
+
+  RunAtLoad only — no StartInterval. The job must never race a running Maestro:
+  the app holds this state in memory and would overwrite a mid-session repair on
+  quit, so the guard refuses to touch it while Maestro's window is open and the
+  login run happens before that window can exist.
+
+  Manage with:
+    pnpm maestro:model-guard           (repair now)
+    pnpm maestro:model-guard:check     (report only; exit 1 when a pin is stale)
+    pnpm maestro:model-guard:install
+    pnpm maestro:model-guard:uninstall
+  The script itself documents why this exists; read its header before changing it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>{{LABEL}}</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{REPO_ROOT}}/scripts/maestro-model-guard.sh</string>
+    <string>--repair</string>
+    <string>--quiet</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>{{REPO_ROOT}}</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>AGENT_WORKER_LOG_DIR</key>
+    <string>{{LOG_DIR}}</string>
+    <key>PATH</key>
+    <string>{{PATH}}</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>{{LOG_DIR}}/maestro-model-guard.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>{{LOG_DIR}}/maestro-model-guard.err.log</string>
+</dict>
+</plist>
