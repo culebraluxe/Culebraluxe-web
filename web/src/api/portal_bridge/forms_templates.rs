@@ -36,7 +36,7 @@ pub(super) fn load_form_templates(
 
 pub(super) const ACTIVE_FORM_TEMPLATE_VERSIONS: &[(&str, i32)] = &[
     ("OFFER-01", 5),
-    ("PR-PNS", 6),
+    ("PR-PNS", 7),
     ("PR-PNS-AMD", 1),
     ("LISTING-01", 6),
     ("SHOW-INFO", 1),
@@ -383,8 +383,6 @@ pub(super) fn form_default(template_id: &str, field_name: &str) -> Option<&'stat
         ("LISTING-01", "sellerCivilStatus") => Some("Single"),
         ("LISTING-01", "commission") => Some("4%"),
         ("LISTING-01", "listingType") => Some("Exclusive Right to Sell"),
-        ("PR-PNS", "sellerBrokerName") => Some("Lisa Penfield"),
-        ("PR-PNS", "lisaRepresents") => Some("Seller"),
         ("PR-PNS", "buyerKind") | ("PR-PNS", "sellerKind") => Some("Individual"),
         ("LISTING-01", "sellerKind") | ("OFFER-01", "buyerKind") => Some("Individual"),
         ("OFFER-01", "brokerName") => Some("Lisa Penfield"),

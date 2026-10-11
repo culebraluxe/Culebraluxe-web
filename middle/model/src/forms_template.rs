@@ -151,7 +151,7 @@ mod tests {
         for (id, approved) in [
             ("OFFER-01", 5),
             ("LISTING-01", 6),
-            ("PR-PNS", 6),
+            ("PR-PNS", 7),
             ("PR-PNS-AMD", 1),
             ("SHOW-INFO", 1),
             ("SHOW-RPT", 3),

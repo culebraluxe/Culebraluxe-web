@@ -55,19 +55,22 @@ pub fn policy_for_template(template_id: &str) -> Option<BrokerSignaturePolicy> {
     }
 }
 
-/// The policy for THIS form. A purchase and sale can have Lisa on either side: she originates the contract for the seller
-/// (the default), or represents the buyer, and then the seller's broker is the other party who signs. The side is the
-/// form's own `lisaRepresents` answer. Every other template has one fixed answer.
+/// The policy for THIS form. On a purchase and sale both brokers are open names. Lisa's standing pre-signature applies to
+/// whichever broker line the form names her on: the buyer's broker line when she is typed there, otherwise the seller's.
+/// Every other template has one fixed answer (Lisa on the broker line of the side she represents).
 pub fn policy_for_form(
     template_id: &str,
     values: &BTreeMap<String, String>,
 ) -> Option<BrokerSignaturePolicy> {
     if template_id == "PR-PNS" {
-        let side = values
-            .get("lisaRepresents")
-            .map(|value| value.trim())
-            .unwrap_or_default();
-        return Some(if side == "Buyer" {
+        let named = |field: &str| {
+            values.get(field).is_some_and(|value| {
+                value
+                    .trim()
+                    .eq_ignore_ascii_case(DEFAULT_BROKER_SIGNER_NAME)
+            })
+        };
+        return Some(if named("buyerBrokerName") && !named("sellerBrokerName") {
             BrokerSignaturePolicy {
                 role: "BUYER_BROKER",
                 signer_field: "buyerBrokerName",
@@ -270,16 +273,21 @@ mod lisa_side_tests {
     use super::*;
 
     #[test]
-    fn lisa_is_the_seller_side_unless_the_form_says_she_represents_the_buyer() {
+    fn the_pre_signature_follows_the_broker_line_that_names_lisa() {
         let mut values = BTreeMap::new();
-        values.insert("lisaRepresents".to_string(), "Seller".to_string());
+        values.insert("sellerBrokerName".to_string(), "Lisa Penfield".to_string());
+        values.insert("buyerBrokerName".to_string(), "Ron Test Broker".to_string());
         let seller = policy_for_form("PR-PNS", &values).unwrap();
         assert_eq!(
             (seller.role, seller.signer_field),
             ("SELLER_BROKER", "sellerBrokerName")
         );
 
-        values.insert("lisaRepresents".to_string(), "Buyer".to_string());
+        values.insert(
+            "sellerBrokerName".to_string(),
+            "Sam Seller Broker".to_string(),
+        );
+        values.insert("buyerBrokerName".to_string(), "lisa penfield".to_string());
         let buyer = policy_for_form("PR-PNS", &values).unwrap();
         assert_eq!(
             (buyer.role, buyer.signer_field),

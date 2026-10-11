@@ -175,8 +175,8 @@ pub fn sanitize_assay_env(mut env: HashMap<String, String>) -> HashMap<String, S
                 "_PRIVATE_KEY",
                 "_API_KEY",
             ]
-                .iter()
-                .any(|suffix| upper.ends_with(suffix))
+            .iter()
+            .any(|suffix| upper.ends_with(suffix))
     });
     env
 }
