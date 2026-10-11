@@ -12,9 +12,10 @@
 //! hand before the ledger existed, so "every file under `db/migrations/`" is not a set either live database
 //! can satisfy, and a gate built on it would refuse to boot a healthy system. The list below is the tail the
 //! running code actually depends on — Forge's work queue, worker heartbeat, runtime control, claim brake and
-//! the native luxesign surface — and every name in it is recorded on both DEV and PROD as of
-//! 2026-10-08, so a healthy deploy passes and an empty one is refused. A migration added later is not
-//! required until somebody adds it here, deliberately: this is a floor, not a ceiling.
+//! the native luxesign surface and the storyboard trajectory table — and every name in it is recorded on
+//! both DEV and PROD (the 260-276 set as of 2026-10-08, 292 as of 2026-10-11), so a healthy deploy passes
+//! and an empty one is refused. A migration added later is not required until somebody adds it here,
+//! deliberately: this is a floor, not a ceiling.
 //!
 //! `000_forge_base_schema.sql` is absent on purpose. It recreates the hand-built Forge base (see its own
 //! header) and is idempotent, so it is a no-op on any database that already holds a ledger — and a database
@@ -28,8 +29,9 @@ use crate::{Database, DbFailure, DbResult, SchemaMigrationDao};
 
 /// The migrations whose absence means the booted code does not match the database it was pointed at.
 ///
-/// Every name here is recorded on DEV and PROD (verified 2026-10-08). Add a name when the code being
-/// deployed cannot run without the file; do not add one merely because it is new.
+/// Every name here is recorded on DEV and PROD (260-276 verified 2026-10-08, 292 verified 2026-10-11).
+/// Add a name when the code being deployed cannot run without the file; do not add one merely because
+/// it is new.
 pub const REQUIRED_BOOT_MIGRATIONS: &[&str] = &[
     "260_docsign_native.sql",
     "261_docsign_entitlements.sql",
@@ -48,6 +50,7 @@ pub const REQUIRED_BOOT_MIGRATIONS: &[&str] = &[
     "274_forge_runtime_control.sql",
     "275_forge_claim_story_brake.sql",
     "276_docsign_copy_and_reminders.sql",
+    "292_storyboard_run_trajectory.sql",
 ];
 
 /// The required migrations that hold no ledger row for this database's declared target, in list order.
