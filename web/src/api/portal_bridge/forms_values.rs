@@ -459,36 +459,6 @@ pub(super) fn settle_values(
     template_id: &str,
     field_values: &mut std::collections::BTreeMap<String, String>,
 ) {
+    // The broker lines are open names on a purchase and sale: nothing here names anyone on them.
     model::forms_parties::apply_party_derivations(template_id, field_values);
-    if template_id != "PR-PNS" {
-        return;
-    }
-    // Lisa is named on the side she represents, and only there. The other side's broker is typed.
-    let lisa = model::forms_broker_signature::DEFAULT_BROKER_SIGNER_NAME;
-    let side = field_values
-        .get("lisaRepresents")
-        .map(|side| side.trim().to_owned())
-        .filter(|side| !side.is_empty())
-        .unwrap_or_else(|| "Seller".to_owned());
-    field_values.insert("lisaRepresents".to_owned(), side.clone());
-    let buyer_side = side == "Buyer";
-    let (lisa_field, other_field) = if buyer_side {
-        ("buyerBrokerName", "sellerBrokerName")
-    } else {
-        ("sellerBrokerName", "buyerBrokerName")
-    };
-    field_values.insert(lisa_field.to_owned(), lisa.to_owned());
-    // Lisa is not an envelope party, so the address on her side is not kept.
-    let lisa_email = if buyer_side {
-        "buyerBrokerEmail"
-    } else {
-        "sellerBrokerEmail"
-    };
-    field_values.insert(lisa_email.to_owned(), String::new());
-    if field_values
-        .get(other_field)
-        .is_some_and(|name| name.trim() == lisa)
-    {
-        field_values.insert(other_field.to_owned(), String::new());
-    }
 }

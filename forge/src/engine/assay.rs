@@ -567,7 +567,10 @@ mod rust_contract_tests {
         let evidence = collect_rust_contract_assay_evidence(
             contract_gate(),
             Some(&|command| {
-                observed.lock().expect("command observation lock").push(command.into());
+                observed
+                    .lock()
+                    .expect("command observation lock")
+                    .push(command.into());
                 result(command, true)
             }),
             &commands,
@@ -576,7 +579,10 @@ mod rust_contract_tests {
         assert_eq!(evidence.verdict, AssayVerdict::Pass);
         assert_eq!(evidence.evidence.qa_passed, Some(true));
         assert_eq!(
-            observed.lock().expect("command observation lock").as_slice(),
+            observed
+                .lock()
+                .expect("command observation lock")
+                .as_slice(),
             commands.as_slice()
         );
     }

@@ -22,10 +22,7 @@ fn forge_assay_006__qa_verdict_is_independent_of_git_identity() {
 
     // ── 2. NEGATIVE: MISSING CANDIDATE IS PUBLISHER'S BLOCKER, NOT QA'S. ───
     let (eligible, blockers) = promotion_eligibility(false, &evidence);
-    assert!(
-        !eligible,
-        "a publisher cannot promote without a candidate"
-    );
+    assert!(!eligible, "a publisher cannot promote without a candidate");
     assert!(
         blockers.contains(&"NO_CANDIDATE"),
         "the refusal must name the missing candidate: {blockers:?}"

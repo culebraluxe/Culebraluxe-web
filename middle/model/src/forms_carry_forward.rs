@@ -112,14 +112,19 @@ pub fn carried_values(
     carried
 }
 
-/// The derived email, only for a field the older VERSION did not declare and the target types as an email.
+/// The derived email, only for the seller's own address when an older VERSION did not declare it.
 fn derived_email_for(
     source: &TemplateDefinition,
     field: &TemplateFieldDefinition,
     derived_email: Option<&str>,
 ) -> Option<String> {
     let added_by_target = source.field(&field.name).is_none();
-    if !added_by_target || field.field_type != TemplateFieldType::Email {
+    // Only the party's OWN address is the form's person's: a cobroker's or a spouse's address is someone else's, and
+    // it is typed, never copied from the record.
+    if !added_by_target
+        || field.field_type != TemplateFieldType::Email
+        || field.name != "sellerEmail"
+    {
         return None;
     }
     derived_email

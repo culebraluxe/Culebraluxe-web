@@ -385,9 +385,15 @@ impl ApprovedAssayPlan {
 /// frozen packet cannot turn the QA lane into a Git or release-management shell.
 fn qa_command_policy_error(command: &str) -> Option<&'static str> {
     let shell_operator = |ch| {
-        matches!(ch, ';' | '|' | '&' | '>' | '<' | '`' | '$' | '#' | '(' | ')')
+        matches!(
+            ch,
+            ';' | '|' | '&' | '>' | '<' | '`' | '$' | '#' | '(' | ')'
+        )
     };
-    if command.chars().any(|ch| ch.is_control() || shell_operator(ch)) {
+    if command
+        .chars()
+        .any(|ch| ch.is_control() || shell_operator(ch))
+    {
         return Some("shell operators, substitutions, and control characters are forbidden");
     }
 
@@ -446,7 +452,12 @@ mod tests {
             .validate("STORY-1", &["cargo test".into()])
             .is_err());
 
-        for command in ["git status", "cargo test; git status", "cargo publish", "pnpm deploy"] {
+        for command in [
+            "git status",
+            "cargo test; git status",
+            "cargo publish",
+            "pnpm deploy",
+        ] {
             let mut unsafe_plan = plan();
             unsafe_plan.commands[0].command = command.into();
             assert!(

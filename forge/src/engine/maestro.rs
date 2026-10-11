@@ -629,8 +629,7 @@ impl RoleHarness for MaestroHarness {
             CMD_CANCELLED_EXIT, CMD_TIMEOUT_CODE, CMD_TIMEOUT_EXIT,
         };
         let cwd = self.assay_cwd();
-        let mut assay_env =
-            crate::engine::opencode::sanitize_assay_env(std::env::vars().collect());
+        let mut assay_env = crate::engine::opencode::sanitize_assay_env(std::env::vars().collect());
         assay_env.insert(
             "CARGO_TARGET_DIR".into(),
             crate::engine::opencode::derive_cargo_target_dir(cwd)
