@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  CulebraLuxe — OpenCode model-list health watch, at login and every 5 minutes.
+
+  `opencode models` is not answered in-process: the CLI asks a background server
+  (`opencode serve --service`, recorded in ~/.local/state/opencode/service.json) which owns
+  the models.dev catalogue (SQLite row opencode.db -> kv['models-dev:catalog']) and the live
+  served roster. When that server resolves neither, the command prints an EMPTY list and
+  still exits 0 — measured 2026-10-11: healthy from the service started 20:47:59 (right after
+  the update), empty two hours later with the service still up, and no error text anywhere.
+  Maestro then restores a model id that no longer resolves, and the picker reads as "the
+  model list is broken again".
+
+  This job NOTIFIES ONLY. It runs --check, keeps a known-good roster + catalogue snapshot
+  while the state is healthy, and raises a macOS notification within five minutes of a
+  failure. It never restarts the server: a timer that restarts it under a running session
+  would be a worse defect than the empty list it would fix.
+
+  Generated from this template by `pnpm opencode:guard:install`
+  (scripts/opencode-service-guard.sh --install), which substitutes {{REPO_ROOT}}, {{HOME}},
+  {{LOG_DIR}}, {{LABEL}} and {{PATH}}, validates the result with plutil, and bootstraps it
+  into launchd (gui/$(id -u)).
+
+  Manage with:
+    pnpm opencode:guard:status      (service, catalogue row, roster, snapshot age)
+    pnpm opencode:guard:check       (exit 1 when the free lane is missing)
+    pnpm opencode:guard:repair      (restore the catalogue row, restart the service)
+    pnpm opencode:guard:install / :uninstall
+  The script itself documents why this exists; read its header before changing it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>{{LABEL}}</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{REPO_ROOT}}/scripts/opencode-service-guard.sh</string>
+    <string>--check</string>
+    <string>--quiet</string>
+    <string>--notify</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>{{REPO_ROOT}}</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>AGENT_WORKER_LOG_DIR</key>
+    <string>{{LOG_DIR}}</string>
+    <!-- The service inherits this environment when it is (re)started, so these ride along into
+         `opencode serve --service`. OPENCODE_DISABLE_FILEWATCHER/_DISABLE turns off the filesystem
+         watcher in the daemon: without it every write under the ~18 watched roots (including other
+         tools' ~/.claude/skills and ~/.agents/skills, and $TMPDIR) re-normalizes the provider and
+         model registry and serves an EMPTY roster for the duration. Cost: skill / AGENTS.md /
+         config edits are picked up when the service next starts, not live. -->
+    <key>OPENCODE_DISABLE_AUTOUPDATE</key>
+    <string>1</string>
+    <key>OPENCODE_DISABLE_FILEWATCHER</key>
+    <string>1</string>
+    <key>OPENCODE_FILEWATCHER_DISABLE</key>
+    <string>1</string>
+    <key>PATH</key>
+    <string>{{PATH}}</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>{{LOG_DIR}}/opencode-service-guard.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>{{LOG_DIR}}/opencode-service-guard.err.log</string>
+</dict>
+</plist>
