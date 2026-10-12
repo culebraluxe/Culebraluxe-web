@@ -11,11 +11,14 @@
 //! PURE, and READ-ONLY: this is a report, not a repair. Nothing here writes, no clock is read, and a run
 //! with no verdict reports `unknown` — never `agree`.
 
-/// A durable verdict, as it comes off the evidence row.
+/// A durable verdict, as it comes off the evidence row — now three states, because the lane
+/// measures three answers. `Unproven` is "measured nothing": the durable boolean carries it as NO
+/// verdict (`None`, never `false`), and the artifact token spells it `UNPROVEN` (WO-V1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QaVerdict {
     Pass,
     Fail,
+    Unproven,
 }
 
 impl QaVerdict {
@@ -23,11 +26,14 @@ impl QaVerdict {
         match self {
             Self::Pass => "PASS",
             Self::Fail => "FAIL",
+            Self::Unproven => "UNPROVEN",
         }
     }
 }
 
-/// The agreement reading for one QA run.
+/// The agreement reading for one QA run. `Unproven` is an unmeasured run: it is neither an
+/// agreement nor a disagreement — there is nothing to agree WITH — so it counts as `unknown` for
+/// the doctor while the line names the actual state (WO-V1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QaConsistency {
     Agree {
@@ -37,6 +43,10 @@ pub enum QaConsistency {
     Disagree {
         run_status: Option<String>,
         verdict: QaVerdict,
+        detail: String,
+    },
+    Unproven {
+        run_status: Option<String>,
         detail: String,
     },
     Unknown {
@@ -49,6 +59,7 @@ impl QaConsistency {
         match self {
             Self::Agree { .. } => "agree",
             Self::Disagree { .. } => "disagree",
+            Self::Unproven { .. } => "unknown",
             Self::Unknown { .. } => "unknown",
         }
     }
@@ -64,11 +75,13 @@ pub fn normalize_qa_verdict(value: Option<bool>) -> Option<QaVerdict> {
     }
 }
 
-/// The token spelling of a verdict, case-insensitive. Anything else reads as no verdict.
+/// The token spelling of a verdict, case-insensitive. Anything else reads as no verdict —
+/// except `UNPROVEN`, which is the lane's own third answer and reads as itself (WO-V1).
 pub fn normalize_qa_verdict_token(value: Option<&str>) -> Option<QaVerdict> {
     match value.map(|token| token.trim().to_uppercase()) {
         Some(token) if token == "PASS" => Some(QaVerdict::Pass),
         Some(token) if token == "FAIL" => Some(QaVerdict::Fail),
+        Some(token) if token == "UNPROVEN" => Some(QaVerdict::Unproven),
         _ => None,
     }
 }
@@ -94,7 +107,8 @@ pub fn is_qa_run_type(run_type: Option<&str>) -> bool {
 }
 
 /// The check. A run status and a verdict either agree, or the disagreement names BOTH values. A run with no
-/// readable verdict is `unknown` — never `agree`.
+/// readable verdict is `unknown` — never `agree`. An UNPROVEN verdict is an unmeasured run: it reports
+/// UNPROVEN rather than FAIL, whatever the run status says (WO-V1).
 pub fn check_qa_run_verdict_consistency(
     run_status: Option<&str>,
     verdict: Option<QaVerdict>,
@@ -104,6 +118,15 @@ pub fn check_qa_run_verdict_consistency(
             reason: "no durable QA verdict recorded for this run".to_string(),
         };
     };
+    if verdict == QaVerdict::Unproven {
+        return QaConsistency::Unproven {
+            run_status: run_status.map(str::to_string),
+            detail: format!(
+                "run status '{}' is unmeasured: the lane proved nothing, so there is no verdict to agree with",
+                describe_run_status(run_status),
+            ),
+        };
+    }
 
     match expected_verdict_for_run_status(run_status) {
         None => QaConsistency::Disagree {
@@ -132,7 +155,8 @@ pub fn check_qa_run_verdict_consistency(
     }
 }
 
-/// One line for the doctor. A disagreement always names both values.
+/// One line for the doctor. A disagreement always names both values; an unmeasured run names
+/// its own state instead of borrowing FAIL's.
 pub fn render_qa_consistency_line(result: &QaConsistency) -> String {
     match result {
         QaConsistency::Agree {
@@ -140,6 +164,7 @@ pub fn render_qa_consistency_line(result: &QaConsistency) -> String {
             verdict,
         } => format!("agree (run {run_status} / verdict {})", verdict.as_str()),
         QaConsistency::Disagree { detail, .. } => format!("DISAGREE — {detail}"),
+        QaConsistency::Unproven { detail, .. } => format!("UNPROVEN — {detail}"),
         QaConsistency::Unknown { reason } => format!("unknown ({reason})"),
     }
 }
@@ -160,6 +185,49 @@ mod tests {
         let reading = check_qa_run_verdict_consistency(Some("Complete"), None);
         assert!(matches!(reading, QaConsistency::Unknown { .. }));
         assert!(render_qa_consistency_line(&reading).starts_with("unknown ("));
+    }
+
+    /// WO-V1, the tri-state: an UNPROVEN verdict on a Failed run must not read as
+    /// `agree (Failed/FAIL)` — nothing was measured, so there is nothing to agree with. It counts
+    /// as unknown for the doctor while the line names the actual state.
+    #[test]
+    fn an_unmeasured_run_reports_unproven_never_failed_fail() {
+        let verdict = normalize_qa_verdict_token(Some("UNPROVEN"));
+        assert_eq!(verdict, Some(QaVerdict::Unproven));
+        let reading = check_qa_run_verdict_consistency(Some("Failed"), verdict);
+        assert!(
+            !matches!(reading, QaConsistency::Agree { .. }),
+            "an unmeasured run must never agree: {reading:?}"
+        );
+        assert!(
+            !matches!(reading, QaConsistency::Disagree { .. }),
+            "an unmeasured run is not a disagreement either: {reading:?}"
+        );
+        assert_eq!(reading.state(), "unknown");
+        let line = render_qa_consistency_line(&reading);
+        assert!(line.starts_with("UNPROVEN"), "the line names the state: {line}");
+    }
+
+    /// WO-V1 guard against overcorrection: a MEASURED fail on a Failed run still agrees. Only the
+    /// unmeasured reading changes; a failure somebody measured keeps its verdict.
+    #[test]
+    fn a_measured_fail_on_a_failed_run_still_agrees() {
+        let reading = check_qa_run_verdict_consistency(Some("Failed"), Some(QaVerdict::Fail));
+        assert!(
+            matches!(reading, QaConsistency::Agree { .. }),
+            "a measured failure is a verdict the run can agree with: {reading:?}"
+        );
+        assert!(render_qa_consistency_line(&reading).contains("FAIL"));
+    }
+
+    /// WO-V1: the token spelling carries the third state, case-insensitive like the other two.
+    #[test]
+    fn unproven_is_a_token_spelling_of_its_own() {
+        assert_eq!(
+            normalize_qa_verdict_token(Some(" unproven ")),
+            Some(QaVerdict::Unproven)
+        );
+        assert_eq!(QaVerdict::Unproven.as_str(), "UNPROVEN");
     }
 
     #[test]

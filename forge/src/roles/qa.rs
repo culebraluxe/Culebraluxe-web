@@ -172,6 +172,7 @@ fn run_rust_contract_qa(
         ctx.contract_acceptance_mapped,
     );
     dispose_failure(&mut evidence, &verdict);
+    apply_unproven_tristate(&mut evidence, &verdict);
 
     if let Some(writer) = ctx.writer {
         writer
@@ -213,6 +214,20 @@ pub fn dispose_failure(evidence: &mut ForgeGateEvidence, verdict: &AssayVerdict)
         }
         .into(),
     );
+}
+
+/// WO-V1 tri-state persist: UNPROVEN is "measured nothing", and the durable boolean has three
+/// states — `Some(true)` proved, `Some(false)` failed, `None` unproven. The collector in
+/// `engine::assay` writes `Some(false)` for every non-pass (it only knows the gate boolean), so the
+/// lane that OWNS the three-way verdict corrects it here: AFTER `dispose_failure` (which reads the
+/// boolean to set ESCALATE) and BEFORE the evidence is returned or persisted. The artifact token
+/// stays UNPROVEN throughout and the rejection/disposition survive; only the boolean stops claiming
+/// a failure nobody measured — which is what used to make an unmeasured run report
+/// `agree (Failed/FAIL)` in the doctor.
+pub fn apply_unproven_tristate(evidence: &mut ForgeGateEvidence, verdict: &AssayVerdict) {
+    if *verdict == AssayVerdict::Unproven {
+        evidence.qa_passed = None;
+    }
 }
 
 /// The artifact a QA lane's own measurement becomes (migration 130, `kind = 'qa-assay-evidence'`).
@@ -295,6 +310,7 @@ pub fn read_assay_measurement(
     } = collected;
     *evidence = measured;
     dispose_failure(evidence, &verdict);
+    apply_unproven_tristate(evidence, &verdict);
     // The lane's own measurement becomes a row (migration 130). It is written the moment it exists, not at
     // the end of the story, because the next question anyone asks about a QA lane is what it measured — and
     // this is the only moment the measurement is in hand. A write that fails fails the lane, like every other
@@ -426,6 +442,118 @@ mod tests {
             row.verdict.clone().unwrap_or_default(),
             row.summary.clone().unwrap_or_default(),
         )
+    }
+
+    /// WO-V1, end to end through the contract rig: an unmapped acceptance measures UNPROVEN, and
+    /// the durable boolean must be NO verdict (`None`) — never `Some(false)`, which the doctor
+    /// would read as a FAIL the Failed run agrees with. The artifact token stays UNPROVEN throughout.
+    #[test]
+    fn unproven_is_persisted_as_no_verdict_not_as_failed() {
+        let harness = Arc::new(MeasurementHarness::new(true));
+        let writer = Arc::new(RecordingWriter::default());
+        let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default())
+            .with_writer(writer.clone())
+            .with_test_mode(Some("RUST_CONTRACT".into()))
+            .with_contract_assay_commands(vec!["cargo check --all-targets".into()])
+            .with_contract_acceptance_mapped(false);
+
+        let outcome = AssayService::new(&runner)
+            .execute("qa_verify", &qa_task())
+            .expect("the measurement lane runs");
+        assert_eq!(
+            outcome.evidence.qa_passed, None,
+            "UNPROVEN is unmeasured, and an unmeasured run must not persist qa_passed=false"
+        );
+        let artifacts = writer.artifacts.lock().unwrap();
+        let row = artifacts
+            .iter()
+            .find(|a| a.kind == "qa-assay-evidence")
+            .expect("the lane's own measurement is a row");
+        assert_eq!(row.verdict.as_deref(), Some("UNPROVEN"));
+    }
+
+    /// WO-V1 guard: a MEASURED failure still persists `Some(false)` with a REPAIR disposition.
+    /// Only the unmeasured reading changes state.
+    #[test]
+    fn measured_fail_is_still_persisted_as_failed_with_repair() {
+        let harness = Arc::new(MeasurementHarness::new(false));
+        let writer = Arc::new(RecordingWriter::default());
+        let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default())
+            .with_writer(writer.clone())
+            .with_test_mode(Some("RUST_CONTRACT".into()))
+            .with_contract_assay_commands(vec!["cargo check --all-targets".into()])
+            .with_contract_acceptance_mapped(true);
+
+        let outcome = AssayService::new(&runner)
+            .execute("qa_verify", &qa_task())
+            .expect("the measurement lane runs");
+        assert_eq!(outcome.evidence.qa_passed, Some(false));
+        assert_eq!(outcome.evidence.disposition.as_deref(), Some("REPAIR"));
+    }
+
+    /// WO-V1 guard: a MEASURED pass still persists `Some(true)` — driven through the collector
+    /// plus the tri-state, since the turn-level rig carries no base/candidate SHAs and therefore
+    /// cannot reach PASS (it stops at "execution base is missing", which is itself a FAIL).
+    #[test]
+    fn measured_pass_is_still_persisted_as_passed() {
+        use crate::engine::assay::{collect_rust_contract_assay_evidence, AssayEvidence};
+        let sha = "a".repeat(40);
+        let mut evidence = ForgeGateEvidence {
+            candidate_sha: Some(sha.clone()),
+            ..ForgeGateEvidence::default()
+        };
+        evidence
+            .extra
+            .insert("recordedBase", workflow::Value::from(sha.clone()));
+        let run = |command: &str| CommandResult {
+            command: command.into(),
+            exit_code: 0,
+            passed: true,
+            excerpt: String::new(),
+            unmeasurable: false,
+            output: String::new(),
+        };
+        let AssayEvidence { mut evidence, verdict } = collect_rust_contract_assay_evidence(
+            evidence,
+            Some(&run),
+            &["cargo check --all-targets".into()],
+            true,
+        );
+        assert_eq!(verdict, crate::engine::assay::AssayVerdict::Pass);
+        dispose_failure(&mut evidence, &verdict);
+        apply_unproven_tristate(&mut evidence, &verdict);
+        assert_eq!(evidence.qa_passed, Some(true));
+    }
+
+    /// WO-V1 unit: the tri-state clears only the boolean, never the record around it — the
+    /// ESCALATE disposition and the UNPROVEN rejection survive, and Pass/Fail are untouched.
+    #[test]
+    fn unproven_tristate_clears_only_the_boolean_not_the_record() {
+        use crate::engine::assay::AssayVerdict;
+        let mut evidence = ForgeGateEvidence {
+            qa_passed: Some(false),
+            deliverable_rejection: Some("QA UNPROVEN: RUST_CONTRACT acceptance mapping is missing.".into()),
+            disposition: Some("ESCALATE".into()),
+            ..ForgeGateEvidence::default()
+        };
+        apply_unproven_tristate(&mut evidence, &AssayVerdict::Unproven);
+        assert_eq!(evidence.qa_passed, None);
+        assert_eq!(evidence.disposition.as_deref(), Some("ESCALATE"));
+        assert!(evidence.deliverable_rejection.as_deref().unwrap_or("").contains("UNPROVEN"));
+
+        let mut pass = ForgeGateEvidence {
+            qa_passed: Some(true),
+            ..ForgeGateEvidence::default()
+        };
+        apply_unproven_tristate(&mut pass, &AssayVerdict::Pass);
+        assert_eq!(pass.qa_passed, Some(true));
+
+        let mut fail = ForgeGateEvidence {
+            qa_passed: Some(false),
+            ..ForgeGateEvidence::default()
+        };
+        apply_unproven_tristate(&mut fail, &AssayVerdict::Fail);
+        assert_eq!(fail.qa_passed, Some(false));
     }
 
     /// Assay is DETERMINISTIC, and this is what that word buys: the verdict is a function of what the
