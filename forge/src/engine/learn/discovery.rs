@@ -189,6 +189,40 @@ pub(super) fn changed_paths(
         .collect::<Result<Vec<_>, _>>()?;
     paths.sort();
     paths.dedup();
+    // A window can change a path and then delete it, and the scan reads every path AT the pin: there is no
+    // source for a path the revision does not hold. The `--since` form lists the modifying commit's paths
+    // even when a later commit in the same window deleted the file (the tree-to-tree form filters it as a D,
+    // the per-commit form cannot), and asking for it anyway failed the whole pass — 2026-10-12,
+    // `db/src/document_sign.rs` deleted inside a window whose anchor predated the deletion, so every tick
+    // failed the same way and the learn anchor never moved. One listing of the pinned tree, not one probe per
+    // path, says what is still there; what is not has nothing to observe.
+    let present = pinned_paths(root, revision)?;
+    paths.retain(|path| present.binary_search(path).is_ok());
+    Ok(paths)
+}
+
+/// Every path the pinned revision holds, sorted, from one `ls-tree` listing.
+fn pinned_paths(root: &Path, revision: &str) -> Result<Vec<String>, String> {
+    let bytes = git_stdout(
+        root,
+        &[
+            "ls-tree".into(),
+            "-r".into(),
+            "-z".into(),
+            "--name-only".into(),
+            revision.into(),
+        ],
+        MAX_GIT_OUTPUT,
+    )?;
+    let mut paths = bytes
+        .split(|byte| *byte == 0)
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            String::from_utf8(part.to_vec())
+                .map_err(|_| "Git returned a non-UTF-8 source path".to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    paths.sort();
     Ok(paths)
 }
 
@@ -309,5 +343,36 @@ mod tests {
         let temp = tempfile::tempdir().expect("temporary repository");
         assert!(read_pinned_source(temp.path(), "HEAD", "../secret.rs").is_err());
         assert!(read_pinned_source(temp.path(), "HEAD", "/etc/passwd").is_err());
+    }
+
+    /// The window is rebuilt from the same anchor on every tick, so a path it changed and then deleted is
+    /// named again and again: the scan has to drop it, or one deletion inside the window keeps the learn
+    /// anchor from ever advancing.
+    #[test]
+    fn changed_paths_drops_a_path_the_pinned_revision_no_longer_holds() {
+        let temp = tempfile::tempdir().expect("temporary repository");
+        let root = temp.path();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "user.name", "Forge Test"]);
+        git(
+            root,
+            &["config", "user.email", "forge-test@example.invalid"],
+        );
+        fs::create_dir_all(root.join("src")).expect("source directory");
+        fs::write(root.join("src/kept.rs"), "pub fn kept() {}\n").expect("kept source");
+        fs::write(root.join("src/gone.rs"), "pub fn gone() {}\n").expect("doomed source");
+        git(root, &["add", "src/kept.rs", "src/gone.rs"]);
+        git(root, &["commit", "-qm", "initial"]);
+
+        fs::write(root.join("src/kept.rs"), "pub fn kept_again() {}\n").expect("kept source, again");
+        git(root, &["rm", "-q", "src/gone.rs"]);
+        git(root, &["commit", "-qam", "change one path, delete another"]);
+        let pinned = git(root, &["rev-parse", "HEAD"]);
+
+        // The `--since` form: the only form that can name a path the pin does not hold.
+        let paths = changed_paths(root, None, &pinned, 0).expect("revision log");
+        assert_eq!(paths, vec!["src/kept.rs"]);
+        let source = read_pinned_source(root, &pinned, &paths[0]).expect("pinned file");
+        assert!(source.contains("kept_again"));
     }
 }
