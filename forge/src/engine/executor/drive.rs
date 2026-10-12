@@ -196,7 +196,8 @@ impl<'a> DriveForgeStoryOptions<'a> {
         turn_budget::resolve_generation_turn_cap(
             std::env::var(turn_budget::GENERATION_TURN_CAP_ENV)
                 .ok()
-                .as_deref(),
+                .as_deref()
+                .filter(|s| !s.is_empty()),
         )
     }
 
@@ -204,7 +205,8 @@ impl<'a> DriveForgeStoryOptions<'a> {
         turn_budget::resolve_within_story_concurrency(
             std::env::var(turn_budget::WITHIN_STORY_CONCURRENCY_ENV)
                 .ok()
-                .as_deref(),
+                .as_deref()
+                .filter(|s| !s.is_empty()),
         )
     }
 
@@ -424,12 +426,17 @@ fn prepare_durable_batch<S: TxStore>(
             let forked_runner = match runner.fork_for_workspace(execution_workspace) {
                 Ok(Some(runner)) => runner,
                 Ok(None) => {
-                    let _ = discard_unstarted_lane_worktree(
+                    if let Err(cleanup_error) = discard_unstarted_lane_worktree(
                         &repo_root,
                         &workspace.worktree_path,
                         &branch_name,
                         &base_commit,
-                    );
+                    ) {
+                        eprintln!(
+                            "forge-wave preparation cleanup failed for {}: {cleanup_error}",
+                            lane.lease.service_key
+                        );
+                    }
                     return Err(WorkflowError::conflict(
                         "FORGE_PARALLEL_LANES_UNAVAILABLE",
                         format!(
@@ -439,12 +446,17 @@ fn prepare_durable_batch<S: TxStore>(
                     ));
                 }
                 Err(error) => {
-                    let _ = discard_unstarted_lane_worktree(
+                    if let Err(cleanup_error) = discard_unstarted_lane_worktree(
                         &repo_root,
                         &workspace.worktree_path,
                         &branch_name,
                         &base_commit,
-                    );
+                    ) {
+                        eprintln!(
+                            "forge-wave preparation cleanup failed for {}: {cleanup_error}",
+                            lane.lease.service_key
+                        );
+                    }
                     return Err(error);
                 }
             };
@@ -453,12 +465,17 @@ fn prepare_durable_batch<S: TxStore>(
                 .map(|ports| ports.harness().supports_interrupt())
                 .unwrap_or(false)
             {
-                let _ = discard_unstarted_lane_worktree(
+                if let Err(cleanup_error) = discard_unstarted_lane_worktree(
                     &repo_root,
                     &workspace.worktree_path,
                     &branch_name,
                     &base_commit,
-                );
+                ) {
+                    eprintln!(
+                        "forge-wave preparation cleanup failed for {}: {cleanup_error}",
+                        lane.lease.service_key
+                    );
+                }
                 return Err(WorkflowError::conflict(
                     "FORGE_PARALLEL_LANES_UNAVAILABLE",
                     format!(
@@ -485,12 +502,17 @@ fn prepare_durable_batch<S: TxStore>(
             Ok(prepared_lane) => prepared.push(prepared_lane),
             Err(error) => {
                 for lane in &prepared {
-                    let _ = discard_unstarted_lane_worktree(
+                    if let Err(cleanup_error) = discard_unstarted_lane_worktree(
                         &lane.parent_worktree,
                         &lane.worktree_path,
                         &lane.branch_name,
                         &lane.base_commit,
-                    );
+                    ) {
+                        eprintln!(
+                            "forge-wave batch cleanup failed for task {}: {cleanup_error}",
+                            lane.claimed.task.task_id
+                        );
+                    }
                 }
                 fail_claimed_batch(durable.jobs, worker_id, &claimed, &error.to_string());
                 return Err(error);
@@ -564,12 +586,17 @@ fn execute_durable_batch(
                     let result = match execution {
                         Ok(Ok(result)) => result,
                         Ok(Err(error)) => {
-                            let _ = jobs.fail(
+                            if let Err(fail_error) = jobs.fail(
                                 &fallback_claimed.lease.job_id,
                                 worker_id,
                                 &error.to_string(),
                                 true,
-                            );
+                            ) {
+                                eprintln!(
+                                    "forge-wave lane failure recording failed for job {}: {fail_error}",
+                                    fallback_claimed.lease.job_id
+                                );
+                            }
                             LaneExecutionResult {
                                 claimed: fallback_claimed,
                                 worktree_path: fallback_worktree,
@@ -580,8 +607,17 @@ fn execute_durable_batch(
                         }
                         Err(_) => {
                             let reason = "lane worker panicked before it could report an outcome";
-                            let _ =
-                                jobs.fail(&fallback_claimed.lease.job_id, worker_id, reason, true);
+                            if let Err(fail_error) = jobs.fail(
+                                &fallback_claimed.lease.job_id,
+                                worker_id,
+                                reason,
+                                true,
+                            ) {
+                                eprintln!(
+                                    "forge-wave panic failure recording failed for job {}: {fail_error}",
+                                    fallback_claimed.lease.job_id
+                                );
+                            }
                             LaneExecutionResult {
                                 claimed: fallback_claimed,
                                 worktree_path: fallback_worktree,
@@ -762,7 +798,12 @@ fn drive_forge_story_inner<S: TxStore>(
                     prepared.len(),
                     cap
                 );
-                let turn_ceiling = turn_ceiling(std::env::var(TURN_CEILING_ENV).ok().as_deref());
+                let turn_ceiling = turn_ceiling(
+                    std::env::var(TURN_CEILING_ENV)
+                        .ok()
+                        .as_deref()
+                        .filter(|s| !s.is_empty()),
+                );
                 let mut executions = execute_durable_batch(
                     prepared,
                     durable.jobs,
@@ -830,10 +871,15 @@ fn drive_forge_story_inner<S: TxStore>(
                                     ));
                                 }
                             }
-                            let _ = remove_lane_worktree(
+                            if let Err(cleanup_error) = remove_lane_worktree(
                                 &execution.parent_worktree,
                                 &execution.worktree_path,
-                            );
+                            ) {
+                                eprintln!(
+                                    "forge-wave worktree cleanup failed for task {}: {cleanup_error}",
+                                    execution.claimed.task.task_id
+                                );
+                            }
                             continue;
                         }
                         let reason = completion_failure_reason(&error);
@@ -866,12 +912,17 @@ fn drive_forge_story_inner<S: TxStore>(
                                 "task {} completed in Workflow, but candidate {candidate} could not be integrated: {error}",
                                 execution.claimed.task.task_id
                             );
-                            let _ = durable.jobs.fail(
+                            if let Err(fail_error) = durable.jobs.fail(
                                 &execution.claimed.lease.job_id,
                                 opts.worker_id,
                                 &reason,
                                 true,
-                            );
+                            ) {
+                                eprintln!(
+                                    "forge-wave integration failure recording failed for job {}: {fail_error}",
+                                    execution.claimed.lease.job_id
+                                );
+                            }
                             if hold_reason.is_none() {
                                 hold_reason = Some(reason);
                             }
@@ -1030,8 +1081,12 @@ fn drive_forge_story_inner<S: TxStore>(
                     let _request =
                         ForgeJobBridge::new(durable.registry).job_for_ready_task(&task)?;
                     // Use the shared Forge turn budget regardless of the selected harness.
-                    let turn_ceiling =
-                        turn_ceiling(std::env::var(TURN_CEILING_ENV).ok().as_deref());
+                    let turn_ceiling = turn_ceiling(
+                        std::env::var(TURN_CEILING_ENV)
+                            .ok()
+                            .as_deref()
+                            .filter(|s| !s.is_empty()),
+                    );
 
                     let outcome = match execute_claimed_job_unsettled(
                         durable.jobs,
@@ -1111,15 +1166,25 @@ fn drive_forge_story_inner<S: TxStore>(
                 {
                     if let (Some(durable), Some(lease)) = (durable, durable_lease.as_ref()) {
                         if err.code() == "TASK_ALREADY_COMPLETED" {
-                            durable.jobs.complete(&lease.job_id, opts.worker_id)?;
+                            if let Err(complete_error) = durable.jobs.complete(&lease.job_id, opts.worker_id) {
+                                eprintln!(
+                                    "forge-wave task {} already completed but durable job settlement failed (preserving paid turn for reconciliation): {complete_error}",
+                                    task.task_id
+                                );
+                            }
                             continue;
                         }
-                        durable.jobs.fail(
+                        if let Err(fail_error) = durable.jobs.fail(
                             &lease.job_id,
                             opts.worker_id,
                             &completion_failure_reason(&err),
                             true,
-                        )?;
+                        ) {
+                            eprintln!(
+                                "forge-wave task={} durable_settlement_failed={fail_error}",
+                                task.task_id
+                            );
+                        }
                         return Err(err);
                     }
 
@@ -1134,7 +1199,13 @@ fn drive_forge_story_inner<S: TxStore>(
                 }
 
                 if let (Some(durable), Some(lease)) = (durable, durable_lease.as_ref()) {
-                    durable.jobs.complete(&lease.job_id, opts.worker_id)?;
+                    if let Err(complete_error) = durable.jobs.complete(&lease.job_id, opts.worker_id) {
+                        let reason = completion_failure_reason(&WorkflowError::generic(complete_error.to_string()));
+                        eprintln!(
+                            "forge-wave task {} completed but durable job settlement failed (preserving paid turn for reconciliation): {reason}",
+                            task.task_id
+                        );
+                    }
                 }
                 steps.push(node.clone());
                 if stop_target
