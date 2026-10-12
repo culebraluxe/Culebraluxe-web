@@ -100,11 +100,13 @@ pub fn derive_party(prefix: &str, values: &BTreeMap<String, String>) -> DerivedP
             let representative = get("RepName");
             let title = get("RepTitle");
             (
-                format!(
-                    "{company}, a {state} entity registered with the Puerto Rico Department of State under Register No. {register}, represented by {representative}, {title}",
-                    state = get("EntityState"),
-                    register = get("EntityRegister"),
-                ),
+                // The Owner's jurisdiction is not the Property's, and this Agreement attests only that the company is
+                // the Owner and who binds it — never where the company is registered. The sentence used to read "a
+                // {state} entity registered with the Puerto Rico Department of State under Register No. {register}",
+                // which printed "a LLC entity registered with the Puerto Rico Department of State under Register No. ,"
+                // in the first paragraph of Jessica's listing when neither answer was a jurisdiction and a number
+                // (2026-10-12). The answers are still on the form; they are simply not attested to here.
+                format!("{company}, represented by {representative}, {title}"),
                 format!("{company}, by {representative}, {title}"),
                 representative,
                 false,
@@ -219,6 +221,14 @@ mod tests {
             ("sellerCivilStatus", "Married"),
         ]);
         let d = derive_party("seller", &v);
+        // "Florida" and "12345" are saved answers, and the Agreement still attests to neither — no jurisdiction and no
+        // register number in the Owner's description, only who the company is and who binds it. This test used to pass
+        // with a sentence claiming Puerto Rico Department of State registration, which is the whole defect: nobody knows
+        // where the company is registered, and a listing agreement does not need to (2026-10-12).
+        assert_eq!(
+            d.description,
+            "Caribe Holdings LLC, represented by Jessica Iverson, Managing Member"
+        );
         assert_eq!(
             d.sign_block,
             "Caribe Holdings LLC, by Jessica Iverson, Managing Member"
