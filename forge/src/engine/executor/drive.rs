@@ -1426,7 +1426,9 @@ fn drive_forge_story_inner<S: TxStore>(
                 {
                     if let (Some(durable), Some(lease)) = (durable, durable_lease.as_ref()) {
                         if err.code() == "TASK_ALREADY_COMPLETED" {
-                            if let Err(complete_error) = durable.jobs.complete(&lease.job_id, opts.worker_id) {
+                            if let Err(complete_error) =
+                                durable.jobs.complete(&lease.job_id, opts.worker_id)
+                            {
                                 eprintln!(
                                     "forge-wave task {} already completed but durable job settlement failed (preserving paid turn for reconciliation): {complete_error}",
                                     task.task_id
@@ -1459,8 +1461,12 @@ fn drive_forge_story_inner<S: TxStore>(
                 }
 
                 if let (Some(durable), Some(lease)) = (durable, durable_lease.as_ref()) {
-                    if let Err(complete_error) = durable.jobs.complete(&lease.job_id, opts.worker_id) {
-                        let reason = completion_failure_reason(&WorkflowError::generic(complete_error.to_string()));
+                    if let Err(complete_error) =
+                        durable.jobs.complete(&lease.job_id, opts.worker_id)
+                    {
+                        let reason = completion_failure_reason(&WorkflowError::generic(
+                            complete_error.to_string(),
+                        ));
                         eprintln!(
                             "forge-wave task {} completed but durable job settlement failed (preserving paid turn for reconciliation): {reason}",
                             task.task_id
