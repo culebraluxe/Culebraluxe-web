@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[features]
+# WO-102 makes `RecordingWriter` test-only: a production build must not ship a recording writer.
+# The `tests/` harness links the production type instead of re-declaring a copy of it, so it turns
+# this on; nothing else does.
+test-support = []
+
 [[bin]]
 name = "forge"
 path = "src/bin/forge.rs"

@@ -119,7 +119,7 @@ pub use writer::{
     ForgeEvidenceReader, ForgeReleaseExecutor, ForgeStateWriter, NullWriter, OkRelease,
 };
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use writer::RecordingWriter;
 pub use xml::{definition_from_xml, parse_process_definition_xml};
 

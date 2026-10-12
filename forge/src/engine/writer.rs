@@ -155,7 +155,7 @@ impl ForgeStateWriter for NullWriter {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub struct RecordingWriter {
     pub holds: std::sync::Mutex<Vec<(String, String)>>,
     pub completed: std::sync::Mutex<Vec<String>>,
@@ -184,7 +184,7 @@ pub struct RecordingWriter {
     >,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Default for RecordingWriter {
     fn default() -> Self {
         Self {
@@ -203,7 +203,7 @@ impl Default for RecordingWriter {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl ForgeStateWriter for RecordingWriter {
     fn mark_story_human_hold(&self, story_id: &str, reason: &str) -> Result<(), String> {
         self.holds
