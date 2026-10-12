@@ -807,9 +807,16 @@ fn run_maestro_streaming(
     let mut cmd = Command::new(cli_bin);
     cmd.current_dir(cwd);
     cmd.args(args);
+    // WO-201: the child must not inherit the control plane's environment. `Command` inherits
+    // the parent's variables unless cleared, so a production database URL set on the operator's
+    // machine would cross into the model turn. Clear first, then apply the sanitized allowlist —
+    // the same order as `opencode_client::apply_vendor_env` — and pin `PWD` to the turn's own
+    // directory so a stale inherited value cannot retarget the vendor's project resolution.
     if let Some(env) = env {
+        cmd.env_clear();
         cmd.envs(env);
     }
+    cmd.env("PWD", cwd);
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
     cmd.stdin(std::process::Stdio::null());
@@ -1604,6 +1611,50 @@ mod tests {
             resume_session(None, Some("other-worktree-session".into()), false),
             None,
             "a session from another worktree must never be resumed here"
+        );
+    }
+
+    #[test]
+    fn maestro_child_env_does_not_inherit_prod_database_url() {
+        // WO-201 (red first): a sentinel DATABASE_URL_PROD in the parent environment must be
+        // absent in the spawned child. The allowlist (`sanitized_model_env`) already strips it
+        // from the map, but `Command` inherits the parent environment unless `env_clear()` runs —
+        // so the child sees the sentinel until the spawn clears first and applies second.
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let _guard = lock_env();
+        let sentinel = "wo201-sentinel-prod-url";
+        std::env::set_var("DATABASE_URL_PROD", sentinel);
+        let dir = std::env::temp_dir().join(format!("forge-maestro-env-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let script = dir.join("print-prod.sh");
+        {
+            let mut f = std::fs::File::create(&script).expect("script");
+            writeln!(f, "#!/bin/sh\necho \"PROD_URL=[${{DATABASE_URL_PROD-unset}}]\"")
+                .expect("write");
+        }
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        // Built AFTER the sentinel is set, so the allowlist itself is proven to exclude it.
+        let env = sanitized_model_env();
+        assert!(
+            !env.contains_key("DATABASE_URL_PROD"),
+            "the allowlist must strip DATABASE_URL_PROD"
+        );
+        let result = run_maestro_streaming(
+            script.to_str().unwrap(),
+            dir.to_str().unwrap(),
+            &[],
+            Some(&env),
+            None,
+            Some(Duration::from_secs(60)),
+        )
+        .expect("the probe script runs");
+        std::env::remove_var("DATABASE_URL_PROD");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            !result.stdout.contains(sentinel),
+            "the child inherited DATABASE_URL_PROD from the parent: {}",
+            result.stdout.trim()
         );
     }
 
