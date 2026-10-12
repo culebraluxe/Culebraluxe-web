@@ -275,18 +275,26 @@ fn scan_pinned_chunk(
 ) -> Result<(usize, Vec<RuleObservation>, Vec<rust_rules::ParseIssue>), String> {
     let mut files = Vec::new();
     let mut bytes = 0usize;
+    // `consumed`, not `files.len()`: a pending path the pin does not hold is a path this chunk is finished
+    // with, and counting only what was read would hand it back as pending on every later chunk forever (the
+    // scan resumes from `remaining_files`, which is built from this count).
+    let mut consumed = 0usize;
     for path in pending_files.iter().take(MAX_FILES) {
-        let source = discovery::read_pinned_source(root, revision, path)?;
+        let Some(source) = discovery::read_pinned_source(root, revision, path)? else {
+            consumed += 1;
+            continue;
+        };
         if !files.is_empty() && bytes.saturating_add(source.len()) > MAX_SCAN_BYTES {
             break;
         }
+        consumed += 1;
         bytes += source.len();
         files.push((path.clone(), source));
         if bytes >= MAX_SCAN_BYTES {
             break;
         }
     }
-    let processed = files.len();
+    let processed = consumed;
     let (observations, parse_issues) = scan_observations(&files, revision);
     Ok((processed, observations, parse_issues))
 }
@@ -628,7 +636,9 @@ pub fn run_learn_dry_run(root: &Path) -> Result<String, String> {
     let mut files = Vec::new();
     let mut bytes = 0usize;
     for path in paths.iter().take(MAX_FILES) {
-        let source = discovery::read_pinned_source(root, &revision, path)?;
+        let Some(source) = discovery::read_pinned_source(root, &revision, path)? else {
+            continue;
+        };
         if !files.is_empty() && bytes.saturating_add(source.len()) > MAX_SCAN_BYTES {
             break;
         }

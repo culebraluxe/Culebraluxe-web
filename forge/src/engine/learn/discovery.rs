@@ -226,11 +226,20 @@ fn pinned_paths(root: &Path, revision: &str) -> Result<Vec<String>, String> {
     Ok(paths)
 }
 
+/// The pinned revision's copy of `path`, or `None` when the revision does not hold that path at all.
+///
+/// ABSENCE IS NOT A FAILURE (2026-10-12). A window that changed a path and then deleted it names the path in
+/// the commit that changed it (`--since` cannot filter a later deletion), and the durable scan resumes from a
+/// *stored* pending list, so the same path is asked for again on every tick. Failing the chunk there stopped
+/// the whole pass and the scan never advanced: a single deletion in the window ended learning for good, with
+/// the same `fatal: path 'db/src/document_sign.rs' does not exist in '987a7ffab'` every three minutes. A path
+/// the pin does not have holds nothing to observe, so it reads as absent and the chunk moves on. Every other
+/// git failure is still a failure.
 pub(super) fn read_pinned_source(
     root: &Path,
     revision: &str,
     path: &str,
-) -> Result<String, String> {
+) -> Result<Option<String>, String> {
     if path.is_empty()
         || path.starts_with('/')
         || path.contains('\\')
@@ -243,7 +252,16 @@ pub(super) fn read_pinned_source(
         ));
     }
     let spec = format!("{revision}:{path}");
-    let bytes = git_stdout(root, &["show".into(), spec], MAX_SOURCE_BYTES + 1)?;
+    let bytes = match git_stdout(root, &["show".into(), spec], MAX_SOURCE_BYTES + 1) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return if pinned_holds_path(root, revision, path)? {
+                Err(error)
+            } else {
+                Ok(None)
+            };
+        }
+    };
     if bytes.len() > MAX_SOURCE_BYTES {
         return Err(format!(
             "source file {path} exceeds the {} byte scan limit at {revision}",
@@ -251,7 +269,28 @@ pub(super) fn read_pinned_source(
         ));
     }
     String::from_utf8(bytes)
+        .map(Some)
         .map_err(|_| format!("source file {path} is not valid UTF-8 at {revision}"))
+}
+
+/// Whether the pinned revision holds that exact path, asked of the tree rather than of the object database: a
+/// path with no blob in the pin exits non-zero from `cat-file -e` for "absent" and for "bad spec" alike, while
+/// `ls-tree -- <path>` answers with an empty list and exit 0 either way.
+fn pinned_holds_path(root: &Path, revision: &str, path: &str) -> Result<bool, String> {
+    let bytes = git_stdout(
+        root,
+        &[
+            "ls-tree".into(),
+            "-r".into(),
+            "-z".into(),
+            "--name-only".into(),
+            revision.into(),
+            "--".into(),
+            path.into(),
+        ],
+        64 * 1024,
+    )?;
+    Ok(!bytes.is_empty())
 }
 
 #[cfg(test)]
@@ -306,7 +345,9 @@ mod tests {
 
         let paths = changed_paths(root, Some(&first), &pinned, 0).expect("revision diff");
         assert_eq!(paths, vec!["src/lib.rs"]);
-        let source = read_pinned_source(root, &pinned, &paths[0]).expect("pinned file");
+        let source = read_pinned_source(root, &pinned, &paths[0])
+            .expect("pinned file")
+            .expect("the pin holds it");
         assert!(source.contains("pinned"));
         assert!(!source.contains("mutable_worktree"));
     }
@@ -369,10 +410,61 @@ mod tests {
         git(root, &["commit", "-qam", "change one path, delete another"]);
         let pinned = git(root, &["rev-parse", "HEAD"]);
 
-        // The `--since` form: the only form that can name a path the pin does not hold.
+        // The premise, asserted so a flake names itself instead of showing an empty list: the `--since` form
+        // is the only form that can name a path the pin does not hold.
+        let raw = git(
+            root,
+            &[
+                "log",
+                "--since=@0",
+                "--diff-filter=ACMRT",
+                "--name-only",
+                "--pretty=format:",
+                "-z",
+                &pinned,
+                "--",
+            ],
+        );
+        assert!(
+            raw.contains("src/gone.rs"),
+            "the window must name the deleted path, or this test proves nothing: {raw:?}"
+        );
+
         let paths = changed_paths(root, None, &pinned, 0).expect("revision log");
         assert_eq!(paths, vec!["src/kept.rs"]);
-        let source = read_pinned_source(root, &pinned, &paths[0]).expect("pinned file");
+        let source = read_pinned_source(root, &pinned, &paths[0])
+            .expect("pinned file")
+            .expect("the pin holds it");
         assert!(source.contains("kept_again"));
+    }
+
+    /// And the read itself, which is the call the live failure went through: the durable scan resumes from a
+    /// pending list it stored earlier, so the deletion keeps arriving long after the window that named it.
+    #[test]
+    fn a_path_the_pinned_revision_does_not_hold_reads_as_absent() {
+        let temp = tempfile::tempdir().expect("temporary repository");
+        let root = temp.path();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "user.name", "Forge Test"]);
+        git(
+            root,
+            &["config", "user.email", "forge-test@example.invalid"],
+        );
+        fs::write(root.join("kept.rs"), "pub fn kept() {}\n").expect("kept source");
+        fs::write(root.join("gone.rs"), "pub fn gone() {}\n").expect("doomed source");
+        git(root, &["add", "kept.rs", "gone.rs"]);
+        git(root, &["commit", "-qm", "initial"]);
+        git(root, &["rm", "-q", "gone.rs"]);
+        git(root, &["commit", "-qam", "delete one path"]);
+        let pinned = git(root, &["rev-parse", "HEAD"]);
+
+        assert_eq!(
+            read_pinned_source(root, &pinned, "gone.rs").expect("git answers"),
+            None
+        );
+        let kept = read_pinned_source(root, &pinned, "kept.rs")
+            .expect("git answers")
+            .expect("the pin holds it");
+        assert!(kept.contains("kept"));
     }
 }
