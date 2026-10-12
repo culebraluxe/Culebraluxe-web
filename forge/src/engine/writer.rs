@@ -100,6 +100,7 @@ impl ForgeStateWriter for NullWriter {
     }
 }
 
+#[cfg(test)]
 pub struct RecordingWriter {
     pub holds: std::sync::Mutex<Vec<(String, String)>>,
     pub completed: std::sync::Mutex<Vec<String>>,
@@ -114,6 +115,7 @@ pub struct RecordingWriter {
     pub usage: std::sync::Mutex<Vec<(String, crate::engine::harness::HarnessUsage)>>,
 }
 
+#[cfg(test)]
 impl Default for RecordingWriter {
     fn default() -> Self {
         Self {
@@ -129,6 +131,7 @@ impl Default for RecordingWriter {
     }
 }
 
+#[cfg(test)]
 impl ForgeStateWriter for RecordingWriter {
     fn mark_story_human_hold(&self, story_id: &str, reason: &str) -> Result<(), String> {
         self.holds
