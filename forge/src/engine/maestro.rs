@@ -489,8 +489,10 @@ impl RoleHarness for MaestroHarness {
         }
 
         // Execution receipt, before the first model token is spent: what runs, where, as whom.
+        // WO-202: the id is the backend constant, not a hardcoded vendor string.
         eprintln!(
-            "harness=maestro agent={} bin={} cwd={} model_policy={}",
+            "harness={} agent={} bin={} cwd={} model_policy={}",
+            MAESTRO_HARNESS_ADAPTER_ID,
             self.agent,
             self.cli_bin,
             cwd,
