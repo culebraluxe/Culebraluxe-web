@@ -177,13 +177,19 @@ impl TemplateDefinition {
 
     /// The signature blocks that are on this form for the values supplied, in template order. Every consumer that draws,
     /// sends, issues or signs a block reads this, so a block whose condition is not met is absent everywhere at once.
+    ///
+    /// The gates read the party derivations (the spouse-signs flag, the cobroker flag), which a save writes but a
+    /// converted or unsaved form does not yet carry. They are worked out here from the answers, so a block never
+    /// depends on whether the form happened to be saved first.
     pub fn active_signature_groups(
         &self,
         values: &BTreeMap<String, String>,
     ) -> Vec<&TemplateSignatureGroup> {
+        let mut answers = values.clone();
+        crate::forms_parties::apply_party_derivations(&self.id, &mut answers);
         self.signature_groups
             .iter()
-            .filter(|group| Self::when_satisfied(group.when.as_ref(), values))
+            .filter(|group| Self::when_satisfied(group.when.as_ref(), &answers))
             .collect()
     }
 

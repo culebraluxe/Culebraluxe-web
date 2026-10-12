@@ -48,7 +48,7 @@
   <field id="sellerSpouseSignEmail" label="Spouse signer email" type="email" derived="true"/>
   <field id="sellerSpouseOnForm" label="Spouse signs" type="text" derived="true"/>
   <field id="hasCobroker" label="Is there a cobroker (buyer's broker)?" type="select" required="false" options="No, Yes"/>
-  <field id="cobrokerName" label="Cobroker (buyer\'s broker)" type="text" when="hasCobroker:Yes"/>
+  <field id="cobrokerName" label="Cobroker (buyer's broker)" type="text" when="hasCobroker:Yes"/>
   <field id="cobrokerEmail" label="Cobroker Email" type="email" required="false" when="hasCobroker:Yes"/>
   <field id="brokerName" label="Broker" type="text" required="true" fixed="Lisa Penfield"/>
   <field id="property" label="Property" type="text" required="true" source="property.name"/>
