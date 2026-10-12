@@ -473,10 +473,18 @@ impl<S: TxStore> ForgeRuntime<S> {
             offset += page_len;
         }
         for instance in &instances {
-            if instance.subject_type.as_deref() != Some("story")
-                || instance.subject_id.as_deref() != Some(story_id)
-                || instance.business_key.as_deref() != Some(story_id)
-            {
+            // The same policy the ledger's recovery maps rows with (`db_ledger::story_identity`): a business
+            // key that is absent says nothing, one that is there has to agree. This copy being strict is the
+            // other half of the 2026-10-12 outage — an instance started before Forge wrote the key could not
+            // be resumed here either, so the completions the sweep refused had no second door.
+            let names_this_story = crate::engine::db_ledger::story_identity(
+                instance.subject_type.as_deref(),
+                instance.subject_id.as_deref(),
+                instance.business_key.as_deref(),
+            )
+            .map(|resolved| resolved == story_id)
+            .unwrap_or(false);
+            if !names_this_story {
                 return Err(WorkflowError::generic(format!(
                     "completion recovery instance {} has invalid story provenance for {story_id}",
                     instance.id

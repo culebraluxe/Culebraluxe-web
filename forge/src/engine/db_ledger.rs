@@ -45,6 +45,39 @@ fn failed(operation: &str, error: impl std::fmt::Display) -> WorkflowError {
     WorkflowError::generic(format!("completion ledger {operation}: {error}"))
 }
 
+/// The one story a process instance names — the provenance policy both recovery paths read.
+///
+/// A business key is a *second spelling* of the subject id, never a replacement for it: the discovery query
+/// already accepts either (`pi.subject_id = $1 or pi.business_key = $1`). So the question a row has to
+/// answer is whether a key that *is* there agrees, not whether one is there at all. `subject_type = 'story'`
+/// plus a non-blank `subject_id` is the identity; a key that is present and different refuses, because that
+/// ambiguity is a human's to resolve and applying the unit to either story would be a guess.
+///
+/// WHY AN ABSENT KEY IS NOT A CONFLICT (2026-10-12). Forge only began recording the key when it started a
+/// story run (`runtime.rs` `start_process`), so every completion accepted before that carries NULL. Read
+/// strictly — `business_key != Some(story_id)` — that refused *every* row in the ledger: 557 unfinished
+/// completions, the sweep dead since 2026-10-03, and the worker exiting non-zero every three minutes before
+/// it could claim anything. A column nobody wrote held the whole queue hostage.
+pub(crate) fn story_identity(
+    subject_type: Option<&str>,
+    subject_id: Option<&str>,
+    business_key: Option<&str>,
+) -> std::result::Result<String, &'static str> {
+    if subject_type != Some("story") {
+        return Err("process subject is not a story");
+    }
+    let story_id = subject_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or("story subject id is missing")?;
+    if let Some(key) = business_key.map(str::trim).filter(|value| !value.is_empty()) {
+        if key != story_id {
+            return Err("business key disagrees with story subject id");
+        }
+    }
+    Ok(story_id.to_string())
+}
+
 /// The one budget a completion may spend, in the durable vocabulary.
 fn db_spend(spend: CompletionSpend) -> DbSpend {
     match spend {
@@ -148,17 +181,8 @@ impl CompletionLedger for DbCompletionLedger {
         story_id: Option<&str>,
         limit: usize,
     ) -> Result<Option<Vec<CompletionRecord>>> {
-        let rows = with_shared(|db, rt| {
-            let dao = ForgeEngineDao::new(db.clone());
-            rt.block_on(async {
-                dao.unfinished_forge_completions(story_id, limit)
-                    .await
-                    .map_err(|error| error.to_string())
-            })
-        })
-        .map_err(|error| failed("discover unfinished completions", error))?
-        .map_err(|error| failed("discover unfinished completions", error))?;
-        rows.into_iter()
+        unfinished_rows(story_id, limit)?
+            .into_iter()
             .map(completion_record_from_event)
             .collect::<Result<Vec<_>>>()
             .map(Some)
@@ -193,6 +217,37 @@ impl CompletionLedger for DbCompletionLedger {
     }
 }
 
+/// The four parts a completion record is built from, or the fixed sentence naming the one the row lacks.
+///
+/// ONE SHAPE CHECK, TWO READERS. The sweep counts these sentences (a page that cannot advance must not
+/// reprint a page of ids on every pass), and the ledger's mapping reports them as the conflict that stopped
+/// the unit — so a row the sweep calls unreadable is exactly one the mapping would have refused.
+fn completion_parts(
+    row: &db::UnfinishedForgeCompletion,
+) -> std::result::Result<(String, String, String, serde_json::Value), &'static str> {
+    let story_id = story_identity(
+        row.subject_type.as_deref(),
+        row.subject_id.as_deref(),
+        row.business_key.as_deref(),
+    )?;
+    let task_id = non_blank(row.task_id.as_deref()).ok_or("task id is missing")?;
+    let node_id = non_blank(row.node_id.as_deref()).ok_or("workflow node is missing")?;
+    let form_data = row.form_data.clone().ok_or("accepted form data is missing")?;
+    if !form_data.is_object() {
+        return Err("accepted form data is not an object");
+    }
+    Ok((story_id, task_id, node_id, form_data))
+}
+
+/// A row names its task or its node when the column is there and is not blank: both reach recovery as
+/// nullable text, and a row written before the writer set them is the row this module has to survive.
+fn non_blank(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 fn completion_record_from_event(row: db::UnfinishedForgeCompletion) -> Result<CompletionRecord> {
     let conflict = |reason: &str| {
         failed(
@@ -200,31 +255,7 @@ fn completion_record_from_event(row: db::UnfinishedForgeCompletion) -> Result<Co
             reason,
         )
     };
-    if row.subject_type.as_deref() != Some("story") {
-        return Err(conflict("process subject is not a story"));
-    }
-    let story_id = row
-        .subject_id
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| conflict("story subject id is missing"))?;
-    if row.business_key.as_deref() != Some(story_id) {
-        return Err(conflict("business key disagrees with story subject id"));
-    }
-    let task_id = row
-        .task_id
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| conflict("task id is missing"))?;
-    let node_id = row
-        .node_id
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| conflict("workflow node is missing"))?;
-    let form_data = row
-        .form_data
-        .ok_or_else(|| conflict("accepted form data is missing"))?;
-    if !form_data.is_object() {
-        return Err(conflict("accepted form data is not an object"));
-    }
+    let (story_id, task_id, node_id, form_data) = completion_parts(&row).map_err(conflict)?;
     let form = workflow::json::parse(&form_data.to_string())
         .map_err(|error| conflict(&format!("accepted form data is invalid JSON: {error}")))?;
     if form.as_object().is_none() {
@@ -233,23 +264,85 @@ fn completion_record_from_event(row: db::UnfinishedForgeCompletion) -> Result<Co
     Ok(CompletionRecord {
         task_id,
         process_instance_id: row.process_instance_id,
-        story_id: story_id.to_string(),
+        story_id,
         node_id: Some(node_id),
         evidence: crate::engine::facts::evidence_from_value(&form),
     })
 }
 
+/// The one discovery read the two recovery paths share: a bounded page of rows by event id. The ledger
+/// method maps the page strictly; the worker's sweep maps it row by row (see below).
+fn unfinished_rows(
+    story_id: Option<&str>,
+    limit: usize,
+) -> Result<Vec<db::UnfinishedForgeCompletion>> {
+    with_shared(|db, rt| {
+        let dao = ForgeEngineDao::new(db.clone());
+        rt.block_on(async {
+            dao.unfinished_forge_completions(story_id, limit)
+                .await
+                .map_err(|error| error.to_string())
+        })
+    })
+    .map_err(|error| failed("discover unfinished completions", error))?
+    .map_err(|error| failed("discover unfinished completions", error))
+}
+
 /// Recover a bounded page of durable accepted completions at the worker service boundary.
 /// A successful apply removes that event from the next page; failure stays visible and is retried
 /// on the next worker pass. No model, process, or workflow action is repeated.
+///
+/// ONE UNREADABLE ROW IS NOT A STOPPED QUEUE (2026-10-12). The page is ordered by event id, so the first row
+/// the ledger cannot *map* is the first row of every later page too: while mapping one row was fatal, the
+/// worker exited non-zero before it claimed anything, every three minutes, and the rows behind the unreadable
+/// one were never looked at. A row whose shape cannot describe a completion is now named and skipped — the
+/// rows behind it are still recovered, and it stays unfinished (and keeps being named here) until its row is
+/// repaired — while a failed `apply` (a database that cannot answer, a receipt that holds another unit)
+/// stays fatal exactly as it was: calling those "skipped" would silently drop effects the ledger never
+/// applied, which is the one thing this pass must never do.
 pub fn reconcile_unfinished_completion_batch(limit: usize) -> Result<usize> {
     let ledger = DbCompletionLedger;
-    let records = ledger.unfinished(None, limit.max(1))?.unwrap_or_default();
     let mut applied = 0;
-    for record in records {
-        if ledger.apply(&record)?.applied() {
-            applied += 1;
+    let mut shapes: Vec<&'static str> = Vec::new();
+    let mut details = Vec::new();
+    for row in unfinished_rows(None, limit.max(1))? {
+        let event_id = row.event_id;
+        if let Err(reason) = completion_parts(&row) {
+            shapes.push(reason);
+            continue;
         }
+        match completion_record_from_event(row) {
+            Ok(record) => {
+                if ledger.apply(&record)?.applied() {
+                    applied += 1;
+                }
+            }
+            Err(error) => details.push(format!("event {event_id}: {error}")),
+        }
+    }
+    if !shapes.is_empty() {
+        // Counted, not reprinted: the page is ordered by event id and re-read on every pass, so a row that
+        // cannot describe a completion sits in every later page as well. One line per reason is the whole
+        // signal a human needs, and it stays one line for as long as that row is there.
+        let quarantined = shapes.len();
+        let mut counted: Vec<(&str, usize)> = Vec::new();
+        for reason in shapes {
+            match counted.iter_mut().find(|(named, _)| *named == reason) {
+                Some((_, count)) => *count += 1,
+                None => counted.push((reason, 1)),
+            }
+        }
+        let summary = counted
+            .iter()
+            .map(|(reason, count)| format!("{count} x {reason}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        eprintln!(
+            "forge-worker: completion recovery quarantined {quarantined} row(s) this pass — {summary}. They stay unfinished (the next pass names them again) until the row is repaired; the rest of the page is still recovered."
+        );
+    }
+    for detail in &details {
+        eprintln!("forge-worker: completion recovery quarantined {detail}");
     }
     Ok(applied)
 }
@@ -258,4 +351,91 @@ pub fn reconcile_unfinished_completion_batch(limit: usize) -> Result<usize> {
 /// (`neon_sql::RECEIPT_PREFIX`) instead of each holding its own literal.
 pub fn completion_receipt_prefix() -> &'static str {
     RECEIPT_PREFIX
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{completion_parts, story_identity};
+
+    /// The answer this policy has to give: an absent key is not a disagreement. The middle cases are the
+    /// ones that stood between every worker pass and its queue — a month of completions accepted before
+    /// Forge wrote the key at all.
+    #[test]
+    fn story_identity_reads_an_absent_business_key_as_agreement() {
+        assert_eq!(
+            story_identity(Some("story"), Some("ENG-1"), None).as_deref(),
+            Ok("ENG-1")
+        );
+        assert_eq!(
+            story_identity(Some("story"), Some("ENG-1"), Some("")).as_deref(),
+            Ok("ENG-1")
+        );
+        assert_eq!(
+            story_identity(Some("story"), Some("ENG-1"), Some("   ")).as_deref(),
+            Ok("ENG-1")
+        );
+        assert_eq!(
+            story_identity(Some("story"), Some(" ENG-1 "), Some("ENG-1")).as_deref(),
+            Ok("ENG-1")
+        );
+    }
+
+    /// And the answers it must never give: a key that is there and disagrees, or a row that names no story.
+    #[test]
+    fn story_identity_refuses_a_key_that_disagrees_and_a_row_that_names_no_story() {
+        assert_eq!(
+            story_identity(Some("story"), Some("ENG-1"), Some("ENG-2")),
+            Err("business key disagrees with story subject id")
+        );
+        assert_eq!(
+            story_identity(None, Some("ENG-1"), None),
+            Err("process subject is not a story")
+        );
+        assert_eq!(
+            story_identity(Some("ticket"), Some("ENG-1"), None),
+            Err("process subject is not a story")
+        );
+        assert_eq!(
+            story_identity(Some("story"), None, None),
+            Err("story subject id is missing")
+        );
+        assert_eq!(
+            story_identity(Some("story"), Some("  "), None),
+            Err("story subject id is missing")
+        );
+    }
+
+    /// The production row. Event 1173 and the 556 behind it arrived with no business key and no node id —
+    /// both written before Forge recorded them. The missing key must not be what refuses the row (doing that
+    /// was the outage); the missing node must be, because the node is what decides which budget a completion
+    /// spends, and spending the wrong budget is worse than reporting the row unreadable.
+    #[test]
+    fn completion_parts_refuses_a_legacy_row_for_its_missing_node_not_its_missing_key() {
+        let row = |business_key: Option<&str>, node_id: Option<&str>| db::UnfinishedForgeCompletion {
+            event_id: 1173,
+            process_instance_id: "f5cbf444-5661-45af-976f-4735d505c743".to_string(),
+            subject_type: Some("story".to_string()),
+            subject_id: Some("ENG-FORGE-V13".to_string()),
+            business_key: business_key.map(str::to_string),
+            task_id: Some("2b2d3527-8eb4-46b2-92e6-23e11c1f7b3e".to_string()),
+            node_id: node_id.map(str::to_string),
+            form_data: Some(serde_json::json!({"candidateSha": "a4f0"})),
+        };
+        assert_eq!(
+            completion_parts(&row(None, None)),
+            Err("workflow node is missing")
+        );
+        let named = completion_parts(&row(None, Some("smith"))).map(|(story, task, node, form)| {
+            (story, task, node, form.is_object())
+        });
+        assert_eq!(
+            named,
+            Ok((
+                "ENG-FORGE-V13".to_string(),
+                "2b2d3527-8eb4-46b2-92e6-23e11c1f7b3e".to_string(),
+                "smith".to_string(),
+                true
+            ))
+        );
+    }
 }
