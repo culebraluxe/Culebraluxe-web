@@ -160,6 +160,9 @@ fn check_production(
             "HUMAN STEP: production's build stamp could not be read ({why}). Make {url}/api/build-info answer, then \
              resume this hold."
         )),
+        (Some(_), Ok(live)) if live.len() < 7 || !live.bytes().all(|byte| byte.is_ascii_hexdigit()) => Err(format!(
+            "HUMAN STEP: production's build-info returned an invalid SHA ({live}). It must be at least 7 hex characters. Make {url}/api/build-info answer, then resume this hold."
+        )),
         (Some(expected), Ok(live)) if expected.starts_with(&live) || live.starts_with(expected) => Ok(live),
         (Some(expected), Ok(live)) => Err(format!(
             "HUMAN STEP: production at {url} is running {live}, not {expected}. Deploy it \
@@ -389,17 +392,66 @@ mod production_check_tests {
     }
 
     #[test]
-    fn a_harness_with_no_production_and_other_nodes_keep_the_model_turn() {
+    fn live_sha_too_short_is_refused() {
+        // Degenerate build-info string (only 3 hex chars) must be refused
+        let prod = production(Ok("abc"));
         let writer = RecordingWriter::default();
-        let mut doubles = production(Ok("0123456"));
-        doubles.probe = false;
-        assert!(check("deploy", &doubles, &published(), &writer).is_none());
-        assert!(check(
-            "repair_devops",
-            &production(Ok("0123456")),
-            &published(),
-            &writer
-        )
-        .is_none());
+        let out = check("deploy", &prod, &published(), &writer)
+            .expect("answered")
+            .expect("ok");
+        assert_eq!(out.transition_name.as_deref(), Some("hold"));
+        let reason = out
+            .evidence
+            .deliverable_rejection
+            .clone()
+            .unwrap_or_default();
+        assert!(
+            reason.contains("build-info") || reason.contains("too short"),
+            "degenerate SHA should be refused: {reason}"
+        );
+    }
+
+    #[test]
+    fn live_sha_non_hex_is_refused() {
+        // Non-hex build-info string must be refused
+        let prod = production(Ok("xyz123"));
+        let writer = RecordingWriter::default();
+        let out = check("deploy", &prod, &published(), &writer)
+            .expect("answered")
+            .expect("ok");
+        assert_eq!(out.transition_name.as_deref(), Some("hold"));
+        let reason = out
+            .evidence
+            .deliverable_rejection
+            .clone()
+            .unwrap_or_default();
+        assert!(
+            reason.contains("build-info") || reason.contains("non-hex") || reason.contains("invalid"),
+            "non-hex SHA should be refused: {reason}"
+        );
+    }
+
+    #[test]
+    fn live_sha_valid_7_hex_passes() {
+        // A real 7+ hex-character SHA should pass
+        let prod = production(Ok("0123456"));
+        let writer = RecordingWriter::default();
+        let out = check("deploy", &prod, &published(), &writer)
+            .expect("answered")
+            .expect("ok");
+        assert_eq!(out.transition_name.as_deref(), Some("complete"));
+        assert!(facts_say(&out.evidence, "deploymentSucceeded"));
+    }
+
+    #[test]
+    fn live_sha_valid_long_hex_passes() {
+        // A real longer hex SHA should also pass
+        let prod = production(Ok("0123456789abcdef"));
+        let writer = RecordingWriter::default();
+        let out = check("deploy", &prod, &published(), &writer)
+            .expect("answered")
+            .expect("ok");
+        assert_eq!(out.transition_name.as_deref(), Some("complete"));
+        assert!(facts_say(&out.evidence, "deploymentSucceeded"));
     }
 }
