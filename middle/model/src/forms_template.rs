@@ -399,6 +399,35 @@ mod tests {
     }
 
     #[test]
+    fn a_converted_form_that_was_never_saved_still_draws_its_spouse_and_cobroker() {
+        // A form carried forward from v6 holds the answers but none of the derived lines a save writes. The blocks must
+        // still follow the answers: a named spouse signs, and a named cobroker is on the form.
+        let library = library();
+        let template = library
+            .version("LISTING-01", 7)
+            .expect("LISTING-01 v7 loads");
+        let answers: BTreeMap<String, String> = [
+            ("sellerName", "Luis Ruiz"),
+            ("sellerKind", "Individual"),
+            ("sellerCivilStatus", "Married"),
+            ("sellerSpouseName", "Marta Ruiz"),
+            ("cobrokerName", "Pat Cobroker"),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let roles: Vec<&str> = template
+            .active_signature_groups(&answers)
+            .iter()
+            .map(|group| group.role.as_str())
+            .collect();
+        assert_eq!(
+            roles,
+            vec!["SELLER", "SELLER_SPOUSE", "BUYER_BROKER", "SELLER_BROKER"]
+        );
+    }
+
+    #[test]
     fn a_when_on_a_signature_group_must_name_a_real_field() {
         let xml = std::fs::read_to_string(templates_dir_in_repo().join("LISTING-01.v7.xml"))
             .expect("v7 reads");

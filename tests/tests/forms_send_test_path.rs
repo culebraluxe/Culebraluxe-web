@@ -12,9 +12,11 @@ use uuid::Uuid;
 #[tokio::test]
 #[ignore = "issues one form and sends it for signature; set SEND_TARGET, SEND_ACTOR_APP_USER_ID, SEND_FORM_ID, SEND_SIGNER_NAME, SEND_RECIPIENT_EMAIL"]
 async fn send_the_form_for_signature_to_the_recipient() {
+    // An unknown target is a refusal, never a silent fall back to DEV: the send is real on PROD.
     let target = match std::env::var("SEND_TARGET").as_deref() {
         Ok("prod") => DbTarget::Prod,
-        _ => DbTarget::Dev,
+        Ok("dev") => DbTarget::Dev,
+        other => panic!("SEND_TARGET must be \"dev\" or \"prod\" (got {other:?})"),
     };
     let actor = std::env::var("SEND_ACTOR_APP_USER_ID").expect("SEND_ACTOR_APP_USER_ID is set");
     let form_id = std::env::var("SEND_FORM_ID").expect("SEND_FORM_ID is set");

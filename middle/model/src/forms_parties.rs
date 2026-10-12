@@ -34,6 +34,22 @@ pub fn party_prefixes(template_id: &str) -> &'static [&'static str] {
 
 /// Writes the derived values for every party of this template into `values`.
 pub fn apply_party_derivations(template_id: &str, values: &mut BTreeMap<String, String>) {
+    // A listing that already names a cobroker has one: the cobroker block and acknowledgment follow the name, so a form
+    // converted from a version that had no cobroker switch carries its cobroker onto the page.
+    if template_id == "LISTING-01"
+        && values
+            .get("hasCobroker")
+            .map(|value| value.trim().is_empty())
+            .unwrap_or(true)
+        && ["cobrokerName", "cobrokerEmail"].iter().any(|key| {
+            values
+                .get(*key)
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false)
+        })
+    {
+        values.insert("hasCobroker".to_owned(), "Yes".to_owned());
+    }
     for prefix in party_prefixes(template_id) {
         let kind_key = format!("{prefix}Kind");
         if values
