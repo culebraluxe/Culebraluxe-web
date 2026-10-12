@@ -21,11 +21,11 @@ use crate::engine::service_binding::is_human_gate;
 use crate::engine::turn_budget;
 use crate::engine::worktree::{
     discard_unstarted_lane_worktree, integrate_lane_candidate, provision_worker_workspace,
-    remove_lane_worktree, resolve_repo_root, DEFAULT_WORKTREES_DIRNAME,
+    resolve_repo_root, DEFAULT_WORKTREES_DIRNAME,
 };
 use crate::roles::registry::ForgeServiceRegistry;
 use crate::roles::service::ForgeLaneServices;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -96,6 +96,30 @@ fn instance_status<S: TxStore>(rt: &ForgeRuntime<S>, instance_id: &str) -> Resul
         "{:?}",
         rt.engine().get_process_instance(instance_id)?.status
     ))
+}
+
+/// The result for a lane whose thread panicked before it reported (`WO-121` §3).
+///
+/// Extracted so this answer is testable without provoking a panic in a real thread: a failure that names
+/// the panic, a claim settled through the shared helper, and a tree that the lane's own guard already
+/// dispositioned as retained during the unwind.
+fn lane_that_never_reported(
+    jobs: &dyn JobService,
+    worker_id: &str,
+    fallback: LaneFallback,
+    reason: &str,
+) -> LaneExecutionResult {
+    let settlement_failure = fail_claimed_lane(jobs, worker_id, &fallback.claimed, reason, true);
+    let worktrees =
+        LaneWorktree::retained_by_its_lane(fallback.worktree_path, fallback.branch_name);
+    LaneExecutionResult {
+        claimed: fallback.claimed,
+        parent_worktree: fallback.parent_worktree,
+        base_commit: fallback.base_commit,
+        worktrees,
+        settlement_failure,
+        outcome: Err(WorkflowError::generic(reason)),
+    }
 }
 
 fn validate_story_concurrency(cap: usize, durable: bool) -> Result<()> {
@@ -246,14 +270,69 @@ struct PreparedDurableLane {
     branch_name: String,
     parent_worktree: PathBuf,
     base_commit: String,
+    /// The tree this lane owns, alive from provisioning until the drive loop settles it (`WO-121`).
+    worktrees: LaneWorktree,
 }
 
 struct LaneExecutionResult {
     claimed: ClaimedDurableLane,
-    worktree_path: PathBuf,
     parent_worktree: PathBuf,
     base_commit: String,
+    /// The lane's tree. The path that used to sit beside these fields now lives here (`WO-121`), because
+    /// a guard that owns the path is the only thing that can guarantee it is spoken for on every exit.
+    worktrees: LaneWorktree,
+    /// The durable job could not be settled while this lane's failure was being handled. `WO-121`: that
+    /// is a second failure, not a detail — the caller has to report it beside the first one.
+    settlement_failure: Option<String>,
     outcome: Result<ForgeRoleOutcome>,
+}
+
+/// What the batch needs to report a lane whose thread died before it produced a result (`WO-121` §3).
+/// Cloned before the lane moves into its thread, because the point is to have something left to name
+/// when the thread does not come back.
+#[derive(Clone)]
+struct LaneFallback {
+    claimed: ClaimedDurableLane,
+    worktree_path: PathBuf,
+    parent_worktree: PathBuf,
+    branch_name: String,
+    base_commit: String,
+}
+
+impl LaneFallback {
+    fn of(lane: &PreparedDurableLane) -> Self {
+        Self {
+            claimed: lane.claimed.clone(),
+            worktree_path: lane.worktree_path.clone(),
+            parent_worktree: lane.parent_worktree.clone(),
+            branch_name: lane.branch_name.clone(),
+            base_commit: lane.base_commit.clone(),
+        }
+    }
+}
+
+/// Fail ONE lane's durable claim, and return a settlement failure that happens on the way (`WO-121`).
+///
+/// The failure is RETURNED, and the caller folds it into the reason it reports for the lane: a claim
+/// that could not be released is a second fact about the lane, not a footnote to it. The line names
+/// the job so the stale-claim sweep can find it.
+fn fail_claimed_lane(
+    jobs: &dyn JobService,
+    worker_id: &str,
+    lane: &ClaimedDurableLane,
+    reason: &str,
+    permanent: bool,
+) -> Option<String> {
+    match jobs.fail(&lane.lease.job_id, worker_id, reason, permanent) {
+        Ok(()) => None,
+        Err(error) => {
+            eprintln!(
+                "forge-wave job={} could_not_release_claim error={error}",
+                lane.lease.job_id
+            );
+            Some(error.to_string())
+        }
+    }
 }
 
 fn fail_claimed_batch(
@@ -263,10 +342,153 @@ fn fail_claimed_batch(
     reason: &str,
 ) {
     for lane in lanes {
-        if let Err(error) = jobs.fail(&lane.lease.job_id, worker_id, reason, false) {
+        fail_claimed_lane(jobs, worker_id, lane, reason, false);
+    }
+}
+
+/// The primary failure decides. A failure that happens *while* it is being handled is reported beside
+/// it, never instead of it (`WO-121`): the primary text stays first, so a reader — and the doctor that
+/// scans these lines — still recognises the fault that stopped the lane.
+fn with_secondary_failure(primary: &str, what: &str, failure: &str) -> String {
+    format!("{primary}; additionally {what} failed: {failure}")
+}
+
+/// What the guard calls to remove a lane worktree: `discard_unstarted_lane_worktree`'s own signature.
+/// The error is a `String` because that is the worktree module's error type — the guard reports it
+/// beside whatever failure it is already handling rather than converting it (`WO-121`).
+type LaneWorktreeRemover =
+    Box<dyn Fn(&Path, &Path, &str, &str) -> std::result::Result<(), String> + Send>;
+
+/// Where one lane's worktree is, and what Forge decided to do with it.
+///
+/// `WO-121`. From `provision_worker_workspace` until the drive loop has settled the lane, the worktree
+/// is a resource this module owns. Ownership has ONE rule: the disposition is decided and named on
+/// every exit, including an unwind. Four `let _ = discard_unstarted_lane_worktree(..)` calls and a
+/// `join().expect(..)` were each able to end a lane with a tree nothing could explain.
+///
+/// Two dispositions, and the difference matters:
+///   * `release` — remove the tree, and the branch with it only while the branch still sits at its
+///     base. A branch that moved holds a candidate, so it stays, and the log names it.
+///   * `retain` — keep the tree, and say where it is and which branch it holds, because a lane that
+///     failed may hold uncommitted work and paid code outranks a tidy directory (`MEMORY.md`,
+///     "PAID CODE > GIT SHA"). A panic decides this the safe way: it records the retention instead of
+///     removing a tree nobody read.
+///
+/// `Drop` is the backstop. A lane that never reported still gets a disposition and a log line, so no
+/// exit — success, error, or panic — can leave a worktree orphaned and unexplained.
+struct LaneWorktree {
+    repo_root: PathBuf,
+    path: PathBuf,
+    branch_name: String,
+    base_commit: String,
+    disposition: LaneWorktreeDisposition,
+    remove: LaneWorktreeRemover,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LaneWorktreeDisposition {
+    Undecided,
+    Released,
+    Retained,
+}
+
+impl LaneWorktree {
+    fn new(repo_root: PathBuf, path: PathBuf, branch_name: String, base_commit: String) -> Self {
+        Self::with_remover(
+            repo_root,
+            path,
+            branch_name,
+            base_commit,
+            Box::new(discard_unstarted_lane_worktree),
+        )
+    }
+
+    fn with_remover(
+        repo_root: PathBuf,
+        path: PathBuf,
+        branch_name: String,
+        base_commit: String,
+        remove: LaneWorktreeRemover,
+    ) -> Self {
+        Self {
+            repo_root,
+            path,
+            branch_name,
+            base_commit,
+            disposition: LaneWorktreeDisposition::Undecided,
+            remove,
+        }
+    }
+
+    /// A guard for a lane whose owner exited before it could hand the tree over — an early return or a
+    /// panic. That exit left the tree in place and its own guard logged where, so this disposition is
+    /// already settled and a second removal here would misreport what happened.
+    fn retained_by_its_lane(path: PathBuf, branch_name: String) -> Self {
+        Self {
+            repo_root: PathBuf::new(),
+            path,
+            branch_name,
+            base_commit: String::new(),
+            disposition: LaneWorktreeDisposition::Retained,
+            remove: Box::new(|_, _, _, _| Ok(())),
+        }
+    }
+
+    /// What the guard decided. Read by the tests that assert a lane's exit disposition (`WO-121`).
+    #[cfg(test)]
+    fn disposition(&self) -> LaneWorktreeDisposition {
+        self.disposition
+    }
+
+    /// Release the tree. A cleanup failure is RETURNED, never swallowed: the caller is already handling
+    /// a primary failure and has to report both.
+    fn release(&mut self, task_id: &str) -> Option<String> {
+        if self.disposition != LaneWorktreeDisposition::Undecided {
+            return None;
+        }
+        self.disposition = LaneWorktreeDisposition::Released;
+        match (self.remove)(
+            &self.repo_root,
+            &self.path,
+            &self.branch_name,
+            &self.base_commit,
+        ) {
+            Ok(()) => None,
+            Err(error) => {
+                eprintln!(
+                    "forge-wave task={task_id} worktree_cleanup_failed={error}; branch={} remains reachable",
+                    self.branch_name
+                );
+                Some(error)
+            }
+        }
+    }
+
+    /// Keep the tree and name it: the path is what an operator inspects, and the branch is what
+    /// survives the tree.
+    fn retain(&mut self, task_id: &str, why: &str) {
+        if self.disposition != LaneWorktreeDisposition::Undecided {
+            return;
+        }
+        self.disposition = LaneWorktreeDisposition::Retained;
+        eprintln!(
+            "forge-wave task={task_id} {why}; isolated worktree retained at {} branch={}",
+            self.path.display(),
+            self.branch_name
+        );
+    }
+}
+
+impl Drop for LaneWorktree {
+    fn drop(&mut self) {
+        if self.disposition == LaneWorktreeDisposition::Undecided {
+            // Nobody released or retained this tree: its lane unwound before it reported. Retain it —
+            // a panic is not evidence that the tree is empty — but never silently.
+            self.disposition = LaneWorktreeDisposition::Retained;
             eprintln!(
-                "forge-wave job={} could_not_release_claim error={error}",
-                lane.lease.job_id
+                "forge-wave worktree_disposition=retained_on_exit worktree={} branch={} reason=the lane exited before it handed the tree over",
+                self.path.display(),
+                self.branch_name
             );
         }
     }
@@ -421,30 +643,41 @@ fn prepare_durable_batch<S: TxStore>(
                 base_ref: workspace.base_ref,
                 base_commit: workspace.base_commit,
             };
+            // The lane's tree is owned from here on (`WO-121`). Every exit below either releases it or
+            // retains it with a name; the guard's `Drop` covers only the exit nobody wrote.
+            let mut worktrees = LaneWorktree::new(
+                repo_root.clone(),
+                workspace.worktree_path.clone(),
+                branch_name.clone(),
+                base_commit.clone(),
+            );
             let forked_runner = match runner.fork_for_workspace(execution_workspace) {
                 Ok(Some(runner)) => runner,
                 Ok(None) => {
-                    let _ = discard_unstarted_lane_worktree(
-                        &repo_root,
-                        &workspace.worktree_path,
-                        &branch_name,
-                        &base_commit,
+                    let primary = format!(
+                        "service {} harness cannot create an isolated lane execution",
+                        lane.lease.service_key
                     );
                     return Err(WorkflowError::conflict(
                         "FORGE_PARALLEL_LANES_UNAVAILABLE",
-                        format!(
-                            "service {} harness cannot create an isolated lane execution",
-                            lane.lease.service_key
-                        ),
+                        match worktrees.release(&lane.task.task_id) {
+                            Some(cleanup) => {
+                                with_secondary_failure(&primary, "worktree discard", &cleanup)
+                            }
+                            None => primary,
+                        },
                     ));
                 }
                 Err(error) => {
-                    let _ = discard_unstarted_lane_worktree(
-                        &repo_root,
-                        &workspace.worktree_path,
-                        &branch_name,
-                        &base_commit,
-                    );
+                    // The fork error is returned as it came: its code is how the caller classifies it,
+                    // and a message is not worth losing a classification for. The cleanup failure is
+                    // reported beside it instead (`WO-121`).
+                    if let Some(cleanup) = worktrees.release(&lane.task.task_id) {
+                        eprintln!(
+                            "forge-wave task={} lane_fork_failed={error} worktree_discard_failed={cleanup}",
+                            lane.task.task_id
+                        );
+                    }
                     return Err(error);
                 }
             };
@@ -453,18 +686,18 @@ fn prepare_durable_batch<S: TxStore>(
                 .map(|ports| ports.harness().supports_interrupt())
                 .unwrap_or(false)
             {
-                let _ = discard_unstarted_lane_worktree(
-                    &repo_root,
-                    &workspace.worktree_path,
-                    &branch_name,
-                    &base_commit,
+                let primary = format!(
+                    "forked runner for service {} lost execution-scoped interruption",
+                    lane.lease.service_key
                 );
                 return Err(WorkflowError::conflict(
                     "FORGE_PARALLEL_LANES_UNAVAILABLE",
-                    format!(
-                        "forked runner for service {} lost execution-scoped interruption",
-                        lane.lease.service_key
-                    ),
+                    match worktrees.release(&lane.task.task_id) {
+                        Some(cleanup) => {
+                            with_secondary_failure(&primary, "worktree discard", &cleanup)
+                        }
+                        None => primary,
+                    },
                 ));
             }
             Ok(PreparedDurableLane {
@@ -479,18 +712,22 @@ fn prepare_durable_batch<S: TxStore>(
                 branch_name,
                 parent_worktree,
                 base_commit,
+                worktrees,
             })
         })();
         match preparation {
             Ok(prepared_lane) => prepared.push(prepared_lane),
             Err(error) => {
-                for lane in &prepared {
-                    let _ = discard_unstarted_lane_worktree(
-                        &lane.parent_worktree,
-                        &lane.worktree_path,
-                        &lane.branch_name,
-                        &lane.base_commit,
-                    );
+                // The batch is abandoned, so every lane that was already provisioned is released — and
+                // a release that fails is reported beside the error that abandoned the batch, never
+                // instead of it (`WO-121`).
+                for lane in &mut prepared {
+                    if let Some(cleanup) = lane.worktrees.release(&lane.claimed.task.task_id) {
+                        eprintln!(
+                            "forge-wave task={} batch_abandoned={error} worktree_discard_failed={cleanup}",
+                            lane.claimed.task.task_id
+                        );
+                    }
                 }
                 fail_claimed_batch(durable.jobs, worker_id, &claimed, &error.to_string());
                 return Err(error);
@@ -509,6 +746,7 @@ fn execute_durable_batch(
     wave_index: usize,
 ) -> Vec<LaneExecutionResult> {
     let active_lanes = Arc::new(AtomicUsize::new(0));
+    let lane_fallbacks: Vec<LaneFallback> = prepared.iter().map(LaneFallback::of).collect();
     std::thread::scope(|scope| {
         let handles: Vec<_> = prepared
             .into_iter()
@@ -519,6 +757,7 @@ fn execute_durable_batch(
                 let fallback_worktree = prepared_lane.worktree_path.clone();
                 let fallback_parent = prepared_lane.parent_worktree.clone();
                 let fallback_base = prepared_lane.base_commit.clone();
+                let fallback_branch = prepared_lane.branch_name.clone();
                 scope.spawn(move || {
                     let active = active_lanes.fetch_add(1, Ordering::SeqCst) + 1;
                     eprintln!(
@@ -536,10 +775,11 @@ fn execute_durable_batch(
                             let PreparedDurableLane {
                                 claimed,
                                 runner,
-                                worktree_path,
+                                worktree_path: _,
                                 branch_name: _,
                                 parent_worktree,
                                 base_commit,
+                                worktrees,
                             } = prepared_lane;
                             let services = ForgeLaneServices::new(runner.as_ref());
                             let registry = services.registry()?;
@@ -554,9 +794,10 @@ fn execute_durable_batch(
                             );
                             Ok(LaneExecutionResult {
                                 claimed,
-                                worktree_path,
                                 parent_worktree,
                                 base_commit,
+                                worktrees,
+                                settlement_failure: None,
                                 outcome,
                             })
                         },
@@ -564,29 +805,40 @@ fn execute_durable_batch(
                     let result = match execution {
                         Ok(Ok(result)) => result,
                         Ok(Err(error)) => {
-                            let _ = jobs.fail(
-                                &fallback_claimed.lease.job_id,
+                            let settlement_failure = fail_claimed_lane(
+                                jobs,
                                 worker_id,
+                                &fallback_claimed,
                                 &error.to_string(),
                                 true,
                             );
+                            let worktrees = LaneWorktree::retained_by_its_lane(
+                                fallback_worktree.clone(),
+                                fallback_branch.clone(),
+                            );
                             LaneExecutionResult {
                                 claimed: fallback_claimed,
-                                worktree_path: fallback_worktree,
                                 parent_worktree: fallback_parent,
                                 base_commit: fallback_base,
+                                worktrees,
+                                settlement_failure,
                                 outcome: Err(error),
                             }
                         }
                         Err(_) => {
                             let reason = "lane worker panicked before it could report an outcome";
-                            let _ =
-                                jobs.fail(&fallback_claimed.lease.job_id, worker_id, reason, true);
+                            let settlement_failure =
+                                fail_claimed_lane(jobs, worker_id, &fallback_claimed, reason, true);
+                            let worktrees = LaneWorktree::retained_by_its_lane(
+                                fallback_worktree.clone(),
+                                fallback_branch.clone(),
+                            );
                             LaneExecutionResult {
                                 claimed: fallback_claimed,
-                                worktree_path: fallback_worktree,
                                 parent_worktree: fallback_parent,
                                 base_commit: fallback_base,
+                                worktrees,
+                                settlement_failure,
                                 outcome: Err(WorkflowError::generic(reason)),
                             }
                         }
@@ -606,10 +858,21 @@ fn execute_durable_batch(
                 })
             })
             .collect();
-        handles
-            .into_iter()
-            .map(|handle| handle.join().expect("lane worker wrapper contains panics"))
-            .collect()
+        // A thread that panicked OUTSIDE the lane's inner `catch_unwind` used to escape through this
+        // `join().expect(..)` as a panic that named no lane and left every worktree in the batch behind
+        // it (`WO-121` §3). It is a recorded per-lane failure now: the tree was dispositioned by the
+        // lane's own guard during the unwind, and the claim is settled here.
+        let mut results = Vec::with_capacity(handles.len());
+        for (handle, fallback) in handles.into_iter().zip(lane_fallbacks) {
+            match handle.join() {
+                Ok(result) => results.push(result),
+                Err(_) => {
+                    let reason = "lane worker thread panicked before it could report an outcome";
+                    results.push(lane_that_never_reported(jobs, worker_id, fallback, reason));
+                }
+            }
+        }
+        results
     })
 }
 
@@ -774,16 +1037,29 @@ fn drive_forge_story_inner<S: TxStore>(
                 executions.sort_by(|a, b| a.claimed.task.task_id.cmp(&b.claimed.task.task_id));
                 let mut hold_reason: Option<String> = None;
                 let mut engine_fault: Option<WorkflowError> = None;
-                for execution in executions {
+                for mut execution in executions {
                     let outcome = match execution.outcome {
                         Ok(outcome) => outcome,
                         Err(error) => {
                             let (stop_kind, role_verdict) = lane_stop_diagnostic(&error);
-                            let reason = lane_failure_reason(
-                                &execution.claimed.node,
-                                &execution.claimed.task.task_id,
-                                &error,
-                            );
+                            // A settlement failure that happened while this lane's error was being handled
+                            // is reported WITH it (`WO-121`): one lane, two facts, both named.
+                            let reason = match execution.settlement_failure.as_deref() {
+                                Some(settlement) => with_secondary_failure(
+                                    &lane_failure_reason(
+                                        &execution.claimed.node,
+                                        &execution.claimed.task.task_id,
+                                        &error,
+                                    ),
+                                    "durable claim settlement",
+                                    settlement,
+                                ),
+                                None => lane_failure_reason(
+                                    &execution.claimed.node,
+                                    &execution.claimed.task.task_id,
+                                    &error,
+                                ),
+                            };
                             eprintln!(
                                 "forge-execution-stop story={} instance={} wave={} task={} job={} attempt={} stop={} error_code={} role_verdict={} detail={}",
                                 story_id,
@@ -802,10 +1078,12 @@ fn drive_forge_story_inner<S: TxStore>(
                             } else if hold_reason.is_none() {
                                 hold_reason = Some(reason.clone());
                             }
-                            eprintln!(
-                                "forge-wave task={} execution_failed={reason}; isolated worktree retained at {}",
-                                execution.claimed.task.task_id,
-                                execution.worktree_path.display()
+                            // The tree is RETAINED, and the guard is what says so: a lane that failed may
+                            // hold work no branch has yet (`WO-121`), so the disposition is decided and
+                            // named — path and branch — rather than left to a `let _ =`.
+                            execution.worktrees.retain(
+                                &execution.claimed.task.task_id,
+                                &format!("execution_failed={reason}"),
                             );
                             continue;
                         }
@@ -830,10 +1108,20 @@ fn drive_forge_story_inner<S: TxStore>(
                                     ));
                                 }
                             }
-                            let _ = remove_lane_worktree(
-                                &execution.parent_worktree,
-                                &execution.worktree_path,
-                            );
+                            // This release used to be `let _ = remove_lane_worktree(..)`: a tree Forge could
+                            // not remove was not worth a line. It is reported now (`WO-121`). The task is
+                            // still complete, so the loop continues — but the story is held when nothing
+                            // else held it, because a tree left behind is Forge's to answer for.
+                            if let Some(cleanup) =
+                                execution.worktrees.release(&execution.claimed.task.task_id)
+                            {
+                                if hold_reason.is_none() {
+                                    hold_reason = Some(format!(
+                                        "task {} was already completed, but its lane worktree could not be released: {cleanup}",
+                                        execution.claimed.task.task_id
+                                    ));
+                                }
+                            }
                             continue;
                         }
                         let reason = completion_failure_reason(&error);
@@ -862,23 +1150,33 @@ fn drive_forge_story_inner<S: TxStore>(
                             &execution.base_commit,
                             candidate,
                         ) {
-                            let reason = format!(
+                            let primary = format!(
                                 "task {} completed in Workflow, but candidate {candidate} could not be integrated: {error}",
                                 execution.claimed.task.task_id
                             );
-                            let _ = durable.jobs.fail(
-                                &execution.claimed.lease.job_id,
+                            // The claim is settled through the shared helper, so a settlement failure that
+                            // happens HERE is reported beside the integration failure (`WO-121`) instead of
+                            // being dropped by a `let _ =`.
+                            let reason = match fail_claimed_lane(
+                                durable.jobs,
                                 opts.worker_id,
-                                &reason,
+                                &execution.claimed,
+                                &primary,
                                 true,
-                            );
+                            ) {
+                                Some(settlement) => with_secondary_failure(
+                                    &primary,
+                                    "durable claim settlement",
+                                    &settlement,
+                                ),
+                                None => primary,
+                            };
                             if hold_reason.is_none() {
                                 hold_reason = Some(reason);
                             }
-                            eprintln!(
-                                "forge-wave task={} integration_failed={error}; isolated worktree retained at {}",
-                                execution.claimed.task.task_id,
-                                execution.worktree_path.display()
+                            execution.worktrees.retain(
+                                &execution.claimed.task.task_id,
+                                &format!("integration_failed={error}"),
                             );
                             continue;
                         }
@@ -894,13 +1192,19 @@ fn drive_forge_story_inner<S: TxStore>(
                             ));
                         }
                     }
-                    if let Err(error) =
-                        remove_lane_worktree(&execution.parent_worktree, &execution.worktree_path)
+                    // The lane is done, so its tree is released through the guard (`WO-121`). A release that
+                    // fails is logged by the guard AND becomes the story's reason to be held when nothing
+                    // else held it: a tree Forge could not remove is a fact an operator has to see, not a
+                    // line in a log nobody reads.
+                    if let Some(cleanup) =
+                        execution.worktrees.release(&execution.claimed.task.task_id)
                     {
-                        eprintln!(
-                            "forge-wave task={} worktree_cleanup_failed={error}; branch remains reachable",
-                            execution.claimed.task.task_id
-                        );
+                        if hold_reason.is_none() {
+                            hold_reason = Some(format!(
+                                "task {} completed, but its lane worktree could not be released: {cleanup}",
+                                execution.claimed.task.task_id
+                            ));
+                        }
                     }
                     steps.push(execution.claimed.node.clone());
                     if stop_target
@@ -1243,6 +1547,16 @@ mod concurrency_tests {
         }
     }
 
+    /// A lane that panics instead of reporting (`WO-121` §3): the drive wrapper has to turn that into a
+    /// recorded per-lane failure instead of letting the thread take the batch with it.
+    struct PanicRunner;
+
+    impl ForgeRoleRunner for PanicRunner {
+        fn run(&self, _node_id: &str, _task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
+            panic!("lane runner panicked");
+        }
+    }
+
     struct NoopJobs;
 
     impl JobService for NoopJobs {
@@ -1284,7 +1598,63 @@ mod concurrency_tests {
         }
     }
 
+    /// Jobs that refuse to settle a claim. `WO-121` is about exactly this: the failure that happens while
+    /// another failure is being handled, which used to be dropped by a `let _ =`.
+    struct RefusingFailJobs;
+
+    impl JobService for RefusingFailJobs {
+        fn enqueue(&self, _request: &crate::engine::job::ForgeJobRequest) -> Result<String> {
+            unreachable!()
+        }
+        fn claim(&self, _worker_id: &str, _limit: usize) -> Result<Vec<ForgeJobLease>> {
+            unreachable!()
+        }
+        fn claim_one(&self, _job_id: &str, _worker_id: &str) -> Result<ForgeJobLease> {
+            unreachable!()
+        }
+        fn heartbeat(&self, _job_id: &str, _worker_id: &str) -> Result<i64> {
+            Ok(1)
+        }
+        fn inspect(&self, _job_id: &str) -> Result<crate::engine::job::ForgeJobState> {
+            Err(WorkflowError::generic("unused"))
+        }
+        fn complete(&self, _job_id: &str, _worker_id: &str) -> Result<()> {
+            Ok(())
+        }
+        fn fail(
+            &self,
+            _job_id: &str,
+            _worker_id: &str,
+            _error: &str,
+            _permanent: bool,
+        ) -> Result<()> {
+            Err(WorkflowError::generic("claim already lost"))
+        }
+        fn cancel(&self, _job_id: &str, _actor: &str) -> Result<()> {
+            Ok(())
+        }
+        fn requeue(&self, _job_id: &str, _actor: &str) -> Result<()> {
+            Ok(())
+        }
+        fn recover_stale(&self, _batch: usize) -> Result<usize> {
+            Ok(0)
+        }
+    }
+
     fn prepared_lane(task_id: &str, gate: &Arc<OverlapGate>, fail: bool) -> PreparedDurableLane {
+        prepared_lane_with_runner(
+            task_id,
+            Box::new(BlockingRunner {
+                gate: Arc::clone(gate),
+                fail,
+            }),
+        )
+    }
+
+    fn prepared_lane_with_runner(
+        task_id: &str,
+        runner: Box<dyn ForgeRoleRunner>,
+    ) -> PreparedDurableLane {
         let task = ActiveForgeRoleTask {
             task_id: task_id.into(),
             process_instance_id: "instance-1".into(),
@@ -1315,14 +1685,20 @@ mod concurrency_tests {
                 node: "smith".into(),
                 lease,
             },
-            runner: Box::new(BlockingRunner {
-                gate: Arc::clone(gate),
-                fail,
-            }),
+            runner,
             worktree_path: PathBuf::from(format!("/tmp/{task_id}")),
             branch_name: format!("agent/story/{task_id}"),
             parent_worktree: PathBuf::from("/tmp/story"),
             base_commit: "0".repeat(40),
+            // A remover that removes nothing: a unit test must not shell out to git, and the guard's own
+            // behaviour is what these tests are about (`WO-121`).
+            worktrees: LaneWorktree::with_remover(
+                PathBuf::from("/tmp"),
+                PathBuf::from(format!("/tmp/{task_id}")),
+                format!("agent/story/{task_id}"),
+                "0".repeat(40),
+                Box::new(|_, _, _, _| Ok(())),
+            ),
         }
     }
 
@@ -1395,5 +1771,181 @@ mod concurrency_tests {
         assert!(results.iter().any(|result| result.outcome.is_err()));
         assert!(results.iter().any(|result| result.outcome.is_ok()));
         assert_eq!(gate.maximum_active.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_secondary_failure_is_reported_beside_the_primary_one() {
+        let note = with_secondary_failure("the lane failed", "worktree discard", "git said no");
+        assert!(note.starts_with("the lane failed"), "{note}");
+        assert!(note.contains("worktree discard"), "{note}");
+        assert!(note.contains("git said no"), "{note}");
+    }
+
+    #[test]
+    fn a_panicking_lane_is_a_recorded_failure_and_keeps_its_sibling_result() {
+        let gate = Arc::new(OverlapGate::default());
+        let results = execute_durable_batch(
+            vec![
+                prepared_lane("task-a", &gate, false),
+                prepared_lane_with_runner("task-b", Box::new(PanicRunner)),
+            ],
+            &NoopJobs,
+            "worker-1",
+            None,
+            "story-1",
+            2,
+        );
+        assert_eq!(results.len(), 2);
+        let panicked = results
+            .iter()
+            .find(|result| result.claimed.task.task_id == "task-b")
+            .expect("the panicking lane has a result");
+        assert!(panicked.outcome.is_err());
+        assert!(panicked
+            .outcome
+            .as_ref()
+            .err()
+            .expect("the panic is this lane's failure")
+            .to_string()
+            .contains("panicked"));
+        // The unwind dispositioned this lane's tree through its own guard, and the guard said so.
+        assert_eq!(
+            panicked.worktrees.disposition(),
+            LaneWorktreeDisposition::Retained
+        );
+        assert!(results
+            .iter()
+            .any(|result| result.claimed.task.task_id == "task-a" && result.outcome.is_ok()));
+    }
+
+    #[test]
+    fn a_panicking_lane_reports_the_claim_it_could_not_settle() {
+        // `WO-121`: a panic bypasses the settle inside `execute_claimed_job_unsettled`, so the drive's own
+        // `jobs.fail` is the only settlement this lane gets. It used to be a `let _ =`.
+        let results = execute_durable_batch(
+            vec![prepared_lane_with_runner("task-b", Box::new(PanicRunner))],
+            &RefusingFailJobs,
+            "worker-1",
+            None,
+            "story-1",
+            1,
+        );
+        assert_eq!(results.len(), 1);
+        assert!(results[0].outcome.is_err());
+        assert_eq!(
+            results[0].settlement_failure.as_deref(),
+            Some("claim already lost")
+        );
+    }
+
+    #[test]
+    fn a_lane_that_never_reports_names_the_panic_and_settles_its_claim() {
+        let gate = Arc::new(OverlapGate::default());
+        let lane = prepared_lane("task-a", &gate, false);
+        let fallback = LaneFallback::of(&lane);
+        let reason = "lane worker thread panicked before it could report an outcome";
+        let result = lane_that_never_reported(&RefusingFailJobs, "worker-1", fallback, reason);
+        assert!(result.outcome.is_err());
+        assert!(result
+            .outcome
+            .as_ref()
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("panicked"));
+        // Both facts survive: the panic, and the claim that could not be settled.
+        assert_eq!(
+            result.settlement_failure.as_deref(),
+            Some("claim already lost")
+        );
+        assert_eq!(
+            result.worktrees.disposition(),
+            LaneWorktreeDisposition::Retained
+        );
+    }
+
+    #[test]
+    fn a_release_that_fails_is_returned_and_attempted_only_once() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&attempts);
+        let mut tree = LaneWorktree::with_remover(
+            PathBuf::from("/tmp"),
+            PathBuf::from("/tmp/task-a"),
+            "agent/story/task-a".into(),
+            "0".repeat(40),
+            Box::new(move |_, _, _, _| {
+                seen.fetch_add(1, Ordering::SeqCst);
+                Err("git worktree remove failed".to_string())
+            }),
+        );
+        assert_eq!(
+            tree.release("task-a").as_deref(),
+            Some("git worktree remove failed")
+        );
+        // One lane, one disposition: a second release is not a second cleanup.
+        assert!(tree.release("task-a").is_none());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(tree.disposition(), LaneWorktreeDisposition::Released);
+    }
+
+    #[test]
+    fn an_undecided_lane_worktree_is_retained_by_its_drop_not_deleted() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&attempts);
+        {
+            let _tree = LaneWorktree::with_remover(
+                PathBuf::from("/tmp"),
+                PathBuf::from("/tmp/task-a"),
+                "agent/story/task-a".into(),
+                "0".repeat(40),
+                Box::new(move |_, _, _, _| {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                }),
+            );
+        }
+        // `WO-121` §3: the backstop disposition is retention, because a lane that exited without deciding
+        // is not evidence that its tree is empty. What it must never be is silent.
+        assert_eq!(attempts.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn a_released_lane_worktree_is_removed_once_and_a_retained_one_is_not_removed() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&attempts);
+        {
+            let mut released = LaneWorktree::with_remover(
+                PathBuf::from("/tmp"),
+                PathBuf::from("/tmp/task-a"),
+                "agent/story/task-a".into(),
+                "0".repeat(40),
+                Box::new(move |_, _, _, _| {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                }),
+            );
+            assert!(released.release("task-a").is_none());
+            assert_eq!(released.disposition(), LaneWorktreeDisposition::Released);
+        }
+        // The drop after the release must not remove the same tree a second time.
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+
+        let retained_attempts = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&retained_attempts);
+        {
+            let mut retained = LaneWorktree::with_remover(
+                PathBuf::from("/tmp"),
+                PathBuf::from("/tmp/task-b"),
+                "agent/story/task-b".into(),
+                "0".repeat(40),
+                Box::new(move |_, _, _, _| {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                }),
+            );
+            retained.retain("task-b", "execution_failed=planned lane failure");
+            assert_eq!(retained.disposition(), LaneWorktreeDisposition::Retained);
+        }
+        assert_eq!(retained_attempts.load(Ordering::SeqCst), 0);
     }
 }
