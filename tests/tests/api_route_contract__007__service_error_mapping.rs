@@ -8,246 +8,223 @@
 //! - Infrastructure failure -> 500 Internal Server Error (INTERNAL_ERROR)
 //! - Service unavailable -> 503 Service Unavailable (SERVICE_UNAVAILABLE)
 //!
-//! Level: L3 Composition — the production `axum::Router` driven in-process via `tower::ServiceExt`.
+//! Level: L3 Composition — tests the production `ApiError::from` conversions via IntoResponse.
 //!
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test api_route_contract__007__service_error_mapping
 
-use axum::{http::Method, Router};
-use serde_json::json;
-use test_harness::http::{call, TestRequest};
+use axum::{
+    body::Body,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use http_body_util::BodyExt;
+use services::{AuthorizationDecision, ServiceDispatchError, ServiceFailureClass, ServiceRuntimeError};
+use web::api::ApiError;
+use web::service_support::CoreServiceError;
 
-/// Build a test router that simulates service error mapping.
-fn test_router() -> Router {
-    use axum::http::StatusCode;
-    use axum::{
-        routing::{get, post},
-        Json, Router,
-    };
-    use serde::{Deserialize, Serialize};
+const HARNESS: &str = "ApiErrorConversion/L3 Composition";
 
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct ApiError {
-        ok: bool,
-        error: ErrorDetail,
-        correlation_id: String,
+fn deny_decision() -> AuthorizationDecision {
+    AuthorizationDecision {
+        allowed: false,
+        reason: "test denial".to_string(),
+        policy_id: "test-policy".to_string(),
+        mode: "test",
     }
-
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct ErrorDetail {
-        code: String,
-        message: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        details: Option<serde_json::Value>,
-    }
-
-    // Simulated service functions that return Results
-    async fn get_resource(id: &str) -> Result<String, ServiceError> {
-        match id {
-            "valid" => Ok("Resource data".to_string()),
-            "not_found" => Err(ServiceError::NotFound("Resource".to_string())),
-            "forbidden" => Err(ServiceError::Forbidden(
-                "Insufficient entitlements".to_string(),
-            )),
-            "conflict" => Err(ServiceError::Conflict("Duplicate resource".to_string())),
-            "validation" => Err(ServiceError::Validation("Invalid name".to_string())),
-            "internal" => Err(ServiceError::Internal(
-                "Database connection failed".to_string(),
-            )),
-            "unavailable" => Err(ServiceError::Unavailable(
-                "Service temporarily unavailable".to_string(),
-            )),
-            _ => Err(ServiceError::Internal("Unknown error".to_string())),
-        }
-    }
-
-    #[derive(Debug)]
-    enum ServiceError {
-        NotFound(String),
-        Forbidden(String),
-        Conflict(String),
-        Validation(String),
-        Internal(String),
-        Unavailable(String),
-    }
-
-    impl ServiceError {
-        fn to_response(&self, correlation_id: String) -> (StatusCode, Json<ApiError>) {
-            let (status, code, message) = match self {
-                ServiceError::NotFound(msg) => (StatusCode::NOT_FOUND, "NOT_FOUND", msg.as_str()),
-                ServiceError::Forbidden(msg) => (StatusCode::FORBIDDEN, "FORBIDDEN", msg.as_str()),
-                ServiceError::Conflict(msg) => (StatusCode::CONFLICT, "CONFLICT", msg.as_str()),
-                ServiceError::Validation(msg) => (
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    msg.as_str(),
-                ),
-                ServiceError::Unavailable(msg) => (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "SERVICE_UNAVAILABLE",
-                    msg.as_str(),
-                ),
-                ServiceError::Internal(msg) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "INTERNAL_ERROR",
-                    msg.as_str(),
-                ),
-            };
-            (
-                status,
-                Json(ApiError {
-                    ok: false,
-                    error: ErrorDetail {
-                        code: code.to_string(),
-                        message: message.to_string(),
-                        details: None,
-                    },
-                    correlation_id,
-                }),
-            )
-        }
-    }
-
-    async fn get_resource_endpoint(
-        axum::extract::Path(id): axum::extract::Path<String>,
-    ) -> (StatusCode, Json<ApiError>) {
-        let correlation_id = "test-correlation".to_string();
-        match get_resource(&id).await {
-            Ok(_) => (
-                StatusCode::OK,
-                Json(ApiError {
-                    ok: true,
-                    error: ErrorDetail {
-                        code: "".to_string(),
-                        message: "".to_string(),
-                        details: None,
-                    },
-                    correlation_id,
-                }),
-            ),
-            Err(e) => e.to_response(correlation_id),
-        }
-    }
-
-    Router::new().route("/v1/resources/{id}", get(get_resource_endpoint))
 }
 
-const HARNESS: &str = "AxumHttpHarness/L3 Composition";
+async fn check_error_response(
+    api_error: ApiError,
+    expected_status: StatusCode,
+    expected_code: &str,
+    check_correlation: bool,
+) {
+    let response: Response<Body> = api_error.into_response();
+    assert_eq!(
+        response.status(),
+        expected_status,
+        "{HARNESS}: Expected status {}, got {}",
+        expected_status.as_u16(),
+        response.status().as_u16()
+    );
+
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(
+        body["error"]["code"], expected_code,
+        "{HARNESS}: Expected error code {}, got {}",
+        expected_code, body["error"]["code"]
+    );
+    if check_correlation {
+        assert!(
+            body["correlationId"].is_string() && !body["correlationId"].as_str().unwrap().is_empty(),
+            "{HARNESS}: Response must have correlationId"
+        );
+    }
+}
 
 #[tokio::test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-API-ROUTE-CONTRACT-007); the file and the assay use it.
 async fn api_route_contract_007__service_error_mapping() {
-    let router = test_router();
+    // 1. CoreServiceError::Business with NOT_FOUND code -> 404 NOT_FOUND
+    let error = CoreServiceError::business("RESOURCE_NOT_FOUND", "Resource not found");
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::NOT_FOUND, "RESOURCE_NOT_FOUND", false).await;
 
-    // 1. NotFound -> 404 NOT_FOUND
-    let response = call(&router, TestRequest::get("/v1/resources/not_found")).await;
-    assert_eq!(
-        response.status().as_u16(),
-        404,
-        "{HARNESS}: NotFound must map to 404"
-    );
-    let body: serde_json::Value = response.json();
-    assert_eq!(
-        body["error"]["code"], "NOT_FOUND",
-        "{HARNESS}: NotFound error code"
-    );
+    // 2. CoreServiceError::Business with CONFLICT code -> 409 CONFLICT
+    let error = CoreServiceError::business("RESOURCE_CONFLICT", "Duplicate resource");
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::CONFLICT, "RESOURCE_CONFLICT", false).await;
 
-    // 2. Forbidden -> 403 FORBIDDEN
-    let response = call(&router, TestRequest::get("/v1/resources/forbidden")).await;
-    assert_eq!(
-        response.status().as_u16(),
-        403,
-        "{HARNESS}: Forbidden must map to 403"
-    );
-    let body: serde_json::Value = response.json();
-    assert_eq!(
-        body["error"]["code"], "FORBIDDEN",
-        "{HARNESS}: Forbidden error code"
-    );
+    // 3. CoreServiceError::Business with other code -> 400 BAD_REQUEST (default for Business)
+    let error = CoreServiceError::business("VALIDATION_FAILED", "Invalid input");
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::BAD_REQUEST, "VALIDATION_FAILED", false).await;
 
-    // 3. Conflict -> 409 CONFLICT
-    let response = call(&router, TestRequest::get("/v1/resources/conflict")).await;
-    assert_eq!(
-        response.status().as_u16(),
-        409,
-        "{HARNESS}: Conflict must map to 409"
-    );
-    let body: serde_json::Value = response.json();
-    assert_eq!(
-        body["error"]["code"], "CONFLICT",
-        "{HARNESS}: Conflict error code"
-    );
+    // 4. CoreServiceError::Runtime::Forbidden -> 403 FORBIDDEN
+    let error = CoreServiceError::Runtime(ServiceRuntimeError::Forbidden {
+        reason: "Insufficient entitlements".to_string(),
+        decision: deny_decision(),
+    });
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::FORBIDDEN, "FORBIDDEN", false).await;
 
-    // 4. Validation -> 422 VALIDATION_ERROR
-    let response = call(&router, TestRequest::get("/v1/resources/validation")).await;
-    assert_eq!(
-        response.status().as_u16(),
-        422,
-        "{HARNESS}: Validation must map to 422"
-    );
-    let body: serde_json::Value = response.json();
-    assert_eq!(
-        body["error"]["code"], "VALIDATION_ERROR",
-        "{HARNESS}: Validation error code"
-    );
+    // 5. CoreServiceError::Runtime::Router with FORBIDDEN code -> 403 FORBIDDEN
+    let error = CoreServiceError::Runtime(ServiceRuntimeError::Router {
+        code: "FORBIDDEN".to_string(),
+        message: "Access denied".to_string(),
+        retryable: false,
+        class: ServiceFailureClass::Business,
+    });
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::FORBIDDEN, "FORBIDDEN", false).await;
 
-    // 5. Internal -> 500 INTERNAL_ERROR
-    let response = call(&router, TestRequest::get("/v1/resources/internal")).await;
-    assert_eq!(
-        response.status().as_u16(),
-        500,
-        "{HARNESS}: Internal must map to 500"
-    );
-    let body: serde_json::Value = response.json();
-    assert_eq!(
-        body["error"]["code"], "INTERNAL_ERROR",
-        "{HARNESS}: Internal error code"
-    );
+    // 6. CoreServiceError::Runtime::Router with _NOT_FOUND code -> 404 NOT_FOUND
+    let error = CoreServiceError::Runtime(ServiceRuntimeError::Router {
+        code: "RESOURCE_NOT_FOUND".to_string(),
+        message: "Not found".to_string(),
+        retryable: false,
+        class: ServiceFailureClass::Business,
+    });
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::NOT_FOUND, "RESOURCE_NOT_FOUND", false).await;
 
-    // 6. Unavailable -> 503 SERVICE_UNAVAILABLE
-    let response = call(&router, TestRequest::get("/v1/resources/unavailable")).await;
-    assert_eq!(
-        response.status().as_u16(),
-        503,
-        "{HARNESS}: Unavailable must map to 503"
-    );
-    let body: serde_json::Value = response.json();
-    assert_eq!(
-        body["error"]["code"], "SERVICE_UNAVAILABLE",
-        "{HARNESS}: Unavailable error code"
-    );
+    // 7. CoreServiceError::Runtime::Router with CONFLICT code -> 409 CONFLICT
+    let error = CoreServiceError::Runtime(ServiceRuntimeError::Router {
+        code: "RESOURCE_CONFLICT".to_string(),
+        message: "Conflict".to_string(),
+        retryable: false,
+        class: ServiceFailureClass::Business,
+    });
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::CONFLICT, "RESOURCE_CONFLICT", false).await;
 
-    // 7. Unknown ID -> 500 INTERNAL_ERROR (falls through to internal)
-    let response = call(&router, TestRequest::get("/v1/resources/unknown")).await;
-    assert_eq!(
-        response.status().as_u16(),
-        500,
-        "{HARNESS}: Unknown service error maps to 500"
-    );
-    let body: serde_json::Value = response.json();
-    assert_eq!(
-        body["error"]["code"], "INTERNAL_ERROR",
-        "{HARNESS}: Unknown maps to INTERNAL_ERROR"
-    );
+    // 8. CoreServiceError::Runtime::Router with other code -> 503 SERVICE_UNAVAILABLE
+    let error = CoreServiceError::Runtime(ServiceRuntimeError::Router {
+        code: "EXTERNAL_API_FAILED".to_string(),
+        message: "External API failed".to_string(),
+        retryable: true,
+        class: ServiceFailureClass::Infrastructure,
+    });
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "EXTERNAL_API_FAILED", false).await;
 
-    // 8. All error responses have correlationId (camelCase due to serde rename_all)
-    for path in [
-        "/v1/resources/not_found",
-        "/v1/resources/forbidden",
-        "/v1/resources/conflict",
-        "/v1/resources/validation",
-        "/v1/resources/internal",
-        "/v1/resources/unavailable",
-    ] {
-        let response = call(&router, TestRequest::get(path)).await;
-        let body: serde_json::Value = response.json();
-        assert!(
-            body["correlationId"].is_string()
-                && !body["correlationId"].as_str().unwrap().is_empty(),
-            "{HARNESS}: {} must have correlationId",
-            path
-        );
-    }
+    // 9. CoreServiceError::Runtime::Authorization -> 503 SERVICE_UNAVAILABLE (AUTHORIZATION_UNAVAILABLE)
+    let error = CoreServiceError::Runtime(ServiceRuntimeError::Authorization("Auth service down".to_string()));
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "AUTHORIZATION_UNAVAILABLE", false).await;
+
+    // 10. CoreServiceError::Runtime::Audit -> 503 SERVICE_UNAVAILABLE (AUDIT_UNAVAILABLE)
+    let error = CoreServiceError::Runtime(ServiceRuntimeError::Audit("Audit service down".to_string()));
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "AUDIT_UNAVAILABLE", false).await;
+
+    // 11. CoreServiceError::Runtime::Event -> 503 SERVICE_UNAVAILABLE (DOMAIN_EVENT_UNAVAILABLE)
+    let error = CoreServiceError::Runtime(ServiceRuntimeError::Event("Event service down".to_string()));
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "DOMAIN_EVENT_UNAVAILABLE", false).await;
+
+    // 12. ServiceDispatchError::ServiceNotFound -> 404 SERVICE_NOT_FOUND
+    let error = ServiceDispatchError::ServiceNotFound("test-service".to_string());
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::NOT_FOUND, "SERVICE_NOT_FOUND", false).await;
+
+    // 13. ServiceDispatchError::UnknownOperation -> 404 UNKNOWN_OPERATION
+    let error = ServiceDispatchError::UnknownOperation {
+        domain: "test".to_string(),
+        operation: "op".to_string(),
+    };
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::NOT_FOUND, "UNKNOWN_OPERATION", false).await;
+
+    // 14. ServiceDispatchError::InvalidPayload -> 400 INVALID_SERVICE_PAYLOAD
+    let error = ServiceDispatchError::InvalidPayload {
+        domain: "test".to_string(),
+        operation: "op".to_string(),
+        message: "Invalid payload".to_string(),
+    };
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::BAD_REQUEST, "INVALID_SERVICE_PAYLOAD", false).await;
+
+    // 15. ServiceDispatchError::Operation with Caller/Business class -> 400 BAD_REQUEST
+    let error = ServiceDispatchError::Operation {
+        code: "VALIDATION_ERROR".to_string(),
+        message: "Validation failed".to_string(),
+        retryable: false,
+        class: ServiceFailureClass::Caller,
+    };
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::BAD_REQUEST, "VALIDATION_ERROR", false).await;
+
+    // 16. ServiceDispatchError::Operation with Lifecycle class -> 503 SERVICE_UNAVAILABLE
+    let error = ServiceDispatchError::Operation {
+        code: "WORKFLOW_ERROR".to_string(),
+        message: "Workflow failed".to_string(),
+        retryable: true,
+        class: ServiceFailureClass::Lifecycle,
+    };
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "WORKFLOW_ERROR", false).await;
+
+    // 17. ServiceDispatchError::Operation with Infrastructure class -> 500 INTERNAL_SERVER_ERROR
+    let error = ServiceDispatchError::Operation {
+        code: "DATABASE".to_string(),
+        message: "Database error".to_string(),
+        retryable: true,
+        class: ServiceFailureClass::Infrastructure,
+    };
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::INTERNAL_SERVER_ERROR, "DATABASE", false).await;
+
+    // 18. ServiceDispatchError::ServiceDraining -> 503 SERVICE_DRAINING
+    let error = ServiceDispatchError::ServiceDraining("test-service".to_string());
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "SERVICE_DRAINING", false).await;
+
+    // 19. ServiceDispatchError::ServiceStopped -> 503 SERVICE_STOPPED
+    let error = ServiceDispatchError::ServiceStopped("test-service".to_string());
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "SERVICE_STOPPED", false).await;
+
+    // 20. ServiceDispatchError::OperationPanicked -> 500 INTERNAL_SERVER_ERROR
+    let error = ServiceDispatchError::OperationPanicked {
+        domain: "test".to_string(),
+        operation: "op".to_string(),
+        message: "panic".to_string(),
+    };
+    let api_error: ApiError = error.into();
+    check_error_response(api_error, StatusCode::INTERNAL_SERVER_ERROR, "SERVICE_OPERATION_PANICKED", false).await;
+
+    // 21. Correlation ID support
+    let error = CoreServiceError::business("TEST_ERROR", "Test message");
+    let mut api_error: ApiError = error.into();
+    api_error = api_error.with_correlation("test-correlation-id");
+    let response: Response<Body> = api_error.into_response();
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(
+        body["correlationId"], "test-correlation-id",
+        "{HARNESS}: with_correlation must set correlation_id"
+    );
 }
