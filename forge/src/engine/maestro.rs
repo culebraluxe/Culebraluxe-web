@@ -1080,11 +1080,18 @@ fn parse_maestro_output(stdout: &str) -> Result<ParsedMaestroOutput> {
     Ok(result)
 }
 
-/// Verify the Maestro CLI contract: the binary spawns and answers `--version`.
+/// Verify the Maestro CLI contract: the binary spawns and answers `--version`,
+/// `send --help` still carries the resume flag, and `session list --json` still carries the
+/// `agentSessionId` key the session-liveness check depends on.
 ///
 /// This is the Maestro half of vendor preflight — run when (and only when) the Maestro backend is selected,
 /// so a Maestro turn never depends on the OpenCode harness passing. A Maestro turn that cannot prove its
 /// transport never starts: the failure names the binary, not the story.
+///
+/// A `--version` answer alone never passes: WO-203 showed the resume contract lives in two more shapes —
+/// `send --session` (the only way to resume) and `session list` entries (the only guard against resuming
+/// a stale id, since `--session` performs no existence check). A CLI that drifted either shape refuses
+/// here, before a claim, before a token.
 ///
 /// `Ok` carries the version line the lane logs; `Err` is the diagnostic. Same shape as OpenCode's
 /// `verify_vendor_contract`, so the binary can verify either backend through one call shape.
@@ -1108,7 +1115,131 @@ pub fn verify_vendor_contract(cli_bin: &str) -> std::result::Result<String, Stri
         ));
     }
     let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(format!("{version} @ {cli_bin}"))
+    let send = verify_send_contract(cli_bin)?;
+    let sessions = verify_session_list_shape(cli_bin)?;
+    Ok(format!(
+        "{version} @ {cli_bin} ({send}; sessions={sessions})"
+    ))
+}
+
+/// Run `send --help` and check the resume contract still holds.
+fn verify_send_contract(cli_bin: &str) -> std::result::Result<String, String> {
+    let output = Command::new(cli_bin)
+        .args(["send", "--help"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .map_err(|error| {
+            format!("maestro preflight failed to spawn `{cli_bin} send --help`: {error}")
+        })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "maestro preflight: `{cli_bin} send --help` failed (exit={}): {}",
+            output.status.code().unwrap_or(-1),
+            stderr.trim()
+        ));
+    }
+    let help = String::from_utf8_lossy(&output.stdout).to_string();
+    check_send_help_shape(&help)?;
+    Ok("send --session ok".to_string())
+}
+
+/// Check the `send --help` text against the captured contract (maestro-cli 1.0.0, 2026-10-12).
+///
+/// The resume path WO-204 depends on is exactly one flag: `-s, --session <id>`. A help text without it
+/// is drift — the vendor moved the resume contract and this preflight must refuse before a turn is built
+/// against flags the CLI no longer accepts. An ERROR names the missing flag, never a silent pass.
+fn check_send_help_shape(help: &str) -> std::result::Result<(), String> {
+    if !help.contains("--session") {
+        return Err(
+            "maestro preflight drift: `send --help` no longer documents `--session`; \
+             the resume contract moved — re-capture before any turn"
+                .to_string(),
+        );
+    }
+    if !help.contains("send") {
+        return Err(
+            "maestro preflight drift: `send --help` no longer describes the send command — \
+             re-capture before any turn"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Run `session list --json` and check the shape the liveness check depends on still holds.
+fn verify_session_list_shape(cli_bin: &str) -> std::result::Result<usize, String> {
+    let output = Command::new(cli_bin)
+        .args(["session", "list", "--json"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .map_err(|error| {
+            format!("maestro preflight failed to spawn `{cli_bin} session list --json`: {error}")
+        })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "maestro preflight: `{cli_bin} session list --json` failed (exit={}): {}",
+            output.status.code().unwrap_or(-1),
+            stderr.trim()
+        ));
+    }
+    check_session_list_shape(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// Check a `session list --json` document against the captured contract (maestro-cli 1.0.0, WO-203).
+///
+/// The liveness check (`maestro_session_lists`) matches the stored id against entry `agentSessionId` —
+/// the ONLY guard against resuming a stale id, since `send --session` performs no existence check. A
+/// document whose entries lost that key is drift, and an ERROR names it: without the key the liveness
+/// check would always return false and every turn would open fresh, silently. Returns the session count.
+///
+/// An empty `sessions` array passes: no tabs open is a shape the vendor legitimately emits. An entry
+/// whose `agentSessionId` is null also passes: fresh tabs carry the key with a null value (no agent
+/// session yet), and they simply never match a stored id. What fails is the KEY disappearing — without
+/// it the liveness check would always return false and every turn would open fresh, silently.
+fn check_session_list_shape(json: &str) -> std::result::Result<usize, String> {
+    let doc: serde_json::Value = serde_json::from_str(json).map_err(|error| {
+        format!("maestro preflight drift: `session list --json` is not JSON: {error}")
+    })?;
+    let sessions = doc
+        .get("sessions")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| {
+            "maestro preflight drift: `session list --json` carries no `sessions` array — \
+         re-capture before any turn"
+                .to_string()
+        })?;
+    for (index, entry) in sessions.iter().enumerate() {
+        match entry.get("agentSessionId") {
+            None => {
+                return Err(format!(
+                    "maestro preflight drift: `session list --json` entry {index} carries no \
+                     `agentSessionId` — the resume liveness check has nothing to match; \
+                     re-capture before any turn"
+                ));
+            }
+            Some(value) if value.is_null() => {
+                // A tab with no agent session yet (fresh tabs carry the key with a null value).
+                // It simply never matches a stored id, so the liveness check stays safe.
+            }
+            Some(value) if value.as_str().is_some_and(|id| !id.trim().is_empty()) => {
+                // A resumable session id, the value the liveness check matches against.
+            }
+            Some(_) => {
+                return Err(format!(
+                    "maestro preflight drift: `session list --json` entry {index} carries a \
+                     non-string `agentSessionId` — the resume liveness check cannot match it; \
+                     re-capture before any turn"
+                ));
+            }
+        }
+    }
+    Ok(sessions.len())
 }
 
 fn maestro_preflight(cli_bin: &str) -> Result<()> {
@@ -1339,11 +1470,34 @@ mod tests {
 
     #[test]
     fn maestro_preflight_pass_and_fail() {
-        // `/usr/bin/true` answers --version with exit 0; `/usr/bin/false` refuses; a missing binary
-        // never spawns. No network, no tokens, no agent touched.
-        assert!(verify_vendor_contract("/usr/bin/true").is_ok());
+        // Preflight is the full contract now, not just `--version`: a fake CLI serving the captured
+        // help / list shapes passes; `/usr/bin/false` refuses; a missing binary never spawns.
+        // No network, no tokens, no agent touched.
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "forge-maestro-preflight-base-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let help_path = dir.join("help.txt");
+        std::fs::write(&help_path, CAPTURED_SEND_HELP).expect("help fixture");
+        let list_path = dir.join("list.json");
+        std::fs::write(&list_path, CAPTURED_SESSION_LIST).expect("list fixture");
+        let cli_path = dir.join("contract-cli.sh");
+        let mut f = std::fs::File::create(&cli_path).expect("script");
+        writeln!(
+            f,
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '1.0.0'; exit 0; fi\nif [ \"$1\" = \"send\" ]; then cat '{}'; exit 0; fi\ncat '{}'; exit 0",
+            help_path.display(),
+            list_path.display(),
+        )
+        .expect("write");
+        std::fs::set_permissions(&cli_path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        assert!(verify_vendor_contract(cli_path.to_str().unwrap()).is_ok());
         assert!(verify_vendor_contract("/usr/bin/false").is_err());
         assert!(verify_vendor_contract("/nonexistent/maestro-cli-xyz").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1806,5 +1960,130 @@ mod tests {
             names.iter().any(|name| name == mino),
             "the CLI's roster does not list {mino:?}: {names:?}"
         );
+    }
+
+    /// Live preflight against the installed CLI: `send --help` and `session list --json` as the vendor
+    /// serves them today must pass the shape checks. Read-only: no turn runs, no tab opens, no tokens.
+    #[test]
+    #[ignore = "requires maestro-cli on PATH"]
+    fn maestro_preflight_live_cli_passes() {
+        verify_vendor_contract("maestro-cli").expect("the installed CLI passes its own preflight");
+    }
+
+    /// WO-209: preflight must fail on a drifted CLI contract.
+    ///
+    /// Drifted fixtures derived from the WO-203 capture (`reports/fixtures/WO-203-send-session-probe.json`):
+    /// one `send --help` without the `--session` resume flag, one `session list --json` whose entries lost
+    /// the `agentSessionId` key WO-204's liveness check depends on. Both must fail preflight — a `--version`
+    /// answer alone must never pass.
+    const DRIFTED_SEND_HELP_NO_SESSION: &str = "Usage: maestro-cli send [options] <agent-id> <message>\n\nSend a message to an agent and get a JSON response\n\nOptions:\n  -r, --read-only     Run in read-only/plan mode\n  -h, --help          display help for command\n";
+
+    const DRIFTED_SESSION_LIST_NO_AGENT_SESSION_ID: &str = r#"{"success":true,"sessions":[{"tabId":"b73a75cb-8165-42df-9e37-b0fa7ddccd62","sessionId":"b73a75cb-8165-42df-9e37-b0fa7ddccd62","agentId":"735db055-d3ab-47c1-9bab-ab0fca71df68","agentName":"DeepSeek Flash","toolType":"opencode","state":"idle"}]}"#;
+
+    /// The captured contract (maestro-cli 1.0.0, 2026-10-12): `send --help` carries the resume flag,
+    /// `session list --json` carries the `agentSessionId` key on every entry.
+    const CAPTURED_SEND_HELP: &str = "Usage: maestro-cli send [options] <agent-id> <message>\n\nSend a message to an agent and get a JSON response\n\nOptions:\n  -s, --session <id>  Resume an existing agent session (for multi-turn\n                      conversations)\n  -r, --read-only     Run in read-only/plan mode (agent cannot modify files)\n  -t, --tab           Open/focus the session tab in Maestro desktop\n  --no-system-prompt  Skip the Maestro system prompt (agent identity, git\n                      branch, history path, conductor profile). Default is to\n                      include it for parity with the desktop app.\n  -h, --help          display help for command\n";
+
+    const CAPTURED_SESSION_LIST: &str = r#"{"success":true,"sessions":[{"tabId":"b73a75cb-8165-42df-9e37-b0fa7ddccd62","sessionId":"b73a75cb-8165-42df-9e37-b0fa7ddccd62","agentId":"735db055-d3ab-47c1-9bab-ab0fca71df68","agentName":"DeepSeek Flash","toolType":"opencode","agentSessionId":"ses_efb829348fferf0KKEJpgYmC2h","state":"idle"},{"tabId":"0365931a-571c-4f75-989e-afe257c97e5d","sessionId":"0365931a-571c-4f75-989e-afe257c97e5d","agentId":"bce372ec-26e4-47fc-8fa1-ae611c4e9b5b","agentName":"Claude","toolType":"claude-code","agentSessionId":"bbc2ec81-109e-4b4a-9cb4-292e9a2aaeaa","state":"idle"}]}"#;
+
+    #[test]
+    fn maestro_preflight_fails_on_drifted_send_help() {
+        let err = check_send_help_shape(DRIFTED_SEND_HELP_NO_SESSION)
+            .expect_err("a send help without --session is drift");
+        assert!(err.contains("--session"), "{err}");
+    }
+
+    #[test]
+    fn maestro_preflight_passes_captured_send_help() {
+        check_send_help_shape(CAPTURED_SEND_HELP).expect("the captured send help passes");
+    }
+
+    #[test]
+    fn maestro_preflight_fails_on_session_list_without_agent_session_id() {
+        let err = check_session_list_shape(DRIFTED_SESSION_LIST_NO_AGENT_SESSION_ID)
+            .expect_err("a session list without agentSessionId is drift");
+        assert!(err.contains("agentSessionId"), "{err}");
+    }
+
+    #[test]
+    fn maestro_preflight_passes_captured_session_list() {
+        let count = check_session_list_shape(CAPTURED_SESSION_LIST)
+            .expect("the captured session list passes");
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn maestro_preflight_passes_session_list_with_null_agent_session_id() {
+        // Live vendor behavior (2026-10-12): fresh tabs carry the key with a null value — no agent
+        // session yet. They simply never match a stored id, so they pass the shape check.
+        let null_key = r#"{"success":true,"sessions":[{"tabId":"t-1","sessionId":"t-1","agentId":"a-1","agentName":"ChatGPT","toolType":"codex","agentSessionId":null,"state":"idle"},{"tabId":"t-2","sessionId":"t-2","agentId":"a-2","agentName":"Mino","toolType":"opencode","agentSessionId":"ses_ef65d4d29ffe0v52eBUrTAqNVl","state":"idle"}]}"#;
+        assert_eq!(
+            check_session_list_shape(null_key).expect("a null agentSessionId passes"),
+            2
+        );
+        // An empty roster is also legitimate: no tabs open.
+        assert_eq!(
+            check_session_list_shape(r#"{"success":true,"sessions":[]}"#)
+                .expect("an empty session list passes"),
+            0
+        );
+    }
+
+    #[test]
+    fn maestro_preflight_drifted_fixture_fails_vendor_contract() {
+        // End to end through `verify_vendor_contract`: a fake CLI that answers `--version` yet serves
+        // the drifted help / list shapes must fail preflight. A `--version` answer alone never passes.
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("forge-maestro-preflight-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let help_path = dir.join("drifted-help.txt");
+        std::fs::write(&help_path, DRIFTED_SEND_HELP_NO_SESSION).expect("help fixture");
+        let list_path = dir.join("drifted-list.json");
+        std::fs::write(&list_path, DRIFTED_SESSION_LIST_NO_AGENT_SESSION_ID).expect("list fixture");
+        let cli_path = dir.join("drifted-cli.sh");
+        let mut f = std::fs::File::create(&cli_path).expect("script");
+        writeln!(
+            f,
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '1.0.0'; exit 0; fi\nif [ \"$1\" = \"send\" ]; then cat '{}'; exit 0; fi\ncat '{}'; exit 0",
+            help_path.display(),
+            list_path.display(),
+        )
+        .expect("write");
+        std::fs::set_permissions(&cli_path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        let err = verify_vendor_contract(cli_path.to_str().unwrap())
+            .expect_err("the drifted fixture must fail preflight");
+        assert!(
+            err.contains("--session") || err.contains("agentSessionId"),
+            "the refusal must name the drifted key: {err}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn maestro_preflight_captured_fixture_passes_vendor_contract() {
+        // The captured shapes end to end: a fake CLI serving the captured help / list passes preflight.
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("forge-maestro-preflight-ok-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let help_path = dir.join("captured-help.txt");
+        std::fs::write(&help_path, CAPTURED_SEND_HELP).expect("help fixture");
+        let list_path = dir.join("captured-list.json");
+        std::fs::write(&list_path, CAPTURED_SESSION_LIST).expect("list fixture");
+        let cli_path = dir.join("captured-cli.sh");
+        let mut f = std::fs::File::create(&cli_path).expect("script");
+        writeln!(
+            f,
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '1.0.0'; exit 0; fi\nif [ \"$1\" = \"send\" ]; then cat '{}'; exit 0; fi\ncat '{}'; exit 0",
+            help_path.display(),
+            list_path.display(),
+        )
+        .expect("write");
+        std::fs::set_permissions(&cli_path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        verify_vendor_contract(cli_path.to_str().unwrap()).expect("the captured fixture passes");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

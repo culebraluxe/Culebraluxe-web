@@ -1,0 +1,105 @@
+{
+  "work_order": "WO-203",
+  "question": "Does `maestro-cli send --session` expect the `agentSessionId` (ses_*) value or the `sessionId` (tab UUID) value?",
+  "answer": "agentSessionId (ses_*)",
+  "cli": { "bin": "maestro-cli", "version": "1.0.0", "date": "2026-10-12" },
+  "target_agent": {
+    "agentId": "f35347b5-8d8d-46f6-a50e-79a776dee013",
+    "agentName": "Meta Muse",
+    "toolType": "opencode"
+  },
+  "probes": [
+    {
+      "id": 1,
+      "name": "fresh-send-mints-session",
+      "command": "maestro-cli send f35347b5-8d8d-46f6-a50e-79a776dee013 \"Reply with exactly the word probe-ok and nothing else.\" --read-only",
+      "captured_stdout": {
+        "agentId": "f35347b5-8d8d-46f6-a50e-79a776dee013",
+        "agentName": "Meta Muse",
+        "sessionId": "ses_ecf684e0dffehGfsQ9wkmL4Yep",
+        "response": "probe-ok",
+        "success": true,
+        "usage": null
+      },
+      "observation": "The fresh-send envelope carries the new id in the `sessionId` key, and the value is ses_*-shaped (the opencode agent session id), not a tab UUID."
+    },
+    {
+      "id": 2,
+      "name": "resume-with-ses-id-continues-conversation",
+      "command": "maestro-cli send f35347b5-8d8d-46f6-a50e-79a776dee013 \"What exact word did you reply in the previous turn of this session? Reply with only that word.\" --read-only --session ses_ecf684e0dffehGfsQ9wkmL4Yep",
+      "captured_stdout": {
+        "agentId": "f35347b5-8d8d-46f6-a50e-79a776dee013",
+        "agentName": "Meta Muse",
+        "sessionId": "ses_ecf684e0dffehGfsQ9wkmL4Yep",
+        "response": "probe-ok",
+        "success": true,
+        "usage": null
+      },
+      "observation": "Resuming with the ses_* value continued the conversation (it remembered 'probe-ok') and echoed the same id. The ses_* value is a valid --session id."
+    },
+    {
+      "id": 3,
+      "name": "resume-with-tab-uuid-rejected",
+      "command": "maestro-cli send f35347b5-8d8d-46f6-a50e-79a776dee013 \"Reply with exactly the word probe-ok and nothing else.\" --read-only --session 00000000-0000-4000-8000-000000000000",
+      "captured_stdout": {
+        "agentId": "f35347b5-8d8d-46f6-a50e-79a776dee013",
+        "agentName": "Meta Muse",
+        "sessionId": null,
+        "response": null,
+        "success": false,
+        "error": "Expected a string starting with \"ses\"\n  at [\"sessionID\"]",
+        "usage": null
+      },
+      "captured_stderr": "maestro-cli send failed: Expected a string starting with \"ses\"",
+      "observation": "A tab-UUID-shaped id is REJECTED: the CLI validates --session against /^ses/ and names the wire field sessionID. The `sessionId` (tab UUID) value from `session list` is NOT a valid --session id."
+    },
+    {
+      "id": 4,
+      "name": "resume-with-unknown-ses-id-accepted-lazily",
+      "command": "maestro-cli send f35347b5-8d8d-46f6-a50e-79a776dee013 \"Reply with exactly the word probe-ok and nothing else.\" --read-only --session ses_00000000000000000000000000",
+      "captured_stdout": {
+        "agentId": "f35347b5-8d8d-46f6-a50e-79a776dee013",
+        "agentName": "Meta Muse",
+        "sessionId": "ses_00000000000000000000000000",
+        "response": "probe-ok",
+        "success": true,
+        "usage": null
+      },
+      "observation": "A well-formed but nonexistent ses_* id returns success:true with the id echoed; --session performs NO existence check. The only guard against resuming a stale session is the caller's own `session list` membership test."
+    },
+    {
+      "id": 5,
+      "name": "session-list-carries-both-keys",
+      "command": "maestro-cli session list --json",
+      "captured_excerpt": {
+        "success": true,
+        "sessions": [
+          {
+            "tabId": "b73a75cb-8165-42df-9e37-b0fa7ddccd62",
+            "sessionId": "b73a75cb-8165-42df-9e37-b0fa7ddccd62",
+            "agentId": "735db055-d3ab-47c1-9bab-ab0fca71df68",
+            "agentName": "DeepSeek Flash",
+            "toolType": "opencode",
+            "agentSessionId": "ses_efb829348fferf0KKEJpgYmC2h",
+            "state": "idle"
+          },
+          {
+            "tabId": "0365931a-571c-4f75-989e-afe257c97e5d",
+            "sessionId": "0365931a-571c-4f75-989e-afe257c97e5d",
+            "agentId": "bce372ec-26e4-47fc-8fa1-ae611c4e9b5b",
+            "agentName": "Claude",
+            "toolType": "claude-code",
+            "agentSessionId": "bbc2ec81-109e-4b4a-9cb4-292e9a2aaeaa",
+            "state": "idle"
+          }
+        ]
+      },
+      "observation": "Each `session list` entry carries BOTH keys: `sessionId` == tabId (desktop tab UUID) and `agentSessionId` (ses_* for opencode agents, UUID for other tool types). Only the `agentSessionId` value is accepted by `send --session` (per probe 3). Note: headless `send` turns (probes 1-2) do NOT appear as desktop tabs in this list."
+    }
+  ],
+  "envelope_notes_for_WO_205": [
+    "The send envelope is a SINGLE JSON object (not a stream): keys agentId, agentName, sessionId, response, success, error, usage.",
+    "Under --read-only, `usage` is null; the real usage keys (inputTokens/totalCostUsd) require a non-read-only turn to observe.",
+    "`send --help` flags: -s/--session <id>, -r/--read-only, -t/--tab, --no-system-prompt."
+  ]
+}
