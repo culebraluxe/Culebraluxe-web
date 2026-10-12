@@ -11,9 +11,12 @@ use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
 use crate::engine::phase::{lane_deliverable_kind, PhaseDeliverableKind, RoleEffectPorts};
 use crate::engine::role_mapping::LaneId;
 use crate::engine::runtime::ActiveForgeRoleTask;
+use crate::engine::worktree::with_detached_checkout;
 use crate::roles::hooks::ForgeRoleHooks;
 use crate::roles::lifecycle::{hold_rejected_deliverable, ForgeRoleContext, ForgeRoleTurn};
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
+use std::path::Path;
+use std::process::Command;
 use workflow::{Result, WorkflowError};
 
 pub use crate::engine::assay::{adjudicate_assay, collect_assay_evidence};
@@ -143,10 +146,20 @@ fn run_rust_contract_qa(
     let measured =
         (head.passed && sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
             .then(|| sha.to_ascii_lowercase());
+
+    // Refuse if the workspace has uncommitted changes (git status --porcelain non-empty)
+    let status = ctx.harness.run_command("git status --porcelain");
+    if status.passed && !status.output.trim().is_empty() {
+        return Err(WorkflowError::generic(format!(
+            "QA FAIL: RUST_CONTRACT workspace has uncommitted changes: {}; refusing to measure",
+            status.output.lines().take(8).collect::<Vec<_>>().join(" | ")
+        )));
+    }
+
     // THE REVIEWED CANDIDATE IS THE ONE MEASURED (ARCH-SEAM-005). When the evidence already names the candidate Smith
     // delivered and Inspector reviewed, a workspace whose HEAD is another commit is refused rather than measured: the
     // SHA this turn reports is the SHA release publishes, so substituting HEAD would publish a commit nobody reviewed.
-    if let Some(reviewed) = ctx.current.candidate_sha.as_deref() {
+    let reviewed_sha = if let Some(reviewed) = ctx.current.candidate_sha.as_deref() {
         let reviewed = reviewed.trim().to_ascii_lowercase();
         if measured.as_deref() != Some(reviewed.as_str()) {
             return Err(WorkflowError::generic(format!(
@@ -155,22 +168,52 @@ fn run_rust_contract_qa(
                 measured.as_deref().unwrap_or("(unreadable)")
             )));
         }
-    }
+        Some(reviewed)
+    } else {
+        measured.clone()
+    };
     current.candidate_sha = measured;
     if let Some(base) = ctx.harness.execution_base_commit() {
         current
             .extra
             .insert("recordedBase", workflow::Value::from(base));
     }
+
+    // Run assay commands in a detached checkout of the reviewed candidate SHA, matching the publish integration shape.
+    // This ensures the published tree matches the measured tree.
+    let repo_root = ctx.harness.assay_cwd().to_path_buf();
+    let sha_for_checkout = reviewed_sha.clone().unwrap_or_else(|| {
+        // Fallback to measured SHA if no reviewed SHA in evidence
+        current.candidate_sha.clone().unwrap_or_default()
+    });
+    
+    if sha_for_checkout.is_empty() {
+        return Err(WorkflowError::generic(
+            "QA FAIL: no candidate SHA available for detached checkout".to_string(),
+        ));
+    }
+
+    let assay_commands = ctx.contract_assay_commands.clone();
+    let acceptance_mapped = ctx.contract_acceptance_mapped;
+    let harness = ctx.harness.clone();
+    
     let AssayEvidence {
         mut evidence,
         verdict,
-    } = collect_rust_contract_assay_evidence(
-        current,
-        Some(&|cmd| ctx.harness.run_command(cmd)),
-        ctx.contract_assay_commands,
-        ctx.contract_acceptance_mapped,
-    );
+    } = with_detached_checkout(&repo_root, &sha_for_checkout, |dir| {
+        // Change to the detached checkout directory for the duration of the assay commands
+        let original_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        std::env::set_current_dir(dir).ok();
+        let result = collect_rust_contract_assay_evidence(
+            current,
+            Some(&|cmd| harness.run_command(cmd)),
+            &assay_commands,
+            acceptance_mapped,
+        );
+        std::env::set_current_dir(original_dir).ok();
+        result
+    }).map_err(|e| WorkflowError::generic(e))?;
+
     dispose_failure(&mut evidence, &verdict);
 
     if let Some(writer) = ctx.writer {
@@ -329,6 +372,7 @@ mod tests {
         turns: AtomicUsize,
         command_passes: bool,
         commands: Vec<String>,
+        head_sha: String,
     }
 
     impl MeasurementHarness {
@@ -337,7 +381,13 @@ mod tests {
                 turns: AtomicUsize::new(0),
                 command_passes,
                 commands: Vec::new(),
+                head_sha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0".to_string(),
             }
+        }
+
+        fn with_head_sha(mut self, head_sha: &str) -> Self {
+            self.head_sha = head_sha.to_string();
+            self
         }
 
         /// The commands a real transport reports for its turn — the packet's own, when the turn named none
@@ -375,16 +425,53 @@ mod tests {
             true
         }
         fn assay_cwd(&self) -> &std::path::Path {
-            std::path::Path::new(".")
+            // Return the actual repo root so git commands work in tests
+            static REPO_ROOT: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+            REPO_ROOT.get_or_init(|| {
+                std::env::current_dir()
+                    .ok()
+                    .and_then(|cwd| {
+                        // Walk up to find the git directory
+                        let mut dir = cwd;
+                        loop {
+                            if dir.join(".git").exists() {
+                                return Some(dir);
+                            }
+                            if !dir.pop() {
+                                break;
+                            }
+                        }
+                        None
+                    })
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+            })
         }
         fn run_command(&self, command: &str) -> CommandResult {
-            CommandResult {
-                command: command.into(),
-                exit_code: if self.command_passes { 0 } else { 1 },
-                passed: self.command_passes,
-                excerpt: String::new(),
-                unmeasurable: false,
-                output: String::new(),
+            match command {
+                "git rev-parse HEAD" => CommandResult {
+                    command: command.into(),
+                    exit_code: 0,
+                    passed: true,
+                    excerpt: String::new(),
+                    unmeasurable: false,
+                    output: self.head_sha.clone(),
+                },
+                "git status --porcelain" => CommandResult {
+                    command: command.into(),
+                    exit_code: 0,
+                    passed: true,
+                    excerpt: String::new(),
+                    unmeasurable: false,
+                    output: String::new(),
+                },
+                _ => CommandResult {
+                    command: command.into(),
+                    exit_code: if self.command_passes { 0 } else { 1 },
+                    passed: self.command_passes,
+                    excerpt: String::new(),
+                    unmeasurable: false,
+                    output: String::new(),
+                },
             }
         }
     }
@@ -407,14 +494,36 @@ mod tests {
         harness: &Arc<MeasurementHarness>,
         acceptance_mapped: bool,
     ) -> (usize, String, String) {
+        // Get a real HEAD SHA for the detached checkout to work - run from the repo root
+        let repo_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let head_sha = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&repo_root)
+            .output()
+            .ok()
+            .and_then(|out| String::from_utf8(out.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+            .unwrap_or_else(|| "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0".to_string());
+
+        // Update harness with the real head SHA
+        // Note: we can't mutate the Arc, so we need to create a new harness with the correct SHA
+        // For now, we'll just use the evidence's candidate_sha which the harness will match
+        let mut evidence = ForgeGateEvidence::default();
+        evidence.candidate_sha = Some(head_sha.clone());
+
         let writer = Arc::new(RecordingWriter::default());
-        let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default())
+        let runner = ProductionRoleRunner::new(harness.clone(), evidence)
             .with_writer(writer.clone())
             .with_test_mode(Some("RUST_CONTRACT".into()))
             .with_contract_assay_commands(vec!["cargo check --all-targets".into()])
             .with_contract_acceptance_mapped(acceptance_mapped);
 
-        let _ = AssayService::new(&runner).execute("qa_verify", &qa_task());
+        let result = AssayService::new(&runner).execute("qa_verify", &qa_task());
+        if let Err(ref e) = result {
+            eprintln!("QA test error: {:?}", e);
+        }
+        let _ = result;
 
         let artifacts = writer.artifacts.lock().unwrap();
         let row = artifacts
@@ -435,7 +544,19 @@ mod tests {
     /// measured, which is why UNPROVEN is an answer of its own.
     #[test]
     fn the_verdict_is_the_measurement_and_not_a_models_description() {
-        let passing = Arc::new(MeasurementHarness::new(true));
+        // Get real HEAD SHA for the test
+        let repo_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let head_sha = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&repo_root)
+            .output()
+            .ok()
+            .and_then(|out| String::from_utf8(out.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+            .unwrap_or_else(|| "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0".to_string());
+
+        let passing = Arc::new(MeasurementHarness::new(true).with_head_sha(&head_sha));
         let (turns, verdict, summary) = measure(&passing, false);
         assert_eq!(turns, 0, "the measurement lane spends no model turn");
         assert_eq!(
@@ -444,7 +565,7 @@ mod tests {
         );
         assert!(summary.contains("acceptance mapping"), "{summary}");
 
-        let failing = Arc::new(MeasurementHarness::new(false));
+        let failing = Arc::new(MeasurementHarness::new(false).with_head_sha(&head_sha));
         let (turns, verdict, summary) = measure(&failing, true);
         assert_eq!(turns, 0, "a failing measurement still needs no model turn");
         assert_eq!(
@@ -477,6 +598,147 @@ mod tests {
             harness.turns() >= 1,
             "with no contract mode declared, this lane's work comes from a model turn"
         );
+    }
+
+    /// A harness that simulates a dirty workspace (uncommitted changes).
+    /// It returns a non-empty output for `git status --porcelain` and passes for assay commands.
+    struct DirtyWorkspaceHarness {
+        turns: AtomicUsize,
+        command_passes: bool,
+        commands: Vec<String>,
+        dirty_status: String,
+    }
+
+    impl DirtyWorkspaceHarness {
+        fn new(command_passes: bool, dirty_status: &str) -> Self {
+            Self {
+                turns: AtomicUsize::new(0),
+                command_passes,
+                commands: Vec::new(),
+                dirty_status: dirty_status.to_string(),
+            }
+        }
+
+        fn with_commands(mut self, commands: &[&str]) -> Self {
+            self.commands = commands.iter().map(|cmd| (*cmd).to_string()).collect();
+            self
+        }
+
+        fn turns(&self) -> usize {
+            self.turns.load(Ordering::SeqCst)
+        }
+    }
+
+    impl RoleHarness for DirtyWorkspaceHarness {
+        fn run_role(
+            &self,
+            node_id: &str,
+            _: &ActiveForgeRoleTask,
+            _: Option<&str>,
+        ) -> Result<HarnessOutput> {
+            self.turns.fetch_add(1, Ordering::SeqCst);
+            Ok(HarnessOutput {
+                raw: format!("{node_id} described its own work\n"),
+                candidate_sha: None,
+                assay_commands: self.commands.clone(),
+                acceptance_mapped: false,
+                refusal: None,
+                execution_base: None,
+                usage: None,
+            })
+        }
+        fn exists_on_base_ref(&self, _: &str, _: &str) -> bool {
+            true
+        }
+        fn assay_cwd(&self) -> &std::path::Path {
+            // Return the actual repo root so git commands work in tests
+            static REPO_ROOT: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+            REPO_ROOT.get_or_init(|| {
+                std::env::current_dir()
+                    .ok()
+                    .and_then(|cwd| {
+                        // Walk up to find the git directory
+                        let mut dir = cwd;
+                        loop {
+                            if dir.join(".git").exists() {
+                                return Some(dir);
+                            }
+                            if !dir.pop() {
+                                break;
+                            }
+                        }
+                        None
+                    })
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+            })
+        }
+        fn run_command(&self, command: &str) -> CommandResult {
+            // Simulate dirty workspace for git status --porcelain
+            if command == "git status --porcelain" {
+                return CommandResult {
+                    command: command.into(),
+                    exit_code: 0,
+                    passed: true,
+                    excerpt: String::new(),
+                    unmeasurable: false,
+                    output: self.dirty_status.clone(),
+                };
+            }
+            // For other commands (like git rev-parse HEAD), return a valid SHA
+            if command == "git rev-parse HEAD" {
+                return CommandResult {
+                    command: command.into(),
+                    exit_code: 0,
+                    passed: true,
+                    excerpt: String::new(),
+                    unmeasurable: false,
+                    output: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0".to_string(),
+                };
+            }
+            // For assay commands, use the configured pass/fail
+            CommandResult {
+                command: command.into(),
+                exit_code: if self.command_passes { 0 } else { 1 },
+                passed: self.command_passes,
+                excerpt: String::new(),
+                unmeasurable: false,
+                output: String::new(),
+            }
+        }
+    }
+
+    /// RUST_CONTRACT QA must refuse when the workspace has uncommitted changes (git status --porcelain non-empty).
+    /// This test is RED before the fix: it expects a refusal but the current code measures anyway.
+    #[test]
+    fn rust_contract_qa_refuses_dirty_workspace() {
+        // Harness simulates a workspace with uncommitted changes
+        let harness = Arc::new(
+            DirtyWorkspaceHarness::new(true, "M forge/src/roles/qa.rs\n?? new_file.txt")
+                .with_commands(&["cargo check --all-targets"]),
+        );
+
+        let writer = Arc::new(RecordingWriter::default());
+        let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default())
+            .with_writer(writer.clone())
+            .with_test_mode(Some("RUST_CONTRACT".into()))
+            .with_contract_assay_commands(vec!["cargo check --all-targets".into()])
+            .with_contract_acceptance_mapped(true);
+
+        let task = qa_task();
+        let result = AssayService::new(&runner).execute("qa_verify", &task);
+
+        // The fix should make this return an Err with a refusal message about uncommitted work
+        assert!(result.is_err(), "QA should refuse when workspace is dirty");
+        match result {
+            Err(e) => {
+                let error = e.to_string();
+                assert!(
+                    error.contains("uncommitted") || error.contains("dirty"),
+                    "Error should mention uncommitted/dirty workspace: {error}"
+                );
+            }
+            Ok(_) => panic!("Expected error but got Ok"),
+        }
     }
 
     /// OFF THE CONTRACT PATH THE MAP COMES FROM THE ROW, NOT FROM A MODEL (2026-10-03).

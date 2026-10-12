@@ -302,12 +302,14 @@ mod tests {
     /// A harness that counts the turns it was asked for and passes every command it is asked to run.
     struct CountingHarness {
         turns: AtomicUsize,
+        head_sha: String,
     }
 
     impl CountingHarness {
-        fn new() -> Self {
+        fn new(head_sha: String) -> Self {
             Self {
                 turns: AtomicUsize::new(0),
+                head_sha,
             }
         }
 
@@ -341,13 +343,31 @@ mod tests {
             std::path::Path::new(".")
         }
         fn run_command(&self, command: &str) -> CommandResult {
-            CommandResult {
-                command: command.into(),
-                exit_code: 0,
-                passed: true,
-                excerpt: String::new(),
-                unmeasurable: false,
-                output: String::new(),
+            match command {
+                "git rev-parse HEAD" => CommandResult {
+                    command: command.into(),
+                    exit_code: 0,
+                    passed: true,
+                    excerpt: String::new(),
+                    unmeasurable: false,
+                    output: self.head_sha.clone(),
+                },
+                "git status --porcelain" => CommandResult {
+                    command: command.into(),
+                    exit_code: 0,
+                    passed: true,
+                    excerpt: String::new(),
+                    unmeasurable: false,
+                    output: String::new(),
+                },
+                _ => CommandResult {
+                    command: command.into(),
+                    exit_code: 0,
+                    passed: true,
+                    excerpt: String::new(),
+                    unmeasurable: false,
+                    output: String::new(),
+                },
             }
         }
     }
@@ -374,12 +394,27 @@ mod tests {
     /// own — and the measurement this lane exists for would have been described by a model instead of taken.
     #[test]
     fn the_compatibility_runner_hands_the_turn_to_the_lane_service() {
-        let harness = Arc::new(CountingHarness::new());
+        // Get a real HEAD SHA for the detached checkout to work
+        let repo_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let head_sha = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&repo_root)
+            .output()
+            .ok()
+            .and_then(|out| String::from_utf8(out.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+            .unwrap_or_else(|| "7900e3daa6aa75a4ac58aafc707c7b34a1fc03d3".to_string());
+
+        let harness = Arc::new(CountingHarness::new(head_sha.clone()));
         let writer = Arc::new(RecordingWriter::default());
-        let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default())
+        let mut evidence = ForgeGateEvidence::default();
+        evidence.candidate_sha = Some(head_sha.clone());
+        let runner = ProductionRoleRunner::new(harness.clone(), evidence)
             .with_writer(writer.clone())
             .with_test_mode(Some("RUST_CONTRACT".into()))
-            .with_contract_assay_commands(vec!["cargo test".into()]);
+            .with_contract_assay_commands(vec!["cargo test".into()])
+            .with_contract_acceptance_mapped(true);
 
         let outcome = ForgeRoleRunner::run(&runner, "qa_verify", &role_task("qa_verify"))
             .expect("the measurement lane takes the whole turn");
@@ -401,7 +436,7 @@ mod tests {
     /// and still gets it once per attempt under the shared lifecycle.
     #[test]
     fn a_lane_whose_work_is_a_model_turn_still_gets_one() {
-        let harness = Arc::new(CountingHarness::new());
+        let harness = Arc::new(CountingHarness::new("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0".to_string()));
         let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default());
 
         let _ = ForgeRoleRunner::run(&runner, "smith", &role_task("smith"));
