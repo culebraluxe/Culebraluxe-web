@@ -431,11 +431,17 @@ fn run_with_lease_heartbeat_interval<T>(
                     ) {
                         Ok(Ok(_)) => {
                             // Reset consecutive failures on success.
-                            let mut failures = heartbeat_state.consecutive_db_failures.lock().unwrap();
+                            let mut failures = heartbeat_state
+                                .consecutive_db_failures
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner());
                             *failures = 0;
                         }
                         Ok(Err(error)) if error.is_connection_failure() => {
-                            let mut failures = heartbeat_state.consecutive_db_failures.lock().unwrap();
+                            let mut failures = heartbeat_state
+                                .consecutive_db_failures
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner());
                             *failures += 1;
                             eprintln!(
                                 "forge-job-heartbeat transient failure job={job_id_owned} (consecutive={}): {error}",

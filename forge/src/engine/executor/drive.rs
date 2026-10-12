@@ -220,7 +220,8 @@ impl<'a> DriveForgeStoryOptions<'a> {
         turn_budget::resolve_generation_turn_cap(
             std::env::var(turn_budget::GENERATION_TURN_CAP_ENV)
                 .ok()
-                .as_deref(),
+                .as_deref()
+                .filter(|s| !s.is_empty()),
         )
     }
 
@@ -228,7 +229,8 @@ impl<'a> DriveForgeStoryOptions<'a> {
         turn_budget::resolve_within_story_concurrency(
             std::env::var(turn_budget::WITHIN_STORY_CONCURRENCY_ENV)
                 .ok()
-                .as_deref(),
+                .as_deref()
+                .filter(|s| !s.is_empty()),
         )
     }
 
@@ -1025,7 +1027,12 @@ fn drive_forge_story_inner<S: TxStore>(
                     prepared.len(),
                     cap
                 );
-                let turn_ceiling = turn_ceiling(std::env::var(TURN_CEILING_ENV).ok().as_deref());
+                let turn_ceiling = turn_ceiling(
+                    std::env::var(TURN_CEILING_ENV)
+                        .ok()
+                        .as_deref()
+                        .filter(|s| !s.is_empty()),
+                );
                 let mut executions = execute_durable_batch(
                     prepared,
                     durable.jobs,
@@ -1334,8 +1341,12 @@ fn drive_forge_story_inner<S: TxStore>(
                     let _request =
                         ForgeJobBridge::new(durable.registry).job_for_ready_task(&task)?;
                     // Use the shared Forge turn budget regardless of the selected harness.
-                    let turn_ceiling =
-                        turn_ceiling(std::env::var(TURN_CEILING_ENV).ok().as_deref());
+                    let turn_ceiling = turn_ceiling(
+                        std::env::var(TURN_CEILING_ENV)
+                            .ok()
+                            .as_deref()
+                            .filter(|s| !s.is_empty()),
+                    );
 
                     let outcome = match execute_claimed_job_unsettled(
                         durable.jobs,
@@ -1415,15 +1426,25 @@ fn drive_forge_story_inner<S: TxStore>(
                 {
                     if let (Some(durable), Some(lease)) = (durable, durable_lease.as_ref()) {
                         if err.code() == "TASK_ALREADY_COMPLETED" {
-                            durable.jobs.complete(&lease.job_id, opts.worker_id)?;
+                            if let Err(complete_error) = durable.jobs.complete(&lease.job_id, opts.worker_id) {
+                                eprintln!(
+                                    "forge-wave task {} already completed but durable job settlement failed (preserving paid turn for reconciliation): {complete_error}",
+                                    task.task_id
+                                );
+                            }
                             continue;
                         }
-                        durable.jobs.fail(
+                        if let Err(fail_error) = durable.jobs.fail(
                             &lease.job_id,
                             opts.worker_id,
                             &completion_failure_reason(&err),
                             true,
-                        )?;
+                        ) {
+                            eprintln!(
+                                "forge-wave task={} durable_settlement_failed={fail_error}",
+                                task.task_id
+                            );
+                        }
                         return Err(err);
                     }
 
@@ -1438,7 +1459,13 @@ fn drive_forge_story_inner<S: TxStore>(
                 }
 
                 if let (Some(durable), Some(lease)) = (durable, durable_lease.as_ref()) {
-                    durable.jobs.complete(&lease.job_id, opts.worker_id)?;
+                    if let Err(complete_error) = durable.jobs.complete(&lease.job_id, opts.worker_id) {
+                        let reason = completion_failure_reason(&WorkflowError::generic(complete_error.to_string()));
+                        eprintln!(
+                            "forge-wave task {} completed but durable job settlement failed (preserving paid turn for reconciliation): {reason}",
+                            task.task_id
+                        );
+                    }
                 }
                 steps.push(node.clone());
                 if stop_target
