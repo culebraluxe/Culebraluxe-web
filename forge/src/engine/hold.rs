@@ -56,6 +56,26 @@ pub fn deliverable_enforcement_enabled(raw: Option<&str>) -> bool {
     }
 }
 
+/// The reprompt budget an operator asked for, clamped to 1..=10 (WO-108).
+///
+/// `attempt_budget` turns this straight into attempts, and it only ever raises the number, so an
+/// unbounded read here (`FORGE_DELIVERABLE_RETRIES=999`) buys a thousand turns on one story.
 pub fn parse_deliverable_reprompt_budget(raw: Option<&str>) -> u32 {
-    raw.and_then(|s| s.trim().parse().ok()).unwrap_or(1)
+    raw.and_then(|s| s.trim().parse::<u32>().ok())
+        .unwrap_or(1)
+        .clamp(1, 10)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reprompt_budget_is_clamped_to_ten_at_most() {
+        assert_eq!(parse_deliverable_reprompt_budget(Some("999")), 10);
+        assert_eq!(parse_deliverable_reprompt_budget(Some("0")), 1);
+        assert_eq!(parse_deliverable_reprompt_budget(Some("5")), 5);
+        assert_eq!(parse_deliverable_reprompt_budget(None), 1);
+        assert_eq!(parse_deliverable_reprompt_budget(Some("garbage")), 1);
+    }
 }
