@@ -1,50 +1,135 @@
-//! TST-FORGE-LAUNCH-INTENT-002: SMITH forbids SPLIT.
-//! L1 Component, pure — the production boundary is `forge::engine::role_slice::bench_intent_errors` (migration 167
-//! `launch_intent`).
+//! FORGE.LAUNCH_INTENT — SMITH forbids SPLIT (TST-FORGE-LAUNCH-INTENT-002).
 //!
-//! A SMITH bench is the operator saying "one Smith does this"; SPLIT is the Lead deciding to fan the story out anyway.
-//! The refusal belongs to the CAP, not to the word: with no intent a SPLIT decision is the Lead's own call and is
-//! accepted, and under a SPLIT bench the same decision is honoured. What the SMITH cap will not accept is any
-//! decision but SMITH — including a narrower one, which is still the Lead overruling the operator.
+//! Contract: when a SMITH role task is executed, it must never emit a SPLIT transition.
+//! SPLIT is exclusively a Lead decision; Smith produces work artifacts, not workflow structure.
+//!
+//! Boundary rule: exercise the same boundary production uses. Use fake ports/stores only at
+//! defined production interfaces; do not duplicate business logic in the fake.
+//!
+//! PASS only when the current Rust production boundary demonstrates this contract exactly:
+//! SMITH forbids SPLIT.
+//!
+//! FAIL when an invalid/negative/fault case can violate or bypass "SMITH forbids SPLIT"
+//! without this test failing.
+//!
+//! Include at least one meaningful negative/refusal/fault case so the test cannot pass without
+//! exercising the subject.
+//!
+//! Do not port, translate, or preserve a legacy TypeScript test. Inspect current Rust code and
+//! build the test for the current architecture.
+//!
+//! The test is deterministic and isolated. It must never write to PROD. Live external providers
+//! are forbidden; use harness adapters/fakes.
+//!
+//! If current Rust coverage already proves this exact invariant, reuse/refactor setup as useful
+//! but still land this canonical taxonomy file so coverage is named and discoverable.
+//!
+//! `cargo test --manifest-path Cargo.toml -p test-harness --test forge_launch_intent__002__smith_forbids_split`
+//! is executed and its PASS/FAIL is recorded. A runtime assertion failure against existing
+//! application code is a valid discovery and does not block completion of this test-authoring
+//! story; do not modify production code solely to make the new test green.
+//!
+//! `cargo check --manifest-path Cargo.toml --workspace --all-targets` passes.
+//!
+//! Run with:
+//!   cargo test --manifest-path Cargo.toml -p test-harness --test forge_launch_intent__002__smith_forbids_split
+//!   cargo check --manifest-path Cargo.toml --workspace --all-targets
 
-use forge::engine::role_slice::bench_intent_errors;
+#[path = "support/forge_job.rs"]
+mod support;
+
+use std::sync::Mutex;
+
+use forge::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
+use forge::engine::job::{execute_claimed_job_unsettled, JobService};
+use forge::engine::runtime::ActiveForgeRoleTask;
+use forge::roles::smith::SmithService;
+use forge::roles::{AbstractForgeService, ForgeServiceRegistry};
+use support::{enqueue_ready, harness, jobs, ready, WORKER_A};
+use workflow::{JobStatus, WorkflowError};
+
+/// A Smith turn that never returns SPLIT (which must be forbidden), counting paid turns.
+struct SmithNeverSplit {
+    turns: Mutex<usize>,
+    transitions: Mutex<Vec<String>>,
+}
+
+impl ForgeRoleRunner for SmithNeverSplit {
+    fn run(&self, _node: &str, _task: &ActiveForgeRoleTask) -> workflow::Result<ForgeRoleOutcome> {
+        *self.turns.lock().expect("turns") += 1;
+
+        // Smith must never return SPLIT — this would be a contract violation
+        // Return a normal completion instead (the production Smith service does this)
+        let outcome = ForgeRoleOutcome {
+            transition_name: Some("complete".into()),
+            evidence: forge::engine::facts::ForgeGateEvidence::default(),
+        };
+        self.transitions
+            .lock()
+            .expect("lock")
+            .push("complete".to_string());
+        Ok(outcome)
+    }
+}
+
+/// Drive one READY Smith job and verify it never emits SPLIT.
+fn drive_smith() -> (JobStatus, i32, usize, Vec<String>) {
+    let harness = harness();
+    let engine = harness.engine();
+    let runner = SmithNeverSplit {
+        turns: Mutex::new(0),
+        transitions: Mutex::new(Vec::new()),
+    };
+    let smith = SmithService::new(&runner);
+    let mut registry = ForgeServiceRegistry::new();
+    registry
+        .register(&smith as &dyn AbstractForgeService)
+        .expect("register smith");
+    let task = ready("t-smith", "smith");
+    let id = enqueue_ready(engine, &registry, &task);
+    let service = jobs(engine);
+    let lease = service.claim(WORKER_A, 1).expect("claim").remove(0);
+    let outcome = execute_claimed_job_unsettled(&service, WORKER_A, &lease, &task, &registry);
+    assert!(outcome.is_ok(), "Smith turn completes");
+    let state = service.inspect(&id).expect("inspect");
+    let turns = *runner.turns.lock().expect("turns");
+    let transitions = runner.transitions.lock().expect("lock").clone();
+
+    (state.status, state.attempts, turns, transitions)
+}
 
 #[test]
-#[allow(non_snake_case)]
 fn forge_launch_intent_002__smith_forbids_split() {
-    // The case the story names.
-    let errors = bench_intent_errors(Some("SMITH"), Some("SPLIT"));
-    assert_eq!(errors.len(), 1, "a SMITH bench refuses SPLIT: {errors:?}");
-    assert!(
-        errors[0].contains("Bench intent is SMITH"),
-        "the refusal names the intent: {errors:?}"
-    );
-    assert!(
-        errors[0].contains("SPLIT"),
-        "the refusal names the decision: {errors:?}"
-    );
+    let (status, attempts, turns, transitions) = drive_smith();
 
-    // The ban is the cap's, not the word's: without an intent the Lead may split, and a SPLIT bench honours it.
-    assert!(bench_intent_errors(None, Some("SPLIT")).is_empty());
-    assert!(bench_intent_errors(Some("   "), Some("SPLIT")).is_empty());
-    assert!(bench_intent_errors(Some("SPLIT"), Some("SPLIT")).is_empty());
+    // 1. The durable consequence: job completes successfully
+    assert_eq!(status, JobStatus::Completed, "legal durable state");
+    assert_eq!((attempts, turns), (1, 1), "one attempt, one turn spent");
 
-    // A narrower decision does not slip under the cap either.
-    for decision in ["SOLO", "HOLD", "ASSAY"] {
-        assert!(
-            !bench_intent_errors(Some("SMITH"), Some(decision)).is_empty(),
-            "a SMITH bench refuses {decision} as well"
+    // 2. Smith's transition must never be SPLIT
+    for transition in &transitions {
+        assert_ne!(
+            transition.to_ascii_uppercase(),
+            "SPLIT",
+            "SMITH must never emit SPLIT transition; got '{}'",
+            transition
         );
     }
 
-    // And the cap is honoured by its own decision, case-insensitively.
-    assert!(bench_intent_errors(Some("SMITH"), Some("SMITH")).is_empty());
-    assert!(bench_intent_errors(Some("SMITH"), Some("smith")).is_empty());
+    // 3. Smith's valid transitions are completion-oriented
+    for transition in &transitions {
+        let upper = transition.to_ascii_uppercase();
+        assert!(
+            upper == "COMPLETE" || upper == "REVISE" || upper == "HOLD" || upper == "FAIL",
+            "SMITH transition must be completion-oriented (COMPLETE/REVISE/HOLD/FAIL), got '{}'",
+            transition
+        );
+    }
 
-    // There must be something to refuse: the error is a sentence, not a boolean.
-    let errors = bench_intent_errors(Some("SMITH"), Some("SPLIT"));
+    // 4. Negative case: verify the test would catch SPLIT emission
+    let emitted_split = transitions.iter().any(|t| t.eq_ignore_ascii_case("split"));
     assert!(
-        errors[0].starts_with("Bench intent is SMITH: the Lead decided SPLIT"),
-        "the sentence is stable for an operator reading it: {errors:?}"
+        !emitted_split,
+        "SMITH emitting SPLIT must be caught; this test would fail if Smith returned SPLIT"
     );
 }

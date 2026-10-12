@@ -48,9 +48,9 @@ pub struct Model {
     pub controls: Controls,
     pub error: Option<String>,
     /// Photos chosen together, waiting their turn (uploaded one at a time).
-    upload_queue: Vec<crate::app::exec::File>,
+    upload_queue: Vec<crate::app::cmd::FileHandle>,
     /// The photo uploading now, kept so a failure can put it back in the queue.
-    upload_current: Option<crate::app::exec::File>,
+    upload_current: Option<crate::app::cmd::FileHandle>,
     /// Photos already put back once: a second failure is reported instead of retried again.
     upload_retried: Vec<String>,
     /// The newest read's number; an answer with another is stale and dropped.

@@ -63,6 +63,11 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
         }
         Cmd::VideoUpload(upload) => {
             let deliver = deliver.clone();
+            // Take the file from the registry before spawning
+            let file = upload
+                .file
+                .take_file()
+                .expect("VideoUpload file not in registry");
             spawn_local(async move {
                 let reply = upload.reply;
                 let progress = {
@@ -70,7 +75,7 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
                     move |step: crate::app::cmd::VideoProgress| deliver.emit(progress(step))
                 };
                 let result = upload_video(
-                    &upload.file,
+                    &file,
                     &upload.property_id,
                     &upload.role,
                     &upload.caption,
@@ -87,6 +92,9 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
             reply,
         } => {
             let deliver = deliver.clone();
+            // Take the file from the registry before spawning
+            let file = file.take_file().expect("PostForm file not in registry");
+            let file_name = file.name();
             spawn_local(async move {
                 let result = async {
                     let form = web_sys::FormData::new().map_err(|_| {
@@ -97,7 +105,7 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
                             ApiError::network("The browser could not prepare the upload.")
                         })?;
                     }
-                    form.append_with_blob_and_filename("file", &file, &file.name())
+                    form.append_with_blob_and_filename("file", &file, &file_name)
                         .map_err(|_| {
                             ApiError::network("The browser could not prepare the upload.")
                         })?;
@@ -133,15 +141,15 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
         }
         Cmd::Upload(upload) => {
             let deliver = deliver.clone();
+            // Take the file from the registry before spawning
+            let file = upload
+                .file
+                .take_file()
+                .expect("Upload file not in registry");
             spawn_local(async move {
                 let reply = upload.reply;
-                let result = upload_chunked(
-                    upload.file,
-                    &upload.path,
-                    &upload.fields,
-                    &upload.init_fields,
-                )
-                .await;
+                let result =
+                    upload_chunked(file, &upload.path, &upload.fields, &upload.init_fields).await;
                 deliver.emit(reply(result));
             });
         }

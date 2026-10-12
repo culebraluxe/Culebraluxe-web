@@ -6,7 +6,7 @@
 use yew::prelude::*;
 
 use crate::app::api::{ListingMediaRead, PropertyMediaChunked};
-use crate::app::cmd::{ApiError, Cmd, Remote};
+use crate::app::cmd::{ApiError, Cmd, FileHandle, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::template;
 use crate::model::{PortalListingMediaPage, PortalListingProperty, PortalPage};
@@ -182,7 +182,8 @@ impl Screen for ListingMedia {
                     ));
                     return Cmd::none();
                 };
-                model.file_name = Some(file.name());
+                let file_handle = FileHandle::from_web_sys(file);
+                model.file_name = Some(file_handle.name().to_owned());
                 model.uploading = true;
                 model.notice = None;
                 let mut init = vec![("role".to_string(), model.role.clone())];
@@ -190,7 +191,7 @@ impl Screen for ListingMedia {
                     init.push(("altText".to_string(), model.alt.trim().to_string()));
                 }
                 Cmd::upload(
-                    file,
+                    file_handle,
                     PropertyMediaChunked,
                     vec![("propertyId".to_string(), property_id)],
                     init,

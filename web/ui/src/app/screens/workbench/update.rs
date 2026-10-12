@@ -3,6 +3,8 @@
 #[allow(unused_imports)]
 use super::*;
 
+use crate::app::cmd::FileHandle;
+
 /// Read the page for the current entity, search, page and selection.
 pub(super) fn read(model: &mut Model) -> Cmd<Msg> {
     model.seq += 1;
@@ -104,7 +106,7 @@ pub(super) fn next_upload(model: &mut Model) -> Cmd<Msg> {
     };
     // Numbered from the batch's start, so the gallery refreshing mid-batch does not shift the numbers.
     let offset = model.ops.media_batch_done + model.ops.media_batch_failed.len();
-    model.ops.media_file_name = Some(file.name());
+    model.ops.media_file_name = Some(file.name().to_owned());
     model.ops.media_role = "gallery".into();
     model.ops.media_alt = model
         .ops
@@ -537,9 +539,10 @@ pub(super) fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
                 return Cmd::none();
             }
             // Photos only, in name order (a folder uploads in the order it is sorted on disk).
-            let mut files: Vec<crate::app::exec::File> = files
+            let mut files: Vec<FileHandle> = files
                 .into_iter()
                 .filter(|file| file.type_().starts_with("image/"))
+                .map(FileHandle::from_web_sys)
                 .collect();
             files.sort_by_key(|file| file.name().to_lowercase());
             if files.is_empty() {
@@ -667,11 +670,12 @@ pub(super) fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
                 model.error = Some(format!("{} is not a video.", file.name()));
                 return Cmd::none();
             }
+            let file_handle = FileHandle::from_web_sys(file.clone());
             model.error = None;
-            model.ops.video_file_name = Some(file.name());
-            model.ops.video_progress = Some((0.0, file.size(), "uploading".into()));
+            model.ops.video_file_name = Some(file_handle.name().to_owned());
+            model.ops.video_progress = Some((0.0, file.size() as f64, "uploading".into()));
             Cmd::video_upload(
-                file,
+                file_handle,
                 property_id,
                 model.ops.video_role.clone(),
                 model.ops.video_caption.trim().to_owned(),
