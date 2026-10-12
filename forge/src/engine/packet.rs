@@ -262,11 +262,6 @@ mod tests {
             assert!(std::str::from_utf8(summary.as_bytes()).is_ok());
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     fn packet_with_brief(brief: &str) -> StoryPacket {
         StoryPacket {
