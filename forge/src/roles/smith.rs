@@ -445,9 +445,22 @@ pub fn read_delivered_work(
     if let Some(sha) = turn.out.candidate_sha.clone() {
         evidence.candidate_sha = Some(sha.clone());
         if let Some(writer) = ctx.writer {
+            // The fail-safe runs FIRST: the stamp below is a pointer into git, and git is the part
+            // that goes missing — and a stamp DB error must never cost the code. It is keyed to the
+            // STORY and never to the run. `storyboard_story_run` rows are opened by a claim, and the
+            // lane a captain runs by hand opens none — so a capture gated on the run row stays silent
+            // on exactly the runs where nothing else records the code. `forge_tool_artifact.story_run_id`
+            // is nullable for this: NULL there means "no claim opened this", which is the truth and not
+            // a gap.
+            // Capture is skipped only where there is nothing to capture from — no declared execution base
+            // AND no base the harness measured against (the `RoleHarness` default is `None` for both).
+            if let Some(base) = capture_base.as_deref() {
+                capture_smith_work(ctx, writer, turn.story_id, base, SmithWork::Candidate(&sha))?;
+            }
             // The stamp is a pointer into git and needs a row to point from. A run opened by a claim has
             // one; the hand-run lane (`forge --story …`, no `--work-item`) opens none, so the stamp is
             // skipped there. That is the whole difference: the stamp is skipped, the capture is not.
+            // It runs after the capture, so its failure propagates without taking the code with it.
             if let Some(run_id) = ctx.story_run_id {
                 writer.stamp_run_candidate(run_id, &sha).map_err(|error| {
                     WorkflowError::generic(format!(
@@ -455,17 +468,6 @@ pub fn read_delivered_work(
                         turn.story_id
                     ))
                 })?;
-            }
-            // The fail-safe, and it is deliberately the next thing that happens: the stamp above is a
-            // pointer into git, and git is the part that goes missing. It is keyed to the STORY and never
-            // to the run. `storyboard_story_run` rows are opened by a claim, and the lane a captain runs
-            // by hand opens none — so a capture gated on the run row stays silent on exactly the runs
-            // where nothing else records the code. `forge_tool_artifact.story_run_id` is nullable for
-            // this: NULL there means "no claim opened this", which is the truth and not a gap.
-            // Capture is skipped only where there is nothing to capture from — no declared execution base
-            // AND no base the harness measured against (the `RoleHarness` default is `None` for both).
-            if let Some(base) = capture_base.as_deref() {
-                capture_smith_work(ctx, writer, turn.story_id, base, SmithWork::Candidate(&sha))?;
             }
         }
         if let Some(base) = evidence.extra.get("recordedBase").and_then(|v| v.as_str()) {
@@ -768,6 +770,82 @@ mod tests {
             git(&repo, &["status", "--porcelain"]),
             status_before,
             "the snapshot must not stage anything in the lane's real index"
+        );
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    /// A writer whose run stamp always fails, so the test proves what a stamp DB error costs.
+    struct StampFailingWriter {
+        inner: Arc<crate::engine::writer::RecordingWriter>,
+    }
+
+    impl crate::engine::writer::ForgeStateWriter for StampFailingWriter {
+        fn mark_story_human_hold(&self, s: &str, r: &str) -> std::result::Result<(), String> {
+            self.inner.mark_story_human_hold(s, r)
+        }
+        fn mark_story_complete(&self, s: &str) -> std::result::Result<(), String> {
+            self.inner.mark_story_complete(s)
+        }
+        fn mark_story_in_progress(&self, s: &str) -> std::result::Result<(), String> {
+            self.inner.mark_story_in_progress(s)
+        }
+        fn stamp_run_candidate(&self, _r: &str, _s: &str) -> std::result::Result<(), String> {
+            Err("injected stamp failure: storyboard_story_run unavailable".into())
+        }
+        fn append_run_detail(&self, r: &str, d: &str) -> std::result::Result<(), String> {
+            self.inner.append_run_detail(r, d)
+        }
+        fn open_hold(
+            &self,
+            input: &crate::engine::hold::OpenHold,
+        ) -> std::result::Result<String, String> {
+            self.inner.open_hold(input)
+        }
+        fn record_tool_artifact(
+            &self,
+            input: &db::NewToolArtifact,
+        ) -> std::result::Result<Option<String>, String> {
+            self.inner.record_tool_artifact(input)
+        }
+        fn record_run_usage(
+            &self,
+            r: &str,
+            u: &crate::engine::harness::HarnessUsage,
+        ) -> std::result::Result<(), String> {
+            self.inner.record_run_usage(r, u)
+        }
+    }
+
+    /// The bug this test exists for: the run stamp (`stamp_run_candidate`) ran BEFORE the fail-safe
+    /// capture, so a stamp DB error propagated with `?` and the candidate's code was never written
+    /// down. The capture must run first, so a stamp failure still leaves the code behind.
+    #[test]
+    fn a_stamp_failure_still_leaves_the_capture_behind() {
+        let (repo, base, head) = smith_left_a_mess("stamp-fails");
+        git(&repo, &["checkout", "-q", "--", "tracked.rs"]);
+        std::fs::remove_file(repo.join("untracked.rs")).expect("clean tree");
+        let harness = GitHarness {
+            repo: repo.clone(),
+            candidate: Some(head.clone()),
+            refusal: None,
+            base: base.clone(),
+        };
+        let inner = Arc::new(crate::engine::writer::RecordingWriter::default());
+        let writer: Arc<dyn crate::engine::writer::ForgeStateWriter> =
+            Arc::new(StampFailingWriter { inner: inner.clone() });
+        let runner = ProductionRoleRunner::new(Arc::new(harness), ForgeGateEvidence::default())
+            .with_writer(writer)
+            .with_story_run(Some("22222222-3333-4444-5555-666666666666".into()));
+        let outcome = SmithService::new(&runner).execute("smith", &smith_task());
+
+        assert!(
+            outcome.is_err(),
+            "the stamp really did fail: without the injected failure this test proves nothing"
+        );
+        let artifacts = inner.artifacts.lock().unwrap();
+        assert!(
+            artifacts.iter().any(|a| a.kind == "candidate-code"),
+            "a stamp DB error must still leave a capture behind"
         );
         let _ = std::fs::remove_dir_all(&repo);
     }
