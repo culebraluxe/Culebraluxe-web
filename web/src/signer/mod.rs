@@ -37,21 +37,43 @@ pub struct SignerAccessTokenCodec {
     site_url: Arc<str>,
 }
 
-/// The origin a signing link is built on. `PUBLIC_SITE_URL` when it is set. Otherwise production gets the production host,
-/// and every other environment gets the local DEV server. A DEV link on the production host is signed with DEV's secret
-/// and refused there (SIGNER_ACCESS_INVALID), so a development environment must never fall back to production.
+/// The production host. Production is the only environment that may name it.
+const PRODUCTION_SITE_URL: &str = "https://culebraluxe.com";
+/// The last resort for a development server that never says where it listens.
+const DEV_FALLBACK_SITE_URL: &str = "http://localhost:8099";
+
+/// THE ORIGIN A SIGNING LINK IS BUILT ON, in order:
+///
+///   1. `PUBLIC_SITE_URL`, because an operator who names an origin means it (a tunnel, a preview host);
+///   2. the production host — and only in production;
+///   3. the address this very server listens on (`crate::http_runtime::server_origin`);
+///   4. the local DEV default, for a server that never says where it listens.
+///
+/// STEP 3 IS THE ONE THAT WAS MISSING ON 2026-10-11. Every DEV invitation went out on `https://culebraluxe.com`,
+/// signed with DEV's secret, and the signer met "This signing link is not valid" (`SIGNER_ACCESS_INVALID`) at the
+/// production edge — which verifies with production's secret and refuses DEV's. A development environment must
+/// never announce production: its links are its own to serve.
 fn signing_site_url() -> String {
-    std::env::var("PUBLIC_SITE_URL")
-        .ok()
+    signing_origin(
+        explicit_origin(std::env::var("PUBLIC_SITE_URL").ok().as_deref()),
+        crate::api::ui_auth::production(),
+        crate::http_runtime::server_origin(),
+    )
+}
+
+/// A named origin: trimmed, without its trailing slash, and `None` for a value that says nothing at all.
+fn explicit_origin(value: Option<&str>) -> Option<String> {
+    value
         .map(|value| value.trim().trim_end_matches('/').to_owned())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| {
-            if crate::api::ui_auth::production() {
-                "https://culebraluxe.com".into()
-            } else {
-                "http://localhost:8099".into()
-            }
-        })
+}
+
+/// THE RULE, apart from the environment that feeds it, so it reads and tests on its own.
+fn signing_origin(explicit: Option<String>, production: bool, local: Option<String>) -> String {
+    explicit
+        .or_else(|| production.then(|| PRODUCTION_SITE_URL.to_owned()))
+        .or_else(|| local)
+        .unwrap_or_else(|| DEV_FALLBACK_SITE_URL.to_owned())
 }
 
 impl SignerAccessTokenCodec {
@@ -1354,5 +1376,49 @@ mod tests {
         assert!(validate_recipient_binding("recipient-1", "recipient-1").is_ok());
         let error = validate_recipient_binding("recipient-2", "recipient-1").unwrap_err();
         assert_eq!(error.code(), "SIGNER_ACCESS_INVALID");
+    }
+
+    #[test]
+    fn an_explicit_origin_wins_in_every_environment() {
+        assert_eq!(
+            explicit_origin(Some("  https://tunnel.test/ ")).as_deref(),
+            Some("https://tunnel.test")
+        );
+        assert_eq!(explicit_origin(Some("   ")), None);
+        assert_eq!(explicit_origin(None), None);
+        assert_eq!(
+            signing_origin(
+                explicit_origin(Some("https://tunnel.test")),
+                true,
+                Some("http://localhost:3000".into())
+            ),
+            "https://tunnel.test",
+            "a named origin is the one an operator means"
+        );
+    }
+
+    #[test]
+    fn production_never_borrows_a_development_address() {
+        assert_eq!(
+            signing_origin(None, true, Some("http://localhost:3000".into())),
+            PRODUCTION_SITE_URL,
+            "the container's own bind is not the host signers use"
+        );
+        assert_eq!(signing_origin(None, true, None), PRODUCTION_SITE_URL);
+    }
+
+    #[test]
+    fn development_announces_its_own_server_and_never_production() {
+        assert_eq!(
+            signing_origin(None, false, Some("http://localhost:3000".into())),
+            "http://localhost:3000",
+            "a dev link is signed by this server, so it names this server"
+        );
+        assert_eq!(signing_origin(None, false, None), DEV_FALLBACK_SITE_URL);
+        assert_ne!(
+            signing_origin(None, false, None),
+            PRODUCTION_SITE_URL,
+            "a dev link on the production host is refused there (SIGNER_ACCESS_INVALID)"
+        );
     }
 }
