@@ -303,6 +303,17 @@ impl ForgeHarness {
 }
 
 impl ForgeHarness {
+    /// The backend-selected harness id for the execution receipt.
+    ///
+    /// The receipt prints what runs: the Maestro id on a Maestro turn, the OpenCode id on an
+    /// OpenCode turn — never a hardcoded vendor.
+    pub fn adapter_id(&self) -> &'static str {
+        match self {
+            ForgeHarness::OpenCode(_) => crate::engine::opencode::OPENCODE_HARNESS_ADAPTER_ID,
+            ForgeHarness::Maestro(_) => crate::engine::maestro::MAESTRO_HARNESS_ADAPTER_ID,
+        }
+    }
+
     /// Get the model name.
     pub fn model(&self) -> &str {
         match self {

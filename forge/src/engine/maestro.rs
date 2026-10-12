@@ -26,6 +26,12 @@ use workflow::{Result, WorkflowError};
 /// wins outright for an attended override.
 pub const MAESTRO_CLI_DEFAULT: &str = "maestro-cli";
 
+/// The Maestro harness adapter id, printed in the execution receipt.
+///
+/// Backend-selected: the receipt prints this on a Maestro turn and the OpenCode adapter id on an
+/// OpenCode turn — never a hardcoded vendor.
+pub const MAESTRO_HARNESS_ADAPTER_ID: &str = "maestro-harness";
+
 /// Environment variable to override the Maestro CLI binary.
 const MAESTRO_BIN_ENV: &str = "MAESTRO_BIN";
 
@@ -131,6 +137,19 @@ fn turn_ceiling(raw: Option<&str>) -> Option<Duration> {
         Some(word) => word.parse::<u64>().unwrap_or(DEFAULT_TURN_CEILING_MINUTES),
     };
     Some(Duration::from_secs(minutes * 60))
+}
+
+/// The stop code for a Maestro turn that ran past its wall-clock ceiling.
+///
+/// Same vocabulary as the OpenCode turn (`engine::opencode_client::TURN_TIMEOUT_CODE`): a turn that
+/// ran its whole ceiling is a failure for a human to read, not plumbing to retry. The ceiling is
+/// formatted as whole seconds (`7200s`), never as a `Duration` debug string.
+fn turn_timeout_message(ceiling: Duration) -> String {
+    format!(
+        "{}: maestro turn exceeded wall-clock ceiling of {}s and was stopped",
+        crate::engine::opencode_client::TURN_TIMEOUT_CODE,
+        ceiling.as_secs()
+    )
 }
 
 /// Whether session continuity is enabled.
@@ -885,10 +904,7 @@ fn run_maestro_streaming(
             if start_time.elapsed() >= ceiling {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(WorkflowError::generic(format!(
-                    "maestro turn exceeded wall-clock ceiling of {:?}",
-                    ceiling
-                )));
+                return Err(WorkflowError::generic(turn_timeout_message(ceiling)));
             }
         }
 
@@ -1602,6 +1618,118 @@ mod tests {
         assert_eq!(turn_ceiling(Some("45")), Some(Duration::from_secs(45 * 60)));
         assert_eq!(turn_ceiling(Some("0")), None);
         assert_eq!(turn_ceiling(Some("off")), None);
+    }
+
+    #[test]
+    fn maestro_turn_timeout_carries_code_and_seconds() {
+        // WO-202: the ceiling error carries the TURN_TIMEOUT code and formats the ceiling as
+        // whole seconds (7200s), never as a Duration debug string.
+        let message = turn_timeout_message(Duration::from_secs(7200));
+        assert!(message.contains("TURN_TIMEOUT"), "{message}");
+        assert!(message.contains("7200s"), "{message}");
+        assert!(!message.contains("7200s, 0ns"), "{message}");
+
+        // And the code agrees with the OpenCode turn's vocabulary: one code, not two.
+        assert_eq!(
+            message.split(':').next().unwrap_or(""),
+            crate::engine::opencode_client::TURN_TIMEOUT_CODE
+        );
+    }
+
+    #[test]
+    fn maestro_ceiling_kill_reports_turn_timeout() {
+        // WO-202 (live runner): a turn that sleeps past its ceiling dies with TURN_TIMEOUT
+        // and the ceiling in seconds.
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("forge-maestro-ceiling-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let script = dir.join("slow.sh");
+        {
+            let mut f = std::fs::File::create(&script).expect("script");
+            writeln!(f, "#!/bin/sh\nsleep 30").expect("write");
+        }
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        let err = run_maestro_streaming(
+            script.to_str().unwrap(),
+            ".",
+            &[],
+            None,
+            None,
+            Some(Duration::from_secs(1)),
+        )
+        .expect_err("the ceiling must kill the turn");
+        let text = err.to_string();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(text.contains("TURN_TIMEOUT"), "{text}");
+        assert!(text.contains("1s"), "{text}");
+    }
+
+    #[test]
+    fn receipt_prints_backend_selected_harness_id() {
+        // WO-202: the execution receipt prints the backend-selected harness id — the Maestro id
+        // on a Maestro turn, the OpenCode id on an OpenCode turn — never a hardcoded vendor.
+        use crate::engine::harness::ForgeHarness;
+        use crate::engine::packet::StoryPacket;
+        assert_ne!(
+            MAESTRO_HARNESS_ADAPTER_ID,
+            crate::engine::opencode::OPENCODE_HARNESS_ADAPTER_ID,
+            "the two backends must be distinguishable in the receipt"
+        );
+        let maestro = MaestroHarness {
+            cli_bin: "maestro-cli".into(),
+            workspace: std::path::PathBuf::from("."),
+            agent: "Meta Muse".into(),
+            model: "Meta Muse".into(),
+            env: None,
+            packet: StoryPacket::default(),
+            execution_workspace: None,
+            story_id: None,
+            model_policy: None,
+            spend_cap_usd: None,
+            assay_commands: vec![],
+            acceptance_mapped: false,
+        };
+        let opencode = crate::engine::opencode::OpenCodeHarness {
+            cli_bin: "opencode".into(),
+            workspace: std::path::PathBuf::from("."),
+            model: crate::engine::opencode::OPENCODE_PINNED_MODEL.into(),
+            env: None,
+            auto_approve: true,
+            start_run: None,
+            live_turn: crate::engine::opencode_client::live_turn_slot(),
+            spend_cap_usd: None,
+            assay_commands: vec![],
+            acceptance_mapped: false,
+            packet: StoryPacket::default(),
+            execution_workspace: None,
+            story_id: None,
+        };
+        assert_eq!(
+            ForgeHarness::Maestro(maestro).adapter_id(),
+            MAESTRO_HARNESS_ADAPTER_ID
+        );
+        assert_eq!(
+            ForgeHarness::OpenCode(opencode).adapter_id(),
+            crate::engine::opencode::OPENCODE_HARNESS_ADAPTER_ID
+        );
+
+        // Structural guard on the binary: the receipt reads the id off the selected harness.
+        // A hardcoded vendor here would print `opencode-harness` for a Maestro turn.
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src/bin/forge.rs")
+                .as_path(),
+        )
+        .expect("forge.rs is readable");
+        assert!(
+            source.contains("harness.adapter_id()"),
+            "the execution receipt must print the backend-selected harness id"
+        );
+        assert!(
+            !source.contains("OPENCODE_HARNESS_ADAPTER_ID"),
+            "the receipt must not hardcode one backend's id"
+        );
     }
 
     #[test]
