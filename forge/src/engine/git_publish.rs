@@ -12,6 +12,7 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 
 use crate::engine::evidence_store::evidence_patch;
 use crate::engine::facts::{evidence_from_value, ForgeGateEvidence};
@@ -249,7 +250,74 @@ pub fn publish_switch_off(value: Option<&str>) -> bool {
     }
 }
 
-pub struct DbReleaseEvidenceStore;
+/// A release-evidence merge the database refused (WO-114). The operation the patch describes
+/// already happened — a push that landed, a stage that ran — so the story must hold with the
+/// facts instead of reading as clean. `published_sha` is `Some` exactly when the push had landed.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct UnrecordedPublish {
+    pub story_id: String,
+    pub published_sha: Option<String>,
+    pub failed_release_stage: Option<String>,
+    pub error: String,
+}
+
+/// The hold an unrecorded release-evidence merge becomes (WO-114): Conflict, never Success, with
+/// the published SHA in the reason when the push had already landed.
+pub(crate) fn unrecorded_publish_hold(
+    command_id: &str,
+    unrecorded: &UnrecordedPublish,
+) -> workflow::ApplicationCommandResult {
+    let reason = match (
+        &unrecorded.published_sha,
+        &unrecorded.failed_release_stage,
+    ) {
+        (Some(sha), _) => format!(
+            "HOLD: published {sha} but the release evidence write failed for story {}: {}. \
+             Main moved and nothing recorded it — re-record published_sha before proceeding.",
+            unrecorded.story_id, unrecorded.error
+        ),
+        (None, Some(stage)) => format!(
+            "HOLD: the release evidence write failed for story {} at stage {stage}: {}. \
+             Nothing was recorded — repair the write before proceeding.",
+            unrecorded.story_id, unrecorded.error
+        ),
+        (None, None) => format!(
+            "HOLD: the release evidence write failed for story {}: {}. \
+             Nothing was recorded — repair the write before proceeding.",
+            unrecorded.story_id, unrecorded.error
+        ),
+    };
+    workflow::ApplicationCommandResult {
+        command_id: command_id.to_string(),
+        outcome: workflow::ApplicationCommandOutcome::Conflict,
+        message: Some(reason),
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DbReleaseEvidenceStore {
+    unrecorded: Arc<Mutex<Option<UnrecordedPublish>>>,
+}
+
+impl DbReleaseEvidenceStore {
+    pub(crate) fn take_unrecorded(&self) -> Option<UnrecordedPublish> {
+        self.unrecorded
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take())
+    }
+
+    fn capture_unrecorded(&self, story_id: &str, patch: &ForgeGateEvidence, error: String) {
+        if let Ok(mut slot) = self.unrecorded.lock() {
+            *slot = Some(UnrecordedPublish {
+                story_id: story_id.to_string(),
+                published_sha: patch.published_sha.clone(),
+                failed_release_stage: patch.failed_release_stage.clone(),
+                error,
+            });
+        }
+    }
+}
 
 impl EvidenceStore for DbReleaseEvidenceStore {
     fn read(&self, story_id: &str) -> ForgeGateEvidence {
@@ -270,13 +338,11 @@ impl EvidenceStore for DbReleaseEvidenceStore {
                     .map_err(|error| error.to_string())
             })
         });
-        match result {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) | Err(error) => {
-                eprintln!(
-                    "forge release evidence merge failed story={story_id} process={process_instance_id}: {error}"
-                );
-            }
+        // WO-114: the error is RETURNED (via the slot `HostReleaseExecutor::execute` checks),
+        // never logged-and-swallowed. A push that lands while this write fails must hold the story
+        // with the SHA — a clean "published {sha}" with nothing recorded strands every step after it.
+        if let Ok(Err(error)) | Err(error) = result {
+            self.capture_unrecorded(story_id, &patch, error);
         }
     }
 
@@ -314,12 +380,17 @@ impl crate::engine::writer::ForgeReleaseExecutor for HostReleaseExecutor {
             .and_then(|v| v.as_str())
             .unwrap_or(command_type)
             .to_string();
-        crate::engine::release::DbForgeReleaseExecutor {
+        // WO-114: the evidence store captures a refused merge instead of logging it away, and the
+        // hold is returned here — a push that lands while the write fails must read as a hold
+        // carrying the SHA, never as a clean publish. The store is fresh per execute, so the slot
+        // can only hold this command's failure.
+        let evidence = DbReleaseEvidenceStore::default();
+        let out = crate::engine::release::DbForgeReleaseExecutor {
             operations: GitReleaseOps {
                 repo_root: self.ops.repo_root.clone(),
                 integration_proofs: self.ops.integration_proofs.clone(),
             },
-            evidence: DbReleaseEvidenceStore,
+            evidence: evidence.clone(),
             pending: Some(evidence_from_value(input)),
         }
         .execute(&crate::engine::release::ForgeCommandEnvelope {
@@ -327,7 +398,11 @@ impl crate::engine::writer::ForgeReleaseExecutor for HostReleaseExecutor {
             command_id,
             process_instance_id,
             story_id,
-        })
+        });
+        if let Some(unrecorded) = evidence.take_unrecorded() {
+            return unrecorded_publish_hold(&out.command_id, &unrecorded);
+        }
+        out
     }
 }
 
@@ -404,5 +479,58 @@ impl ForgeReleaseOperations for GitReleaseOps {
             .cloned()
             .collect();
         publish_candidate(&self.repo_root, sha, &proofs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use workflow::ApplicationCommandOutcome;
+
+    /// WO-114: a push that lands while the evidence write fails must become a hold carrying the
+    /// published SHA — never a clean "published {sha}". No database stands behind `with_shared`
+    /// in unit tests, so the merge genuinely refuses: the control plane's absence IS the injected
+    /// failure, no seam required.
+    #[test]
+    fn a_publish_the_evidence_write_refuses_becomes_a_hold_carrying_the_sha() {
+        let store = DbReleaseEvidenceStore::default();
+        let sha = "a".repeat(40);
+        let mut patch = ForgeGateEvidence::default();
+        patch.publish_succeeded = Some(true);
+        patch.published_sha = Some(sha.clone());
+        store.merge("proc-1", "STORY-1", patch);
+
+        let unrecorded = store
+            .take_unrecorded()
+            .expect("the refused merge is captured, not logged away");
+        assert_eq!(unrecorded.story_id, "STORY-1");
+        assert_eq!(unrecorded.published_sha.as_deref(), Some(sha.as_str()));
+
+        let hold = unrecorded_publish_hold("cmd-1", &unrecorded);
+        assert_eq!(hold.command_id, "cmd-1");
+        assert!(
+            matches!(hold.outcome, ApplicationCommandOutcome::Conflict),
+            "an unrecorded publish is unfinished business, not a success"
+        );
+        let message = hold.message.unwrap_or_default();
+        assert!(message.contains("HOLD"), "{message}");
+        assert!(message.contains(&sha), "the hold carries the published SHA: {message}");
+    }
+
+    /// WO-114: a non-publish evidence failure is captured with its stage, so it can hold too.
+    #[test]
+    fn a_non_publish_merge_failure_is_captured_with_its_stage() {
+        let store = DbReleaseEvidenceStore::default();
+        let mut patch = ForgeGateEvidence::default();
+        patch.failed_release_stage = Some("PROD_MIGRATION".into());
+        store.merge("proc-1", "STORY-1", patch);
+
+        let unrecorded = store
+            .take_unrecorded()
+            .expect("the refused merge is captured, not logged away");
+        assert_eq!(unrecorded.published_sha, None);
+        let hold = unrecorded_publish_hold("cmd-1", &unrecorded);
+        let message = hold.message.unwrap_or_default();
+        assert!(message.contains("PROD_MIGRATION"), "{message}");
     }
 }
