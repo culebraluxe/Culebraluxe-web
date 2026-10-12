@@ -141,6 +141,7 @@ fn run_frozen_assay(
     let current = ctx.current.clone();
     let (mut evidence, verdict) = measure_frozen_plan(ctx, task, node_id, current, rust_contract)?;
     dispose_failure(&mut evidence, &verdict);
+    apply_unproven_tristate(&mut evidence, &verdict);
     if let Some(reason) = evidence.deliverable_rejection.as_deref() {
         hold_rejected_deliverable(ctx, task, node_id, reason)?;
     }
@@ -169,6 +170,20 @@ pub fn dispose_failure(evidence: &mut ForgeGateEvidence, verdict: &AssayVerdict)
         }
         .into(),
     );
+}
+
+/// WO-V1 tri-state persist: UNPROVEN is "measured nothing", and the durable boolean has three
+/// states — `Some(true)` proved, `Some(false)` failed, `None` unproven. The collector in
+/// `engine::assay` writes `Some(false)` for every non-pass (it only knows the gate boolean), so the
+/// lane that OWNS the three-way verdict corrects it here: AFTER `dispose_failure` (which reads the
+/// boolean to set ESCALATE) and BEFORE the evidence is returned or persisted. The artifact token
+/// stays UNPROVEN throughout and the rejection/disposition survive; only the boolean stops claiming
+/// a failure nobody measured — which is what used to make an unmeasured run report
+/// `agree (Failed/FAIL)` in the doctor.
+pub fn apply_unproven_tristate(evidence: &mut ForgeGateEvidence, verdict: &AssayVerdict) {
+    if *verdict == AssayVerdict::Unproven {
+        evidence.qa_passed = None;
+    }
 }
 
 /// The artifact a QA lane's own measurement becomes (migration 130, `kind = 'qa-assay-evidence'`).
@@ -943,6 +958,153 @@ mod tests {
             row.verdict.clone().unwrap_or_default(),
             row.summary.clone().unwrap_or_default(),
         )
+    }
+
+
+    /// WO-V1, end to end through the collector and the lane's own disposition: an unmapped
+    /// acceptance measures UNPROVEN, and the durable boolean must be NO verdict — `None`, never
+    /// `Some(false)`, which the doctor reads as a FAIL the Failed run agrees with. The lane's order
+    /// is `dispose_failure` (which READS the boolean to choose the route) and then the tri-state
+    /// (which corrects it), so the ESCALATE disposition and the UNPROVEN rejection survive.
+    #[test]
+    fn unproven_is_persisted_as_no_verdict_not_as_failed() {
+        use crate::engine::assay::{collect_rust_contract_assay_evidence, AssayEvidence};
+        let run = |command: &str| CommandResult {
+            command: command.into(),
+            exit_code: 0,
+            passed: true,
+            excerpt: String::new(),
+            unmeasurable: false,
+            cancelled: false,
+            output: String::new(),
+        };
+        let AssayEvidence {
+            mut evidence,
+            verdict,
+        } = collect_rust_contract_assay_evidence(
+            ForgeGateEvidence::default(),
+            Some(&run),
+            &["cargo check --all-targets".into()],
+            false,
+        );
+        assert_eq!(
+            verdict,
+            crate::engine::assay::AssayVerdict::Unproven,
+            "an unmapped acceptance measures nothing — the bug's precondition"
+        );
+        assert_eq!(
+            evidence.qa_passed,
+            Some(false),
+            "the collector only knows the gate boolean, so this is what it writes"
+        );
+
+        dispose_failure(&mut evidence, &verdict);
+        apply_unproven_tristate(&mut evidence, &verdict);
+        assert_eq!(
+            evidence.qa_passed, None,
+            "UNPROVEN is unmeasured, and an unmeasured run must not persist qa_passed=false"
+        );
+        assert_eq!(
+            evidence.disposition.as_deref(),
+            Some("ESCALATE"),
+            "an unmeasured run is not another Smith turn's to repair"
+        );
+        assert!(
+            evidence
+                .deliverable_rejection
+                .as_deref()
+                .unwrap_or("")
+                .contains("UNPROVEN"),
+            "the rejection still names the state: {:?}",
+            evidence.deliverable_rejection
+        );
+    }
+
+    /// WO-V1 guard: a MEASURED failure still persists `Some(false)` with a REPAIR disposition.
+    /// Only the unmeasured reading changes state.
+    #[test]
+    fn measured_fail_is_still_persisted_as_failed_with_repair() {
+        let harness = Arc::new(MeasurementHarness::new(false));
+        let writer = Arc::new(RecordingWriter::default());
+        approved_plan_snapshot(&writer, "cargo check --all-targets");
+        let runner = ProductionRoleRunner::new(harness.clone(), ForgeGateEvidence::default())
+            .with_writer(writer.clone())
+            .with_story_run(Some(RUN_ID.into()))
+            .with_test_mode(Some("RUST_CONTRACT".into()))
+            .with_contract_assay_commands(vec!["cargo check --all-targets".into()])
+            .with_contract_acceptance_mapped(true);
+
+        let outcome = AssayService::new(&runner)
+            .execute("qa_verify", &qa_task())
+            .expect("the measurement lane runs");
+        assert_eq!(outcome.evidence.qa_passed, Some(false));
+        assert_eq!(outcome.evidence.disposition.as_deref(), Some("REPAIR"));
+    }
+
+    /// WO-V1 guard: a MEASURED pass still persists `Some(true)` — driven through the collector
+    /// plus the tri-state, since the turn-level rig carries no base/candidate SHAs and therefore
+    /// cannot reach PASS (it stops at "execution base is missing", which is itself a FAIL).
+    #[test]
+    fn measured_pass_is_still_persisted_as_passed() {
+        use crate::engine::assay::{collect_rust_contract_assay_evidence, AssayEvidence};
+        let sha = "a".repeat(40);
+        let mut evidence = ForgeGateEvidence {
+            candidate_sha: Some(sha.clone()),
+            ..ForgeGateEvidence::default()
+        };
+        evidence
+            .extra
+            .insert("recordedBase", workflow::Value::from(sha.clone()));
+        let run = |command: &str| CommandResult {
+            command: command.into(),
+            exit_code: 0,
+            passed: true,
+            excerpt: String::new(),
+            unmeasurable: false,
+            cancelled: false,
+            output: String::new(),
+        };
+        let AssayEvidence { mut evidence, verdict } = collect_rust_contract_assay_evidence(
+            evidence,
+            Some(&run),
+            &["cargo check --all-targets".into()],
+            true,
+        );
+        assert_eq!(verdict, crate::engine::assay::AssayVerdict::Pass);
+        dispose_failure(&mut evidence, &verdict);
+        apply_unproven_tristate(&mut evidence, &verdict);
+        assert_eq!(evidence.qa_passed, Some(true));
+    }
+
+    /// WO-V1 unit: the tri-state clears only the boolean, never the record around it — the
+    /// ESCALATE disposition and the UNPROVEN rejection survive, and Pass/Fail are untouched.
+    #[test]
+    fn unproven_tristate_clears_only_the_boolean_not_the_record() {
+        use crate::engine::assay::AssayVerdict;
+        let mut evidence = ForgeGateEvidence {
+            qa_passed: Some(false),
+            deliverable_rejection: Some("QA UNPROVEN: RUST_CONTRACT acceptance mapping is missing.".into()),
+            disposition: Some("ESCALATE".into()),
+            ..ForgeGateEvidence::default()
+        };
+        apply_unproven_tristate(&mut evidence, &AssayVerdict::Unproven);
+        assert_eq!(evidence.qa_passed, None);
+        assert_eq!(evidence.disposition.as_deref(), Some("ESCALATE"));
+        assert!(evidence.deliverable_rejection.as_deref().unwrap_or("").contains("UNPROVEN"));
+
+        let mut pass = ForgeGateEvidence {
+            qa_passed: Some(true),
+            ..ForgeGateEvidence::default()
+        };
+        apply_unproven_tristate(&mut pass, &AssayVerdict::Pass);
+        assert_eq!(pass.qa_passed, Some(true));
+
+        let mut fail = ForgeGateEvidence {
+            qa_passed: Some(false),
+            ..ForgeGateEvidence::default()
+        };
+        apply_unproven_tristate(&mut fail, &AssayVerdict::Fail);
+        assert_eq!(fail.qa_passed, Some(false));
     }
 
     /// The verdict follows the approved plan and measured command result; legacy booleans do not affect it.
