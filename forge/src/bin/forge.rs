@@ -659,7 +659,7 @@ fn main() {
     });
     eprintln!(
         "harness={} model={} bin={} cwd={} neon={}",
-        harness.adapter_id(),
+        forge::engine::opencode::OPENCODE_HARNESS_ADAPTER_ID,
         harness.model(),
         harness.cli_bin(),
         harness.workspace().display(),
