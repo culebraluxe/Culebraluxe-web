@@ -13,6 +13,9 @@ pub const SPEND_CAP_ENV: &str = "FORGE_SPEND_CAP_USD";
 /// The stop code a turn carries into the record when it is cut off by the cap.
 pub const BUDGET_EXHAUSTED_CODE: &str = "BUDGET_EXHAUSTED";
 
+use crate::engine::harness::HarnessUsage;
+use workflow::{Result, WorkflowError};
+
 pub fn parse_forge_spend_cap_usd(raw: Option<&str>) -> Option<f64> {
     let v = raw?.trim();
     if v.is_empty() {
@@ -47,4 +50,22 @@ pub fn render_spend_cap_line(spend_usd: Option<f64>, cap_usd: f64) -> String {
             "{BUDGET_EXHAUSTED_CODE}: spend is unmeasured against a {cap_usd:.6} USD cap ({SPEND_CAP_ENV})."
         ),
     }
+}
+
+/// Post-hoc spend-cap verdict: the enforcement that always holds (WO-205).
+///
+/// `maestro-cli send` returns its cost in the final envelope, AFTER the turn ran, so this check
+/// runs after the envelope parse in the Maestro `run_role` and holds the turn when the measured
+/// spend passes the cap. Missing usage is UNKNOWN spend, never $0 (`forge_spend_should_hold`
+/// holds only on a measured figure over the cap), and no configured cap holds nothing. The
+/// failure carries BUDGET_EXHAUSTED with the measured line, the same vocabulary as the OpenCode
+/// live-kill path.
+pub fn check_post_hoc_spend_cap(usage: Option<&HarnessUsage>, cap: Option<f64>) -> Result<()> {
+    if let Some(cap) = cap {
+        let spend = usage.map(|turn| turn.cost_usd);
+        if forge_spend_should_hold(spend, Some(cap)) {
+            return Err(WorkflowError::generic(render_spend_cap_line(spend, cap)));
+        }
+    }
+    Ok(())
 }

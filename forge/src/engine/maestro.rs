@@ -15,7 +15,7 @@ use crate::engine::harness::HarnessUsage;
 use crate::engine::packet::{ExecutionWorkspace, StoryPacket};
 use crate::engine::runner::{HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
-use crate::engine::spend_cap::{self, SPEND_CAP_ENV};
+use crate::engine::spend_cap::{self, check_post_hoc_spend_cap, SPEND_CAP_ENV};
 use crate::engine::vendor_session;
 use workflow::{Result, WorkflowError};
 
@@ -535,6 +535,11 @@ impl RoleHarness for MaestroHarness {
         // Parse output - Maestro returns structured output
         let parsed = parse_maestro_output(&result.stdout)?;
 
+        // Spend-cap verdict, POST-HOC (WO-205): `send` is a single object, so the cap is declared
+        // here, after the measured cost arrives. The live stop by another route is the wall-clock
+        // ceiling above; this is the ceiling in dollars.
+        check_post_hoc_spend_cap(parsed.usage.as_ref(), self.spend_cap_usd)?;
+
         // Persist session (V2): write workspace marker and vendor session
         if session_continuity_enabled() {
             if let Some(ref story) = self.story_id {
@@ -838,11 +843,14 @@ fn run_maestro_streaming(
 
     // Read stdout with spend cap enforcement and timeout.
     //
-    // SPEND-CAP LIMITATION, stated not hidden: `maestro-cli send` returns authoritative usage AFTER
-    // completion, so a mid-turn streaming kill from vendor numbers is best-effort only — a turn whose cost
-    // arrives solely in the final envelope cannot be stopped halfway for going over. The wall-clock ceiling
-    // below is the enforcement that always holds; the cap kills early only when a streamed usage line
-    // already proves it breached.
+    // SPEND-CAP VERDICT (WO-205): `maestro-cli send` returns a SINGLE JSON object AFTER completion
+    // (keys `agentId agentName sessionId response success error usage` — WO-203 probe), not a token
+    // stream, so a mid-turn kill from vendor numbers is best-effort only: a turn whose cost arrives
+    // solely in the final envelope cannot be stopped halfway for going over. The line check below
+    // fires only when a usage line is already visible (the envelope's own last line, or a progress
+    // line if the vendor ever streams one); the POST-HOC verdict in `run_role` (`check_post_hoc_spend_cap`)
+    // is the enforcement that always holds, and the wall-clock ceiling below is the live stop that
+    // holds even when usage is unmeasured. An unmeasured turn is UNKNOWN spend, never $0.
     let stdout_pipe = child.stdout.take().unwrap();
     let start_time = std::time::Instant::now();
 
@@ -888,16 +896,17 @@ fn run_maestro_streaming(
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(Ok(line)) => {
                 stdout.push_str(&line);
-                // Check spend cap from parsed usage in line (if Maestro emits usage in streaming output)
+                // Best-effort live kill: fires only when a streamed usage line already proves the
+                // breach. The verdict carries the same BUDGET_EXHAUSTED line as the post-hoc check,
+                // so both routes read as one cap in the record.
                 if let Some(cap) = spend_cap {
                     if let Some(usage) = parse_usage_from_line(&line) {
-                        if usage.cost_usd > cap {
+                        if spend_cap::forge_spend_should_hold(Some(usage.cost_usd), Some(cap)) {
                             let _ = child.kill();
                             let _ = child.wait();
-                            return Err(WorkflowError::generic(format!(
-                                "maestro turn exceeded spend cap: ${:.6} > ${:.6}",
-                                usage.cost_usd, cap
-                            )));
+                            return Err(WorkflowError::generic(
+                                spend_cap::render_spend_cap_line(Some(usage.cost_usd), cap),
+                            ));
                         }
                     }
                 }
@@ -925,8 +934,13 @@ fn run_maestro_streaming(
     })
 }
 
-/// Parse usage from a single Maestro streaming output line (if available).
+/// Parse usage from a single Maestro output line (if available).
 /// Returns None if the line doesn't contain usage info.
+///
+/// Accepts the REAL envelope keys (`inputTokens` / `outputTokens` / `totalCostUsd`, WO-205) with the
+/// older snake_case guesses (`input_tokens` / `tokens_input`, `cost_usd` / `cost`) as tolerated
+/// aliases: the line scanned is usually the single-object envelope's own last line, which nests the
+/// real keys under top-level `usage`.
 fn parse_usage_from_line(line: &str) -> Option<HarnessUsage> {
     let line = line.trim();
     if line.is_empty() {
@@ -936,15 +950,18 @@ fn parse_usage_from_line(line: &str) -> Option<HarnessUsage> {
         if let Some(usage_obj) = json.get("usage").or_else(|| json.get("usage_info")) {
             if let (Some(input), Some(output), Some(cost)) = (
                 usage_obj
-                    .get("input_tokens")
+                    .get("inputTokens")
+                    .or_else(|| usage_obj.get("input_tokens"))
                     .or_else(|| usage_obj.get("tokens_input"))
                     .and_then(|v| v.as_i64()),
                 usage_obj
-                    .get("output_tokens")
+                    .get("outputTokens")
+                    .or_else(|| usage_obj.get("output_tokens"))
                     .or_else(|| usage_obj.get("tokens_output"))
                     .and_then(|v| v.as_i64()),
                 usage_obj
-                    .get("cost_usd")
+                    .get("totalCostUsd")
+                    .or_else(|| usage_obj.get("cost_usd"))
                     .or_else(|| usage_obj.get("cost"))
                     .and_then(|v| v.as_f64()),
             ) {
@@ -1338,6 +1355,75 @@ mod tests {
     }
 
     #[test]
+    fn maestro_spend_cap_post_hoc_over_cap_is_budget_exhausted() {
+        // RED (WO-205): the real envelope shape (inputTokens/totalCostUsd) over the cap must fail
+        // the turn with BUDGET_EXHAUSTED and the measured line — not a silent success.
+        let parsed = parse_maestro_output(
+            r#"{"success":true,"sessionId":"s-1","response":"done","usage":{"inputTokens":100,"outputTokens":25,"totalCostUsd":0.012}}"#,
+        )
+        .expect("the real envelope parses");
+        let err = check_post_hoc_spend_cap(parsed.usage.as_ref(), Some(0.01))
+            .expect_err("spend over cap must hold the turn");
+        let text = err.to_string();
+        assert!(text.contains("BUDGET_EXHAUSTED"), "{text}");
+        assert!(text.contains("0.012000"), "{text}");
+        assert!(text.contains("0.010000"), "{text}");
+    }
+
+    #[test]
+    fn maestro_spend_cap_post_hoc_under_cap_passes() {
+        let parsed = parse_maestro_output(
+            r#"{"success":true,"sessionId":"s-1","response":"done","usage":{"inputTokens":100,"outputTokens":25,"totalCostUsd":0.005}}"#,
+        )
+        .expect("the real envelope parses");
+        check_post_hoc_spend_cap(parsed.usage.as_ref(), Some(0.01)).expect("spend inside cap passes");
+    }
+
+    #[test]
+    fn maestro_spend_cap_post_hoc_unmeasured_is_unknown_not_zero() {
+        // WO-203 residual risk: a turn with no usage (read-only turns report null) is UNKNOWN spend,
+        // never $0 — the cap must not hold it, and no cap configured holds nothing.
+        let parsed = parse_maestro_output(
+            r#"{"success":true,"sessionId":"s-1","response":"done","usage":null}"#,
+        )
+        .expect("a null-usage envelope parses");
+        assert!(parsed.usage.is_none());
+        check_post_hoc_spend_cap(parsed.usage.as_ref(), Some(0.01))
+            .expect("unmeasured spend must not trip the cap");
+        check_post_hoc_spend_cap(parsed.usage.as_ref(), None).expect("no cap holds nothing");
+    }
+
+    #[test]
+    fn maestro_spend_cap_streaming_line_with_real_keys_kills_early() {
+        // The single-object envelope arrives as the child's last stdout line while the process may
+        // still be open: a usage line in the REAL camelCase keys must trip the live kill too.
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("forge-maestro-spend-real-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("spendy-real.sh");
+        let mut f = std::fs::File::create(&path).expect("script");
+        writeln!(
+            f,
+            "#!/bin/sh\necho '{{\"success\":true,\"usage\":{{\"inputTokens\":10,\"outputTokens\":5,\"totalCostUsd\":5.0}}}}'\nsleep 30"
+        )
+        .expect("write");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        let err = run_maestro_streaming(
+            path.to_str().unwrap(),
+            ".",
+            &[],
+            None,
+            Some(0.01),
+            Some(Duration::from_secs(60)),
+        )
+        .expect_err("the spend cap must kill the turn on real keys");
+        assert!(err.to_string().contains("BUDGET_EXHAUSTED"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn maestro_preflight_pass_and_fail() {
         // `/usr/bin/true` answers --version with exit 0; `/usr/bin/false` refuses; a missing binary
         // never spawns. No network, no tokens, no agent touched.
@@ -1568,7 +1654,7 @@ mod tests {
             Some(Duration::from_secs(60)),
         )
         .expect_err("the spend cap must kill the turn");
-        assert!(err.to_string().contains("spend cap"), "{err}");
+        assert!(err.to_string().contains("BUDGET_EXHAUSTED"), "{err}");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
