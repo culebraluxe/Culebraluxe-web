@@ -24,7 +24,7 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
     } else if model.dirty {
         "Unsaved".to_owned()
     } else if let Some(issued) = page.issued.as_ref() {
-        format!("Vault v{}", issued.issued_version)
+        format!("Vault copy v{}", issued.issued_version)
     } else if form.status == "issued" {
         "Issued".into()
     } else {
@@ -140,7 +140,7 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                                         <div class="mt-0.5 text-[10px] font-light text-black/40">
                                             {
                                                 format!(
-                                                    "v{} {} · {}{}",
+                                                    "template v{} {} · {}{}",
                                                     template.version,
                                                     if listing_is_active { "active" } else { "history" },
                                                     if form.person_id.is_some() { "Client linked" } else { "Client not linked" },
@@ -166,7 +166,7 @@ pub(super) fn view(model: &Model, ctx: &ScreenCtx, link: &Link<Msg>) -> Html {
                         <div class="min-w-0">
                             <div class="flex min-w-0 items-center gap-2">
                                 <h2 class="truncate font-serif text-lg font-light text-[var(--portal-navy)]">
-                                    { format!("{}{}", template.display_name, if is_listing { format!(" · v{}", template.version) } else { String::new() }) }
+                                    { format!("{}{}", template.display_name, if is_listing { format!(" · template v{}", template.version) } else { String::new() }) }
                                 </h2>
                                 {
                                     if is_listing {
