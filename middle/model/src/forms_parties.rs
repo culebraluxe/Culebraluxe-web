@@ -99,14 +99,25 @@ pub fn derive_party(prefix: &str, values: &BTreeMap<String, String>) -> DerivedP
             let company = get("EntityName");
             let representative = get("RepName");
             let title = get("RepTitle");
+            // The registration clause is a fact about the company, and it prints only when the answer behind it is there
+            // to print. A blank "PR Department of State Register No." used to produce "…, a LLC entity registered with
+            // the Puerto Rico Department of State under Register No. , represented by …" in the first paragraph of
+            // Jessica's listing — a claim about a company nobody had checked, and one the Property being in Puerto Rico
+            // does not make true (2026-10-12). Fill the number in and the clause comes back; leave it blank and the Owner
+            // is described by name and by who binds it, which is what a listing agreement attests to. The jurisdiction
+            // answer ("State of Formation") is deliberately not printed: it may hold a type ("LLC"), and where a company
+            // was formed is not a fact this Agreement needs.
+            let register = get("EntityRegister");
+            let registration = if register.trim().is_empty() {
+                String::new()
+            } else {
+                format!(
+                    ", registered with the Puerto Rico Department of State under Register No. {}",
+                    register.trim()
+                )
+            };
             (
-                // The Owner's jurisdiction is not the Property's, and this Agreement attests only that the company is
-                // the Owner and who binds it — never where the company is registered. The sentence used to read "a
-                // {state} entity registered with the Puerto Rico Department of State under Register No. {register}",
-                // which printed "a LLC entity registered with the Puerto Rico Department of State under Register No. ,"
-                // in the first paragraph of Jessica's listing when neither answer was a jurisdiction and a number
-                // (2026-10-12). The answers are still on the form; they are simply not attested to here.
-                format!("{company}, represented by {representative}, {title}"),
+                format!("{company}{registration}, represented by {representative}, {title}"),
                 format!("{company}, by {representative}, {title}"),
                 representative,
                 false,
@@ -221,13 +232,11 @@ mod tests {
             ("sellerCivilStatus", "Married"),
         ]);
         let d = derive_party("seller", &v);
-        // "Florida" and "12345" are saved answers, and the Agreement still attests to neither — no jurisdiction and no
-        // register number in the Owner's description, only who the company is and who binds it. This test used to pass
-        // with a sentence claiming Puerto Rico Department of State registration, which is the whole defect: nobody knows
-        // where the company is registered, and a listing agreement does not need to (2026-10-12).
+        // The register number is the answer that carries the clause: with it saved, the Owner is described as a company
+        // registered with the Puerto Rico Department of State, and with it blank that sentence is not in the agreement.
         assert_eq!(
             d.description,
-            "Caribe Holdings LLC, represented by Jessica Iverson, Managing Member"
+            "Caribe Holdings LLC, registered with the Puerto Rico Department of State under Register No. 12345, represented by Jessica Iverson, Managing Member"
         );
         assert_eq!(
             d.sign_block,
@@ -264,5 +273,40 @@ mod tests {
         apply_party_derivations("PR-PNS", &mut v);
         assert_eq!(v.get("buyerKind").map(String::as_str), Some("Individual"));
         assert_eq!(v.get("buyerSpouseSign").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn a_company_with_a_blank_register_number_is_never_attested_to_be_registered() {
+        // Jessica's own answers: an LLC whose State of Formation holds a type rather than a jurisdiction, and a blank
+        // "PR Department of State Register No.". The Owner is named and who binds it is named, and the agreement claims
+        // nothing about where the company is registered — this used to print "Bodysoulandbeauty LLC, a LLC entity
+        // registered with the Puerto Rico Department of State under Register No. , represented by Jessica Iverson,
+        // President" in the first paragraph of her listing (2026-10-12).
+        let v = values(&[
+            ("sellerKind", "Entity"),
+            ("sellerName", "Bodysoulandbeauty LLC"),
+            ("sellerEntityName", "Bodysoulandbeauty LLC"),
+            ("sellerEntityState", "LLC"),
+            ("sellerRepName", "Jessica Iverson"),
+            ("sellerRepTitle", "President"),
+        ]);
+        let d = derive_party("seller", &v);
+        assert_eq!(
+            d.description,
+            "Bodysoulandbeauty LLC, represented by Jessica Iverson, President"
+        );
+        assert!(
+            !d.description.contains("Puerto Rico Department of State"),
+            "a blank register number must not attest to a registration, got: {}",
+            d.description
+        );
+        // A register number typed in brings the clause back — the company registered in Puerto Rico is still described.
+        let mut registered = v.clone();
+        registered.insert("sellerEntityRegister".into(), " 500123 ".into());
+        let d = derive_party("seller", &registered);
+        assert_eq!(
+            d.description,
+            "Bodysoulandbeauty LLC, registered with the Puerto Rico Department of State under Register No. 500123, represented by Jessica Iverson, President"
+        );
     }
 }
