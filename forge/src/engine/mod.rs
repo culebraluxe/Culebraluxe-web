@@ -117,8 +117,10 @@ pub use runtime::{completion_receipt_id, ActiveForgeRoleTask, ForgeRuntime, Open
 pub use topology::{ensure_topology, topology_from_graph, FORGE_SDLC_KEY, FORGE_SDLC_VERSION};
 pub use writer::{
     ForgeEvidenceReader, ForgeReleaseExecutor, ForgeStateWriter, NullWriter, OkRelease,
-    RecordingWriter,
 };
+
+#[cfg(test)]
+pub use writer::RecordingWriter;
 pub use xml::{definition_from_xml, parse_process_definition_xml};
 
 pub use validate::{validate_definition_xml, validate_forge_sdlc_v6, DefinitionValidationReport};
