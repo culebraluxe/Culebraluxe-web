@@ -37,6 +37,44 @@ pub use config::{
     VENDOR_CLI_HOME_RELATIVE, VENDOR_CLI_OVERRIDE_ENV, VENDOR_CLI_PATH_NAME, VENDOR_SESSION_LANE,
 };
 
+/// A turn whose stream has failed to parse this many CONSECUTIVE lines is not being read at all, so
+/// Forge stops the turn instead of running the spend guard on fiction: with no readable `step_finish`
+/// events the cap cannot see spend, so an unreadable stream is an uncapped turn. Ten is the trip: a
+/// line or two of vendor noise is weather, ten in a row is a broken pipe (WO-120).
+pub const STREAM_PARSE_FAILURE_CAP: usize = 10;
+/// Stop code for a turn stopped because its stream stayed unreadable (see [`STREAM_PARSE_FAILURE_CAP`]).
+pub const STREAM_UNREADABLE_CODE: &str = "STREAM_UNREADABLE";
+
+/// The parse-failure trip: `None` while the stream is still readable, `Some(stop)` once repeated
+/// consecutive failures mean the turn's own spend accounting is fiction.
+pub(crate) fn stream_parse_trip(consecutive_failures: usize) -> Option<StreamStop> {
+    if consecutive_failures >= STREAM_PARSE_FAILURE_CAP {
+        Some(StreamStop {
+            code: STREAM_UNREADABLE_CODE.to_string(),
+            detail: format!(
+                "{consecutive_failures} consecutive stream lines failed to parse \
+                 (cap {STREAM_PARSE_FAILURE_CAP}); stopping rather than running uncapped"
+            ),
+        })
+    } else {
+        None
+    }
+}
+
+/// Error for a vendor-session persist failure: the turn SUCCEEDED, but without the persisted id the
+/// lane's next turn cannot resume its session, so this propagates instead of silently stranding the
+/// lane on fresh turns. Shared with the Maestro harness, which names its own source (WO-120).
+pub(crate) fn vendor_session_persist_error(
+    harness: &str,
+    node_id: &str,
+    story: &str,
+    error: &str,
+) -> WorkflowError {
+    WorkflowError::generic(format!(
+        "{harness} could not persist the vendor session for {node_id} (story {story}): {error}"
+    ))
+}
+
 /// The seam a turn's vendor process is started through.
 ///
 /// It is STREAMING because the enforcement is streaming: the second argument is Forge's per-line verdict (the live
@@ -414,12 +452,28 @@ impl OpenCodeHarness {
         let spend_cap = self.spend_cap_usd;
         let mut transcript = String::new();
         let mut scanner = opencode_events::RunEventScanner::default();
+        // WO-120: consecutive lines the scanner cannot read. Reset on every readable line — a line
+        // or two of vendor noise is weather — and the turn stops when the trip below fires, because a
+        // stream Forge cannot read is a turn whose spend the cap cannot see.
+        let mut parse_failures: usize = 0;
         let mut on_line = |line: &str| -> Option<StreamStop> {
             // Kept verbatim: the transcript is what the turn is READ from below, so the live view and the recorded
             // view cannot disagree.
             transcript.push_str(line);
             transcript.push('\n');
-            let _ = scanner.feed(line);
+            match scanner.feed(line) {
+                Ok(()) => parse_failures = 0,
+                Err(error) => {
+                    parse_failures += 1;
+                    eprintln!(
+                        "opencode-harness: stream line failed to parse \
+                         ({parse_failures}/{STREAM_PARSE_FAILURE_CAP}): {error}"
+                    );
+                    if let Some(stop) = stream_parse_trip(parse_failures) {
+                        return Some(stop);
+                    }
+                }
+            }
             // A FLOOR, never a total: the live build does not reliably emit a `step_finish` for a turn's terminal
             // step (see `engine::opencode_events`). A floor is the safe side to stop on — it can only delay a stop,
             // never cause one for a turn that is still inside its cap.
@@ -567,14 +621,27 @@ impl OpenCodeHarness {
         // back the id it had *asked* for — `None` on a fresh turn — so a lane's first session was never kept.
         let actual_session = reported_session;
         if let Some(story) = self.story_id.as_deref() {
-            let _ = vendor_session::write_vendor_session_id(
+            if let Err(error) = vendor_session::write_vendor_session_id(
                 story,
                 VENDOR_SESSION_LANE,
                 actual_session.as_deref().or(session.as_deref()),
-            );
+            ) {
+                eprintln!("opencode-harness: vendor session persist failed for story {story}: {error}");
+                return Err(vendor_session_persist_error(
+                    "opencode-harness",
+                    node_id,
+                    story,
+                    &error,
+                ));
+            }
         }
         if let Some(id) = actual_session.as_deref() {
-            write_session_id(&cwd, Some(id));
+            write_session_id(&cwd, Some(id)).map_err(|error| {
+                eprintln!("opencode-harness: session marker write failed for workspace {cwd}: {error}");
+                WorkflowError::generic(format!(
+                    "opencode-harness could not persist the session marker for {node_id} in {cwd}: {error}"
+                ))
+            })?;
         }
         // The role output is the assistant's text (§3), never the NDJSON transcript it arrived in.
         let raw = turn.assistant_text;
@@ -1041,6 +1108,82 @@ mod tests {
             // the Neon lane is covered by the live contract smoke.
             story_id: None,
         }
+    }
+
+    /// WO-120: a session marker that cannot be written is an error, never a silence. A workspace
+    /// whose directory vanished mid-turn must fail the persist loudly, not strand the next turn.
+    #[test]
+    fn session_marker_write_failure_is_an_error_not_a_silence() {
+        let missing = std::path::Path::new("/nonexistent-forge-workspace-dir-wo120").join("x");
+        write_session_id(missing.to_str().unwrap(), Some("ses_123"))
+            .expect_err("an unwritable marker must be an error");
+    }
+
+    /// WO-120: clearing a session that was never marked is not a failure — the marker is a cache,
+    /// and an idempotent clear keeps resume logic total.
+    #[test]
+    fn session_marker_clear_is_idempotent() {
+        let dir = std::env::temp_dir().join(format!("forge-marker-clear-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("temp dir");
+        let workspace = dir.to_string_lossy().to_string();
+        write_session_id(&workspace, None).expect("clearing a missing marker is not a failure");
+        write_session_id(&workspace, Some("ses_abc")).expect("write marker");
+        assert_eq!(read_session_id(&workspace).as_deref(), Some("ses_abc"));
+        write_session_id(&workspace, None).expect("clear");
+        assert_eq!(read_session_id(&workspace), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// WO-120: the parse-failure trip stays quiet below the cap and stops the turn at it.
+    #[test]
+    fn repeated_parse_failures_trip_the_stream_stop() {
+        assert!(
+            stream_parse_trip(STREAM_PARSE_FAILURE_CAP - 1).is_none(),
+            "below the cap the stream is still readable"
+        );
+        let stop =
+            stream_parse_trip(STREAM_PARSE_FAILURE_CAP).expect("the cap trips at the cap");
+        assert_eq!(stop.code, STREAM_UNREADABLE_CODE, "{}", stop.detail);
+    }
+
+    /// WO-120: a vendor-session persist failure names the harness, node, story and cause, so the
+    /// propagated error reads as one fact instead of three lookups.
+    #[test]
+    fn vendor_session_failure_names_harness_node_story_and_cause() {
+        let error =
+            vendor_session_persist_error("opencode-harness", "feature_scout", "STORY-V2", "db down");
+        let text = format!("{error}");
+        for part in ["opencode-harness", "feature_scout", "STORY-V2", "db down"] {
+            assert!(text.contains(part), "the error must name {part}: {text}");
+        }
+    }
+
+    /// WO-120, end to end: a stream that stays unreadable past the cap stops the turn with
+    /// STREAM_UNREADABLE instead of being read as an empty success. Twelve garbage lines trip a
+    /// cap of ten; the seam replays them exactly as the streaming client would.
+    #[test]
+    fn an_unreadable_stream_stops_the_turn_instead_of_reading_nothing() {
+        let workspace = std::env::temp_dir().join(format!(
+            "forge-v2-unreadable-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&workspace);
+        fs::create_dir_all(&workspace).expect("temp workspace");
+        let garbage = (0..STREAM_PARSE_FAILURE_CAP + 2)
+            .map(|i| format!("this is not json {{{{{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let harness = harness_with_stream(&workspace, &garbage);
+        let error = match harness.run_role("feature_scout", &role_task(), None) {
+            Ok(_) => panic!("an unreadable stream must stop the turn, not succeed"),
+            Err(error) => error,
+        };
+        assert!(
+            format!("{error}").contains(STREAM_UNREADABLE_CODE),
+            "the stop must carry the parse-failure code, not a generic unreadable-stream error: {error}"
+        );
+        let _ = fs::remove_dir_all(&workspace);
     }
 
     #[test]

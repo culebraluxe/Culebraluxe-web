@@ -446,18 +446,21 @@ pub fn run_forge_role_turn(
         }
     }
 
-    // Trace recording is diagnostic (see `engine::observer`) and is deliberately contained, so its failure is
-    // not a lane failure. It is written only for a run that has a state writer: a writer-less run (tests, a
-    // machine with no PROD URL) must not write trace rows into whichever pool is installed.
+    // WO-120: trace rows are durable writes, so the result is CHECKED and the failure is logged
+    // with node and cause — but it does not fail the lane (see `observer_write_warning`: pinned
+    // tests run turns on a `RecordingWriter` with no database, and assert the turn still succeeds).
+    // A writer-less run (tests, a machine with no PROD URL) still writes nothing, by the gate below.
     if ctx.writer.is_some() {
-        let _ = record_forge_observer(
+        if let Err(error) = record_forge_observer(
             &task.process_instance_id,
             story_id,
             &task.task_id,
             node_id,
             "role.completed",
             &format!("node={node_id}"),
-        );
+        ) {
+            eprintln!("{}", observer_write_warning(node_id, &error));
+        }
     }
 
     if let Some(reason) = evidence.deliverable_rejection.as_deref() {
@@ -507,6 +510,17 @@ fn finish_model_attempt(
             .map_err(WorkflowError::generic),
         _ => Ok(()),
     }
+}
+
+/// Warning line for an observer-trace write failure (WO-120): trace rows are durable writes, so a
+/// failure is CHECKED and LOGGED here — but it does not fail the lane. Two pinned tests
+/// (`a_lane_that_overrides_nothing_gets_no_lane_behavior`,
+/// `the_reading_is_called_once_and_its_refusal_reaches_the_gate`) run turns against a
+/// `RecordingWriter` with no database behind the shared pool, and assert the turn still succeeds:
+/// lane-failure on a diagnostic-trace write would break that contract. The old `let _ =` vanished
+/// the error entirely; now it reaches the operator log with node and cause attached.
+pub(crate) fn observer_write_warning(node_id: &str, error: &str) -> String {
+    format!("forge role turn: observer trace write failed for node {node_id}: {error}")
 }
 
 /// Record a rejected deliverable as the story's hold: the board's `Hold` and a `DELIVERABLE_REJECTED` hold record,
@@ -1281,6 +1295,16 @@ mod tests {
         );
     }
 
+    /// WO-120: an observer-trace write failure names the node and the cause on the warning line
+    /// the lane logs instead of swallowing.
+    #[test]
+    fn observer_write_failure_names_node_and_cause() {
+        let warning = observer_write_warning("feature_scout", "db down");
+        for part in ["feature_scout", "db down"] {
+            assert!(warning.contains(part), "the warning must name {part}: {warning}");
+        }
+    }
+
     /// The real lane hooks through the shared turn, counting PAID turns: each of these used to cost two, because the
     /// deliverable the lane reads after the loop was demanded inside it.
     fn one_turn(node: &str, raw: &str, hooks: &dyn ForgeRoleHooks) -> (ForgeRoleOutcome, usize) {
@@ -1319,10 +1343,19 @@ mod tests {
                 .expect("durable measurement runs without a model turn");
         let turns = harness.turns();
         assert_eq!(turns, 0, "QA measurement is deterministic and model-free");
+        // WO-V1: an unmeasured run is NO verdict — `None`, never `Some(false)`, which `forge doctor`
+        // reads as a measured FAIL the Failed run agrees with. Nothing was measured, so no model's
+        // claim of PASS may stand as the verdict, and no FAIL may be fabricated in its place. No
+        // Assay node owes a boolean verdict (`AssayHooks::deliverable_kind` answers `None` for its
+        // measurement nodes), so a missing verdict here is not a missing deliverable.
         assert_eq!(
-            outcome.evidence.qa_passed,
-            Some(false),
-            "nothing was measured, so a model's claim of PASS is not the verdict"
+            outcome.evidence.qa_passed, None,
+            "nothing was measured, so a model's claim of PASS is not the verdict — and not a FAIL either"
+        );
+        assert_eq!(
+            outcome.evidence.disposition.as_deref(),
+            Some("ESCALATE"),
+            "an unmeasured run is a person's to decide, not another Smith turn's to repair"
         );
         assert_eq!(
             outcome.transition_name.as_deref(),

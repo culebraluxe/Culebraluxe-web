@@ -286,12 +286,19 @@ pub fn read_session_id(workspace: &str) -> Option<String> {
     }
 }
 
-pub fn write_session_id(workspace: &str, session_id: Option<&str>) {
+/// WO-120: a session marker is a durable write, so its failure is a `Result`, never a silence.
+/// Clearing a session that was never marked stays `Ok` — the marker is a cache, and an idempotent
+/// clear keeps resume logic total.
+pub fn write_session_id(workspace: &str, session_id: Option<&str>) -> std::io::Result<()> {
     let path = session_marker_path(workspace);
     if let Some(id) = session_id {
-        let _ = fs::write(path, format!("{id}\n"));
+        fs::write(path, format!("{id}\n"))
     } else {
-        let _ = fs::remove_file(path);
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        }
     }
 }
 

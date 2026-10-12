@@ -343,10 +343,19 @@ pub fn cleanup_worker_workspace(
             ],
         )?;
     }
-    let _ = git(&repo_root, &["worktree", "prune"]);
+    if let Err(error) = git(&repo_root, &["worktree", "prune"]) {
+        eprintln!("forge worktree cleanup: `git worktree prune` failed, continuing: {error}");
+    }
 
     // Refresh only the tracking ref used to decide whether the candidate is safely reachable from main.
-    let _ = git(&repo_root, &["fetch", "origin", "main"]);
+    // WO-120: a stale ref would delete a branch whose candidate is NOT contained in origin/main (or keep
+    // one that is), so a failed refresh fails the operation rather than deciding on yesterday's ref.
+    git(&repo_root, &["fetch", "origin", "main"]).map_err(|error| {
+        format!(
+            "forge worktree cleanup: `git fetch origin main` failed, \
+             refusing the branch-safety decision on a stale ref: {error}"
+        )
+    })?;
     let branch_exists = git(
         &repo_root,
         &[
@@ -374,7 +383,13 @@ pub fn cleanup_worker_workspace(
             .map(|mut entries| entries.next().is_none())
             .unwrap_or(false)
     {
-        let _ = std::fs::remove_dir(&root);
+        // WO-120: hygiene, not load-bearing — reported where an operator can see it, then continued.
+        if let Err(error) = std::fs::remove_dir(&root) {
+            eprintln!(
+                "forge worktree cleanup: could not remove empty worktrees root {}: {error}",
+                root.display()
+            );
+        }
     }
     Ok(())
 }
@@ -486,6 +501,32 @@ mod tests {
         assert_eq!(run_git(&repo, &["rev-parse", "HEAD"]), before);
         assert!(run_git(&repo, &["status", "--porcelain"]).is_empty());
         let _ = std::fs::remove_dir_all(repo);
+    }
+
+    /// WO-120: a tracking-ref refresh the fetch refuses must fail the cleanup, not decide branch
+    /// safety on a stale ref. A repo with no `origin` fails the fetch deterministically, no network.
+    #[test]
+    fn cleanup_fails_when_the_tracking_ref_cannot_refresh() {
+        let root = std::env::temp_dir().join(format!(
+            "forge-worktree-fetch-fail-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).expect("temp repo dir");
+        let status = std::process::Command::new("git")
+            .arg("init")
+            .arg(&repo)
+            .status()
+            .expect("git init");
+        assert!(status.success(), "git init must succeed for the fixture");
+        let error = cleanup_worker_workspace(Some(&repo), "STORY", "run", Some(&root.join("wt")))
+            .expect_err("a fetch with no origin must fail the cleanup, not pass silently");
+        assert!(
+            error.contains("fetch"),
+            "the failure must name the fetch, so the operator knows what went stale: {error}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
 

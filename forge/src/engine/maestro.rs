@@ -166,13 +166,18 @@ fn read_session_id(workspace: &str) -> Option<String> {
     }
 }
 
-/// Write session ID to workspace marker file.
-fn write_session_id(workspace: &str, session_id: Option<&str>) {
+/// Write session ID to workspace marker file. WO-120: a durable write, so its failure is a
+/// `Result`, never a silence. Clearing a never-marked session stays `Ok` — the marker is a cache.
+fn write_session_id(workspace: &str, session_id: Option<&str>) -> std::io::Result<()> {
     let path = session_marker_path(workspace);
     if let Some(id) = session_id {
-        let _ = fs::write(path, format!("{id}\n"));
+        fs::write(path, format!("{id}\n"))
     } else {
-        let _ = fs::remove_file(path);
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -543,17 +548,36 @@ impl RoleHarness for MaestroHarness {
         // Parse output - Maestro returns structured output
         let parsed = parse_maestro_output(&result.stdout)?;
 
-        // Persist session (V2): write workspace marker and vendor session
+        // Persist session (V2): write workspace marker and vendor session. WO-120: both are
+        // durable writes, so both propagate — a turn whose session was not kept must not read as one
+        // whose session was.
         if session_continuity_enabled() {
             if let Some(ref story) = self.story_id {
-                let _ = vendor_session::write_vendor_session_id(
+                if let Err(error) = vendor_session::write_vendor_session_id(
                     story,
                     lane,
                     parsed.session_id.as_deref().or(session.as_deref()),
-                );
+                ) {
+                    eprintln!(
+                        "maestro-harness: vendor session persist failed for story {story}: {error}"
+                    );
+                    return Err(crate::engine::opencode::vendor_session_persist_error(
+                        "maestro-harness",
+                        node_id,
+                        story,
+                        &error,
+                    ));
+                }
             }
             if let Some(ref id) = parsed.session_id {
-                write_session_id(&cwd, Some(id));
+                write_session_id(&cwd, Some(id)).map_err(|error| {
+                    eprintln!(
+                        "maestro-harness: session marker write failed for workspace {cwd}: {error}"
+                    );
+                    WorkflowError::generic(format!(
+                        "maestro-harness could not persist the session marker for {node_id} in {cwd}: {error}"
+                    ))
+                })?;
             }
         }
 
@@ -1816,6 +1840,49 @@ mod tests {
         assert_eq!(turn_ceiling(Some("45")), Some(Duration::from_secs(45 * 60)));
         assert_eq!(turn_ceiling(Some("0")), None);
         assert_eq!(turn_ceiling(Some("off")), None);
+    }
+
+    /// WO-120: the Maestro marker obeys the same contract as the OpenCode one — an unwritable
+    /// marker is an error, never a silence.
+    #[test]
+    fn maestro_session_marker_write_failure_is_an_error() {
+        let missing = std::path::Path::new("/nonexistent-forge-workspace-dir-wo120").join("x");
+        write_session_id(missing.to_str().unwrap(), Some("ses_123"))
+            .expect_err("an unwritable marker must be an error");
+    }
+
+    /// WO-120: clearing a Maestro session that was never marked is not a failure.
+    #[test]
+    fn maestro_session_marker_clear_is_idempotent() {
+        let dir = std::env::temp_dir().join(format!(
+            "forge-maestro-marker-clear-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let workspace = dir.to_string_lossy().to_string();
+        write_session_id(&workspace, None).expect("clearing a missing marker is not a failure");
+        write_session_id(&workspace, Some("ses_abc")).expect("write marker");
+        assert_eq!(read_session_id(&workspace).as_deref(), Some("ses_abc"));
+        write_session_id(&workspace, None).expect("clear");
+        assert_eq!(read_session_id(&workspace), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// WO-120: the Maestro vendor-session persist failure reuses the shared renderer, carrying the
+    /// Maestro harness name so the propagated error names its own source.
+    #[test]
+    fn maestro_vendor_session_failure_names_harness_node_story_and_cause() {
+        let error = crate::engine::opencode::vendor_session_persist_error(
+            "maestro-harness",
+            "architect",
+            "T-STORY",
+            "db down",
+        );
+        let text = format!("{error}");
+        for part in ["maestro-harness", "architect", "T-STORY", "db down"] {
+            assert!(text.contains(part), "the error must name {part}: {text}");
+        }
     }
 
     #[test]

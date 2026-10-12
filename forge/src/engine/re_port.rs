@@ -146,16 +146,46 @@ fn set_column(deal_id: &str, column: &str, value: &str) -> Result<(), String> {
     })?
 }
 
+/// What a receipt-write failure adds to the command result (WO-120): the domain write already
+/// happened, so the outcome stands — but the caller must see that the outcome was NOT recorded,
+/// or a replay will re-execute a command Forge believes it already ran.
+pub(crate) fn receipt_write_failure_message(
+    message: Option<&str>,
+    command_id: &str,
+    error: &str,
+) -> String {
+    match message {
+        Some(message) => {
+            format!("{message} [receipt write failed for command {command_id}: {error}]")
+        }
+        None => format!("[receipt write failed for command {command_id}: {error}]"),
+    }
+}
+
 impl ApplicationPort for ReApplicationPort {
     fn execute_command(&self, req: &ApplicationCommandRequest) -> ApplicationCommandResult {
         let out = self.execute_command_inner(req);
         if out.message.as_deref() != Some("replayed") {
-            let _ = finalize_receipt(
+            if let Err(error) = finalize_receipt(
                 &req.command_id,
                 out.outcome.as_str(),
                 req.subject_id.as_deref(),
                 out.message.as_deref(),
-            );
+            ) {
+                eprintln!(
+                    "re-port: receipt finalize failed for command {}: {error}",
+                    req.command_id
+                );
+                return ApplicationCommandResult {
+                    command_id: req.command_id.clone(),
+                    outcome: out.outcome,
+                    message: Some(receipt_write_failure_message(
+                        out.message.as_deref(),
+                        &req.command_id,
+                        &error,
+                    )),
+                };
+            }
         }
         out
     }
@@ -389,5 +419,18 @@ mod tests {
             replay_stored("cmd-1", &stored("settlement_required")).outcome,
             ApplicationCommandOutcome::Conflict
         );
+    }
+
+    /// WO-120: a receipt-write failure is reported on the result it failed to record — the domain
+    /// write already happened, so the outcome stands, but the caller must see the receipt is missing.
+    #[test]
+    fn receipt_write_failure_is_reported_on_the_result() {
+        let noted = receipt_write_failure_message(Some("under_contract"), "cmd-1", "db down");
+        for part in ["under_contract", "cmd-1", "db down"] {
+            assert!(noted.contains(part), "the note must carry {part}: {noted}");
+        }
+        let bare = receipt_write_failure_message(None, "cmd-1", "db down");
+        assert!(bare.contains("cmd-1"), "{bare}");
+        assert!(bare.contains("db down"), "{bare}");
     }
 }
