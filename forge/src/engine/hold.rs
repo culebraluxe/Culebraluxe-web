@@ -57,5 +57,5 @@ pub fn deliverable_enforcement_enabled(raw: Option<&str>) -> bool {
 }
 
 pub fn parse_deliverable_reprompt_budget(raw: Option<&str>) -> u32 {
-    raw.and_then(|s| s.trim().parse().ok()).unwrap_or(1)
+    raw.and_then(|s| s.trim().parse::<u32>().ok()).unwrap_or(1).clamp(1, 10)
 }

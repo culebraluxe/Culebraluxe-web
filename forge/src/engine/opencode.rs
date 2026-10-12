@@ -138,21 +138,15 @@ pub const TURN_CEILING_ENV: &str = "FORGE_TURN_TIMEOUT_MINUTES";
 /// vendor cannot hold a claim and a worker slot overnight.
 pub const DEFAULT_TURN_CEILING_MINUTES: u64 = 120;
 
-/// The ceiling a turn runs under. Unset or unreadable is the default; `0`/`off`/`none` is an operator saying
-/// "unbounded", deliberately, by name.
+/// The ceiling a turn runs under. Unset or unreadable is the default; `0`/`off`/`none` are floored to 1 minute.
 pub fn turn_ceiling(raw: Option<&str>) -> Option<std::time::Duration> {
-    let minutes = match raw.map(str::trim) {
-        None | Some("") => DEFAULT_TURN_CEILING_MINUTES,
-        Some(word)
-            if word == "0"
-                || word.eq_ignore_ascii_case("off")
-                || word.eq_ignore_ascii_case("none") =>
-        {
-            return None;
-        }
+    let minutes = match raw.map(|s| s.trim().to_ascii_lowercase()) {
+        None => DEFAULT_TURN_CEILING_MINUTES,
+        Some(s) if s.is_empty() => DEFAULT_TURN_CEILING_MINUTES,
+        Some(word) if word == "0" || word == "off" || word == "none" => 1,
         Some(word) => word.parse::<u64>().unwrap_or(DEFAULT_TURN_CEILING_MINUTES),
     };
-    Some(std::time::Duration::from_secs(minutes * 60))
+    Some(std::time::Duration::from_secs(minutes.max(1) * 60))
 }
 
 fn blocked_model_env_key(key: &str) -> bool {
@@ -1427,7 +1421,7 @@ sleep 30"#,
             "an unreadable value is the default, never unbounded"
         );
         for off in ["0", "off", "OFF", "none"] {
-            assert_eq!(turn_ceiling(Some(off)), None, "{off}");
+            assert_eq!(turn_ceiling(Some(off)), minutes(1), "{off}");
         }
     }
 }

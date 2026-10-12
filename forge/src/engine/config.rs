@@ -164,6 +164,36 @@ fn max_model_turns_per_generation() -> u32 {
         .clamp(1, 1000)
 }
 
+/// Pure: deliverable reprompt retries, default 1, clamped 1..=10.
+#[allow(dead_code)]
+fn deliverable_retries() -> u32 {
+    std::env::var("FORGE_DELIVERABLE_RETRIES")
+        .ok()
+        .as_deref()
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .unwrap_or(1)
+        .clamp(1, 10)
+}
+
+/// Pure: turn timeout in minutes, default 120, minimum 1 (0 is floored to 1, "off"/"none" are treated as 1).
+#[allow(dead_code)]
+fn turn_timeout_minutes() -> u64 {
+    std::env::var("FORGE_TURN_TIMEOUT_MINUTES")
+        .ok()
+        .as_deref()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .filter(|v| !v.is_empty())
+        .and_then(|v| {
+            if v == "off" || v == "none" {
+                Some(1)
+            } else {
+                v.parse::<u64>().ok()
+            }
+        })
+        .unwrap_or(120)
+        .max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,5 +262,42 @@ mod tests {
             Duration::from_secs(FORGE_DEFAULT_HEARTBEAT_SECONDS)
         );
         assert!(!cfg.attended_override);
+    }
+
+    #[test]
+    fn deliverable_retries_clamped() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("FORGE_DELIVERABLE_RETRIES", "100");
+        assert_eq!(deliverable_retries(), 10);
+        std::env::set_var("FORGE_DELIVERABLE_RETRIES", "0");
+        assert_eq!(deliverable_retries(), 1);
+        std::env::set_var("FORGE_DELIVERABLE_RETRIES", "5");
+        assert_eq!(deliverable_retries(), 5);
+        std::env::remove_var("FORGE_DELIVERABLE_RETRIES");
+        assert_eq!(deliverable_retries(), 1);
+    }
+
+    #[test]
+    fn turn_timeout_minutes_floored() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("FORGE_TURN_TIMEOUT_MINUTES", "0");
+        assert_eq!(turn_timeout_minutes(), 1);
+        std::env::set_var("FORGE_TURN_TIMEOUT_MINUTES", "45");
+        assert_eq!(turn_timeout_minutes(), 45);
+        std::env::set_var("FORGE_TURN_TIMEOUT_MINUTES", "200");
+        assert_eq!(turn_timeout_minutes(), 200);
+        std::env::remove_var("FORGE_TURN_TIMEOUT_MINUTES");
+        assert_eq!(turn_timeout_minutes(), 120);
+    }
+
+    #[test]
+    fn turn_timeout_minutes_off_is_one() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("FORGE_TURN_TIMEOUT_MINUTES", "off");
+        assert_eq!(turn_timeout_minutes(), 1);
+        std::env::set_var("FORGE_TURN_TIMEOUT_MINUTES", "none");
+        assert_eq!(turn_timeout_minutes(), 1);
+        std::env::set_var("FORGE_TURN_TIMEOUT_MINUTES", "OFF");
+        assert_eq!(turn_timeout_minutes(), 1);
     }
 }

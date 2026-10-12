@@ -119,18 +119,13 @@ fn parse_roster_names(json: &str) -> std::result::Result<Vec<String>, String> {
 
 /// Parse turn ceiling from environment (same logic as OpenCode).
 fn turn_ceiling(raw: Option<&str>) -> Option<Duration> {
-    let minutes = match raw.map(str::trim) {
-        None | Some("") => DEFAULT_TURN_CEILING_MINUTES,
-        Some(word)
-            if word == "0"
-                || word.eq_ignore_ascii_case("off")
-                || word.eq_ignore_ascii_case("none") =>
-        {
-            return None;
-        }
+    let minutes = match raw.map(|s| s.trim().to_ascii_lowercase()) {
+        None => DEFAULT_TURN_CEILING_MINUTES,
+        Some(s) if s.is_empty() => DEFAULT_TURN_CEILING_MINUTES,
+        Some(word) if word == "0" || word == "off" || word == "none" => 1,
         Some(word) => word.parse::<u64>().unwrap_or(DEFAULT_TURN_CEILING_MINUTES),
     };
-    Some(Duration::from_secs(minutes * 60))
+    Some(Duration::from_secs(minutes.max(1) * 60))
 }
 
 /// Whether session continuity is enabled.
@@ -1585,7 +1580,7 @@ mod tests {
 
     #[test]
     fn maestro_turn_ceiling_default_and_overrides() {
-        // FORGE_TURN_TIMEOUT_MINUTES preserved: unset/blank/garbage → 120; "0"/"off" disables.
+        // FORGE_TURN_TIMEOUT_MINUTES preserved: unset/blank/garbage → 120; "0"/"off"/"none" floored to 1.
         assert_eq!(turn_ceiling(None), Some(Duration::from_secs(120 * 60)));
         assert_eq!(turn_ceiling(Some("")), Some(Duration::from_secs(120 * 60)));
         assert_eq!(
@@ -1593,8 +1588,9 @@ mod tests {
             Some(Duration::from_secs(120 * 60))
         );
         assert_eq!(turn_ceiling(Some("45")), Some(Duration::from_secs(45 * 60)));
-        assert_eq!(turn_ceiling(Some("0")), None);
-        assert_eq!(turn_ceiling(Some("off")), None);
+        assert_eq!(turn_ceiling(Some("0")), Some(Duration::from_secs(60)));
+        assert_eq!(turn_ceiling(Some("off")), Some(Duration::from_secs(60)));
+        assert_eq!(turn_ceiling(Some("none")), Some(Duration::from_secs(60)));
     }
 
     #[test]
