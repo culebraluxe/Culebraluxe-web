@@ -37,6 +37,23 @@ pub struct SignerAccessTokenCodec {
     site_url: Arc<str>,
 }
 
+/// The origin a signing link is built on. `PUBLIC_SITE_URL` when it is set. Otherwise production gets the production host,
+/// and every other environment gets the local DEV server. A DEV link on the production host is signed with DEV's secret
+/// and refused there (SIGNER_ACCESS_INVALID), so a development environment must never fall back to production.
+fn signing_site_url() -> String {
+    std::env::var("PUBLIC_SITE_URL")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            if crate::api::ui_auth::production() {
+                "https://culebraluxe.com".into()
+            } else {
+                "http://localhost:8099".into()
+            }
+        })
+}
+
 impl SignerAccessTokenCodec {
     pub fn from_env() -> Result<Self, String> {
         let secret = std::env::var("DOCSIGN_ACCESS_SECRET")
@@ -53,11 +70,7 @@ impl SignerAccessTokenCodec {
         hasher.update(b"culebraluxe-luxesign-access:v1:");
         hasher.update(secret.as_bytes());
         let key = hasher.finalize().to_vec();
-        let site_url = std::env::var("PUBLIC_SITE_URL")
-            .ok()
-            .map(|value| value.trim().trim_end_matches('/').to_owned())
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "https://culebraluxe.com".into());
+        let site_url = signing_site_url();
         Ok(Self {
             key: Some(Arc::new(key)),
             unavailable_reason: None,
@@ -77,11 +90,7 @@ impl SignerAccessTokenCodec {
     }
 
     pub fn unavailable(reason: impl Into<Arc<str>>) -> Self {
-        let site_url = std::env::var("PUBLIC_SITE_URL")
-            .ok()
-            .map(|value| value.trim().trim_end_matches('/').to_owned())
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "https://culebraluxe.com".into());
+        let site_url = signing_site_url();
         Self {
             key: None,
             unavailable_reason: Some(reason.into()),
