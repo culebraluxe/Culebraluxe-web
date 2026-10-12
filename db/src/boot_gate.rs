@@ -13,7 +13,7 @@
 //! can satisfy, and a gate built on it would refuse to boot a healthy system. The list below is the tail the
 //! running code actually depends on — Forge's work queue, worker heartbeat, runtime control, claim brake and
 //! the native luxesign surface and the storyboard trajectory table — and every name in it is recorded on
-//! both DEV and PROD (the 260-276 set as of 2026-10-08, 292 as of 2026-10-11), so a healthy deploy passes
+//! both DEV and PROD (the 260-276 set as of 2026-10-08, 292 and 293 as of 2026-10-11), so a healthy deploy passes
 //! and an empty one is refused. A migration added later is not required until somebody adds it here,
 //! deliberately: this is a floor, not a ceiling.
 //!
@@ -29,11 +29,12 @@ use crate::{Database, DbFailure, DbResult, SchemaMigrationDao};
 
 /// The migrations whose absence means the booted code does not match the database it was pointed at.
 ///
-/// Every name here is recorded on DEV (260-276 verified 2026-10-08, 292 on 2026-10-11, 293 on 2026-10-11) and
-/// 260-292 are recorded on PROD. 293 is listed because the code below it writes the columns it adds and no longer
-/// writes the key 292 defined: a binary carrying this list must not serve a database that still holds 292's shape,
-/// and the fix is the one the refusal message names — apply 293 to the target, then start. PROD therefore needs
-/// `293_run_trajectory_turn_identity.sql` applied before the binary that writes turn-keyed rows is deployed.
+/// Every name here is recorded on BOTH targets — measured 2026-10-12: `pnpm db:migrations` lists 292 and 293 for
+/// dev and prod (DEV 2026-10-11 09:40Z / 19:25Z, PROD 2026-10-11 11:57Z / 20:19Z) and `pnpm db:parity` is clean.
+/// 293 is listed because the code below it writes the columns it adds and no longer writes the key 292 defined:
+/// a binary carrying this list must not serve a database that still holds 292's shape, and the fix is the one the
+/// refusal message names — apply 293 to the target, then start. PROD met that requirement on 2026-10-11 20:19Z,
+/// before the binary that writes turn-keyed rows was deployed there.
 /// Add a name when the code being deployed cannot run without the file; do not add one merely because it is new.
 pub const REQUIRED_BOOT_MIGRATIONS: &[&str] = &[
     "260_docsign_native.sql",
