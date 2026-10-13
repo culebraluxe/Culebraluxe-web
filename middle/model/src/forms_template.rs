@@ -131,13 +131,13 @@ mod tests {
     fn a_persisted_version_resolves_to_that_exact_version() {
         let library = library();
         // The reason versions are files rather than one mutable active template: live records point at exact versions.
-        for version in [2, 3, 4, 5, 6, 7] {
+        for version in [2, 3, 4, 5, 6, 7, 8] {
             let template = library
                 .version("LISTING-01", version)
                 .unwrap_or_else(|| panic!("LISTING-01 v{version} is not loadable"));
             assert_eq!(template.version, version);
         }
-        assert_eq!(library.newest("LISTING-01").map(|t| t.version), Some(7));
+        assert_eq!(library.newest("LISTING-01").map(|t| t.version), Some(8));
         assert!(library.version("LISTING-01", 99).is_none());
     }
 
@@ -150,7 +150,7 @@ mod tests {
         let library = library();
         for (id, approved) in [
             ("OFFER-01", 5),
-            ("LISTING-01", 7),
+            ("LISTING-01", 8),
             ("PR-PNS", 7),
             ("PR-PNS-AMD", 1),
             ("SHOW-INFO", 1),
@@ -162,6 +162,29 @@ mod tests {
                 "{id}: the newest XML is not the approved version — see ACTIVE_TEMPLATE_VERSIONS"
             );
         }
+    }
+
+    #[test]
+    fn v8_media_fee_waiver_is_a_checkbox_that_flags_the_media_paragraph() {
+        let library = library();
+        let template = library
+            .version("LISTING-01", 8)
+            .expect("LISTING-01 v8 loads");
+        let waiver = template
+            .fields
+            .iter()
+            .find(|field| field.name == "mediaFeeWaived")
+            .expect("v8 has the media fee waiver field");
+        assert_eq!(waiver.field_type, TemplateFieldType::Checkbox);
+        let media = template
+            .sections
+            .iter()
+            .find(|section| section.name == "mediaPackage")
+            .expect("v8 has the media package section");
+        assert!(media.segments.contains(&TemplateSectionSegment::Flag {
+            field: "mediaFeeWaived".into(),
+            text: "WAIVED".into(),
+        }));
     }
 
     #[test]

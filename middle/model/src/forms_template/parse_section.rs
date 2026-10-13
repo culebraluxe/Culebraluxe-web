@@ -26,7 +26,7 @@ pub(super) fn parse_section(
                 }
             }
             Node::Element(interpolation) => {
-                if interpolation.name != "value" {
+                if interpolation.name != "value" && interpolation.name != "flag" {
                     return Err(TemplateXmlError::new(format!(
                         "Unknown element <{}> inside <section id=\"{name}\">.",
                         interpolation.name
@@ -39,7 +39,17 @@ pub(super) fn parse_section(
                     )));
                 }
                 values.push(field.clone());
-                segments.push(TemplateSectionSegment::Value(field));
+                if interpolation.name == "flag" {
+                    let text = interpolation.require_attr("text")?.trim().to_string();
+                    if text.is_empty() {
+                        return Err(TemplateXmlError::new(format!(
+                            "Flag in section \"{name}\" has an empty text."
+                        )));
+                    }
+                    segments.push(TemplateSectionSegment::Flag { field, text });
+                } else {
+                    segments.push(TemplateSectionSegment::Value(field));
+                }
             }
         }
     }

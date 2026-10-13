@@ -361,6 +361,21 @@ mod tests {
     }
 
     #[test]
+    fn the_media_fee_waiver_prints_waived_only_when_the_box_is_checked() {
+        let library = library();
+        let template = library.version("LISTING-01", 8).expect("LISTING-01 v8");
+        let mut answers = values();
+        answers.remove("mediaFeeWaived");
+        let unchecked = document_body_text(template, &answers, &BTreeMap::new());
+        assert!(unchecked.contains("subtracted at closing."));
+        assert!(!unchecked.contains("WAIVED"));
+
+        answers.insert("mediaFeeWaived".into(), "Yes".into());
+        let checked = document_body_text(template, &answers, &BTreeMap::new());
+        assert!(checked.contains("subtracted at closing. WAIVED"));
+    }
+
+    #[test]
     fn the_listing_agreement_renders_with_its_signature_geometry() {
         let library = library();
         let template = library.version("LISTING-01", 4).expect("LISTING-01 v4");

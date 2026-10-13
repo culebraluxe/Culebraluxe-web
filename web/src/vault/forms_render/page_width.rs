@@ -80,6 +80,12 @@ pub fn interpolate_section_text(
     for segment in &section.segments {
         match segment {
             TemplateSectionSegment::Text(text) => out.push_str(text),
+            TemplateSectionSegment::Flag { field, text } => {
+                if model::forms_format::checkbox_checked(values, field) {
+                    out.push(' ');
+                    out.push_str(text);
+                }
+            }
             TemplateSectionSegment::Value(name) => {
                 let field = fields.iter().find(|field| &field.name == name);
                 let raw = values

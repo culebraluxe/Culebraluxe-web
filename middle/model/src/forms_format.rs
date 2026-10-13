@@ -5,6 +5,15 @@
 //! money" would drift on the first edge case. Pure functions, no dependencies.
 
 use crate::forms_template::{TemplateFieldDefinition, TemplateFieldType};
+use std::collections::BTreeMap;
+
+/// Whether a checkbox field holds its checked answer. The PDF, the document view and the form screen all ask this, so
+/// they cannot disagree about what checked means.
+pub fn checkbox_checked(values: &BTreeMap<String, String>, field: &str) -> bool {
+    values
+        .get(field)
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("yes"))
+}
 
 /// Deterministic USD formatting for money fields: `$X,XXX,XXX.XX`, the way a spreadsheet writes money. Always two
 /// decimals, rounded to the cent (half up); a leading minus is kept (`-$1,250.00`); anything with no digits in it is
