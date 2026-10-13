@@ -71,9 +71,13 @@ fn reject_configuration(work_item: Option<&str>, reason: &str) {
 ///
 /// A missing generation is the pre-278 authority (0), which is the authority of an item claimed by a worker that
 /// does not know about generations — that is what makes a mixed-version drain safe (`FORGE-B1` §10.8).
-fn claim_fence_from_args(args: &[String], work_item: &str) -> Result<db::ClaimFence, String> {
+fn claim_fence_from_args(
+    args: &[String],
+    env: &dyn Fn(&str) -> Option<String>,
+    work_item: &str,
+) -> Result<db::ClaimFence, String> {
     let owner = flag(args, "--claim-owner")
-        .or_else(|| env::var("FORGE_CLAIM_OWNER").ok())
+        .or_else(|| env("FORGE_CLAIM_OWNER"))
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     let Some(owner) = owner else {
@@ -87,7 +91,7 @@ fn claim_fence_from_args(args: &[String], work_item: &str) -> Result<db::ClaimFe
         ));
     };
     let generation = match flag(args, "--claim-generation")
-        .or_else(|| env::var("FORGE_CLAIM_GENERATION").ok())
+        .or_else(|| env("FORGE_CLAIM_GENERATION"))
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
     {
@@ -146,150 +150,263 @@ fn settle_work_item(
     }
 }
 
+/// A refusal to launch: the message that goes to stderr, and the status that goes with it.
+///
+/// Parsing used to print and `exit(2)` from five different places inside `main`, so "the flags were read" and
+/// "the process ends" were the same statement and the exit codes were only discoverable by reading `main` top to
+/// bottom. A refusal is a value now: parsing returns it, `main` maps it, and a test can assert on it.
+#[derive(Debug)]
+struct CliRefusal {
+    message: String,
+    exit_code: i32,
+}
+
+impl CliRefusal {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            exit_code: 2,
+        }
+    }
+}
+
+/// The work types a launch may declare. A type that is not here is refused, never widened to the default.
+const ALLOWED_WORK_TYPES: &[&str] = &["FEATURE", "FAST", "BUG", "HOTFIX", "RESEARCH", "MIGRATION"];
+
+/// The launch configuration of one `forge` run: which story, under which claim, and how far.
+///
+/// Read once, here. Every field takes the flag first and the environment variable it mirrors as the fallback — the
+/// precedence the hand-rolled `flag()`/`env::var()` pairs had, in one place instead of spread through `main`. What
+/// the LAUNCH said lives in here; what the MACHINE says (the worktree, the base ref, the store, the budgets) stays
+/// in the environment and is read where it is used.
+#[derive(Debug)]
+struct Cli {
+    /// The story to drive (`--story` / `FORGE_STORY_ID`). Required.
+    story: String,
+    /// The chain to run (`--work-type` / `FORGE_WORK_TYPE`). Defaults to `FEATURE`.
+    work_type: String,
+    /// The queue claim this process owns (`--work-item` / `FORGE_WORK_ITEM_ID`), when the worker launched it.
+    work_item: Option<String>,
+    /// The authority that claim is held under (`--claim-owner`/`--claim-generation`), required with `work_item`.
+    claim_fence: Option<db::ClaimFence>,
+    /// How far the chain may go (`--stop-after` / `FORGE_STOP_AFTER`), when the dispatch capped it.
+    stop_after: Option<ForgeStopTarget>,
+}
+
+impl Cli {
+    /// Parse this process's launch, reading the environment for the fallbacks.
+    fn from_args(args: &[String]) -> Result<Self, CliRefusal> {
+        Self::from_args_with(args, &|name| env::var(name).ok())
+    }
+
+    /// Parse a launch against an explicit environment reader.
+    ///
+    /// The reader is a parameter so the CLI contract test can state both halves of the precedence — the flag wins,
+    /// the variable fills in what the flag omitted — without mutating the process environment that every other test
+    /// in this binary shares.
+    fn from_args_with(
+        args: &[String],
+        env: &dyn Fn(&str) -> Option<String>,
+    ) -> Result<Self, CliRefusal> {
+        // The claim this run was launched against, if any. A claimed run **owns** its queue row: it opens it as
+        // `Running` before the first role turn and settles it on the way out. An operator invocation without the
+        // flag stays legal and owns nothing — but nothing that dispatches may launch without it (`engine::worker`
+        // claims first and passes this id).
+        let work_item = flag(args, "--work-item")
+            .or_else(|| env("FORGE_WORK_ITEM_ID"))
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        // The authority this run executes under. Fail fast, before any claim is moved or any model turn is paid
+        // for: a run that cannot be fenced must not start (migration 278, and `FORGE-B1` §10.4).
+        let claim_fence = match work_item.as_deref() {
+            Some(item) => Some(
+                claim_fence_from_args(args, env, item)
+                    .map_err(|refusal| CliRefusal::new(format!("forge: {refusal}")))?,
+            ),
+            None => None,
+        };
+        let story = flag(args, "--story")
+            .or_else(|| env("FORGE_STORY_ID"))
+            .unwrap_or_default();
+        if story.trim().is_empty() {
+            reject_configuration(work_item.as_deref(), "no --story");
+            return Err(CliRefusal::new(
+                "usage: forge --story <id> [--work-type FEATURE|FAST|BUG|HOTFIX|RESEARCH|MIGRATION] [--work-item <uuid>]",
+            ));
+        }
+        let work_type = flag(args, "--work-type")
+            .or_else(|| env("FORGE_WORK_TYPE"))
+            .unwrap_or_else(|| "FEATURE".into());
+        if !ALLOWED_WORK_TYPES.contains(&work_type.as_str()) {
+            reject_configuration(
+                work_item.as_deref(),
+                &format!("invalid --work-type {work_type}"),
+            );
+            return Err(CliRefusal::new(format!("invalid --work-type {work_type}")));
+        }
+        // The dispatch cap the worker carried off the claimed row (migration 167). An unrecognised value is
+        // refused rather than widened: a cap that cannot be read must not become "run the whole chain".
+        let stop_after = match flag(args, "--stop-after")
+            .or_else(|| env("FORGE_STOP_AFTER"))
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        {
+            None => None,
+            Some(raw) => match parse_forge_stop_after(&raw) {
+                Some(target) => Some(target),
+                None => {
+                    reject_configuration(
+                        work_item.as_deref(),
+                        &format!("invalid --stop-after {raw}"),
+                    );
+                    return Err(CliRefusal::new(format!(
+                        "invalid --stop-after {raw}: expected scout|architect|lead"
+                    )));
+                }
+            },
+        };
+        Ok(Self {
+            story,
+            work_type,
+            work_item,
+            claim_fence,
+            stop_after,
+        })
+    }
+}
+
+/// The subcommands that print and stop: they name no story and drive nothing, so they are answered before a launch
+/// is parsed. `Some(status)` means this process is done, and that is the status to exit with.
+fn subcommand(args: &[String]) -> Option<i32> {
+    match args.get(1).map(|value| value.as_str())? {
+        // `forge learn --dry-run`: what the learn pass would do, without touching the control plane.
+        "learn" if args.iter().any(|value| value == "--dry-run") => Some(learn_dry_run()),
+        // `forge profile-compare [limit]`: print what the recorded turns say each harness profile costs per
+        // ACCEPTED candidate, read from the run trajectory the engine writes (293). Read-only and
+        // environment-declared, because it reports measurement rather than announcing a verdict; the limit keeps
+        // the read bounded (default 2000 turns).
+        "profile-compare" => {
+            let limit = args
+                .get(2)
+                .and_then(|value| value.parse::<i64>().ok())
+                .unwrap_or(2000);
+            Some(match forge::engine::profile_report::run(limit) {
+                Ok(report) => {
+                    println!("{report}");
+                    0
+                }
+                Err(error) => {
+                    eprintln!("forge profile-compare: {error}");
+                    1
+                }
+            })
+        }
+        // `forge harness-info`: print the resolved vendor identity and exit — the proof line for the A/B/C
+        // acceptance criteria without parsing a turn log.
+        "harness-info" => Some(print_harness_info()),
+        _ => None,
+    }
+}
+
+/// `forge learn --dry-run`: the learn report, or the reason there is none.
+fn learn_dry_run() -> i32 {
+    let root = match env::current_dir() {
+        Ok(root) => root,
+        Err(error) => {
+            eprintln!("forge learn --dry-run: cannot resolve current directory: {error}");
+            return 1;
+        }
+    };
+    match forge::engine::run_learn_dry_run(&root) {
+        Ok(report) => {
+            println!("{report}");
+            0
+        }
+        Err(error) => {
+            eprintln!("forge learn --dry-run: {error}");
+            1
+        }
+    }
+}
+
+/// `forge harness-info`: the vendor this process would drive, said out loud. Exit 2 when the vendor cannot be
+/// resolved, because a lane that cannot name its vendor has nothing to report.
+fn print_harness_info() -> i32 {
+    match forge::engine::harness::HarnessBackend::from_env() {
+        Ok(harness) => {
+            eprintln!("{}", harness_identity_line(harness));
+            0
+        }
+        Err(e) => {
+            eprintln!("harness=error {e}");
+            2
+        }
+    }
+}
+
+/// The `harness=` line `harness-info` prints: which vendor, which model or agent, which binary, from where.
+fn harness_identity_line(harness: forge::engine::harness::HarnessBackend) -> String {
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "?".into());
+    match harness {
+        forge::engine::harness::HarnessBackend::OpenCode => {
+            let bin = forge::engine::opencode::default_cli_bin();
+            let model = forge::engine::opencode::resolve_opencode_model(None)
+                .unwrap_or_else(|e| format!("error: {e}"));
+            format!("harness=opencode model={model} bin={bin} cwd={cwd}")
+        }
+        forge::engine::harness::HarnessBackend::Maestro => {
+            let bin = forge::engine::maestro::MaestroHarness::default_cli_bin()
+                .unwrap_or_else(|e| format!("error: {e}"));
+            let selection = forge::engine::harness::ModelSelection::from_parts(
+                std::env::var("FORGE_MODEL_POLICY").ok().as_deref(),
+                None,
+            );
+            let agent = forge::engine::maestro::resolve_maestro_agent(
+                &selection,
+                std::env::var("MAESTRO_AGENT").ok().as_deref(),
+                std::env::var("MAESTRO_CHEAP_AGENT").ok().as_deref(),
+                std::env::var("MAESTRO_JUDGMENT_AGENT").ok().as_deref(),
+                std::env::var("MAESTRO_DEFAULT_AGENT").ok().as_deref(),
+            )
+            .unwrap_or_else(|e| format!("error: {e}"));
+            format!("harness=maestro agent={agent} bin={bin} cwd={cwd}")
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.get(1).map(|value| value.as_str()) == Some("learn")
-        && args.iter().any(|value| value == "--dry-run")
-    {
-        let root = match env::current_dir() {
-            Ok(root) => root,
-            Err(error) => {
-                eprintln!("forge learn --dry-run: cannot resolve current directory: {error}");
-                std::process::exit(1);
-            }
-        };
-        match forge::engine::run_learn_dry_run(&root) {
-            Ok(report) => println!("{report}"),
-            Err(error) => {
-                eprintln!("forge learn --dry-run: {error}");
-                std::process::exit(1);
-            }
-        }
-        return;
+    if let Some(status) = subcommand(&args) {
+        std::process::exit(status);
     }
     // The engine's own database budgets, and the rule behind them: `forge::engine::db_budget`. Both binaries that
-    // talk to the control plane install these, because the process that was dying was the worker.
+    // talk to the control plane install these, because the process that was dying was the worker. Before the parse,
+    // deliberately: a refused launch still settles the claim it was refused for.
     let budget = forge::engine::db_budget::install_engine_db_budget();
-    // `forge profile-compare [limit]`: print what the recorded turns say each harness profile costs per ACCEPTED
-    // candidate, read from the run trajectory the engine writes (293). Read-only and environment-declared, because it
-    // reports measurement rather than announcing a verdict; the limit keeps the read bounded (default 2000 turns).
-    if args.get(1).map(|s| s.as_str()) == Some("profile-compare") {
-        let limit = args
-            .get(2)
-            .and_then(|value| value.parse::<i64>().ok())
-            .unwrap_or(2000);
-        match forge::engine::profile_report::run(limit) {
-            Ok(report) => println!("{report}"),
-            Err(error) => {
-                eprintln!("forge profile-compare: {error}");
-                std::process::exit(1);
-            }
+    let cli = match Cli::from_args(&args) {
+        Ok(cli) => cli,
+        Err(refusal) => {
+            eprintln!("{}", refusal.message);
+            std::process::exit(refusal.exit_code);
         }
-        return;
-    }
-    // `forge harness-info`: print the resolved vendor identity and exit — the proof line for the A/B/C
-    // acceptance criteria without parsing a turn log.
-    if args.get(1).map(|s| s.as_str()) == Some("harness-info") {
-        match forge::engine::harness::HarnessBackend::from_env() {
-            Ok(forge::engine::harness::HarnessBackend::OpenCode) => {
-                let bin = forge::engine::opencode::default_cli_bin();
-                let model = forge::engine::opencode::resolve_opencode_model(None)
-                    .unwrap_or_else(|e| format!("error: {e}"));
-                eprintln!(
-                    "harness=opencode model={model} bin={bin} cwd={}",
-                    std::env::current_dir()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_else(|_| "?".into())
-                );
-            }
-            Ok(forge::engine::harness::HarnessBackend::Maestro) => {
-                let bin = forge::engine::maestro::MaestroHarness::default_cli_bin()
-                    .unwrap_or_else(|e| format!("error: {e}"));
-                let selection = forge::engine::harness::ModelSelection::from_parts(
-                    std::env::var("FORGE_MODEL_POLICY").ok().as_deref(),
-                    None,
-                );
-                let agent = forge::engine::maestro::resolve_maestro_agent(
-                    &selection,
-                    std::env::var("MAESTRO_AGENT").ok().as_deref(),
-                    std::env::var("MAESTRO_CHEAP_AGENT").ok().as_deref(),
-                    std::env::var("MAESTRO_JUDGMENT_AGENT").ok().as_deref(),
-                    std::env::var("MAESTRO_DEFAULT_AGENT").ok().as_deref(),
-                )
-                .unwrap_or_else(|e| format!("error: {e}"));
-                eprintln!(
-                    "harness=maestro agent={agent} bin={bin} cwd={}",
-                    std::env::current_dir()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_else(|_| "?".into())
-                );
-            }
-            Err(e) => {
-                eprintln!("harness=error {e}");
-                std::process::exit(2);
-            }
-        }
-        std::process::exit(0);
-    }
-    // The claim this run was launched against, if any. A claimed run **owns** its queue row: it opens it as
-    // `Running` before the first role turn and settles it on the way out. An operator invocation without the flag
-    // stays legal and owns nothing — but nothing that dispatches may launch without it (`engine::worker` claims
-    // first and passes this id).
-    let work_item = flag(&args, "--work-item")
-        .or_else(|| env::var("FORGE_WORK_ITEM_ID").ok())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    // The authority this run executes under. Fail fast, before any claim is moved or any model turn is paid for:
-    // a run that cannot be fenced must not start (migration 278, and `FORGE-B1` §10.4).
-    let claim_fence = match work_item.as_deref() {
-        Some(item) => match claim_fence_from_args(&args, item) {
-            Ok(fence) => Some(fence),
-            Err(refusal) => {
-                eprintln!("forge: {refusal}");
-                std::process::exit(2);
-            }
-        },
-        None => None,
     };
-    let story = flag(&args, "--story")
-        .or_else(|| env::var("FORGE_STORY_ID").ok())
-        .unwrap_or_default();
-    if story.trim().is_empty() {
-        reject_configuration(work_item.as_deref(), "no --story");
-        eprintln!(
-            "usage: forge --story <id> [--work-type FEATURE|FAST|BUG|HOTFIX|RESEARCH|MIGRATION] [--work-item <uuid>]"
-        );
-        std::process::exit(2);
-    }
-    let work_type = flag(&args, "--work-type")
-        .or_else(|| env::var("FORGE_WORK_TYPE").ok())
-        .unwrap_or_else(|| "FEATURE".into());
-    const ALLOWED: &[&str] = &["FEATURE", "FAST", "BUG", "HOTFIX", "RESEARCH", "MIGRATION"];
-    if !ALLOWED.contains(&work_type.as_str()) {
-        reject_configuration(
-            work_item.as_deref(),
-            &format!("invalid --work-type {work_type}"),
-        );
-        eprintln!("invalid --work-type {work_type}");
-        std::process::exit(2);
-    }
-    // The dispatch cap the worker carried off the claimed row (migration 167). An unrecognised value is refused
-    // rather than widened: a cap that cannot be read must not become "run the whole chain".
-    let stop_after = match flag(&args, "--stop-after")
-        .or_else(|| env::var("FORGE_STOP_AFTER").ok())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-    {
-        None => None,
-        Some(raw) => match parse_forge_stop_after(&raw) {
-            Some(target) => Some(target),
-            None => {
-                reject_configuration(work_item.as_deref(), &format!("invalid --stop-after {raw}"));
-                eprintln!("invalid --stop-after {raw}: expected scout|architect|lead");
-                std::process::exit(2);
-            }
-        },
-    };
+    run(cli, budget);
+}
+
+/// Drive one story under a parsed launch: the vendor preflight, the claim, the harness and the exit verdict.
+///
+/// Everything below this line is about the run, not about reading the command line — the split `main` was missing.
+fn run(cli: Cli, budget: forge::engine::db_budget::EngineDbBudget) {
+    let Cli {
+        story,
+        work_type,
+        work_item,
+        claim_fence,
+        stop_after,
+    } = cli;
+
     match forge::engine::execution_target::assert_forge_lane_may_start(
         &forge::engine::execution_target::env_pairs_from_process(),
     ) {
@@ -1065,6 +1182,187 @@ mod tests {
             failure_hold_reason(false, Some("no ready task; active: smith=Reserved".into())),
             None,
             "an exhausted run is not a hold; the settlement pair already refuses its Done"
+        );
+    }
+}
+
+/// The CLI contract this binary offers its launchers (`WO-403`).
+///
+/// These state the launch the binary accepts without running it: which flags exist, what each falls back to in the
+/// environment, and the values it refuses to guess at — a claim with no authority (`FORGE-B1` §10.4), a
+/// `--work-type` that is not one of the six, a `--stop-after` that is not one of the three — with the exit status
+/// each refusal carries. The environment reader is injected, so the test states the precedence without mutating the
+/// process environment the other tests in this binary share.
+#[cfg(test)]
+mod cli_contract_tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|value| value.to_string()).collect()
+    }
+
+    /// No environment at all: what the flags said is all there is.
+    fn no_env(_name: &str) -> Option<String> {
+        None
+    }
+
+    #[test]
+    fn the_flags_are_read_into_the_launch() {
+        let cli = Cli::from_args_with(
+            &args(&[
+                "forge",
+                "--story",
+                "STORY-1",
+                "--work-type",
+                "BUG",
+                "--work-item",
+                "item-1",
+                "--claim-owner",
+                "worker-a",
+                "--claim-generation",
+                "3",
+                "--stop-after",
+                "architect",
+            ]),
+            &no_env,
+        )
+        .expect("a complete launch parses");
+
+        assert_eq!(cli.story, "STORY-1");
+        assert_eq!(cli.work_type, "BUG");
+        assert_eq!(cli.work_item.as_deref(), Some("item-1"));
+        assert_eq!(
+            cli.claim_fence,
+            Some(db::ClaimFence::new("worker-a", 3)),
+            "the claim's authority is (owner, generation), not the work item alone"
+        );
+        assert!(
+            matches!(&cli.stop_after, Some(ForgeStopTarget::Role("architect"))),
+            "the dispatch cap is a lane, not the whole chain: {:?}",
+            cli.stop_after
+        );
+    }
+
+    #[test]
+    fn the_environment_fills_in_what_the_flags_omitted() {
+        let cli = Cli::from_args_with(&args(&["forge"]), &|name| match name {
+            "FORGE_STORY_ID" => Some("STORY-2".into()),
+            "FORGE_WORK_TYPE" => Some("FAST".into()),
+            "FORGE_STOP_AFTER" => Some(" scout ".into()),
+            _ => None,
+        })
+        .expect("a launch named only by the environment parses");
+
+        assert_eq!(cli.story, "STORY-2");
+        assert_eq!(cli.work_type, "FAST");
+        assert_eq!(
+            cli.work_item, None,
+            "an operator invocation owns no queue row"
+        );
+        assert_eq!(cli.claim_fence, None, "and so it names no authority");
+        assert!(
+            matches!(&cli.stop_after, Some(ForgeStopTarget::Role("scout"))),
+            "a cap is trimmed before it is read: {:?}",
+            cli.stop_after
+        );
+    }
+
+    #[test]
+    fn a_flag_beats_the_variable_it_mirrors() {
+        let cli = Cli::from_args_with(
+            &args(&["forge", "--story", "STORY-FLAG", "--work-type", "HOTFIX"]),
+            &|name| match name {
+                "FORGE_STORY_ID" => Some("STORY-ENV".into()),
+                "FORGE_WORK_TYPE" => Some("FEATURE".into()),
+                _ => None,
+            },
+        )
+        .expect("the flags are the launch");
+
+        assert_eq!(cli.story, "STORY-FLAG");
+        assert_eq!(cli.work_type, "HOTFIX");
+    }
+
+    #[test]
+    fn the_work_type_defaults_and_the_six_allowed_words_are_the_only_ones() {
+        let cli = Cli::from_args_with(&args(&["forge", "--story", "S"]), &no_env)
+            .expect("a story is enough to launch");
+        assert_eq!(cli.work_type, "FEATURE", "the default chain");
+
+        let refusal = Cli::from_args_with(
+            &args(&["forge", "--story", "S", "--work-type", "BOGUS"]),
+            &no_env,
+        )
+        .expect_err("an unknown work type is refused, never widened to the default");
+        assert_eq!(refusal.exit_code, 2);
+        assert_eq!(refusal.message, "invalid --work-type BOGUS");
+    }
+
+    #[test]
+    fn a_story_is_required_and_its_absence_prints_the_invocation() {
+        let refusal =
+            Cli::from_args_with(&args(&["forge"]), &no_env).expect_err("no --story, no run");
+        assert_eq!(refusal.exit_code, 2);
+        assert!(
+            refusal.message.starts_with("usage: forge --story <id>"),
+            "a refused launch says how to launch: {}",
+            refusal.message
+        );
+    }
+
+    #[test]
+    fn a_work_item_without_a_claim_owner_cannot_be_fenced() {
+        let refusal = Cli::from_args_with(
+            &args(&["forge", "--story", "S", "--work-item", "item-1"]),
+            &no_env,
+        )
+        .expect_err("migration 278: a claimed run must name the authority it executes under");
+        assert_eq!(refusal.exit_code, 2);
+        assert!(
+            refusal
+                .message
+                .contains("--work-item item-1 without --claim-owner cannot be fenced"),
+            "{}",
+            refusal.message
+        );
+    }
+
+    #[test]
+    fn an_unreadable_stop_after_is_refused_rather_than_widened() {
+        let refusal = Cli::from_args_with(
+            &args(&["forge", "--story", "S", "--stop-after", "nowhere"]),
+            &no_env,
+        )
+        .expect_err("a cap that cannot be read must not become the whole chain");
+        assert_eq!(refusal.exit_code, 2);
+        assert_eq!(
+            refusal.message,
+            "invalid --stop-after nowhere: expected scout|architect|lead"
+        );
+    }
+
+    #[test]
+    fn a_claim_generation_that_is_not_a_number_is_refused() {
+        let refusal = Cli::from_args_with(
+            &args(&[
+                "forge",
+                "--story",
+                "S",
+                "--work-item",
+                "item-1",
+                "--claim-owner",
+                "worker-a",
+                "--claim-generation",
+                "three",
+            ]),
+            &no_env,
+        )
+        .expect_err("a generation that cannot be read is not generation 0");
+        assert_eq!(refusal.exit_code, 2);
+        assert!(
+            refusal.message.contains("invalid --claim-generation three"),
+            "{}",
+            refusal.message
         );
     }
 }
