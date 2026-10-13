@@ -120,7 +120,10 @@ fn template_receipt_is_rejected_before_closure() {
         matches!(verdict, ClosureVerdict::Rejected { .. }),
         "template receipt must be rejected, got: {verdict:?}"
     );
-    assert!(!verdict.closes_batch(), "rejected receipt never closes the batch");
+    assert!(
+        !verdict.closes_batch(),
+        "rejected receipt never closes the batch"
+    );
 
     std::fs::remove_dir_all(&repo).ok();
 }

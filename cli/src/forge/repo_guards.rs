@@ -249,16 +249,20 @@ fn update_re(table: &str) -> &'static Regex {
 
     match table {
         "storyboard_story" => STORY_UPDATE.get_or_init(|| {
-            Regex::new(r"(?i)\bupdate\s+storyboard_story\b").expect("the storyboard_story update pattern is valid")
+            Regex::new(r"(?i)\bupdate\s+storyboard_story\b")
+                .expect("the storyboard_story update pattern is valid")
         }),
         "storyboard_story_run" => RUN_UPDATE.get_or_init(|| {
-            Regex::new(r"(?i)\bupdate\s+storyboard_story_run\b").expect("the storyboard_story_run update pattern is valid")
+            Regex::new(r"(?i)\bupdate\s+storyboard_story_run\b")
+                .expect("the storyboard_story_run update pattern is valid")
         }),
         "forge_workflow_evidence" => EVIDENCE_UPDATE.get_or_init(|| {
-            Regex::new(r"(?i)\bupdate\s+forge_workflow_evidence\b").expect("the forge_workflow_evidence update pattern is valid")
+            Regex::new(r"(?i)\bupdate\s+forge_workflow_evidence\b")
+                .expect("the forge_workflow_evidence update pattern is valid")
         }),
         "agent_work_item" => DISPATCH_UPDATE.get_or_init(|| {
-            Regex::new(r"(?i)\bupdate\s+agent_work_item\b").expect("the agent_work_item update pattern is valid")
+            Regex::new(r"(?i)\bupdate\s+agent_work_item\b")
+                .expect("the agent_work_item update pattern is valid")
         }),
         _ => panic!("unknown table for update regex: {table}"),
     }
@@ -273,16 +277,20 @@ fn insert_re(table: &str) -> &'static Regex {
 
     match table {
         "storyboard_story" => STORY_INSERT.get_or_init(|| {
-            Regex::new(r"(?i)\binsert\s+into\s+storyboard_story\b").expect("the storyboard_story insert pattern is valid")
+            Regex::new(r"(?i)\binsert\s+into\s+storyboard_story\b")
+                .expect("the storyboard_story insert pattern is valid")
         }),
         "storyboard_story_run" => RUN_INSERT.get_or_init(|| {
-            Regex::new(r"(?i)\binsert\s+into\s+storyboard_story_run\b").expect("the storyboard_story_run insert pattern is valid")
+            Regex::new(r"(?i)\binsert\s+into\s+storyboard_story_run\b")
+                .expect("the storyboard_story_run insert pattern is valid")
         }),
         "forge_workflow_evidence" => EVIDENCE_INSERT.get_or_init(|| {
-            Regex::new(r"(?i)\binsert\s+into\s+forge_workflow_evidence\b").expect("the forge_workflow_evidence insert pattern is valid")
+            Regex::new(r"(?i)\binsert\s+into\s+forge_workflow_evidence\b")
+                .expect("the forge_workflow_evidence insert pattern is valid")
         }),
         "agent_work_item" => DISPATCH_INSERT.get_or_init(|| {
-            Regex::new(r"(?i)\binsert\s+into\s+agent_work_item\b").expect("the agent_work_item insert pattern is valid")
+            Regex::new(r"(?i)\binsert\s+into\s+agent_work_item\b")
+                .expect("the agent_work_item insert pattern is valid")
         }),
         _ => panic!("unknown table for insert regex: {table}"),
     }
