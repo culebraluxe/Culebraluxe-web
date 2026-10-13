@@ -291,8 +291,11 @@ Never
   names it is machine setup rather than identity — `.cargo/config.toml` names the lane's own build dir — and a
   lane that is copied or renamed fixes it with `bash scripts/lane-cargo-config.sh`.) The trunk is
   `origin/main` (Forge publishes there directly). A lane syncs by rebasing onto `origin/main`, never by merging
-  `main` in; it lands by fast-forward push (`git push origin lane/<name>:main`), and nobody commits in the main
-  checkout directly — it only follows the trunk (`git pull --ff-only`). A
+  `main` in; it lands by fast-forward push (`git push origin lane/<name>:main`). A lane never commits inside the
+  main checkout, and the main checkout never commits a lane's work — it follows the trunk (`git pull --ff-only`)
+  for everything it did not author itself. The main checkout lands its OWN work by committing on `main` and
+  pushing at once, like every other worker (rules 1 and 2 above). This line read "and nobody commits in the main
+  checkout directly" from 2026-10-03 to 2026-10-13, and it read as a ban on exactly that. A
   lane never reads, edits or builds in another lane's tree — work crosses between lanes only through `main`.
   No lane adds a second tree of its own: a new lane is the Captain's call and goes in `docs/agent/LAYOUT.md`
   first. **A lane is code only: no `node_modules`, and its build directory is its own, outside the tree** —
