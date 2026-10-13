@@ -112,7 +112,8 @@ pub use firm::FirmDao;
 pub use flight_recorder::FlightRecorderDao;
 pub use forge_control::{
     wait_for_forge_work, FlightFireResult, ForgeControlDao, ForgeRuntimeControlRow,
-    LearnScanStateRow, LearnStaleClaimRow, StaleAgentWorkRow, StaleRecoveryResult,
+    LearnScanProgress, LearnScanStateRow, LearnStaleClaimRow, NewLearnFinding, StaleAgentWorkRow,
+    StaleRecoveryResult,
 };
 pub use forge_doctor::{
     ClaimRow, ControlPlaneCounts, EngineQueuedCardRow, EngineRunCardRow, ForgeDoctorDao, QaRunRow,

@@ -203,6 +203,7 @@ impl ForgeHarness {
 mod learn_durable_tests {
     use super::*;
     use crate::database::TestDatabase;
+    use db::{LearnScanProgress, NewLearnFinding};
     use uuid::Uuid;
 
     /// Requires migration 288 on a disposable DEV database. TestDatabase refuses production before connecting.
@@ -223,16 +224,16 @@ mod learn_durable_tests {
         assert_eq!(state.active_revision.as_deref(), Some(revision));
         let pending = serde_json::json!([{"finding":"candidate"}]);
         assert!(dao
-            .save_learn_scan_progress(
-                &repository_key,
-                revision,
-                &initial_files,
-                &initial_files[1..],
-                &serde_json::json!([]),
-                &pending,
-                &serde_json::json!([]),
-                &serde_json::json!([]),
-            )
+            .save_learn_scan_progress(&LearnScanProgress {
+                repository_key: &repository_key,
+                revision: revision,
+                expected_files: &initial_files,
+                remaining_files: &initial_files[1..],
+                expected_observations: &serde_json::json!([]),
+                observations: &pending,
+                expected_deferred_observations: &serde_json::json!([]),
+                deferred_observations: &serde_json::json!([]),
+            })
             .await
             .expect("persist partial progress"));
         let restarted_worker = ForgeControlDao::new(database.database().clone());
@@ -246,16 +247,16 @@ mod learn_durable_tests {
         assert_eq!(resumed.pending_observations, pending);
         assert_eq!(resumed.deferred_observations, serde_json::json!([]));
         assert!(dao
-            .save_learn_scan_progress(
-                &repository_key,
-                revision,
-                &resumed.pending_files,
-                &[],
-                &pending,
-                &serde_json::json!([]),
-                &serde_json::json!([]),
-                &serde_json::json!([]),
-            )
+            .save_learn_scan_progress(&LearnScanProgress {
+                repository_key: &repository_key,
+                revision: revision,
+                expected_files: &resumed.pending_files,
+                remaining_files: &[],
+                expected_observations: &pending,
+                observations: &serde_json::json!([]),
+                expected_deferred_observations: &serde_json::json!([]),
+                deferred_observations: &serde_json::json!([]),
+            })
             .await
             .expect("persist completed chunk"));
         assert!(dao
@@ -275,29 +276,29 @@ mod learn_durable_tests {
             "path": "src/lib.rs"
         }]);
         assert!(dao
-            .save_learn_scan_progress(
-                &repository_key,
-                newer_revision,
-                &[],
-                &[],
-                &serde_json::json!([]),
-                &rust_observation,
-                &serde_json::json!([]),
-                &serde_json::json!([]),
-            )
+            .save_learn_scan_progress(&LearnScanProgress {
+                repository_key: &repository_key,
+                revision: newer_revision,
+                expected_files: &[],
+                remaining_files: &[],
+                expected_observations: &serde_json::json!([]),
+                observations: &rust_observation,
+                expected_deferred_observations: &serde_json::json!([]),
+                deferred_observations: &serde_json::json!([]),
+            })
             .await
             .expect("persist scanned observation"));
         assert!(dao
-            .save_learn_scan_progress(
-                &repository_key,
-                newer_revision,
-                &[],
-                &[],
-                &rust_observation,
-                &serde_json::json!([]),
-                &serde_json::json!([]),
-                &rust_observation,
-            )
+            .save_learn_scan_progress(&LearnScanProgress {
+                repository_key: &repository_key,
+                revision: newer_revision,
+                expected_files: &[],
+                remaining_files: &[],
+                expected_observations: &rust_observation,
+                observations: &serde_json::json!([]),
+                expected_deferred_observations: &serde_json::json!([]),
+                deferred_observations: &rust_observation,
+            })
             .await
             .expect("atomically defer disabled observation"));
         assert!(dao
@@ -332,16 +333,16 @@ mod learn_durable_tests {
         });
         let active_a = serde_json::json!([observation_a.clone()]);
         assert!(dao
-            .save_learn_scan_progress(
-                &repository_key,
-                following_revision,
-                &[],
-                &[],
-                &serde_json::json!([]),
-                &active_a,
-                &rust_observation,
-                &rust_observation,
-            )
+            .save_learn_scan_progress(&LearnScanProgress {
+                repository_key: &repository_key,
+                revision: following_revision,
+                expected_files: &[],
+                remaining_files: &[],
+                expected_observations: &serde_json::json!([]),
+                observations: &active_a,
+                expected_deferred_observations: &rust_observation,
+                deferred_observations: &rust_observation,
+            })
             .await
             .expect("record active finding before transfer"));
 
@@ -354,26 +355,28 @@ mod learn_durable_tests {
         deferred_ac.push(observation_c.clone());
         let deferred_ac = serde_json::Value::Array(deferred_ac);
         let active_empty = serde_json::json!([]);
-        let writer_a = dao.save_learn_scan_progress(
-            &repository_key,
-            following_revision,
-            &[],
-            &[],
-            &active_a,
-            &active_empty,
-            &rust_observation,
-            &deferred_ab,
-        );
-        let writer_b = dao.save_learn_scan_progress(
-            &repository_key,
-            following_revision,
-            &[],
-            &[],
-            &active_a,
-            &active_empty,
-            &rust_observation,
-            &deferred_ac,
-        );
+        let progress_a = LearnScanProgress {
+            repository_key: &repository_key,
+            revision: following_revision,
+            expected_files: &[],
+            remaining_files: &[],
+            expected_observations: &active_a,
+            observations: &active_empty,
+            expected_deferred_observations: &rust_observation,
+            deferred_observations: &deferred_ab,
+        };
+        let writer_a = dao.save_learn_scan_progress(&progress_a);
+        let progress_b = LearnScanProgress {
+            repository_key: &repository_key,
+            revision: following_revision,
+            expected_files: &[],
+            remaining_files: &[],
+            expected_observations: &active_a,
+            observations: &active_empty,
+            expected_deferred_observations: &rust_observation,
+            deferred_observations: &deferred_ac,
+        };
+        let writer_b = dao.save_learn_scan_progress(&progress_b);
         let (writer_a, writer_b) = tokio::join!(writer_a, writer_b);
         let writer_a = writer_a.expect("first progress writer");
         let writer_b = writer_b.expect("second progress writer");
@@ -394,16 +397,16 @@ mod learn_durable_tests {
         });
         let merged = serde_json::Value::Array(merged);
         assert!(dao
-            .save_learn_scan_progress(
-                &repository_key,
-                following_revision,
-                &[],
-                &[],
-                &serde_json::json!([]),
-                &serde_json::json!([]),
-                &winner.deferred_observations,
-                &merged,
-            )
+            .save_learn_scan_progress(&LearnScanProgress {
+                repository_key: &repository_key,
+                revision: following_revision,
+                expected_files: &[],
+                remaining_files: &[],
+                expected_observations: &serde_json::json!([]),
+                observations: &serde_json::json!([]),
+                expected_deferred_observations: &winner.deferred_observations,
+                deferred_observations: &merged,
+            })
             .await
             .expect("losing writer merges after retry"));
 
@@ -411,29 +414,29 @@ mod learn_durable_tests {
             "rule_id": "RUST-TRANSFER-FAIL", "source_revision": following_revision, "path": "src/fail.rs"
         }]);
         assert!(dao
-            .save_learn_scan_progress(
-                &repository_key,
-                following_revision,
-                &[],
-                &[],
-                &serde_json::json!([]),
-                &failing_observation,
-                &merged,
-                &merged,
-            )
+            .save_learn_scan_progress(&LearnScanProgress {
+                repository_key: &repository_key,
+                revision: following_revision,
+                expected_files: &[],
+                remaining_files: &[],
+                expected_observations: &serde_json::json!([]),
+                observations: &failing_observation,
+                expected_deferred_observations: &merged,
+                deferred_observations: &merged,
+            })
             .await
             .expect("record observation before injected failure"));
         assert!(
-            dao.save_learn_scan_progress(
-                &repository_key,
-                following_revision,
-                &[],
-                &[],
-                &failing_observation,
-                &serde_json::json!([]),
-                &merged,
-                &serde_json::json!({}),
-            )
+            dao.save_learn_scan_progress(&LearnScanProgress {
+                repository_key: &repository_key,
+                revision: following_revision,
+                expected_files: &[],
+                remaining_files: &[],
+                expected_observations: &failing_observation,
+                observations: &serde_json::json!([]),
+                expected_deferred_observations: &merged,
+                deferred_observations: &serde_json::json!({}),
+            })
             .await
             .is_err(),
             "invalid deferred JSON must roll back the whole transfer"
@@ -460,16 +463,16 @@ mod learn_durable_tests {
         retry_backlog.push(failing_observation[0].clone());
         let retry_backlog = serde_json::Value::Array(retry_backlog);
         assert!(dao
-            .save_learn_scan_progress(
-                &repository_key,
-                following_revision,
-                &[],
-                &[],
-                &failing_observation,
-                &serde_json::json!([]),
-                &merged,
-                &retry_backlog,
-            )
+            .save_learn_scan_progress(&LearnScanProgress {
+                repository_key: &repository_key,
+                revision: following_revision,
+                expected_files: &[],
+                remaining_files: &[],
+                expected_observations: &failing_observation,
+                observations: &serde_json::json!([]),
+                expected_deferred_observations: &merged,
+                deferred_observations: &retry_backlog,
+            })
             .await
             .expect("retry deferred transfer"));
         assert!(dao
@@ -494,40 +497,42 @@ mod learn_durable_tests {
         let repository_key = format!("test:{}", Uuid::new_v4());
         let finding_key = "RUST-EMPTY-ERROR-ARM:v1:src/lib.rs";
         let revision = "test-pinned-revision";
-        let first = dao.file_learn_finding(
-            &repository_key,
-            finding_key,
-            revision,
-            "learn: empty error arm",
-            "Medium",
-            "review candidate",
-            "verify finding",
-            false,
-        );
-        let second = dao.file_learn_finding(
-            &repository_key,
-            finding_key,
-            revision,
-            "learn: empty error arm",
-            "Medium",
-            "review candidate",
-            "verify finding",
-            false,
-        );
+        let finding_a = NewLearnFinding {
+            repository_key: &repository_key,
+            finding_key: finding_key,
+            revision: revision,
+            title: "learn: empty error arm",
+            priority: "Medium",
+            notes: "review candidate",
+            goal: "verify finding",
+            ready: false,
+        };
+        let first = dao.file_learn_finding(&finding_a);
+        let finding_b = NewLearnFinding {
+            repository_key: &repository_key,
+            finding_key: finding_key,
+            revision: revision,
+            title: "learn: empty error arm",
+            priority: "Medium",
+            notes: "review candidate",
+            goal: "verify finding",
+            ready: false,
+        };
+        let second = dao.file_learn_finding(&finding_b);
         let (first, second) = tokio::join!(first, second);
         let first = first.expect("first concurrent file");
         assert_eq!(first, second.expect("second concurrent file"));
         assert_eq!(
-            dao.file_learn_finding(
-                &repository_key,
-                finding_key,
-                revision,
-                "learn: empty error arm",
-                "Medium",
-                "review candidate",
-                "verify finding",
-                false,
-            )
+            dao.file_learn_finding(&NewLearnFinding {
+                repository_key: &repository_key,
+                finding_key: finding_key,
+                revision: revision,
+                title: "learn: empty error arm",
+                priority: "Medium",
+                notes: "review candidate",
+                goal: "verify finding",
+                ready: false,
+            })
             .await
             .expect("idempotent retry"),
             first

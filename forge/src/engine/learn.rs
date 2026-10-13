@@ -5,7 +5,7 @@
 //! dedupes against open learn work, and never fixes/merges/promotes its own finding.
 
 use crate::engine::vendor_session::with_shared;
-use db::ForgeControlDao;
+use db::{ForgeControlDao, LearnScanProgress, NewLearnFinding};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -248,20 +248,20 @@ fn file_candidate(
     with_shared(|db, rt| {
         let dao = ForgeControlDao::new(db.clone());
         rt.block_on(async {
-            dao.file_learn_finding(
-                repository_key,
-                &candidate.key,
-                revision,
-                &format!("learn: {}", candidate.key),
-                if candidate.severity == Severity::P0 {
+            dao.file_learn_finding(&NewLearnFinding {
+                repository_key: repository_key,
+                finding_key: &candidate.key,
+                revision: revision,
+                title: &format!("learn: {}", candidate.key),
+                priority: if candidate.severity == Severity::P0 {
                     "High"
                 } else {
                     "Medium"
                 },
-                &notes,
-                &format!("Verify and resolve {}", candidate.key),
-                candidate.severity == Severity::P0,
-            )
+                notes: &notes,
+                goal: &format!("Verify and resolve {}", candidate.key),
+                ready: candidate.severity == Severity::P0,
+            })
             .await
             .map_err(|error| error.to_string())
         })
@@ -352,16 +352,16 @@ fn save_progress(
 ) -> Result<(), String> {
     let saved = with_shared(|db, rt| {
         let dao = ForgeControlDao::new(db.clone());
-        rt.block_on(dao.save_learn_scan_progress(
-            repository_key,
-            revision,
-            expected_files,
-            remaining_files,
-            expected_observations,
-            observations,
-            expected_deferred_observations,
-            deferred_observations,
-        ))
+        rt.block_on(dao.save_learn_scan_progress(&LearnScanProgress {
+            repository_key: repository_key,
+            revision: revision,
+            expected_files: expected_files,
+            remaining_files: remaining_files,
+            expected_observations: expected_observations,
+            observations: observations,
+            expected_deferred_observations: expected_deferred_observations,
+            deferred_observations: deferred_observations,
+        }))
         .map_err(|error| error.to_string())
     })??;
     if !saved {
