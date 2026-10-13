@@ -380,7 +380,13 @@ impl ApprovedAssayPlan {
     }
 }
 
-/// QA may invoke only the project's test/check entry points. The command is still run by the
+/// QA may invoke only commands that RUN THE TESTS. QA answers one question — did the tests pass — so
+/// nothing that measures something else may become its verdict. `cargo check` stays: it compiles the
+/// code the story changed (twenty packets declare it, four rails pin it). Documentation and manifest
+/// linting does not, and is refused **by name**: `pnpm forge:harness` runs `forge:sync-agents --check`,
+/// `forge:manifest --check-all`, `forge:packet-lint` and the opencode config/skills checks, which read
+/// `AGENTS.md`, `docs/agent/**` and the managed vendor files and never execute a test — a verdict a
+/// documentation edit can move is a verdict about the documentation. The command is still run by the
 /// harness, but shell composition and every other executable are rejected before dispatch so a
 /// frozen packet cannot turn the QA lane into a Git or release-management shell.
 fn qa_command_policy_error(command: &str) -> Option<&'static str> {
@@ -403,8 +409,11 @@ fn qa_command_policy_error(command: &str) -> Option<&'static str> {
     match (executable, action) {
         ("cargo", "test" | "check") => None,
         ("cargo", "nextest") if words.next() == Some("run") => None,
-        ("pnpm", "test" | "forge:harness") => None,
-        _ => Some("only cargo test/check/nextest run and pnpm test/harness commands are allowed"),
+        ("pnpm", _) if action == "test" || action.starts_with("test:") => None,
+        _ => Some(
+            "only test runs are allowed (`cargo test`, `cargo check`, `cargo nextest run`, \
+             `pnpm test[:<script>]`); `pnpm forge:harness` lints docs and manifests and never runs a test",
+        ),
     }
 }
 
@@ -463,6 +472,44 @@ mod tests {
             assert!(
                 unsafe_plan.validate("STORY-1", &[command.into()]).is_err(),
                 "QA must refuse `{command}` even when a packet approves it"
+            );
+        }
+    }
+
+    /// The rule in one sentence: QA answers "did the tests pass". Anything that measures something
+    /// else may not become a QA verdict — least of all a documentation gate whose result a docs edit
+    /// can move. `pnpm forge:harness` is the trap this closes: it is named like a test entry point,
+    /// it is referenced by name in this file's error message history, and it runs no test at all.
+    #[test]
+    fn qa_runs_tests_and_nothing_else() {
+        for command in [
+            "cargo test -p app",
+            "cargo check --workspace",
+            "cargo nextest run -p workflow",
+            "pnpm test",
+            "pnpm test:app",
+            "pnpm test:harness",
+            "pnpm test:story STORY-1",
+        ] {
+            assert!(
+                qa_command_policy_error(command).is_none(),
+                "`{command}` runs the tests, so QA must be allowed to run it"
+            );
+        }
+
+        for command in [
+            "pnpm forge:harness",
+            "pnpm forge:manifest --check-all",
+            "pnpm forge:guard-lint",
+            "pnpm forge:packet-lint",
+            "pnpm db:parity",
+            "cargo build",
+            "cargo clippy",
+            "cargo fmt",
+        ] {
+            assert!(
+                qa_command_policy_error(command).is_some(),
+                "`{command}` measures something other than the tests, so it is not a QA command"
             );
         }
     }
