@@ -8,10 +8,10 @@
 //! `ForgeServiceRouter` is the strangler adapter from the established
 //! `ProductionRoleRunner` seam into concrete `AbstractForgeService` implementations.
 
+use crate::engine::role_mapping::LaneId;
 use crate::engine::runner::{
     ForgeRoleOutcome, ForgeRoleRunner, ForgeTurnPorts, ProductionRoleRunner,
 };
-use crate::engine::role_mapping::LaneId;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::service_binding::service_for_node;
 use crate::roles::architect::ArchitectService;
@@ -689,7 +689,7 @@ mod tests {
             ("scout", include_str!("scout.rs")),
             ("architect", include_str!("architect.rs")),
             ("lead", include_str!("lead.rs")),
-            ("smith", include_str!("smith.rs")),
+            ("smith", include_str!("smith/mod.rs")),
             ("inspector", include_str!("inspector.rs")),
             ("assay", include_str!("qa.rs")),
             ("devops", include_str!("dev_ops.rs")),
