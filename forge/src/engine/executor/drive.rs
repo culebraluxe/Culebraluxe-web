@@ -56,6 +56,119 @@ fn lane_failure_reason(node: &str, task_id: &str, error: &WorkflowError) -> Stri
     }
 }
 
+/// The two verdict channels one failed lane feeds (`WO-302` Part A).
+///
+/// A lane failure is EITHER a business verdict (anything that is not the engine's own fault — a role
+/// verdict, a human gate, a refusal) OR an engine fault (plumbing: `is_engine_fault_error`). The split
+/// matters because the wave must weigh them differently: see `wave_disposition`. Everything here is owned
+/// so the caller can move the lane's own error object into the fault slot afterwards — error identity is
+/// never traded for a message (`WO-121`), so the propagated fault stays the lane's error, not a copy.
+struct LaneChannels {
+    /// The lane's reason, verbatim — the Hold candidate when this lane is not an engine fault.
+    reason: String,
+    /// Whether this lane feeds the engine-fault channel instead of the Hold channel.
+    is_engine_fault: bool,
+}
+
+/// Classify one failed lane execution into the wave's verdict channels.
+///
+/// Pure over the execution: the reason strings are built here so the rule is testable without running a
+/// lane. The per-lane diagnostic line and the worktree disposition stay with the caller — this function
+/// decides meaning, not side effects.
+fn classify_lane_failure(execution: &LaneExecutionResult) -> LaneChannels {
+    let error = match &execution.outcome {
+        Ok(_) => {
+            return LaneChannels {
+                reason: String::new(),
+                is_engine_fault: false,
+            }
+        }
+        Err(error) => error,
+    };
+    // A settlement failure that happened while this lane's error was being handled is reported WITH it
+    // (`WO-121`): one lane, two facts, both named.
+    let reason = match execution.settlement_failure.as_deref() {
+        Some(settlement) => with_secondary_failure(
+            &lane_failure_reason(
+                &execution.claimed.node,
+                &execution.claimed.task.task_id,
+                error,
+            ),
+            "durable claim settlement",
+            settlement,
+        ),
+        None => lane_failure_reason(
+            &execution.claimed.node,
+            &execution.claimed.task.task_id,
+            error,
+        ),
+    };
+    LaneChannels {
+        reason,
+        is_engine_fault: is_engine_fault_error(error),
+    }
+}
+
+/// What a wave carries home after weighing its lanes' verdict channels (`WO-302` Part A).
+enum WaveDisposition {
+    /// A genuine business verdict survived: the story is held with this reason.
+    Hold(String),
+    /// No business verdict, but the engine faulted: the original fault propagates untouched.
+    EngineFault(WorkflowError),
+    /// Neither: the wave is clear.
+    Clear,
+}
+
+/// Settle a completed lane's durable job without ever orphaning it (`WO-302` Part B).
+///
+/// The shape is log-and-continue with reconciliation, not swallow-and-ignore and not propagate: a transient
+/// `jobs.complete` failure after real work must neither erase the completed outcome nor strand the job where
+/// no later pass recognises it. `Ok` is normal completion; `Err` from the caller means something else failed.
+/// Returns the Hold reason when the settlement failed, so the story is held with the failure named and the
+/// paid turn preserved for reconciliation — the job row itself is untouched, which is what lets a later pass
+/// settle it instead of treating it as unknown abandoned work.
+fn settle_completed_lane(
+    jobs: &dyn JobService,
+    worker_id: &str,
+    job_id: &str,
+    task_id: &str,
+    already_completed: bool,
+) -> Option<String> {
+    let situation = if already_completed {
+        "was already completed but"
+    } else {
+        "completed but"
+    };
+    match jobs.complete(job_id, worker_id) {
+        Ok(()) => None,
+        Err(settle_error) => {
+            eprintln!(
+                "forge-wave task {task_id} {situation} durable job settlement failed (preserving paid turn for reconciliation): {settle_error}"
+            );
+            Some(format!(
+                "workflow task {task_id} {situation} its durable job could not be settled (preserving paid turn for reconciliation): {settle_error}"
+            ))
+        }
+    }
+}
+///
+/// The sibling failure is NOT discarded: the caller logs it, and it is attached to the Hold reason, so
+/// the fault stays observable while the verdict keeps its authority. Only when no lane produced a business
+/// verdict does the engine fault propagate — and a fault on its own never invents a Hold.
+fn wave_disposition(
+    hold_reason: Option<String>,
+    engine_fault: Option<WorkflowError>,
+) -> WaveDisposition {
+    match (hold_reason, engine_fault) {
+        (Some(hold), Some(fault)) => WaveDisposition::Hold(format!(
+            "{hold} [sibling engine fault also observed and logged: {fault}]"
+        )),
+        (Some(hold), None) => WaveDisposition::Hold(hold),
+        (None, Some(fault)) => WaveDisposition::EngineFault(fault),
+        (None, None) => WaveDisposition::Clear,
+    }
+}
+
 fn instance_status<S: TxStore>(rt: &ForgeRuntime<S>, instance_id: &str) -> Result<String> {
     Ok(format!(
         "{:?}",
@@ -1107,28 +1220,14 @@ fn drive_forge_story_inner<S: TxStore>(
                 let mut hold_reason: Option<String> = None;
                 let mut engine_fault: Option<WorkflowError> = None;
                 for mut execution in executions {
+                    // The verdict channels are decided by one function (`WO-302` Part A) so a business
+                    // Hold and a sibling engine fault cannot be weighed two ways. Classified before the
+                    // outcome moves: the channels are owned, the error object stays the lane's.
+                    let channels = classify_lane_failure(&execution);
                     let outcome = match execution.outcome {
                         Ok(outcome) => outcome,
                         Err(error) => {
                             let (stop_kind, role_verdict) = lane_stop_diagnostic(&error);
-                            // A settlement failure that happened while this lane's error was being handled
-                            // is reported WITH it (`WO-121`): one lane, two facts, both named.
-                            let reason = match execution.settlement_failure.as_deref() {
-                                Some(settlement) => with_secondary_failure(
-                                    &lane_failure_reason(
-                                        &execution.claimed.node,
-                                        &execution.claimed.task.task_id,
-                                        &error,
-                                    ),
-                                    "durable claim settlement",
-                                    settlement,
-                                ),
-                                None => lane_failure_reason(
-                                    &execution.claimed.node,
-                                    &execution.claimed.task.task_id,
-                                    &error,
-                                ),
-                            };
                             eprintln!(
                                 "forge-execution-stop story={} instance={} wave={} task={} job={} attempt={} stop={} error_code={} role_verdict={} detail={}",
                                 story_id,
@@ -1142,17 +1241,19 @@ fn drive_forge_story_inner<S: TxStore>(
                                 role_verdict,
                                 error
                             );
-                            if is_engine_fault_error(&error) && engine_fault.is_none() {
-                                engine_fault = Some(error);
+                            if channels.is_engine_fault {
+                                if engine_fault.is_none() {
+                                    engine_fault = Some(error);
+                                }
                             } else if hold_reason.is_none() {
-                                hold_reason = Some(reason.clone());
+                                hold_reason = Some(channels.reason.clone());
                             }
                             // The tree is RETAINED, and the guard is what says so: a lane that failed may
                             // hold work no branch has yet (`WO-121`), so the disposition is decided and
                             // named — path and branch — rather than left to a `let _ =`.
                             execution.worktrees.retain(
                                 &execution.claimed.task.task_id,
-                                &format!("execution_failed={reason}"),
+                                &format!("execution_failed={}", channels.reason),
                             );
                             continue;
                         }
@@ -1166,15 +1267,17 @@ fn drive_forge_story_inner<S: TxStore>(
                         &outcome,
                     ) {
                         if error.code() == "TASK_ALREADY_COMPLETED" {
-                            if let Err(settle_error) = durable
-                                .jobs
-                                .complete(&execution.claimed.lease.job_id, opts.worker_id)
-                            {
+                            // Settle through the shared helper (`WO-302` Part B): a transient complete
+                            // failure here must hold with the failure named, never orphan the job.
+                            if let Some(reason) = settle_completed_lane(
+                                durable.jobs,
+                                opts.worker_id,
+                                &execution.claimed.lease.job_id,
+                                &execution.claimed.task.task_id,
+                                true,
+                            ) {
                                 if hold_reason.is_none() {
-                                    hold_reason = Some(format!(
-                                        "workflow task {} was already completed but its durable job could not be settled: {settle_error}",
-                                        execution.claimed.task.task_id
-                                    ));
+                                    hold_reason = Some(reason);
                                 }
                             }
                             // This release used to be `let _ = remove_lane_worktree(..)`: a tree Forge could
@@ -1250,15 +1353,18 @@ fn drive_forge_story_inner<S: TxStore>(
                             continue;
                         }
                     }
-                    if let Err(settle_error) = durable
-                        .jobs
-                        .complete(&execution.claimed.lease.job_id, opts.worker_id)
-                    {
+                    // Settle through the shared helper (`WO-302` Part B): the completed outcome is
+                    // already recorded above, so a transient complete failure holds with the failure
+                    // named instead of orphaning the job.
+                    if let Some(reason) = settle_completed_lane(
+                        durable.jobs,
+                        opts.worker_id,
+                        &execution.claimed.lease.job_id,
+                        &execution.claimed.task.task_id,
+                        false,
+                    ) {
                         if hold_reason.is_none() {
-                            hold_reason = Some(format!(
-                                "workflow task {} completed but durable job settlement failed: {settle_error}",
-                                execution.claimed.task.task_id
-                            ));
+                            hold_reason = Some(reason);
                         }
                     }
                     // The lane is done, so its tree is released through the guard (`WO-121`). A release that
@@ -1284,23 +1390,29 @@ fn drive_forge_story_inner<S: TxStore>(
                         stopped_after = Some(execution.claimed.node.clone());
                     }
                 }
-                if let Some(error) = engine_fault {
-                    return Err(error);
-                }
-                if let Some(reason) = hold_reason {
-                    eprintln!(
-                        "forge-story-stop story={} instance={} wave={} reason={}",
-                        story_id, instance_id, wave_index, reason
-                    );
-                    rt.writer()
-                        .mark_story_human_hold(story_id, &reason)
-                        .map_err(|error| {
-                            WorkflowError::generic(format!(
-                                "mark_story_human_hold({story_id}): {error}"
-                            ))
-                        })?;
-                    return Ok(ending(&instance_id, &steps, &stopped_after, reconciled)
-                        .needs_human(instance_status(rt, &instance_id)?, Some(reason)));
+                // A genuine business Hold beats a sibling engine fault (`WO-302` Part A): the fault
+                // stays observable (its own forge-execution-stop line above, plus attached to the Hold
+                // reason), but it must not erase the verdict. Only with no Hold does the fault propagate.
+                match wave_disposition(hold_reason, engine_fault) {
+                    WaveDisposition::Hold(reason) => {
+                        eprintln!(
+                            "forge-story-stop story={} instance={} wave={} reason={}",
+                            story_id, instance_id, wave_index, reason
+                        );
+                        rt.writer()
+                            .mark_story_human_hold(story_id, &reason)
+                            .map_err(|error| {
+                                WorkflowError::generic(format!(
+                                    "mark_story_human_hold({story_id}): {error}"
+                                ))
+                            })?;
+                        return Ok(ending(&instance_id, &steps, &stopped_after, reconciled)
+                            .needs_human(instance_status(rt, &instance_id)?, Some(reason)));
+                    }
+                    WaveDisposition::EngineFault(error) => {
+                        return Err(error);
+                    }
+                    WaveDisposition::Clear => {}
                 }
                 if stopped_after.is_some() {
                     break;
@@ -2018,5 +2130,266 @@ mod concurrency_tests {
             assert_eq!(retained.disposition(), LaneWorktreeDisposition::Retained);
         }
         assert_eq!(retained_attempts.load(Ordering::SeqCst), 0);
+    }
+    /// What a scripted lane fails with (`WO-302` Part A chaos).
+    enum ScriptedFailure {
+        /// A genuine business verdict: says nothing about the engine.
+        Hold,
+        /// An internal engine fault: says nothing about the story.
+        EngineFault,
+    }
+
+    /// A lane runner scripted to fail one fixed way.
+    struct FailingRunner {
+        failure: ScriptedFailure,
+    }
+
+    impl ForgeRoleRunner for FailingRunner {
+        fn run(&self, _node_id: &str, _task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
+            match self.failure {
+                // A genuine business Hold verdict: a role refusal that says nothing about the
+                // engine, so `is_engine_fault_error` must not claim it.
+                ScriptedFailure::Hold => Err(WorkflowError::generic(
+                    "human gate requires operator decision before this lane may proceed",
+                )),
+                // A sibling engine fault: the database went away mid-turn. Says nothing about
+                // the story.
+                ScriptedFailure::EngineFault => Err(WorkflowError::unavailable(
+                    "db: DatabaseUnavailable during workflow.step",
+                )),
+            }
+        }
+    }
+
+    /// Fold one wave's lane executions exactly the way the drive loop does: first Hold wins, first
+    /// engine fault wins, then `wave_disposition` weighs them. Mirrors the loop so the chaos test
+    /// exercises the real precedence rather than restating it.
+    fn fold_wave(executions: Vec<LaneExecutionResult>) -> WaveDisposition {
+        let mut hold_reason: Option<String> = None;
+        let mut engine_fault: Option<WorkflowError> = None;
+        for execution in executions {
+            let channels = classify_lane_failure(&execution);
+            if let Err(error) = execution.outcome {
+                if channels.is_engine_fault {
+                    if engine_fault.is_none() {
+                        engine_fault = Some(error);
+                    }
+                } else if hold_reason.is_none() {
+                    hold_reason = Some(channels.reason);
+                }
+            }
+        }
+        wave_disposition(hold_reason, engine_fault)
+    }
+
+    fn hold_lane(task_id: &str) -> PreparedDurableLane {
+        prepared_lane_with_runner(
+            task_id,
+            Box::new(FailingRunner {
+                failure: ScriptedFailure::Hold,
+            }),
+        )
+    }
+
+    fn fault_lane(task_id: &str) -> PreparedDurableLane {
+        prepared_lane_with_runner(
+            task_id,
+            Box::new(FailingRunner {
+                failure: ScriptedFailure::EngineFault,
+            }),
+        )
+    }
+
+    #[test]
+    fn a_real_hold_survives_a_sibling_engine_fault() {
+        // `WO-302` Part A chaos: sibling 1 returns a genuine Hold verdict while sibling 2 hits an
+        // internal engine fault on the same wave.
+        let results = execute_durable_batch(
+            vec![hold_lane("task-hold"), fault_lane("task-fault")],
+            &NoopJobs,
+            "worker-1",
+            None,
+            "story-1",
+            2,
+        );
+        assert_eq!(results.len(), 2);
+        assert!(
+            results.iter().all(|result| result.outcome.is_err()),
+            "both lanes failed, one with a verdict and one with a fault"
+        );
+        match fold_wave(results) {
+            WaveDisposition::Hold(reason) => {
+                assert!(
+                    reason.contains("operator decision"),
+                    "the Hold verdict is the disposition: {reason}"
+                );
+                assert!(
+                    reason.contains("sibling engine fault"),
+                    "the masked fault stays observable on the Hold: {reason}"
+                );
+                assert!(
+                    reason.contains("DatabaseUnavailable"),
+                    "the fault text rides along, not just its existence: {reason}"
+                );
+            }
+            WaveDisposition::EngineFault(error) => {
+                panic!("the engine fault masked the genuine Hold: {error}")
+            }
+            WaveDisposition::Clear => panic!("a Hold and a fault cannot clear a wave"),
+        }
+    }
+
+    #[test]
+    fn an_engine_fault_alone_propagates_without_inventing_a_hold() {
+        // The other direction: with no business verdict anywhere, the fault must still propagate —
+        // Hold priority must not become Hold invention.
+        let results = execute_durable_batch(
+            vec![fault_lane("task-fault")],
+            &NoopJobs,
+            "worker-1",
+            None,
+            "story-1",
+            1,
+        );
+        match fold_wave(results) {
+            WaveDisposition::EngineFault(error) => {
+                assert!(is_engine_fault_error(&error), "{error}");
+            }
+            WaveDisposition::Hold(reason) => {
+                panic!("a fault alone must never invent a Hold: {reason}")
+            }
+            WaveDisposition::Clear => panic!("a faulted wave is not clear"),
+        }
+    }
+
+    #[test]
+    fn a_hold_alone_carries_no_fault_attachment() {
+        let results = execute_durable_batch(
+            vec![hold_lane("task-hold")],
+            &NoopJobs,
+            "worker-1",
+            None,
+            "story-1",
+            1,
+        );
+        match fold_wave(results) {
+            WaveDisposition::Hold(reason) => {
+                assert!(reason.contains("operator decision"), "{reason}");
+                assert!(
+                    !reason.contains("sibling engine fault"),
+                    "no fault happened, so none may be attached: {reason}"
+                );
+            }
+            other => panic!(
+                "a lone Hold must dispose as Hold, got {}",
+                match other {
+                    WaveDisposition::EngineFault(error) => format!("EngineFault({error})"),
+                    WaveDisposition::Clear => "Clear".to_string(),
+                    WaveDisposition::Hold(_) => unreachable!(),
+                }
+            ),
+        }
+    }
+
+    /// A `JobService` whose `complete` fails transiently while recording every call (`WO-302` Part B
+    /// chaos). `fail` panics when called: the settle path under test must never fail a job it just
+    /// completed, so a call there is the defect, not a fixture gap.
+    struct FlakyCompleteJobs {
+        complete_calls: Mutex<usize>,
+        fail_calls: Mutex<usize>,
+        fail_complete: bool,
+    }
+
+    impl JobService for FlakyCompleteJobs {
+        fn enqueue(&self, _request: &crate::engine::job::ForgeJobRequest) -> Result<String> {
+            unreachable!()
+        }
+        fn claim(&self, _worker_id: &str, _limit: usize) -> Result<Vec<ForgeJobLease>> {
+            unreachable!()
+        }
+        fn claim_one(&self, _job_id: &str, _worker_id: &str) -> Result<ForgeJobLease> {
+            unreachable!()
+        }
+        fn heartbeat(&self, _job_id: &str, _worker_id: &str) -> Result<i64> {
+            Ok(1)
+        }
+        fn inspect(&self, _job_id: &str) -> Result<crate::engine::job::ForgeJobState> {
+            Err(WorkflowError::generic("unused"))
+        }
+        fn complete(&self, _job_id: &str, _worker_id: &str) -> Result<()> {
+            *self.complete_calls.lock().unwrap() += 1;
+            if self.fail_complete {
+                return Err(WorkflowError::unavailable(
+                    "db: DatabaseUnavailable during jobs.complete",
+                ));
+            }
+            Ok(())
+        }
+        fn fail(
+            &self,
+            _job_id: &str,
+            _worker_id: &str,
+            _error: &str,
+            _permanent: bool,
+        ) -> Result<()> {
+            *self.fail_calls.lock().unwrap() += 1;
+            panic!("settle_completed_lane must never fail a job it just completed");
+        }
+        fn cancel(&self, _job_id: &str, _actor: &str) -> Result<()> {
+            Ok(())
+        }
+        fn requeue(&self, _job_id: &str, _actor: &str) -> Result<()> {
+            Ok(())
+        }
+        fn recover_stale(&self, _batch: usize) -> Result<usize> {
+            Ok(0)
+        }
+    }
+
+    #[test]
+    fn a_settle_blip_holds_with_reconciliation_instead_of_orphaning_the_job() {
+        // `WO-302` Part B chaos: the lane completed, then `jobs.complete` died transiently. The
+        // settle must hold with the failure named (not propagate, not swallow), must never fail the
+        // just-completed job, and must leave the row for reconciliation instead of orphaning it.
+        let jobs = FlakyCompleteJobs {
+            complete_calls: Mutex::new(0),
+            fail_calls: Mutex::new(0),
+            fail_complete: true,
+        };
+        let reason = settle_completed_lane(&jobs, "worker-1", "job-x", "task-x", false)
+            .expect("a failed settle must hold, not vanish");
+        assert!(reason.contains("task-x"), "{reason}");
+        assert!(
+            reason.contains("reconciliation"),
+            "the Hold must name the reconciliation path, not just the failure: {reason}"
+        );
+        assert_eq!(
+            *jobs.complete_calls.lock().unwrap(),
+            1,
+            "one settle attempt"
+        );
+        assert_eq!(
+            *jobs.fail_calls.lock().unwrap(),
+            0,
+            "the completed job is never failed: failing it would orphan paid work"
+        );
+    }
+
+    #[test]
+    fn a_clean_settle_holds_nothing() {
+        let jobs = FlakyCompleteJobs {
+            complete_calls: Mutex::new(0),
+            fail_calls: Mutex::new(0),
+            fail_complete: false,
+        };
+        assert!(
+            settle_completed_lane(&jobs, "worker-1", "job-x", "task-x", false).is_none(),
+            "a settled job holds nothing"
+        );
+        assert!(
+            settle_completed_lane(&jobs, "worker-1", "job-x", "task-x", true).is_none(),
+            "an already-completed settle holds nothing either"
+        );
+        assert_eq!(*jobs.complete_calls.lock().unwrap(), 2);
     }
 }
