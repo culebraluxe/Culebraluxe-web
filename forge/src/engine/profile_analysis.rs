@@ -12,13 +12,15 @@
 //! UNKNOWN SPEND IS NOT ZERO. A turn whose spend was never measured contributes nothing to a profile's cost and is
 //! admitted in `unpriced_turns`: it is never imputed as 0.0, which would make a lost reading look like a saving.
 
+use std::collections::BTreeMap;
+
 use db::TurnTrajectoryRow;
 
 use crate::engine::trajectory::TrajectoryMetrics;
 
 /// Which turn of its role a record is: the distinction the turn key exists for. A first turn and a repair turn are
 /// different populations, and averaging them together hides the thing the comparison is for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TurnKind {
     /// The role's first turn (`role_attempt` 0, or no attempt index recorded).
     First,
@@ -42,6 +44,13 @@ impl TurnKind {
 pub struct TurnRecord {
     pub profile_id: String,
     pub kind: TurnKind,
+    /// Execution dimensions carried by the shared trajectory read. Missing values stay explicit so reports can keep
+    /// legacy or partially measured rows in an `unknown` segment instead of silently dropping them.
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub role: Option<String>,
+    pub work_type: Option<String>,
+    pub execution_phase: Option<String>,
     /// The vendor's reading of this turn's spend, from the turn's own row. `None` = unknown, which is neither zero nor
     /// a discount. The attempt ledger's settlement receipt is a different artefact and is not read here.
     pub cost_usd: Option<f64>,
@@ -58,11 +67,67 @@ pub fn turn_record(row: &TurnTrajectoryRow) -> TurnRecord {
     TurnRecord {
         profile_id: row.harness_profile_id.clone(),
         kind: TurnKind::of_role_attempt(row.role_attempt),
+        provider: row.provider.clone(),
+        model: row.model.clone(),
+        role: row.role.clone(),
+        work_type: row.work_type.clone(),
+        execution_phase: row.run_phase.clone(),
         cost_usd: turn_cost_usd(row),
         accepted: turn_accepted(row),
         trajectory: turn_trajectory(row),
         time_to_first_edit_ms: row.first_edit_latency_ms,
     }
+}
+
+/// One deterministic reporting population, segmented by the execution facts that explain a turn's measurement.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TurnSegmentKey {
+    pub profile_id: String,
+    pub kind: TurnKind,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub role: Option<String>,
+    pub work_type: Option<String>,
+    pub execution_phase: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TurnSegment {
+    pub key: TurnSegmentKey,
+    pub turns: usize,
+    pub accepted: usize,
+    pub unpriced_turns: usize,
+    pub known_cost_usd: f64,
+}
+
+/// Group turns by provider, model, role, story work type and execution phase. BTreeMap ordering makes output stable
+/// across database row order and process runs.
+pub fn segment_turns(records: &[TurnRecord]) -> Vec<TurnSegment> {
+    let mut groups: BTreeMap<TurnSegmentKey, Vec<&TurnRecord>> = BTreeMap::new();
+    for record in records {
+        groups
+            .entry(TurnSegmentKey {
+                profile_id: record.profile_id.clone(),
+                kind: record.kind,
+                provider: record.provider.clone(),
+                model: record.model.clone(),
+                role: record.role.clone(),
+                work_type: record.work_type.clone(),
+                execution_phase: record.execution_phase.clone(),
+            })
+            .or_default()
+            .push(record);
+    }
+    groups
+        .into_iter()
+        .map(|(key, rows)| TurnSegment {
+            key,
+            turns: rows.len(),
+            accepted: rows.iter().filter(|row| row.accepted).count(),
+            unpriced_turns: rows.iter().filter(|row| row.cost_usd.is_none()).count(),
+            known_cost_usd: rows.iter().filter_map(|row| row.cost_usd).sum(),
+        })
+        .collect()
 }
 
 /// The spend reading for one turn: the row's own measurement, and only when the harness reported one. An explicit
@@ -242,6 +307,11 @@ mod tests {
         TurnRecord {
             profile_id: profile.into(),
             kind,
+            provider: None,
+            model: None,
+            role: None,
+            work_type: None,
+            execution_phase: None,
             cost_usd: cost,
             accepted,
             trajectory: TrajectoryMetrics {
@@ -493,6 +563,8 @@ mod tests {
     fn a_record_reads_its_identity_from_the_row() {
         let mut graded = row("task-1:role-attempt:2@gen-1");
         graded.role_attempt = Some(2);
+        graded.provider = Some("anthropic".to_string());
+        graded.model = Some("claude-sonnet".to_string());
         graded.candidate_sha = Some("sha".to_string());
         graded.qa_passed = Some(true);
         graded.qa_verified_sha = Some("sha".to_string());
@@ -501,6 +573,11 @@ mod tests {
         let record = turn_record(&graded);
         assert_eq!(record.profile_id, "smith-structured-v3");
         assert_eq!(record.kind, TurnKind::Repair);
+        assert_eq!(record.provider.as_deref(), Some("anthropic"));
+        assert_eq!(record.model.as_deref(), Some("claude-sonnet"));
+        assert_eq!(record.role.as_deref(), Some("forge.implement"));
+        assert_eq!(record.work_type.as_deref(), Some("feature"));
+        assert_eq!(record.execution_phase.as_deref(), Some("build"));
         assert_eq!(record.cost_usd, Some(0.75));
         assert!(record.accepted);
         assert_eq!(record.time_to_first_edit_ms, Some(1200));
@@ -509,5 +586,29 @@ mod tests {
 
         // And the store's own read compares without the caller grading anything by hand.
         assert_eq!(compare_turns(&[graded])[0].turns, 1);
+    }
+
+    #[test]
+    fn reporting_segments_keep_provider_model_role_work_type_and_phase_distinct() {
+        let mut first = turn_record(&row("task-1:role-attempt:0"));
+        first.provider = Some("anthropic".into());
+        first.model = Some("claude-sonnet".into());
+        let mut second = first.clone();
+        second.provider = Some("openai".into());
+        second.model = Some("gpt".into());
+        second.role = Some("forge.review".into());
+        second.work_type = Some("bug".into());
+        second.execution_phase = Some("repair".into());
+
+        let segments = segment_turns(&[second, first]);
+
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].key.provider.as_deref(), Some("anthropic"));
+        assert_eq!(segments[0].key.model.as_deref(), Some("claude-sonnet"));
+        assert_eq!(segments[0].key.role.as_deref(), Some("forge.implement"));
+        assert_eq!(segments[0].key.work_type.as_deref(), Some("feature"));
+        assert_eq!(segments[0].key.execution_phase.as_deref(), Some("build"));
+        assert_eq!(segments[1].key.provider.as_deref(), Some("openai"));
+        assert_eq!(segments[1].key.execution_phase.as_deref(), Some("repair"));
     }
 }

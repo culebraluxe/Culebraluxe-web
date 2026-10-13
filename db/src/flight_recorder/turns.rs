@@ -77,6 +77,8 @@ fn turn_dto(turn: TurnTrajectoryRow) -> FlightRecorderTurn {
         attempt_key: turn.attempt_key,
         workflow_node: turn.workflow_node,
         role: turn.role,
+        work_type: turn.work_type,
+        execution_phase: turn.run_phase,
         role_attempt: turn.role_attempt,
         harness_profile_id: turn.harness_profile_id,
         profile_version: turn.profile_version,
@@ -182,6 +184,8 @@ mod tests {
         );
         assert_eq!(dto.story_id, "ENG-FORGE-01");
         assert_eq!(dto.run_id, "22222222-2222-2222-2222-222222222222");
+        assert_eq!(dto.turns[0].work_type.as_deref(), Some("story"));
+        assert_eq!(dto.turns[0].execution_phase.as_deref(), Some("build"));
     }
 
     #[test]

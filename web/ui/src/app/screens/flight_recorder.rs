@@ -1276,6 +1276,9 @@ fn turn_table(run: &ConsoleRunTurns) -> Html {
                     <tr>
                         <th class="px-3 py-2">{ "Turn" }</th>
                         <th class="px-3 py-2">{ "Node" }</th>
+                        <th class="px-3 py-2">{ "Role" }</th>
+                        <th class="px-3 py-2">{ "Work type" }</th>
+                        <th class="px-3 py-2">{ "Phase" }</th>
                         <th class="px-3 py-2">{ "Profile" }</th>
                         <th class="px-3 py-2">{ "Model" }</th>
                         <th class="px-3 py-2">{ "Outcome" }</th>
@@ -1311,6 +1314,15 @@ fn turn_row(run: &ConsoleRunTurns, turn: &TraceTurn) -> Html {
             </td>
             <td class="px-3 py-1.5 font-mono text-[11px] text-slate-400">
                 { turn.workflow_node.clone().unwrap_or_else(|| "—".into()) }
+            </td>
+            <td class="px-3 py-1.5 text-[11px] text-slate-400">
+                { turn.role.clone().unwrap_or_else(|| "—".into()) }
+            </td>
+            <td class="px-3 py-1.5 text-[11px] text-slate-400">
+                { turn.work_type.clone().unwrap_or_else(|| "—".into()) }
+            </td>
+            <td class="px-3 py-1.5 text-[11px] text-slate-400">
+                { turn.execution_phase.clone().unwrap_or_else(|| "—".into()) }
             </td>
             <td class="px-3 py-1.5 text-[11px] text-slate-300">{ turn_profile_label(turn) }</td>
             <td class="px-3 py-1.5 text-[11px] text-slate-300">

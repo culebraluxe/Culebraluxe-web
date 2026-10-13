@@ -113,11 +113,19 @@ pub struct DiagnosticOutcome {
     pub failures: usize,
     /// The first failing command, so the failure is named rather than summarized away.
     pub first_failure: Option<String>,
+    /// Every command result, in execution order, so the caller can prove the planned set was completed.
+    pub results: Vec<DiagnosticCommandResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiagnosticCommandResult {
+    pub command: String,
+    pub passed: bool,
 }
 
 impl DiagnosticOutcome {
     pub fn passed(&self) -> bool {
-        self.failures == 0
+        self.failures == 0 && self.results.iter().all(|result| result.passed)
     }
 }
 
@@ -132,6 +140,86 @@ pub fn interpret(results: &[(String, bool)]) -> DiagnosticOutcome {
         commands_run: results.len(),
         failures: failures.len(),
         first_failure: failures.first().map(|command| (*command).clone()),
+        results: results
+            .iter()
+            .map(|(command, passed)| DiagnosticCommandResult {
+                command: command.clone(),
+                passed: *passed,
+            })
+            .collect(),
+    }
+}
+
+/// A read-only candidate-freeze readiness answer. It never changes workflow state or produces QA evidence; the
+/// authorized XML workflow remains responsible for deciding what happens after this check.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreFreezeReadiness {
+    pub ready: bool,
+    pub reason: Option<String>,
+    pub expected_commands: usize,
+    pub completed_commands: usize,
+    pub failed_commands: usize,
+}
+
+/// Check whether the planned diagnostics have a complete, successful result before a caller freezes a candidate.
+/// This is the pure gate logic; wiring it into Smith's lifecycle is deliberately left to the lifecycle owner.
+pub fn pre_freeze_readiness(
+    plan: &DiagnosticPlan,
+    outcome: Option<&DiagnosticOutcome>,
+) -> PreFreezeReadiness {
+    let expected: Vec<String> = plan.commands.iter().map(|args| args.join(" ")).collect();
+    let Some(outcome) = outcome else {
+        let ready = expected.is_empty();
+        return PreFreezeReadiness {
+            ready,
+            reason: (!ready).then(|| "planned diagnostics have not run".to_string()),
+            expected_commands: expected.len(),
+            completed_commands: 0,
+            failed_commands: 0,
+        };
+    };
+
+    let completed: Vec<String> = outcome
+        .results
+        .iter()
+        .map(|result| result.command.clone())
+        .collect();
+    let exact_plan_ran = completed == expected && outcome.commands_run == expected.len();
+    let result_failures = outcome
+        .results
+        .iter()
+        .filter(|result| !result.passed)
+        .count();
+    let failed_commands = outcome.failures.max(result_failures);
+    let failure_summary_matches = outcome.failures == result_failures
+        && outcome.first_failure.as_deref()
+            == outcome
+                .results
+                .iter()
+                .find(|result| !result.passed)
+                .map(|result| result.command.as_str());
+    let reason = if !exact_plan_ran {
+        Some("diagnostic results do not match the complete planned command set".to_string())
+    } else if failed_commands > 0 {
+        Some(format!(
+            "diagnostics failed{}",
+            outcome
+                .first_failure
+                .as_deref()
+                .map(|command| format!(": {command}"))
+                .unwrap_or_default()
+        ))
+    } else if !failure_summary_matches {
+        Some("diagnostic summary does not match its command results".to_string())
+    } else {
+        None
+    };
+    PreFreezeReadiness {
+        ready: reason.is_none(),
+        reason,
+        expected_commands: expected.len(),
+        completed_commands: outcome.commands_run,
+        failed_commands,
     }
 }
 
@@ -218,10 +306,58 @@ mod tests {
         ]);
         assert_eq!(outcome.commands_run, 3);
         assert_eq!(outcome.failures, 2);
+        assert_eq!(outcome.results.len(), 3);
+        assert!(!outcome.results[1].passed);
         assert_eq!(
             outcome.first_failure.as_deref(),
             Some("cargo check -p model")
         );
         assert!(!outcome.passed());
+    }
+
+    #[test]
+    fn freeze_readiness_requires_every_planned_diagnostic_to_pass() {
+        let plan = plan(&["forge/src/x.rs"], &crates());
+        let missing = pre_freeze_readiness(&plan, None);
+        assert!(!missing.ready);
+        assert_eq!(
+            missing.reason.as_deref(),
+            Some("planned diagnostics have not run")
+        );
+
+        let incomplete = interpret(&[]);
+        let blocked = pre_freeze_readiness(&plan, Some(&incomplete));
+        assert!(!blocked.ready);
+        assert!(blocked
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("complete planned"));
+
+        let failed = interpret(&[("cargo check -p forge".into(), false)]);
+        let blocked = pre_freeze_readiness(&plan, Some(&failed));
+        assert!(!blocked.ready);
+        assert!(blocked
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("cargo check -p forge"));
+
+        let passed = interpret(&[("cargo check -p forge".into(), true)]);
+        let ready = pre_freeze_readiness(&plan, Some(&passed));
+        assert!(ready.ready);
+        assert_eq!(ready.expected_commands, 1);
+        assert_eq!(ready.completed_commands, 1);
+
+        let substituted = interpret(&[("cargo check --workspace".into(), true)]);
+        assert!(!pre_freeze_readiness(&plan, Some(&substituted)).ready);
+    }
+
+    #[test]
+    fn a_non_rust_change_needs_no_diagnostic_run_before_freeze() {
+        let plan = plan(&["docs/notes.md"], &crates());
+        let readiness = pre_freeze_readiness(&plan, None);
+        assert!(readiness.ready);
+        assert_eq!(readiness.expected_commands, 0);
     }
 }

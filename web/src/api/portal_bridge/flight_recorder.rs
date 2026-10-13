@@ -12,7 +12,7 @@ pub(super) async fn flight_recorder(
     State(state): State<ApiState>,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<model::FlightRecorderTransaction>, ApiError> {
     let resolved = resolve_portal_context(&state, &headers).await?;
     if uuid::Uuid::parse_str(&id).is_err() {
         return Err(correlate(
@@ -46,5 +46,5 @@ pub(super) async fn flight_recorder(
             &resolved,
         )
     })?;
-    Ok(Json(to_json(value)))
+    Ok(Json(value))
 }

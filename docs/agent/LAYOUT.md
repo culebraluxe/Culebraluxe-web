@@ -10,6 +10,7 @@ Written 2026-10-01, when the tree moved out of `~/Documents`. This is the machin
 ├── src/
 │   ├── Culebraluxe-web/     main checkout,   branch main        (the repo you are in)
 │   ├── lane-forge-observations/ git worktree, branch lane/forge-observations
+│   ├── lane-bot3/            git worktree,    branch lane/bot3
 │   ├── lane-claude/         git worktree,    branch lane/claude
 │   ├── lane-deep/           git worktree,    branch lane/deep
 │   ├── lane-step5/          git worktree,    branch lane/step5
@@ -65,6 +66,7 @@ re-founding it in place is `git worktree move` plus `git branch -m`.
 | `lane-nemotron-lightning` | Nemotron 3.5 Lightning — a seat beside `lane-lightning` | a session on the Lightning model, created through `pnpm lane:new` (Captain, 2026-10-05) |
 | `lane-step5` | Step 5 Preview | the model's seat (renamed from `lane-fledge` on 2026-10-10), created through `pnpm lane:new` on the Captain's call (2026-10-05); rank not yet recorded |
 | `lane-forge-observations` | Codex | temporary isolated lane for the five verified Forge repairs (2026-10-10) |
+| `lane-bot3` | Codex | temporary isolated lane for Forge C5–C7 work (2026-10-13) |
 
 The six model lanes were created 2026-10-03 as **light lanes** (see "A lane is 84 MB" below): checkout plus env links,
 no `node_modules` until a lane actually needs to build the website. `pnpm wip:now` covers them from their first minute,

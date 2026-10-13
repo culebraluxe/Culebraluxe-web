@@ -13,7 +13,9 @@
 use db::ForgeEngineDao;
 use tokio::runtime::Runtime;
 
-use crate::engine::profile_analysis::{compare_turns, ProfileComparison, TurnTiming};
+use crate::engine::profile_analysis::{
+    compare_turns, segment_turns, ProfileComparison, TurnKind, TurnSegment, TurnTiming,
+};
 
 /// The width of the widest cell, so the header and rows line up: a table a reader can scan is the whole point.
 const PROFILE_WIDTH: usize = 30;
@@ -37,17 +39,22 @@ pub fn run(limit: i64) -> Result<String, String> {
             .await
             .map_err(|error| error.to_string())?;
         let comparisons = compare_turns(&rows);
+        let records = rows
+            .iter()
+            .map(crate::engine::profile_analysis::turn_record)
+            .collect::<Vec<_>>();
+        let segments = segment_turns(&records);
         Ok(format!(
             "measuring target={target} turns={} (limit {limit})\n{}",
             rows.len(),
-            render(&comparisons)
+            render(&comparisons, &segments)
         ))
     })
 }
 
 /// Render the comparison table. An empty population of turns says so rather than printing a row of zeros: a table of
 /// zeros reads as "every profile measured, and all of them were free".
-pub fn render(comparisons: &[ProfileComparison]) -> String {
+pub fn render(comparisons: &[ProfileComparison], segments: &[TurnSegment]) -> String {
     if comparisons.is_empty() {
         return "no measured turns: a profile appears here once a turn of it has been recorded."
             .to_string();
@@ -60,12 +67,53 @@ pub fn render(comparisons: &[ProfileComparison]) -> String {
         lines.push(row(comparison));
         lines.push(split(comparison));
     }
+    if !segments.is_empty() {
+        lines.push(String::new());
+        lines.push("segments by provider / model / role / work type / execution phase".into());
+        lines.push("profile | provider | model | role | work type | phase | turn | turns | accepted | known spend".into());
+        for segment in segments {
+            lines.push(segment_row(segment));
+            any_unpriced |= segment.unpriced_turns > 0;
+        }
+    }
     if any_unpriced {
         let legend = "unknown = no reading was taken for those turns; \
                       + = a floor, because some turns of that population are unpriced.";
         lines.push(legend.to_string());
     }
     lines.join("\n")
+}
+
+fn segment_row(segment: &TurnSegment) -> String {
+    let key = &segment.key;
+    let kind = match key.kind {
+        TurnKind::First => "first",
+        TurnKind::Repair => "repair",
+    };
+    let known_spend = spend(
+        segment.known_cost_usd,
+        segment.unpriced_turns,
+        segment.turns,
+    );
+    format!(
+        "{} | {} | {} | {} | {} | {} | {} | {} | {} | {}",
+        key.profile_id,
+        dimension(key.provider.as_deref()),
+        dimension(key.model.as_deref()),
+        dimension(key.role.as_deref()),
+        dimension(key.work_type.as_deref()),
+        dimension(key.execution_phase.as_deref()),
+        kind,
+        segment.turns,
+        segment.accepted,
+        known_spend,
+    )
+}
+
+fn dimension(value: Option<&str>) -> &str {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("unknown")
 }
 
 fn header() -> String {
@@ -171,6 +219,7 @@ fn calls(value: Option<f64>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::profile_analysis::TurnSegmentKey;
 
     fn timing(turns: usize, accepted: usize) -> TurnTiming {
         TurnTiming {
@@ -209,7 +258,7 @@ mod tests {
 
     #[test]
     fn an_unmeasured_population_is_shown_as_unknown_not_as_zero() {
-        let rendered = render(&[comparison(2, 0.0, None)]);
+        let rendered = render(&[comparison(2, 0.0, None)], &[]);
 
         assert!(
             rendered.contains("unknown"),
@@ -227,7 +276,7 @@ mod tests {
 
     #[test]
     fn spend_beside_an_unmeasured_turn_is_marked_a_floor() {
-        let rendered = render(&[comparison(1, 0.25, Some(0.25))]);
+        let rendered = render(&[comparison(1, 0.25, Some(0.25))], &[]);
 
         assert!(
             rendered.contains("$0.2500 (+1 unknown)"),
@@ -245,7 +294,7 @@ mod tests {
 
     #[test]
     fn a_fully_measured_profile_needs_no_legend() {
-        let rendered = render(&[comparison(0, 0.25, Some(0.25))]);
+        let rendered = render(&[comparison(0, 0.25, Some(0.25))], &[]);
 
         assert!(
             rendered.contains("$0.2500"),
@@ -259,7 +308,7 @@ mod tests {
 
     #[test]
     fn no_measured_turns_says_so_rather_than_printing_zeros() {
-        let rendered = render(&[]);
+        let rendered = render(&[], &[]);
 
         assert_eq!(
             rendered,
@@ -273,7 +322,7 @@ mod tests {
 
     #[test]
     fn a_profile_with_no_accepted_candidate_has_no_price_per_candidate() {
-        let rendered = render(&[comparison(0, 0.25, None)]);
+        let rendered = render(&[comparison(0, 0.25, None)], &[]);
 
         assert!(
             rendered.contains("n/a"),
@@ -287,7 +336,7 @@ mod tests {
 
     #[test]
     fn a_first_turn_and_a_repair_turn_are_read_separately() {
-        let rendered = render(&[comparison(0, 1.0, Some(1.0))]);
+        let rendered = render(&[comparison(0, 1.0, Some(1.0))], &[]);
 
         assert!(
             rendered.contains("first 1 turn(s), 1 accepted (100.0%)"),
@@ -297,5 +346,31 @@ mod tests {
             rendered.contains("repair 1 turn(s), 0 accepted (0.0%)"),
             "the repair population is reported alone: {rendered}"
         );
+    }
+
+    #[test]
+    fn segments_render_all_execution_dimensions_and_keep_unknown_spend_visible() {
+        let segment = TurnSegment {
+            key: TurnSegmentKey {
+                profile_id: "smith-v1".into(),
+                kind: TurnKind::Repair,
+                provider: Some("anthropic".into()),
+                model: Some("claude".into()),
+                role: Some("smith".into()),
+                work_type: Some("feature".into()),
+                execution_phase: Some("build".into()),
+            },
+            turns: 2,
+            accepted: 1,
+            unpriced_turns: 1,
+            known_cost_usd: 0.5,
+        };
+        let rendered = render(&[comparison(1, 0.5, Some(0.5))], &[segment]);
+
+        assert!(
+            rendered.contains("segments by provider / model / role / work type / execution phase")
+        );
+        assert!(rendered.contains("anthropic | claude | smith | feature | build | repair | 2 | 1"));
+        assert!(rendered.contains("$0.5000 (+1 unknown)"));
     }
 }

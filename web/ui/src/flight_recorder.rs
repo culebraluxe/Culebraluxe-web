@@ -570,6 +570,8 @@ pub struct TraceTurn {
     pub attempt_key: String,
     pub workflow_node: Option<String>,
     pub role: Option<String>,
+    pub work_type: Option<String>,
+    pub execution_phase: Option<String>,
     pub role_attempt: Option<i32>,
     pub harness_profile_id: String,
     pub profile_version: Option<i32>,
@@ -803,6 +805,8 @@ fn console_run_turns(run: &model::FlightRecorderStoryRun) -> ConsoleRunTurns {
                 attempt_key: turn.attempt_key.clone(),
                 workflow_node: turn.workflow_node.clone(),
                 role: turn.role.clone(),
+                work_type: turn.work_type.clone(),
+                execution_phase: turn.execution_phase.clone(),
                 role_attempt: turn.role_attempt,
                 harness_profile_id: turn.harness_profile_id.clone(),
                 profile_version: turn.profile_version,
@@ -1900,6 +1904,8 @@ pub fn trace_to_json(trace: &FlightRecorderTrace) -> Value {
                 "attemptKey": turn.attempt_key,
                 "workflowNode": turn.workflow_node,
                 "role": turn.role,
+                "workType": turn.work_type,
+                "executionPhase": turn.execution_phase,
                 "roleAttempt": turn.role_attempt,
                 "harnessProfileId": turn.harness_profile_id,
                 "profileVersion": turn.profile_version,
@@ -2306,7 +2312,13 @@ mod tests {
                 "runId": "11111111-1111-1111-1111-111111111111",
                 "storyId": "ENG-FORGE-01",
                 "turns": [
-                    {"attemptKey": "smith:0", "harnessProfileId": "smith-structured-v1", "usageKnown": false}
+                    {
+                        "attemptKey": "smith:0",
+                        "harnessProfileId": "smith-structured-v1",
+                        "usageKnown": false,
+                        "workType": "feature",
+                        "executionPhase": "build"
+                    }
                 ]
             }
         }));
@@ -2314,6 +2326,8 @@ mod tests {
 
         assert_eq!(exported["storyRun"]["storyId"], "ENG-FORGE-01");
         assert_eq!(exported["storyRun"]["turns"][0]["usageKnown"], false);
+        assert_eq!(exported["storyRun"]["turns"][0]["workType"], "feature");
+        assert_eq!(exported["storyRun"]["turns"][0]["executionPhase"], "build");
         assert!(
             exported["storyRun"]["turns"][0]["costUsd"].is_null(),
             "an unpriced turn stays unpriced in the file, not zero"

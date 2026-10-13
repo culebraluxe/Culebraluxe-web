@@ -146,6 +146,10 @@ pub struct FlightRecorderTurn {
     pub attempt_key: String,
     pub workflow_node: Option<String>,
     pub role: Option<String>,
+    /// Story type and execution phase are joined from the run for each turn, so readers can segment turns without
+    /// inferring them from a node name or from unrelated runs.
+    pub work_type: Option<String>,
+    pub execution_phase: Option<String>,
     /// 0 is the role's first turn; N>0 is a repair turn for the same role.
     pub role_attempt: Option<i32>,
     pub harness_profile_id: String,
