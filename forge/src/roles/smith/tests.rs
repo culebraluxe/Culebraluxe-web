@@ -276,6 +276,40 @@ fn refused_smith_work_is_captured_whole_without_touching_the_index() {
     let _ = std::fs::remove_dir_all(&repo);
 }
 
+/// The refusal a lane is handed must reach the gate NAMED, not as the lifecycle's boilerplate. "role did not
+/// deliver smith-candidate" is true of a turn that delivered nothing and WRONG about a candidate that was
+/// delivered and refused — and that string is what the board's hold record and the next attempt's repair
+/// directive carry, so the lane's own words have to be the ones sitting there.
+#[test]
+fn a_refusal_reaches_the_gate_as_the_refusal_and_not_as_boilerplate() {
+    let (repo, base, head) = smith_left_a_mess("refusal-named");
+    let refusal = format!("uncommitted work remains after candidate {head}");
+    let harness = GitHarness {
+        repo: repo.clone(),
+        candidate: None,
+        refusal: Some(refusal.clone()),
+        base: base.clone(),
+    };
+    let writer = Arc::new(crate::engine::writer::RecordingWriter::default());
+    let runner = ProductionRoleRunner::new(Arc::new(harness), ForgeGateEvidence::default())
+        .with_writer(writer.clone());
+
+    let outcome = SmithService::new(&runner)
+        .execute("smith", &smith_task())
+        .expect("the lane runs");
+
+    assert!(
+        outcome.evidence.candidate_sha.is_none(),
+        "a refused candidate is not frozen, so no QA node has anything to be handed"
+    );
+    assert_eq!(
+        outcome.evidence.deliverable_rejection.as_deref(),
+        Some(refusal.as_str()),
+        "the gate and the hold record name the refusal the lane made, not the fallback"
+    );
+    let _ = std::fs::remove_dir_all(&repo);
+}
+
 /// A writer whose run stamp always fails, so the test proves what a stamp DB error costs.
 struct StampFailingWriter {
     inner: Arc<crate::engine::writer::RecordingWriter>,

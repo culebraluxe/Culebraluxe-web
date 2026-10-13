@@ -5,8 +5,10 @@
 //! workspace-level file gets a workspace check, because its effect is not confined. A change to no Rust source (docs, data)
 //! gets no compile at all. Tests are not run here: running the affected tests is QA's job, against the frozen candidate.
 //!
-//! This module plans the commands and interprets their outcome. Running them is the caller's job, through the existing
-//! execution path, so the same permission rules apply.
+//! This module plans the commands and interprets their outcome; running them is the caller's job, through the existing
+//! execution path, so the same permission rules apply. The caller is Smith's own pre-freeze judgement
+//! ([`crate::roles::smith::judge_delivered_candidate_in_surface`]), which asks these questions of every candidate
+//! before that candidate can be delivered.
 
 use serde::{Deserialize, Serialize};
 
@@ -252,7 +254,9 @@ pub struct PreFreezeReadiness {
 }
 
 /// Check whether the planned diagnostics have a complete, successful result before a caller freezes a candidate.
-/// This is the pure gate logic; wiring it into Smith's lifecycle is deliberately left to the lifecycle owner.
+/// This is the pure gate logic. Its production caller is Smith's pre-freeze judgement, where a `ready: false` refuses
+/// the candidate in the lane's own refusal channel — cleared, named, and carried into the next attempt's repair
+/// directive by the lifecycle.
 pub fn pre_freeze_readiness(
     plan: &DiagnosticPlan,
     outcome: Option<&DiagnosticOutcome>,

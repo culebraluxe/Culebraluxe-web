@@ -580,6 +580,18 @@ pub fn read_delivered_work(
         .execution_base_commit()
         .map(str::to_string)
         .or_else(|| turn.out.execution_base.clone());
+    // A REFUSAL NAMES ITSELF IN THE EVIDENCE. The lifecycle's fallback for a code-delivering node with no
+    // candidate is "role did not deliver smith-candidate". That is true of a turn that delivered nothing, and
+    // WRONG about a candidate that WAS delivered and refused: the string is what `hold_rejected_deliverable`
+    // writes on the board and what the next attempt's repair directive quotes, so it has to be the refusal and
+    // not the boilerplate. It is set before the capture below because the capture needs a writer and a base and
+    // this reason needs neither. A rejection already recorded from the reply (a malformed role output) is left
+    // as it stands, the same way the scope rule below leaves it.
+    if let Some(refusal) = turn.out.refusal.as_deref() {
+        if evidence.deliverable_rejection.is_none() {
+            evidence.deliverable_rejection = Some(refusal.to_string());
+        }
+    }
     // PAID CODE > GIT SHA. A refused candidate (dirty tree, no commit, a RUST_CONTRACT production touch) is
     // still work that was paid for, and before this it left no row at all — the refusal voided it. It is
     // snapshotted whole (committed, uncommitted and untracked) so the hold that follows has code to show.
