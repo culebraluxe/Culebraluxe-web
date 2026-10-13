@@ -165,9 +165,14 @@ pub(super) fn changed_paths(
             "--".into(),
         ]
     } else {
+        // `--since=@{unix}` is not "since that epoch" on git 2.54: `@0` resolves to NOW
+        // (`git rev-parse --since=@0` -> `--max-age=1791861979`, the current second), so a pass anchored at
+        // epoch 0 listed no commits at all - an empty window, and the anchor could never move. `--max-age`
+        // takes the timestamp itself (`man git-rev-list`, commit limiting), so no argument is ever handed to
+        // the date parser: measured, `--max-age=0` lists every commit where `--since=@0` lists none.
         vec![
             "log".into(),
-            format!("--since=@{since_unix}"),
+            format!("--max-age={since_unix}"),
             "--diff-filter=ACMRT".into(),
             "--name-only".into(),
             "--pretty=format:".into(),
@@ -411,13 +416,15 @@ mod tests {
         git(root, &["commit", "-qam", "change one path, delete another"]);
         let pinned = git(root, &["rev-parse", "HEAD"]);
 
-        // The premise, asserted so a flake names itself instead of showing an empty list: the `--since` form
-        // is the only form that can name a path the pin does not hold.
+        // The premise, asserted so a flake names itself instead of showing an empty list: the per-commit
+        // (`log`) form is the only form that can name a path the pin does not hold. Spelled `--max-age`, like
+        // `changed_paths` below: `--since=@0` here resolved to "now", so this premise held only while the
+        // fixture's commits and the query shared a second, and it failed once in three full-suite runs.
         let raw = git(
             root,
             &[
                 "log",
-                "--since=@0",
+                "--max-age=0",
                 "--diff-filter=ACMRT",
                 "--name-only",
                 "--pretty=format:",
