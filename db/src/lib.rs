@@ -123,10 +123,11 @@ pub use forge_engine::{
     CompletionAssayReceipt, CompletionSpend, CompletionUnit, DealWorkflowFactRow,
     DispatchReconcile, EnsureDispatch, ForgeAgentWorkRow, ForgeDecisionRow, ForgeEngineDao,
     ForgeEvidencePatch, ForgeHoldRow, ForgeReleaseOperationReceipt, ModelAttemptBudget,
-    ModelAttemptReservation, ModelGenerationBudget, ModelGenerationReservation, NewToolArtifact,
-    ProcessDefinitionRow, RunTrajectoryCounts, RunTrajectoryTurn, SettlementResult, StoryPacketRow,
-    StoryRunTurns, ToolArtifactRow, TurnTrajectoryRow, TurnUsage, UnfinishedForgeCompletion,
-    WorkflowCommandReceiptRow, WorkflowReceiptClaim,
+    ModelAttemptReservation, ModelGenerationBudget, ModelGenerationReservation, NewForgeHold,
+    NewObserverEvent, NewToolArtifact, ProcessDefinitionRow, RunTrajectoryCounts,
+    RunTrajectoryTurn, SettlementResult, StoryPacketRow, StoryRunTurns, ToolArtifactRow,
+    TurnTrajectoryRow, TurnUsage, UnfinishedForgeCompletion, WorkflowCommandReceiptRow,
+    WorkflowReceiptClaim,
 };
 pub use forge_read::{
     ForgeBatchRow, ForgeBenchRow, ForgeQueueWorkRow, ForgeReadDao, ForgeStoryBoardRow,
