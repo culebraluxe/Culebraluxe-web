@@ -38,7 +38,7 @@ pub(super) const ACTIVE_FORM_TEMPLATE_VERSIONS: &[(&str, i32)] = &[
     ("OFFER-01", 5),
     ("PR-PNS", 7),
     ("PR-PNS-AMD", 1),
-    ("LISTING-01", 7),
+    ("LISTING-01", 8),
     ("SHOW-INFO", 1),
     ("SHOW-RPT", 3),
 ];
