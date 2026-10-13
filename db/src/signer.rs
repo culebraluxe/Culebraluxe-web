@@ -17,6 +17,40 @@ pub struct SignerAccessRecord {
     pub signature_request_id: String,
 }
 
+/// A recipient's consent as `accept_consent_tx` binds it (table `luxesign_recipient_consent`).
+///
+/// Seven positional arguments were seven chances to hand `consent_version` where `consent_text_sha256` belongs: both
+/// are short strings on the same row, and the statement casts neither, so the transposition compiles and the row keeps
+/// a version it never accepted. Named fields make the call site say which is which, and they name the pair the table
+/// exists for: the text that was shown, and the hash that proves which text that was. Borrowed, like the other
+/// pass-through inputs here: nothing outlives the statement that binds it.
+#[derive(Debug, Clone)]
+pub struct NewRecipientConsent<'a> {
+    pub recipient_id: &'a str,
+    pub consent_version: &'a str,
+    pub consent_text: &'a str,
+    pub consent_text_sha256: &'a str,
+    pub ip_address: Option<&'a str>,
+    pub user_agent: Option<&'a str>,
+}
+
+/// One evidence event as `append_evidence_tx` binds it (table `luxesign_evidence_event`).
+///
+/// `recipient_id`, `actor_id`, `correlation_id` and `causation_id` are four optional ids in a row, and only the first
+/// casts to `uuid`: swapping `actor_id` with `correlation_id` compiles and writes a trail that names the wrong party.
+/// Named fields make the call site say which id is which — the subject, the actor, and the two the trail is
+/// reconstructed from.
+#[derive(Debug, Clone)]
+pub struct NewEvidenceEvent<'a> {
+    pub signature_request_id: &'a str,
+    pub recipient_id: Option<&'a str>,
+    pub event_type: &'a str,
+    pub actor_id: Option<&'a str>,
+    pub correlation_id: Option<&'a str>,
+    pub causation_id: Option<&'a str>,
+    pub evidence: &'a Value,
+}
+
 #[derive(Debug, FromRow)]
 struct AccessRow {
     id: String,
@@ -504,12 +538,7 @@ impl SignerDao {
     pub async fn accept_consent_tx(
         &self,
         tx: &mut DbTransaction,
-        recipient_id: &str,
-        consent_version: &str,
-        consent_text: &str,
-        consent_text_sha256: &str,
-        ip_address: Option<&str>,
-        user_agent: Option<&str>,
+        consent: &NewRecipientConsent<'_>,
     ) -> DbResult<bool> {
         let result = sqlx::query(
             r#"
@@ -521,12 +550,12 @@ impl SignerDao {
             on conflict (recipient_id) do nothing
             "#,
         )
-        .bind(recipient_id)
-        .bind(consent_version)
-        .bind(consent_text)
-        .bind(consent_text_sha256)
-        .bind(ip_address)
-        .bind(user_agent)
+        .bind(consent.recipient_id)
+        .bind(consent.consent_version)
+        .bind(consent.consent_text)
+        .bind(consent.consent_text_sha256)
+        .bind(consent.ip_address)
+        .bind(consent.user_agent)
         .execute(tx.connection())
         .await
         .map_err(|error| DbFailure::from_sqlx("signer.consent", &error))?;
@@ -732,13 +761,7 @@ impl SignerDao {
     pub async fn append_evidence_tx(
         &self,
         tx: &mut DbTransaction,
-        signature_request_id: &str,
-        recipient_id: Option<&str>,
-        event_type: &str,
-        actor_id: Option<&str>,
-        correlation_id: Option<&str>,
-        causation_id: Option<&str>,
-        evidence: &Value,
+        event: &NewEvidenceEvent<'_>,
     ) -> DbResult<()> {
         sqlx::query(
             r#"
@@ -749,13 +772,13 @@ impl SignerDao {
             values ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)
             "#,
         )
-        .bind(signature_request_id)
-        .bind(recipient_id)
-        .bind(event_type)
-        .bind(actor_id)
-        .bind(correlation_id)
-        .bind(causation_id)
-        .bind(evidence)
+        .bind(event.signature_request_id)
+        .bind(event.recipient_id)
+        .bind(event.event_type)
+        .bind(event.actor_id)
+        .bind(event.correlation_id)
+        .bind(event.causation_id)
+        .bind(event.evidence)
         .execute(tx.connection())
         .await
         .map_err(|error| DbFailure::from_sqlx("signer.evidence", &error))?;

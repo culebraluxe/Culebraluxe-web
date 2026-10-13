@@ -10,7 +10,7 @@
 //!   2. NO RECURSION. `core/db` runs the sink under a thread-local guard, so the `insert` below failing cannot
 //!      announce another failure. Without that guard this file would be an infinite loop on a dead database.
 
-use db::{AppErrorDao, Database, DbFailure};
+use db::{AppErrorDao, Database, DbFailure, NewApplicationEvent};
 use std::sync::OnceLock;
 
 static POOL: OnceLock<Database> = OnceLock::new();
@@ -125,15 +125,15 @@ pub fn record_application(
         };
         // Best effort by design: the seam cannot report its own failure without recursing.
         let _ = runtime.block_on(async move {
-            dao.record_application_event(
-                &kind,
-                &operation,
-                &message,
-                &route,
-                &level,
-                code.as_deref(),
-                &meta,
-            )
+            dao.record_application_event(&NewApplicationEvent {
+                kind: &kind,
+                operation: &operation,
+                message: &message,
+                route: &route,
+                level: &level,
+                code: code.as_deref(),
+                meta: &meta,
+            })
             .await
         });
     });

@@ -5,6 +5,24 @@ pub struct AppErrorDao {
     db: Database,
 }
 
+/// One browser-edge report as the columns `record_application_event` binds them.
+///
+/// Seven positional arguments were seven chances to transpose two free-text `&str`s that sit next to each other in
+/// the bind order, and the two the table's own comment calls load-bearing are the pair a reader has to tell apart:
+/// the page that failed (`route`) and the taxonomy that has no column of its own (`meta`). Named fields make the call
+/// site say which is which. Borrowed, like the other pass-through inputs here: nothing outlives the statement that
+/// binds it.
+#[derive(Debug, Clone)]
+pub struct NewApplicationEvent<'a> {
+    pub kind: &'a str,
+    pub operation: &'a str,
+    pub message: &'a str,
+    pub route: &'a str,
+    pub level: &'a str,
+    pub code: Option<&'a str>,
+    pub meta: &'a str,
+}
+
 impl AppErrorDao {
     pub fn new(db: Database) -> Self {
         Self { db }
@@ -39,25 +57,19 @@ impl AppErrorDao {
     /// browser boundary reports need to preserve the page that failed.
     pub async fn record_application_event(
         &self,
-        kind: &str,
-        operation: &str,
-        message: &str,
-        route: &str,
-        level: &str,
-        code: Option<&str>,
-        meta: &str,
+        event: &NewApplicationEvent<'_>,
     ) -> Result<(), ()> {
         sqlx::query(
             "insert into app_error (kind, operation, code, message, route, level, retryable, meta)
              values ($1, $2, $3, $4, $5, $6, false, $7::jsonb)",
         )
-        .bind(kind)
-        .bind(operation)
-        .bind(code)
-        .bind(message)
-        .bind(route)
-        .bind(level)
-        .bind(meta)
+        .bind(event.kind)
+        .bind(event.operation)
+        .bind(event.code)
+        .bind(event.message)
+        .bind(event.route)
+        .bind(event.level)
+        .bind(event.meta)
         .execute(self.db.pool())
         .await
         .map(|_| ())

@@ -428,15 +428,18 @@ impl VaultDao {
         authority: model::forms_broker_signature::SignatureAuthority,
     ) -> Result<Vec<model::forms_applied_signature::FormAppliedSignature>, VaultArtifactFailure>
     {
+        let slots = model::forms_execution::slots_from_signers(&request.participants);
         crate::broker_signature::resolve_for_issuance(
             connection,
-            &request.template_id,
-            &request.field_values,
-            &model::forms_execution::slots_from_signers(&request.participants),
-            request.actor_app_user_id.as_deref(),
-            authority,
-            request.issued_at.as_deref(),
-            false,
+            &crate::broker_signature::SignatureIssuance {
+                template_id: &request.template_id,
+                field_values: &request.field_values,
+                slots: &slots,
+                actor_app_user_id: request.actor_app_user_id.as_deref(),
+                authority,
+                issued_at: request.issued_at.as_deref(),
+                require_execution_slot: false,
+            },
         )
         .await
     }

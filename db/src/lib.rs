@@ -91,7 +91,7 @@ mod workflow_portal;
 
 pub use accounting::AccountingDao;
 pub use agreement_execution::{AgreementExecutionDao, IssuedAgreementDocumentRow};
-pub use app_error::AppErrorDao;
+pub use app_error::{AppErrorDao, NewApplicationEvent};
 pub use apple_ods::{
     AppleMailLanding, EmailLanding, IntakeCheckpoint, IntakeCheckpointUpdate, InteractionDraft,
 };
@@ -170,7 +170,8 @@ pub use security_audit::SecurityAuditDao;
 pub use showing::ShowingDao;
 pub use signature::SignatureDao;
 pub use signer::{
-    FinalizeEvent, FinalizeField, FinalizeInputs, FinalizeRecipient, SignerAccessRecord, SignerDao,
+    FinalizeEvent, FinalizeField, FinalizeInputs, FinalizeRecipient, NewEvidenceEvent,
+    NewRecipientConsent, SignerAccessRecord, SignerDao,
 };
 pub use support::SupportDiagnosticsDao;
 pub use task::TaskDao;

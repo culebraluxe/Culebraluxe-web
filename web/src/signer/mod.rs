@@ -2,7 +2,10 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, Duration, Utc};
-use db::{DbResult, DbTransaction, FinalizeInputs, SignerAccessRecord, SignerDao};
+use db::{
+    DbResult, DbTransaction, FinalizeInputs, NewEvidenceEvent, NewRecipientConsent,
+    SignerAccessRecord, SignerDao,
+};
 use hmac::{Hmac, Mac};
 use model::{
     AcceptSignerConsentRequest, CompleteSignatureFieldRequest, CompleteSignerRequest,
@@ -350,12 +353,14 @@ impl SignerRepository for SignerDao {
         SignerDao::accept_consent_tx(
             self,
             tx,
-            recipient_id,
-            consent_version,
-            consent_text,
-            consent_text_sha256,
-            ip_address,
-            user_agent,
+            &NewRecipientConsent {
+                recipient_id,
+                consent_version,
+                consent_text,
+                consent_text_sha256,
+                ip_address,
+                user_agent,
+            },
         )
         .await
     }
@@ -417,13 +422,15 @@ impl SignerRepository for SignerDao {
         SignerDao::append_evidence_tx(
             self,
             tx,
-            signature_request_id,
-            recipient_id,
-            event_type,
-            actor_id,
-            correlation_id,
-            causation_id,
-            evidence,
+            &NewEvidenceEvent {
+                signature_request_id,
+                recipient_id,
+                event_type,
+                actor_id,
+                correlation_id,
+                causation_id,
+                evidence,
+            },
         )
         .await
     }

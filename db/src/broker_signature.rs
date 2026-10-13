@@ -68,6 +68,26 @@ struct BrokerRows {
     person_id: Option<String>,
 }
 
+/// One issuance — or one preview — as `resolve_for_issuance` needs it, minus the connection it runs on.
+///
+/// The tail three fields are the BRANCH, not three more values: `authority` says whether the actor named by the caller
+/// must be allowed to APPLY the signature (`ApplyingActor` for an issuance, which refuses rather than issue unsigned)
+/// or whether this is a preview that applies nothing (`OwnerByConstruction`), `issued_at` is the deterministic date the
+/// record is stamped with, and `require_execution_slot` decides whether a missing provider slot is a refusal or an
+/// accepted absence. Eight positional arguments made that trio read as more input; named fields make the call site say
+/// which side of the branch it is on. Borrowed, like the other pass-through inputs here: nothing outlives the statement
+/// that binds it.
+#[derive(Debug, Clone)]
+pub struct SignatureIssuance<'a> {
+    pub template_id: &'a str,
+    pub field_values: &'a BTreeMap<String, String>,
+    pub slots: &'a [IssuedExecutionSlot],
+    pub actor_app_user_id: Option<&'a str>,
+    pub authority: SignatureAuthority,
+    pub issued_at: Option<&'a str>,
+    pub require_execution_slot: bool,
+}
+
 /// Resolve the material, or nothing at all when this document's broker role is not the configured signer's.
 ///
 /// `authority` decides whether the actor named by the caller must be allowed to APPLY the signature: `ApplyingActor`
@@ -75,13 +95,7 @@ struct BrokerRows {
 /// would apply (`model::forms_broker_signature::SignatureAuthority`).
 pub async fn resolve_for_issuance(
     connection: &mut PgConnection,
-    template_id: &str,
-    field_values: &BTreeMap<String, String>,
-    slots: &[IssuedExecutionSlot],
-    actor_app_user_id: Option<&str>,
-    authority: SignatureAuthority,
-    issued_at: Option<&str>,
-    require_execution_slot: bool,
+    issuance: &SignatureIssuance<'_>,
 ) -> Result<Vec<FormAppliedSignature>, VaultArtifactFailure> {
     let config = BrokerSignatureConfig::from_env();
     if !config.enabled {
@@ -92,14 +106,14 @@ pub async fn resolve_for_issuance(
             "is incomplete; signer name and license are required.",
         ));
     }
-    let Some(policy) = policy_for_form(template_id, field_values) else {
+    let Some(policy) = policy_for_form(issuance.template_id, issuance.field_values) else {
         return Ok(Vec::new());
     };
     // Lisa is not occupying this document's broker role: no signature is applied, and that is not a failure.
-    if !declared_signer_matches(policy, field_values, &config) {
+    if !declared_signer_matches(policy, issuance.field_values, &config) {
         return Ok(Vec::new());
     }
-    let Some(issued_at) = issued_at.filter(|value| !value.trim().is_empty()) else {
+    let Some(issued_at) = issuance.issued_at.filter(|value| !value.trim().is_empty()) else {
         return Err(invalid_configuration(
             "requires the command requestedAt timestamp as its deterministic issuance date.",
         ));
@@ -118,8 +132,11 @@ pub async fn resolve_for_issuance(
     // WHO is applying it. An issuance has to prove the actor may apply her signature — her, or a ROOT delegate — and
     // refuse rather than issue unsigned. A preview applies nothing: it shows the document, so it is not asked for that
     // authority, and it is not the person who will sign.
-    if authority == SignatureAuthority::ApplyingActor {
-        let Some(actor) = actor_app_user_id.filter(|value| !value.trim().is_empty()) else {
+    if issuance.authority == SignatureAuthority::ApplyingActor {
+        let Some(actor) = issuance
+            .actor_app_user_id
+            .filter(|value| !value.trim().is_empty())
+        else {
             return Err(unauthorized(
                 "an authenticated application user is required to apply the broker pre-signature.",
             ));
@@ -131,7 +148,8 @@ pub async fn resolve_for_issuance(
         }
     }
 
-    let role_slots: Vec<&IssuedExecutionSlot> = slots
+    let role_slots: Vec<&IssuedExecutionSlot> = issuance
+        .slots
         .iter()
         .filter(|slot| {
             slot.role == policy.role && normalized(&slot.name) == normalized(&config.signer_name)
@@ -156,10 +174,13 @@ pub async fn resolve_for_issuance(
     }
     // On the templates that use one ordered envelope, the slot IS the thing the provider fills: without it, Lisa would
     // be signed locally on a document that has no line for her.
-    if require_execution_slot && requires_execution_slot(template_id) && slot.is_none() {
+    if issuance.require_execution_slot
+        && requires_execution_slot(issuance.template_id)
+        && slot.is_none()
+    {
         return Err(invalid_configuration(format!(
-            "could not resolve {} to the required {} execution slot for {template_id}.",
-            config.signer_name, policy.role
+            "could not resolve {} to the required {} execution slot for {}.",
+            config.signer_name, policy.role, issuance.template_id
         )));
     }
 
