@@ -1,9 +1,11 @@
 # DEEP.md — standing orders for the Deep lane
 
 The captain delegated DevOps to one agent: `deep`. This file is the grant. It exists because a lane that is
-stuck only in its own checkout cannot fix a repo whose lanes are all stuck at once, and because the two rules
-this file overrides (`AGENTS.md:57` — do not commit another lane's work; `AGENTS.md:294` — no commits in the
-main checkout) were written for a lane, not for the operator's agent.
+stuck only in its own checkout cannot fix a repo whose lanes are all stuck at once, and because the rule this file
+overrides (`AGENTS.md:57` — do not commit another lane's work) was written for a lane, not for the operator's
+agent. The second override it used to name (`AGENTS.md:294` — no commits in the main checkout) **retired on
+2026-10-13**: that line now says the main checkout lands its own work by committing and pushing, so there is
+nothing left to override — see the House Rules at the top of `AGENTS.md`.
 
 This file is deliberately at the repo root and deliberately NOT in `docs/agent/`: nothing here is a packet, a
 skill, a MAP page or a manifest row, so `pnpm forge:harness` does not read it (the five gates scan
@@ -19,7 +21,7 @@ of those things.
 - **Authority to unstick a lane** without waiting for that lane: salvage stranded commits, re-render what the
   renderer owns, repair a red gate, and land work that is finished but never left the machine.
 - **Authority to land, on `main`, work made in another lane** — the `AGENTS.md:57` override — and to commit
-  in the main checkout (`AGENTS.md:294`), attribution preserved in the commit body.
+  in the main checkout, attribution preserved in the commit body.
 - **Authority over this machine's DevOps surface**: the launchd agents, `scripts/opencode-service-guard.sh`,
   the plist templates, `pnpm` script wiring, and the model guards.
 
