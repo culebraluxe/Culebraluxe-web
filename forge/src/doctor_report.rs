@@ -44,9 +44,9 @@ pub struct OldestClaim {
 pub struct ControlPlane {
     /// Stories the engine ledger has ever touched.
     pub instances: i64,
-    /// Engine ledger rows still non-terminal (claimed/running).
+    /// Engine ledger rows still open (claimed/running).
     pub open_tasks: i64,
-    /// `agent_work_item` rows not in a terminal state.
+    /// `agent_work_item` rows still open.
     pub open_work_items: i64,
     /// Claims currently HELD, across BOTH ledgers — see `held_claims`. Queued work is not a claim.
     pub active_claims: i64,
@@ -132,8 +132,8 @@ pub fn format_age_ms(age_ms: i64) -> String {
 
 /// Claims ACTUALLY HELD, across both ledgers: engine role turns in flight plus work items in a held state.
 ///
-/// The queue is deliberately not an input. `open_work_items` counts every non-terminal `agent_work_item`, and
-/// `Ready` is non-terminal — a story waiting for the scheduler to claim it is not holding anything. The two
+/// The queue is deliberately not an input. `open_work_items` counts every open `agent_work_item`, and
+/// `Ready` is open — a story waiting for the scheduler to claim it is not holding anything. The two
 /// were summed until 2026-09-29, when `forge doctor` printed `active claims: 8` beside its own
 /// `oldest claim: none`; the caller now passes the claimed subset, not the queue.
 pub fn held_claims(open_tasks: i64, claimed_work_items: i64) -> i64 {

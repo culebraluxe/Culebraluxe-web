@@ -20,7 +20,7 @@ pub struct SplitReduction {
     pub duplicates: Vec<String>,
     pub conflicts: Vec<String>,
     pub join_satisfied: bool,
-    pub duplicated_terminal: Vec<String>,
+    pub duplicated_completions: Vec<String>,
 }
 
 pub fn reduce_split(expected_ids: &[String], outcomes: &[SplitOutcome]) -> SplitReduction {
@@ -44,7 +44,7 @@ pub fn reduce_split(expected_ids: &[String], outcomes: &[SplitOutcome]) -> Split
             *completed_count.entry(o.child_id.clone()).or_insert(0) += 1;
         }
     }
-    let duplicated_terminal: Vec<String> = completed_count
+    let duplicated_completions: Vec<String> = completed_count
         .into_iter()
         .filter(|(_, c)| *c > 1)
         .map(|(id, _)| id)
@@ -101,7 +101,7 @@ pub fn reduce_split(expected_ids: &[String], outcomes: &[SplitOutcome]) -> Split
         duplicates,
         conflicts,
         join_satisfied,
-        duplicated_terminal,
+        duplicated_completions,
     }
 }
 
@@ -114,7 +114,7 @@ pub fn split_join_hold_reasons(
     let mut reasons = Vec::new();
     if !reduction.missing.is_empty() {
         reasons.push(format!(
-            "split children never reached a terminal state: {}",
+            "split children never reached a completed state: {}",
             reduction.missing.join(", ")
         ));
     }
@@ -136,10 +136,10 @@ pub fn split_join_hold_reasons(
             reduction.conflicts.join(", ")
         ));
     }
-    if !reduction.duplicated_terminal.is_empty() {
+    if !reduction.duplicated_completions.is_empty() {
         reasons.push(format!(
-            "split children reported duplicate terminal completions: {}",
-            reduction.duplicated_terminal.join(", ")
+            "split children reported duplicate completions: {}",
+            reduction.duplicated_completions.join(", ")
         ));
     }
     if !unrecorded_candidates.is_empty() {

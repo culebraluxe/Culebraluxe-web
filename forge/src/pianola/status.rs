@@ -59,7 +59,7 @@ use db::{DbResult, ForgeReadDao, ForgeStoryHoldRow, ForgeStoryReceiptRow, ToolAr
 ///   every receipt carries a *plausible* commit hash (hex, 7..=64 chars:
 ///   a full SHA or a realistic abbreviation). A non-blank placeholder such
 ///   as `"aaa"` is NOT a commit: shape alone never proves existence, which
-///   is why the TERMINAL gate below additionally requires `git cat-file`,
+///   is why the closure gate below additionally requires `git cat-file`,
 ///   a non-empty diff, and PROD count agreement before a batch may close.
 #[derive(Debug, Clone, Default)]
 pub struct ExperimentReport {
@@ -466,7 +466,7 @@ fn parse_cost_samples(text: &str) -> Vec<f64> {
 /// `"aaa"` and `"bbb"` fail it (too short), `"same"` fails it (not hex),
 /// but a well-formed hash that was never committed still passes it.
 /// Existence is proven by [`commit_resolves_in_lane`] (`git cat-file -e`),
-/// which the TERMINAL gate requires below. Shape here, existence there:
+/// which the closure gate requires below. Shape here, existence there:
 /// the summarizer stays pure (no I/O) while placeholders can no longer
 /// read as verified commits.
 fn is_plausible_commit_hash(hash: &str) -> bool {
@@ -475,10 +475,10 @@ fn is_plausible_commit_hash(hash: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// TERMINAL receipt verification: git + PROD before a batch may close
+// closure receipt verification: git + PROD before a batch may close
 // ---------------------------------------------------------------------------
 
-/// Evidence the TERMINAL gate needs beyond the receipt row itself. The
+/// Evidence the closure gate needs beyond the receipt row itself. The
 /// caller assembles it from the three required probes:
 ///
 /// * (a) `commit_resolves` — `git cat-file -e <sha>` resolved in the
@@ -493,15 +493,15 @@ fn is_plausible_commit_hash(hash: &str) -> bool {
 /// this gate unit-testable without a git checkout or a database: tests
 /// inject the evidence, production assembles it from git + PROD.
 #[derive(Debug, Clone, Default)]
-pub struct TerminalEvidence {
+pub struct ClosureEvidence {
     /// `git cat-file -e <sha>` resolved in the worker's lane checkout.
     pub commit_resolves: bool,
     /// `git diff --stat base..sha` is non-empty (the commit carries a change).
     pub diff_non_empty: bool,
-    /// PROD was already terminal on arrival: an empty diff is legitimate,
-    /// but it must be recorded explicitly as [`TerminalVerdict::NoChangeTerminal`]
+    /// PROD was already closed on arrival: an empty diff is legitimate,
+    /// but it must be recorded explicitly as [`ClosureVerdict::NothingToClose`]
     /// rather than inferred from silence.
-    pub prod_already_terminal: bool,
+    pub prod_already_closed: bool,
     /// PROD receipts with a pass word (see [`count_prod_decisive`]).
     pub prod_complete: usize,
     /// PROD receipts with a fail word.
@@ -510,74 +510,74 @@ pub struct TerminalEvidence {
     pub batch_size: usize,
 }
 
-/// Outcome of the TERMINAL gate for one receipt. Only the two `Terminal`
+/// Outcome of the closure gate for one receipt. Only the two closure-marking
 /// variants may close a batch; `Rejected` keeps the batch open for requeue
 /// (the worker's claim was bogus) and `FollowUp` keeps it open for a
 /// supervisor follow-up item (the commit is real but the batch is not
 /// fully accounted for).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TerminalVerdict {
-    /// All three checks held: the batch may go TERMINAL with this commit recorded.
-    Terminal { commit: String },
-    /// No work was owed — PROD was already terminal on arrival — and the
-    /// empty diff is recorded explicitly. Terminal, without a new commit.
-    NoChangeTerminal,
+pub enum ClosureVerdict {
+    /// All three checks held: the batch may close with this commit recorded.
+    Closed { commit: String },
+    /// No work was owed — PROD was already closed on arrival — and the
+    /// empty diff is recorded explicitly. Closed, without a new commit.
+    NothingToClose,
     /// The hash is a template/placeholder or the commit does not resolve
-    /// in the lane: rejected, the batch stays open (requeue), never terminal.
+    /// in the lane: rejected, the batch stays open (requeue), never closed.
     Rejected { reason: String },
     /// The commit is real but the receipt disagrees with its own summary
-    /// or PROD is short: NOT terminal; the supervisor issues a follow-up.
+    /// or PROD is short: NOT closed; the supervisor issues a follow-up.
     FollowUp { reason: String },
 }
 
-impl TerminalVerdict {
+impl ClosureVerdict {
     /// True only for the two variants that may close a batch.
-    pub fn is_terminal(&self) -> bool {
+    pub fn closes_batch(&self) -> bool {
         matches!(
             self,
-            TerminalVerdict::Terminal { .. } | TerminalVerdict::NoChangeTerminal
+            ClosureVerdict::Closed { .. } | ClosureVerdict::NothingToClose
         )
     }
 }
 
-/// The TERMINAL gate: a receipt may close a batch only when all three hold —
+/// The closure gate: a receipt may close a batch only when all three hold —
 /// (a) the commit resolves in the worker's lane, (b) the commit carries a
-/// diff (or PROD was already terminal, recorded explicitly), and (c) the
+/// diff (or PROD was already closed, recorded explicitly), and (c) the
 /// receipt's `tests_summary` numbers agree with its `result_status` word and
 /// PROD's decisive receipts cover the whole batch.
 ///
 /// Check order is deliberate: a bogus hash is `Rejected` (requeue) even
 /// when the counts would also fail, so a template receipt can never read
-/// as "almost terminal".
-pub fn verify_receipt_for_terminal(
+/// as "almost closed".
+pub fn verify_receipt_for_closure(
     receipt: &ForgeStoryReceiptRow,
-    evidence: &TerminalEvidence,
-) -> TerminalVerdict {
+    evidence: &ClosureEvidence,
+) -> ClosureVerdict {
     // (a) The hash must have commit shape AND resolve in the lane. A
     // template/placeholder receipt ("aaa") dies here: rejected, batch stays
-    // open, never terminal.
+    // open, never closed.
     let commit = receipt.commit_hash.as_deref().unwrap_or("").trim();
     if !is_plausible_commit_hash(commit) {
-        return TerminalVerdict::Rejected {
+        return ClosureVerdict::Rejected {
             reason: format!("commit hash {commit:?} is a template/placeholder, not a commit SHA"),
         };
     }
     if !evidence.commit_resolves {
-        return TerminalVerdict::Rejected {
+        return ClosureVerdict::Rejected {
             reason: format!(
                 "commit {commit} does not resolve in the worker lane (git cat-file -e failed)"
             ),
         };
     }
 
-    // (b) The commit must carry a change — unless PROD was already terminal
+    // (b) The commit must carry a change — unless PROD was already closed
     // on arrival, in which case the empty diff is recorded explicitly as
     // no-change rather than mistaken for work.
     let no_change = !evidence.diff_non_empty;
-    if no_change && !evidence.prod_already_terminal {
-        return TerminalVerdict::FollowUp {
+    if no_change && !evidence.prod_already_closed {
+        return ClosureVerdict::FollowUp {
             reason: format!(
-                "commit {commit} carries an empty diff and PROD was not already terminal"
+                "commit {commit} carries an empty diff and PROD was not already closed"
             ),
         };
     }
@@ -585,12 +585,12 @@ pub fn verify_receipt_for_terminal(
     // (c) The receipt's own numbers must agree with its verdict word, and
     // PROD's decisive receipts must cover the whole batch.
     if let Err(reason) = check_summary_agrees_with_status(receipt) {
-        return TerminalVerdict::FollowUp { reason };
+        return ClosureVerdict::FollowUp { reason };
     }
     if evidence.batch_size == 0
         || evidence.prod_complete + evidence.prod_failed != evidence.batch_size
     {
-        return TerminalVerdict::FollowUp {
+        return ClosureVerdict::FollowUp {
             reason: format!(
                 "PROD counts short: complete={} failed={} batch={} (Complete+Failed must equal batch size)",
                 evidence.prod_complete, evidence.prod_failed, evidence.batch_size
@@ -599,9 +599,9 @@ pub fn verify_receipt_for_terminal(
     }
 
     if no_change {
-        TerminalVerdict::NoChangeTerminal
+        ClosureVerdict::NothingToClose
     } else {
-        TerminalVerdict::Terminal {
+        ClosureVerdict::Closed {
             commit: commit.to_string(),
         }
     }
@@ -610,7 +610,7 @@ pub fn verify_receipt_for_terminal(
 /// `tests_summary` numbers agree with the `result_status` verdict word:
 /// a pass word needs `passed > 0` with nothing failed; a fail word needs
 /// `failed > 0`; an indecisive word (`Unproven`, blank, anything else) or
-/// a missing/unparseable summary proves nothing and refuses TERMINAL.
+/// a missing/unparseable summary proves nothing and refuses to close the batch.
 fn check_summary_agrees_with_status(receipt: &ForgeStoryReceiptRow) -> Result<(), String> {
     let summary = receipt.tests_summary.as_deref().unwrap_or("");
     let Some((passed, failed)) = parse_tests_counts(summary) else {
@@ -637,7 +637,7 @@ fn check_summary_agrees_with_status(receipt: &ForgeStoryReceiptRow) -> Result<()
         }
     } else {
         Err(format!(
-            "result_status {status:?} is indecisive (neither pass nor fail); TERMINAL needs a decisive verdict"
+            "result_status {status:?} is indecisive (neither pass nor fail); closing a batch needs a decisive verdict"
         ))
     }
 }
@@ -691,7 +691,7 @@ fn parse_tests_counts(summary: &str) -> Option<(usize, usize)> {
 /// loaded through the existing [`ForgeReadDao::story_receipt`] reader (one
 /// per story — no new statement, no second spelling of a query): `complete`
 /// counts pass-word verdicts, `failed` counts fail-word verdicts. The
-/// TERMINAL gate requires `complete + failed == batch_size`, i.e. every
+/// closure gate requires `complete + failed == batch_size`, i.e. every
 /// story in the batch holds a decisive PROD receipt — the cross-check the
 /// status-word counts alone never performed.
 pub fn count_prod_decisive(receipts: &[ForgeStoryReceiptRow]) -> (usize, usize) {
@@ -721,7 +721,7 @@ pub fn commit_resolves_in_lane(lane_path: &Path, sha: &str) -> bool {
 
 /// Probe (b): `git diff --stat base..sha` is non-empty in the lane checkout.
 /// A merge-base failure or an empty stat reads as "no diff" (the gate then
-/// demands `prod_already_terminal` for an explicit no-change terminal).
+/// demands `prod_already_closed` for an explicit no-change closure).
 pub fn commit_diff_non_empty(lane_path: &Path, base: &str, sha: &str) -> bool {
     let range = format!("{base}..{sha}");
     std::process::Command::new("git")
@@ -1019,11 +1019,11 @@ mod tests {
 
     const REAL_SHA: &str = "f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293";
 
-    fn terminal_evidence() -> TerminalEvidence {
-        TerminalEvidence {
+    fn closure_evidence() -> ClosureEvidence {
+        ClosureEvidence {
             commit_resolves: true,
             diff_non_empty: true,
-            prod_already_terminal: false,
+            prod_already_closed: false,
             prod_complete: 4,
             prod_failed: 0,
             batch_size: 4,
@@ -1031,19 +1031,19 @@ mod tests {
     }
 
     #[test]
-    fn terminal_gate_rejects_template_hash() {
+    fn closure_gate_rejects_template_hash() {
         // Criterion 1: hash "aaa" → rejected, batch stays open/requeued.
         let row = receipt("TST-1", Some("Pass"), Some("Tests: 4 passed"), Some("aaa"));
-        let verdict = verify_receipt_for_terminal(&row, &terminal_evidence());
+        let verdict = verify_receipt_for_closure(&row, &closure_evidence());
         assert!(
-            matches!(verdict, TerminalVerdict::Rejected { .. }),
+            matches!(verdict, ClosureVerdict::Rejected { .. }),
             "unexpected: {verdict:?}"
         );
-        assert!(!verdict.is_terminal());
+        assert!(!verdict.closes_batch());
     }
 
     #[test]
-    fn terminal_gate_rejects_unresolvable_commit() {
+    fn closure_gate_rejects_unresolvable_commit() {
         // Well-formed but never committed: shape passes, existence fails.
         let row = receipt(
             "TST-1",
@@ -1051,62 +1051,62 @@ mod tests {
             Some("Tests: 4 passed"),
             Some(REAL_SHA),
         );
-        let evidence = TerminalEvidence {
+        let evidence = ClosureEvidence {
             commit_resolves: false,
-            ..terminal_evidence()
+            ..closure_evidence()
         };
-        let verdict = verify_receipt_for_terminal(&row, &evidence);
+        let verdict = verify_receipt_for_closure(&row, &evidence);
         assert!(
-            matches!(verdict, TerminalVerdict::Rejected { .. }),
+            matches!(verdict, ClosureVerdict::Rejected { .. }),
             "unexpected: {verdict:?}"
         );
-        assert!(!verdict.is_terminal());
+        assert!(!verdict.closes_batch());
     }
 
     #[test]
-    fn terminal_gate_holds_follow_up_when_prod_counts_short() {
-        // Criterion 2: real SHA but PROD short → NOT terminal; follow-up.
+    fn closure_gate_holds_follow_up_when_prod_counts_short() {
+        // Criterion 2: real SHA but PROD short → NOT closed; follow-up.
         let row = receipt(
             "TST-1",
             Some("Pass"),
             Some("Tests: 4 passed"),
             Some(REAL_SHA),
         );
-        let evidence = TerminalEvidence {
+        let evidence = ClosureEvidence {
             prod_complete: 2,
             prod_failed: 0,
-            ..terminal_evidence()
+            ..closure_evidence()
         };
-        let verdict = verify_receipt_for_terminal(&row, &evidence);
+        let verdict = verify_receipt_for_closure(&row, &evidence);
         assert!(
-            matches!(verdict, TerminalVerdict::FollowUp { .. }),
+            matches!(verdict, ClosureVerdict::FollowUp { .. }),
             "unexpected: {verdict:?}"
         );
-        assert!(!verdict.is_terminal());
+        assert!(!verdict.closes_batch());
     }
 
     #[test]
-    fn terminal_gate_goes_terminal_on_real_sha_matching_counts() {
-        // Criterion 3: real SHA + matching PROD counts → TERMINAL, commit recorded.
+    fn closure_gate_closes_on_real_sha_matching_counts() {
+        // Criterion 3: real SHA + matching PROD counts → CLOSED, commit recorded.
         let row = receipt(
             "TST-1",
             Some("Pass"),
             Some("Tests: 4 passed"),
             Some(REAL_SHA),
         );
-        let verdict = verify_receipt_for_terminal(&row, &terminal_evidence());
+        let verdict = verify_receipt_for_closure(&row, &closure_evidence());
         assert_eq!(
             verdict,
-            TerminalVerdict::Terminal {
+            ClosureVerdict::Closed {
                 commit: REAL_SHA.to_string()
             }
         );
-        assert!(verdict.is_terminal());
+        assert!(verdict.closes_batch());
     }
 
     #[test]
-    fn terminal_gate_records_no_change_explicitly() {
-        // Empty diff with PROD already terminal: terminal, but recorded as
+    fn closure_gate_records_no_change_explicitly() {
+        // Empty diff with PROD already closed: closed, but recorded as
         // no-change rather than mistaken for work.
         let row = receipt(
             "TST-1",
@@ -1114,74 +1114,74 @@ mod tests {
             Some("Tests: 4 passed"),
             Some(REAL_SHA),
         );
-        let evidence = TerminalEvidence {
+        let evidence = ClosureEvidence {
             diff_non_empty: false,
-            prod_already_terminal: true,
-            ..terminal_evidence()
+            prod_already_closed: true,
+            ..closure_evidence()
         };
-        let verdict = verify_receipt_for_terminal(&row, &evidence);
-        assert_eq!(verdict, TerminalVerdict::NoChangeTerminal);
-        assert!(verdict.is_terminal());
+        let verdict = verify_receipt_for_closure(&row, &evidence);
+        assert_eq!(verdict, ClosureVerdict::NothingToClose);
+        assert!(verdict.closes_batch());
     }
 
     #[test]
-    fn terminal_gate_refuses_empty_diff_without_prior_terminal() {
+    fn closure_gate_refuses_empty_diff_without_prod_already_closed() {
         let row = receipt(
             "TST-1",
             Some("Pass"),
             Some("Tests: 4 passed"),
             Some(REAL_SHA),
         );
-        let evidence = TerminalEvidence {
+        let evidence = ClosureEvidence {
             diff_non_empty: false,
-            prod_already_terminal: false,
-            ..terminal_evidence()
+            prod_already_closed: false,
+            ..closure_evidence()
         };
-        let verdict = verify_receipt_for_terminal(&row, &evidence);
+        let verdict = verify_receipt_for_closure(&row, &evidence);
         assert!(
-            matches!(verdict, TerminalVerdict::FollowUp { .. }),
+            matches!(verdict, ClosureVerdict::FollowUp { .. }),
             "unexpected: {verdict:?}"
         );
-        assert!(!verdict.is_terminal());
+        assert!(!verdict.closes_batch());
     }
 
     #[test]
-    fn terminal_gate_requires_summary_status_agreement() {
-        // Pass word with a failure in the summary: not terminal.
+    fn closure_gate_requires_summary_status_agreement() {
+        // Pass word with a failure in the summary: not closed.
         let row = receipt(
             "TST-1",
             Some("Pass"),
             Some("Tests: 4 passed, 1 failed"),
             Some(REAL_SHA),
         );
-        let verdict = verify_receipt_for_terminal(&row, &terminal_evidence());
+        let verdict = verify_receipt_for_closure(&row, &closure_evidence());
         assert!(
-            matches!(verdict, TerminalVerdict::FollowUp { .. }),
+            matches!(verdict, ClosureVerdict::FollowUp { .. }),
             "unexpected: {verdict:?}"
         );
-        // Fail word with matching failure count: terminal-worthy on this axis.
+        // Fail word with matching failure count: close-worthy on this axis.
         let row = receipt(
             "TST-1",
             Some("Fail"),
             Some("Tests: 4 passed, 1 failed"),
             Some(REAL_SHA),
         );
-        let evidence = TerminalEvidence {
+        let evidence = ClosureEvidence {
             prod_complete: 3,
             prod_failed: 1,
-            ..terminal_evidence()
+            ..closure_evidence()
         };
-        let verdict = verify_receipt_for_terminal(&row, &evidence);
-        assert!(verdict.is_terminal(), "unexpected: {verdict:?}");
-        // Indecisive word (Unproven): never terminal.
+        let verdict = verify_receipt_for_closure(&row, &evidence);
+        assert!(verdict.closes_batch(), "unexpected: {verdict:?}");
+        // Indecisive word (Unproven): never closed.
         let row = receipt(
             "TST-1",
             Some("Unproven"),
             Some("Tests: ran"),
             Some(REAL_SHA),
         );
-        let verdict = verify_receipt_for_terminal(&row, &terminal_evidence());
-        assert!(!verdict.is_terminal(), "unexpected: {verdict:?}");
+        let verdict = verify_receipt_for_closure(&row, &closure_evidence());
+        assert!(!verdict.closes_batch(), "unexpected: {verdict:?}");
     }
 
     #[test]

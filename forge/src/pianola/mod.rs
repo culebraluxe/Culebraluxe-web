@@ -175,7 +175,7 @@ pub enum PianolaDecision {
     },
     /// Needs a human: one of the guard conditions fired.
     Escalate { story_id: String, reason: String },
-    /// All batch stories reached a terminal state.
+    /// All batch stories reached a closed state.
     BatchComplete,
     /// Park the story until the captain rules (hold, ambiguity, prod touch).
     HoldForCaptain { story_id: String, reason: String },

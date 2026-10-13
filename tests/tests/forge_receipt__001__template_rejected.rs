@@ -1,13 +1,13 @@
-//! FORGE-FIX-004 — template/placeholder receipts never reach TERMINAL.
+//! FORGE-FIX-004 — template/placeholder receipts never close a batch.
 //!
 //! The fleet supervisor caught workers submitting template receipts (`"aaa"`
-//! hashes, counts never cross-checked). This assay pins the TERMINAL gate
-//! (`forge::pianola::status::verify_receipt_for_terminal`) against a real
+//! hashes, counts never cross-checked). This assay pins the closure gate
+//! (`forge::pianola::status::verify_receipt_for_closure`) against a real
 //! fixture git repo:
 //!
 //! 1. Receipt with hash `"aaa"` → rejected, batch stays open/requeued.
-//! 2. Receipt with a real SHA but PROD counts short → NOT terminal; follow-up.
-//! 3. Receipt with a real SHA + matching PROD counts → TERMINAL, commit recorded.
+//! 2. Receipt with a real SHA but PROD counts short → NOT closed; follow-up.
+//! 3. Receipt with a real SHA + matching PROD counts → CLOSED, commit recorded.
 //!
 //! No database is involved: the git probes run against a temp fixture repo
 //! and the PROD counts are injected as the evidence the gate requires.
@@ -17,8 +17,8 @@ use std::process::Command;
 
 use db::ForgeStoryReceiptRow;
 use forge::pianola::status::{
-    commit_diff_non_empty, commit_resolves_in_lane, verify_receipt_for_terminal, TerminalEvidence,
-    TerminalVerdict,
+    commit_diff_non_empty, commit_resolves_in_lane, verify_receipt_for_closure, ClosureEvidence,
+    ClosureVerdict,
 };
 
 fn receipt(story: &str, status: &str, summary: &str, commit: &str) -> ForgeStoryReceiptRow {
@@ -82,22 +82,22 @@ fn fixture_repo() -> (PathBuf, String, String) {
     (dir, base, sha)
 }
 
-fn full_batch() -> TerminalEvidence {
-    TerminalEvidence {
+fn full_batch() -> ClosureEvidence {
+    ClosureEvidence {
         commit_resolves: true,
         diff_non_empty: true,
-        prod_already_terminal: false,
+        prod_already_closed: false,
         prod_complete: 4,
         prod_failed: 0,
         batch_size: 4,
     }
 }
 
-fn lane_evidence(repo: &Path, base: &str, sha: &str, prod_complete: usize) -> TerminalEvidence {
-    TerminalEvidence {
+fn lane_evidence(repo: &Path, base: &str, sha: &str, prod_complete: usize) -> ClosureEvidence {
+    ClosureEvidence {
         commit_resolves: commit_resolves_in_lane(repo, sha),
         diff_non_empty: commit_diff_non_empty(repo, base, sha),
-        prod_already_terminal: false,
+        prod_already_closed: false,
         prod_complete,
         prod_failed: 0,
         batch_size: 4,
@@ -105,7 +105,7 @@ fn lane_evidence(repo: &Path, base: &str, sha: &str, prod_complete: usize) -> Te
 }
 
 #[test]
-fn template_receipt_is_rejected_before_terminal() {
+fn template_receipt_is_rejected_before_closure() {
     let (repo, base, sha) = fixture_repo();
     // The probes themselves work against the fixture repo: the real commit
     // resolves with a non-empty diff, while "aaa" resolves nowhere.
@@ -115,50 +115,50 @@ fn template_receipt_is_rejected_before_terminal() {
 
     // Criterion 1: hash "aaa" → rejected, batch stays open/requeued.
     let row = receipt("TST-1", "Pass", "Tests: 4 passed", "aaa");
-    let verdict = verify_receipt_for_terminal(&row, &lane_evidence(&repo, &base, &sha, 4));
+    let verdict = verify_receipt_for_closure(&row, &lane_evidence(&repo, &base, &sha, 4));
     assert!(
-        matches!(verdict, TerminalVerdict::Rejected { .. }),
+        matches!(verdict, ClosureVerdict::Rejected { .. }),
         "template receipt must be rejected, got: {verdict:?}"
     );
-    assert!(!verdict.is_terminal(), "rejected receipt is never terminal");
+    assert!(!verdict.closes_batch(), "rejected receipt never closes the batch");
 
     std::fs::remove_dir_all(&repo).ok();
 }
 
 #[test]
-fn real_sha_with_short_prod_counts_is_not_terminal() {
+fn real_sha_with_short_prod_counts_is_not_closed() {
     let (repo, base, sha) = fixture_repo();
 
-    // Criterion 2: real SHA but PROD counts short → NOT terminal; follow-up.
+    // Criterion 2: real SHA but PROD counts short → NOT closed; follow-up.
     let row = receipt("TST-1", "Pass", "Tests: 4 passed", &sha);
-    let verdict = verify_receipt_for_terminal(&row, &lane_evidence(&repo, &base, &sha, 2));
+    let verdict = verify_receipt_for_closure(&row, &lane_evidence(&repo, &base, &sha, 2));
     assert!(
-        matches!(verdict, TerminalVerdict::FollowUp { .. }),
+        matches!(verdict, ClosureVerdict::FollowUp { .. }),
         "short PROD counts must hold a follow-up, got: {verdict:?}"
     );
-    assert!(!verdict.is_terminal());
+    assert!(!verdict.closes_batch());
 
     std::fs::remove_dir_all(&repo).ok();
 }
 
 #[test]
-fn real_sha_with_matching_prod_counts_is_terminal_with_commit() {
+fn real_sha_with_matching_prod_counts_is_closed_with_commit() {
     let (repo, base, sha) = fixture_repo();
 
-    // Criterion 3: real SHA + matching PROD counts → TERMINAL, commit recorded.
+    // Criterion 3: real SHA + matching PROD counts → CLOSED, commit recorded.
     let row = receipt("TST-1", "Pass", "Tests: 4 passed", &sha);
-    let verdict = verify_receipt_for_terminal(&row, &lane_evidence(&repo, &base, &sha, 4));
+    let verdict = verify_receipt_for_closure(&row, &lane_evidence(&repo, &base, &sha, 4));
     assert_eq!(
         verdict,
-        TerminalVerdict::Terminal {
+        ClosureVerdict::Closed {
             commit: sha.clone()
         },
-        "matching receipt must go TERMINAL with the commit recorded"
+        "matching receipt must close the batch with the commit recorded"
     );
-    assert!(verdict.is_terminal());
+    assert!(verdict.closes_batch());
 
     // The injected full-batch evidence agrees with the lane-probed evidence.
-    let direct = verify_receipt_for_terminal(&row, &full_batch());
+    let direct = verify_receipt_for_closure(&row, &full_batch());
     assert_eq!(direct, verdict);
 
     std::fs::remove_dir_all(&repo).ok();
