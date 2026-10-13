@@ -9,7 +9,7 @@ use crate::engine::executor::dispatch::{resolve_forge_stop_target, ForgeStopTarg
 use crate::engine::executor::lane_failure::{
     is_advance_conflict, settle_forge_lane_failure, LaneFailureSettlement,
 };
-use crate::engine::executor::wave::{plan_wave, WaveLane};
+use crate::engine::executor::wave::{plan_wave, WaveLane, WavePlan};
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::job::{
     execute_claimed_job_unsettled, ForgeJobBridge, ForgeJobLease, JobService,
@@ -860,6 +860,170 @@ pub fn drive_forge_story_with_jobs<S: TxStore>(
     drive_forge_story_inner(rt, story_id, opts, Some(durable))
 }
 
+/// The four facts every ending of a drive carries, with one named constructor per ending (`WO-402`).
+///
+/// Seven near-identical `DriveForgeStoryResult` literals used to sit beside those `return`s, and each one had
+/// to be read in full to be sure it was the same shape as the last. The endings are three, not seven: a human
+/// gate or a hold (`needs_human`), nothing-advanced (`exhausted`), and the run ending on its own terms. The
+/// facts are borrowed at the moment the ending is returned, because the loop mutates `steps` and
+/// `stopped_after` between endings.
+struct StoryEnding<'a> {
+    instance_id: &'a str,
+    steps: &'a [String],
+    stopped_after: &'a Option<String>,
+    reconciled: usize,
+}
+
+/// Borrow this ending's facts, so a `return` names the ending rather than restating the struct.
+fn ending<'a>(
+    instance_id: &'a str,
+    steps: &'a [String],
+    stopped_after: &'a Option<String>,
+    reconciled: usize,
+) -> StoryEnding<'a> {
+    StoryEnding {
+        instance_id,
+        steps,
+        stopped_after,
+        reconciled,
+    }
+}
+
+impl StoryEnding<'_> {
+    /// A human gate, or a hold this wave raised: the story needs a person. `blocked_reason` is the hold's
+    /// reason, and `None` for a gate — there the hold itself is the record.
+    fn needs_human(self, status: String, blocked_reason: Option<String>) -> DriveForgeStoryResult {
+        DriveForgeStoryResult {
+            instance_id: self.instance_id.to_string(),
+            status,
+            steps: self.steps.to_vec(),
+            exhausted: false,
+            blocked_reason,
+            needs_human: true,
+            stopped_after: self.stopped_after.clone(),
+            reconciled: self.reconciled,
+        }
+    }
+
+    /// Nothing is ready and nothing advanced: the story is not waiting on a person, it is out of work.
+    fn exhausted(self, status: String, blocked_reason: Option<String>) -> DriveForgeStoryResult {
+        DriveForgeStoryResult {
+            instance_id: self.instance_id.to_string(),
+            status,
+            steps: self.steps.to_vec(),
+            exhausted: true,
+            blocked_reason,
+            needs_human: false,
+            stopped_after: self.stopped_after.clone(),
+            reconciled: self.reconciled,
+        }
+    }
+
+    /// The run ended on its own terms: the two facts about the whole run come from the caller.
+    fn finished(self, status: String, exhausted: bool, needs_human: bool) -> DriveForgeStoryResult {
+        DriveForgeStoryResult {
+            instance_id: self.instance_id.to_string(),
+            status,
+            steps: self.steps.to_vec(),
+            exhausted,
+            blocked_reason: None,
+            needs_human,
+            stopped_after: self.stopped_after.clone(),
+            reconciled: self.reconciled,
+        }
+    }
+}
+
+/// The story's human gate, when this wave's tasks hold one (`WO-402`).
+///
+/// The hold is written here and the caller returns the `needs_human` ending: a gate is not a failure, it is the
+/// engine handing the story to a person.
+fn note_human_gate<S: TxStore>(
+    rt: &ForgeRuntime<S>,
+    story_id: &str,
+    tasks: &[ActiveForgeRoleTask],
+) -> Result<bool> {
+    if !tasks
+        .iter()
+        .any(|t| t.node_id.as_deref().map(is_human_gate).unwrap_or(false))
+    {
+        return Ok(false);
+    }
+    rt.writer()
+        .mark_story_human_hold(story_id, "Forge engine entered a human decision gate.")
+        .map_err(|error| {
+            WorkflowError::generic(format!("mark_story_human_hold({story_id}): {error}"))
+        })?;
+    Ok(true)
+}
+
+/// Why the drive stopped advancing (`WO-402`): every task and the status it is in, so the hold names what the
+/// story is actually waiting on rather than only that nothing was ready.
+fn no_ready_task_reason(tasks: &[ActiveForgeRoleTask]) -> String {
+    let blocked = tasks
+        .iter()
+        .map(|t| format!("{}={:?}", t.node_id.as_deref().unwrap_or("?"), t.status))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("no ready task; active: {blocked}")
+}
+
+/// This wave, planned from the story's ready tasks (`WO-402`), with the wave and every refusal logged.
+///
+/// A planned lane is only a scheduling hint — the caller re-reads each task's readiness before claiming it — so
+/// this step decides batching and nothing else.
+fn plan_next_wave(
+    tasks: &[ActiveForgeRoleTask],
+    cap: usize,
+    story_id: &str,
+    instance_id: &str,
+    wave_index: usize,
+) -> WavePlan<ActiveForgeRoleTask> {
+    let lanes: Vec<WaveLane<ActiveForgeRoleTask>> = tasks
+        .iter()
+        .filter(|task| task.status == TaskStatus::Ready)
+        .map(|task| WaveLane {
+            // A coordinator/fanout flag does not establish that shared
+            // effects are safe. Unknown surfaces stay exclusive.
+            fanout: false,
+            surface: task.write_surface.clone(),
+            lane: task.task_id.clone(),
+            task: task.clone(),
+        })
+        .collect();
+    let plan = plan_wave(&lanes, cap);
+    eprintln!(
+        "forge-wave story={} instance={} wave={} ready_lanes={} batches={} conflicts={} configured_cap={} active_lanes=0",
+        story_id,
+        instance_id,
+        wave_index,
+        lanes.len(),
+        plan.batches.len(),
+        plan.refusals.len(),
+        cap
+    );
+    for refusal in &plan.refusals {
+        eprintln!(
+            "forge-wave-refusal story={} instance={} wave={} task_a={} task_b={} path={} reason=overlapping_or_unknown_write_surface",
+            story_id, instance_id, wave_index, refusal.lanes.0, refusal.lanes.1, refusal.path
+        );
+    }
+    plan
+}
+
+/// The batch's turn ceiling, as the environment declares it when the batch starts (`WO-402`).
+///
+/// The turn cap is resolved in one named step instead of at each of the two places a batch runs:
+/// `FORGE_TURN_TIMEOUT_MINUTES` is the only input and both callers mean the same thing by it.
+fn turn_ceiling_from_env() -> Option<std::time::Duration> {
+    turn_ceiling(
+        std::env::var(TURN_CEILING_ENV)
+            .ok()
+            .as_deref()
+            .filter(|s| !s.is_empty()),
+    )
+}
+
 fn drive_forge_story_inner<S: TxStore>(
     rt: &ForgeRuntime<S>,
     story_id: &str,
@@ -890,86 +1054,24 @@ fn drive_forge_story_inner<S: TxStore>(
         if tasks.is_empty() {
             break;
         }
-        if let Some(human) = tasks
-            .iter()
-            .find(|t| t.node_id.as_deref().map(is_human_gate).unwrap_or(false))
-        {
-            rt.writer()
-                .mark_story_human_hold(story_id, "Forge engine entered a human decision gate.")
-                .map_err(|error| {
-                    workflow::WorkflowError::generic(format!(
-                        "mark_story_human_hold({story_id}): {error}"
-                    ))
-                })?;
-            let _ = human;
-            return Ok(DriveForgeStoryResult {
-                instance_id: instance_id.clone(),
-                status: instance_status(rt, &instance_id)?,
-                steps,
-                exhausted: false,
-                blocked_reason: None,
-                needs_human: true,
-                stopped_after,
-                reconciled,
-            });
+        if note_human_gate(rt, story_id, &tasks)? {
+            return Ok(ending(&instance_id, &steps, &stopped_after, reconciled)
+                .needs_human(instance_status(rt, &instance_id)?, None));
         }
         if !tasks.iter().any(|t| t.status == TaskStatus::Ready) {
-            let blocked = tasks
-                .iter()
-                .map(|t| format!("{}={:?}", t.node_id.as_deref().unwrap_or("?"), t.status))
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Ok(DriveForgeStoryResult {
-                instance_id: instance_id.clone(),
-                status: instance_status(rt, &instance_id)?,
-                steps,
-                exhausted: true,
-                blocked_reason: Some(format!("no ready task; active: {blocked}")),
-                needs_human: false,
-                stopped_after,
-                reconciled,
-            });
+            return Ok(
+                ending(&instance_id, &steps, &stopped_after, reconciled).exhausted(
+                    instance_status(rt, &instance_id)?,
+                    Some(no_ready_task_reason(&tasks)),
+                ),
+            );
         }
 
-        let ready: Vec<_> = tasks
-            .into_iter()
-            .filter(|t| t.status == TaskStatus::Ready)
-            .collect();
         let cap = opts
             .within_story_concurrency
             .clamp(1, turn_budget::MAX_WITHIN_STORY_CONCURRENCY);
-        let lanes: Vec<WaveLane<ActiveForgeRoleTask>> = ready
-            .into_iter()
-            .map(|task| {
-                let lane_id = task.task_id.clone();
-                WaveLane {
-                    // A coordinator/fanout flag does not establish that shared
-                    // effects are safe. Unknown surfaces stay exclusive.
-                    fanout: false,
-                    surface: task.write_surface.clone(),
-                    lane: lane_id,
-                    task,
-                }
-            })
-            .collect();
-        let plan = plan_wave(&lanes, cap);
         wave_index += 1;
-        eprintln!(
-            "forge-wave story={} instance={} wave={} ready_lanes={} batches={} conflicts={} configured_cap={} active_lanes=0",
-            story_id,
-            instance_id,
-            wave_index,
-            lanes.len(),
-            plan.batches.len(),
-            plan.refusals.len(),
-            cap
-        );
-        for refusal in &plan.refusals {
-            eprintln!(
-                "forge-wave-refusal story={} instance={} wave={} task_a={} task_b={} path={} reason=overlapping_or_unknown_write_surface",
-                story_id, instance_id, wave_index, refusal.lanes.0, refusal.lanes.1, refusal.path
-            );
-        }
+        let plan = plan_next_wave(&tasks, cap, story_id, &instance_id, wave_index);
         for batch in plan.batches {
             if cap > 1 && batch.len() > 1 {
                 let Some(durable) = durable else {
@@ -992,12 +1094,7 @@ fn drive_forge_story_inner<S: TxStore>(
                     prepared.len(),
                     cap
                 );
-                let turn_ceiling = turn_ceiling(
-                    std::env::var(TURN_CEILING_ENV)
-                        .ok()
-                        .as_deref()
-                        .filter(|s| !s.is_empty()),
-                );
+                let turn_ceiling = turn_ceiling_from_env();
                 let mut executions = execute_durable_batch(
                     prepared,
                     durable.jobs,
@@ -1202,16 +1299,8 @@ fn drive_forge_story_inner<S: TxStore>(
                                 "mark_story_human_hold({story_id}): {error}"
                             ))
                         })?;
-                    return Ok(DriveForgeStoryResult {
-                        instance_id: instance_id.clone(),
-                        status: instance_status(rt, &instance_id)?,
-                        steps,
-                        exhausted: false,
-                        blocked_reason: Some(reason),
-                        needs_human: true,
-                        stopped_after,
-                        reconciled,
-                    });
+                    return Ok(ending(&instance_id, &steps, &stopped_after, reconciled)
+                        .needs_human(instance_status(rt, &instance_id)?, Some(reason)));
                 }
                 if stopped_after.is_some() {
                     break;
@@ -1267,24 +1356,27 @@ fn drive_forge_story_inner<S: TxStore>(
                                                 "mark_story_human_hold({story_id}): {error}"
                                             ))
                                         })?;
-                                    return Ok(DriveForgeStoryResult {
-                                        instance_id: instance_id.clone(),
-                                        status: instance_status(rt, &instance_id)?,
-                                        steps,
-                                        exhausted: false,
-                                        blocked_reason: Some(reason),
-                                        needs_human: true,
-                                        stopped_after,
+                                    return Ok(ending(
+                                        &instance_id,
+                                        &steps,
+                                        &stopped_after,
                                         reconciled,
-                                    });
+                                    )
+                                    .needs_human(
+                                        instance_status(rt, &instance_id)?,
+                                        Some(reason),
+                                    ));
                                 }
                                 JobStatus::Locked | JobStatus::Pending => {
-                                    return Ok(DriveForgeStoryResult {
-                                        instance_id: instance_id.clone(),
-                                        status: instance_status(rt, &instance_id)?,
-                                        steps,
-                                        exhausted: true,
-                                        blocked_reason: Some(format!(
+                                    return Ok(ending(
+                                        &instance_id,
+                                        &steps,
+                                        &stopped_after,
+                                        reconciled,
+                                    )
+                                    .exhausted(
+                                        instance_status(rt, &instance_id)?,
+                                        Some(format!(
                                             "Forge durable job {job_id} for task {} is {:?}; attempts={}/{} locked_by={:?}",
                                             task.task_id,
                                             state.status,
@@ -1292,10 +1384,7 @@ fn drive_forge_story_inner<S: TxStore>(
                                             state.max_attempts,
                                             state.locked_by
                                         )),
-                                        needs_human: false,
-                                        stopped_after,
-                                        reconciled,
-                                    });
+                                    ));
                                 }
                             }
                         }
@@ -1306,12 +1395,7 @@ fn drive_forge_story_inner<S: TxStore>(
                     let _request =
                         ForgeJobBridge::new(durable.registry).job_for_ready_task(&task)?;
                     // Use the shared Forge turn budget regardless of the selected harness.
-                    let turn_ceiling = turn_ceiling(
-                        std::env::var(TURN_CEILING_ENV)
-                            .ok()
-                            .as_deref()
-                            .filter(|s| !s.is_empty()),
-                    );
+                    let turn_ceiling = turn_ceiling_from_env();
 
                     let outcome = match execute_claimed_job_unsettled(
                         durable.jobs,
@@ -1347,16 +1431,8 @@ fn drive_forge_story_inner<S: TxStore>(
                                         "mark_story_human_hold({story_id}): {error}"
                                     ))
                                 })?;
-                            return Ok(DriveForgeStoryResult {
-                                instance_id: instance_id.clone(),
-                                status: instance_status(rt, &instance_id)?,
-                                steps,
-                                exhausted: false,
-                                blocked_reason: Some(reason),
-                                needs_human: true,
-                                stopped_after,
-                                reconciled,
-                            });
+                            return Ok(ending(&instance_id, &steps, &stopped_after, reconciled)
+                                .needs_human(instance_status(rt, &instance_id)?, Some(reason)));
                         }
                     };
                     durable_lease = Some(lease);
@@ -1465,18 +1541,15 @@ fn drive_forge_story_inner<S: TxStore>(
         })?;
     }
 
-    Ok(DriveForgeStoryResult {
-        instance_id: instance_id.clone(),
-        status: format!("{:?}", instance.status),
-        steps,
-        exhausted: !tasks.is_empty(),
-        blocked_reason: None,
-        needs_human: tasks
-            .iter()
-            .any(|t| t.node_id.as_deref().map(is_human_gate).unwrap_or(false)),
-        stopped_after,
-        reconciled,
-    })
+    Ok(
+        ending(&instance_id, &steps, &stopped_after, reconciled).finished(
+            format!("{:?}", instance.status),
+            !tasks.is_empty(),
+            tasks
+                .iter()
+                .any(|t| t.node_id.as_deref().map(is_human_gate).unwrap_or(false)),
+        ),
+    )
 }
 
 #[cfg(test)]
