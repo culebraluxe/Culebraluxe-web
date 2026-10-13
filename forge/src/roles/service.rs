@@ -691,7 +691,7 @@ mod tests {
             ("lead", include_str!("lead.rs")),
             ("smith", include_str!("smith/mod.rs")),
             ("inspector", include_str!("inspector.rs")),
-            ("assay", include_str!("qa.rs")),
+            ("assay", include_str!("qa/mod.rs")),
             ("devops", include_str!("dev_ops.rs")),
         ];
 
