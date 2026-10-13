@@ -1,7 +1,7 @@
 //! Forge holds. Persistence lives in db::ForgeEngineDao.
 
 use crate::engine::vendor_session::with_shared;
-use db::ForgeEngineDao;
+use db::{ForgeEngineDao, NewForgeHold};
 
 pub struct OpenHold {
     pub process_instance_id: String,
@@ -17,15 +17,15 @@ pub fn open_forge_hold_record(input: &OpenHold) -> Result<String, String> {
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
-            dao.open_hold(
-                &input.process_instance_id,
-                input.task_id.as_deref(),
-                &input.story_id,
-                &input.reason,
-                input.originating_node.as_deref(),
-                input.failure_class.as_deref(),
-                input.resume_target.as_deref(),
-            )
+            dao.open_hold(&NewForgeHold {
+                process_instance_id: &input.process_instance_id,
+                task_id: input.task_id.as_deref(),
+                story_id: &input.story_id,
+                reason: &input.reason,
+                originating_node: input.originating_node.as_deref(),
+                failure_class: input.failure_class.as_deref(),
+                resume_target: input.resume_target.as_deref(),
+            })
             .await
             .map_err(|error| error.to_string())
         })

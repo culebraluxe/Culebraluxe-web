@@ -390,6 +390,37 @@ pub struct ToolArtifactRow {
     pub created_at: Option<String>,
 }
 
+/// A hold as its columns, before it is a row (migration 278's `forge_hold_record`).
+///
+/// Seven positional arguments were seven chances to transpose two `&str`s that both cast to `uuid` in the statement —
+/// the failure the DAO already carries a regression test for. Named fields make the call site say which id is which.
+/// Borrowed, like the other pass-through inputs here: nothing outlives the statement that binds it.
+#[derive(Debug, Clone)]
+pub struct NewForgeHold<'a> {
+    pub process_instance_id: &'a str,
+    pub task_id: Option<&'a str>,
+    pub story_id: &'a str,
+    pub reason: &'a str,
+    pub originating_node: Option<&'a str>,
+    pub failure_class: Option<&'a str>,
+    pub resume_target: Option<&'a str>,
+}
+
+/// One Forge observer event, as the recorder's trace statement binds it.
+///
+/// The field order is the statement's contract, not a reading order: `source_event_id` is the caller's idempotency
+/// key, and the recorder binds the system name and the absent timer job itself.
+#[derive(Debug, Clone)]
+pub struct NewObserverEvent<'a> {
+    pub event_type: &'a str,
+    pub summary: &'a str,
+    pub source_event_id: &'a str,
+    pub process_instance_id: &'a str,
+    pub node_id: &'a str,
+    pub task_id: &'a str,
+    pub story_id: &'a str,
+}
+
 /// The `storyboard_story_run.execution_environment` value for the database this process is actually on
 /// (migration 030: the column records the run's **actual** target, and its CHECK allows only these four words).
 fn run_execution_environment(target: DbTarget) -> &'static str {
@@ -1031,16 +1062,7 @@ impl ForgeEngineDao {
         .map_err(|error| DbFailure::from_sqlx("forge_engine.insert_process_definition", &error))
     }
 
-    pub async fn open_hold(
-        &self,
-        process_instance_id: &str,
-        task_id: Option<&str>,
-        story_id: &str,
-        reason: &str,
-        originating_node: Option<&str>,
-        failure_class: Option<&str>,
-        resume_target: Option<&str>,
-    ) -> DbResult<String> {
+    pub async fn open_hold(&self, hold: &NewForgeHold<'_>) -> DbResult<String> {
         sqlx::query_scalar::<_, String>(
             "insert into forge_hold_record(
                process_instance_id,task_id,story_id,reason,originating_node,
@@ -1048,13 +1070,13 @@ impl ForgeEngineDao {
              ) values($1::uuid,$2::uuid,$3,$4,$5,$6,$7,null,null,null,null)
              returning id::text",
         )
-        .bind(process_instance_id)
-        .bind(task_id)
-        .bind(story_id)
-        .bind(reason)
-        .bind(originating_node)
-        .bind(failure_class)
-        .bind(resume_target)
+        .bind(hold.process_instance_id)
+        .bind(hold.task_id)
+        .bind(hold.story_id)
+        .bind(hold.reason)
+        .bind(hold.originating_node)
+        .bind(hold.failure_class)
+        .bind(hold.resume_target)
         .fetch_one(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_engine.open_hold", &error))
@@ -1584,31 +1606,22 @@ impl ForgeEngineDao {
         Ok(())
     }
 
-    pub async fn record_observer(
-        &self,
-        event_type: &str,
-        summary: &str,
-        source_event_id: &str,
-        process_instance_id: &str,
-        node_id: &str,
-        task_id: &str,
-        story_id: &str,
-    ) -> DbResult<()> {
+    pub async fn record_observer(&self, event: &NewObserverEvent<'_>) -> DbResult<()> {
         // One spelling of the trace `INSERT`, held by the flight recorder: the workflow kernel writes the same table
         // through the same statement. Forge's observer is the `forge_observer` system, has no timer job to name, and
         // correlates a turn by its story. The parameter order is the recorder's contract (see
         // `FlightRecorderDao::TRACE_EVENT_INSERT_SQL`).
         sqlx::query(crate::FlightRecorderDao::TRACE_EVENT_INSERT_SQL)
-            .bind(event_type)
+            .bind(event.event_type)
             .bind("forge_observer")
-            .bind(summary)
+            .bind(event.summary)
             .bind("forge_observer")
-            .bind(source_event_id)
-            .bind(process_instance_id)
-            .bind(node_id)
-            .bind(task_id)
+            .bind(event.source_event_id)
+            .bind(event.process_instance_id)
+            .bind(event.node_id)
+            .bind(event.task_id)
             .bind(None::<&str>)
-            .bind(story_id)
+            .bind(event.story_id)
             .execute(self.db.pool())
             .await
             .map_err(|error| DbFailure::from_sqlx("forge_engine.record_observer", &error))?;

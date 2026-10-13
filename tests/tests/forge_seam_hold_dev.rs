@@ -12,7 +12,7 @@
 //!
 //! It leaves DEV as it found it: every fixture row is deleted in reverse-FK order.
 
-use db::{Database, DbTarget, ForgeEngineDao};
+use db::{Database, DbTarget, ForgeEngineDao, NewForgeHold};
 
 async fn delete_story(pool: &sqlx::PgPool, story_id: &str) {
     let _ = sqlx::query("delete from storyboard_story where id = $1")
@@ -82,15 +82,15 @@ async fn hold_record_round_trips_every_column_and_task_id_is_a_real_uuid() {
     // Drive the production DAO. This is the C1 regression: if `task_id` is not bound-and-cast as `uuid`, this
     // insert raises "column task_id is of type uuid but expression is of type text" and the hold never lands.
     let hold_id = engine
-        .open_hold(
-            &process_instance_id,
-            Some(&task_id.to_string()),
-            &story,
-            "proof reason",
-            Some("smith"),
-            Some("Infrastructure"),
-            Some("resume-here"),
-        )
+        .open_hold(&NewForgeHold {
+            process_instance_id: &process_instance_id,
+            task_id: Some(&task_id.to_string()),
+            story_id: &story,
+            reason: "proof reason",
+            originating_node: Some("smith"),
+            failure_class: Some("Infrastructure"),
+            resume_target: Some("resume-here"),
+        })
         .await
         .expect("open_hold must land a real UUID task id");
 

@@ -29,15 +29,15 @@ pub fn record_forge_observer(
     with_shared(|db, rt| {
         let dao = ForgeEngineDao::new(db.clone());
         rt.block_on(async {
-            dao.record_observer(
+            dao.record_observer(&db::NewObserverEvent {
                 event_type,
                 summary,
-                &event_id,
+                source_event_id: &event_id,
                 process_instance_id,
                 node_id,
                 task_id,
                 story_id,
-            )
+            })
             .await
             .map_err(|error| error.to_string())
         })
