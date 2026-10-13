@@ -4,7 +4,7 @@
 //! this module contains orchestration and policy only.
 
 use crate::engine::agent_work;
-use crate::engine::config::{ChildConfig, WorkerConfig};
+use crate::engine::config::ForgeConfig;
 use crate::engine::learn::{run_learn_pass, ScanStatus};
 use crate::engine::routing_brain::{parse_forge_routing_brain, ForgeRoutingBrain};
 use crate::engine::vendor_session::with_shared;
@@ -389,7 +389,7 @@ pub fn claim_next_dispatch(worker_id: &str) -> Result<Option<WorkerDispatch>, St
     }))
 }
 pub fn run_worker_pass() -> Result<i32, String> {
-    let worker_cfg = WorkerConfig::from_env();
+    let config = ForgeConfig::from_env();
     let brain = parse_forge_routing_brain(std::env::var("FORGE_ROUTING_BRAIN").ok().as_deref());
     if brain == ForgeRoutingBrain::Reducer {
         eprintln!(
@@ -400,7 +400,7 @@ pub fn run_worker_pass() -> Result<i32, String> {
     let completion_recovered = crate::engine::db_ledger::reconcile_unfinished_completion_batch(64)
         .map_err(|error| format!("completion recovery sweep failed: {error}"))?;
     eprintln!("forge-worker: unfinished completion effects applied={completion_recovered}");
-    let recovered = recover_stale_agent_work(worker_cfg.stale_after_minutes)?;
+    let recovered = recover_stale_agent_work(config.stale_after_minutes)?;
     // Clean the junk before each run (captain, 2026-09-29). A `Ready` story with no work item, a story whose run is
     // gone while its board still says one is happening, and an item whose story no longer expects a run are all the
     // same defect - one half of a pair moved without the other - and none of them is queue state a human should have
@@ -414,7 +414,7 @@ pub fn run_worker_pass() -> Result<i32, String> {
     eprintln!("forge-worker: recovered={recovered} due_flights={flights}");
 
     // Learning is observational and fail-open: a learn-pass defect must not block dispatch.
-    let learn = run_learn_pass(std::path::Path::new("."), worker_cfg.stale_after_minutes);
+    let learn = run_learn_pass(std::path::Path::new("."), config.stale_after_minutes);
     match learn.status {
         ScanStatus::Complete => eprintln!(
             "forge-learn-scan: status=complete revision={} scanned_files={} deferred_files={} deferred_findings={} filed={}",
@@ -451,7 +451,7 @@ pub fn run_worker_pass() -> Result<i32, String> {
     // loosen anything: the story is the lock, `agent_work_item_one_serial_active_per_story` still refuses a second
     // serial item on one story, and the slots only decide how many DIFFERENT stories move at once.
     let base_worker_id = worker_identity();
-    let concurrency = worker_cfg.story_worker_concurrency;
+    let concurrency = config.story_worker_concurrency;
 
     // THE BRAKE, BEFORE THE FIRST CLAIM (274/275). Paused stops NEW claims and NEW arms; the arms are already
     // refused inside the database by the same switch, and this is the line that says so out loud instead of letting
@@ -513,7 +513,7 @@ pub fn run_worker_pass() -> Result<i32, String> {
     let mut handles = Vec::with_capacity(claimed.len());
     for (worker_id, dispatch) in claimed {
         handles.push(std::thread::spawn(move || {
-            run_claimed_dispatch(dispatch, worker_id, worker_cfg.stale_after_minutes)
+            run_claimed_dispatch(dispatch, worker_id, config.stale_after_minutes)
         }));
     }
 
@@ -609,8 +609,7 @@ fn run_claimed_dispatch(
     _stale_after_minutes: i64,
 ) -> Result<i32, String> {
     let _in_flight = InFlight::enter();
-    let child_cfg = ChildConfig::from_env();
-    let worker_cfg = WorkerConfig::from_env();
+    let config = ForgeConfig::from_env();
 
     eprintln!(
         "forge-worker: claimed={} worker={} story={} work_type={} policy={} model_policy={} stop_after={} launch_intent={}",
@@ -630,7 +629,7 @@ fn run_claimed_dispatch(
     // The durable envelope is read here, before the child exists, so a policy that names a human never reaches a
     // model. The claim goes back to the queue rather than being held against the story: no run happened.
     if !agent_work::execution_policy_allows_unattended(&dispatch.execution_policy)
-        && !worker_cfg.attended_override
+        && !config.attended_override
     {
         let reason = format!(
             "execution_policy={} requires a human; refusing to dispatch {} unattended",
@@ -656,7 +655,7 @@ fn run_claimed_dispatch(
     let heartbeat = spawn_heartbeat(
         dispatch.work_item_id.clone(),
         dispatch.claim.clone(),
-        worker_cfg.heartbeat_interval,
+        config.heartbeat_interval,
     );
     let claim_generation = dispatch.claim.generation.to_string();
 
@@ -703,15 +702,15 @@ fn run_claimed_dispatch(
         .env("FORGE_RUN_ID", &dispatch.work_item_id)
         .env(
             "FORGE_ALLOW_PUBLISH",
-            if child_cfg.allow_publish { "1" } else { "0" },
+            if config.allow_publish { "1" } else { "0" },
         )
         // THE FLOOR BELONGS TO THE COORDINATOR, NOT TO EVERY CHILD. Each story runs in its own process with its own
         // pool, so four concurrent stories must not each hold the engine's warm floor open against one Neon branch
         // (`FORGE_DB_POOL_MIN`, default 20 in `db/src/pool.rs:193`). The children are short-lived and
         // single-story: MIN=0 means no warm floor, connections open on first use up to MAX=6 per child.
         // With 4 concurrent stories this is at most 24 connections against one Neon branch.
-        .env("FORGE_DB_POOL_MIN", child_cfg.db_pool_min.to_string())
-        .env("FORGE_DB_POOL_MAX", child_cfg.db_pool_max.to_string());
+        .env("FORGE_DB_POOL_MIN", config.db_pool_min.to_string())
+        .env("FORGE_DB_POOL_MAX", config.db_pool_max.to_string());
     // THE WALL CLOCK IS A HARD LIMIT (S4). A story that hangs must not hold its claim and its worker
     // slot forever; a timeout settles the run as a timeout and frees both. The whole process group is
     // signalled so the grandchild engine dies with the cargo wrapper.

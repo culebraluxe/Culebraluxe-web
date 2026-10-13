@@ -24,87 +24,83 @@ pub fn turn_ceiling(raw: Option<&str>) -> Option<Duration> {
     Some(Duration::from_secs(minutes * 60))
 }
 
-/// Configuration for the Forge worker pass (the scheduler entry point).
+/// The Forge engine's configuration, read from the environment in one place (`WO-407`).
+///
+/// There used to be three types — `WorkerConfig`, `ChildConfig`, `RoutingConfig` — each with its own
+/// `from_env`, and a caller that needed two of them read the environment twice: what is configured had no
+/// single answer, and neither did when it was read. `ForgeConfig` is that answer. The environment is still the
+/// only source of truth, every variable keeps its name, its default and its clamp, and every field below is
+/// read by `from_env` and nothing else.
+///
+/// There is deliberately NO per-story override. The work order makes one conditional on
+/// `reports/decision-record.md`, and that record holds no such decision (C4 and C5 are still pending), so the
+/// override is not shipped: an override needs a row or a file to be authoritative, and inventing one here
+/// would put a second source of truth beside the environment.
 #[derive(Debug, Clone)]
-pub struct WorkerConfig {
-    /// How many different stories one pass may run concurrently.
+pub struct ForgeConfig {
+    /// How many different stories one pass may run concurrently (`FORGE_STORY_WORKERS`).
     /// Clamped to 1..=8. Default 4.
     pub story_worker_concurrency: usize,
 
-    /// Minutes after which a worker's claim is considered stale.
-    /// Default 10 minutes.
+    /// Minutes after which a worker's claim is considered stale
+    /// (`AGENT_WORKER_STALE_AFTER_MINUTES`). Default 10 minutes.
     pub stale_after_minutes: i64,
 
-    /// Heartbeat interval in seconds.
+    /// Heartbeat interval (`AGENT_WORKER_HEARTBEAT_SECONDS`).
     /// Always clamped to be strictly less than `stale_after_minutes * 60`.
     /// Default: stale_window / 4, minimum 15s.
     pub heartbeat_interval: Duration,
 
-    /// Whether an attended (human-supervised) run is allowed.
+    /// Whether an attended (human-supervised) run is allowed (`FORGE_ATTENDED`).
     /// Set `FORGE_ATTENDED=1` to bypass execution_policy checks.
     pub attended_override: bool,
+
+    /// Minimum pool size for child processes (`FORGE_CHILD_DB_POOL_MIN`). Default 0 (no warm floor).
+    pub db_pool_min: u32,
+
+    /// Maximum pool size for child processes (`FORGE_CHILD_DB_POOL_MAX`). Default 6.
+    pub db_pool_max: u32,
+
+    /// Whether the child may publish to origin/main (`FORGE_ALLOW_PUBLISH`).
+    /// Default true. Set `FORGE_ALLOW_PUBLISH=0` to disable.
+    pub allow_publish: bool,
+
+    /// Model turns ceiling per generation (`FORGE_MAX_MODEL_TURNS_PER_GENERATION`).
+    /// Default 100. Clamped to 1..=1000.
+    pub max_model_turns_per_generation: u32,
+
+    /// Routing brain to use (`FORGE_ROUTING_BRAIN`). Default is the Rust engine.
+    /// `FORGE_ROUTING_BRAIN=reducer` is retired for unattended execution.
+    pub routing_brain: String,
 }
 
-impl WorkerConfig {
-    /// Read all worker configuration from environment variables.
+impl ForgeConfig {
+    /// Read the whole configuration once, from environment variables.
+    ///
+    /// One pass, one read: a caller that needs the worker's view and the child's view no longer reads the
+    /// environment twice, so both views describe the same moment.
     pub fn from_env() -> Self {
         Self {
             story_worker_concurrency: story_worker_concurrency(),
             stale_after_minutes: stale_after_minutes(),
             heartbeat_interval: Duration::from_secs(heartbeat_seconds()),
             attended_override: attended_override(),
-        }
-    }
-}
-
-/// Configuration for a child Forge engine process (spawned by the worker).
-#[derive(Debug, Clone)]
-pub struct ChildConfig {
-    /// Minimum pool size for child processes. Default 0 (no warm floor).
-    pub db_pool_min: u32,
-
-    /// Maximum pool size for child processes. Default 6.
-    pub db_pool_max: u32,
-
-    /// Whether the child may publish to origin/main.
-    /// Default true. Set `FORGE_ALLOW_PUBLISH=0` to disable.
-    pub allow_publish: bool,
-
-    /// Model turns ceiling per generation. Read from `FORGE_MAX_MODEL_TURNS_PER_GENERATION`.
-    /// Default 100. Clamped to 1..=1000.
-    pub max_model_turns_per_generation: u32,
-}
-
-impl ChildConfig {
-    /// Read all child configuration from environment variables.
-    pub fn from_env() -> Self {
-        Self {
             db_pool_min: child_db_pool_min(),
             db_pool_max: child_db_pool_max(),
             allow_publish: allow_publish(),
             max_model_turns_per_generation: max_model_turns_per_generation(),
+            routing_brain: routing_brain(),
         }
     }
 }
 
-/// Configuration for the Forge routing brain selection.
-#[derive(Debug, Clone)]
-pub struct RoutingConfig {
-    /// Routing brain to use. Default is the Rust engine.
-    /// `FORGE_ROUTING_BRAIN=reducer` is retired for unattended execution.
-    pub brain: String,
-}
-
-impl RoutingConfig {
-    pub fn from_env() -> Self {
-        Self {
-            brain: std::env::var("FORGE_ROUTING_BRAIN")
-                .ok()
-                .map(|v| v.trim().to_string())
-                .filter(|v| !v.is_empty())
-                .unwrap_or_else(|| "rust".to_string()),
-        }
-    }
+/// Pure: the routing brain named by `FORGE_ROUTING_BRAIN`, defaulting to the Rust engine.
+fn routing_brain() -> String {
+    std::env::var("FORGE_ROUTING_BRAIN")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "rust".to_string())
 }
 
 /// Pure: clamp story concurrency to 1..=8, default 4.
@@ -244,7 +240,7 @@ mod tests {
         std::env::remove_var("FORGE_ALLOW_PUBLISH");
         std::env::remove_var("FORGE_MAX_MODEL_TURNS_PER_GENERATION");
 
-        let cfg = ChildConfig::from_env();
+        let cfg = ForgeConfig::from_env();
         assert_eq!(cfg.db_pool_min, 0);
         assert_eq!(cfg.db_pool_max, 6);
         assert!(cfg.allow_publish);
@@ -259,7 +255,7 @@ mod tests {
         std::env::remove_var("AGENT_WORKER_HEARTBEAT_SECONDS");
         std::env::remove_var("FORGE_ATTENDED");
 
-        let cfg = WorkerConfig::from_env();
+        let cfg = ForgeConfig::from_env();
         assert_eq!(cfg.story_worker_concurrency, 4);
         assert_eq!(cfg.stale_after_minutes, FORGE_DEFAULT_STALE_MINUTES);
         assert_eq!(
