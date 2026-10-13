@@ -159,11 +159,21 @@ fn a_lease_that_disagrees_with_the_xml_is_refused_for_every_node_and_every_other
 
 #[test]
 fn only_the_bridge_reads_the_binding_and_the_post_persistence_path_reads_only_the_lease() {
-    let job = production_code(&workspace_root().join("forge/src/engine/job.rs"));
+    // `engine/job.rs` became `engine/job/mod.rs` + `engine/job/workflow_service.rs` on 2026-10-13 (WO-406), so
+    // "exactly once" is asserted over both files of the layer. `job/tests.rs` is `#[cfg(test)]` in the crate's own
+    // declaration and is not read.
+    let job: String = [
+        "forge/src/engine/job/mod.rs",
+        "forge/src/engine/job/workflow_service.rs",
+    ]
+    .iter()
+    .map(|file| production_code(&workspace_root().join(file)))
+    .collect::<Vec<_>>()
+    .join("\n");
     assert_eq!(
         job.matches(".service_key()").count(),
         1,
-        "job.rs reads the XML binding exactly once — in the bridge, before persistence"
+        "the job layer reads the XML binding exactly once — in the bridge, before persistence"
     );
     let bridge_end = job
         .find("pub trait JobService")
@@ -178,7 +188,8 @@ fn only_the_bridge_reads_the_binding_and_the_post_persistence_path_reads_only_th
     );
 
     for file in [
-        "forge/src/engine/job.rs",
+        "forge/src/engine/job/mod.rs",
+        "forge/src/engine/job/workflow_service.rs",
         // `executor.rs` became these five files on 2026-10-04; all of them are the layer this seam is about.
         "forge/src/engine/executor/completion.rs",
         "forge/src/engine/executor/dispatch.rs",
@@ -186,7 +197,7 @@ fn only_the_bridge_reads_the_binding_and_the_post_persistence_path_reads_only_th
         "forge/src/engine/executor/lane_failure.rs",
         "forge/src/engine/executor/wave.rs",
         "forge/src/engine/runtime.rs",
-        "forge/src/roles/lifecycle.rs",
+        "forge/src/roles/lifecycle/mod.rs",
         "forge/src/bin/forge.rs",
     ] {
         let code = production_code(&workspace_root().join(file));

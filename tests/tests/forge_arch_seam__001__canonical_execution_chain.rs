@@ -255,7 +255,14 @@ fn the_composition_root_wires_the_chain_in_order_and_nothing_drives_around_it() 
 
 #[test]
 fn the_job_layer_and_registry_know_no_role_no_node_and_no_vendor() {
-    let files = ["forge/src/engine/job.rs", "forge/src/roles/registry.rs"];
+    // `engine/job.rs` became `engine/job/mod.rs` + `engine/job/workflow_service.rs` on 2026-10-13 (WO-406). The
+    // layer is BOTH files; `engine/job/tests.rs` is the module the crate declares under `#[cfg(test)]`, which is
+    // the same cut this rail made when those tests were inline in `job.rs`.
+    let files = [
+        "forge/src/engine/job/mod.rs",
+        "forge/src/engine/job/workflow_service.rs",
+        "forge/src/roles/registry.rs",
+    ];
     let mut hits = Vec::new();
     for file in files {
         let code = production_code(&workspace_root().join(file));
@@ -321,7 +328,7 @@ fn the_workflow_launches_no_vendor_and_the_vendor_harness_routes_nothing() {
     );
 
     let harness: Vec<(String, String)> = [
-        "forge/src/engine/opencode.rs",
+        "forge/src/engine/opencode/mod.rs",
         "forge/src/engine/opencode_client.rs",
         "forge/src/engine/opencode_agents.rs",
     ]
@@ -366,7 +373,7 @@ const KNOWN_NODE_LITERALS: [(&str, &str); 3] = [
 
 /// The execution and recovery layers that can move work between roles; scan each active owner so a
 /// node literal cannot migrate to an adjacent module without being caught.
-const ROLE_MOVING_LAYERS: [&str; 13] = [
+const ROLE_MOVING_LAYERS: [&str; 14] = [
     "forge/src/engine/executor/completion.rs",
     "forge/src/engine/executor/dispatch.rs",
     "forge/src/engine/executor/drive.rs",
@@ -374,10 +381,11 @@ const ROLE_MOVING_LAYERS: [&str; 13] = [
     "forge/src/engine/executor/wave.rs",
     "forge/src/engine/hold_resolve.rs",
     "forge/src/engine/runtime.rs",
-    "forge/src/engine/job.rs",
+    "forge/src/engine/job/mod.rs",
+    "forge/src/engine/job/workflow_service.rs",
     "forge/src/roles/registry.rs",
     "forge/src/roles/service.rs",
-    "forge/src/roles/lifecycle.rs",
+    "forge/src/roles/lifecycle/mod.rs",
     "forge/src/engine/worker.rs",
     "forge/src/bin/forge.rs",
 ];

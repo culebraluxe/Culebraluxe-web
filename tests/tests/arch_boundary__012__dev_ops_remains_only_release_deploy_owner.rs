@@ -172,15 +172,17 @@ const DEV_OPS_COMMAND_NODES: [&str; 8] = [
 ];
 
 /// The seven lane modules — one per `LaneId`. A lane module renamed or added must be named here before the
-/// scan below will read it; the seven are the whole lane surface.
+/// scan below will read it; the seven are the whole lane surface. `qa.rs` and `smith.rs` became `qa/mod.rs` and
+/// `smith/mod.rs` on 2026-10-13 (WO-406, which moved the module roots beside the submodules already in those
+/// directories): a lane renamed is a deliberate edit of this pin, and this is that edit.
 const LANE_MODULES: [&str; 7] = [
     "forge/src/roles/architect.rs",
     "forge/src/roles/dev_ops.rs",
     "forge/src/roles/inspector.rs",
     "forge/src/roles/lead.rs",
-    "forge/src/roles/qa.rs",
+    "forge/src/roles/qa/mod.rs",
     "forge/src/roles/scout.rs",
-    "forge/src/roles/smith.rs",
+    "forge/src/roles/smith/mod.rs",
 ];
 
 /// The tokens that name the release/deploy capability: the two concrete executors, their git ops, the trait
@@ -417,6 +419,12 @@ fn production_code() -> Vec<(String, String)> {
         {
             continue;
         }
+        // A test module carries no `#[cfg(test)]` of its OWN — its parent declares it — so the line-cut below
+        // cannot find it and the file would be read as production. WO-406 extracted `engine/job.rs`'s tests into
+        // such a file (`engine/job/tests.rs`) and the deploy-literal pin caught the phantom reader.
+        if is_test_module(&relative) {
+            continue;
+        }
         let code = code_of_file(&source::read(&path));
         let production: String = code
             .lines()
@@ -426,6 +434,14 @@ fn production_code() -> Vec<(String, String)> {
         out.push((relative, production));
     }
     out
+}
+
+/// Whether a path is one of the crate's test modules, by the naming convention it declares them under: `tests.rs`
+/// or `*_tests.rs`. A module file carries no `#[cfg(test)]` of its own — its parent declares it — so the sweep's
+/// line-cut cannot see that it is a test file.
+fn is_test_module(relative: &str) -> bool {
+    let name = relative.rsplit('/').next().unwrap_or(relative);
+    name == "tests.rs" || name.ends_with("_tests.rs")
 }
 
 /// A `pub use …;` line that re-exports one of the concrete release executors: a module handing the release

@@ -20,8 +20,9 @@ use forge::engine::qa_repair::{
 };
 use test_harness::source;
 
-/// The QA lane module: the only file that may turn a QA node into action.
-const QA_LANE: &str = "forge/src/roles/qa.rs";
+/// The QA lane module: the only file that may turn a QA node into action. It was `forge/src/roles/qa.rs` until
+/// 2026-10-13, when WO-406 moved the module root inside the `qa/` directory that already held its submodules.
+const QA_LANE: &str = "forge/src/roles/qa/mod.rs";
 
 /// Git mutation verbs as argument literals, the process spawn a lane would need to run git
 /// itself, and the release surface. A QA module naming any of these owns a git door.

@@ -633,7 +633,8 @@ fn arch_one_writer_004__forge_tool_artifact() {
         "migrations are not `.rs` and are inside the scan"
     );
     assert!(
-        is_scanned_path("db/src/forge_engine.rs") && is_scanned_path("forge/src/roles/smith.rs"),
+        is_scanned_path("db/src/forge_engine.rs")
+            && is_scanned_path("forge/src/roles/smith/mod.rs"),
         "a production file was left outside the scan"
     );
 

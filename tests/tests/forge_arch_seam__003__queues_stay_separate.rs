@@ -162,7 +162,9 @@ fn the_role_job_stack_never_touches_the_story_queue() {
         "forge/src/engine/executor/drive.rs",
         "forge/src/engine/executor/lane_failure.rs",
         "forge/src/engine/executor/wave.rs",
-        "forge/src/engine/job.rs",
+        // `engine/job.rs` became `engine/job/mod.rs` + `engine/job/workflow_service.rs` on 2026-10-13 (WO-406).
+        "forge/src/engine/job/mod.rs",
+        "forge/src/engine/job/workflow_service.rs",
         "forge/src/engine/runtime.rs",
     ]
     .iter()

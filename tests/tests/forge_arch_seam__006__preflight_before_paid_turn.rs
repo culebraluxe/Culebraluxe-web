@@ -165,7 +165,7 @@ fn the_lane_verifies_its_vendor_before_it_opens_a_run_builds_a_harness_or_drives
             && main[gate..gate + 200].contains("default_cli_bin()"),
         "the gate probes `opencode::default_cli_bin()`"
     );
-    let harness = production_code(&workspace_root().join("forge/src/engine/opencode.rs"));
+    let harness = production_code(&workspace_root().join("forge/src/engine/opencode/mod.rs"));
     assert!(
         harness.contains("cli_bin: default_cli_bin()"),
         "the harness runs `default_cli_bin()` — the binary the gate verified"

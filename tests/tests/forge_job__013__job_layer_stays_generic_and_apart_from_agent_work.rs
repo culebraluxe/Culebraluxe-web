@@ -1,7 +1,8 @@
 //! FORGE.JOB — the job layer stays generic, and stays apart from the story-level queue.
 //!
 //! Contract 11 (registry is lookup only), structural half: the PRODUCTION code of the JobService module
-//! (`forge/src/engine/job.rs`, everything above its `#[cfg(test)]`) and of the registry
+//! (`forge/src/engine/job/mod.rs` + `forge/src/engine/job/workflow_service.rs`, each above its own `#[cfg(test)]`;
+//! the module's tests moved beside the code in `engine/job/tests.rs` on 2026-10-13, WO-406) and of the registry
 //! (`forge/src/roles/registry.rs`) names no role, no Forge node, no lane enum and no node→lane map. Service
 //! identity reaches a job only through `task.service_key()` (the XML binding) and leaves it only through
 //! `registry.resolve(key)`. The executed half is `forge_job__011`. This is a tripwire: the day someone writes
@@ -68,11 +69,38 @@ const ROLE_VOCABULARY: &[&str] = &[
     "role_mapping",
 ];
 
+/// The generic role-job layer, as files. `engine/job.rs` became these two on 2026-10-13 (WO-406); the module's tests
+/// moved beside the code in `engine/job/tests.rs`, which the crate declares `#[cfg(test)]`, so the layer this rail
+/// reads is exactly these two roots.
+const JOB_LAYER: [&str; 2] = [
+    "forge/src/engine/job/mod.rs",
+    "forge/src/engine/job/workflow_service.rs",
+];
+
+/// The whole layer's production code, joined — the reading a single `job.rs` used to give.
+fn job_layer_code() -> String {
+    JOB_LAYER
+        .iter()
+        .map(|file| {
+            production_code(&workspace_root().join(file))
+                .into_iter()
+                .map(|(_, code)| code)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[test]
 fn the_job_service_and_registry_name_no_role_lane_or_node() {
     let root = workspace_root();
     let mut hits = Vec::new();
-    for file in ["forge/src/engine/job.rs", "forge/src/roles/registry.rs"] {
+    for file in JOB_LAYER
+        .iter()
+        .copied()
+        .chain(["forge/src/roles/registry.rs"])
+    {
         let path = root.join(file);
         assert!(
             !production_code(&path).is_empty(),
@@ -103,12 +131,7 @@ fn the_scan_detects_role_vocabulary_where_it_does_exist() {
 
 #[test]
 fn the_job_service_reaches_a_service_only_through_the_binding_and_the_registry() {
-    let path = workspace_root().join("forge/src/engine/job.rs");
-    let code: String = production_code(&path)
-        .into_iter()
-        .map(|(_, code)| code)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let code = job_layer_code();
     assert!(
         code.contains("service_key()"),
         "the bridge reads the XML binding"
@@ -126,16 +149,23 @@ fn the_job_service_reaches_a_service_only_through_the_binding_and_the_registry()
 #[test]
 fn role_jobs_and_story_level_agent_work_never_cross() {
     let root = workspace_root();
-    let job = root.join("forge/src/engine/job.rs");
     let agent_side = [
         "forge/src/engine/worker.rs",
         "forge/src/engine/agent_work.rs",
     ];
 
-    let job_hits = offending(
-        &job,
-        &["agent_work", "agent_work_item", "agentwork", "storyboard"],
-    );
+    let mut job_hits = Vec::new();
+    for file in JOB_LAYER {
+        let path = root.join(file);
+        assert!(
+            !production_code(&path).is_empty(),
+            "{file} must be read, not skipped"
+        );
+        job_hits.extend(offending(
+            &path,
+            &["agent_work", "agent_work_item", "agentwork", "storyboard"],
+        ));
+    }
     assert!(
         job_hits.is_empty(),
         "the role-job layer must not touch the story-level queue:\n{}",

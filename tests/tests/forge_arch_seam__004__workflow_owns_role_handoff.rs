@@ -164,9 +164,11 @@ fn no_role_module_calls_another_role_or_advances_workflow() {
         ("scout.rs", "ScoutService"),
         ("architect.rs", "ArchitectService"),
         ("lead.rs", "LeadService"),
-        ("smith.rs", "SmithService"),
+        // `smith.rs` and `qa.rs` became `smith/mod.rs` and `qa/mod.rs` on 2026-10-13 (WO-406): the same-named
+        // directories already held their submodules, and the module root moved inside. The lane is its root file.
+        ("smith/mod.rs", "SmithService"),
         ("inspector.rs", "InspectorService"),
-        ("qa.rs", "AssayService"),
+        ("qa/mod.rs", "AssayService"),
         ("dev_ops.rs", "DevOpsService"),
     ];
     let routing = [
