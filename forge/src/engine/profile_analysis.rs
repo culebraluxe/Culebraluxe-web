@@ -48,6 +48,12 @@ impl TurnKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TurnRecord {
     pub profile_id: String,
+    /// Which revision of that profile ran, as the turn's own row recorded it. Kept beside the id and never folded
+    /// into it: the id names the profile, the version says which revision of it produced these measurements, and a
+    /// population keyed on the name alone merges two revisions of one profile into a single figure — the same
+    /// collapse this module exists to undo one level down. `None` is a row that recorded no version, and it is its
+    /// own population: never `Some(1)`, and never re-derived from the name.
+    pub profile_version: Option<i32>,
     pub kind: TurnKind,
     /// Execution dimensions carried by the shared trajectory read. Missing values stay explicit so reports can keep
     /// legacy or partially measured rows in an `unknown` segment instead of silently dropping them.
@@ -74,6 +80,7 @@ pub struct TurnRecord {
 pub fn turn_record(row: &TurnTrajectoryRow) -> TurnRecord {
     TurnRecord {
         profile_id: row.harness_profile_id.clone(),
+        profile_version: row.profile_version,
         kind: TurnKind::of_role_attempt(row.role_attempt),
         provider: row.provider.clone(),
         model: row.model.clone(),
@@ -88,10 +95,15 @@ pub fn turn_record(row: &TurnTrajectoryRow) -> TurnRecord {
     }
 }
 
-/// One deterministic reporting population, segmented by the execution facts that explain a turn's measurement.
+/// One deterministic reporting population, segmented by the identity and execution facts that explain a turn's
+/// measurement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TurnSegmentKey {
     pub profile_id: String,
+    /// The profile's revision, part of the identity rather than one of the execution dimensions: a segment is one
+    /// profile AT one revision. Two revisions of the same profile are two populations, and a row whose revision was
+    /// never recorded keeps its own `unknown` one instead of joining a revision it cannot be shown to have run.
+    pub profile_version: Option<i32>,
     pub kind: TurnKind,
     pub provider: Option<String>,
     pub model: Option<String>,
@@ -109,14 +121,15 @@ pub struct TurnSegment {
     pub known_cost_usd: f64,
 }
 
-/// Group turns by provider, model, role, story work type and execution phase. BTreeMap ordering makes output stable
-/// across database row order and process runs.
+/// Group turns by profile identity (id and revision), provider, model, role, story work type and execution phase.
+/// BTreeMap ordering makes output stable across database row order and process runs.
 pub fn segment_turns(records: &[TurnRecord]) -> Vec<TurnSegment> {
     let mut groups: BTreeMap<TurnSegmentKey, Vec<&TurnRecord>> = BTreeMap::new();
     for record in records {
         groups
             .entry(TurnSegmentKey {
                 profile_id: record.profile_id.clone(),
+                profile_version: record.profile_version,
                 kind: record.kind,
                 provider: record.provider.clone(),
                 model: record.model.clone(),
@@ -353,6 +366,9 @@ mod tests {
     ) -> TurnRecord {
         TurnRecord {
             profile_id: profile.into(),
+            // No revision unless a test states one: a row that recorded none is an `unknown` population, and the
+            // helpers below must not quietly hand every fixture a revision it never had.
+            profile_version: None,
             kind,
             provider: None,
             model: None,
@@ -667,6 +683,11 @@ mod tests {
         graded.cost_usd = Some(0.75);
         let record = turn_record(&graded);
         assert_eq!(record.profile_id, "smith-structured-v3");
+        assert_eq!(
+            record.profile_version,
+            Some(3),
+            "the revision comes off the row, beside the id rather than folded into it"
+        );
         assert_eq!(record.kind, TurnKind::Repair);
         assert_eq!(record.provider.as_deref(), Some("anthropic"));
         assert_eq!(record.model.as_deref(), Some("claude-sonnet"));
@@ -705,5 +726,34 @@ mod tests {
         assert_eq!(segments[0].key.execution_phase.as_deref(), Some("build"));
         assert_eq!(segments[1].key.provider.as_deref(), Some("openai"));
         assert_eq!(segments[1].key.execution_phase.as_deref(), Some("repair"));
+    }
+
+    #[test]
+    fn reporting_segments_keep_two_revisions_of_one_profile_apart() {
+        // One profile, two revisions. The id names the profile and the revision says which one ran: a population keyed
+        // on the name alone would state a cost neither revision charged, because the v1 turn's spend is presented as
+        // the v2 profile's. A row that recorded no revision is a third population, not a member of either.
+        let mut first_revision = first("smith-structured", Some(1.0), true, Some(100));
+        first_revision.profile_version = Some(1);
+        let mut second_revision = first_revision.clone();
+        second_revision.profile_version = Some(2);
+        let mut unversioned = first_revision.clone();
+        unversioned.profile_version = None;
+
+        let segments = segment_turns(&[second_revision, unversioned, first_revision]);
+
+        assert_eq!(segments.len(), 3, "each revision is its own population");
+        assert_eq!(
+            segments
+                .iter()
+                .map(|segment| segment.key.profile_version)
+                .collect::<Vec<_>>(),
+            vec![None, Some(1), Some(2)],
+            "the absent revision sorts first and stays distinct from every recorded one"
+        );
+        assert!(segments.iter().all(|segment| segment.turns == 1));
+        assert!(segments
+            .iter()
+            .all(|segment| segment.key.profile_id == "smith-structured"));
     }
 }

@@ -69,8 +69,14 @@ pub fn render(comparisons: &[ProfileComparison], segments: &[TurnSegment]) -> St
     }
     if !segments.is_empty() {
         lines.push(String::new());
-        lines.push("segments by provider / model / role / work type / execution phase".into());
-        lines.push("profile | provider | model | role | work type | phase | turn | turns | accepted | known spend".into());
+        lines.push(
+            "segments by profile revision / provider / model / role / work type / execution phase"
+                .into(),
+        );
+        lines.push(
+            "profile | revision | provider | model | role | work type | phase | turn | turns | accepted | known spend"
+                .into(),
+        );
         for segment in segments {
             lines.push(segment_row(segment));
             any_unpriced |= segment.unpriced_turns > 0;
@@ -96,8 +102,9 @@ fn segment_row(segment: &TurnSegment) -> String {
         segment.turns,
     );
     format!(
-        "{} | {} | {} | {} | {} | {} | {} | {} | {} | {}",
+        "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}",
         key.profile_id,
+        revision(key.profile_version),
         dimension(key.provider.as_deref()),
         dimension(key.model.as_deref()),
         dimension(key.role.as_deref()),
@@ -108,6 +115,15 @@ fn segment_row(segment: &TurnSegment) -> String {
         segment.accepted,
         known_spend,
     )
+}
+
+/// The profile's revision, or `unknown` when the row it came from recorded none. A revision the store never read is
+/// printed as `unknown` and is never filled in from the profile's name, which is a different fact.
+fn revision(value: Option<i32>) -> String {
+    match value {
+        Some(value) => value.to_string(),
+        None => "unknown".to_string(),
+    }
 }
 
 fn dimension(value: Option<&str>) -> &str {
@@ -359,6 +375,7 @@ mod tests {
         let segment = TurnSegment {
             key: TurnSegmentKey {
                 profile_id: "smith-v1".into(),
+                profile_version: Some(2),
                 kind: TurnKind::Repair,
                 provider: Some("anthropic".into()),
                 model: Some("claude".into()),
@@ -373,10 +390,41 @@ mod tests {
         };
         let rendered = render(&[comparison(1, 0.5, Some(0.5))], &[segment]);
 
-        assert!(
-            rendered.contains("segments by provider / model / role / work type / execution phase")
-        );
-        assert!(rendered.contains("anthropic | claude | smith | feature | build | repair | 2 | 1"));
+        assert!(rendered.contains(
+            "segments by profile revision / provider / model / role / work type / execution phase"
+        ));
+        assert!(rendered.contains(
+            "smith-v1 | 2 | anthropic | claude | smith | feature | build | repair | 2 | 1"
+        ));
         assert!(rendered.contains("$0.5000 (+1 unknown)"));
+    }
+
+    #[test]
+    fn a_row_whose_revision_was_never_recorded_renders_unknown() {
+        // The store's own read, shown as it is: a revision column with nothing in it is reported as nothing. The name
+        // happens to end in `-v2` and that is still not a revision — the id is a different fact, and a report that
+        // reads it out of the name reports a revision the row never carried.
+        let segment = TurnSegment {
+            key: TurnSegmentKey {
+                profile_id: "smith-structured-v2".into(),
+                profile_version: None,
+                kind: TurnKind::First,
+                provider: Some("opencode".into()),
+                model: None,
+                role: None,
+                work_type: None,
+                execution_phase: None,
+            },
+            turns: 1,
+            accepted: 1,
+            unpriced_turns: 0,
+            known_cost_usd: 0.25,
+        };
+        let rendered = render(&[comparison(1, 0.25, Some(0.25))], &[segment]);
+
+        assert!(
+            rendered.contains("smith-structured-v2 | unknown | opencode"),
+            "an unrecorded revision renders as unknown: {rendered}"
+        );
     }
 }
