@@ -51,6 +51,9 @@ pub struct OutgoingMail {
     pub text: String,
     pub html: Option<String>,
     pub reply_to: Option<String>,
+    /// Hidden copies to these addresses. They reach the mailboxes but not the `To` line, and lettre keeps them out of
+    /// the message headers, so the recipient cannot see them.
+    pub bcc: Vec<String>,
     pub attachments: Vec<MailAttachment>,
 }
 
@@ -185,6 +188,12 @@ pub fn build_message(config: &MailConfig, mail: &OutgoingMail) -> Result<Message
             MailError::Rejected(format!("the reply-to address is invalid: {error}"))
         })?;
         builder = builder.reply_to(reply_to);
+    }
+    for bcc in &mail.bcc {
+        let bcc: Mailbox = bcc
+            .parse()
+            .map_err(|error| MailError::Rejected(format!("the bcc address is invalid: {error}")))?;
+        builder = builder.bcc(bcc);
     }
     let body_parts = |html: &str| {
         MultiPart::alternative()
@@ -365,11 +374,40 @@ mod tests {
             text: "Hello".into(),
             html: Some("<p>Hello</p>".into()),
             reply_to: Some("lisa@culebraluxe.com".into()),
+            bcc: Vec::new(),
             attachments: Vec::new(),
         };
         let raw = String::from_utf8(build_message(&config, &mail).unwrap().formatted()).unwrap();
         assert!(raw.contains("From: CulebraLuxe <lisa@culebraluxe.com>"));
         assert!(raw.contains("To: buyer@example.com"));
         assert!(raw.contains("text/html"));
+    }
+
+    #[test]
+    fn a_bcc_reaches_the_envelope_and_never_the_headers() {
+        let config = config(&[
+            ("ICLOUD_MAIL_ADDRESS", "lisa@culebraluxe.com"),
+            ("ICLOUD_SMTP_APP_PASSWORD", "x"),
+        ])
+        .unwrap();
+        let mail = OutgoingMail {
+            to: "buyer@example.com".into(),
+            subject: "Sign here".into(),
+            text: "Hello".into(),
+            html: None,
+            reply_to: None,
+            bcc: vec!["culebraluxe@gmail.com".into(), "lisa@culebraluxe.com".into()],
+            attachments: Vec::new(),
+        };
+        let message = build_message(&config, &mail).unwrap();
+        let envelope = message.envelope();
+        for copy in ["culebraluxe@gmail.com", "lisa@culebraluxe.com"] {
+            assert!(envelope
+                .to()
+                .iter()
+                .any(|address| address.to_string() == copy));
+        }
+        let raw = String::from_utf8(message.formatted()).unwrap();
+        assert!(!raw.contains("culebraluxe@gmail.com"));
     }
 }
