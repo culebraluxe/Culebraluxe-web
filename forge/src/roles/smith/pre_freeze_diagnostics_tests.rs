@@ -13,9 +13,12 @@ use std::sync::Mutex;
 
 const BASE: &str = "1111111111111111111111111111111111111111";
 const AFTER: &str = "2222222222222222222222222222222222222222";
-const WORKTREE: &str = "/worktrees/story-1";
+/// A temp path, the way every other `ExecutionWorkspace` fixture in this tree names one. It deliberately does NOT
+/// name the deleted per-lane worktree estate's directory: `cli/src/forge/repo_guards.rs` scans for that shape and
+/// fails any file that re-introduces it, and a fixture that merely needs *a* path has no business naming it.
+const WORKTREE: &str = "/tmp/wt-story-1";
 const METADATA: &str =
-    "cargo metadata --no-deps --format-version 1 --manifest-path /worktrees/story-1/Cargo.toml";
+    "cargo metadata --no-deps --format-version 1 --manifest-path /tmp/wt-story-1/Cargo.toml";
 /// What a compiler says, so a refusal that quotes it can be checked for quoting it.
 const COMPILER_SAYS: &str = "error[E0425]: cannot find value `x` in this scope";
 
@@ -156,7 +159,7 @@ impl RoleHarness for Worktree {
                 None => self.result(
                     command,
                     false,
-                    "error: could not find `Cargo.toml` in `/worktrees/story-1` or any parent directory",
+                    "error: could not find `Cargo.toml` in `/tmp/wt-story-1` or any parent directory",
                     "",
                 ),
             };
