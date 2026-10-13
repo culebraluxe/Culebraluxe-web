@@ -88,8 +88,10 @@ const SELF: &str = "tests/tests/arch_boundary__011__qa_cannot_own_git_mutations.
 /// new test that names a verb is still covered by every other section of this guard.
 const TEST_TREE: &str = "tests/";
 
-/// Every `.rs` file in the tree whose name says QA — the surface that may own no git door. Pinned as a set:
-/// a new QA module fails here until it is added, and once added it is scanned.
+/// Every `.rs` file in the tree whose name says QA — or whose DIRECTORY says QA, for a module root — the
+/// surface that may own no git door. Pinned as a set: a new QA module fails here until it is added, and once
+/// added it is scanned. `roles/qa/mod.rs` carries the lane WO-406 moved out of `roles/qa.rs`; the pin names
+/// the new spelling so the rename is recorded rather than silently shrinking the surface.
 const QA_SURFACE: [&str; 8] = [
     "forge/src/engine/assay.rs",
     "forge/src/engine/qa_adjudicate.rs",
@@ -98,7 +100,7 @@ const QA_SURFACE: [&str; 8] = [
     "forge/src/engine/qa_plan.rs",
     "forge/src/engine/qa_repair.rs",
     "forge/src/qa_consistency.rs",
-    "forge/src/roles/qa.rs",
+    "forge/src/roles/qa/mod.rs",
 ];
 
 /// What the QA surface may not name in its code: the git binary and the mutating subcommands, the read-only
@@ -399,12 +401,51 @@ fn literals(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// The stem of a file the QA surface is read from: `qa…` or `assay…`.
+fn is_qa_surface_stem(stem: &str) -> bool {
+    stem.starts_with("qa") || stem.starts_with("assay")
+}
+
 /// A file NAME the QA surface is read from: an `.rs` file whose stem starts with `qa` or `assay`.
 fn is_qa_surface_name(name: &str) -> bool {
     let Some(stem) = name.strip_suffix(".rs") else {
         return false;
     };
-    stem.starts_with("qa") || stem.starts_with("assay")
+    is_qa_surface_stem(stem)
+}
+
+/// Whether a path is one of the crate's TEST modules, by the naming convention it declares them under:
+/// `tests.rs` or `*_tests.rs`. A module file carries no `#[cfg(test)]` of its own — its parent declares it —
+/// so a sweep that cuts lines on `#[cfg(test)]`, or that reads file names for production code, cannot see
+/// that the file is a test. WO-406 (2026-10-13) extracted `engine/job/tests.rs` and this sweep read it as a
+/// production file naming the nodes of every lane. Same rule, same reason as `arch_boundary__012`.
+fn is_test_module(relative: &str) -> bool {
+    let name = relative.rsplit('/').next().unwrap_or(relative);
+    name == "tests.rs" || name.ends_with("_tests.rs")
+}
+
+/// Whether a PATH belongs to the QA surface — the name rule above, plus the module root it is silent about:
+/// `roles/qa/mod.rs` is the QA lane exactly as `roles/qa.rs` was, and it is the DIRECTORY that says so.
+/// Without this half the surface is read from file names alone, so a rename into a directory takes a QA
+/// module out of the sweep and the guard goes green by losing sight of its subject — the one failure mode
+/// this file exists to refuse. WO-406 (2026-10-13) did exactly that to `roles/qa.rs`.
+fn is_qa_surface_path(path: &Path) -> bool {
+    let Some(name) = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+    else {
+        return false;
+    };
+    let Some(stem) = name.strip_suffix(".rs") else {
+        return false;
+    };
+    if stem != "mod" {
+        return is_qa_surface_stem(stem);
+    }
+    path.parent()
+        .and_then(|dir| dir.file_name())
+        .map(|dir| is_qa_surface_stem(&dir.to_string_lossy()))
+        .unwrap_or(false)
 }
 
 /// Every `.rs` file under `rust/`, excluding the file that runs this scan, as (relative path, code).
@@ -420,15 +461,13 @@ fn workspace_code() -> Vec<(String, String)> {
     out
 }
 
-/// The QA surface as the tree declares it: every `.rs` file whose name says QA, sorted.
+/// The QA surface as the tree declares it: every `.rs` file whose name — or, for a module root, whose
+/// DIRECTORY name — says QA, sorted. The directory half is what keeps a QA lane in the sweep when it is
+/// written as `<lane>/mod.rs` instead of `<lane>.rs`.
 fn qa_surface() -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for (path, _) in workspace_code() {
-        let name = Path::new(&path)
-            .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_default();
-        if is_qa_surface_name(&name) {
+        if is_qa_surface_path(Path::new(&path)) {
             out.insert(path);
         }
     }
@@ -577,6 +616,29 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
     assert!(
         !is_qa_surface_name("aqua.rs"),
         "a stem that merely starts with `a` is not QA"
+    );
+
+    // The module root, where the DIRECTORY is the name: a rename into a directory may not take the QA lane
+    // out of the sweep, and a module root in any other lane is not QA.
+    assert!(
+        is_qa_surface_path(Path::new("forge/src/roles/qa/mod.rs")),
+        "`roles/qa/mod.rs` is the QA lane the day it is spelled `mod.rs`"
+    );
+    assert!(
+        !is_qa_surface_path(Path::new("forge/src/roles/smith/mod.rs")),
+        "a module root in a lane that is not QA is not the QA surface"
+    );
+    assert!(
+        !is_qa_surface_path(Path::new("forge/src/roles/qa/tests.rs")),
+        "a test module inside a QA directory is a test, not production QA code"
+    );
+    assert!(
+        is_test_module("forge/src/engine/job/tests.rs") && is_test_module("a/b_x_tests.rs"),
+        "the crate's test-module naming convention is `tests.rs` / `*_tests.rs`"
+    );
+    assert!(
+        !is_test_module("forge/src/engine/job/workflow_service.rs"),
+        "a production module beside a test module is production code"
     );
 
     // The node-table detector, in both directions: routing that names two lanes is not a table; a match that
@@ -824,10 +886,12 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
     );
 
     // No second node table. The binding is the definition's; a production file that names the nodes of most
-    // lanes is that table typed out again in Rust.
+    // lanes is that table typed out again in Rust. A test module is not production code: `job/tests.rs` names
+    // every lane because it drives them, and a module file carries no `#[cfg(test)]` of its own for the
+    // line-cut to see — its parent declares it.
     let mut tables: BTreeMap<String, BTreeSet<&str>> = BTreeMap::new();
     for (path, code) in &swept {
-        if !path.starts_with("forge/src/") {
+        if !path.starts_with("forge/src/") || is_test_module(path) {
             continue;
         }
         let named = lanes_named_by(code);
@@ -872,7 +936,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
     // ── 4. NO HANDLE: the QA lane exports verification, the release handle is built in one place. ──────────
 
     assert_eq!(
-        role_exports("forge/src/roles/qa.rs"),
+        role_exports("forge/src/roles/qa/mod.rs"),
         QA_LANE_EXPORTS.iter().map(|path| path.to_string()).collect::<BTreeSet<String>>(),
         "the QA lane module's exports are pinned: four verification items, no release handle. An export added \
          here is the QA lane being handed a capability it may not own"
