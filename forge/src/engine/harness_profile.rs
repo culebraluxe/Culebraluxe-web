@@ -86,7 +86,7 @@ pub struct HarnessProfile {
     ///
     /// LIVE. The one piece of context Forge composes and re-sends is the corrective directive for the NEXT
     /// attempt, and this policy decides what survives into it
-    /// (`self_heal::build_self_heal_directive_contextual`, called by `roles::lifecycle` with the SAME resolved
+    /// (`self_heal::build_self_heal_directive_contextual_report`, called by `roles::lifecycle` with the SAME resolved
     /// profile that the attempt's harness was handed). No other prompt is Forge's to trim: the provider builds
     /// those, and Forge does not claim a budget it cannot apply.
     pub context_policy: ContextPolicy,

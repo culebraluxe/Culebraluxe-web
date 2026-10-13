@@ -1,8 +1,10 @@
 //! Context pressure policy: which parts of an execution's context may be removed, in what order, and when.
 //!
-//! This is the DECISION layer only. It takes the context items of one execution and answers what must happen to them at
-//! the current pressure. It does not own a conversation: the vendor builds each prompt, so applying these decisions to a
-//! live turn is a separate step that depends on what the vendor exposes. Until then nothing here changes behavior.
+//! LIVE, and only where Forge owns the context it re-sends: the corrective directive for the NEXT attempt. The resolved
+//! `HarnessProfile::context_policy` is handed to that composition by `roles::lifecycle`
+//! (`self_heal::build_self_heal_directive_contextual_report`), so what this module decides is what survives into the
+//! repair the model is actually given. It still does not own a conversation: the vendor builds every other prompt, and
+//! Forge does not claim a budget it cannot apply.
 //!
 //! THE RULES:
 //! - AUTHORITATIVE items are never removed or summarized away. They are the work order, acceptance criteria, the

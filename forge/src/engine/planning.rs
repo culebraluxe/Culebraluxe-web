@@ -12,7 +12,10 @@
 //! unresolved, and candidate preparation is complete. The model does not decide whether QA passes; it only decides whether
 //! its own work is ready to produce a candidate.
 //!
-//! This module renders and checks. Injecting the scaffold into a live prompt is a separate, later step.
+//! LIVE at the prompt seam. The scaffold is composed INTO the live task text: `packet::TaskText::for_profile` reads the
+//! resolved profile's `planning_policy`, and a seam handed no profile reads the node's own lane grant
+//! (`harness_profile::policy_for_node`) rather than inventing a policy. A lane whose policy resolves to `None` gets no
+//! scaffold, which is the fail-closed direction for a grant that was never made.
 
 use serde::{Deserialize, Serialize};
 
