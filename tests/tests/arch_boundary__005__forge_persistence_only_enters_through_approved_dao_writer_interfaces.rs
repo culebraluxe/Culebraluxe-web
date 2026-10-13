@@ -162,6 +162,17 @@ fn production_lines(text: &str) -> Vec<(usize, String)> {
     out
 }
 
+/// A test module's fixture strings are not statements Forge makes.
+///
+/// `tests.rs` / `*_tests.rs` carries no `#[cfg(test)]` of its own — its parent declares it — so `production_lines`
+/// cannot see that every line of the file belongs to a test. WO-406 (2026-10-13) split `engine/opencode.rs` into
+/// `engine/opencode/mod.rs` + `engine/opencode/tests.rs`, and this sweep read the fixture's `DATABASE_URL_PROD` as a
+/// database client living in Forge. Same rule, same reason as `arch_boundary__011` and `arch_boundary__012`.
+fn is_test_module(relative: &str) -> bool {
+    let name = relative.rsplit('/').next().unwrap_or(relative);
+    name == "tests.rs" || name.ends_with("_tests.rs")
+}
+
 /// A statement names what it acts on; a vocabulary does not.
 ///
 /// `"create table"` by itself is a marker word — Forge's threat vocabulary (`CANONICAL_THREAT_MARKERS`) is a list
@@ -209,6 +220,11 @@ fn arch_boundary_005__forge_persistence_only_enters_through_approved_dao_writer_
         }
         let view = production_lines(&text);
         logical_lines += view.len();
+        // The floors below count every file — they measure that the view read the crate at all. The FINDINGS do not:
+        // a test module is not production code, and a fixture is not a statement Forge makes.
+        if is_test_module(&source::relative(path)) {
+            continue;
+        }
         for (number, code) in view {
             if let Some(what) = direct_db_access(&code) {
                 findings.push(format!(
@@ -367,9 +383,10 @@ fn arch_boundary_005__forge_persistence_only_enters_through_approved_dao_writer_
         "the same phrase naming what it acts on is a statement, and a statement in Forge is a finding"
     );
 
-    // (b) A `#[cfg(test)]` item quotes statements on purpose — `status.rs` has two such fixtures and
-    //     `engine/opencode.rs` holds `postgres://prod` — so the view drops the item *and keeps the rest of the
-    //     file*, which is the half that could quietly hide a real statement.
+    // (b) A `#[cfg(test)]` item quotes statements on purpose — `status.rs` has two such fixtures — so the view drops
+    //     the item *and keeps the rest of the file*, which is the half that could quietly hide a real statement. A
+    //     whole test module is the same thing written as a file: `engine/opencode/tests.rs` (WO-406) holds the
+    //     `postgres://prod` fixture this guard used to read out of `engine/opencode.rs`, and it is skipped by name.
     let sample = "#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {\n        let fixture = \"create table fixture_queue (id text)\";\n    }\n}\nfn production() {\n    let sql = \"create table pianola_queue (id text)\";\n}\n";
     let view = production_lines(sample);
     assert!(
@@ -380,6 +397,15 @@ fn arch_boundary_005__forge_persistence_only_enters_through_approved_dao_writer_
         view.iter()
             .any(|(_, line)| direct_db_access(line).is_some()),
         "production code after a `#[cfg(test)]` item is still read: {view:?}"
+    );
+    assert!(
+        is_test_module("forge/src/engine/opencode/tests.rs") && is_test_module("a/b_x_tests.rs"),
+        "the crate's test-module naming convention is `tests.rs` / `*_tests.rs`"
+    );
+    assert!(
+        !is_test_module("forge/src/engine/opencode/mod.rs")
+            && !is_test_module("forge/src/engine/opencode/latest.rs"),
+        "a production module beside a test module is production code"
     );
 
     // (c) A statement wrapped across `\` continuations is one statement. This is the shape `status.rs` held
