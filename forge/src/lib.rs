@@ -6,6 +6,10 @@
 pub mod engine;
 pub mod evidence;
 pub mod execution;
+// The binaries' observability seam: one subscriber, installed once per process, so the engine's `tracing` events
+// reach an operator's stderr instead of being dropped for want of a subscriber. `web/src/observability.rs` is the
+// HTTP process's half of the same decision; both use `try_init`, so a process that links both keeps the first.
+pub mod observability;
 pub mod pianola;
 pub mod release;
 pub mod roles;

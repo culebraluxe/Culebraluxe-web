@@ -47,6 +47,8 @@ fn engine() -> WorkflowEngine<NeonStore> {
 }
 
 fn main() {
+    // The engine's events render on stderr from here on.
+    forge::observability::init();
     let args: Vec<String> = env::args().collect();
     let cmd = args.get(1).map(String::as_str).unwrap_or("help");
     let r = match cmd {

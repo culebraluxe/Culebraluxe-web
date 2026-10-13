@@ -25,7 +25,6 @@
 //! file, so a test can run a Smith-family node through the default hooks and prove no Smith behavior.
 
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
-use crate::engine::runner::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::harness::HarnessUsage;
 use crate::engine::hold::{
@@ -33,6 +32,7 @@ use crate::engine::hold::{
 };
 use crate::engine::observer::record_forge_observer;
 use crate::engine::phase::RoleEffectPorts;
+use crate::engine::runner::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::runner::{ForgeTurnPorts, HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::self_heal::{attempt_budget, build_self_heal_directive};
@@ -459,7 +459,7 @@ pub fn run_forge_role_turn(
             "role.completed",
             &format!("node={node_id}"),
         ) {
-            eprintln!("{}", observer_write_warning(node_id, &error));
+            tracing::warn!("{}", observer_write_warning(node_id, &error));
         }
     }
 
@@ -643,18 +643,22 @@ fn record_turn_usage(
 ) -> Result<()> {
     let story_id = task.story_id.as_str();
     if let Some(usage) = usage {
-        eprintln!(
-            "spend story={story_id} node={node_id} run={} tokens_in={} tokens_out={} cost_usd={:.6} session={}",
-            ctx.story_run_id.unwrap_or("(none)"),
-            usage.tokens_input,
-            usage.tokens_output,
-            usage.cost_usd,
-            usage.session_id
+        tracing::info!(
+            story = %story_id,
+            node = %node_id,
+            run = %ctx.story_run_id.unwrap_or("(none)"),
+            tokens_in = usage.tokens_input,
+            tokens_out = usage.tokens_output,
+            cost_usd = %format!("{:.6}", usage.cost_usd),
+            session = %usage.session_id,
+            "spend"
         );
     } else {
-        eprintln!(
-            "spend story={story_id} node={node_id} run={} usage=unknown",
-            ctx.story_run_id.unwrap_or("(none)")
+        tracing::info!(
+            story = %story_id,
+            node = %node_id,
+            run = %ctx.story_run_id.unwrap_or("(none)"),
+            "spend usage=unknown"
         );
     }
     // What the turn did, keyed by the turn's own identity. Measurement only.

@@ -278,19 +278,47 @@ fn execute_claimed_job_unsettled_with_deadline(
         let instance_for_log = lease.process_instance_id.clone();
         let attempt_for_log = lease.attempts;
         Some(Arc::new(move |reason: &str| {
-            eprintln!(
-                "forge-interrupt story={story_for_log} instance={instance_for_log} task={task_for_log} job={job_for_log} attempt={attempt_for_log} execution={execution_for_log} requested=true reason={reason}"
+            tracing::info!(
+                story = %story_for_log,
+                instance = %instance_for_log,
+                task = %task_for_log,
+                job = %job_for_log,
+                attempt = attempt_for_log,
+                execution = %execution_for_log,
+                reason = %reason,
+                "forge-interrupt requested=true"
             );
             match harness.interrupt_execution_scoped(&execution_for_log, reason) {
-                Ok(Some(receipt)) => eprintln!(
-                    "forge-interrupt story={story_for_log} instance={instance_for_log} task={task_for_log} job={job_for_log} attempt={attempt_for_log} execution={execution_for_log} delivered=true existed={} killed={} signalled={:?}",
-                    receipt.existed, receipt.killed, receipt.signalled
+                Ok(Some(receipt)) => tracing::info!(
+                    story = %story_for_log,
+                    instance = %instance_for_log,
+                    task = %task_for_log,
+                    job = %job_for_log,
+                    attempt = attempt_for_log,
+                    execution = %execution_for_log,
+                    existed = receipt.existed,
+                    killed = receipt.killed,
+                    signalled = ?receipt.signalled,
+                    "forge-interrupt delivered=true"
                 ),
-                Ok(None) => eprintln!(
-                    "forge-interrupt story={story_for_log} instance={instance_for_log} task={task_for_log} job={job_for_log} attempt={attempt_for_log} execution={execution_for_log} delivered=no_live_process_or_latched_before_launch"
+                Ok(None) => tracing::info!(
+                    story = %story_for_log,
+                    instance = %instance_for_log,
+                    task = %task_for_log,
+                    job = %job_for_log,
+                    attempt = attempt_for_log,
+                    execution = %execution_for_log,
+                    "forge-interrupt delivered=no_live_process_or_latched_before_launch"
                 ),
-                Err(error) => eprintln!(
-                    "forge-interrupt story={story_for_log} instance={instance_for_log} task={task_for_log} job={job_for_log} attempt={attempt_for_log} execution={execution_for_log} delivery_error={error}"
+                Err(error) => tracing::warn!(
+                    story = %story_for_log,
+                    instance = %instance_for_log,
+                    task = %task_for_log,
+                    job = %job_for_log,
+                    attempt = attempt_for_log,
+                    execution = %execution_for_log,
+                    error = %error,
+                    "forge-interrupt delivery_error"
                 ),
             }
         }) as InterruptHandle)
@@ -330,9 +358,10 @@ fn execute_claimed_job_unsettled_with_deadline(
             // gone) leaves the row Locked for stale-lease recovery, and says so instead of vanishing.
             if let Err(settle) = jobs.fail(&lease.job_id, worker_id, &error.to_string(), permanent)
             {
-                eprintln!(
-                    "forge-job: job {} could not be settled after its role failed ({settle}); stale-lease recovery will reclaim it",
-                    lease.job_id
+                tracing::warn!(
+                    job = %lease.job_id,
+                    settle_error = %settle,
+                    "forge-job: the job could not be settled after its role failed; stale-lease recovery will reclaim it"
                 );
             }
             Err(error)
@@ -443,9 +472,11 @@ fn run_with_lease_heartbeat_interval<T>(
                                 .lock()
                                 .unwrap_or_else(|poisoned| poisoned.into_inner());
                             *failures += 1;
-                            eprintln!(
-                                "forge-job-heartbeat transient failure job={job_id_owned} (consecutive={}): {error}",
-                                *failures
+                            tracing::warn!(
+                                job = %job_id_owned,
+                                consecutive = *failures,
+                                error = %error,
+                                "forge-job-heartbeat transient failure"
                             );
                             if *failures >= heartbeat_state.config.max_consecutive_db_failures {
                                 if let Some(interrupt) = &heartbeat_state.interrupt {
@@ -517,12 +548,16 @@ fn run_with_lease_heartbeat_interval<T>(
     if let Some(error) = heartbeat_error {
         authority_failures.push(error.to_string());
         if work_result.is_ok() {
-            eprintln!(
-                "forge-job: job {job_id} lost its lease after role completed; outcome preserved for reconciliation: {error}"
+            tracing::warn!(
+                job = %job_id,
+                error = %error,
+                "forge-job: lost its lease after the role completed; outcome preserved for reconciliation"
             );
         } else {
-            eprintln!(
-                "forge-job: job {job_id} lost its lease and the role returned an interruption/failure; no business outcome was accepted: {error}"
+            tracing::warn!(
+                job = %job_id,
+                error = %error,
+                "forge-job: lost its lease and the role returned an interruption/failure; no business outcome was accepted"
             );
         }
     }
@@ -535,8 +570,10 @@ fn run_with_lease_heartbeat_interval<T>(
     let final_heartbeat_error = jobs.heartbeat(&job_id, &worker_id).err();
     if let Some(error) = final_heartbeat_error {
         authority_failures.push(format!("final ownership renewal failed: {error}"));
-        eprintln!(
-            "forge-job: job {job_id} final ownership renewal failed; outcome preserved for reconciliation: {error}"
+        tracing::warn!(
+            job = %job_id,
+            error = %error,
+            "forge-job: final ownership renewal failed; outcome preserved for reconciliation"
         );
     }
 

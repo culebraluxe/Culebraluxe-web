@@ -131,9 +131,13 @@ impl RoleHarness for OpenCodeHarness {
             running
         };
         let termination = running.terminate();
-        eprintln!(
-            "opencode-harness interrupted pid={} reason={reason} existed={} killed={} signalled={:?}",
-            running.pid, termination.existed, termination.killed, termination.signalled
+        tracing::info!(
+            pid = running.pid,
+            reason = %reason,
+            existed = termination.existed,
+            killed = termination.killed,
+            signalled = ?termination.signalled,
+            "opencode-harness interrupted"
         );
         Ok(Some(termination))
     }
@@ -152,13 +156,22 @@ impl RoleHarness for OpenCodeHarness {
             turn.running
         };
         let Some(running) = running else {
-            eprintln!("forge-interrupt execution={execution_id} requested=true delivered=pending reason={reason}");
+            tracing::info!(
+                execution = %execution_id,
+                reason = %reason,
+                "forge-interrupt requested=true delivered=pending"
+            );
             return Ok(None);
         };
         let termination = running.terminate();
-        eprintln!(
-            "forge-interrupt execution={execution_id} requested=true delivered=true pid={} existed={} killed={} signalled={:?} reason={reason}",
-            running.pid, termination.existed, termination.killed, termination.signalled
+        tracing::info!(
+            execution = %execution_id,
+            pid = running.pid,
+            existed = termination.existed,
+            killed = termination.killed,
+            signalled = ?termination.signalled,
+            reason = %reason,
+            "forge-interrupt requested=true delivered=true"
         );
         Ok(Some(termination))
     }

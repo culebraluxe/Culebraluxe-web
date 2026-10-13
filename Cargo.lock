@@ -818,6 +818,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "uuid",
  "wait-timeout",
  "workflow",

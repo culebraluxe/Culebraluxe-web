@@ -349,19 +349,21 @@ impl OpenCodeHarness {
         // The subagent gate is stated in the log for EVERY turn, both postures. The disarmed line says the
         // recorded spend is the whole turn; the armed line says it is a lower bound, because that is the
         // measured behaviour (`harness_usage`). A silence here would be the one place an undercount could hide.
-        eprintln!(
-            "opencode-harness node={node_id} agent={agent} {}",
+        tracing::info!(
+            node = %node_id,
+            agent = %agent,
+            "opencode-harness {}",
             opencode_agents::render_subagent_declaration(
                 opencode_agents::subagents_enabled_from_env(),
-                std::env::var(opencode_agents::SUBAGENTS_ENV)
-                    .ok()
-                    .as_deref(),
+                std::env::var(opencode_agents::SUBAGENTS_ENV).ok().as_deref(),
             )
         );
         // Execution receipt, before the first model token is spent: what runs, where, as whom.
-        eprintln!(
-            "harness=opencode model={} bin={} cwd={}",
-            self.model, self.cli_bin, cwd
+        tracing::info!(
+            model = %self.model,
+            bin = %self.cli_bin,
+            cwd = %cwd,
+            "harness=opencode"
         );
         // The config travels with the process (§3): a worktree does not discover the repo-root `opencode.json`,
         // so environment delivery is the path that actually applies.
@@ -466,9 +468,11 @@ impl OpenCodeHarness {
                 Ok(()) => parse_failures = 0,
                 Err(error) => {
                     parse_failures += 1;
-                    eprintln!(
-                        "opencode-harness: stream line failed to parse \
-                         ({parse_failures}/{STREAM_PARSE_FAILURE_CAP}): {error}"
+                    tracing::warn!(
+                        failures = parse_failures,
+                        cap = STREAM_PARSE_FAILURE_CAP,
+                        error = %error,
+                        "opencode-harness: stream line failed to parse"
                     );
                     if let Some(stop) = stream_parse_trip(parse_failures) {
                         return Some(stop);
@@ -497,16 +501,18 @@ impl OpenCodeHarness {
         // The heartbeat Forge actually observed. Recorded, never acted on: the loop counts the intervals in which
         // the vendor said nothing, and silence is not a verdict — a long tool call is silent and healthy.
         if result.silent_ticks > 0 || result.stop.is_some() {
-            eprintln!(
-                "opencode-harness turn node={node_id} lines={} last_line_ms={} silent_ticks={} stopped_by={}",
-                result.lines,
-                result.last_line_ms,
-                result.silent_ticks,
-                result
-                    .stop
-                    .as_ref()
-                    .map(|stop| stop.code.as_str())
-                    .unwrap_or("(none)")
+            let stopped_by = result
+                .stop
+                .as_ref()
+                .map(|stop| stop.code.as_str())
+                .unwrap_or("(none)");
+            tracing::info!(
+                node = %node_id,
+                lines = result.lines,
+                last_line_ms = result.last_line_ms,
+                silent_ticks = result.silent_ticks,
+                stopped_by = %stopped_by,
+                "opencode-harness turn"
             );
         }
         // A stop from OUTSIDE the turn leaves no `stop` in the result: the process simply died, and without this it
@@ -518,9 +524,10 @@ impl OpenCodeHarness {
             reason
         });
         if let Some(reason) = interrupt_reason.as_deref() {
-            eprintln!(
-                "opencode-harness interrupt_observed=true process_reaped=true exit_code={:?} reason={reason}",
-                result.exit_code
+            tracing::warn!(
+                exit_code = ?result.exit_code,
+                reason = %reason,
+                "opencode-harness interrupt_observed=true process_reaped=true"
             );
         }
         let stop = result.stop.clone().or_else(|| {
@@ -627,7 +634,11 @@ impl OpenCodeHarness {
                 VENDOR_SESSION_LANE,
                 actual_session.as_deref().or(session.as_deref()),
             ) {
-                eprintln!("opencode-harness: vendor session persist failed for story {story}: {error}");
+                tracing::warn!(
+                    story = %story,
+                    error = %error,
+                    "opencode-harness: vendor session persist failed"
+                );
                 return Err(vendor_session_persist_error(
                     "opencode-harness",
                     node_id,
@@ -638,7 +649,11 @@ impl OpenCodeHarness {
         }
         if let Some(id) = actual_session.as_deref() {
             write_session_id(&cwd, Some(id)).map_err(|error| {
-                eprintln!("opencode-harness: session marker write failed for workspace {cwd}: {error}");
+                tracing::warn!(
+                    workspace = %cwd,
+                    error = %error,
+                    "opencode-harness: session marker write failed"
+                );
                 WorkflowError::generic(format!(
                     "opencode-harness could not persist the session marker for {node_id} in {cwd}: {error}"
                 ))
@@ -674,7 +689,6 @@ impl OpenCodeHarness {
         })
     }
 }
-
 
 #[cfg(test)]
 mod tests;

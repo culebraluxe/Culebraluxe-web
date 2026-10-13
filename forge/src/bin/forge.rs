@@ -377,6 +377,9 @@ fn harness_identity_line(harness: forge::engine::harness::HarnessBackend) -> Str
 }
 
 fn main() {
+    // First, before the parse: a refused launch still reports why through the engine's events, and an event with no
+    // subscriber behind it is an event nobody reads.
+    forge::observability::init();
     let args: Vec<String> = env::args().collect();
     if let Some(status) = subcommand(&args) {
         std::process::exit(status);

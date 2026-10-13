@@ -6,6 +6,9 @@
 //! prints says which database the run is actually on, because a run that does not name its target is a run a
 //! reader has to guess about.
 fn main() {
+    // The engine's events are `tracing` events, and a subscriber is what puts them in front of an operator. This
+    // process is where the worker's share of them is emitted; the child it spawns installs its own.
+    forge::observability::init();
     match db::resolve_forge_target(
         std::env::var("VERCEL_ENV").ok().as_deref(),
         std::env::var("APP_ENV").ok().as_deref(),
