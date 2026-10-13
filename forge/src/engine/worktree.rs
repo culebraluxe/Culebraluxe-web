@@ -507,10 +507,8 @@ mod tests {
     /// safety on a stale ref. A repo with no `origin` fails the fetch deterministically, no network.
     #[test]
     fn cleanup_fails_when_the_tracking_ref_cannot_refresh() {
-        let root = std::env::temp_dir().join(format!(
-            "forge-worktree-fetch-fail-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("forge-worktree-fetch-fail-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let repo = root.join("repo");
         std::fs::create_dir_all(&repo).expect("temp repo dir");

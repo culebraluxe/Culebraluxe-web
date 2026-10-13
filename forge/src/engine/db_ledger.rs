@@ -70,7 +70,10 @@ pub(crate) fn story_identity(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or("story subject id is missing")?;
-    if let Some(key) = business_key.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(key) = business_key
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         if key != story_id {
             return Err("business key disagrees with story subject id");
         }
@@ -232,7 +235,10 @@ fn completion_parts(
     )?;
     let task_id = non_blank(row.task_id.as_deref()).ok_or("task id is missing")?;
     let node_id = non_blank(row.node_id.as_deref()).ok_or("workflow node is missing")?;
-    let form_data = row.form_data.clone().ok_or("accepted form data is missing")?;
+    let form_data = row
+        .form_data
+        .clone()
+        .ok_or("accepted form data is missing")?;
     if !form_data.is_object() {
         return Err("accepted form data is not an object");
     }
@@ -411,23 +417,23 @@ mod tests {
     /// spends, and spending the wrong budget is worse than reporting the row unreadable.
     #[test]
     fn completion_parts_refuses_a_legacy_row_for_its_missing_node_not_its_missing_key() {
-        let row = |business_key: Option<&str>, node_id: Option<&str>| db::UnfinishedForgeCompletion {
-            event_id: 1173,
-            process_instance_id: "f5cbf444-5661-45af-976f-4735d505c743".to_string(),
-            subject_type: Some("story".to_string()),
-            subject_id: Some("ENG-FORGE-V13".to_string()),
-            business_key: business_key.map(str::to_string),
-            task_id: Some("2b2d3527-8eb4-46b2-92e6-23e11c1f7b3e".to_string()),
-            node_id: node_id.map(str::to_string),
-            form_data: Some(serde_json::json!({"candidateSha": "a4f0"})),
-        };
+        let row =
+            |business_key: Option<&str>, node_id: Option<&str>| db::UnfinishedForgeCompletion {
+                event_id: 1173,
+                process_instance_id: "f5cbf444-5661-45af-976f-4735d505c743".to_string(),
+                subject_type: Some("story".to_string()),
+                subject_id: Some("ENG-FORGE-V13".to_string()),
+                business_key: business_key.map(str::to_string),
+                task_id: Some("2b2d3527-8eb4-46b2-92e6-23e11c1f7b3e".to_string()),
+                node_id: node_id.map(str::to_string),
+                form_data: Some(serde_json::json!({"candidateSha": "a4f0"})),
+            };
         assert_eq!(
             completion_parts(&row(None, None)),
             Err("workflow node is missing")
         );
-        let named = completion_parts(&row(None, Some("smith"))).map(|(story, task, node, form)| {
-            (story, task, node, form.is_object())
-        });
+        let named = completion_parts(&row(None, Some("smith")))
+            .map(|(story, task, node, form)| (story, task, node, form.is_object()));
         assert_eq!(
             named,
             Ok((

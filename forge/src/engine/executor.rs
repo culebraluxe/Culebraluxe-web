@@ -21,9 +21,9 @@ pub use self::drive::{
 // The role seam is the runner's, not the driver's (`engine::runner`). Re-exported here anyway so the callers
 // and the contract suite that name `forge::engine::executor::ForgeRoleRunner` keep resolving it — the path is
 // part of the flat surface this module re-exports, and only its definition moved.
-pub use crate::engine::runner::{ForgeRoleOutcome, ForgeRoleRunner};
 pub use self::lane_failure::{
     is_advance_conflict, is_completed_release_conflict, settle_forge_lane_failure,
     LaneFailureSettlement,
 };
 pub use self::wave::{plan_wave, WaveLane, WavePlan, WaveRefusal};
+pub use crate::engine::runner::{ForgeRoleOutcome, ForgeRoleRunner};

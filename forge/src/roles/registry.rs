@@ -95,8 +95,8 @@ impl Default for ForgeServiceRegistry<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::runner::{ForgeRoleOutcome, ForgeRoleRunner};
     use crate::engine::facts::ForgeGateEvidence;
+    use crate::engine::runner::{ForgeRoleOutcome, ForgeRoleRunner};
     use crate::engine::runtime::ActiveForgeRoleTask;
     use crate::roles::smith::SmithService;
 

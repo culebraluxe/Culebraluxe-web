@@ -205,7 +205,10 @@ mod tests {
         );
         assert_eq!(reading.state(), "unknown");
         let line = render_qa_consistency_line(&reading);
-        assert!(line.starts_with("UNPROVEN"), "the line names the state: {line}");
+        assert!(
+            line.starts_with("UNPROVEN"),
+            "the line names the state: {line}"
+        );
     }
 
     /// WO-V1 guard against overcorrection: a MEASURED fail on a Failed run still agrees. Only the

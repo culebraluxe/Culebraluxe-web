@@ -164,8 +164,7 @@ fn repeated_parse_failures_trip_the_stream_stop() {
         stream_parse_trip(STREAM_PARSE_FAILURE_CAP - 1).is_none(),
         "below the cap the stream is still readable"
     );
-    let stop =
-        stream_parse_trip(STREAM_PARSE_FAILURE_CAP).expect("the cap trips at the cap");
+    let stop = stream_parse_trip(STREAM_PARSE_FAILURE_CAP).expect("the cap trips at the cap");
     assert_eq!(stop.code, STREAM_UNREADABLE_CODE, "{}", stop.detail);
 }
 
@@ -186,10 +185,8 @@ fn vendor_session_failure_names_harness_node_story_and_cause() {
 /// cap of ten; the seam replays them exactly as the streaming client would.
 #[test]
 fn an_unreadable_stream_stops_the_turn_instead_of_reading_nothing() {
-    let workspace = std::env::temp_dir().join(format!(
-        "forge-v2-unreadable-{}",
-        std::process::id()
-    ));
+    let workspace =
+        std::env::temp_dir().join(format!("forge-v2-unreadable-{}", std::process::id()));
     let _ = fs::remove_dir_all(&workspace);
     fs::create_dir_all(&workspace).expect("temp workspace");
     let garbage = (0..STREAM_PARSE_FAILURE_CAP + 2)
@@ -286,8 +283,7 @@ fn a_node_with_no_agent_is_refused_before_any_model_turn_is_started() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    let workspace =
-        std::env::temp_dir().join(format!("forge-v2-unmapped-{}", std::process::id()));
+    let workspace = std::env::temp_dir().join(format!("forge-v2-unmapped-{}", std::process::id()));
     let _ = fs::remove_dir_all(&workspace);
     fs::create_dir_all(&workspace).expect("temp workspace");
 
@@ -436,8 +432,7 @@ fn an_interrupt_from_another_thread_stops_the_real_process_and_is_reported_by_na
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    let workspace =
-        std::env::temp_dir().join(format!("forge-v2-interrupt-{}", std::process::id()));
+    let workspace = std::env::temp_dir().join(format!("forge-v2-interrupt-{}", std::process::id()));
     let _ = fs::remove_dir_all(&workspace);
     fs::create_dir_all(&workspace).expect("temp workspace");
     // One readable line, then 30 seconds of silence. The `session` case matters: the harness reads a turn's
@@ -471,16 +466,13 @@ sleep 30"#,
                 }
                 std::thread::sleep(Duration::from_millis(25));
             }
-            harness.interrupt_execution_scoped(
-                "job-lease-1",
-                "the test supervisor stopped this turn",
-            )
+            harness
+                .interrupt_execution_scoped("job-lease-1", "the test supervisor stopped this turn")
         })
     };
 
     let started = Instant::now();
-    let err = match harness.run_role_scoped("job-lease-1", "feature_scout", &role_task(), None)
-    {
+    let err = match harness.run_role_scoped("job-lease-1", "feature_scout", &role_task(), None) {
         Ok(_) => panic!("a stopped turn must not be read as an answer"),
         Err(error) => error.to_string(),
     };
@@ -519,8 +511,7 @@ sleep 30"#,
 fn scoped_interrupt_stops_only_the_named_execution() {
     use std::process::Command;
 
-    let workspace =
-        std::env::temp_dir().join(format!("forge-v2-scoped-{}", std::process::id()));
+    let workspace = std::env::temp_dir().join(format!("forge-v2-scoped-{}", std::process::id()));
     let _ = fs::remove_dir_all(&workspace);
     fs::create_dir_all(&workspace).expect("temp workspace");
     let harness = harness_with_stream(&workspace, V2_STREAM);
@@ -558,8 +549,7 @@ fn scoped_interrupt_stops_only_the_named_execution() {
 
 #[test]
 fn cancellation_latched_before_launch_prevents_model_start() {
-    let workspace =
-        std::env::temp_dir().join(format!("forge-v2-prelaunch-{}", std::process::id()));
+    let workspace = std::env::temp_dir().join(format!("forge-v2-prelaunch-{}", std::process::id()));
     let _ = fs::remove_dir_all(&workspace);
     fs::create_dir_all(&workspace).expect("temp workspace");
     let harness = harness_with_stream(&workspace, V2_STREAM);
@@ -571,8 +561,7 @@ fn cancellation_latched_before_launch_prevents_model_start() {
         .expect("interrupt before launch")
         .is_none());
     let error =
-        match harness.run_role_scoped("job-before-launch", "feature_scout", &role_task(), None)
-        {
+        match harness.run_role_scoped("job-before-launch", "feature_scout", &role_task(), None) {
             Ok(_) => panic!("a prelaunch cancellation must refuse to start a model"),
             Err(error) => error,
         };

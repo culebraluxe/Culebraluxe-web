@@ -19,7 +19,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use http_body_util::BodyExt;
-use services::{AuthorizationDecision, ServiceDispatchError, ServiceFailureClass, ServiceRuntimeError};
+use services::{
+    AuthorizationDecision, ServiceDispatchError, ServiceFailureClass, ServiceRuntimeError,
+};
 use web::api::ApiError;
 use web::service_support::CoreServiceError;
 
@@ -58,7 +60,8 @@ async fn check_error_response(
     );
     if check_correlation {
         assert!(
-            body["correlationId"].is_string() && !body["correlationId"].as_str().unwrap().is_empty(),
+            body["correlationId"].is_string()
+                && !body["correlationId"].as_str().unwrap().is_empty(),
             "{HARNESS}: Response must have correlationId"
         );
     }
@@ -70,7 +73,13 @@ async fn api_route_contract_007__service_error_mapping() {
     // 1. CoreServiceError::Business with NOT_FOUND code -> 404 NOT_FOUND
     let error = CoreServiceError::business("RESOURCE_NOT_FOUND", "Resource not found");
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::NOT_FOUND, "RESOURCE_NOT_FOUND", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::NOT_FOUND,
+        "RESOURCE_NOT_FOUND",
+        false,
+    )
+    .await;
 
     // 2. CoreServiceError::Business with CONFLICT code -> 409 CONFLICT
     let error = CoreServiceError::business("RESOURCE_CONFLICT", "Duplicate resource");
@@ -80,7 +89,13 @@ async fn api_route_contract_007__service_error_mapping() {
     // 3. CoreServiceError::Business with other code -> 400 BAD_REQUEST (default for Business)
     let error = CoreServiceError::business("VALIDATION_FAILED", "Invalid input");
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::BAD_REQUEST, "VALIDATION_FAILED", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::BAD_REQUEST,
+        "VALIDATION_FAILED",
+        false,
+    )
+    .await;
 
     // 4. CoreServiceError::Runtime::Forbidden -> 403 FORBIDDEN
     let error = CoreServiceError::Runtime(ServiceRuntimeError::Forbidden {
@@ -108,7 +123,13 @@ async fn api_route_contract_007__service_error_mapping() {
         class: ServiceFailureClass::Business,
     });
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::NOT_FOUND, "RESOURCE_NOT_FOUND", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::NOT_FOUND,
+        "RESOURCE_NOT_FOUND",
+        false,
+    )
+    .await;
 
     // 7. CoreServiceError::Runtime::Router with CONFLICT code -> 409 CONFLICT
     let error = CoreServiceError::Runtime(ServiceRuntimeError::Router {
@@ -128,22 +149,50 @@ async fn api_route_contract_007__service_error_mapping() {
         class: ServiceFailureClass::Infrastructure,
     });
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "EXTERNAL_API_FAILED", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "EXTERNAL_API_FAILED",
+        false,
+    )
+    .await;
 
     // 9. CoreServiceError::Runtime::Authorization -> 503 SERVICE_UNAVAILABLE (AUTHORIZATION_UNAVAILABLE)
-    let error = CoreServiceError::Runtime(ServiceRuntimeError::Authorization("Auth service down".to_string()));
+    let error = CoreServiceError::Runtime(ServiceRuntimeError::Authorization(
+        "Auth service down".to_string(),
+    ));
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "AUTHORIZATION_UNAVAILABLE", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "AUTHORIZATION_UNAVAILABLE",
+        false,
+    )
+    .await;
 
     // 10. CoreServiceError::Runtime::Audit -> 503 SERVICE_UNAVAILABLE (AUDIT_UNAVAILABLE)
-    let error = CoreServiceError::Runtime(ServiceRuntimeError::Audit("Audit service down".to_string()));
+    let error =
+        CoreServiceError::Runtime(ServiceRuntimeError::Audit("Audit service down".to_string()));
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "AUDIT_UNAVAILABLE", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "AUDIT_UNAVAILABLE",
+        false,
+    )
+    .await;
 
     // 11. CoreServiceError::Runtime::Event -> 503 SERVICE_UNAVAILABLE (DOMAIN_EVENT_UNAVAILABLE)
-    let error = CoreServiceError::Runtime(ServiceRuntimeError::Event("Event service down".to_string()));
+    let error =
+        CoreServiceError::Runtime(ServiceRuntimeError::Event("Event service down".to_string()));
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "DOMAIN_EVENT_UNAVAILABLE", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "DOMAIN_EVENT_UNAVAILABLE",
+        false,
+    )
+    .await;
 
     // 12. ServiceDispatchError::ServiceNotFound -> 404 SERVICE_NOT_FOUND
     let error = ServiceDispatchError::ServiceNotFound("test-service".to_string());
@@ -165,7 +214,13 @@ async fn api_route_contract_007__service_error_mapping() {
         message: "Invalid payload".to_string(),
     };
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::BAD_REQUEST, "INVALID_SERVICE_PAYLOAD", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::BAD_REQUEST,
+        "INVALID_SERVICE_PAYLOAD",
+        false,
+    )
+    .await;
 
     // 15. ServiceDispatchError::Operation with Caller/Business class -> 400 BAD_REQUEST
     let error = ServiceDispatchError::Operation {
@@ -175,7 +230,13 @@ async fn api_route_contract_007__service_error_mapping() {
         class: ServiceFailureClass::Caller,
     };
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::BAD_REQUEST, "VALIDATION_ERROR", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::BAD_REQUEST,
+        "VALIDATION_ERROR",
+        false,
+    )
+    .await;
 
     // 16. ServiceDispatchError::Operation with Lifecycle class -> 503 SERVICE_UNAVAILABLE
     let error = ServiceDispatchError::Operation {
@@ -185,7 +246,13 @@ async fn api_route_contract_007__service_error_mapping() {
         class: ServiceFailureClass::Lifecycle,
     };
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "WORKFLOW_ERROR", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "WORKFLOW_ERROR",
+        false,
+    )
+    .await;
 
     // 17. ServiceDispatchError::Operation with Infrastructure class -> 500 INTERNAL_SERVER_ERROR
     let error = ServiceDispatchError::Operation {
@@ -195,17 +262,35 @@ async fn api_route_contract_007__service_error_mapping() {
         class: ServiceFailureClass::Infrastructure,
     };
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::INTERNAL_SERVER_ERROR, "DATABASE", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "DATABASE",
+        false,
+    )
+    .await;
 
     // 18. ServiceDispatchError::ServiceDraining -> 503 SERVICE_DRAINING
     let error = ServiceDispatchError::ServiceDraining("test-service".to_string());
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "SERVICE_DRAINING", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "SERVICE_DRAINING",
+        false,
+    )
+    .await;
 
     // 19. ServiceDispatchError::ServiceStopped -> 503 SERVICE_STOPPED
     let error = ServiceDispatchError::ServiceStopped("test-service".to_string());
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::SERVICE_UNAVAILABLE, "SERVICE_STOPPED", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "SERVICE_STOPPED",
+        false,
+    )
+    .await;
 
     // 20. ServiceDispatchError::OperationPanicked -> 500 INTERNAL_SERVER_ERROR
     let error = ServiceDispatchError::OperationPanicked {
@@ -214,7 +299,13 @@ async fn api_route_contract_007__service_error_mapping() {
         message: "panic".to_string(),
     };
     let api_error: ApiError = error.into();
-    check_error_response(api_error, StatusCode::INTERNAL_SERVER_ERROR, "SERVICE_OPERATION_PANICKED", false).await;
+    check_error_response(
+        api_error,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "SERVICE_OPERATION_PANICKED",
+        false,
+    )
+    .await;
 
     // 21. Correlation ID support
     let error = CoreServiceError::business("TEST_ERROR", "Test message");

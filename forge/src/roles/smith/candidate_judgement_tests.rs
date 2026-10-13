@@ -51,12 +51,7 @@ impl CandidateProbe for Repo {
 }
 
 impl RoleHarness for Repo {
-    fn run_role(
-        &self,
-        _: &str,
-        _: &ActiveForgeRoleTask,
-        _: Option<&str>,
-    ) -> Result<HarnessOutput> {
+    fn run_role(&self, _: &str, _: &ActiveForgeRoleTask, _: Option<&str>) -> Result<HarnessOutput> {
         unreachable!("the judgement never runs a turn")
     }
     fn exists_on_base_ref(&self, _: &str, _: &str) -> bool {

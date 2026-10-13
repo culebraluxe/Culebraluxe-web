@@ -8,9 +8,9 @@
 //! and every default claims nothing — so a lane states exactly the behavior it owns, and a service that
 //! overrides nothing gets the shared lifecycle and only that ([`NoRoleHooks`]).
 
-use crate::engine::runner::ForgeRoleOutcome;
 use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
 use crate::engine::phase::{lane_deliverable_kind, PhaseDeliverableKind, RoleEffectPorts};
+use crate::engine::runner::ForgeRoleOutcome;
 use crate::engine::runner::HarnessOutput;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleTurn};

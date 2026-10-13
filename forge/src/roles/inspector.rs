@@ -6,8 +6,8 @@
 //! reading of its own: a reviewer's turn is read out of its own evidence marker, and its review verdict is
 //! adjudicated downstream. Nothing here may measure, and Assay may not review.
 
-use crate::engine::runner::ForgeRoleRunner;
 use crate::engine::role_mapping::LaneId;
+use crate::engine::runner::ForgeRoleRunner;
 use crate::roles::service::{AbstractForgeService, ForgeServiceDescriptor};
 
 pub const INSPECTOR_SERVICE_ID: &str = "forge.inspector";

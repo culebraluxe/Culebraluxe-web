@@ -122,12 +122,7 @@ struct GitHarness {
 }
 
 impl RoleHarness for GitHarness {
-    fn run_role(
-        &self,
-        _: &str,
-        _: &ActiveForgeRoleTask,
-        _: Option<&str>,
-    ) -> Result<HarnessOutput> {
+    fn run_role(&self, _: &str, _: &ActiveForgeRoleTask, _: Option<&str>) -> Result<HarnessOutput> {
         Ok(HarnessOutput {
             trajectory: None,
             raw: String::new(),
@@ -191,8 +186,7 @@ fn git(repo: &std::path::Path, args: &[&str]) -> String {
 
 /// A repo with a base commit, one Smith commit on top, an uncommitted edit and an untracked file.
 fn smith_left_a_mess(name: &str) -> (std::path::PathBuf, String, String) {
-    let repo =
-        std::env::temp_dir().join(format!("forge-capture-{name}-{}", std::process::id()));
+    let repo = std::env::temp_dir().join(format!("forge-capture-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&repo);
     std::fs::create_dir_all(&repo).expect("temp repo");
     git(&repo, &["init", "-q", "--initial-branch=main", "."]);
@@ -339,8 +333,9 @@ fn a_stamp_failure_still_leaves_the_capture_behind() {
         base: base.clone(),
     };
     let inner = Arc::new(crate::engine::writer::RecordingWriter::default());
-    let writer: Arc<dyn crate::engine::writer::ForgeStateWriter> =
-        Arc::new(StampFailingWriter { inner: inner.clone() });
+    let writer: Arc<dyn crate::engine::writer::ForgeStateWriter> = Arc::new(StampFailingWriter {
+        inner: inner.clone(),
+    });
     let runner = ProductionRoleRunner::new(Arc::new(harness), ForgeGateEvidence::default())
         .with_writer(writer)
         .with_story_run(Some("22222222-3333-4444-5555-666666666666".into()));

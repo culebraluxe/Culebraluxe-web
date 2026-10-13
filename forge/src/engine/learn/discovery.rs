@@ -405,7 +405,8 @@ mod tests {
         git(root, &["add", "src/kept.rs", "src/gone.rs"]);
         git(root, &["commit", "-qm", "initial"]);
 
-        fs::write(root.join("src/kept.rs"), "pub fn kept_again() {}\n").expect("kept source, again");
+        fs::write(root.join("src/kept.rs"), "pub fn kept_again() {}\n")
+            .expect("kept source, again");
         git(root, &["rm", "-q", "src/gone.rs"]);
         git(root, &["commit", "-qam", "change one path, delete another"]);
         let pinned = git(root, &["rev-parse", "HEAD"]);

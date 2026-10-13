@@ -1,8 +1,8 @@
 use super::*;
 use crate::engine::assay::CommandResult;
-use crate::engine::runner::ForgeRoleRunner;
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::harness::TurnTermination;
+use crate::engine::runner::ForgeRoleRunner;
 use crate::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};
 use crate::roles::architect::ArchitectService;
 use crate::roles::dev_ops::DevOpsService;
@@ -15,9 +15,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicI64, Ordering},
     Arc, Mutex,
 };
-use workflow::{
-    EngineOptions, MemoryStore, ProcessInstance, ProcessStatus, Value, WorkflowEngine,
-};
+use workflow::{EngineOptions, MemoryStore, ProcessInstance, ProcessStatus, Value, WorkflowEngine};
 
 struct HeartbeatFaultService {
     main_thread: std::thread::ThreadId,
@@ -285,8 +283,7 @@ fn engine(clock: Arc<AtomicI64>) -> WorkflowEngine<MemoryStore> {
 #[test]
 fn bridge_maps_every_current_lane_to_its_stable_service_key() {
     let runner = RecordingRunner::new();
-    let (mut registry, scout, architect, lead, smith, inspector, assay, devops) =
-        registry(&runner);
+    let (mut registry, scout, architect, lead, smith, inspector, assay, devops) = registry(&runner);
 
     for service in [
         &scout as &dyn crate::roles::AbstractForgeService,

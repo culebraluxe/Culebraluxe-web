@@ -11,11 +11,11 @@
 //! for, a production verification paired with its own SHA — and reading it is this lane's, so it lives here
 //! rather than in the engine's deleted collect switch.
 
-use crate::engine::runner::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
 use crate::engine::phase::RoleEffectPorts;
 use crate::engine::role_mapping::LaneId;
 use crate::engine::runner::ProductionProbe;
+use crate::engine::runner::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::hooks::ForgeRoleHooks;
 use crate::roles::lifecycle::{hold_rejected_deliverable, ForgeRoleContext};
@@ -430,7 +430,9 @@ mod production_check_tests {
             .clone()
             .unwrap_or_default();
         assert!(
-            reason.contains("build-info") || reason.contains("non-hex") || reason.contains("invalid"),
+            reason.contains("build-info")
+                || reason.contains("non-hex")
+                || reason.contains("invalid"),
             "non-hex SHA should be refused: {reason}"
         );
     }

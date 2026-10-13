@@ -11,10 +11,10 @@
 //! turn is stripped rather than believed; and the classifier's reply is read as a class, with a failed release
 //! stage promoted to the class the gate routes on.
 
-use crate::engine::runner::ForgeRoleRunner;
 use crate::engine::facts::{marker_evidence, ForgeGateEvidence};
 use crate::engine::phase::{PhaseDeliverableKind, RoleEffectPorts, FAILURE_CLASSES};
 use crate::engine::role_mapping::LaneId;
+use crate::engine::runner::ForgeRoleRunner;
 use crate::engine::service_binding::service_for_node;
 use crate::roles::hooks::ForgeRoleHooks;
 use crate::roles::lifecycle::{ForgeRoleContext, ForgeRoleTurn};
@@ -64,7 +64,9 @@ pub fn is_failure_classifier(node_id: &str) -> bool {
 fn may_not_set_decision(node_id: &str) -> bool {
     !is_failure_classifier(node_id)
         && node_id != LEAD_DECISION_NODE
-        && service_for_node(node_id).map(|opt| opt == Some(LEAD_SERVICE_ID)).unwrap_or(true)
+        && service_for_node(node_id)
+            .map(|opt| opt == Some(LEAD_SERVICE_ID))
+            .unwrap_or(true)
 }
 
 /// Lead's own reading, supplied to the shared lifecycle as this lane's hooks.
@@ -293,21 +295,24 @@ mod tests {
         // The test will fail before the fix because may_not_set_decision currently treats Err as None.
         // We test this by checking the collect_evidence behavior with a node that would cause
         // service_for_node to fail.
-        
+
         // Since we can't easily mock service_for_node to return Err in this test setup,
         // we verify the fix by ensuring the function logic is correct.
         // The actual fix is in the may_not_set_decision function itself.
-        
+
         // For now, we assert the expected behavior after the fix:
         // When binding load fails, may_not_set_decision should return true for Lead nodes
         // (this will be verified by the fix changing the function)
         let standing_decision = standing("SPLIT", Some(3));
         let reply = "FORGE_EVIDENCE_JSON: {\"leadDecision\":\"SOLO\",\"splitCount\":4}\n";
-        
+
         // This test documents the expected behavior - after the fix, a Lead node with failed
         // binding load should preserve the standing decision
         // The actual test of the binding error path would require mocking service_for_node
         // which is not easily testable here. The fix ensures the logic is correct.
-        assert!(true, "Test documents expected behavior - fix in may_not_set_decision");
+        assert!(
+            true,
+            "Test documents expected behavior - fix in may_not_set_decision"
+        );
     }
 }

@@ -157,10 +157,7 @@ fn approved_plan_snapshot(writer: &RecordingWriter, command: &str) {
 }
 
 /// Run the measurement lane once and read back what it recorded: (model turns spent, verdict, summary).
-fn measure(
-    harness: &Arc<MeasurementHarness>,
-    _acceptance_mapped: bool,
-) -> (usize, String, String) {
+fn measure(harness: &Arc<MeasurementHarness>, _acceptance_mapped: bool) -> (usize, String, String) {
     let writer = Arc::new(RecordingWriter::default());
     approved_plan_snapshot(&writer, "cargo check --all-targets");
     let mut evidence = ForgeGateEvidence::default();
@@ -184,7 +181,6 @@ fn measure(
         row.summary.clone().unwrap_or_default(),
     )
 }
-
 
 /// WO-V1, end to end through the collector and the lane's own disposition: an unmapped
 /// acceptance measures UNPROVEN, and the durable boolean must be NO verdict — `None`, never
@@ -289,7 +285,10 @@ fn measured_pass_is_still_persisted_as_passed() {
         cancelled: false,
         output: String::new(),
     };
-    let AssayEvidence { mut evidence, verdict } = collect_rust_contract_assay_evidence(
+    let AssayEvidence {
+        mut evidence,
+        verdict,
+    } = collect_rust_contract_assay_evidence(
         evidence,
         Some(&run),
         &["cargo check --all-targets".into()],
@@ -308,14 +307,20 @@ fn unproven_tristate_clears_only_the_boolean_not_the_record() {
     use crate::engine::assay::AssayVerdict;
     let mut evidence = ForgeGateEvidence {
         qa_passed: Some(false),
-        deliverable_rejection: Some("QA UNPROVEN: RUST_CONTRACT acceptance mapping is missing.".into()),
+        deliverable_rejection: Some(
+            "QA UNPROVEN: RUST_CONTRACT acceptance mapping is missing.".into(),
+        ),
         disposition: Some("ESCALATE".into()),
         ..ForgeGateEvidence::default()
     };
     apply_unproven_tristate(&mut evidence, &AssayVerdict::Unproven);
     assert_eq!(evidence.qa_passed, None);
     assert_eq!(evidence.disposition.as_deref(), Some("ESCALATE"));
-    assert!(evidence.deliverable_rejection.as_deref().unwrap_or("").contains("UNPROVEN"));
+    assert!(evidence
+        .deliverable_rejection
+        .as_deref()
+        .unwrap_or("")
+        .contains("UNPROVEN"));
 
     let mut pass = ForgeGateEvidence {
         qa_passed: Some(true),
@@ -515,9 +520,8 @@ fn durable_receipt_redacts_output_and_replays_without_rerunning_commands() {
 #[test]
 fn a_non_contract_story_requires_the_frozen_plan_not_a_boolean() {
     fn run(acceptance_mapped: bool) -> (String, String) {
-        let harness = Arc::new(
-            MeasurementHarness::new(true).with_commands(&["cargo check --all-targets"]),
-        );
+        let harness =
+            Arc::new(MeasurementHarness::new(true).with_commands(&["cargo check --all-targets"]));
         let writer = Arc::new(RecordingWriter::default());
         approved_plan_snapshot(&writer, "cargo check --all-targets");
         let mut evidence = ForgeGateEvidence::default();

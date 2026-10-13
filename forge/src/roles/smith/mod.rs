@@ -6,9 +6,9 @@
 //! [`crate::roles::service::AbstractForgeService`], not copied here — see `roles::lifecycle`.
 
 use crate::engine::assay::is_rust_contract_production_path;
-use crate::engine::runner::ForgeRoleRunner;
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::role_mapping::LaneId;
+use crate::engine::runner::ForgeRoleRunner;
 use crate::engine::runner::{CandidateProbe, HarnessOutput, RoleHarness};
 use crate::engine::scope::candidate_own_changed_files;
 use crate::engine::worktree::git_changed_files;
