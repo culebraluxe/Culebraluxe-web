@@ -129,7 +129,7 @@ impl ActiveForgeRoleTask {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::executor::drive::{ForgeRoleOutcome, ForgeRoleRunner};
+    use crate::engine::runner::{ForgeRoleOutcome, ForgeRoleRunner};
     use crate::engine::facts::ForgeGateEvidence;
     use crate::engine::xml::definition_from_xml;
     use crate::roles::architect::{ArchitectService, ARCHITECT_SERVICE_ID};

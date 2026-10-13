@@ -16,8 +16,12 @@ pub mod wave;
 pub use self::dispatch::{parse_forge_stop_after, resolve_forge_stop_target, ForgeStopTarget};
 pub use self::drive::{
     drive_forge_story, drive_forge_story_with_jobs, DriveForgeStoryOptions, DriveForgeStoryResult,
-    DurableForgeExecution, ForgeRoleOutcome, ForgeRoleRunner,
+    DurableForgeExecution,
 };
+// The role seam is the runner's, not the driver's (`engine::runner`). Re-exported here anyway so the callers
+// and the contract suite that name `forge::engine::executor::ForgeRoleRunner` keep resolving it — the path is
+// part of the flat surface this module re-exports, and only its definition moved.
+pub use crate::engine::runner::{ForgeRoleOutcome, ForgeRoleRunner};
 pub use self::lane_failure::{
     is_advance_conflict, is_completed_release_conflict, settle_forge_lane_failure,
     LaneFailureSettlement,

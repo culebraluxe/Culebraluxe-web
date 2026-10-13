@@ -150,7 +150,7 @@ fn measure(
     head: &'static str,
     reviewed: &str,
 ) -> (
-    std::result::Result<forge::engine::executor::drive::ForgeRoleOutcome, workflow::WorkflowError>,
+    std::result::Result<forge::engine::executor::ForgeRoleOutcome, workflow::WorkflowError>,
     Arc<RecordingWriter>,
 ) {
     let harness = ScriptedWorkspace { head };

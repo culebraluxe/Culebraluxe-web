@@ -3,7 +3,7 @@
 use workflow::{Result, TxStore, WorkflowError};
 
 use crate::engine::engine_fault::is_engine_fault_error;
-use crate::engine::executor::drive::ForgeRoleOutcome;
+use crate::engine::runner::ForgeRoleOutcome;
 use crate::engine::runtime::ForgeRuntime;
 
 /// How many times a Workflow completion write is repeated while the failure

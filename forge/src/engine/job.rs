@@ -7,7 +7,7 @@
 
 use crate::engine::config::{turn_ceiling, TURN_CEILING_ENV};
 use crate::engine::engine_fault::is_engine_fault_error;
-use crate::engine::executor::drive::ForgeRoleOutcome;
+use crate::engine::runner::ForgeRoleOutcome;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::roles::registry::ForgeServiceRegistry;
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -644,7 +644,7 @@ fn lease_from_job(job: &Job) -> Result<ForgeJobLease> {
 mod tests {
     use super::*;
     use crate::engine::assay::CommandResult;
-    use crate::engine::executor::drive::ForgeRoleRunner;
+    use crate::engine::runner::ForgeRoleRunner;
     use crate::engine::facts::ForgeGateEvidence;
     use crate::engine::harness::TurnTermination;
     use crate::engine::runner::{HarnessOutput, ProductionRoleRunner, RoleHarness};

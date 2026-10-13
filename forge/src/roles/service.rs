@@ -8,7 +8,9 @@
 //! `ForgeServiceRouter` is the strangler adapter from the established
 //! `ProductionRoleRunner` seam into concrete `AbstractForgeService` implementations.
 
-use crate::engine::executor::drive::{ForgeRoleOutcome, ForgeRoleRunner};
+use crate::engine::runner::{
+    ForgeRoleOutcome, ForgeRoleRunner, ForgeTurnPorts, ProductionRoleRunner,
+};
 use crate::engine::role_mapping::LaneId;
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::service_binding::service_for_node;
@@ -235,6 +237,37 @@ impl ForgeRoleRunner for ForgeLaneServices<'_> {
         task: &ActiveForgeRoleTask,
     ) -> Result<ForgeRoleOutcome> {
         self.router().run_scoped(execution_id, node_id, task)
+    }
+}
+
+/// The compatibility adapter for the established `ProductionRoleRunner` seam, kept beside the lanes it hands
+/// the turn to.
+///
+/// This impl lived in `engine::runner` until 2026-10-12 (WO-401). It was the edge that made the runner module
+/// depend back on `roles`: the seam the runner defines could only be satisfied by delegating to a role
+/// service. Moving it here leaves the runner free of roles, so `roles` → `runner` is one-way. Nothing below
+/// dispatches by node — the turn goes to `ForgeLaneServices`, which routes it to the service whose
+/// `supports_node` answers from the canonical XML service binding. No node name, no lane name and no reading
+/// appears here.
+impl ForgeRoleRunner for ProductionRoleRunner {
+    fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
+        ForgeLaneServices::new(self).run(node_id, task)
+    }
+
+    fn run_scoped(
+        &self,
+        execution_id: &str,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+    ) -> Result<ForgeRoleOutcome> {
+        ForgeLaneServices::new(self).run_scoped(execution_id, node_id, task)
+    }
+
+    /// This is the runner that HAS the envelope. It is where a turn's harness, its starting evidence, its
+    /// writer and its dispatch knobs live, so a lane service reads its turn from here instead of being
+    /// handed the ports again — and the shared lifecycle reads the same ports the runner has always held.
+    fn turn_ports(&self) -> Option<&dyn ForgeTurnPorts> {
+        Some(self)
     }
 }
 

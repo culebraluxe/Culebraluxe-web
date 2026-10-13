@@ -15,7 +15,7 @@ use crate::engine::job::{
     execute_claimed_job_unsettled, ForgeJobBridge, ForgeJobLease, JobService,
 };
 use crate::engine::packet::ExecutionWorkspace;
-use crate::engine::runner::ForgeTurnPorts;
+use crate::engine::runner::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::runtime::{ActiveForgeRoleTask, ForgeRuntime};
 use crate::engine::service_binding::is_human_gate;
 use crate::engine::turn_budget;
@@ -32,41 +32,6 @@ use std::sync::Arc;
 use workflow::{
     JobStatus, ProcessOutcome, ProcessStatus, Result, TaskStatus, TxStore, WorkflowError,
 };
-
-pub struct ForgeRoleOutcome {
-    pub transition_name: Option<String>,
-    pub evidence: ForgeGateEvidence,
-}
-
-pub trait ForgeRoleRunner: Send + Sync {
-    fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome>;
-
-    fn run_scoped(
-        &self,
-        _execution_id: &str,
-        node_id: &str,
-        task: &ActiveForgeRoleTask,
-    ) -> Result<ForgeRoleOutcome> {
-        self.run(node_id, task)
-    }
-
-    fn turn_ports(&self) -> Option<&dyn ForgeTurnPorts> {
-        None
-    }
-
-    fn fork_for_workspace(
-        &self,
-        workspace: crate::engine::packet::ExecutionWorkspace,
-    ) -> Result<Option<Box<dyn ForgeRoleRunner>>> {
-        let Some(ports) = self.turn_ports() else {
-            return Ok(None);
-        };
-        let Some(harness) = ports.harness().fork_for_workspace(workspace)? else {
-            return Ok(None);
-        };
-        Ok(ports.fork_with_harness(harness))
-    }
-}
 
 fn process_completes_story(status: ProcessStatus, outcome: Option<ProcessOutcome>) -> bool {
     status == ProcessStatus::Completed && outcome == Some(ProcessOutcome::Completed)

@@ -2,13 +2,60 @@
 //! Model/worktree execution is injected via `RoleHarness` — same door as the TS runner.
 
 use crate::engine::assay::CommandResult;
-use crate::engine::executor::drive::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::harness::{HarnessUsage, TurnTermination};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::writer::{ForgeEvidenceReader, ForgeStateWriter};
 use std::sync::Arc;
 use workflow::{Result, WorkflowError};
+
+/// What a role turn produced, as the driver reads it: the transition the role asked for and the evidence it
+/// submitted.
+///
+/// This pair (`ForgeRoleOutcome` and `ForgeRoleRunner`) lives here rather than in `engine::executor::drive`
+/// (moved 2026-10-12, WO-401). Every `roles/*` service holds a `&dyn ForgeRoleRunner`, and while the seam was
+/// defined in `drive` those services had to import it from the executor — which itself imports `roles::service`
+/// and `roles::registry`. That is the `roles` ↔ `engine` cycle: not two trees that genuinely need each other,
+/// but a seam filed on the wrong side. The runner module is the right side of it, because the runner owns the
+/// turn, and after this move the only edge left between the two trees is engine→roles.
+pub struct ForgeRoleOutcome {
+    pub transition_name: Option<String>,
+    pub evidence: ForgeGateEvidence,
+}
+
+/// The seam a role's turn runs through, so the driver can run a role without knowing which service answers it.
+///
+/// A runner that can be scoped and forked also declares its `ForgeTurnPorts`; the defaults below keep the
+/// single-workspace runners (and the test doubles) written against only `run`.
+pub trait ForgeRoleRunner: Send + Sync {
+    fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome>;
+
+    fn run_scoped(
+        &self,
+        _execution_id: &str,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+    ) -> Result<ForgeRoleOutcome> {
+        self.run(node_id, task)
+    }
+
+    fn turn_ports(&self) -> Option<&dyn ForgeTurnPorts> {
+        None
+    }
+
+    fn fork_for_workspace(
+        &self,
+        workspace: crate::engine::packet::ExecutionWorkspace,
+    ) -> Result<Option<Box<dyn ForgeRoleRunner>>> {
+        let Some(ports) = self.turn_ports() else {
+            return Ok(None);
+        };
+        let Some(harness) = ports.harness().fork_for_workspace(workspace)? else {
+            return Ok(None);
+        };
+        Ok(ports.fork_with_harness(harness))
+    }
+}
 
 pub struct HarnessOutput {
     pub raw: String,
@@ -417,34 +464,10 @@ impl ProductionRoleRunner {
     }
 }
 
-/// The compatibility adapter: the established runner seam, now a composition of the lane services.
-///
-/// A compatibility caller that still holds `ProductionRoleRunner` may call `run(node_id, task)` and keeps
-/// getting that lane's behavior, because this hands the turn to the
-/// service that owns the node and lets that service run the shared lifecycle with its own reading. No role
-/// policy lives here any more: no node name, no lane name and no reading appears in this file. Which node
-/// belongs to which lane is `role_mapping`'s answer, applied by `AbstractForgeService::supports_node`.
-impl ForgeRoleRunner for ProductionRoleRunner {
-    fn run(&self, node_id: &str, task: &ActiveForgeRoleTask) -> Result<ForgeRoleOutcome> {
-        crate::roles::service::ForgeLaneServices::new(self).run(node_id, task)
-    }
-
-    fn run_scoped(
-        &self,
-        execution_id: &str,
-        node_id: &str,
-        task: &ActiveForgeRoleTask,
-    ) -> Result<ForgeRoleOutcome> {
-        crate::roles::service::ForgeLaneServices::new(self).run_scoped(execution_id, node_id, task)
-    }
-
-    /// This is the runner that HAS the envelope. It is where a turn's harness, its starting evidence, its
-    /// writer and its dispatch knobs live, so a lane service reads its turn from here instead of being
-    /// handed the ports again — and the shared lifecycle reads the same ports the runner has always held.
-    fn turn_ports(&self) -> Option<&dyn ForgeTurnPorts> {
-        Some(self)
-    }
-}
+// The compatibility adapter that satisfies this seam for `ProductionRoleRunner` lives in `roles::service`
+// (moved there 2026-10-12, WO-401). It delegates to `ForgeLaneServices`, so it belongs with the lanes it
+// delegates to — and with it gone this module names no role at all, which is what leaves `roles` → `runner`
+// as the one direction of that edge.
 
 #[cfg(test)]
 mod tests {
