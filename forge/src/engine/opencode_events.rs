@@ -80,11 +80,34 @@ pub(crate) fn parse_run_events(stdout: &str) -> Result<OpenCodeTurnEvents> {
 /// report what a turn already spent; a line-by-line reading is what lets `engine::opencode` stop a turn the moment
 /// its measured spend passes the cap (and it is the same fold, so the live view and the recorded view cannot drift
 /// apart — `parse_run_events` is this type run to completion).
+///
+/// It reads the same fold twice over: the RECORDED turn (`turn`) is what the trajectory and the transcript are built
+/// from, and `actions` is the same tool calls read for a live guard — call identity plus the effect the vendor
+/// reported. They are separate views of one fold rather than two parsers, so they cannot disagree.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct RunEventScanner {
     turn: OpenCodeTurnEvents,
     lines: usize,
+    /// Every tool call as a live guard needs it: what the call WAS (`signature`) and what the vendor said it DID.
+    actions: Vec<LiveAction>,
 }
+
+/// One tool call as a LIVE guard reads it.
+///
+/// `signature` is the call's identity — tool plus normalized arguments — because a guard that only knew the tool
+/// name would call three reads of three different files "the same action three times". `exit` is the status the
+/// vendor reported for a shell call, and it is `None` when the vendor reported none: an absent reading, never a
+/// failure and never a zero.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LiveAction {
+    pub(crate) signature: String,
+    pub(crate) kind: crate::engine::trajectory::ToolKind,
+    pub(crate) exit: Option<i64>,
+}
+
+/// How much of one argument goes into a call's signature. Normalization only has to make two genuinely identical
+/// calls identical; a long command's tail is not what distinguishes it.
+const ACTION_SIGNATURE_ARGUMENT_CHARS: usize = 120;
 
 impl RunEventScanner {
     /// Fold one line. Line numbering is the scanner's own, so the error a live read produces names the same line
@@ -103,13 +126,18 @@ impl RunEventScanner {
                 excerpt(trimmed)
             ))
         })?;
-        fold_event(&mut self.turn, event);
+        fold_event(&mut self.turn, &mut self.actions, event);
         Ok(())
     }
 
     /// What the turn has done so far. A live reading, not a verdict: an unmeasured spend stays `None`.
     pub(crate) fn turn(&self) -> &OpenCodeTurnEvents {
         &self.turn
+    }
+
+    /// Every action the turn has taken so far, in the order the vendor reported them.
+    pub(crate) fn actions(&self) -> &[LiveAction] {
+        &self.actions
     }
 
     /// The finished turn, with the session id applied to the usage the same way the whole-stream read does.
@@ -124,7 +152,7 @@ impl RunEventScanner {
 
 /// Fold one parsed event into the turn. The single place the vendor's event vocabulary is read, so a new event type
 /// is taught once.
-fn fold_event(turn: &mut OpenCodeTurnEvents, event: Value) {
+fn fold_event(turn: &mut OpenCodeTurnEvents, actions: &mut Vec<LiveAction>, event: Value) {
     if turn.session_id.is_none() {
         turn.session_id = session_id_of(&event).map(str::to_string);
     }
@@ -164,8 +192,8 @@ fn fold_event(turn: &mut OpenCodeTurnEvents, event: Value) {
             }
         }
         Some("tool_use") => {
-            let tool = event
-                .get("part")
+            let part = event.get("part");
+            let tool = part
                 .and_then(|part| part.get("tool"))
                 .and_then(Value::as_str);
             let at_ms = event.get("timestamp").and_then(Value::as_i64);
@@ -173,6 +201,18 @@ fn fold_event(turn: &mut OpenCodeTurnEvents, event: Value) {
                 turn.tool_calls.push(crate::engine::trajectory::ToolCall {
                     at_ms,
                     tool: tool.to_string(),
+                });
+            }
+            // The same call, read for a live guard. Recorded here so the live view and the recorded view come from
+            // one fold: a call that appears in the trajectory appears here, and with the same tool name.
+            if let Some(tool) = tool {
+                let input = part
+                    .and_then(|part| part.get("state"))
+                    .and_then(|state| state.get("input"));
+                actions.push(LiveAction {
+                    signature: action_signature(tool, input),
+                    kind: crate::engine::trajectory::classify_tool(tool),
+                    exit: reported_exit(part),
                 });
             }
         }
@@ -221,6 +261,79 @@ fn session_id_of(event: &Value) -> Option<&str> {
         })
         .map(str::trim)
         .filter(|id| !id.is_empty())
+}
+
+/// The identity of one call: the tool plus its NORMALIZED arguments.
+///
+/// Blunt on purpose. Keys are sorted and each value's whitespace is collapsed so the same call written twice is the
+/// same string, and every value is capped because a long command's tail is not what tells two calls apart. A call
+/// whose arguments the vendor did not report is identified by its tool name alone — which is what it is.
+fn action_signature(tool: &str, input: Option<&Value>) -> String {
+    let tool = tool.trim();
+    let Some(input) = input else {
+        return tool.to_string();
+    };
+    let mut arguments: Vec<String> = match input {
+        Value::Object(map) => map
+            .iter()
+            .map(|(key, value)| format!("{key}={}", normalize_argument(value)))
+            .collect(),
+        other => vec![normalize_argument(other)],
+    };
+    if arguments.is_empty() {
+        return tool.to_string();
+    }
+    arguments.sort();
+    format!("{tool} {}", arguments.join(" "))
+}
+
+fn normalize_argument(value: &Value) -> String {
+    let text = match value {
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
+    };
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(ACTION_SIGNATURE_ARGUMENT_CHARS)
+        .collect()
+}
+
+/// The exit status the vendor reported for a call, when it reported one.
+///
+/// 2.0.21 nests it as `state.metadata.metadata.exit`. The search is by KEY rather than along a mirrored path,
+/// because that nesting has already moved once; `state.input` is skipped deliberately, because those are the
+/// call's own arguments — a key called `exit` there would be the agent's text, not the vendor's measurement.
+/// Absent stays absent: never a zero, never a failure.
+fn reported_exit(part: Option<&Value>) -> Option<i64> {
+    const MAX_DEPTH: usize = 6;
+    fn search(value: &Value, depth: usize) -> Option<i64> {
+        if depth == 0 {
+            return None;
+        }
+        let Value::Object(map) = value else {
+            return None;
+        };
+        for (key, value) in map {
+            if key == "input" {
+                continue;
+            }
+            if key == "exit" {
+                if let Some(number) = value
+                    .as_i64()
+                    .or_else(|| value.as_f64().map(|exit| exit as i64))
+                {
+                    return Some(number);
+                }
+            }
+            if let Some(found) = search(value, depth - 1) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    search(part?.get("state")?, MAX_DEPTH)
 }
 
 /// `{"name":"…","message":"…"}` and `{"error":{"message":"…"}}` are the two error shapes seen from V2.
@@ -414,12 +527,6 @@ mod tests {
         let turn = parse_run_events(stream).expect("parses");
         assert_eq!(turn.session_id.as_deref(), Some("ses_only_in_part"));
     }
-}
-
-#[cfg(test)]
-mod trajectory_capture_tests {
-    use super::*;
-
     #[test]
     fn every_tool_call_is_kept_in_the_order_the_vendor_reported_it() {
         let stream = concat!(
@@ -452,5 +559,96 @@ mod trajectory_capture_tests {
         );
         let turn = parse_run_events(stream).expect("the stream parses");
         assert!(turn.tool_calls.is_empty());
+    }
+
+    /// The live guard's view of the same fold: the trajectory's calls and the actions are one set, not two.
+    #[test]
+    fn the_live_actions_are_the_calls_the_trajectory_records() {
+        let scanner = {
+            let mut scanner = RunEventScanner::default();
+            for line in MULTI_STEP.lines() {
+                scanner.feed(line).expect("a real stream parses");
+            }
+            scanner
+        };
+        assert_eq!(scanner.actions().len(), scanner.turn().tool_calls.len());
+        assert_eq!(scanner.actions().len(), 1);
+        assert_eq!(
+            scanner.actions()[0].kind,
+            crate::engine::trajectory::ToolKind::Shell
+        );
+    }
+
+    /// Three reads of three files are three actions. A guard that only knew the tool name would call this a runaway.
+    #[test]
+    fn a_call_is_identified_by_its_arguments_and_not_only_by_its_tool_name() {
+        let stream = concat!(
+            r#"{"type":"tool_use","timestamp":100,"sessionID":"ses_t","part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"a.rs"}}}}"#,
+            "\n",
+            r#"{"type":"tool_use","timestamp":200,"sessionID":"ses_t","part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"b.rs"}}}}"#,
+            "\n",
+            r#"{"type":"tool_use","timestamp":300,"sessionID":"ses_t","part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"a.rs"}}}}"#,
+            "\n",
+        );
+        let mut scanner = RunEventScanner::default();
+        for line in stream.lines() {
+            scanner.feed(line).expect("the stream parses");
+        }
+        let actions = scanner.actions();
+        assert_eq!(actions.len(), 3);
+        assert_ne!(actions[0].signature, actions[1].signature);
+        assert_eq!(
+            actions[0].signature, actions[2].signature,
+            "the same call twice is the same signature"
+        );
+        assert_eq!(actions[0].signature, "read filePath=a.rs");
+    }
+
+    #[test]
+    fn the_signature_collapses_whitespace_so_a_reformatted_call_is_the_same_action() {
+        let stream = concat!(
+            r#"{"type":"tool_use","timestamp":100,"part":{"type":"tool","tool":"shell","state":{"input":{"command":"cargo  test --lib"}}}}"#,
+            "\n",
+            r#"{"type":"tool_use","timestamp":200,"part":{"type":"tool","tool":"shell","state":{"input":{"command":"cargo test   --lib"}}}}"#,
+            "\n",
+        );
+        let mut scanner = RunEventScanner::default();
+        for line in stream.lines() {
+            scanner.feed(line).expect("the stream parses");
+        }
+        assert_eq!(
+            scanner.actions()[0].signature,
+            scanner.actions()[1].signature,
+            "whitespace a model reformatted is not a different action"
+        );
+    }
+
+    /// The vendor's own report of what a shell call did. Absent is unmeasured: never zero, never a failure.
+    #[test]
+    fn a_reported_exit_is_read_from_the_vendor_metadata_and_absent_stays_absent() {
+        let mut scanner = RunEventScanner::default();
+        for line in MULTI_STEP.lines() {
+            scanner.feed(line).expect("a real stream parses");
+        }
+        assert_eq!(scanner.actions()[0].exit, Some(0));
+
+        let mut scanner = RunEventScanner::default();
+        for line in TERMINAL_STEP_UNREPORTED.lines() {
+            scanner.feed(line).expect("a real stream parses");
+        }
+        assert_eq!(
+            scanner.actions()[0].exit,
+            None,
+            "the fixture reports no exit, so there is no reading"
+        );
+
+        // A tool ARGUMENT called `exit` is the agent's own text, not the vendor's measurement.
+        let mut scanner = RunEventScanner::default();
+        scanner
+            .feed(
+                r#"{"type":"tool_use","timestamp":1,"part":{"type":"tool","tool":"shell","state":{"input":{"command":"echo","exit":7}}}}"#,
+            )
+            .expect("the line parses");
+        assert_eq!(scanner.actions()[0].exit, None);
     }
 }

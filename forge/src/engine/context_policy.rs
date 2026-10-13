@@ -73,14 +73,81 @@ impl ContextAction {
     }
 }
 
-/// Decide what to do with `items` given the context `capacity` in tokens. Deterministic: the same items, capacity and
-/// policy always give the same action.
-pub fn plan(items: &[ContextItem], capacity: usize, policy: &ContextPolicy) -> ContextAction {
+/// The version of the policy's DECISIONS, carried by every recorded decision.
+///
+/// A decision is only readable against the version that produced it, so the record states it rather than trusting
+/// whoever reads the record to know which policy was in force.
+pub const CONTEXT_POLICY_VERSION: u32 = 1;
+
+/// Which pressure line the context was at when the plan was made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pressure {
+    /// Below the soft line: nothing was touched.
+    BelowSoft,
+    /// At or above the soft line: historical observations may be elided.
+    Soft,
+    /// At or above the hard line: older active items may be summarized when elision was not enough.
+    Hard,
+}
+
+impl Pressure {
+    /// The word this pressure is recorded under.
+    pub fn label(self) -> &'static str {
+        match self {
+            Pressure::BelowSoft => "below-soft",
+            Pressure::Soft => "soft",
+            Pressure::Hard => "hard",
+        }
+    }
+}
+
+/// A plan and the readings it was made against. The plan alone cannot say what it saw, and a decision recorded
+/// without what it was decided against is not reconstructable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextPlan {
+    pub action: ContextAction,
+    pub pressure: Pressure,
+    /// The context capacity the plan was measured against.
+    pub capacity: usize,
+    /// The tokens the items carried, as the caller classified them.
+    pub input_tokens: usize,
+}
+
+/// What one context decision did, as the record a run can be read back from.
+///
+/// PROVIDER-NEUTRAL, and measured in Forge's own estimates: the token counts are the ones the caller classified
+/// its items with — never the vendor's own count, which Forge does not read at this seam. `output_tokens` is what
+/// the plan leaves behind by its own reading; the placeholder text Forge writes in place of an elided item is not
+/// counted, because Forge does not measure it and a fabricated number is worse than an honest omission.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextDecision {
+    pub policy_version: u32,
+    pub input_tokens: usize,
+    pub output_tokens: usize,
+    pub pressure: Pressure,
+    /// Items kept as they were: everything the plan did not elide or summarize.
+    pub retained: usize,
+    pub elided: usize,
+    pub summarized: usize,
+}
+
+/// Decide what to do with `items` given the context `capacity` in tokens, and say what pressure it was decided at.
+/// Deterministic: the same items, capacity and policy always give the same plan.
+pub fn plan_with_pressure(
+    items: &[ContextItem],
+    capacity: usize,
+    policy: &ContextPolicy,
+) -> ContextPlan {
     let total: usize = items.iter().map(|item| item.tokens).sum();
     let soft = (capacity as f32 * policy.soft_limit_ratio) as usize;
     let hard = (capacity as f32 * policy.hard_limit_ratio) as usize;
     if capacity == 0 || total <= soft {
-        return ContextAction::default();
+        return ContextPlan {
+            action: ContextAction::default(),
+            pressure: Pressure::BelowSoft,
+            capacity,
+            input_tokens: total,
+        };
     }
 
     let mut action = ContextAction::default();
@@ -100,7 +167,9 @@ pub fn plan(items: &[ContextItem], capacity: usize, policy: &ContextPolicy) -> C
     }
 
     // Hard pressure: still over the hard line, summarize the oldest active items that are not the most recent ones.
+    let mut pressure = Pressure::Soft;
     if remaining > hard {
+        pressure = Pressure::Hard;
         let active: Vec<&ContextItem> = items
             .iter()
             .filter(|item| item.class == ContextClass::Active)
@@ -116,7 +185,35 @@ pub fn plan(items: &[ContextItem], capacity: usize, policy: &ContextPolicy) -> C
         }
     }
 
-    action
+    ContextPlan {
+        action,
+        pressure,
+        capacity,
+        input_tokens: total,
+    }
+}
+
+impl ContextPlan {
+    /// The record of what this plan decided about the items it was made for.
+    pub fn decision(&self, items: &[ContextItem]) -> ContextDecision {
+        let elided = self.action.elide.len();
+        let summarized = self.action.summarize.len();
+        ContextDecision {
+            policy_version: CONTEXT_POLICY_VERSION,
+            input_tokens: self.input_tokens,
+            output_tokens: self.input_tokens.saturating_sub(self.action.freed_tokens),
+            pressure: self.pressure,
+            retained: items.len().saturating_sub(elided + summarized),
+            elided,
+            summarized,
+        }
+    }
+}
+
+/// Decide what to do with `items` given the context `capacity` in tokens. Deterministic: the same items, capacity and
+/// policy always give the same action.
+pub fn plan(items: &[ContextItem], capacity: usize, policy: &ContextPolicy) -> ContextAction {
+    plan_with_pressure(items, capacity, policy).action
 }
 
 /// The placeholder that replaces an elided observation. It keeps what was removed and where, so the record of the
@@ -205,6 +302,83 @@ mod tests {
         assert_eq!(plan(&items, 1000, &policy), plan(&items, 1000, &policy));
     }
 
+    /// The context-decision record: what the policy saw, what it kept, and what it removed — the telemetry C2
+    /// requires, stated in the policy's own estimates rather than the vendor's counts.
+    #[test]
+    fn a_plan_records_the_decision_it_made() {
+        let items = [
+            item("auth", ContextClass::Authoritative, 300),
+            item("log1", ContextClass::HistoricalObservation, 200),
+            item("log2", ContextClass::HistoricalObservation, 200),
+            item("recent", ContextClass::Active, 300),
+        ];
+        // 1000 of 1000 capacity is over the 60% soft line: the observations go first, oldest first, and eliding
+        // stops the moment the context IS at the soft line — both observations are removed to reach 600.
+        let plan = plan_with_pressure(&items, 1000, &ContextPolicy::default());
+        assert_eq!(plan.pressure, Pressure::Soft);
+        assert_eq!(plan.input_tokens, 1000);
+        assert_eq!(plan.capacity, 1000);
+        let decision = plan.decision(&items);
+        assert_eq!(decision.policy_version, CONTEXT_POLICY_VERSION);
+        assert_eq!(decision.input_tokens, 1000);
+        assert_eq!(decision.output_tokens, 600);
+        assert_eq!(decision.pressure, Pressure::Soft);
+        assert_eq!(decision.elided, 2);
+        assert_eq!(decision.summarized, 0);
+        assert_eq!(
+            decision.retained, 2,
+            "what the plan did not touch is retained, and the count is the same one the plan acted on"
+        );
+        assert_eq!(
+            decision.input_tokens - decision.output_tokens,
+            plan.action.freed_tokens
+        );
+    }
+
+    /// The decision and the action cannot disagree: what the plan says it removed is what the decision counts, and
+    /// an authoritative item is neither elided nor summarized under any pressure.
+    #[test]
+    fn an_authoritative_item_is_retained_however_hard_the_pressure() {
+        let items = [
+            item("auth", ContextClass::Authoritative, 5000),
+            item("log", ContextClass::HistoricalObservation, 5000),
+            item("active", ContextClass::Active, 5000),
+        ];
+        let policy = ContextPolicy {
+            preserve_recent_active: 0,
+            ..ContextPolicy::default()
+        };
+        let plan = plan_with_pressure(&items, 1000, &policy);
+        assert_eq!(plan.pressure, Pressure::Hard);
+        let decision = plan.decision(&items);
+        assert!(!plan.action.elide.contains(&"auth".to_string()));
+        assert!(!plan.action.summarize.contains(&"auth".to_string()));
+        assert_eq!(decision.elided, plan.action.elide.len());
+        assert_eq!(decision.summarized, plan.action.summarize.len());
+        assert_eq!(decision.output_tokens + plan.action.freed_tokens, 15000);
+    }
+
+    /// Nothing to decide is a decision too: below the soft line the record says so rather than being absent, and a
+    /// record over no items at all is `BelowSoft` with zero counted in every field.
+    #[test]
+    fn a_context_inside_its_budget_records_that_nothing_was_touched() {
+        let items = [item("a", ContextClass::HistoricalObservation, 100)];
+        let plan = plan_with_pressure(&items, 1000, &ContextPolicy::default());
+        assert_eq!(plan.pressure, Pressure::BelowSoft);
+        let decision = plan.decision(&items);
+        assert_eq!(decision.pressure.label(), "below-soft");
+        assert_eq!(decision.input_tokens, decision.output_tokens);
+        assert_eq!(decision.retained, 1);
+        assert_eq!(decision.elided, 0);
+        assert_eq!(decision.summarized, 0);
+
+        let empty = plan_with_pressure(&[], 1000, &ContextPolicy::default());
+        assert_eq!(empty.pressure, Pressure::BelowSoft);
+        assert_eq!(empty.decision(&[]).input_tokens, 0);
+    }
+
+    /// C2's integration requirement, read from the PRODUCTION preparation function: the directive the lifecycle
+    /// composes for the next attempt carries the decision the same policy made about the same trail.
     #[test]
     fn an_elided_observation_leaves_a_placeholder_that_names_what_was_removed() {
         let log = item("cargo-7", ContextClass::HistoricalObservation, 4200);

@@ -13,6 +13,7 @@ use forge::engine::opencode_client::{
     live_turn_slot, OpenCodeRunStatus, StreamStop, StreamedRunResult,
 };
 use forge::engine::packet::StoryPacket;
+use forge::engine::planning::StopReason;
 use forge::engine::runner::{HarnessTurnReport, RoleHarness};
 use forge::engine::runtime::ActiveForgeRoleTask;
 use std::collections::HashMap;
@@ -206,10 +207,11 @@ fn a_failed_turn_still_reports_the_calls_it_made_before_it_died() {
 fn an_interrupted_turn_keeps_the_calls_it_made_before_the_stop() {
     let workspace = workspace_case("interrupted");
     let starts = Arc::new(AtomicUsize::new(0));
-    let stop = StreamStop {
-        code: TURN_INTERRUPTED_CODE.to_string(),
-        detail: "operator stop".into(),
-    };
+    let stop = StreamStop::new(
+        TURN_INTERRUPTED_CODE,
+        "operator stop",
+        StopReason::Interrupted,
+    );
     let harness = scripted_harness(&workspace, STREAM_WITH_CALLS, false, Some(stop), &starts);
     let report = harness.run_role_report("feature_scout", &role_task(), None);
 

@@ -3,7 +3,7 @@
 
 use crate::engine::assay::CommandResult;
 use crate::engine::facts::ForgeGateEvidence;
-use crate::engine::harness::{HarnessUsage, TurnTermination};
+use crate::engine::harness::{HarnessBackend, HarnessUsage, ModelSelection, TurnTermination};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::writer::{ForgeEvidenceReader, ForgeStateWriter};
 use std::sync::Arc;
@@ -161,6 +161,37 @@ pub trait RoleHarness: Send + Sync {
             measured_usage,
         }
     }
+    /// The structured report for a turn executed under an already-resolved Forge profile.
+    ///
+    /// The lifecycle (`engine::harness_profile`) resolves the profile from facts the deterministic engine has
+    /// already chosen and hands it to the adapter. The adapter's job is to materialize its own configuration
+    /// FROM that policy; it must never author the policy, and it cannot use it to choose a workflow node.
+    ///
+    /// The default delegates to `run_role_scoped_report`, so every existing adapter and every test double
+    /// keeps its current behavior and stays source-compatible — the same contract `run_role_report`'s own
+    /// default keeps for `run_role`.
+    fn run_role_scoped_profiled_report(
+        &self,
+        _profile: &crate::engine::harness_profile::HarnessProfile,
+        execution_id: &str,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> HarnessTurnReport {
+        self.run_role_scoped_report(execution_id, node_id, task, self_heal)
+    }
+
+    /// Unscoped counterpart to `run_role_scoped_profiled_report`, for a lane with no durable execution.
+    fn run_role_profiled_report(
+        &self,
+        _profile: &crate::engine::harness_profile::HarnessProfile,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> HarnessTurnReport {
+        self.run_role_report(node_id, task, self_heal)
+    }
+
     /// Create a harness with an independent workspace and process slots for
     /// one concurrent lane. Unsupported adapters return `None` so callers can
     /// keep that work serial.
@@ -258,6 +289,13 @@ pub struct ProductionRoleRunner {
     /// an in-process cap; durable production replaces it with the generation's
     /// database authority during composition.
     pub model_attempt_control: Option<Arc<dyn crate::engine::turn_budget::ModelAttemptControl>>,
+    /// Which backend executes this lane's turns. Forge chose it at launch (verified beside the vendor preflight),
+    /// so the envelope carries the decision instead of a reader guessing it from the harness it holds.
+    pub harness_backend: HarnessBackend,
+    /// Forge's model intent for this run, as decided at launch. Carried here rather than read back from the
+    /// adapter: an adapter materializes this intent into its OWN model name, so asking the vendor what model it
+    /// uses would record the vendor's answer instead of Forge's decision.
+    pub model_intent: ModelSelection,
 }
 
 /// The envelope a turn runs under, as whoever hosts it exposes it.
@@ -282,6 +320,16 @@ pub trait ForgeTurnPorts {
     fn require_prod(&self) -> bool;
     fn model_attempt_control(&self)
         -> Option<&dyn crate::engine::turn_budget::ModelAttemptControl>;
+    /// Which backend executes this lane. The default is the backend `HarnessBackend` documents as its own default,
+    /// for a host that runs a double and names neither this nor a model.
+    fn harness_backend(&self) -> HarnessBackend {
+        HarnessBackend::OpenCode
+    }
+    /// Forge's model intent, as the launch decisions made it. The default is the intent a launch with no policy and
+    /// no override resolves to, which is what a host that names no intent actually runs under.
+    fn model_intent(&self) -> ModelSelection {
+        ModelSelection::from_parts(None, None)
+    }
     /// The evidence a turn on `story_id` starts from: the story's latest durable evidence over the wake evidence.
     /// The default is the wake evidence alone, for hosts with no durable store behind them.
     ///
@@ -345,6 +393,14 @@ impl ForgeTurnPorts for ProductionRoleRunner {
         self.model_attempt_control.as_deref()
     }
 
+    fn harness_backend(&self) -> HarnessBackend {
+        self.harness_backend
+    }
+
+    fn model_intent(&self) -> ModelSelection {
+        self.model_intent.clone()
+    }
+
     fn current_for(&self, story_id: &str) -> Result<ForgeGateEvidence> {
         match &self.evidence_reader {
             Some(reader) => {
@@ -375,6 +431,8 @@ impl ForgeTurnPorts for ProductionRoleRunner {
             require_prod: self.require_prod,
             evidence_reader: self.evidence_reader.clone(),
             model_attempt_control: self.model_attempt_control.clone(),
+            harness_backend: self.harness_backend,
+            model_intent: self.model_intent.clone(),
         }))
     }
 }
@@ -404,6 +462,10 @@ impl ProductionRoleRunner {
                     ),
                 ),
             )),
+            // Both launch decisions below are set by composition (`bin/forge.rs`); these are the defaults a
+            // hand-built or direct runner gets, matching what a launch naming neither would resolve to.
+            harness_backend: HarnessBackend::OpenCode,
+            model_intent: ModelSelection::from_parts(None, None),
         }
     }
 
@@ -419,6 +481,23 @@ impl ProductionRoleRunner {
         control: Arc<dyn crate::engine::turn_budget::ModelAttemptControl>,
     ) -> Self {
         self.model_attempt_control = Some(control);
+        self
+    }
+
+    /// Carry the launch's own decisions about HOW this lane runs: which backend executes it and Forge's model
+    /// intent for the run.
+    ///
+    /// SET BY COMPOSITION, RESOLVED ONCE: `bin/forge.rs` reads both off the run's envelope (the row's
+    /// `model_policy` plus an attended override, and `FORGE_HARNESS`) and the same values configure the harness it
+    /// builds. Passing them here means the lane does not re-derive them, so the profile a turn records cannot
+    /// disagree with the harness that ran it.
+    pub fn with_harness_envelope(
+        mut self,
+        backend: HarnessBackend,
+        model_intent: ModelSelection,
+    ) -> Self {
+        self.harness_backend = backend;
+        self.model_intent = model_intent;
         self
     }
 

@@ -1447,7 +1447,7 @@ fn empty_explicit_model_refuses_opencode_default() {
 
 #[test]
 fn packet_includes_isolation_and_architect_brief() {
-    let text = packet::build_task_text(
+    let text = packet::TaskText::for_node(
         "architect",
         "t1",
         &packet::StoryPacket {
@@ -1457,16 +1457,19 @@ fn packet_includes_isolation_and_architect_brief() {
             architect_brief: Some("use existing URL".into()),
             ..Default::default()
         },
-        Some(&packet::ExecutionWorkspace {
+        packet::TaskIsolation::of(Some(&packet::ExecutionWorkspace {
             worktree_path: "/tmp/wt".into(),
             branch_name: "forge/s1".into(),
             base_ref: "main".into(),
             base_commit: "abc1234def".into(),
-        }),
+        })),
+        None,
     );
-    assert!(text.contains("Architect brief: use existing URL"));
-    assert!(text.contains("isolated Git worktree on branch forge/s1"));
-    assert!(text.contains("Do NOT push"));
+    assert!(text.as_str().contains("Architect brief: use existing URL"));
+    assert!(text
+        .as_str()
+        .contains("isolated Git worktree on branch forge/s1"));
+    assert!(text.as_str().contains("Do NOT push"));
 }
 
 #[test]

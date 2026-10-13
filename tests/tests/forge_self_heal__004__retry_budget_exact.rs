@@ -109,6 +109,8 @@ fn attempts_for(enforce: &str, retries: &str, story_id: &str) -> usize {
         execution_id: None,
         write_surface: None,
         model_attempt_control: None,
+        harness_backend: forge::engine::harness::HarnessBackend::OpenCode,
+        model_intent: forge::engine::harness::ModelSelection::from_parts(None, None),
     };
     run_forge_role_turn(&ctx, "architect", &task, &NoRoleHooks).expect("turn runs");
     harness.turns.load(Ordering::SeqCst)

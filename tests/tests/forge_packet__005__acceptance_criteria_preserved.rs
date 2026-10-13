@@ -11,8 +11,8 @@
 //!      `storyboard_story_run.acceptance_criteria_snapshot`, in the same statement that opens the run,
 //!      by the database, from the story row (lines 859-885) — not from a caller argument, which is why
 //!      a stale or edited copy cannot be substituted.
-//!   3. **the task text** — `forge::engine::packet::build_task_text`
-//!      (`forge/src/engine/packet.rs:117-125`) embeds it under the sentinel
+//!   3. **the task text** — the ONE constructor, `forge::engine::packet::TaskText`
+//!      (`forge/src/engine/packet.rs`, `compose_task_text`) embeds it under the sentinel
 //!      `Acceptance criteria (do not mark Complete unless these are satisfied):`.
 //!
 //! "Preserved" means byte-exact for the authored content, absence-preserving for a blank criterion
@@ -41,7 +41,7 @@
 //! a disposable DEV database and the harness will never open a PRODUCTION one.
 
 use db::DbTarget;
-use forge::engine::packet::{build_task_text, StoryPacket};
+use forge::engine::packet::{StoryPacket, TaskIsolation, TaskText};
 use sqlx::PgPool;
 use test_harness::ForgeHarness;
 
@@ -57,7 +57,7 @@ const PROOF_PREFIX: &str = "TST-FORGE-PACKET-005-";
 const CRITERIA_A: &str = "AC-1: the packet preserves the authored acceptance criteria verbatim.\n\
 AC-2: preservation is byte-exact, including newlines and punctuation.\n\
 AC-3: a later edit must not rewrite what the run executed against.";
-/// The exact sentinel `build_task_text` writes before the criteria (`forge/src/engine/packet.rs:123`).
+/// The exact sentinel `TaskText` writes before the criteria (`forge/src/engine/packet.rs`, `compose_task_text`).
 const SENTINEL: &str = "Acceptance criteria (do not mark Complete unless these are satisfied):";
 
 /// Connect to the disposable DEV branch, tolerating a cold-pool timeout under concurrent test load.
@@ -208,7 +208,8 @@ async fn forge_packet_005__acceptance_criteria_preserved() {
         acceptance_criteria: authored_row.acceptance_criteria.clone(),
         ..Default::default()
     };
-    let text_a = build_task_text("smith", "task-a", &packet_a, None);
+    let text_a =
+        TaskText::for_node("smith", "task-a", &packet_a, TaskIsolation::of(None), None).to_string();
     let expected_line = format!("{SENTINEL} {CRITERIA_A}");
     assert!(
         text_a.contains(&expected_line),
@@ -270,7 +271,14 @@ async fn forge_packet_005__acceptance_criteria_preserved() {
         acceptance_criteria: None,
         ..Default::default()
     };
-    let text_absent = build_task_text("smith", "task-b", &packet_absent, None);
+    let text_absent = TaskText::for_node(
+        "smith",
+        "task-b",
+        &packet_absent,
+        TaskIsolation::of(None),
+        None,
+    )
+    .to_string();
     assert!(
         !text_absent.contains("Acceptance criteria"),
         "{HARNESS}: the builder must not fabricate an acceptance line for an absent criterion"

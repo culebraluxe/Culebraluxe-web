@@ -13,8 +13,8 @@
 //!      `storyboard_story_run.architect_brief_snapshot`, in the same statement that opens the run,
 //!      by the database, from the story row (migration 264 lines 46-57) — not from a caller argument,
 //!      which is why a stale or edited copy cannot be substituted.
-//!   3. **the task text** — `forge::engine::packet::build_task_text`
-//!      (`forge/src/engine/packet.rs:116-118`) embeds it under the sentinel `Architect brief:`.
+//!   3. **the task text** — the ONE constructor, `forge::engine::packet::TaskText`
+//!      (`forge/src/engine/packet.rs`, `compose_task_text`) embeds it under the sentinel `Architect brief:`.
 //!
 //! "Preserved" means byte-exact for the authored content, absence-preserving for a blank brief
 //! (`nullif(trim(...), '')` — Postgres `trim` strips spaces, so the blank the boundary recognises is
@@ -42,7 +42,7 @@
 //! a disposable DEV database and the harness will never open a PRODUCTION one.
 
 use db::DbTarget;
-use forge::engine::packet::{build_task_text, StoryPacket};
+use forge::engine::packet::{StoryPacket, TaskIsolation, TaskText};
 use sqlx::PgPool;
 use test_harness::ForgeHarness;
 
@@ -58,7 +58,7 @@ const PROOF_PREFIX: &str = "TST-FORGE-PACKET-001-";
 const BRIEF_A: &str = "ARCH-1: the packet preserves the authored architect brief verbatim.\n\
 ARCH-2: preservation is byte-exact, including newlines and punctuation.\n\
 ARCH-3: a later edit must not rewrite what the run executed against.";
-/// The exact sentinel `build_task_text` writes before the brief (`forge/src/engine/packet.rs:117`).
+/// The exact sentinel `TaskText` writes before the brief (`forge/src/engine/packet.rs`, `compose_task_text`).
 const SENTINEL: &str = "Architect brief:";
 
 /// Connect to the disposable DEV branch, tolerating a cold-pool timeout under concurrent test load.
@@ -218,7 +218,8 @@ async fn forge_packet_001__architect_brief_preserved() {
         acceptance_criteria: authored_row.acceptance_criteria.clone(),
         ..Default::default()
     };
-    let text_a = build_task_text("smith", "task-a", &packet_a, None);
+    let text_a =
+        TaskText::for_node("smith", "task-a", &packet_a, TaskIsolation::of(None), None).to_string();
     // The task text embeds the packet's architect_brief (concatenated) under the sentinel.
     // The authored brief must be contained within this.
     assert!(
@@ -281,7 +282,14 @@ async fn forge_packet_001__architect_brief_preserved() {
         architect_brief: None,
         ..Default::default()
     };
-    let text_absent = build_task_text("smith", "task-b", &packet_absent, None);
+    let text_absent = TaskText::for_node(
+        "smith",
+        "task-b",
+        &packet_absent,
+        TaskIsolation::of(None),
+        None,
+    )
+    .to_string();
     assert!(
         !text_absent.contains("Architect brief:"),
         "{HARNESS}: the builder must not fabricate an architect brief line for an absent brief"

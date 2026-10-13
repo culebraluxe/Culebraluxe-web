@@ -28,6 +28,8 @@ impl RoleHarness for OpenCodeHarness {
             task,
             self_heal,
             &self.live_turn,
+            // Unprofiled: the caller had no resolved profile for this turn, so no live thresholds are enforced.
+            None,
             &mut measured_usage,
             &mut measured_trajectory,
         );
@@ -45,18 +47,7 @@ impl RoleHarness for OpenCodeHarness {
         task: &ActiveForgeRoleTask,
         self_heal: Option<&str>,
     ) -> Result<HarnessOutput> {
-        let slot = self.execution_slot(execution_id)?;
-        if slot
-            .lock()
-            .map_err(|_| WorkflowError::generic("execution interrupt slot is poisoned"))?
-            .interrupt_reason
-            .is_some()
-        {
-            return Err(WorkflowError::generic(format!(
-                "{}: execution was cancelled before model launch",
-                crate::engine::opencode::TURN_INTERRUPTED_CODE
-            )));
-        }
+        let slot = self.launchable_slot(execution_id)?;
         self.run_role_with_slot(node_id, task, self_heal, &slot)
     }
 
@@ -69,29 +60,78 @@ impl RoleHarness for OpenCodeHarness {
     ) -> crate::engine::runner::HarnessTurnReport {
         let mut measured_usage = None;
         let mut measured_trajectory = None;
-        let outcome = self.execution_slot(execution_id).and_then(|slot| {
-            if slot
-                .lock()
-                .map_err(|_| WorkflowError::generic("execution interrupt slot is poisoned"))?
-                .interrupt_reason
-                .is_some()
-            {
-                // Cancelled BEFORE launch: no vendor process ran, so there is nothing observed to report. That is
-                // the one case where an empty report is the honest one — the turn never spent anything.
-                return Err(WorkflowError::generic(format!(
-                    "{}: execution was cancelled before model launch",
-                    crate::engine::opencode::TURN_INTERRUPTED_CODE
-                )));
-            }
+        let outcome = self.launchable_slot(execution_id).and_then(|slot| {
             self.run_role_with_slot_measured(
                 node_id,
                 task,
                 self_heal,
                 &slot,
+                // Unprofiled: see `run_role_report`.
+                None,
                 &mut measured_usage,
                 &mut measured_trajectory,
             )
         });
+        crate::engine::runner::HarnessTurnReport {
+            trajectory: measured_trajectory,
+            outcome,
+            measured_usage,
+        }
+    }
+
+    /// The profiled entry point for a scoped turn: the lifecycle resolved the policy, this adapter applies it.
+    ///
+    /// The profile is handed STRAIGHT to the turn, which is the only thing a live guard reads. Nothing here may
+    /// reinterpret it: `resolve()` already refused any input it could not bind to the engine's own lane, so a
+    /// profile can only agree with the node its caller names — and an adapter that re-derived a lane from
+    /// `profile.identity` would have authored policy it was only meant to apply.
+    fn run_role_scoped_profiled_report(
+        &self,
+        profile: &HarnessProfile,
+        execution_id: &str,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> crate::engine::runner::HarnessTurnReport {
+        let mut measured_usage = None;
+        let mut measured_trajectory = None;
+        let outcome = self.launchable_slot(execution_id).and_then(|slot| {
+            self.run_role_with_slot_measured(
+                node_id,
+                task,
+                self_heal,
+                &slot,
+                Some(profile),
+                &mut measured_usage,
+                &mut measured_trajectory,
+            )
+        });
+        crate::engine::runner::HarnessTurnReport {
+            trajectory: measured_trajectory,
+            outcome,
+            measured_usage,
+        }
+    }
+
+    /// The profiled entry point for a turn with no durable execution, e.g. a lane that is not a job.
+    fn run_role_profiled_report(
+        &self,
+        profile: &HarnessProfile,
+        node_id: &str,
+        task: &ActiveForgeRoleTask,
+        self_heal: Option<&str>,
+    ) -> crate::engine::runner::HarnessTurnReport {
+        let mut measured_usage = None;
+        let mut measured_trajectory = None;
+        let outcome = self.run_role_with_slot_measured(
+            node_id,
+            task,
+            self_heal,
+            &self.live_turn,
+            Some(profile),
+            &mut measured_usage,
+            &mut measured_trajectory,
+        );
         crate::engine::runner::HarnessTurnReport {
             trajectory: measured_trajectory,
             outcome,

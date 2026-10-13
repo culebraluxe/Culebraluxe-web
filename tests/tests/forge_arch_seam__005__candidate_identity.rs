@@ -244,6 +244,8 @@ fn assay_measures_the_reviewed_candidate_not_the_workspace_head() {
         execution_id: None,
         write_surface: None,
         model_attempt_control: None,
+        harness_backend: forge::engine::harness::HarnessBackend::OpenCode,
+        model_intent: forge::engine::harness::ModelSelection::from_parts(None, None),
     };
     let task = ActiveForgeRoleTask {
         task_id: "t-assay".into(),

@@ -99,6 +99,8 @@ fn forge_self_heal_005__hard_runtime_failure_gets_no_pointless_reprompt() {
         execution_id: None,
         write_surface: None,
         model_attempt_control: None,
+        harness_backend: forge::engine::harness::HarnessBackend::OpenCode,
+        model_intent: forge::engine::harness::ModelSelection::from_parts(None, None),
     };
     let outcome = run_forge_role_turn(&ctx, "architect", &task, &NoRoleHooks);
 

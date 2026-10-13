@@ -207,12 +207,16 @@ impl MaestroHarness {
         node_id: &str,
         task: &ActiveForgeRoleTask,
         self_heal: Option<&str>,
-    ) -> String {
-        crate::engine::packet::build_task_text_with_context(
+    ) -> crate::engine::packet::TaskText {
+        use crate::engine::packet::{TaskIsolation, TaskText};
+        // The Maestro lane resolves no profile of its own, so the policy comes from the node's own lane — the same
+        // table the profile resolver reads (`packet::TaskText::for_node`). It is a transition state, not an
+        // exemption: the node's grant applies here exactly as it applies to a profiled turn.
+        TaskText::for_node(
             node_id,
             &task.task_id,
             &self.packet,
-            self.execution_workspace.as_ref(),
+            TaskIsolation::of(self.execution_workspace.as_ref()),
             self_heal,
         )
     }
@@ -329,7 +333,7 @@ impl RoleHarness for MaestroHarness {
         // The send contract, exactly as the vendor documents it (`maestro-cli send --help`): `send`
         // <agent> <message>, plus `--session` when resuming. No --model/--auto/--continue/--agent — those
         // are OpenCode flags the Maestro CLI does not accept, and inventing them fails the turn.
-        let args = build_maestro_send_args(&self.agent, &task_text, session.as_deref());
+        let args = build_maestro_send_args(&self.agent, task_text.as_str(), session.as_deref());
 
         // Turn ceiling (wall-clock timeout)
         let max_turn = turn_ceiling(std::env::var(TURN_CEILING_ENV).ok().as_deref());

@@ -189,8 +189,15 @@ fn maestro_task_text_preserves_forge_context() {
         write_surface: None,
     };
     let text = harness.task_text("architect", &task, None);
+    let text = text.as_str();
     assert!(text.contains("GOAL-TEXT"), "{text}");
     assert!(text.contains("BRIEF-TEXT"), "{text}");
     assert!(text.contains("ACCEPT-TEXT"), "{text}");
     assert!(text.contains("architect"), "{text}");
+    // The isolation posture travels with the text. This harness was handed a workspace, so the turn is told it
+    // is in one — the adapter does not leave the model to guess which checkout it is editing.
+    assert!(text.contains("Execution isolation"), "{text}");
+    // Architect grants no planning, so no scaffold is composed for it: the policy is the NODE's own lane
+    // (`packet::TaskText::for_node`), not an absence the adapter filled in.
+    assert!(!text.contains("Planning policy"), "{text}");
 }

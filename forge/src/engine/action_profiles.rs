@@ -120,6 +120,24 @@ pub fn policy_for_agent(agent_id: &str) -> Option<ActionPolicy> {
         .map(policy_for_profile)
 }
 
+/// The action policy for an engine node, resolved through the ONE role table.
+///
+/// Added by C1 so the provider-neutral profile layer (`engine::harness_profile`) can name a surface without
+/// importing a provider module or keeping a second lane table of its own. The lookup itself is unchanged:
+/// node → agent → policy, both steps fail closed.
+///
+/// A node with no agent profile is an error, for the same reason `v2_agent_for_node` refuses one: running it
+/// under an inherited surface would hand it authority nobody granted it.
+pub fn policy_for_node(node_id: &str) -> Result<ActionPolicy, String> {
+    let agent = crate::engine::opencode_agents::v2_agent_for_node(node_id)?;
+    policy_for_agent(agent).ok_or_else(|| {
+        format!(
+            "node {node_id:?} binds to agent {agent:?}, which ships no action policy; refusing to run it \
+             with an unstated surface"
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

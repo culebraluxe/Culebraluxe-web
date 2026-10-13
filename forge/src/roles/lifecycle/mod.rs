@@ -27,6 +27,7 @@
 use crate::engine::execution_target::{assert_forge_execution_target, env_pairs_from_process};
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::harness::HarnessUsage;
+use crate::engine::harness_profile;
 use crate::engine::hold::{
     deliverable_enforcement_enabled, parse_deliverable_reprompt_budget, OpenHold,
 };
@@ -35,7 +36,7 @@ use crate::engine::phase::RoleEffectPorts;
 use crate::engine::runner::{ForgeRoleOutcome, ForgeRoleRunner};
 use crate::engine::runner::{ForgeTurnPorts, HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
-use crate::engine::self_heal::{attempt_budget, build_self_heal_directive};
+use crate::engine::self_heal::{attempt_budget, build_self_heal_directive_contextual_report};
 use crate::engine::service_binding::lane_for_node;
 use crate::engine::writer::ForgeStateWriter;
 use crate::roles::hooks::ForgeRoleHooks;
@@ -61,6 +62,12 @@ pub struct ForgeRoleContext<'a> {
     pub contract_acceptance_mapped: bool,
     pub require_prod: bool,
     pub model_attempt_control: Option<&'a dyn crate::engine::turn_budget::ModelAttemptControl>,
+    /// Which backend executes this lane, as the launch chose it. Read off the ports so the profile a turn records
+    /// can say which adapter ran it without having to ask the adapter.
+    pub harness_backend: crate::engine::harness::HarnessBackend,
+    /// Forge's model intent for this run, as the launch chose it. Owned rather than borrowed: it is a small value
+    /// with no lifetime, so the envelope carries it by value.
+    pub model_intent: crate::engine::harness::ModelSelection,
 }
 
 impl<'a> ForgeRoleContext<'a> {
@@ -83,6 +90,8 @@ impl<'a> ForgeRoleContext<'a> {
             contract_acceptance_mapped: ports.contract_acceptance_mapped(),
             require_prod: ports.require_prod(),
             model_attempt_control: ports.model_attempt_control(),
+            harness_backend: ports.harness_backend(),
+            model_intent: ports.model_intent(),
         }
     }
 }
@@ -205,7 +214,10 @@ pub fn run_forge_role_turn(
             std::env::var("FORGE_DELIVERABLE_RETRIES").ok().as_deref(),
         ),
     );
-    let mut prior_reply: Option<String> = None;
+    // The attempt trail, OLDEST FIRST: this is the execution's own accumulated context, and it is the ONLY context
+    // Forge composes and re-sends (the provider builds every other prompt). The resolved profile's context policy
+    // decides what survives into the next attempt (`build_self_heal_directive_contextual`).
+    let mut prior_replies: Vec<String> = Vec::new();
     // The corrective directive for the next attempt. Set below when this attempt missed something, and handed
     // to `run_role` so the retry names the omission instead of repeating the prompt (2026-09-29).
     let mut self_heal: Option<String> = None;
@@ -243,16 +255,34 @@ pub fn run_forge_role_turn(
         // The turn's clock is read HERE, at the seam, and handed to the trajectory row with the outcome: that is
         // what makes "time to first edit" a latency relative to a real turn rather than to a run.
         let turn_started_at = chrono::Utc::now();
+        // C1: the turn executes under ONE resolved Forge profile. It is resolved HERE because this is the first
+        // point where the facts are together: the node the WORKFLOW authorized, the lane's backend and model intent
+        // as the launch decided them, and this attempt's own generation. The profile states what the turn may do
+        // with its tools; it can name no node, so the workflow remains the only thing that decides what runs next.
+        // A node the engine cannot bind to a lane, or a lane with no action policy, is refused here — before the
+        // turn is paid for.
+        let profile = harness_profile::resolve(&harness_profile::HarnessProfileInput {
+            node_id,
+            backend: ctx.harness_backend,
+            model: ctx.model_intent.clone(),
+            execution_id: ctx.execution_id,
+            role_attempt: attempt,
+            execution_generation: ctx
+                .model_attempt_control
+                .map(|control| control.generation_id()),
+        })?;
         let report = match ctx.execution_id {
-            Some(execution_id) => ctx.harness.run_role_scoped_report(
+            Some(execution_id) => ctx.harness.run_role_scoped_profiled_report(
+                &profile,
                 execution_id,
                 node_id,
                 task,
                 self_heal.as_deref(),
             ),
-            None => ctx
-                .harness
-                .run_role_report(node_id, task, self_heal.as_deref()),
+            None => {
+                ctx.harness
+                    .run_role_profiled_report(&profile, node_id, task, self_heal.as_deref())
+            }
         };
         let turn_ended_at = chrono::Utc::now();
         // The generation that paid for this turn. It is the discriminator a REPLAN changes, which is why it is part
@@ -370,7 +400,11 @@ pub fn run_forge_role_turn(
             if missing.is_empty() && evidence.deliverable_rejection.is_none() {
                 break;
             }
-            let directive = build_self_heal_directive(
+            // The attempt that just finished is the reply the NEXT attempt must repair, so it joins the trail BEFORE
+            // the directive is composed: the trail's last entry is always the most recent attempt. The raw reply is
+            // already recorded (`last_raw`), so moving it here leaves no lost reading.
+            prior_replies.push(std::mem::take(&mut out.raw));
+            let composed = build_self_heal_directive_contextual_report(
                 node_id,
                 &missing.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
                 None,
@@ -380,10 +414,32 @@ pub fn run_forge_role_turn(
                     .map(|s| vec![s.to_string()])
                     .unwrap_or_default()
                     .as_slice(),
-                prior_reply.as_deref(),
+                &prior_replies,
+                &profile.context_policy,
             );
-            prior_reply = Some(out.raw);
-            self_heal = Some(directive);
+            // C2: CONTEXT-DECISION TELEMETRY. The decision is recorded where it was taken, in the canonical
+            // vocabulary, with the identity of the profile whose context policy made it — so a run can be read back
+            // to answer what was elided, at which pressure, and against which policy version. `usage_known` is the
+            // reading for the attempt whose reply is being carried: an unmeasured spend is recorded as unknown, never
+            // as zero, because a fabricated count beside a real decision is worse than an absent one.
+            if let Some(decision) = composed.decision.as_ref() {
+                tracing::info!(
+                    story = %story_id,
+                    node = %node_id,
+                    profile = %profile.identity.profile_id,
+                    profile_version = profile.identity.profile_version,
+                    context_policy_version = decision.policy_version,
+                    pressure = %decision.pressure.label(),
+                    input_tokens = decision.input_tokens,
+                    output_tokens = decision.output_tokens,
+                    retained = decision.retained,
+                    elided = decision.elided,
+                    summarized = decision.summarized,
+                    usage_known = usage.is_some(),
+                    "forge context decision"
+                );
+            }
+            self_heal = Some(composed.directive);
             continue;
         }
         break;

@@ -305,6 +305,8 @@ mod production_check_tests {
             contract_acceptance_mapped: false,
             require_prod: false,
             model_attempt_control: None,
+            harness_backend: crate::engine::harness::HarnessBackend::OpenCode,
+            model_intent: crate::engine::harness::ModelSelection::from_parts(None, None),
         };
         DevOpsHooks.turn_without_model(&ctx, node, &task(node))
     }

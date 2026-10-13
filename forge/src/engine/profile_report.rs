@@ -155,11 +155,16 @@ fn row(comparison: &ProfileComparison) -> String {
 
 /// The distinction the turn key exists for, spelled out: a profile's first turns and its repair turns are different
 /// populations, and one line for both would hide the thing the comparison is for.
+///
+/// `no-edit stops` is the planning contract's one recorded finding that a row's own counters can establish (a turn
+/// that terminated without the edit its node's action policy owed). It is printed as a COUNT and nothing else: the
+/// harness records it, it does not rule on it.
 fn split(comparison: &ProfileComparison) -> String {
     format!(
-        "    first {}  repair {}",
+        "    first {}  repair {}  no-edit stops {}",
         population(&comparison.first_turns),
-        population(&comparison.repair_turns)
+        population(&comparison.repair_turns),
+        comparison.no_edit_terminations
     )
 }
 
@@ -251,6 +256,7 @@ mod tests {
             cost_per_accepted_usd,
             median_time_to_first_edit_ms: Some(4_200),
             mean_verification_after_last_edit: Some(1.0),
+            no_edit_terminations: 0,
             first_turns: timing(1, 1),
             repair_turns: timing(1, 0),
         }

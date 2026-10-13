@@ -185,6 +185,8 @@ fn read_with<'a>(
         execution_id: None,
         write_surface: None,
         model_attempt_control: None,
+        harness_backend: forge::engine::harness::HarnessBackend::OpenCode,
+        model_intent: forge::engine::harness::ModelSelection::from_parts(None, None),
     };
     let turn = ForgeRoleTurn {
         node_id: "smith",

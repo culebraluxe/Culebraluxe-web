@@ -30,6 +30,7 @@ pub mod first_violation;
 pub mod git_publish;
 pub mod graph;
 pub mod harness;
+pub mod harness_profile;
 pub mod harness_usage;
 pub mod hold;
 pub mod hold_resolve;
@@ -132,7 +133,9 @@ pub use execution_target::{assert_forge_execution_target, assert_forge_lane_may_
 pub use hold::{open_forge_hold_record, OpenHold};
 pub use split_join::{reduce_split, split_join_hold_reasons};
 
-pub use self_heal::{attempt_budget, build_self_heal_directive};
+pub use self_heal::{
+    attempt_budget, build_self_heal_directive, build_self_heal_directive_contextual,
+};
 pub use worktree::{derive_branch_name, derive_worktree_path, provision_worker_workspace};
 
 pub use agent_work::{claim_next_agent_work, claim_specific_agent_work, AgentWorkItem};

@@ -106,6 +106,8 @@ fn forge_self_heal_003__only_missing_requirements_named() {
         execution_id: None,
         write_surface: None,
         model_attempt_control: None,
+        harness_backend: forge::engine::harness::HarnessBackend::OpenCode,
+        model_intent: forge::engine::harness::ModelSelection::from_parts(None, None),
     };
     run_forge_role_turn(&ctx, "architect", &task, &NoRoleHooks).expect("turn runs");
 

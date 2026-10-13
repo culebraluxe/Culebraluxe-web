@@ -1,4 +1,8 @@
 use super::*;
+use crate::engine::context_policy::CONTEXT_POLICY_VERSION;
+use crate::engine::planning::PlanningPolicy;
+use crate::engine::planning::StopReason;
+use crate::engine::self_heal::build_self_heal_directive_contextual_report;
 use std::fs;
 
 #[test]
@@ -77,6 +81,60 @@ fn role_task() -> ActiveForgeRoleTask {
     }
 }
 
+/// Replay a scripted transcript the way the streaming client does: line by line, stopping where the live guard says
+/// stop. A seam that returned a finished transcript could not exercise the live view.
+fn replay_stream(
+    stream: &str,
+    on_line: &mut dyn FnMut(&str) -> Option<StreamStop>,
+) -> StreamedRunResult {
+    let mut stop = None;
+    let mut lines = 0usize;
+    for line in stream.lines() {
+        lines += 1;
+        if let Some(verdict) = on_line(line) {
+            stop = Some(verdict);
+            break;
+        }
+    }
+    StreamedRunResult {
+        status: crate::engine::opencode_client::OpenCodeRunStatus::Success,
+        exit_code: Some(0),
+        stderr: String::new(),
+        stop,
+        lines,
+        last_line_ms: 1,
+        silent_ticks: 0,
+        termination: None,
+    }
+}
+
+/// A harness that records the task text it hands the vendor.
+///
+/// C1's live assertion needs the text the TURN was told, and a test that rendered the scaffold a second time would
+/// only ever agree with the helper that built it. This reads the turn's own `opts.task`.
+fn harness_capturing_task_text(
+    workspace: &Path,
+    stream: &str,
+    packet: StoryPacket,
+) -> (
+    OpenCodeHarness,
+    std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+) {
+    let mut harness = harness_with_stream(workspace, stream);
+    harness.packet = packet;
+    let seen: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = std::sync::Arc::clone(&seen);
+    let stdout = stream.to_string();
+    harness.start_run = Some(Box::new(move |opts, on_line, _live| {
+        sink.lock()
+            .expect("the task-text sink is not poisoned")
+            .push(opts.task.to_string());
+        replay_stream(&stdout, on_line)
+    }));
+    (harness, seen)
+}
+
 /// A harness whose model turn is a scripted V2 stream. A Scout node writes no code, so no git repository
 /// is needed; the temp workspace only has to exist.
 fn harness_with_stream(workspace: &Path, stream: &str) -> OpenCodeHarness {
@@ -93,25 +151,7 @@ fn harness_with_stream(workspace: &Path, stream: &str) -> OpenCodeHarness {
         // live guard and the post-turn read see the same input. A seam that returned a finished transcript could
         // not exercise either.
         start_run: Some(Box::new(move |_opts, on_line, _live| {
-            let mut stop = None;
-            let mut lines = 0usize;
-            for line in stdout.lines() {
-                lines += 1;
-                if let Some(verdict) = on_line(line) {
-                    stop = Some(verdict);
-                    break;
-                }
-            }
-            StreamedRunResult {
-                status: crate::engine::opencode_client::OpenCodeRunStatus::Success,
-                exit_code: Some(0),
-                stderr: String::new(),
-                stop,
-                lines,
-                last_line_ms: 1,
-                silent_ticks: 0,
-                termination: None,
-            }
+            replay_stream(&stdout, on_line)
         })),
         live_turn: live_turn_slot(),
         execution_turns: Arc::new(std::sync::Mutex::new(HashMap::new())),
@@ -166,6 +206,11 @@ fn repeated_parse_failures_trip_the_stream_stop() {
     );
     let stop = stream_parse_trip(STREAM_PARSE_FAILURE_CAP).expect("the cap trips at the cap");
     assert_eq!(stop.code, STREAM_UNREADABLE_CODE, "{}", stop.detail);
+    assert_eq!(
+        stop.reason,
+        StopReason::PolicyViolation,
+        "a stream Forge is told to read and cannot is a rule broken, and the reason is the canonical one"
+    );
 }
 
 /// WO-120: a vendor-session persist failure names the harness, node, story and cause, so the
@@ -377,6 +422,10 @@ fn a_turn_that_passes_the_spend_cap_is_stopped_and_is_not_read_as_an_answer() {
         err.contains("stopped for feature_scout"),
         "a stopped turn is not a failure of the harness: {err}"
     );
+    assert!(
+        err.contains("budget-exhausted"),
+        "and the stop names its REASON in the canonical vocabulary, not only its code: {err}"
+    );
     let _ = fs::remove_dir_all(&workspace);
 }
 
@@ -403,6 +452,281 @@ fn the_same_turn_under_a_cap_it_respects_is_allowed_to_finish() {
         "the spend is the sum the transcript reported: {usage:?}"
     );
     let _ = fs::remove_dir_all(&workspace);
+}
+
+/// A transcript of the loop runaway detection exists for: the same read of the same file, three times, with
+/// nothing between them. The vendor reports no exit for a read, so no diagnostics moved either — the turn is
+/// doing exactly one thing, again.
+const STUCK_READ_STREAM: &str = concat!(
+    r#"{"type":"tool_use","timestamp":100,"sessionID":"ses_stuck","part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"src/lib.rs"}}}}"#,
+    "\n",
+    r#"{"type":"tool_use","timestamp":200,"sessionID":"ses_stuck","part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"src/lib.rs"}}}}"#,
+    "\n",
+    r#"{"type":"tool_use","timestamp":300,"sessionID":"ses_stuck","part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"src/lib.rs"}}}}"#,
+    "\n",
+    r#"{"type":"tool_use","timestamp":400,"sessionID":"ses_stuck","part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"src/lib.rs"}}}}"#,
+    "\n",
+    r#"{"type":"text","timestamp":500,"sessionID":"ses_stuck","part":{"type":"text","text":"DONE"}}"#,
+    "\n",
+);
+
+/// The profile the lifecycle would resolve for a node: the engine's own input, resolved by the engine's own
+/// resolver. The test does not hand-build a policy, because a hand-built one could not disagree with the tables.
+fn resolved_profile(node_id: &str) -> crate::engine::harness_profile::HarnessProfile {
+    crate::engine::harness_profile::resolve(&crate::engine::harness_profile::HarnessProfileInput {
+        node_id,
+        backend: crate::engine::harness::HarnessBackend::OpenCode,
+        model: crate::engine::harness::ModelSelection::from_parts(None, None),
+        execution_id: None,
+        role_attempt: 0,
+        execution_generation: None,
+    })
+    .expect("a dispatchable scout node resolves to a profile")
+}
+
+/// C4, LIVE: the third identical no-progress action stops the turn — mid-stream, before the text that follows it
+/// could be read as an answer — and the stop names its code, the threshold it crossed, and the action that did it.
+#[test]
+fn a_stuck_turn_is_stopped_by_the_thresholds_its_resolved_profile_carries() {
+    let workspace = std::env::temp_dir().join(format!("forge-v2-stuck-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&workspace);
+    fs::create_dir_all(&workspace).expect("temp workspace");
+    let harness = harness_with_stream(&workspace, STUCK_READ_STREAM);
+
+    let report = harness.run_role_profiled_report(
+        &resolved_profile("feature_scout"),
+        "feature_scout",
+        &role_task(),
+        None,
+    );
+    let err = match report.outcome {
+        Ok(_) => panic!("a stopped turn must not be read as an answer, however much text arrived"),
+        Err(error) => error.to_string(),
+    };
+    assert!(
+        err.contains("RUNAWAY_STUCK"),
+        "the stop must name the code it stopped for: {err}"
+    );
+    assert!(
+        err.contains("read filePath=src/lib.rs"),
+        "a stuck report that says only \"stuck\" cannot be argued with: {err}"
+    );
+    assert!(
+        err.contains("repeated"),
+        "and it must name the threshold that was crossed: {err}"
+    );
+    // The four actions the stream holds, and the trajectory reads, are the same three the guard saw before it
+    // stopped: the live view is not a different measurement from the recorded one.
+    let trajectory = report
+        .trajectory
+        .expect("the calls made before the stop are still the measurement");
+    assert_eq!(trajectory.tool_call_count, 3);
+    assert_eq!(trajectory.structured_call_count, 3);
+    let _ = fs::remove_dir_all(&workspace);
+}
+
+/// The transition item, closed — and the reason the profile is an `Option`. A seam handed NO resolved profile
+/// does not run unguarded: the node's own lane is the policy source (`harness_profile::policy_for_node`), so the
+/// same stuck stream stops here exactly as it does under a resolved profile. What would be wrong is the other
+/// direction — an adapter that skipped the guard because nobody handed it a profile, which is how a stuck turn
+/// runs to the ceiling.
+#[test]
+fn a_turn_without_a_resolved_profile_is_still_guarded_by_its_own_lane_policy() {
+    let workspace = std::env::temp_dir().join(format!("forge-v2-unstuck-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&workspace);
+    fs::create_dir_all(&workspace).expect("temp workspace");
+    let harness = harness_with_stream(&workspace, STUCK_READ_STREAM);
+
+    let err = match harness.run_role("feature_scout", &role_task(), None) {
+        Ok(out) => panic!(
+            "the lane's own thresholds must stop a stuck turn (the stream said {:?})",
+            out.raw
+        ),
+        Err(error) => error.to_string(),
+    };
+    assert!(
+        err.contains("RUNAWAY_STUCK"),
+        "the stop must name the code it stopped for: {err}"
+    );
+    let _ = fs::remove_dir_all(&workspace);
+}
+
+/// One V2 tool-call line, in the shape the vendor emits and the scanner folds.
+fn tool_line(at_ms: i64, tool: &str, argument_key: &str, argument: &str) -> String {
+    format!(
+        r#"{{"type":"tool_use","timestamp":{at_ms},"sessionID":"ses_guard","part":{{"type":"tool","tool":"{tool}","state":{{"status":"completed","input":{{"{argument_key}":"{argument}"}}}}}}}}"#
+    )
+}
+
+/// The same line for a shell call, with the exit status the vendor reported for it.
+fn shell_line(at_ms: i64, command: &str, exit: i64) -> String {
+    format!(
+        r#"{{"type":"tool_use","timestamp":{at_ms},"sessionID":"ses_guard","part":{{"type":"tool","tool":"shell","state":{{"status":"completed","input":{{"command":"{command}"}},"exit":{exit}}}}}}}"#
+    )
+}
+
+/// The guard thresholds a lane's own policy resolves — taken from the resolver, not typed here.
+fn guard_policy(node_id: &str) -> RunawayPolicy {
+    crate::engine::harness_profile::policy_for_node(node_id)
+        .expect("a dispatchable node resolves")
+        .runaway_policy
+}
+
+/// Fold a transcript through the PRODUCTION normalization path — the very scanner the live harness feeds, whose
+/// actions the trajectory is also built from — and give the guard every action it reports. Returns the first stop
+/// it raised, if any, and how many actions had been folded when it fired.
+///
+/// This is deliberate: the contract requires these cases to run through production normalization, and a test that
+/// hand-built `ActionRecord`s would prove the detector works on records nothing produces.
+fn first_guard_stop(stream: &str, node_id: &str) -> (Option<StreamStop>, usize) {
+    let mut scanner = crate::engine::opencode_events::RunEventScanner::default();
+    let mut guard = LiveRunaway::new(guard_policy(node_id));
+    for line in stream.lines().filter(|line| !line.trim().is_empty()) {
+        scanner
+            .feed(line)
+            .expect("the test's own lines are readable");
+        if let Some(stop) = guard.observe(scanner.actions()) {
+            return (Some(stop), scanner.actions().len());
+        }
+    }
+    (None, scanner.actions().len())
+}
+
+/// C4 case 1: repetition WITH measurable progress continues. Five identical edits change files every time — the
+/// same action is not a stall when the state moves — and a sequence that reads, edits, checks, reads, edits and
+/// checks again is the shape the guard must let through.
+#[test]
+fn repetition_with_measured_progress_is_not_a_runaway() {
+    let mut edits = String::new();
+    for at_ms in 1..=5 {
+        edits.push_str(&tool_line(at_ms * 100, "edit", "filePath", "src/lib.rs"));
+        edits.push('\n');
+    }
+    let (stop, folded) = first_guard_stop(&edits, "feature_scout");
+    assert!(
+        stop.is_none(),
+        "an edit changes files, so repeating it is progress: {stop:?}"
+    );
+    assert_eq!(folded, 5, "every action was folded");
+
+    let productive = [
+        tool_line(100, "read", "filePath", "src/a.rs"),
+        tool_line(200, "edit", "filePath", "src/a.rs"),
+        shell_line(300, "cargo check", 0),
+        tool_line(400, "read", "filePath", "diagnostics.txt"),
+        tool_line(500, "edit", "filePath", "src/a.rs"),
+        shell_line(600, "cargo check", 0),
+    ]
+    .join("\n");
+    let (stop, _) = first_guard_stop(&productive, "feature_scout");
+    assert!(
+        stop.is_none(),
+        "a sequence where measurable state keeps changing must not be stopped: {stop:?}"
+    );
+}
+
+/// C4 case 2: the same action with the same outcome and nothing to show for it terminates the attempt — and the
+/// stop is the CANONICAL one (`planning::StopReason::NoProgress`), not a second vocabulary beside termination.
+#[test]
+fn unproductive_repetition_stops_the_attempt_as_no_progress() {
+    let mut reads = String::new();
+    for at_ms in 1..=3 {
+        reads.push_str(&tool_line(at_ms * 100, "read", "filePath", "src/lib.rs"));
+        reads.push('\n');
+    }
+    let (stop, folded) = first_guard_stop(&reads, "feature_scout");
+    let stop = stop.expect("three identical no-progress actions are a runaway");
+    assert_eq!(stop.code, RUNAWAY_STOP_CODE, "{stop:?}");
+    assert_eq!(
+        stop.reason,
+        StopReason::NoProgress,
+        "a stall is a termination reason, and Forge has one vocabulary for it"
+    );
+    assert_eq!(
+        stop.termination(),
+        crate::engine::planning::Termination::Stop(StopReason::NoProgress),
+        "the guard's stop IS the canonical termination, not a third thing beside it"
+    );
+    assert!(
+        stop.detail.contains("repeated 3 times"),
+        "the threshold that was crossed is named: {}",
+        stop.detail
+    );
+    assert!(
+        stop.detail.contains("src/lib.rs"),
+        "and so is the action that crossed it: {}",
+        stop.detail
+    );
+    assert_eq!(folded, 3, "the guard stops on the action that crossed it");
+}
+
+/// C4 case 3: different tool names are NOT progress by themselves. Two different actions alternating with nothing
+/// changed is the same stall wearing two names, and it is stopped for the same canonical reason.
+#[test]
+fn different_tool_names_are_not_progress_when_nothing_changed() {
+    let mut alternating = String::new();
+    for round in 0..3 {
+        alternating.push_str(&tool_line(
+            round * 200 + 100,
+            "read",
+            "filePath",
+            "src/a.rs",
+        ));
+        alternating.push('\n');
+        alternating.push_str(&tool_line(round * 200 + 200, "grep", "pattern", "pub fn"));
+        alternating.push('\n');
+    }
+    let (stop, folded) = first_guard_stop(&alternating, "feature_scout");
+    let stop = stop.expect("two actions alternating with no progress is a stall");
+    assert_eq!(stop.reason, StopReason::NoProgress, "{stop:?}");
+    assert!(
+        stop.detail.contains("alternated"),
+        "the oscillation is named rather than reported as a repeat: {}",
+        stop.detail
+    );
+    assert_eq!(
+        folded, 6,
+        "six actions is the span two alternating actions need"
+    );
+}
+
+/// C4 case 4: a concrete state improvement RESETS the detector. A shell call that moves the reported exit status is
+/// a diagnostics change — the verification state moved — so the stretch it interrupts is cleared, and only a fresh
+/// stretch of no-progress actions can trip the guard afterwards.
+#[test]
+fn a_state_improvement_resets_the_guard() {
+    let before = [
+        tool_line(100, "read", "filePath", "src/a.rs"),
+        tool_line(200, "read", "filePath", "src/b.rs"),
+        shell_line(300, "cargo check", 1),
+    ]
+    .join("\n");
+    let (stop, _) = first_guard_stop(&before, "feature_scout");
+    assert!(
+        stop.is_none(),
+        "one failing check is evidence, not a stall of its own: {stop:?}"
+    );
+
+    // The improvement: the check now reports a DIFFERENT status, which the guard reads as progress.
+    let improved = format!("{before}\n{}\n", shell_line(400, "cargo check", 0));
+    let (stop, _) = first_guard_stop(&improved, "feature_scout");
+    assert!(
+        stop.is_none(),
+        "the exit status moving is measured progress and resets the streaks: {stop:?}"
+    );
+
+    // And the reset is a RESET: three identical no-progress actions AFTER the improvement still trip it, which is
+    // what proves the earlier stretch was cleared rather than carried forward.
+    let after_improvement = [
+        shell_line(400, "cargo check", 0),
+        tool_line(500, "read", "filePath", "src/lib.rs"),
+        tool_line(600, "read", "filePath", "src/lib.rs"),
+        tool_line(700, "read", "filePath", "src/lib.rs"),
+    ]
+    .join("\n");
+    let (stop, _) = first_guard_stop(&after_improvement, "feature_scout");
+    let stop = stop.expect("a fresh stretch of no-progress repetition is a runaway again");
+    assert_eq!(stop.reason, StopReason::NoProgress, "{stop:?}");
 }
 
 /// A harness whose vendor is a script Forge really spawns. The seam cannot test an interruption — the whole
@@ -606,4 +930,271 @@ fn the_turn_ceiling_defaults_and_can_be_switched_off_only_by_name() {
     for off in ["0", "off", "OFF", "none"] {
         assert_eq!(turn_ceiling(Some(off)), None, "{off}");
     }
+}
+
+/// The story the C1 tests hand the turn: a stated objective and stated acceptance criteria, which is what a
+/// scaffold is made of. The title is deliberately NOT the objective — a scaffold that fell back to the title
+/// would be authoring the job's goal from the row it was filed under.
+fn story_packet_with_stated_facts() -> StoryPacket {
+    StoryPacket {
+        id: "STORY-V2".into(),
+        title: "a story title that is not a goal".into(),
+        goal: Some("carry the resolved planning policy into the turn".into()),
+        acceptance_criteria: Some("- the turn states the objective it was given".into()),
+        ..Default::default()
+    }
+}
+
+/// A node the engine dispatches whose RESOLVED profile grants planning, discovered from the engine's own tables.
+///
+/// Discovered rather than named: a node written down here could drift out of the lane tables and leave this test
+/// proving a policy nobody resolves. The resolver is the same one the lifecycle calls.
+fn node_with_a_planning_grant() -> String {
+    discovered_node(|profile| profile.planning_policy != PlanningPolicy::None)
+}
+
+/// The other half: a node whose resolved profile grants NO planning. Its turn must be told no scaffold, whatever
+/// packets the run happens to carry.
+fn node_without_a_planning_grant() -> String {
+    discovered_node(|profile| profile.planning_policy == PlanningPolicy::None)
+}
+
+/// The first node the engine's own definition binds whose resolved profile answers the predicate.
+fn discovered_node(wanted: fn(&crate::engine::harness_profile::HarnessProfile) -> bool) -> String {
+    crate::engine::service_binding::forge_service_bindings()
+        .expect("the SDLC definition parses")
+        .keys()
+        .find(|node| {
+            crate::engine::harness_profile::resolve(
+                &crate::engine::harness_profile::HarnessProfileInput {
+                    node_id: node.as_str(),
+                    backend: crate::engine::harness::HarnessBackend::OpenCode,
+                    model: crate::engine::harness::ModelSelection::from_parts(None, None),
+                    execution_id: None,
+                    role_attempt: 0,
+                    execution_generation: None,
+                },
+            )
+            .map(|profile| wanted(&profile))
+            .unwrap_or(false)
+        })
+        .cloned()
+        .expect("the definition binds a node with such a profile")
+}
+
+/// C1, LIVE: the profiled turn is TOLD the scaffold its resolved policy states — read from the text the turn was
+/// handed, not from a second render of the same inputs.
+#[test]
+fn a_profiled_turn_is_told_the_scaffold_its_resolved_policy_states() {
+    let workspace = std::env::temp_dir().join(format!("forge-v2-planning-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&workspace);
+    fs::create_dir_all(&workspace).expect("temp workspace");
+    let node = node_with_a_planning_grant();
+    let profile = resolved_profile(&node);
+    let expected = profile.planning_policy;
+    assert_ne!(
+        expected,
+        PlanningPolicy::None,
+        "{node} was chosen for its grant"
+    );
+    let (harness, seen) =
+        harness_capturing_task_text(&workspace, V2_STREAM, story_packet_with_stated_facts());
+    let mut task = role_task();
+    task.node_id = Some(node.clone());
+
+    // The outcome is not this test's subject: a bare temp workspace has no repository, so the post-turn readings
+    // may fail. What C1 asserts is what the turn was TOLD before it ran.
+    let _ = harness.run_role_profiled_report(&profile, &node, &task, None);
+    let prompt = seen
+        .lock()
+        .expect("the task-text sink is not poisoned")
+        .first()
+        .cloned()
+        .expect("the turn was handed a task text");
+    let header = format!("Planning policy ({}):", expected.label());
+    let scaffold = prompt
+        .split_once(&header)
+        .map(|(_, rest)| rest)
+        .unwrap_or_else(|| {
+            panic!("the turn must carry the policy its profile resolved ({header}): {prompt}")
+        });
+    assert!(
+        scaffold.contains("carry the resolved planning policy into the turn"),
+        "the scaffold states the packet's own objective: {scaffold}"
+    );
+    assert!(
+        scaffold.contains("- the turn states the objective it was given"),
+        "and its own acceptance criteria: {scaffold}"
+    );
+    assert!(
+        !scaffold.contains("a story title that is not a goal"),
+        "the scaffold invents no objective from the title: {scaffold}"
+    );
+    assert!(
+        !scaffold.contains("(none)"),
+        "a fact the packet does not state is omitted, not reported as none: {scaffold}"
+    );
+    let _ = fs::remove_dir_all(&workspace);
+}
+
+/// The fail-closed half, live: a lane with no planning grant is told no scaffold even under a profiled turn and a
+/// packet full of facts. Planning is granted by the resolved policy, never by the presence of a story.
+#[test]
+fn a_lane_without_a_planning_grant_is_told_no_scaffold() {
+    let workspace = std::env::temp_dir().join(format!("forge-v2-noplan-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&workspace);
+    fs::create_dir_all(&workspace).expect("temp workspace");
+    let node = node_without_a_planning_grant();
+    let profile = resolved_profile(&node);
+    assert_eq!(profile.planning_policy, PlanningPolicy::None);
+    let (harness, seen) =
+        harness_capturing_task_text(&workspace, V2_STREAM, story_packet_with_stated_facts());
+    let mut task = role_task();
+    task.node_id = Some(node.clone());
+
+    let _ = harness.run_role_profiled_report(&profile, &node, &task, None);
+    let prompt = seen
+        .lock()
+        .expect("the task-text sink is not poisoned")
+        .first()
+        .cloned()
+        .expect("the turn was handed a task text");
+    assert!(
+        !prompt.contains("Planning policy"),
+        "a lane that granted no planning must be told no planning text: {prompt}"
+    );
+    assert!(
+        prompt.contains("carry the resolved planning policy into the turn"),
+        "the story itself still reaches the turn: {prompt}"
+    );
+    let _ = fs::remove_dir_all(&workspace);
+}
+
+/// C3: every live stop Forge applies reports through the ONE vocabulary, and a stop IS the canonical termination.
+///
+/// The four stops are the four ways a live attempt can end without finishing: its measured allowance ran out, its
+/// stream broke the rule every turn is given, it stopped making progress Forge measures, or it was stopped from
+/// outside. Three of them are built by the named functions the live path itself calls, and the fourth is folded
+/// through the production normalization path — so this pins the mapping production uses rather than a copy of it
+/// written beside it.
+#[test]
+fn every_live_stop_carries_its_reason_in_the_one_vocabulary() {
+    use crate::engine::planning::Termination;
+
+    // The allowance: the spend cap mid-turn, and the ceiling the client applies to one turn.
+    let budget = budget_stop(Some(0.5), 0.01);
+    assert_eq!(budget.code, BUDGET_EXHAUSTED_CODE, "{budget:?}");
+    assert_eq!(
+        budget.termination(),
+        Termination::Stop(StopReason::BudgetExhausted),
+        "an allowance running out is one decision, whichever allowance it was"
+    );
+
+    // The rule: a stream Forge cannot read.
+    let unreadable = stream_parse_trip(STREAM_PARSE_FAILURE_CAP).expect("the cap trips");
+    assert_eq!(
+        unreadable.termination(),
+        Termination::Stop(StopReason::PolicyViolation)
+    );
+
+    // Outside Forge's own decision: the interrupt handle, whose reason the caller supplied.
+    let interrupted = interrupt_stop("the driver cancelled this generation");
+    assert_eq!(interrupted.code, TURN_INTERRUPTED_CODE, "{interrupted:?}");
+    assert_eq!(
+        interrupted.termination(),
+        Termination::Stop(StopReason::Interrupted)
+    );
+
+    // The guard, over the production event-normalization path: repetition with no measured progress.
+    let mut reads = String::new();
+    for at_ms in 1..=3 {
+        reads.push_str(&tool_line(at_ms * 100, "read", "filePath", "src/lib.rs"));
+        reads.push('\n');
+    }
+    let (stuck, _) = first_guard_stop(&reads, "feature_scout");
+    let stuck = stuck.expect("three identical no-progress actions are a runaway");
+    assert_eq!(
+        stuck.termination(),
+        Termination::Stop(StopReason::NoProgress),
+        "a stall is the guard's own stop, in the same vocabulary as every other live stop"
+    );
+}
+
+/// C2, at the provider seam: the context a resolved policy BOUNDED is what the provider request carries — and the
+/// material that must survive survives it.
+///
+/// The production path is lifecycle → resolved profile → context policy → bounded directive → the harness's
+/// `self_heal` argument → the provider's task text. The directive here is composed by
+/// `build_self_heal_directive_contextual_report`, the function `roles::lifecycle` calls, under the SAME resolved
+/// profile's `context_policy`; the assertion is read from the turn's own `opts.task`, not from a second render of
+/// the same inputs.
+#[test]
+fn the_provider_request_carries_the_context_the_resolved_policy_bounded() {
+    let workspace = std::env::temp_dir().join(format!("forge-v2-context-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&workspace);
+    fs::create_dir_all(&workspace).expect("temp workspace");
+    let node = node_with_a_planning_grant();
+    let profile = resolved_profile(&node);
+    let mut task = role_task();
+    task.node_id = Some(node.clone());
+    let (harness, seen) =
+        harness_capturing_task_text(&workspace, V2_STREAM, story_packet_with_stated_facts());
+
+    // An attempt trail over Forge's own re-send budget: three oversized earlier replies, then the reply to repair.
+    let replies: Vec<String> = vec![
+        format!("ELIDED-ONE-MARKER{}", "a".repeat(2000)),
+        format!("ELIDED-TWO-MARKER{}", "b".repeat(2000)),
+        format!("KEPT-THIRD-MARKER{}", "c".repeat(2000)),
+        "AUTHORITATIVE-LAST-MARKER: the reply to repair".to_string(),
+    ];
+    let composed = build_self_heal_directive_contextual_report(
+        &node,
+        &["candidateSha".to_string()],
+        Some("write the file and commit it"),
+        &["the candidate was absent".to_string()],
+        &replies,
+        &profile.context_policy,
+    );
+    let decision = composed
+        .decision
+        .expect("a trail this size is a context decision, not an absence");
+    assert_eq!(decision.policy_version, CONTEXT_POLICY_VERSION);
+    assert!(
+        decision.elided > 0,
+        "the policy bounded the trail: {decision:?}"
+    );
+    assert!(
+        decision.output_tokens < decision.input_tokens,
+        "the bounded context is smaller than what it bounded: {decision:?}"
+    );
+    assert!(
+        decision.retained > 0,
+        "and it did not bound away everything: {decision:?}"
+    );
+
+    let _ = harness.run_role_profiled_report(&profile, &node, &task, Some(&composed.directive));
+
+    let prompt = seen
+        .lock()
+        .expect("the task-text sink is not poisoned")
+        .first()
+        .cloned()
+        .expect("the turn was handed a task text");
+    assert!(
+        prompt.contains("attempt 1 reply omitted"),
+        "the elision record reaches the provider, so the trail stays traceable: {prompt}"
+    );
+    assert!(
+        !prompt.contains("ELIDED-ONE-MARKER") && !prompt.contains("ELIDED-TWO-MARKER"),
+        "what the policy elided must NOT be in the provider request: {prompt}"
+    );
+    assert!(
+        prompt.contains("AUTHORITATIVE-LAST-MARKER"),
+        "the reply to repair is the material that must survive, and it does: {prompt}"
+    );
+    assert!(
+        prompt.contains("KEPT-THIRD-MARKER"),
+        "so does the attempt the policy had no reason to remove: {prompt}"
+    );
+    let _ = fs::remove_dir_all(&workspace);
 }

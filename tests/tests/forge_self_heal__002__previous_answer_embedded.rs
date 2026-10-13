@@ -1,7 +1,8 @@
 //! FORGE.SELF_HEAL — previous answer embedded (TST-FORGE-SELF-HEAL-002).
 //!
 //! Contract: the corrective directive the lifecycle hands a retry must embed the attempt's own
-//! previous reply (`YOUR PREVIOUS REPLY (repair this; do NOT start over)`), so the lane repairs
+//! prior replies (`PRIOR ATTEMPTS (the last one is the reply to repair; do NOT start over)`), oldest
+//! first and with the most recent one marked as the reply to repair, so the lane repairs
 //! its answer instead of starting over and reproducing the same omission.
 //!
 //! Level: L1 Component — the production lifecycle (`forge::roles::lifecycle::run_forge_role_turn`)
@@ -103,6 +104,8 @@ fn forge_self_heal_002__previous_answer_embedded() {
         contract_acceptance_mapped: false,
         require_prod: false,
         model_attempt_control: None,
+        harness_backend: forge::engine::harness::HarnessBackend::OpenCode,
+        model_intent: forge::engine::harness::ModelSelection::from_parts(None, None),
     };
     run_forge_role_turn(&ctx, "architect", &task, &NoRoleHooks).expect("turn runs");
 
@@ -125,15 +128,30 @@ fn forge_self_heal_002__previous_answer_embedded() {
         "the first retry names the omission: {first_retry}"
     );
     assert!(
-        !first_retry.contains("YOUR PREVIOUS REPLY"),
-        "the first retry embeds nothing: no previous answer exists yet: {first_retry}"
+        !first_retry.contains("attempt 2 reply"),
+        "the first retry cannot re-send an attempt that has not happened: {first_retry}"
+    );
+    assert_eq!(
+        first_retry.matches("--- attempt 1 reply ---").count(),
+        1,
+        "the first retry carries the attempt that just finished, as the reply it must repair: {first_retry}"
     );
     let second_retry = seen[2]
         .as_deref()
         .expect("the second retry carries a directive");
     assert!(
-        second_retry.contains("YOUR PREVIOUS REPLY"),
-        "the second retry embeds the previous-answer block: {second_retry}"
+        second_retry.contains("PRIOR ATTEMPTS"),
+        "the second retry embeds the attempts trail: {second_retry}"
+    );
+    assert_eq!(
+        second_retry.matches("--- attempt 1 reply ---").count(),
+        1,
+        "the earlier attempt is still carried, oldest first: {second_retry}"
+    );
+    assert_eq!(
+        second_retry.matches("--- attempt 2 reply ---").count(),
+        1,
+        "the attempt that just finished is carried as the reply to repair: {second_retry}"
     );
     assert!(
         second_retry.contains("first-draft-plan-needs-handoff-002"),

@@ -133,6 +133,8 @@ fn context<'a>(
         contract_acceptance_mapped: false,
         require_prod: false,
         model_attempt_control: None,
+        harness_backend: crate::engine::harness::HarnessBackend::OpenCode,
+        model_intent: crate::engine::harness::ModelSelection::from_parts(None, None),
     }
 }
 /// THE PROPERTY THIS WHOLE EXTRACTION RESTS ON: a lane that overrides no hook gets the shared
@@ -429,6 +431,8 @@ fn a_turns_spend_is_added_to_its_run() {
         contract_acceptance_mapped: false,
         require_prod: false,
         model_attempt_control: None,
+        harness_backend: crate::engine::harness::HarnessBackend::OpenCode,
+        model_intent: crate::engine::harness::ModelSelection::from_parts(None, None),
     };
 
     let _ = run_forge_role_turn(&context, "smith", &task, &NoRoleHooks);
@@ -507,6 +511,8 @@ fn failed_turn_usage_is_settled_without_rewriting_failure() {
         contract_acceptance_mapped: false,
         require_prod: false,
         model_attempt_control: Some(&control),
+        harness_backend: crate::engine::harness::HarnessBackend::OpenCode,
+        model_intent: crate::engine::harness::ModelSelection::from_parts(None, None),
     };
     let error = run_forge_role_turn(&context, "architect", &task, &NoRoleHooks)
         .err()
@@ -546,6 +552,8 @@ fn failed_turn_without_reading_records_unknown_usage() {
         contract_acceptance_mapped: false,
         require_prod: false,
         model_attempt_control: Some(&control),
+        harness_backend: crate::engine::harness::HarnessBackend::OpenCode,
+        model_intent: crate::engine::harness::ModelSelection::from_parts(None, None),
     };
     let _ = run_forge_role_turn(&context, "architect", &task, &NoRoleHooks);
     let settled = writer.attempt_usage.lock().unwrap();
@@ -646,4 +654,184 @@ fn the_lead_decides_on_its_pre_turn_and_a_missing_decision_holds_instead_of_fall
         Some("hold"),
         "with no decision the gateway would fall to its first branch (SOLO)"
     );
+}
+
+/// A harness that accepts ONLY the profiled entry points, and records the profile it was handed.
+///
+/// The unprofiled methods are the ones the lifecycle used before a profile existed, so a seam that resolved a
+/// profile and then ran the turn beside it would leave the action surface, the context budget, the planning grant
+/// and the stuck thresholds as decoration. This double makes that mistake impossible to miss: it panics.
+#[derive(Default)]
+struct ProfiledOnlyHarness {
+    seen: std::sync::Mutex<Vec<harness_profile::ProfileIdentity>>,
+}
+
+impl ProfiledOnlyHarness {
+    fn seen(&self) -> Vec<harness_profile::ProfileIdentity> {
+        self.seen.lock().unwrap().clone()
+    }
+
+    fn answer(
+        &self,
+        profile: &harness_profile::HarnessProfile,
+        node_id: &str,
+    ) -> crate::engine::runner::HarnessTurnReport {
+        self.seen.lock().unwrap().push(profile.identity.clone());
+        crate::engine::runner::HarnessTurnReport {
+            trajectory: None,
+            outcome: Ok(HarnessOutput {
+                trajectory: None,
+                raw: format!("ran {node_id}\n"),
+                candidate_sha: None,
+                assay_commands: vec![],
+                acceptance_mapped: false,
+                refusal: None,
+                execution_base: None,
+                usage: None,
+            }),
+            measured_usage: None,
+        }
+    }
+}
+
+impl RoleHarness for ProfiledOnlyHarness {
+    fn run_role(&self, _: &str, _: &ActiveForgeRoleTask, _: Option<&str>) -> Result<HarnessOutput> {
+        panic!(
+            "a turn must run under the profile the lifecycle resolved, not this unprofiled method"
+        )
+    }
+    fn run_role_report(
+        &self,
+        _: &str,
+        _: &ActiveForgeRoleTask,
+        _: Option<&str>,
+    ) -> crate::engine::runner::HarnessTurnReport {
+        panic!(
+            "a turn must run under the profile the lifecycle resolved, not this unprofiled method"
+        )
+    }
+    fn run_role_scoped_report(
+        &self,
+        _: &str,
+        _: &str,
+        _: &ActiveForgeRoleTask,
+        _: Option<&str>,
+    ) -> crate::engine::runner::HarnessTurnReport {
+        panic!(
+            "a turn must run under the profile the lifecycle resolved, not this unprofiled method"
+        )
+    }
+    fn run_role_profiled_report(
+        &self,
+        profile: &harness_profile::HarnessProfile,
+        node_id: &str,
+        _: &ActiveForgeRoleTask,
+        _: Option<&str>,
+    ) -> crate::engine::runner::HarnessTurnReport {
+        self.answer(profile, node_id)
+    }
+    fn run_role_scoped_profiled_report(
+        &self,
+        profile: &harness_profile::HarnessProfile,
+        _: &str,
+        node_id: &str,
+        _: &ActiveForgeRoleTask,
+        _: Option<&str>,
+    ) -> crate::engine::runner::HarnessTurnReport {
+        self.answer(profile, node_id)
+    }
+    fn exists_on_base_ref(&self, _: &str, _: &str) -> bool {
+        true
+    }
+    fn assay_cwd(&self) -> &std::path::Path {
+        std::path::Path::new(".")
+    }
+    fn run_command(&self, command: &str) -> CommandResult {
+        CommandResult {
+            cancelled: false,
+            command: command.into(),
+            exit_code: 1,
+            passed: false,
+            excerpt: "not run by this harness".into(),
+            unmeasurable: true,
+            output: String::new(),
+        }
+    }
+}
+
+/// BOTH rails must hand the adapter the profile the lifecycle resolved.
+///
+/// The scoped and unscoped paths are separate harness methods, and a profile wired at only one of them is the
+/// half-wired rail this file warns about elsewhere. What the adapter is handed must also be the LAUNCH's own
+/// decisions rather than defaults the seam invented for itself — otherwise a recorded turn would name a backend
+/// and a model intent that never ran. A turn the lane does not accept is re-asked, and every re-ask is a later
+/// ATTEMPT of the same authorized node, which its profile must say rather than looking like a new unit of work.
+#[test]
+fn a_turn_runs_under_the_profile_the_lifecycle_resolved() {
+    let harness = ProfiledOnlyHarness::default();
+    let writer = RecordingWriter::default();
+    let current = ForgeGateEvidence::default();
+    let task = role_task("smith", "TST-PROFILED-TURN");
+    let control = CountingAttemptControl::default();
+    let mut context = context(&harness, &current, Some(&writer));
+    context.harness_backend = crate::engine::harness::HarnessBackend::Maestro;
+    context.model_intent = crate::engine::harness::ModelSelection::Judgment;
+    context.model_attempt_control = Some(&control);
+
+    run_forge_role_turn(&context, "smith", &task, &NoRoleHooks).expect("turn runs");
+
+    let unscoped = harness.seen();
+    assert!(
+        !unscoped.is_empty(),
+        "the default hooks still ask the harness for a turn"
+    );
+    assert_eq!(unscoped[0].profile_id, harness_profile::HARNESS_PROFILE_ID);
+    assert_eq!(
+        unscoped[0].profile_version,
+        harness_profile::HARNESS_PROFILE_VERSION
+    );
+    assert_eq!(
+        unscoped[0].execution_id, None,
+        "a lane with no durable execution runs the unscoped rail"
+    );
+    assert_eq!(
+        unscoped[0].execution_generation.as_deref(),
+        Some("test-generation")
+    );
+    for (index, profile) in unscoped.iter().enumerate() {
+        // The node the WORKFLOW authorized, recorded as identity rather than produced here.
+        assert_eq!(profile.node_id, "smith");
+        // The launch's own decisions, not defaults: these two are what makes a turn reconstructable.
+        assert_eq!(
+            profile.backend,
+            crate::engine::harness::HarnessBackend::Maestro
+        );
+        assert_eq!(
+            profile.model,
+            crate::engine::harness::ModelSelection::Judgment
+        );
+        // A repair is a later attempt of the SAME authorized node, and its profile says so.
+        assert_eq!(profile.role_attempt, index as u32);
+    }
+
+    // The scoped rail is a second call site, and it resolves its own profile.
+    let scoped = ForgeRoleContext {
+        execution_id: Some("exec-1"),
+        ..context
+    };
+    run_forge_role_turn(&scoped, "smith", &task, &NoRoleHooks).expect("scoped turn runs");
+
+    let all = harness.seen();
+    assert!(
+        all.len() > unscoped.len(),
+        "the scoped rail hands over a profile too"
+    );
+    for (index, profile) in all[unscoped.len()..].iter().enumerate() {
+        assert_eq!(profile.execution_id.as_deref(), Some("exec-1"));
+        assert_eq!(profile.node_id, "smith");
+        assert_eq!(
+            profile.role_attempt, index as u32,
+            "the scoped rail's own attempts are numbered from zero"
+        );
+    }
 }

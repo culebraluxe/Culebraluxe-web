@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::engine::assay::CommandResult;
 use crate::engine::harness::TurnTermination;
 pub use crate::engine::harness::TURN_INTERRUPTED_CODE;
+use crate::engine::harness_profile::HarnessProfile;
 use crate::engine::harness_usage::UsageBaseline;
 use crate::engine::opencode_agents;
 use crate::engine::opencode_client::{
@@ -16,7 +17,11 @@ use crate::engine::opencode_client::{
     StreamedRunResult,
 };
 use crate::engine::opencode_events;
-use crate::engine::packet::{build_task_text_with_context, ExecutionWorkspace, StoryPacket};
+use crate::engine::packet::{ExecutionWorkspace, StoryPacket, TaskIsolation, TaskText};
+use crate::engine::planning::StopReason;
+use crate::engine::runaway::{
+    ActionRecord, ProgressSignal, RunawayDetector, RunawayPolicy, RUNAWAY_STOP_CODE,
+};
 use crate::engine::runner::{HarnessOutput, RoleHarness};
 use crate::engine::runtime::ActiveForgeRoleTask;
 use crate::engine::spend_cap::{self, BUDGET_EXHAUSTED_CODE, SPEND_CAP_ENV};
@@ -24,6 +29,7 @@ use crate::engine::vendor_session;
 use workflow::{Result, WorkflowError};
 
 mod config;
+mod materialize;
 mod role_harness;
 
 /// Stable identifier used by the engine when resolving the OpenCode adapter.
@@ -50,14 +56,120 @@ pub const STREAM_UNREADABLE_CODE: &str = "STREAM_UNREADABLE";
 /// consecutive failures mean the turn's own spend accounting is fiction.
 pub(crate) fn stream_parse_trip(consecutive_failures: usize) -> Option<StreamStop> {
     if consecutive_failures >= STREAM_PARSE_FAILURE_CAP {
-        Some(StreamStop {
-            code: STREAM_UNREADABLE_CODE.to_string(),
-            detail: format!(
+        Some(StreamStop::new(
+            STREAM_UNREADABLE_CODE,
+            format!(
                 "{consecutive_failures} consecutive stream lines failed to parse \
                  (cap {STREAM_PARSE_FAILURE_CAP}); stopping rather than running uncapped"
             ),
-        })
+            // Every turn is told to emit canonical events. A stream Forge cannot read broke that rule, which is
+            // why this is a violation rather than an engine fault: the turn's own accounting was fiction.
+            StopReason::PolicyViolation,
+        ))
     } else {
+        None
+    }
+}
+
+/// A stop Forge applied because the attempt's own allowance ran out — its measured spend, or the wall-clock ceiling
+/// of one turn (`opencode_client::turn_ceiling_stop` builds the same decision from the client side).
+///
+/// It is ONE function for one reason because the canonical vocabulary is the contract: if the cap and the ceiling
+/// each spelled their own stop, an adjudicator reading two records would have to decide whether two spellings meant
+/// one decision. Both are `Termination::Stop(BudgetExhausted)`, and neither can drift.
+pub(crate) fn budget_stop(spend: Option<f64>, cap: f64) -> StreamStop {
+    StreamStop::new(
+        BUDGET_EXHAUSTED_CODE,
+        spend_cap::render_spend_cap_line(spend, cap),
+        StopReason::BudgetExhausted,
+    )
+}
+
+/// A stop applied from OUTSIDE Forge's own decision — the turn's interrupt handle — in the same vocabulary.
+///
+/// Named rather than inlined so the live path and the record agree by construction: an interruption is
+/// `Termination::Stop(Interrupted)` whether the driver cancelled a generation or an operator stopped a lane.
+pub(crate) fn interrupt_stop(reason: &str) -> StreamStop {
+    StreamStop::new(TURN_INTERRUPTED_CODE, reason, StopReason::Interrupted)
+}
+
+/// The live C4 guard: the runaway detector the resolved profile implies, plus how far it has read the action stream.
+///
+/// It is STATEFUL because the verdict is about a sequence: what makes an execution stuck is that the same action
+/// happened again with nothing to show for it, not that any single action was wrong. It lives beside the spend cap
+/// and the parse trip because it is the third live stop of the same kind — a stop Forge chooses mid-turn, on a
+/// reading Forge took, rather than a verdict pronounced after the turn has already spent itself.
+#[derive(Debug, Clone)]
+pub(crate) struct LiveRunaway {
+    policy: RunawayPolicy,
+    detector: RunawayDetector,
+    /// How many stream actions have already been folded. A live stream only appends, so a high-water mark is all
+    /// the bookkeeping folding needs — and re-folding an action would invent a repeat that never happened.
+    folded: usize,
+    /// The previous shell call's reported exit status, or `None` when none was reported. A read-only lane's shell
+    /// calls are its whole progress surface, so this is where that lane's progress is measured.
+    last_shell_exit: Option<i64>,
+}
+
+impl LiveRunaway {
+    pub(crate) fn new(policy: RunawayPolicy) -> Self {
+        Self {
+            detector: RunawayDetector::new(policy.clone()),
+            policy,
+            folded: 0,
+            last_shell_exit: None,
+        }
+    }
+
+    /// Fold every action reported since the last call and name the first threshold met, if any.
+    ///
+    /// WHAT IS MEASURED HERE, AND WHAT IS NOT. A turn's own event stream can show two of the four progress signals,
+    /// and only those two are used: a mutating call (the vendor reported an edit tool) is a file change, and a shell
+    /// call whose reported exit status DIFFERS from the previous shell call's is a diagnostics change, because the
+    /// verification state moved. The other two — a changed candidate and new evidence — are not readable from the
+    /// stream at all, so they stay false. An unmeasured signal must never be assumed to be progress: assuming it
+    /// would forgive exactly the loop this guard exists to catch. `files_changed` is 1 and not a real diff count
+    /// because the stream reports that a mutation happened, not how large it was — and any non-zero count is the
+    /// same signal.
+    pub(crate) fn observe(
+        &mut self,
+        actions: &[opencode_events::LiveAction],
+    ) -> Option<StreamStop> {
+        use crate::engine::trajectory::ToolKind;
+        while self.folded < actions.len() {
+            let action = &actions[self.folded];
+            self.folded += 1;
+            let mut progress = ProgressSignal::default();
+            match action.kind {
+                ToolKind::Edit => progress.files_changed = 1,
+                ToolKind::Shell => {
+                    if let Some(exit) = action.exit {
+                        if self
+                            .last_shell_exit
+                            .is_some_and(|previous| previous != exit)
+                        {
+                            progress.diagnostics_changed = true;
+                        }
+                        self.last_shell_exit = Some(exit);
+                    }
+                }
+                ToolKind::Structured => {}
+            }
+            let record = ActionRecord {
+                signature: action.signature.clone(),
+                progress,
+            };
+            if let Some(condition) = self.detector.observe(&record) {
+                return Some(StreamStop::new(
+                    RUNAWAY_STOP_CODE,
+                    condition.detail(&self.policy, &action.signature),
+                    // C3/C4, canonical: the guard does not stop the attempt for "a runaway" — a second vocabulary
+                    // beside termination. It stops it because the attempt stopped making the progress Forge
+                    // measures, which IS `Termination::Stop(NoProgress)`; the threshold it crossed is the detail.
+                    StopReason::NoProgress,
+                ));
+            }
+        }
         None
     }
 }
@@ -262,19 +374,30 @@ impl OpenCodeHarness {
 
     /// `self_heal` is the runner's corrective directive for this attempt (see `RoleHarness::run_role`). It is
     /// appended to the task text as extra context — the legacy harness carried it the same way.
+    ///
+    /// The text is built by [`TaskText`] from the SAME things the turn runs under, so the scaffold, the policy it
+    /// was rendered from and the isolation the turn works in are all decided here rather than threaded through
+    /// call sites. `profile` is the policy the lifecycle resolved, or `None` for a seam that resolved none — and
+    /// that seam still gets the node's OWN lane policy, never nothing.
     fn task_text(
         &self,
         node_id: &str,
         task: &ActiveForgeRoleTask,
         self_heal: Option<&str>,
-    ) -> String {
-        build_task_text_with_context(
-            node_id,
-            &task.task_id,
-            &self.packet,
-            self.execution_workspace.as_ref(),
-            self_heal,
-        )
+        profile: Option<&HarnessProfile>,
+    ) -> TaskText {
+        let isolation = TaskIsolation::of(self.execution_workspace.as_ref());
+        match profile {
+            Some(profile) => TaskText::for_profile(
+                profile,
+                node_id,
+                &task.task_id,
+                &self.packet,
+                isolation,
+                self_heal,
+            ),
+            None => TaskText::for_node(node_id, &task.task_id, &self.packet, isolation, self_heal),
+        }
     }
 }
 
@@ -311,6 +434,27 @@ impl OpenCodeHarness {
         ))
     }
 
+    /// The slot for a durable execution, refusing one that was already cancelled.
+    ///
+    /// Cancelled BEFORE launch means no vendor process ran, so there is nothing observed to report — the one case
+    /// where an empty report is the honest one, because the turn never spent anything. Every scoped entry point
+    /// makes this same refusal, so it is made once here rather than copied into each of them.
+    fn launchable_slot(&self, execution_id: &str) -> Result<LiveTurnSlot> {
+        let slot = self.execution_slot(execution_id)?;
+        if slot
+            .lock()
+            .map_err(|_| WorkflowError::generic("execution interrupt slot is poisoned"))?
+            .interrupt_reason
+            .is_some()
+        {
+            return Err(WorkflowError::generic(format!(
+                "{}: execution was cancelled before model launch",
+                TURN_INTERRUPTED_CODE
+            )));
+        }
+        Ok(slot)
+    }
+
     fn run_role_with_slot(
         &self,
         node_id: &str,
@@ -318,7 +462,9 @@ impl OpenCodeHarness {
         self_heal: Option<&str>,
         live_turn: &LiveTurnSlot,
     ) -> Result<HarnessOutput> {
-        self.run_role_with_slot_measured(node_id, task, self_heal, live_turn, &mut None, &mut None)
+        self.run_role_with_slot_measured(
+            node_id, task, self_heal, live_turn, None, &mut None, &mut None,
+        )
     }
 
     /// One turn, with the two measurements it produces published even when the turn does not succeed.
@@ -326,12 +472,20 @@ impl OpenCodeHarness {
     /// `measured_usage` and `measured_trajectory` are OUT-parameters rather than parts of the return value because the
     /// failure paths below return `Err` — and a reading that only exists on the success path is exactly how a failed
     /// turn gets recorded as a turn that nothing happened in.
+    ///
+    /// `profile` is the policy the lifecycle resolved for this turn, or `None` for a call site that predates the
+    /// resolver. A seam handed none does not run unguarded: the node's OWN lane policy is resolved
+    /// (`harness_profile::policy_for_node`), which is the same table the profile resolver reads. That is the
+    /// difference between a transition state and an exemption — the transition is in WHO resolved the policy, not
+    /// in whether any policy applies.
+    #[allow(clippy::too_many_arguments)]
     fn run_role_with_slot_measured(
         &self,
         node_id: &str,
         task: &ActiveForgeRoleTask,
         self_heal: Option<&str>,
         live_turn: &LiveTurnSlot,
+        profile: Option<&HarnessProfile>,
         measured_usage: &mut Option<crate::engine::harness::HarnessUsage>,
         measured_trajectory: &mut Option<crate::engine::trajectory::TrajectoryMetrics>,
     ) -> Result<HarnessOutput> {
@@ -341,11 +495,18 @@ impl OpenCodeHarness {
                 "OpenCode harness workspace does not exist: {cwd}"
             )));
         }
-        let task_text = self.task_text(node_id, task, self_heal);
+        let task_text = self.task_text(node_id, task, self_heal, profile);
         let before_sha = self.run_git(&["rev-parse", "HEAD"]);
-        // The agent for this node, resolved FAIL CLOSED: a node Forge cannot map is refused here rather than run
-        // as the vendor's default agent, whose permissions Forge did not author (see `engine::opencode_agents`).
-        let agent = opencode_agents::v2_agent_for_node(node_id).map_err(WorkflowError::generic)?;
+        // The vendor configuration this turn runs as, MATERIALIZED FROM the policy the lifecycle resolved: the
+        // adapter selects the shipped profile that implements the granted surface and refuses when none does — it
+        // never authors the policy, and it never falls back to the vendor's own default agent, whose permissions
+        // Forge did not author (see `opencode::materialize`). A seam handed no profile resolves the node's OWN lane
+        // first, so even there the configuration comes from a grant rather than from nothing.
+        let agent = match profile {
+            Some(profile) => materialize::agent_for_profile(node_id, profile)?,
+            None => materialize::agent_for_lane(node_id)?,
+        }
+        .id;
         // The subagent gate is stated in the log for EVERY turn, both postures. The disarmed line says the
         // recorded spend is the whole turn; the armed line says it is a lower bound, because that is the
         // measured behaviour (`harness_usage`). A silence here would be the one place an undercount could hide.
@@ -421,7 +582,7 @@ impl OpenCodeHarness {
             cli_bin: &self.cli_bin,
             cwd: &cwd,
             model: &self.model,
-            task: &task_text,
+            task: task_text.as_str(),
             env: Some(&model_env),
             auto_approve: self.auto_approve,
             session: session.as_deref(),
@@ -453,6 +614,17 @@ impl OpenCodeHarness {
         // holding, mid-flight, the moment the turn's own measured spend passes the cap — which is the difference
         // between a cap and an obituary.
         let spend_cap = self.spend_cap_usd;
+        // C4, resolved: the thresholds THIS turn is measured against. A resolved profile is authoritative; a seam
+        // handed none resolves the node's OWN lane (`harness_profile::policy_for_node`) rather than enforcing
+        // nothing. Thresholds are configuration, and the configuration for a node is a fact of its lane — an
+        // adapter that invented its own would be authoring policy, and an adapter that skipped the guard entirely
+        // would leave the loop this guard exists to catch running to the turn ceiling.
+        let mut runaway = match profile {
+            Some(profile) => Some(LiveRunaway::new(profile.runaway_policy.clone())),
+            None => crate::engine::harness_profile::policy_for_node(node_id)
+                .ok()
+                .map(|policy| LiveRunaway::new(policy.runaway_policy)),
+        };
         let mut transcript = String::new();
         let mut scanner = opencode_events::RunEventScanner::default();
         // WO-120: consecutive lines the scanner cannot read. Reset on every readable line — a line
@@ -483,15 +655,31 @@ impl OpenCodeHarness {
             // step (see `engine::opencode_events`). A floor is the safe side to stop on — it can only delay a stop,
             // never cause one for a turn that is still inside its cap.
             let spend = scanner.turn().usage.as_ref().map(|usage| usage.cost_usd);
-            match spend_cap {
+            let budget = match spend_cap {
                 Some(cap) if spend_cap::forge_spend_should_hold(spend, Some(cap)) => {
-                    Some(StreamStop {
-                        code: BUDGET_EXHAUSTED_CODE.to_string(),
-                        detail: spend_cap::render_spend_cap_line(spend, cap),
-                    })
+                    Some(budget_stop(spend, cap))
                 }
                 _ => None,
+            };
+            if budget.is_some() {
+                return budget;
             }
+            // C4, live: the turn's own actions measured against the thresholds its lane's profile resolved — the
+            // same fold the trajectory is built from, read as it arrives. A turn that is over budget stops for the
+            // BUDGET, which is why this is consulted second: the more specific, cheaper stop wins, and a stuck turn
+            // inside its cap still stops here rather than thrashing to the ceiling.
+            let stuck = runaway
+                .as_mut()
+                .and_then(|runaway| runaway.observe(scanner.actions()));
+            if let Some(stop) = &stuck {
+                tracing::warn!(
+                    node = %node_id,
+                    code = %stop.code,
+                    detail = %stop.detail,
+                    "opencode-harness live stop: runaway"
+                );
+            }
+            stuck
         };
         let result = match &self.start_run {
             Some(start) => start(opts, &mut on_line, &live_turn),
@@ -530,12 +718,36 @@ impl OpenCodeHarness {
                 "opencode-harness interrupt_observed=true process_reaped=true"
             );
         }
-        let stop = result.stop.clone().or_else(|| {
-            interrupt_reason.map(|reason| StreamStop {
-                code: TURN_INTERRUPTED_CODE.to_string(),
-                detail: reason,
-            })
-        });
+        let stop = result
+            .stop
+            .clone()
+            .or_else(|| interrupt_reason.map(|reason| interrupt_stop(&reason)));
+        // TERMINATION TELEMETRY. One event per attempt Forge stopped, carrying the identity the attempt ran under,
+        // the canonical reason, and the code and detail a reader argues with. This is the "termination telemetry
+        // persisted" half of the runaway contract: the stop is not only an emitted error, it is a recorded decision
+        // that names WHY (in the one vocabulary) as well as what.
+        //
+        // The identity comes from the resolved profile where there is one, and names the node where the seam
+        // resolved none — an unresolved turn still stopped for a reason, and a record that omitted it would be
+        // least readable exactly where the guard is least expected.
+        if let Some(stop) = stop.as_ref() {
+            let (profile_id, profile_version) = match profile {
+                Some(profile) => (
+                    profile.identity.profile_id.to_string(),
+                    Some(profile.identity.profile_version),
+                ),
+                None => ("(unresolved)".to_string(), None),
+            };
+            tracing::warn!(
+                node = %node_id,
+                profile = %profile_id,
+                profile_version = ?profile_version,
+                reason = %stop.reason.label(),
+                code = %stop.code,
+                detail = %stop.detail,
+                "forge termination"
+            );
+        }
         // Read the V2 structured contract BEFORE judging the turn. A successful exit whose stream Forge cannot
         // read is NOT a successful turn (§3); failing closed here is the difference between "the harness is
         // broken" and "the role said nothing", which Forge would otherwise charge to the model.
@@ -583,10 +795,14 @@ impl OpenCodeHarness {
         if let Some(stop) = stop.as_ref() {
             // A TURN FORGE STOPPED IS NOT A TURN THAT FINISHED. However much text arrived before the stop, it is a
             // truncated answer, and reading it as one is how a capped generation gets recorded as productive. The
-            // code and the reason are both in the record, and the spend measured up to the stop is with them.
+            // code, the canonical reason and the detail are all in the record, and the spend measured up to the stop
+            // is with them — the reason is what makes the err CLASSIFIABLE (`planning::StopReason`), the code and
+            // detail are what make it arguable.
             return Err(WorkflowError::generic(format!(
-                "opencode-harness stopped for {node_id}: {} — {}{spent}",
-                stop.code, stop.detail
+                "opencode-harness stopped for {node_id}: {} ({}) — {}{spent}",
+                stop.code,
+                stop.reason.label(),
+                stop.detail
             )));
         }
         if result.status != crate::engine::opencode_client::OpenCodeRunStatus::Success {

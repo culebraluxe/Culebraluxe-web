@@ -57,6 +57,44 @@ pub struct RunawayPolicy {
     pub no_progress_window: usize,
 }
 
+/// The window of a lane whose progress is NOT measured in file changes: a READ-ONLY lane.
+///
+/// Disabled rather than tuned. `files_changed` is one of the measured progress signals above, and a lane that may
+/// not edit changes no files BY CONSTRUCTION — so any finite window would eventually call a long, legitimate read
+/// a stuck execution. Repetition and oscillation still apply to those lanes, because they need no file change to
+/// be seen: reading the same thing three times is the same observation in every lane.
+pub const NO_PROGRESS_WINDOW_DISABLED: usize = usize::MAX;
+
+/// The stop code a live turn reports when its own action stream crossed a threshold from the profile it resolved.
+///
+/// A stop Forge CHOSE, on actions it measured, and it is spelled like the other live stops
+/// (`engine::opencode`'s `BUDGET_EXHAUSTED` / `STREAM_UNREADABLE`) so an adjudicator reads one vocabulary.
+pub const RUNAWAY_STOP_CODE: &str = "RUNAWAY_STUCK";
+
+impl StuckCondition {
+    /// The reason a stop is reported with: the threshold that was crossed, and the action that crossed it.
+    ///
+    /// The action is named because a stuck report that says only "stuck" cannot be argued with. It is the caller's
+    /// own last action — the one whose observation met the threshold.
+    pub fn detail(&self, policy: &RunawayPolicy, last_action: &str) -> String {
+        let observed = match self {
+            StuckCondition::Repeated => format!(
+                "the same action was repeated {} times in a row with no measured progress",
+                policy.max_repeats
+            ),
+            StuckCondition::Oscillating => format!(
+                "two actions alternated for {} actions with no measured progress",
+                policy.max_repeats.saturating_mul(2)
+            ),
+            StuckCondition::NoProgress => format!(
+                "{} actions in a row changed nothing Forge measures",
+                policy.no_progress_window
+            ),
+        };
+        format!("stuck detection: {observed} (last action: {last_action})")
+    }
+}
+
 impl Default for RunawayPolicy {
     fn default() -> Self {
         Self {
@@ -194,6 +232,24 @@ mod tests {
             found = detector.observe(&act(sig)).or(found);
         }
         assert_eq!(found, Some(StuckCondition::NoProgress));
+    }
+
+    #[test]
+    fn a_stuck_detail_names_the_threshold_and_the_action() {
+        let policy = RunawayPolicy::default();
+        let repeated = StuckCondition::Repeated.detail(&policy, "shell cargo test");
+        assert!(repeated.contains("3 times"), "{repeated}");
+        assert!(repeated.contains("shell cargo test"), "{repeated}");
+
+        let oscillating = StuckCondition::Oscillating.detail(&policy, "read a.rs");
+        assert!(oscillating.contains("6 actions"), "{oscillating}");
+
+        let window = RunawayPolicy {
+            max_repeats: 3,
+            no_progress_window: 5,
+        };
+        let no_progress = StuckCondition::NoProgress.detail(&window, "read b.rs");
+        assert!(no_progress.contains("5 actions"), "{no_progress}");
     }
 
     #[test]

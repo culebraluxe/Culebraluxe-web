@@ -16,6 +16,11 @@ use std::collections::BTreeMap;
 
 use db::TurnTrajectoryRow;
 
+use crate::engine::action_profiles::policy_for_node;
+use crate::engine::planning::{
+    findings, FinishedExecution, TerminationFinding, VerificationOutcome,
+    CONTRACT_VERIFICATION_ALLOWANCE,
+};
 use crate::engine::trajectory::TrajectoryMetrics;
 
 /// Which turn of its role a record is: the distinction the turn key exists for. A first turn and a repair turn are
@@ -60,6 +65,9 @@ pub struct TurnRecord {
     /// Milliseconds from the turn's start to its first edit. `None` when the turn never edited or its start was never
     /// observed: a latency measured from the wrong origin is worse than no latency.
     pub time_to_first_edit_ms: Option<i64>,
+    /// The planning contract's findings for this turn, from the facts the row carries (see
+    /// [`turn_termination_findings`]). Recorded alongside the metrics: the harness never acts on them.
+    pub termination_findings: Vec<TerminationFinding>,
 }
 
 /// Grade one recorded turn into a comparison record.
@@ -76,6 +84,7 @@ pub fn turn_record(row: &TurnTrajectoryRow) -> TurnRecord {
         accepted: turn_accepted(row),
         trajectory: turn_trajectory(row),
         time_to_first_edit_ms: row.first_edit_latency_ms,
+        termination_findings: turn_termination_findings(row),
     }
 }
 
@@ -128,6 +137,34 @@ pub fn segment_turns(records: &[TurnRecord]) -> Vec<TurnSegment> {
             known_cost_usd: rows.iter().filter_map(|row| row.cost_usd).sum(),
         })
         .collect()
+}
+
+/// The planning contract's findings for one recorded turn.
+///
+/// Every input is a fact of THIS row, and one input is deliberately not read here: whether an edit was REQUIRED comes
+/// from the node's own action policy (`action_profiles`), never from a list of node names kept beside it, and a node
+/// the policy layer cannot place counts as "no edit required" — Forge does not claim a turn skipped work it never
+/// established was owed.
+///
+/// The verification OUTCOME is `Unmeasured`, because a trajectory row records how many verifications followed the last
+/// edit and not what they reported. `planning::findings` therefore raises no waste claim from it: an unrecorded fact is
+/// not evidence that a check was unnecessary.
+pub fn turn_termination_findings(row: &TurnTrajectoryRow) -> Vec<TerminationFinding> {
+    let acceptance_requires_edit = row
+        .workflow_node
+        .as_deref()
+        .and_then(|node| policy_for_node(node).ok())
+        .map(|policy| policy.surface().edit)
+        .unwrap_or(false);
+    findings(
+        &FinishedExecution {
+            edit_count: non_negative(row.edit_call_count),
+            acceptance_requires_edit,
+            verification_after_last_edit: non_negative(row.verification_calls_after_last_edit),
+            verification_outcome: VerificationOutcome::Unmeasured,
+        },
+        CONTRACT_VERIFICATION_ALLOWANCE,
+    )
 }
 
 /// The spend reading for one turn: the row's own measurement, and only when the harness reported one. An explicit
@@ -207,6 +244,9 @@ pub struct ProfileComparison {
     pub median_time_to_first_edit_ms: Option<i64>,
     /// Mean verification calls after the last edit, over the profile's turns that edited.
     pub mean_verification_after_last_edit: Option<f64>,
+    /// Turns that terminated without the edit their node's action policy required. Counted, never enforced: the
+    /// planning layer records what happened, it does not act on it.
+    pub no_edit_terminations: usize,
     /// The profile's first turns, alone.
     pub first_turns: TurnTiming,
     /// The profile's repair turns, alone. Averaged into `first_turns`, they would hide what the comparison is for.
@@ -236,6 +276,13 @@ pub fn compare(records: &[TurnRecord]) -> Vec<ProfileComparison> {
                 cost_per_accepted_usd: (accepted > 0).then(|| total_cost_usd / accepted as f64),
                 median_time_to_first_edit_ms: all.median_time_to_first_edit_ms,
                 mean_verification_after_last_edit: all.mean_verification_after_last_edit,
+                no_edit_terminations: rows
+                    .iter()
+                    .filter(|r| {
+                        r.termination_findings
+                            .contains(&TerminationFinding::NoEditTermination)
+                    })
+                    .count(),
                 first_turns: timing(rows.iter().copied().filter(|r| r.kind == TurnKind::First)),
                 repair_turns: timing(rows.iter().copied().filter(|r| r.kind == TurnKind::Repair)),
             }
@@ -321,6 +368,7 @@ mod tests {
                 ..TrajectoryMetrics::default()
             },
             time_to_first_edit_ms: edit_ms,
+            termination_findings: Vec::new(),
         }
     }
 
@@ -371,6 +419,53 @@ mod tests {
             qa_passed: None,
             qa_verified_sha: None,
         }
+    }
+
+    /// A node the DEFINITION itself binds to an edit-capable lane, discovered from the binding table rather than
+    /// typed here: a hard-coded node name could pass while the definition no longer has it.
+    fn node_that_may_edit() -> String {
+        crate::engine::service_binding::forge_service_bindings()
+            .expect("the SDLC definition parses")
+            .keys()
+            .find(|node| {
+                policy_for_node(node)
+                    .map(|policy| policy.surface().edit)
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .expect("the definition binds at least one node to an edit-capable lane")
+    }
+
+    /// The whole C3 chain over a store row: the node's action policy decides whether an edit was owed, the row's own
+    /// counters decide what happened, and the finding is recorded on the graded turn.
+    #[test]
+    fn a_turn_that_edited_nothing_where_its_node_owed_an_edit_reports_the_termination() {
+        let mut editing_row = row("turn-1");
+        editing_row.workflow_node = Some(node_that_may_edit());
+        editing_row.edit_call_count = 0;
+        assert_eq!(
+            turn_termination_findings(&editing_row),
+            vec![TerminationFinding::NoEditTermination]
+        );
+        let comparison = compare_turns(&[editing_row]);
+        assert_eq!(comparison[0].no_edit_terminations, 1);
+    }
+
+    #[test]
+    fn a_node_the_policy_layer_cannot_place_claims_no_missing_edit() {
+        let mut orphan_row = row("turn-1");
+        orphan_row.workflow_node = Some("no-such-node".to_string());
+        orphan_row.edit_call_count = 0;
+        assert!(turn_termination_findings(&orphan_row).is_empty());
+    }
+
+    #[test]
+    fn a_rows_verification_count_is_never_on_its_own_a_waste_claim() {
+        let mut busy_row = row("turn-1");
+        busy_row.workflow_node = Some(node_that_may_edit());
+        busy_row.edit_call_count = 2;
+        busy_row.verification_calls_after_last_edit = 9;
+        assert!(turn_termination_findings(&busy_row).is_empty());
     }
 
     #[test]

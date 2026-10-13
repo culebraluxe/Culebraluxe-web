@@ -475,13 +475,15 @@ pub const TERMINATE_GRACE: Duration = Duration::from_secs(2);
 pub const TURN_TIMEOUT_CODE: &str = "TURN_TIMEOUT";
 
 fn turn_ceiling_stop(limit: Duration) -> StreamStop {
-    StreamStop {
-        code: TURN_TIMEOUT_CODE.to_string(),
-        detail: format!(
+    StreamStop::new(
+        TURN_TIMEOUT_CODE,
+        format!(
             "the turn ran past its wall-clock ceiling of {} minute(s) and was stopped",
             limit.as_secs().div_ceil(60)
         ),
-    }
+        // One turn's own allowance, run out: the same reading as the spend cap.
+        crate::engine::planning::StopReason::BudgetExhausted,
+    )
 }
 
 /// True once `started` is older than the ceiling.
@@ -519,6 +521,41 @@ pub fn live_turn_slot() -> LiveTurnSlot {
 pub struct StreamStop {
     pub code: String,
     pub detail: String,
+    /// WHY this attempt is stopping, in the canonical vocabulary (`planning::StopReason`).
+    ///
+    /// A stop is a termination, and Forge has one termination vocabulary. The code above is the operator-facing
+    /// spelling of the same decision; the reason is the canonical one, so an attempt that stopped can be read back
+    /// without translating codes, and so the runaway guard, the spend cap and the ceiling are all expressible as
+    /// what they are: the attempt's own measured progress or allowance running out.
+    pub reason: crate::engine::planning::StopReason,
+}
+
+impl StreamStop {
+    /// A stop, with the code it is reported under, the detail a reader can argue with, and its canonical reason.
+    ///
+    /// The one way to build a stop, and public because it is a CALLER's decision to build one: a seam that scripts a
+    /// stopped turn (a test harness, an integration test) must be able to state the canonical reason rather than
+    /// re-deriving which reason a given code means, or the pairing lives in two places and drifts in one of them.
+    pub fn new(
+        code: impl Into<String>,
+        detail: impl Into<String>,
+        reason: crate::engine::planning::StopReason,
+    ) -> Self {
+        Self {
+            code: code.into(),
+            detail: detail.into(),
+            reason,
+        }
+    }
+
+    /// This stop AS the canonical termination the engine records.
+    ///
+    /// The contract's arrow, made literal in code: the guard (or the cap, or the ceiling) produces a stop, and a
+    /// stop IS `planning::Termination::Stop(reason)` — not a third thing beside it that a reader has to translate.
+    /// The code and detail travel with the stop for the operator; this is what the engine's vocabulary says.
+    pub fn termination(&self) -> crate::engine::planning::Termination {
+        crate::engine::planning::Termination::Stop(self.reason)
+    }
 }
 
 /// What one streamed turn did.
@@ -906,10 +943,11 @@ sleep 30"#,
             },
             &mut |_line| {
                 lines_seen += 1;
-                Some(StreamStop {
-                    code: "MODEL_TURN_CAP".to_string(),
-                    detail: "the guard asked for a stop on the first line".to_string(),
-                })
+                Some(StreamStop::new(
+                    "MODEL_TURN_CAP",
+                    "the guard asked for a stop on the first line",
+                    crate::engine::planning::StopReason::PolicyViolation,
+                ))
             },
             &slot,
         );

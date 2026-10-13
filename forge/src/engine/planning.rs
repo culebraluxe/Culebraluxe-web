@@ -23,6 +23,17 @@ pub enum PlanningPolicy {
     ProgressContract,
 }
 
+impl PlanningPolicy {
+    /// The policy's name, for the one line that tells a reader which policy produced a scaffold.
+    pub fn label(self) -> &'static str {
+        match self {
+            PlanningPolicy::None => "none",
+            PlanningPolicy::Guided => "guided",
+            PlanningPolicy::ProgressContract => "progress-contract",
+        }
+    }
+}
+
 /// What an execution is asked to achieve, as the workflow states it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExecutionContract {
@@ -34,50 +45,105 @@ pub struct ExecutionContract {
     pub known_state: Vec<String>,
 }
 
-/// Render the scaffold for a policy. `None` renders nothing, so a profile with no planning adds no text at all.
+/// The one sentence the progress contract itself states: when to stop. It is the policy's own sentence rather than a
+/// fact about the story, and it is emitted only for a contract that states at least one fact of its own.
+const TERMINATION_LINE: &str = "Termination: stop when the acceptance conditions are met and local diagnostics pass; do not continue after the objective is achieved.";
+
+impl ExecutionContract {
+    /// Whether the contract states any fact at all. A contract nobody filled in is not an empty job: it is a job
+    /// Forge was never told about, and a scaffold over it would invent the objective, the steps and the acceptance.
+    pub fn states_something(&self) -> bool {
+        !self.objective.trim().is_empty()
+            || !self.constraints.is_empty()
+            || !self.acceptance.is_empty()
+            || !self.completed_steps.is_empty()
+            || !self.remaining_steps.is_empty()
+            || !self.known_state.is_empty()
+    }
+}
+
+/// Render the scaffold for a policy.
+///
+/// `None` renders nothing, so a profile with no planning adds no text at all. It also renders nothing when the
+/// contract states nothing: the scaffold's whole purpose is to state the job's own facts in the policy's shape, and a
+/// contract with no facts produces either a hollow scaffold or a fabricated one.
 pub fn render_scaffold(policy: PlanningPolicy, contract: &ExecutionContract) -> Option<String> {
+    if !contract.states_something() {
+        return None;
+    }
     match policy {
         PlanningPolicy::None => None,
-        PlanningPolicy::Guided => Some(render_guided(contract)),
-        PlanningPolicy::ProgressContract => Some(render_progress_contract(contract)),
+        PlanningPolicy::Guided => render_guided(contract),
+        PlanningPolicy::ProgressContract => render_progress_contract(contract),
     }
 }
 
+/// A section's bullets. No "(none)" arm: this is only called for a list the contract actually states, and an empty
+/// list is omitted by the caller rather than reported as a thing the execution found to be empty.
 fn bullets(items: &[String]) -> String {
-    if items.is_empty() {
-        "- (none)".to_string()
-    } else {
-        items
-            .iter()
-            .map(|item| format!("- {item}"))
-            .collect::<Vec<_>>()
-            .join("\n")
+    items
+        .iter()
+        .map(|item| format!("- {item}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Join the sections, or `None` when the contract's facts render no section at all — an empty scaffold is not a
+/// weaker scaffold, it is a `None`.
+fn join_sections(sections: Vec<String>) -> Option<String> {
+    (!sections.is_empty()).then(|| sections.join("\n"))
+}
+
+fn render_guided(contract: &ExecutionContract) -> Option<String> {
+    let mut sections: Vec<String> = Vec::new();
+    let objective = contract.objective.trim();
+    if !objective.is_empty() {
+        sections.push(format!("Goal: {objective}"));
     }
+    if let Some(current) = contract.remaining_steps.first() {
+        sections.push(format!("Current step: {current}"));
+    }
+    if !contract.completed_steps.is_empty() {
+        sections.push(format!(
+            "Completed steps:\n{}",
+            bullets(&contract.completed_steps)
+        ));
+    }
+    if !contract.remaining_steps.is_empty() {
+        sections.push(format!(
+            "Remaining steps:\n{}",
+            bullets(&contract.remaining_steps)
+        ));
+    }
+    if !contract.acceptance.is_empty() {
+        sections.push(format!(
+            "Acceptance conditions:\n{}",
+            bullets(&contract.acceptance)
+        ));
+    }
+    join_sections(sections)
 }
 
-fn render_guided(contract: &ExecutionContract) -> String {
-    let current = contract
-        .remaining_steps
-        .first()
-        .cloned()
-        .unwrap_or_else(|| "(no step remains)".to_string());
-    format!(
-        "Goal: {goal}\nCurrent step: {current}\nCompleted steps:\n{completed}\nRemaining steps:\n{remaining}\nAcceptance conditions:\n{acceptance}",
-        goal = contract.objective,
-        completed = bullets(&contract.completed_steps),
-        remaining = bullets(&contract.remaining_steps),
-        acceptance = bullets(&contract.acceptance),
-    )
-}
-
-fn render_progress_contract(contract: &ExecutionContract) -> String {
-    format!(
-        "Objective: {goal}\nConstraints:\n{constraints}\nAcceptance conditions:\n{acceptance}\nKnown state:\n{known}\nTermination: stop when the acceptance conditions are met and local diagnostics pass; do not continue after the objective is achieved.",
-        goal = contract.objective,
-        constraints = bullets(&contract.constraints),
-        acceptance = bullets(&contract.acceptance),
-        known = bullets(&contract.known_state),
-    )
+fn render_progress_contract(contract: &ExecutionContract) -> Option<String> {
+    let mut sections: Vec<String> = Vec::new();
+    let objective = contract.objective.trim();
+    if !objective.is_empty() {
+        sections.push(format!("Objective: {objective}"));
+    }
+    if !contract.constraints.is_empty() {
+        sections.push(format!("Constraints:\n{}", bullets(&contract.constraints)));
+    }
+    if !contract.acceptance.is_empty() {
+        sections.push(format!(
+            "Acceptance conditions:\n{}",
+            bullets(&contract.acceptance)
+        ));
+    }
+    if !contract.known_state.is_empty() {
+        sections.push(format!("Known state:\n{}", bullets(&contract.known_state)));
+    }
+    sections.push(TERMINATION_LINE.to_string());
+    join_sections(sections)
 }
 
 /// The measured state of Smith's work at the point it could stop.
@@ -91,10 +157,57 @@ pub struct WorkState {
 }
 
 /// Whether Smith may stop.
+///
+/// The ONE termination vocabulary. Its two arms answer the only question a running attempt asks — may I stop, and
+/// if not, what is unfinished — and the `Stop` arm carries the canonical REASON, so an attempt that ended can be
+/// read back without a second enum for "why" (`StopReason`). A reason never names a node: the deterministic
+/// engine reads the result and applies the step its XML definition names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Termination {
-    Stop,
+    /// The attempt stops, and the reason is the canonical one the engine records.
+    Stop(StopReason),
+    /// The attempt must continue, and every reason it must is named.
     Continue(Vec<String>),
+}
+
+/// Why an attempt stopped, in Forge's canonical stop vocabulary.
+///
+/// Five reasons, and each one has a live seam that can produce it. A reason nothing can produce would be a
+/// vocabulary entry that only ever appears in tests, which is how a second vocabulary starts: the next author adds
+/// "the real" variants beside it.
+///
+/// These are the architecture's potential conditions, MAPPED rather than copied: a stall and a runaway are the
+/// same reading (`NoProgress` — what a runaway has is repetition without measured progress, and the specific
+/// threshold it crossed travels in the detail); the spend cap and the wall-clock ceiling are the same reading
+/// (`BudgetExhausted` — one turn ran out of the allowance it was given).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StopReason {
+    /// The attempt met every condition it was told to meet: it finished its own work.
+    /// Produced by [`evaluate_termination`] when nothing is left to continue for.
+    Completed,
+    /// The attempt stopped making the progress Forge MEASURES: a stall, not one failure.
+    /// Produced by the action-stream guard (`opencode::LiveRunaway`) from the lane's resolved thresholds.
+    NoProgress,
+    /// The attempt's own allowance ran out — its measured spend, or the wall-clock ceiling of one turn.
+    BudgetExhausted,
+    /// The attempt broke a rule Forge states for every turn: its event stream was not readable, so the record its
+    /// work is read from could not be read either.
+    PolicyViolation,
+    /// The attempt was stopped from outside Forge's own decision (the turn's interrupt handle).
+    Interrupted,
+}
+
+impl StopReason {
+    /// The word this reason is recorded under. Stable, because it is what a reader searches for.
+    pub fn label(self) -> &'static str {
+        match self {
+            StopReason::Completed => "completed",
+            StopReason::NoProgress => "no-progress",
+            StopReason::BudgetExhausted => "budget-exhausted",
+            StopReason::PolicyViolation => "policy-violation",
+            StopReason::Interrupted => "interrupted",
+        }
+    }
 }
 
 /// The Smith stop conditions, checked from measured state. Every reason to continue is named.
@@ -113,7 +226,7 @@ pub fn evaluate_termination(state: &WorkState) -> Termination {
         reasons.push("candidate preparation is not complete".to_string());
     }
     if reasons.is_empty() {
-        Termination::Stop
+        Termination::Stop(StopReason::Completed)
     } else {
         Termination::Continue(reasons)
     }
@@ -128,17 +241,37 @@ pub enum TerminationFinding {
     UnnecessaryVerification,
 }
 
+/// How a finished execution's verification reads. THREE states, because a record that never carried the fact is not a
+/// clean verification: a `bool` could only say "failed" or "not failed", and the second tells a reader a turn was
+/// verified clean when nothing was ever read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerificationOutcome {
+    /// The verification after the last edit reported success.
+    Clean,
+    /// It reported a failure.
+    Failed,
+    /// The record does not say. Not a clean verification, and not a failure either.
+    Unmeasured,
+}
+
 /// Measured facts of a finished execution, as the trajectory records them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FinishedExecution {
     pub edit_count: usize,
     pub acceptance_requires_edit: bool,
     pub verification_after_last_edit: usize,
-    pub verification_failed_after_last_edit: bool,
+    pub verification_outcome: VerificationOutcome,
 }
 
+/// Forge's declared allowance for verification after a turn's own final edit: one local check.
+///
+/// It is DECLARED rather than derived because nothing derives it, and it belongs here rather than in the analysis that
+/// reads it for the same reason. It measures only: findings are recorded, never acted on by the harness.
+pub const CONTRACT_VERIFICATION_ALLOWANCE: usize = 1;
+
 /// Findings for a finished execution. `allowed_verification_after_edit` is the policy's tolerance; a verification that
-/// followed a failure is never called unnecessary.
+/// followed a failure is never called unnecessary, and neither is one whose outcome was never measured: an unread fact
+/// cannot support the claim that a check was wasted.
 pub fn findings(
     execution: &FinishedExecution,
     allowed_verification_after_edit: usize,
@@ -147,7 +280,7 @@ pub fn findings(
     if execution.edit_count == 0 && execution.acceptance_requires_edit {
         found.push(TerminationFinding::NoEditTermination);
     }
-    if !execution.verification_failed_after_last_edit
+    if execution.verification_outcome == VerificationOutcome::Clean
         && execution.verification_after_last_edit > allowed_verification_after_edit
     {
         found.push(TerminationFinding::UnnecessaryVerification);
@@ -191,6 +324,42 @@ mod tests {
         assert!(!text.contains("Current step"), "no step-by-step procedure");
     }
 
+    /// The scaffold's guard, and why it exists: Forge may only state facts it was given. A contract nobody filled in
+    /// would otherwise render an objective with nothing after it and a termination condition over acceptance
+    /// conditions that were never stated.
+    #[test]
+    fn a_contract_nobody_stated_renders_no_scaffold() {
+        for policy in [PlanningPolicy::Guided, PlanningPolicy::ProgressContract] {
+            assert_eq!(render_scaffold(policy, &ExecutionContract::default()), None);
+        }
+    }
+
+    /// The distinction the renderers draw between an empty list and an unstated one. "(none)" claimed a fact about
+    /// work Forge never looked at; omitting the section says nothing instead.
+    #[test]
+    fn a_fact_the_contract_does_not_state_is_omitted_rather_than_reported_as_none() {
+        let partial = ExecutionContract {
+            objective: "add the parser".into(),
+            acceptance: vec!["parser accepts empty input".into()],
+            ..ExecutionContract::default()
+        };
+        let text = render_scaffold(PlanningPolicy::Guided, &partial).unwrap();
+        assert!(text.contains("Goal: add the parser"), "{text}");
+        assert!(text.contains("Acceptance conditions:"), "{text}");
+        assert!(!text.contains("Completed steps"), "{text}");
+        assert!(!text.contains("Current step"), "{text}");
+    }
+
+    #[test]
+    fn a_policy_names_itself() {
+        assert_eq!(PlanningPolicy::None.label(), "none");
+        assert_eq!(PlanningPolicy::Guided.label(), "guided");
+        assert_eq!(
+            PlanningPolicy::ProgressContract.label(),
+            "progress-contract"
+        );
+    }
+
     #[test]
     fn smith_may_stop_only_when_every_condition_holds() {
         let ready = WorkState {
@@ -199,7 +368,10 @@ mod tests {
             unresolved_acceptance: vec![],
             candidate_prepared: true,
         };
-        assert_eq!(evaluate_termination(&ready), Termination::Stop);
+        assert_eq!(
+            evaluate_termination(&ready),
+            Termination::Stop(StopReason::Completed)
+        );
     }
 
     #[test]
@@ -212,7 +384,49 @@ mod tests {
         };
         match evaluate_termination(&not_ready) {
             Termination::Continue(reasons) => assert_eq!(reasons.len(), 4),
-            Termination::Stop => panic!("must continue"),
+            Termination::Stop(_) => panic!("must continue"),
+        }
+    }
+
+    /// The canonical vocabulary, and the property that makes it one: every reason has a stable word a reader
+    /// searches for, and no two reasons share a word.
+    #[test]
+    fn every_stop_reason_labels_itself_and_no_two_share_a_word() {
+        let reasons = [
+            StopReason::Completed,
+            StopReason::NoProgress,
+            StopReason::BudgetExhausted,
+            StopReason::PolicyViolation,
+            StopReason::Interrupted,
+        ];
+        let labels: Vec<&str> = reasons.iter().map(|reason| reason.label()).collect();
+        for label in &labels {
+            assert!(!label.is_empty());
+        }
+        let mut unique = labels.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), labels.len(), "two reasons share a word");
+    }
+
+    /// C3's boundary, as a test rather than a promise: this module decides termination, and it has no mechanism
+    /// for choosing the next workflow node. The forbidden tokens are assembled with `concat!` so this test's own
+    /// source cannot contain them — a guard that matched itself would pass while the rule it guards was broken.
+    #[test]
+    fn this_module_cannot_choose_a_workflow_node() {
+        let source = include_str!("planning.rs");
+        for forbidden in [
+            concat!("Workflow", "Engine"),
+            concat!("next", "_node"),
+            concat!("set", "_next"),
+            concat!("transition", "_to"),
+            concat!(".", "transition("),
+            concat!("Transition", "::"),
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "termination must not become workflow routing: {forbidden}"
+            );
         }
     }
 
@@ -222,7 +436,7 @@ mod tests {
             edit_count: 0,
             acceptance_requires_edit: true,
             verification_after_last_edit: 0,
-            verification_failed_after_last_edit: false,
+            verification_outcome: VerificationOutcome::Clean,
         };
         assert_eq!(
             findings(&execution, 2),
@@ -236,9 +450,22 @@ mod tests {
             edit_count: 2,
             acceptance_requires_edit: true,
             verification_after_last_edit: 6,
-            verification_failed_after_last_edit: true,
+            verification_outcome: VerificationOutcome::Failed,
         };
         assert!(findings(&execution, 2).is_empty());
+    }
+
+    /// The third state, and the reason it exists: a record that never carried the outcome cannot justify calling a
+    /// check wasted. Before this, `Unmeasured` had to be spelled `false`, which quietly reported the same finding.
+    #[test]
+    fn an_unmeasured_verification_outcome_is_not_read_as_a_clean_one() {
+        let execution = FinishedExecution {
+            edit_count: 2,
+            acceptance_requires_edit: true,
+            verification_after_last_edit: 9,
+            verification_outcome: VerificationOutcome::Unmeasured,
+        };
+        assert!(findings(&execution, CONTRACT_VERIFICATION_ALLOWANCE).is_empty());
     }
 
     #[test]
@@ -247,7 +474,7 @@ mod tests {
             edit_count: 2,
             acceptance_requires_edit: true,
             verification_after_last_edit: 6,
-            verification_failed_after_last_edit: false,
+            verification_outcome: VerificationOutcome::Clean,
         };
         assert_eq!(
             findings(&execution, 2),

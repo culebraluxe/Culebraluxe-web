@@ -622,6 +622,12 @@ fn run(cli: Cli, budget: forge::engine::db_budget::EngineDbBudget) {
     // the model was whatever the pin said and the policy column was decoration.
     // (harness_backend is bound above, next to the vendor preflight it selects.)
     eprintln!("harness_backend={:?}", harness_backend);
+    // The attended model override, read ONCE and used twice: it configures the harness that runs the lane, and it
+    // is part of the intent the lane's profile records. Read twice, it would be two decisions wearing one name.
+    let run_model_override: Option<String> = std::env::var("OPENCODE_MODEL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     let harness_context = forge::engine::harness::HarnessContext {
         story_id: story.clone(),
         packet: packet
@@ -649,10 +655,7 @@ fn run(cli: Cli, budget: forge::engine::db_budget::EngineDbBudget) {
             _ => None,
         },
         model_policy: run_model_policy.clone(),
-        model_override: std::env::var("OPENCODE_MODEL")
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty()),
+        model_override: run_model_override.clone(),
         spend_cap_usd: spend_cap::parse_forge_spend_cap_usd(
             std::env::var(SPEND_CAP_ENV).ok().as_deref(),
         ),
@@ -840,6 +843,14 @@ fn run(cli: Cli, budget: forge::engine::db_budget::EngineDbBudget) {
     // store while the story writer below wrote the production row. Two stores, one run, and the one that answered
     // the engine's questions was not the one holding the record. `FORGE_STORE=memory` keeps the local dry run
     // reachable, deliberately, by name.
+
+    // Forge's model intent for this run, resolved ONCE from the two launch decisions and then handed to the lane:
+    // an adapter derives its vendor model name FROM this, and nothing re-derives it, so the intent a turn records
+    // and the model that actually ran cannot come from two different answers.
+    let run_model_intent = forge::engine::harness::ModelSelection::from_parts(
+        run_model_policy.as_deref(),
+        run_model_override.as_deref(),
+    );
     let result = if use_memory {
         eprintln!("workflow store=memory (FORGE_STORE=memory; local dry run only)");
         drive(
@@ -848,6 +859,8 @@ fn run(cli: Cli, budget: forge::engine::db_budget::EngineDbBudget) {
             writer.clone(),
             None,
             Arc::new(harness),
+            harness_backend,
+            run_model_intent.clone(),
             &story,
             &work_type,
             stop_after.clone(),
@@ -865,6 +878,8 @@ fn run(cli: Cli, budget: forge::engine::db_budget::EngineDbBudget) {
             writer.clone(),
             Some(Arc::new(DbForgeEvidenceReader)),
             Arc::new(harness),
+            harness_backend,
+            run_model_intent.clone(),
             &story,
             &work_type,
             stop_after.clone(),
@@ -974,6 +989,8 @@ fn drive<S: TxStore>(
     writer: Arc<dyn ForgeStateWriter>,
     evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
     harness: Arc<dyn RoleHarness>,
+    harness_backend: forge::engine::harness::HarnessBackend,
+    model_intent: forge::engine::harness::ModelSelection,
     story: &str,
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
@@ -1006,6 +1023,8 @@ fn drive<S: TxStore>(
         writer,
         evidence_reader,
         harness,
+        harness_backend,
+        model_intent,
         story,
         work_type,
         stop_after,
@@ -1024,6 +1043,8 @@ fn drive_with_shared_runtime(
     writer: Arc<dyn ForgeStateWriter>,
     evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
     harness: Arc<dyn RoleHarness>,
+    harness_backend: forge::engine::harness::HarnessBackend,
+    model_intent: forge::engine::harness::ModelSelection,
     story: &str,
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
@@ -1054,6 +1075,8 @@ fn drive_with_shared_runtime(
         writer,
         evidence_reader,
         harness,
+        harness_backend,
+        model_intent,
         story,
         work_type,
         stop_after,
@@ -1072,6 +1095,8 @@ fn drive_with_runtime<S: TxStore>(
     writer: Arc<dyn ForgeStateWriter>,
     evidence_reader: Option<Arc<dyn ForgeEvidenceReader>>,
     harness: Arc<dyn RoleHarness>,
+    harness_backend: forge::engine::harness::HarnessBackend,
+    model_intent: forge::engine::harness::ModelSelection,
     story: &str,
     work_type: &str,
     stop_after: Option<ForgeStopTarget>,
@@ -1099,7 +1124,11 @@ fn drive_with_runtime<S: TxStore>(
         .with_test_mode(test_mode)
         .with_contract_assay_commands(contract_assay_commands)
         .with_contract_acceptance_mapped(contract_acceptance_mapped)
-        .with_evidence_reader(evidence_reader.clone());
+        .with_evidence_reader(evidence_reader.clone())
+        // The launch's own decisions about HOW the lane runs, so the profile a turn records cannot disagree with
+        // the harness that ran it. The intent is Forge's — the row's `model_policy` plus the attended override —
+        // never the vendor model name an adapter derived from it.
+        .with_harness_envelope(harness_backend, model_intent);
     if let Some(run_id) = runner.story_run_id.as_deref() {
         let generation_id = model_generation_id.as_deref().unwrap_or(run_id);
         let control = forge::engine::turn_budget::DbModelAttemptControl::initialize(

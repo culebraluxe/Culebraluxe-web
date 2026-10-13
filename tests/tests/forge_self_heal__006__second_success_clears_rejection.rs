@@ -120,6 +120,8 @@ fn forge_self_heal_006__second_success_clears_rejection() {
         execution_id: None,
         write_surface: None,
         model_attempt_control: None,
+        harness_backend: forge::engine::harness::HarnessBackend::OpenCode,
+        model_intent: forge::engine::harness::ModelSelection::from_parts(None, None),
     };
     let outcome =
         run_forge_role_turn(&ctx, "architect", &task, &ArchitectHooks).expect("turn runs");

@@ -456,6 +456,8 @@ fn forge_release_004__deploy_requires_appropriate_receipt() {
         execution_id: None,
         write_surface: None,
         model_attempt_control: None,
+        harness_backend: forge::engine::harness::HarnessBackend::OpenCode,
+        model_intent: forge::engine::harness::ModelSelection::from_parts(None, None),
     };
     assert!(
         DevOpsHooks

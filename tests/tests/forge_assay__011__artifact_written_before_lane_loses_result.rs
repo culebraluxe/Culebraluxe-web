@@ -125,6 +125,8 @@ fn forge_assay_011__artifact_written_before_lane_loses_result() {
         execution_id: None,
         write_surface: None,
         model_attempt_control: None,
+        harness_backend: forge::engine::harness::HarnessBackend::OpenCode,
+        model_intent: forge::engine::harness::ModelSelection::from_parts(None, None),
     };
     let turn = ForgeRoleTurn {
         node_id: "smith",
@@ -189,6 +191,8 @@ fn forge_assay_011__artifact_written_before_lane_loses_result() {
         execution_id: None,
         write_surface: None,
         model_attempt_control: None,
+        harness_backend: forge::engine::harness::HarnessBackend::OpenCode,
+        model_intent: forge::engine::harness::ModelSelection::from_parts(None, None),
     };
     let broken_turn = ForgeRoleTurn {
         node_id: "smith",

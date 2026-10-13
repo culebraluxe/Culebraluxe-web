@@ -11,8 +11,8 @@
 //!      (`db/src/forge_engine.rs:292`) copies `storyboard_story.context_refs` into
 //!      `storyboard_story_run.context_refs_snapshot`, in the same statement that opens the run,
 //!      by the database, from the story row (migration 264 lines 46-57) — not from a caller argument.
-//!   3. **the task text** — `forge::engine::packet::build_task_text` does not embed context_refs directly
-//!      (it's embedded within architect_brief). The preservation is verified at the packet source
+//!   3. **the task text** — the ONE constructor, `forge::engine::packet::TaskText`, does not embed context_refs
+//!      directly (it's embedded within architect_brief). The preservation is verified at the packet source
 //!      and run snapshot boundaries.
 //!
 //! "Preserved" means byte-exact for the authored content, absence-preserving for a blank context_refs
@@ -39,7 +39,6 @@
 //! a disposable DEV database and the harness will never open a PRODUCTION one.
 
 use db::DbTarget;
-use forge::engine::packet::{build_task_text, StoryPacket};
 use sqlx::PgPool;
 use test_harness::ForgeHarness;
 
