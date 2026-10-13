@@ -165,8 +165,10 @@ pub fn profile_version(profile_id: &str) -> Option<i32> {
 /// One turn's trajectory as the lane measured it: the measurement, the identity that makes it findable, and the
 /// clock readings taken around the harness call.
 ///
-/// Every optional field means "not known at this seam". The model and provider the harness was started with are not
-/// reported back to the lane, so they stay `None` rather than being guessed from a profile id.
+/// Every optional field means "not known at this seam". `provider` is the backend that ran the turn and `model` is
+/// the selection Forge handed that backend; both come from the RESOLVED profile, because that is the configuration the
+/// turn executed under. It is not a claim about the vendor's own reading of what it billed: the harness does not
+/// report that back to the lane, so it is recorded nowhere rather than guessed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TurnTrajectory {
     pub profile_id: String,

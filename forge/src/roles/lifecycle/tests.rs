@@ -664,6 +664,11 @@ fn the_lead_decides_on_its_pre_turn_and_a_missing_decision_holds_instead_of_fall
 #[derive(Default)]
 struct ProfiledOnlyHarness {
     seen: std::sync::Mutex<Vec<harness_profile::ProfileIdentity>>,
+    /// The measurement this double reports for each turn, when a test needs a MEASURED turn.
+    ///
+    /// The turn's row is written from the report's own trajectory, so `None` here means "no measurement" and no row
+    /// — that is the default, because most tests in this file are about the lifecycle's shape rather than its row.
+    metrics: Option<crate::engine::trajectory::TrajectoryMetrics>,
 }
 
 impl ProfiledOnlyHarness {
@@ -678,7 +683,9 @@ impl ProfiledOnlyHarness {
     ) -> crate::engine::runner::HarnessTurnReport {
         self.seen.lock().unwrap().push(profile.identity.clone());
         crate::engine::runner::HarnessTurnReport {
-            trajectory: None,
+            // The row is written from the report's trajectory, and the IDENTITY on that row comes from the profile
+            // this double was handed — which is the point of the double.
+            trajectory: self.metrics.clone(),
             outcome: Ok(HarnessOutput {
                 trajectory: None,
                 raw: format!("ran {node_id}\n"),
@@ -832,6 +839,94 @@ fn a_turn_runs_under_the_profile_the_lifecycle_resolved() {
         assert_eq!(
             profile.role_attempt, index as u32,
             "the scoped rail's own attempts are numbered from zero"
+        );
+    }
+}
+
+/// C6.1: a recorded turn says WHICH configuration ran it.
+///
+/// The reporting segment key groups turns by provider and model, and before a resolved profile existed a live turn
+/// could only ever record `unknown` for both — the columns existed and stayed empty, because the lane had no reading
+/// of its own to write. The resolved profile IS that reading: the backend that ran the turn, and the model selection
+/// Forge handed that backend. This proves the row is written from the profile the turn actually ran under, not from a
+/// default the accounting seam invented for itself.
+#[test]
+fn a_recorded_turn_names_the_backend_and_model_its_profile_resolved() {
+    /// Run one measured turn under the given launch decisions and hand back every row it wrote.
+    ///
+    /// More than one row is normal here: a reply the lane does not accept is re-asked, and each re-ask is a later
+    /// attempt of the SAME authorized node — so the identity has to ride EVERY row rather than only the first.
+    fn rows_for(
+        backend: crate::engine::harness::HarnessBackend,
+        model: crate::engine::harness::ModelSelection,
+    ) -> Vec<crate::engine::trajectory::TurnTrajectory> {
+        let mut harness = ProfiledOnlyHarness::default();
+        harness.metrics = Some(crate::engine::trajectory::TrajectoryMetrics {
+            tool_call_count: 3,
+            edit_call_count: 1,
+            shell_call_count: 1,
+            structured_call_count: 1,
+            first_edit_at_ms: Some(120),
+            last_edit_at_ms: Some(140),
+            verification_calls_after_last_edit: 1,
+        });
+        let writer = RecordingWriter::default();
+        let current = ForgeGateEvidence::default();
+        let task = role_task("smith", "TST-TURN-IDENTITY");
+        let control = CountingAttemptControl::default();
+        let mut context = context(&harness, &current, Some(&writer));
+        context.story_run_id = Some("run-1");
+        context.model_attempt_control = Some(&control);
+        context.harness_backend = backend;
+        context.model_intent = model;
+
+        run_forge_role_turn(&context, "smith", &task, &NoRoleHooks).expect("turn runs");
+
+        let rows = writer.trajectory.lock().unwrap();
+        assert!(!rows.is_empty(), "a measured turn writes a row");
+        rows.clone()
+    }
+
+    let tiered = rows_for(
+        crate::engine::harness::HarnessBackend::Maestro,
+        crate::engine::harness::ModelSelection::Judgment,
+    );
+    for (index, row) in tiered.iter().enumerate() {
+        assert_eq!(
+            row.provider.as_deref(),
+            Some("maestro"),
+            "the backend that ran THIS turn, not a default"
+        );
+        assert_eq!(
+            row.model.as_deref(),
+            Some("judgment"),
+            "the selection Forge handed that backend"
+        );
+        assert_eq!(row.workflow_node.as_deref(), Some("smith"));
+        assert_eq!(
+            row.role_attempt,
+            Some(index as i32),
+            "every row is its own attempt of the same node, and each says so"
+        );
+    }
+    let first = &tiered[0];
+    assert!(
+        first.turn_started_at.is_some() && first.turn_ended_at.is_some(),
+        "the clock read around the harness call still rides the same row"
+    );
+
+    // An operator's explicit override names the vendor's own selection, so it is carried verbatim rather than
+    // flattened into one of Forge's two tiers: a reader can tell an override from a default.
+    let overridden = rows_for(
+        crate::engine::harness::HarnessBackend::OpenCode,
+        crate::engine::harness::ModelSelection::Explicit("vendor-model-x".into()),
+    );
+    for row in &overridden {
+        assert_eq!(row.provider.as_deref(), Some("opencode"));
+        assert_eq!(
+            row.model.as_deref(),
+            Some("vendor-model-x"),
+            "an explicit selection is recorded as the operator named it"
         );
     }
 }

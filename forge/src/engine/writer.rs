@@ -182,6 +182,12 @@ pub struct RecordingWriter {
             Option<crate::engine::harness::HarnessUsage>,
         )>,
     >,
+    /// Every turn row the engine asked to record, in the order it asked.
+    ///
+    /// Captured rather than dropped because the row is the only place a turn says WHICH configuration ran it
+    /// (`provider`/`model`). A double that discarded it could not tell a turn that recorded its identity from one
+    /// that wrote nothing at all — the same reason the engine records the identity in the first place.
+    pub trajectory: std::sync::Mutex<Vec<crate::engine::trajectory::TurnTrajectory>>,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -199,6 +205,7 @@ impl Default for RecordingWriter {
             assay_receipts: std::sync::Mutex::new(std::collections::HashMap::new()),
             usage: std::sync::Mutex::new(vec![]),
             attempt_usage: std::sync::Mutex::new(vec![]),
+            trajectory: std::sync::Mutex::new(vec![]),
         }
     }
 }
@@ -242,6 +249,16 @@ impl ForgeStateWriter for RecordingWriter {
             input.reason.clone(),
         ));
         Ok(format!("hold-{}", opened.len()))
+    }
+    fn record_run_trajectory(
+        &self,
+        _run_id: &str,
+        turn: &crate::engine::trajectory::TurnTrajectory,
+        _measured_usage: Option<&crate::engine::harness::HarnessUsage>,
+        _usage_unknown: bool,
+    ) -> Result<(), String> {
+        self.trajectory.lock().unwrap().push(turn.clone());
+        Ok(())
     }
     fn record_tool_artifact(&self, input: &db::NewToolArtifact) -> Result<Option<String>, String> {
         let mut artifacts = self.artifacts.lock().unwrap();

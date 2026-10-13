@@ -39,6 +39,18 @@ impl HarnessBackend {
             ))),
         }
     }
+
+    /// The backend's own name — the SAME vocabulary `FORGE_HARNESS` accepts, read in reverse.
+    ///
+    /// One fact, one spelling: a turn record naming a backend the launcher would refuse to select again
+    /// (`from_env`) would be evidence nothing could replay. So the persisted reading and the launch decision come
+    /// from the same two literals instead of from two tables that can drift apart.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            HarnessBackend::OpenCode => "opencode",
+            HarnessBackend::Maestro => "maestro",
+        }
+    }
 }
 
 /// Forge's vendor-neutral model intent: what KIND of turn this is, not which vendor string bills it.
@@ -69,6 +81,20 @@ impl ModelSelection {
         match model_policy.map(str::trim) {
             Some("judgment") => ModelSelection::Judgment,
             _ => ModelSelection::Cheap,
+        }
+    }
+
+    /// What Forge records as the turn's model: the tier Forge asked for, or — when an operator overrode it — the
+    /// vendor selection that operator named. `from_parts` is its inverse for the tier names.
+    ///
+    /// It makes no claim about what the vendor billed: this is the intent Forge handed the adapter, and the
+    /// vendor's own model name is not reported back to the lane. `cheap`/`judgment` are Forge's words; `Explicit`
+    /// carries the operator's, verbatim.
+    pub fn as_str(&self) -> &str {
+        match self {
+            ModelSelection::Cheap => "cheap",
+            ModelSelection::Judgment => "judgment",
+            ModelSelection::Explicit(explicit) => explicit.as_str(),
         }
     }
 }

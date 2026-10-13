@@ -318,6 +318,7 @@ pub fn run_forge_role_turn(
                         outcome: status,
                         candidate_sha: None,
                     },
+                    &profile,
                 );
                 let detail = match settlement {
                     Ok(()) => detail,
@@ -356,6 +357,7 @@ pub fn run_forge_role_turn(
                 outcome: "completed",
                 candidate_sha: out.candidate_sha.as_deref(),
             },
+            &profile,
         ) {
             let detail = format!("model usage settlement failed after candidate capture: {error}");
             let _ = finish_model_attempt(ctx, permit.as_ref(), "uncertain", Some(&detail));
@@ -637,14 +639,18 @@ struct TurnFacts<'a> {
 ///
 /// The key mirrors `forge_model_generation_attempt`'s identity — the task, the role attempt and the generation that
 /// paid — so a REPLAN keeps the turn before it instead of overwriting it, and a retried settlement lands on its own
-/// row. `UNKNOWN` fields stay `None`: the harness does not report the model or provider it ran under back to the
-/// lane, so those are absent rather than guessed from a profile id.
+/// row. The turn's provider and model come from the RESOLVED profile, because that is the configuration this turn
+/// actually executed under: the backend that ran it (`ProfileIdentity::backend` — "a turn must be able to say which
+/// one ran it") and the selection Forge handed that backend (`ProfileIdentity::model`). What is NOT recorded is the
+/// vendor's own reading of the model it billed: the harness does not report it back to the lane, so it stays unknown
+/// rather than being invented here.
 fn turn_trajectory(
     node_id: &str,
     task: &ActiveForgeRoleTask,
     permit: Option<&crate::engine::turn_budget::ModelAttemptPermit>,
     metrics: &crate::engine::trajectory::TrajectoryMetrics,
     facts: &TurnFacts<'_>,
+    profile: &harness_profile::HarnessProfile,
 ) -> crate::engine::trajectory::TurnTrajectory {
     use crate::engine::trajectory::{
         profile_id_for_node, profile_version, time_to_first_edit_ms, trajectory_attempt_key,
@@ -671,8 +677,11 @@ fn turn_trajectory(
         role: crate::engine::service_binding::lane_for_node(node_id)
             .ok()
             .map(|lane| lane.service_key().to_string()),
-        model: None,
-        provider: None,
+        // The RESOLVED profile's identity, not a re-derivation from the node: the backend that ran the turn and
+        // the model selection Forge handed it, each rendered in its own vocabulary (`as_str`), so a recorded turn
+        // names exactly what the launcher would accept again.
+        model: Some(profile.identity.model.as_str().to_string()),
+        provider: Some(profile.identity.backend.as_str().to_string()),
         turn_started_at: Some(facts.started_at),
         turn_ended_at: Some(facts.ended_at),
         outcome: Some(facts.outcome.to_string()),
@@ -696,6 +705,7 @@ fn record_turn_usage(
     usage: Option<&HarnessUsage>,
     trajectory: Option<&crate::engine::trajectory::TrajectoryMetrics>,
     facts: &TurnFacts<'_>,
+    profile: &harness_profile::HarnessProfile,
 ) -> Result<()> {
     let story_id = task.story_id.as_str();
     if let Some(usage) = usage {
@@ -724,7 +734,7 @@ fn record_turn_usage(
         // what was authorised for a stable attempt — not a second reading of the same turn, and its usage columns
         // (289) are not on every database yet, so the turn's own row is the one home for its spend. A turn with no
         // reading at all is recorded as explicitly unknown, never as a free turn.
-        let turn = turn_trajectory(node_id, task, permit, metrics, facts);
+        let turn = turn_trajectory(node_id, task, permit, metrics, facts, profile);
         writer
             .record_run_trajectory(run_id, &turn, usage, usage.is_none())
             .map_err(|error| {
