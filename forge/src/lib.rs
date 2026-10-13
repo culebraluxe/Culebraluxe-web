@@ -4,17 +4,17 @@
 //! QA has no Git/release authority. Release concerns belong to DEV_OPS/release.
 
 pub mod engine;
-pub mod evidence;
-pub mod execution;
 // The binaries' observability seam: one subscriber, installed once per process, so the engine's `tracing` events
 // reach an operator's stderr instead of being dropped for want of a subscriber. `web/src/observability.rs` is the
 // HTTP process's half of the same decision; both use `try_init`, so a process that links both keeps the first.
 pub mod observability;
 pub mod pianola;
-pub mod release;
+// The five placeholder modules this file used to declare — `evidence`, `execution`, `routing`, `runtime`, `release` —
+// are gone. Each held a one-line doc comment and no items, nothing referenced them, and their names invited policy code
+// to land outside `engine/`, which is where every real implementation already lives (`engine::release` for release,
+// `engine::diagnostics`/`engine::scope` for execution-scoped work, `engine::role_mapping` for lanes). A module that
+// only sounds like an architecture is worse than no module: it makes the runtime look layered when it is not.
 pub mod roles;
-pub mod routing;
-pub mod runtime;
 pub mod service;
 // The Forge doctor's own rules, in Rust: the pure halves the operator command composes. They live here
 // rather than in the CLI because they decide what is TRUE about the control plane (a claim's age, whether a

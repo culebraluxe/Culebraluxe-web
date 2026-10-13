@@ -61,36 +61,11 @@ use std::process::Command;
 
 use crate::engine::opencode_client::{build_session_export_args, build_session_list_args};
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct HarnessUsage {
-    pub session_id: String,
-    pub tokens_input: i64,
-    pub tokens_output: i64,
-    pub cost_usd: f64,
-}
-
-impl HarnessUsage {
-    /// One run is several attempts; their spend is the sum.
-    pub fn absorb(&mut self, other: &HarnessUsage) {
-        self.tokens_input += other.tokens_input;
-        self.tokens_output += other.tokens_output;
-        self.cost_usd += other.cost_usd;
-    }
-}
-
-/// A resumed session's own spend across one turn. Saturating: a session rewritten underneath us (compaction,
-/// revert) can never report negative spend. No baseline means the measured totals stand.
-pub fn usage_delta(after: &HarnessUsage, before: Option<&HarnessUsage>) -> HarnessUsage {
-    let Some(before) = before else {
-        return after.clone();
-    };
-    HarnessUsage {
-        session_id: after.session_id.clone(),
-        tokens_input: (after.tokens_input - before.tokens_input).max(0),
-        tokens_output: (after.tokens_output - before.tokens_output).max(0),
-        cost_usd: (after.cost_usd - before.cost_usd).max(0.0),
-    }
-}
+// The spend type and its delta have ONE definition: `engine::harness` (the
+// 2026-10-01 move left a byte-identical copy here). Re-exported so this module's
+// readers keep the path they already use — `session_usage` and the contract test
+// both name `harness_usage::{HarnessUsage, usage_delta}`.
+pub use crate::engine::harness::{usage_delta, HarnessUsage};
 
 /// One row of `session list --format json`.
 ///

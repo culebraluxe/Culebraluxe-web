@@ -293,8 +293,23 @@ mod tests {
 
     #[test]
     fn diagnostics_never_plan_a_test_run() {
-        let plan = plan(&["forge/src/x.rs"], &crates());
-        assert!(plan.commands.iter().flatten().all(|arg| arg != "test"));
+        // Pre-freeze diagnostics are developer feedback, never QA evidence: the planned commands may only check.
+        // Every scope is covered (nothing to do, one crate, two crates, workspace, unknown Rust), so a future edit
+        // that slips `cargo test` in here fails loudly instead of quietly running the suite before a freeze.
+        for changed in [
+            &["docs/agent/notes.md"][..],
+            &["forge/src/x.rs"][..],
+            &["middle/model/src/a.rs", "forge/src/b.rs"][..],
+            &["Cargo.toml"][..],
+            &["Cargo.lock"][..],
+            &["scripts/tool.rs"][..],
+        ] {
+            let planned = plan(changed, &crates());
+            assert!(
+                planned.commands.iter().flatten().all(|arg| arg != "test"),
+                "a diagnostic plan for {changed:?} named a test run"
+            );
+        }
     }
 
     #[test]

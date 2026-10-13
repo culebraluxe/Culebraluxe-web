@@ -137,7 +137,9 @@ impl TurnTermination {
 
 /// Harness-specific spend tracking.
 ///
-/// Vendor-neutral type moved from `harness_usage.rs`.
+/// The vendor-neutral spend type, and the ONLY definition of it: `harness_usage.rs` re-exports this rather
+/// than keeping its own copy (the 2026-10-01 move left a byte-identical duplicate behind, so two types with one
+/// name and one shape could drift apart silently).
 #[derive(Debug, Clone, PartialEq)]
 pub struct HarnessUsage {
     pub session_id: String,
