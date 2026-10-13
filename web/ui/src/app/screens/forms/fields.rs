@@ -33,6 +33,25 @@ pub(super) fn field_control(
                 />
             }
         }
+        "checkbox" => {
+            let name = field.name.clone();
+            let changed = link.callback(move |event: Event| Msg::FieldChanged {
+                name: name.clone(),
+                value: if crate::app::exec::checked(&event) {
+                    "Yes".to_owned()
+                } else {
+                    String::new()
+                },
+            });
+            html! {
+                <input
+                    type="checkbox"
+                    checked={value == "Yes"}
+                    onchange={changed}
+                    class="mt-1 h-5 w-5 accent-current"
+                />
+            }
+        }
         "select" => {
             let name = field.name.clone();
             let changed = link.callback(move |event: Event| Msg::FieldChanged {

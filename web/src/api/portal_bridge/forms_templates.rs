@@ -75,6 +75,7 @@ pub(super) fn form_field_type(value: model::forms_template::TemplateFieldType) -
         model::forms_template::TemplateFieldType::Date => "date",
         model::forms_template::TemplateFieldType::Textarea => "textarea",
         model::forms_template::TemplateFieldType::Select => "select",
+        model::forms_template::TemplateFieldType::Checkbox => "checkbox",
     }
 }
 
@@ -119,6 +120,9 @@ pub(super) fn form_template_payload(
                     }
                     model::forms_template::TemplateSectionSegment::Value(field) => {
                         json!({ "kind": "value", "field": field })
+                    }
+                    model::forms_template::TemplateSectionSegment::Flag { field, text } => {
+                        json!({ "kind": "flag", "field": field, "text": text })
                     }
                 })
                 .collect();

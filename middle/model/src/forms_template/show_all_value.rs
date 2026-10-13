@@ -36,6 +36,8 @@ pub enum TemplateFieldType {
     Date,
     Textarea,
     Select,
+    /// A yes-or-no box. Checked it holds `Yes`; unchecked it holds nothing.
+    Checkbox,
 }
 
 impl TemplateFieldType {
@@ -47,6 +49,7 @@ impl TemplateFieldType {
             "date" => Some(Self::Date),
             "textarea" => Some(Self::Textarea),
             "select" => Some(Self::Select),
+            "checkbox" => Some(Self::Checkbox),
             _ => None,
         }
     }
@@ -78,11 +81,13 @@ pub struct TemplateFieldDefinition {
     pub derived: bool,
 }
 
-/// One run of a section's prose: literal text, or the value of a field.
+/// One run of a section's prose: literal text, the value of a field, or a word that appears only when a checkbox is
+/// checked (`<flag field="mediaFeeWaived" text="WAIVED"/>`, printed after a space).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TemplateSectionSegment {
     Text(String),
     Value(String),
+    Flag { field: String, text: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

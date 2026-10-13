@@ -101,6 +101,12 @@ pub(super) fn document_body_text(
                                 .or(Some(value))
                         })
                         .unwrap_or_default(),
+                    "flag" => match segment.field.as_deref() {
+                        Some(name) if model::forms_format::checkbox_checked(values, name) => {
+                            format!(" {}", segment.text.clone().unwrap_or_default())
+                        }
+                        _ => String::new(),
+                    },
                     _ => segment.text.clone().unwrap_or_default(),
                 })
                 .collect::<String>()
