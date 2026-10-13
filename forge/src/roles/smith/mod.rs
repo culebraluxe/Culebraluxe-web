@@ -2,10 +2,13 @@
 //!
 //! This service owns Smith's intelligence: the candidate a turn produced becomes the run's candidate, the
 //! patch is captured as code (so the deliverable outlives the git objects), and a turn the harness REFUSED
-//! still gets its work written down. The execution lifecycle it runs under is inherited from
-//! [`crate::roles::service::AbstractForgeService`], not copied here — see `roles::lifecycle`.
+//! still gets its work written down. A candidate whose own work does not compile is refused before it can be
+//! frozen, with the compiler's own words as Smith's feedback (see `pre_freeze_rejection`). The execution
+//! lifecycle it runs under is inherited from [`crate::roles::service::AbstractForgeService`], not copied here
+//! — see `roles::lifecycle`.
 
-use crate::engine::assay::is_rust_contract_production_path;
+use crate::engine::assay::{is_rust_contract_production_path, CommandResult};
+use crate::engine::diagnostics;
 use crate::engine::facts::ForgeGateEvidence;
 use crate::engine::role_mapping::LaneId;
 use crate::engine::runner::ForgeRoleRunner;
@@ -91,19 +94,136 @@ pub fn judge_delivered_candidate_in_surface(
     let Some(probe) = harness.candidate_probe() else {
         return;
     };
-    let rejection = candidate_rejection_in_surface(
-        node_id,
-        out.execution_base.as_deref(),
-        out.candidate_sha.as_deref(),
-        probe,
-        surface,
-    );
+    // Cloned before the judgement borrows them: the refusal below mutates `out`, and the two readings the judgement
+    // is made against must be the ones the turn reported, not whatever that mutation left behind.
+    let base = out.execution_base.clone();
+    let after = out.candidate_sha.clone();
+    let rejection =
+        candidate_rejection_in_surface(node_id, base.as_deref(), after.as_deref(), probe, surface)
+            // The structural rules FIRST, and the diagnostics only for a candidate that already satisfies them: a
+            // candidate with uncommitted work or an out-of-surface change is refused for that, and compiling it would
+            // spend the same minutes to say something weaker than the reason already in hand.
+            .or_else(|| {
+                pre_freeze_rejection(harness, node_id, base.as_deref(), after.as_deref(), probe)
+            });
     if let Some(reason) = rejection.as_deref() {
         out.candidate_sha = None;
         out.raw.push_str("\nSMITH_CANDIDATE_REJECTED: ");
         out.raw.push_str(reason);
     }
     out.refusal = rejection;
+}
+
+/// Smith's refusal of a candidate, worded once.
+///
+/// Every refusal a code-delivering node makes opens with the same sentence, so a reader — and the tests that check
+/// each reason is named — can tell a refused candidate from any other note in a reply, and a new refusal cannot
+/// quietly acquire a second wording.
+fn refusal(node_id: &str, why: impl std::fmt::Display) -> String {
+    format!("Smith candidate refused for {node_id}: {why}")
+}
+
+/// C5 — THE CANDIDATE'S OWN WORK MUST COMPILE BEFORE IT IS FROZEN.
+///
+/// The paths the candidate changed are planned into scope-aware `cargo check`s ([`crate::engine::diagnostics`]) and
+/// run through the SAME execution path a turn's commands run through — the harness — so the ceiling, the permission
+/// rules and the per-worktree target directory apply as they do everywhere else. A check that fails refuses the
+/// candidate in the same channel as every other refusal (cleared, named, appended to the reply), which is what makes
+/// the NEXT attempt's self-heal directive carry the compiler's own words instead of a summary of them. The
+/// diagnostics are Smith's feedback and nothing else: no QA result is marked here, and no test is run.
+///
+/// WHY ONLY A DECLARED WORKTREE. Compiling is meaningful only inside the candidate's own checkout, so the worktree
+/// the harness declared names the manifest to read and is where the checks run. A harness that declares no workspace
+/// — every double, and a run with no worktree — is never asked to build anything. That is also what keeps the
+/// judgement of a fabricated repository (`candidate_judgement_tests`) a judgement of facts alone.
+///
+/// WHY AN UNREADABLE WORKSPACE IS NOT A REFUSAL. The plan needs the workspace's own crate list, read from the
+/// manifests through cargo. A workspace that cannot be read yields no plan, and no plan yields no verdict: failing to
+/// ASK a question must never be recorded as the candidate failing it. The skip is logged rather than silent, so a
+/// feature that stopped running is visible instead of looking like a run with nothing to check.
+fn pre_freeze_rejection(
+    harness: &dyn RoleHarness,
+    node_id: &str,
+    base: Option<&str>,
+    after: Option<&str>,
+    probe: &dyn CandidateProbe,
+) -> Option<String> {
+    let worktree = &harness.execution_workspace()?.worktree_path;
+    let (base, after) = (base?, after?);
+    let range = format!("{base}..{after}");
+    // The candidate's own file list, read the same way the structural rule above read it. Without it there is no
+    // scope, and a check of the whole workspace is not something to guess into.
+    let changed = probe.git(&["diff", "--name-only", "--no-renames", &range])?;
+    let changed: Vec<&str> = changed
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    if changed.is_empty() {
+        return None;
+    }
+    // Nothing that compiles changed (docs, data, an image): no diagnostic is owed, and reading a manifest to discover
+    // that would be a process spent learning there is nothing to do.
+    if !diagnostics::any_path_compiles(&changed) {
+        return None;
+    }
+    let manifest = format!("{}/Cargo.toml", worktree.trim_end_matches('/'));
+    let listing = harness.run_command(&diagnostics::command_text(
+        &diagnostics::workspace_crates_command(&manifest),
+    ));
+    let Some(crates) = diagnostics::workspace_crates_from_metadata(&listing.output) else {
+        tracing::warn!(
+            node = %node_id,
+            worktree = %worktree,
+            "pre-freeze diagnostics not planned: the workspace's crates could not be read"
+        );
+        return None;
+    };
+    let plan = diagnostics::plan(&changed, &crates);
+    let mut results: Vec<(String, bool)> = Vec::with_capacity(plan.commands.len());
+    let mut first_failure_excerpt = None;
+    for args in &plan.commands {
+        let command = diagnostics::command_text(args);
+        let result = harness.run_command(&command);
+        if !result.passed && first_failure_excerpt.is_none() {
+            first_failure_excerpt = Some(one_line_excerpt(&result));
+        }
+        results.push((command, result.passed));
+    }
+    let outcome = diagnostics::interpret(&results);
+    let readiness = diagnostics::pre_freeze_readiness(&plan, Some(&outcome));
+    if readiness.ready {
+        return None;
+    }
+    let mut why = readiness
+        .reason
+        .unwrap_or_else(|| "pre-freeze diagnostics are not ready".to_string());
+    if let Some(excerpt) = first_failure_excerpt.filter(|excerpt| !excerpt.is_empty()) {
+        why.push_str(" — ");
+        why.push_str(&excerpt);
+    }
+    Some(refusal(node_id, why))
+}
+
+/// A failed command's own words as ONE bounded line.
+///
+/// The reason this reads joins a reply, where the refusal marker is a line: a compiler error pasted in whole would
+/// bury it. stderr is preferred, because that is where a compiler writes, and `output` is the fallback for a command
+/// that failed on stdout; both are bounded, so a noisy build cannot inflate a refusal into a transcript.
+fn one_line_excerpt(result: &CommandResult) -> String {
+    let source = if result.excerpt.trim().is_empty() {
+        result.output.as_str()
+    } else {
+        result.excerpt.as_str()
+    };
+    let joined = source
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(6)
+        .collect::<Vec<_>>()
+        .join(" | ");
+    joined.chars().take(400).collect()
 }
 
 /// Why `after` is not an acceptable candidate on `base`, or `None` when it is: a new, full commit that descends from
@@ -116,7 +236,7 @@ fn candidate_rejection_in_surface(
     probe: &dyn CandidateProbe,
     surface: Option<&[String]>,
 ) -> Option<String> {
-    let refuse = |why: String| Some(format!("Smith candidate refused for {node_id}: {why}"));
+    let refuse = |why: String| Some(refusal(node_id, why));
     let Some(base) = base else {
         return refuse("execution base is unreadable".into());
     };
@@ -526,3 +646,6 @@ mod tests;
 
 #[cfg(test)]
 mod candidate_judgement_tests;
+
+#[cfg(test)]
+mod pre_freeze_diagnostics_tests;

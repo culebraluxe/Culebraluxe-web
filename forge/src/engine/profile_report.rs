@@ -134,8 +134,9 @@ fn dimension(value: Option<&str>) -> &str {
 
 fn header() -> String {
     format!(
-        "{:<width$} {:>6} {:>9} {:>7} {:>9} {:>14} {:>14} {:>14} {:>11}",
+        "{:<width$} {:>8} {:>6} {:>9} {:>7} {:>9} {:>14} {:>14} {:>14} {:>11}",
         "profile",
+        "revision",
         "turns",
         "accepted",
         "accept",
@@ -148,11 +149,14 @@ fn header() -> String {
     )
 }
 
-/// One profile's own line: what all of its turns did, priced only over the turns that were priced.
+/// One population's own line: what all of one profile's revision's turns did, priced only over the turns that were
+/// priced. The revision is printed because it is part of what the line is about: two revisions of one id are two
+/// lines, and without it they would be indistinguishable.
 fn row(comparison: &ProfileComparison) -> String {
     format!(
-        "{:<width$} {:>6} {:>9} {:>7} {:>9} {:>14} {:>14} {:>14} {:>11}",
+        "{:<width$} {:>8} {:>6} {:>9} {:>7} {:>9} {:>14} {:>14} {:>14} {:>11}",
         comparison.profile_id,
+        revision(comparison.profile_version),
         comparison.turns,
         comparison.accepted,
         percent(comparison.acceptance_rate),
@@ -264,6 +268,9 @@ mod tests {
     ) -> ProfileComparison {
         ProfileComparison {
             profile_id: "smith-structured-v1".to_string(),
+            // A revision the store read, so the spend markers these tests are about are the only `unknown` in the
+            // rendering — the unrecorded revision has its own test below.
+            profile_version: Some(1),
             turns: 2,
             accepted: 1,
             acceptance_rate: 0.5,
@@ -425,6 +432,50 @@ mod tests {
         assert!(
             rendered.contains("smith-structured-v2 | unknown | opencode"),
             "an unrecorded revision renders as unknown: {rendered}"
+        );
+    }
+
+    #[test]
+    fn two_revisions_of_one_profile_render_as_two_distinguishable_lines() {
+        // The comparison table's own version of the rule: two populations of one id are two lines that say WHICH
+        // revision they measure. Without the column they would be two identical labels over two different prices.
+        let first_revision = comparison(0, 0.25, Some(0.25));
+        let mut second_revision = comparison(0, 0.5, Some(0.5));
+        second_revision.profile_version = Some(2);
+
+        let rendered = render(&[first_revision, second_revision], &[]);
+
+        let revisions: Vec<&str> = rendered
+            .lines()
+            .filter(|line| line.starts_with("smith-structured-v1"))
+            .map(|line| line.split_whitespace().nth(1).unwrap_or_default())
+            .collect();
+        assert_eq!(
+            revisions,
+            vec!["1", "2"],
+            "each line names the revision it measures: {rendered}"
+        );
+    }
+
+    #[test]
+    fn a_profile_whose_revision_was_never_recorded_renders_unknown_in_the_comparison() {
+        let mut unversioned = comparison(0, 0.25, Some(0.25));
+        unversioned.profile_version = None;
+
+        let rendered = render(&[unversioned], &[]);
+
+        let line = rendered
+            .lines()
+            .find(|line| line.starts_with("smith-structured-v1"))
+            .expect("the profile has a line");
+        assert_eq!(
+            line.split_whitespace().nth(1),
+            Some("unknown"),
+            "a revision the store never read is reported as unknown, never read out of the name: {rendered}"
+        );
+        assert!(
+            rendered.contains("revision"),
+            "the column is named in the header: {rendered}"
         );
     }
 }

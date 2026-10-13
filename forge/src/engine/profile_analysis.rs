@@ -239,10 +239,16 @@ pub struct TurnTiming {
     pub mean_verification_after_last_edit: Option<f64>,
 }
 
-/// The comparison row for one profile, over its turns.
+/// The comparison row for one population: one profile AT ONE REVISION, over its turns.
+///
+/// The revision is part of the row's identity and not a dimension of it — the same collapse the segment key exists
+/// to prevent, applied to the comparison table. Two revisions of one profile are two rows, and a row whose revision
+/// was never recorded is a third: `None` means the store read no version, and it is never `Some(1)` and never read
+/// back out of the profile's name.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProfileComparison {
     pub profile_id: String,
+    pub profile_version: Option<i32>,
     pub turns: usize,
     pub accepted: usize,
     /// Accepted over turns, in [0, 1]. Zero when there are no turns.
@@ -266,21 +272,33 @@ pub struct ProfileComparison {
     pub repair_turns: TurnTiming,
 }
 
-/// Compare profiles from their turns. Rows come back sorted by profile id, so the same records always give the same table.
+/// Compare profiles from their turns. Rows come back sorted by profile id and then by revision, so the same records
+/// always give the same table.
+///
+/// A population is one profile AT ONE REVISION, exactly as a segment is: the same id recorded under two revisions is
+/// two rows, and a turn whose revision was never recorded is a row of its own that sorts before any numbered
+/// revision. Merging them would average measurements taken under one configuration into the configuration it is
+/// compared against, which is the whole thing the comparison is for.
 pub fn compare(records: &[TurnRecord]) -> Vec<ProfileComparison> {
-    let mut profiles: Vec<&str> = records.iter().map(|r| r.profile_id.as_str()).collect();
-    profiles.sort_unstable();
-    profiles.dedup();
-    profiles
+    let mut populations: Vec<(&str, Option<i32>)> = records
+        .iter()
+        .map(|r| (r.profile_id.as_str(), r.profile_version))
+        .collect();
+    populations.sort_unstable_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
+    populations.dedup();
+    populations
         .into_iter()
-        .map(|profile| {
-            let rows: Vec<&TurnRecord> =
-                records.iter().filter(|r| r.profile_id == profile).collect();
+        .map(|(profile, version)| {
+            let rows: Vec<&TurnRecord> = records
+                .iter()
+                .filter(|r| r.profile_id == profile && r.profile_version == version)
+                .collect();
             let accepted = rows.iter().filter(|r| r.accepted).count();
             let total_cost_usd: f64 = rows.iter().filter_map(|r| r.cost_usd).sum();
             let all = timing(rows.iter().copied());
             ProfileComparison {
                 profile_id: profile.to_string(),
+                profile_version: version,
                 turns: rows.len(),
                 accepted,
                 acceptance_rate: rate(accepted, rows.len()),
@@ -755,5 +773,40 @@ mod tests {
         assert!(segments
             .iter()
             .all(|segment| segment.key.profile_id == "smith-structured"));
+    }
+
+    #[test]
+    fn comparing_keeps_two_revisions_of_one_profile_apart() {
+        // The same rule, one table over. The comparison's population is one profile AT ONE REVISION, so a v1 turn's
+        // spend is never presented as what the v2 profile costs, and a row that recorded no revision is a third
+        // population that belongs to neither. Distinct costs, so a merge would be visible as a sum.
+        let mut first_revision = first("smith-structured", Some(1.0), true, Some(100));
+        first_revision.profile_version = Some(1);
+        let mut second_revision = first_revision.clone();
+        second_revision.profile_version = Some(2);
+        second_revision.cost_usd = Some(2.0);
+        let mut unversioned = first_revision.clone();
+        unversioned.profile_version = None;
+        unversioned.cost_usd = Some(3.0);
+
+        let rows = compare(&[second_revision, unversioned, first_revision]);
+
+        assert_eq!(rows.len(), 3, "each revision is its own population");
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.profile_version)
+                .collect::<Vec<_>>(),
+            vec![None, Some(1), Some(2)],
+            "the absent revision sorts first and stays distinct from every recorded one"
+        );
+        assert!(rows.iter().all(|row| row.turns == 1));
+        assert!(rows.iter().all(|row| row.profile_id == "smith-structured"));
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.total_cost_usd)
+                .collect::<Vec<_>>(),
+            vec![3.0, 1.0, 2.0],
+            "each population states its own turn's spend and never a sum across revisions"
+        );
     }
 }
