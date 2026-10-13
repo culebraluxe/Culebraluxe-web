@@ -937,6 +937,13 @@ where
             }
 
             let internal = internal_context(context);
+            // The sender gets a hidden copy of every invitation, so their own mailboxes keep the record.
+            let sender_copy = sender_copies(
+                self.repository
+                    .operator_email_tx(tx, &request.signature_request_id)
+                    .await?,
+                self.email.sender_address(),
+            );
             let mut invitation_message_ids = Vec::with_capacity(recipients.len());
             for recipient in &recipients {
                 let grant = self
@@ -960,6 +967,7 @@ where
                                 "recipientName": recipient.name,
                                 "signingUrl": grant.signing_url,
                                 "subject": config.subject,
+                                "bcc": sender_copy,
                             }),
                             dedupe_key: format!(
                                 "signature-invite:{}:{}:v{}",
@@ -1218,6 +1226,12 @@ where
             .lock_config_tx(tx, signature_request_id)
             .await?
             .and_then(|config| config.subject);
+        let sender_copy = sender_copies(
+            self.repository
+                .operator_email_tx(tx, signature_request_id)
+                .await?,
+            self.email.sender_address(),
+        );
         let queued = self
             .email
             .queue_transactional(
@@ -1230,6 +1244,7 @@ where
                         "recipientName": recipient.name,
                         "signingUrl": signing_url,
                         "subject": subject,
+                        "bcc": sender_copy,
                     }),
                     // The `signature-reminder:{request}:{recipient}:` prefix is what `reminders_due_tx` counts.
                     dedupe_key: format!(
@@ -1371,6 +1386,12 @@ where
                     "signature-resend",
                 )
             };
+            let sender_copy = sender_copies(
+                self.repository
+                    .operator_email_tx(tx, signature_request_id)
+                    .await?,
+                self.email.sender_address(),
+            );
             let queued = self
                 .email
                 .queue_transactional(
@@ -1383,6 +1404,7 @@ where
                             "recipientName": recipient.name,
                             "signingUrl": signing_url,
                             "subject": config.subject,
+                            "bcc": sender_copy,
                         }),
                         dedupe_key: format!(
                             "{dedupe_kind}:{signature_request_id}:{recipient_id}:{}",
@@ -2127,6 +2149,18 @@ enum OutcomeNotice<'a> {
 }
 
 /// Trim, lower-case and de-duplicate the copy list, refusing anything that is not an email address.
+/// The addresses that get a hidden copy of a signer's email: the envelope's creator and the address mail is sent as.
+/// Each address appears once, whatever its case.
+fn sender_copies(operator: Option<String>, sender: Option<String>) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    operator
+        .into_iter()
+        .chain(sender)
+        .map(|address| address.trim().to_owned())
+        .filter(|address| !address.is_empty() && seen.insert(address.to_lowercase()))
+        .collect()
+}
+
 fn clean_copy_to(values: &[String]) -> Result<Vec<String>, CoreServiceError> {
     let mut out: Vec<String> = Vec::new();
     for value in values {

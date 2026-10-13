@@ -216,6 +216,7 @@ pub fn team_notice(lead: &WebsiteLead, settings: &LeadMailSettings) -> OutgoingM
         text,
         html: None,
         reply_to: Some(lead.email.clone()),
+        bcc: Vec::new(),
         attachments: Vec::new(),
     }
 }
@@ -253,6 +254,7 @@ pub fn visitor_confirmation(lead: &WebsiteLead, settings: &LeadMailSettings) -> 
         text,
         html: None,
         reply_to: Some(settings.team_address.clone()),
+        bcc: Vec::new(),
         attachments: Vec::new(),
     }
 }

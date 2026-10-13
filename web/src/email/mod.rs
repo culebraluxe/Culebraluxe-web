@@ -60,12 +60,21 @@ impl EmailRepository for EmailDao {
 #[async_trait]
 pub trait EmailTransport: Send + Sync {
     async fn send(&self, mail: OutgoingMail) -> Result<(), MailError>;
+
+    /// The address this transport sends as, when it has one. Senders use it to keep a copy in that mailbox.
+    fn sender_address(&self) -> Option<String> {
+        None
+    }
 }
 
 #[async_trait]
 impl EmailTransport for SmtpMailer {
     async fn send(&self, mail: OutgoingMail) -> Result<(), MailError> {
         SmtpMailer::send(self, &mail).await
+    }
+
+    fn sender_address(&self) -> Option<String> {
+        Some(self.config().from_address.clone())
     }
 }
 
@@ -105,6 +114,13 @@ impl<R: EmailRepository> EmailService<R> {
     pub fn with_attachment_source(mut self, source: Arc<dyn EmailAttachmentSource>) -> Self {
         self.attachments = Some(source);
         self
+    }
+
+    /// The address mail is sent as, if the transport is configured.
+    pub fn sender_address(&self) -> Option<String> {
+        self.transport
+            .as_ref()
+            .and_then(|transport| transport.sender_address())
     }
 
     pub async fn get(
@@ -469,6 +485,22 @@ fn render_email(message: &EmailMessage) -> Result<OutgoingMail, CoreServiceError
         text,
         html,
         reply_to: None,
+        // A signer's invitation, reminder or resend lists the sender's own addresses here (see `luxesign`), so their
+        // mailboxes keep a copy of what was sent.
+        bcc: message
+            .template_payload
+            .get("bcc")
+            .and_then(serde_json::Value::as_array)
+            .map(|addresses| {
+                addresses
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|address| !address.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default(),
 
         attachments: Vec::new(),
     })
