@@ -171,7 +171,13 @@ fn pre_freeze_rejection(
     let listing = harness.run_command(&diagnostics::command_text(
         &diagnostics::workspace_crates_command(&manifest),
     ));
-    let Some(crates) = diagnostics::workspace_crates_from_metadata(&listing.output) else {
+    // The exit status is read, not just the output: a command that failed stated no crate list, whatever it happened
+    // to leave on stdout.
+    let crates = listing
+        .passed
+        .then(|| diagnostics::workspace_crates_from_metadata(&listing.output))
+        .flatten();
+    let Some(crates) = crates else {
         tracing::warn!(
             node = %node_id,
             worktree = %worktree,

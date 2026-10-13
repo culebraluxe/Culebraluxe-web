@@ -30,6 +30,8 @@ struct Worktree {
     changed: Option<&'static str>,
     /// Cargo's answer for the crate list; `None` is a workspace cargo cannot read.
     crates: Option<String>,
+    /// Whether the read of that list reported failure, whatever it left on stdout.
+    metadata_fails: bool,
     /// Whether the tree is dirty, so a structural refusal can be proved to precede any compile.
     dirty: bool,
     /// What each planned command answers; a command with no answer fails the way a compiler fails.
@@ -50,6 +52,7 @@ impl Worktree {
             }),
             changed: Some(changed),
             crates: Some(workspace_json()),
+            metadata_fails: false,
             dirty: false,
             answers: Vec::new(),
             ran: Mutex::new(Vec::new()),
@@ -74,6 +77,12 @@ impl Worktree {
 
     fn without_workspace(mut self) -> Self {
         self.crates = None;
+        self
+    }
+
+    /// A workspace whose read FAILED while still writing a document to stdout.
+    fn failed_read_of_a_readable_workspace(mut self) -> Self {
+        self.metadata_fails = true;
         self
     }
 
@@ -154,6 +163,16 @@ impl RoleHarness for Worktree {
             .expect("the command log")
             .push(command.into());
         if command == METADATA {
+            if self.metadata_fails {
+                // A failed read that still wrote a parseable document: the exit status is the answer, and a caller
+                // that read only stdout would plan checks out of a command that said it failed.
+                return self.result(
+                    command,
+                    false,
+                    "error: failed to parse manifest",
+                    &workspace_json(),
+                );
+            }
             return match self.crates.as_deref() {
                 Some(json) => self.result(command, true, "", json),
                 None => self.result(
@@ -345,5 +364,21 @@ fn an_unreadable_workspace_is_not_a_verdict() {
         worktree.ran(),
         vec![METADATA.to_string()],
         "the crate list was read, and no check could be planned from it"
+    );
+}
+
+#[test]
+fn a_failed_read_of_the_crate_list_is_not_read_as_a_crate_list() {
+    // The read failed and still wrote a document. The exit status is the answer: planning checks from stdout alone
+    // would run a candidate's compile off a command that said it could not read the workspace at all.
+    let worktree = Worktree::candidate("app/src/lib.rs").failed_read_of_a_readable_workspace();
+    let out = judge(&worktree);
+
+    assert_eq!(out.candidate_sha.as_deref(), Some(AFTER));
+    assert_eq!(out.refusal, None);
+    assert_eq!(
+        worktree.ran(),
+        vec![METADATA.to_string()],
+        "nothing was planned out of a failed read"
     );
 }
