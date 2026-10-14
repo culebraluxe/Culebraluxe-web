@@ -259,6 +259,33 @@ jobs:
           NODE
           node /tmp/triage-gate.mjs
 
+      # THE CAGE ON THE CHAOS MONKEY (added 2026-10-14).
+      #
+      # Every `tests/tests/chaos_*.rs` proof needs a DEV database, a fresh worker id and a real clock, and its
+      # verdict is a coin toss on a loaded runner. None of them may run by default: they are `#[ignore]`d, and
+      # `.github/workflows/chaos-soak.yml` is the only place they are let out. That arrangement is true only
+      # while the attributes are there, so this step fails the build the moment one goes missing — a soak proof
+      # that runs in the default `cargo test` is a chaos monkey loose in the gates, and it would redden PRs at
+      # random, which is exactly how a green board stops meaning anything.
+      #
+      # It reads NO database and needs no secret: it is a check on the tests directory.
+      - name: the chaos monkey stays caged (every chaos proof is #[ignore]d)
+        run: |
+          fail=0
+          for file in tests/tests/chaos_*.rs; do
+            tests="$(grep -c '#\[tokio::test\]' "$file")"
+            ignored="$(grep -c '#\[ignore' "$file")"
+            if [ "$tests" != "$ignored" ]; then
+              echo "::error file=$file::$tests test function(s) but $ignored #[ignore] attribute(s) — a soak proof must never run by default"
+              fail=1
+            fi
+          done
+          if [ "$fail" = "0" ]; then
+            echo "chaos: every proof is #[ignore]d ($(ls tests/tests/chaos_*.rs | wc -l) files), so no default run can start the monkey"
+          fi
+          exit "$fail"
+
+
   # ---------------------------------------------------------------------------
   # THE DEPLOY IS THE PROTECTED BOUNDARY (ENG-FORGE-CI-PRODUCTION-FENCE-01).
   #

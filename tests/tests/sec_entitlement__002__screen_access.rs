@@ -291,8 +291,10 @@ fn sec_entitlement_002__screen_access() {
         .map(|(_, entitlement)| entitlement.clone())
         .filter(|code| !code.is_empty())
         .collect();
-    let pinned_entitlements: BTreeSet<String> =
-        SCREEN_ENTITLEMENTS.iter().map(|code| code.to_string()).collect();
+    let pinned_entitlements: BTreeSet<String> = SCREEN_ENTITLEMENTS
+        .iter()
+        .map(|code| code.to_string())
+        .collect();
     assert_eq!(
         asked_entitlements, pinned_entitlements,
         "the entitlements the screens gate on changed; pin the new one deliberately or remove it"
@@ -309,8 +311,10 @@ fn sec_entitlement_002__screen_access() {
         .filter(|code| !catalog.contains_key(*code))
         .cloned()
         .collect();
-    let gate_debt: BTreeSet<String> =
-        GATES_WITHOUT_AN_ACTION.iter().map(|code| code.to_string()).collect();
+    let gate_debt: BTreeSet<String> = GATES_WITHOUT_AN_ACTION
+        .iter()
+        .map(|code| code.to_string())
+        .collect();
     assert_eq!(
         uncatalogued, gate_debt,
         "the entitlement gates that name no catalogued action changed: {} now uncatalogued, {} recorded. \
@@ -326,8 +330,10 @@ fn sec_entitlement_002__screen_access() {
         .map(|(authority, _)| authority.clone())
         .filter(|code| !code.is_empty())
         .collect();
-    let pinned_authorities: BTreeSet<String> =
-        SCREEN_AUTHORITIES.iter().map(|code| code.to_string()).collect();
+    let pinned_authorities: BTreeSet<String> = SCREEN_AUTHORITIES
+        .iter()
+        .map(|code| code.to_string())
+        .collect();
     assert_eq!(
         asked_authorities, pinned_authorities,
         "the authorities the screens gate on changed; pin the new one deliberately or remove it"

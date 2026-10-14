@@ -227,12 +227,25 @@ fn wf_trace_007__job_claimed() {
         "{HARNESS}: the process waits on the job it dispatched"
     );
     let parked = open_jobs(&harness, &instance);
-    assert_eq!(parked.len(), 1, "{HARNESS}: the dispatch parked exactly one job");
+    assert_eq!(
+        parked.len(),
+        1,
+        "{HARNESS}: the dispatch parked exactly one job"
+    );
     let job = parked[0].clone();
     assert_eq!(job.status, JobStatus::Pending);
-    assert_eq!(job.job_type, "timer", "{HARNESS}: the executor type is named on the row");
-    assert_eq!(job.attempts, 0, "{HARNESS}: a freshly dispatched job has no attempts");
-    assert_eq!(job.locked_by, None, "{HARNESS}: a freshly dispatched job has no lease");
+    assert_eq!(
+        job.job_type, "timer",
+        "{HARNESS}: the executor type is named on the row"
+    );
+    assert_eq!(
+        job.attempts, 0,
+        "{HARNESS}: a freshly dispatched job has no attempts"
+    );
+    assert_eq!(
+        job.locked_by, None,
+        "{HARNESS}: a freshly dispatched job has no lease"
+    );
     assert_eq!(
         job.process_instance_id.as_deref(),
         Some(instance.as_str()),
@@ -286,7 +299,10 @@ fn wf_trace_007__job_claimed() {
         "{HARNESS}: the sweep hands the due job to the one worker"
     );
     let lease = claimed[0].clone();
-    assert_eq!(lease.id, job.id, "{HARNESS}: the claim takes the parked job");
+    assert_eq!(
+        lease.id, job.id,
+        "{HARNESS}: the claim takes the parked job"
+    );
     assert_eq!(lease.status, JobStatus::Locked);
     assert_eq!(lease.locked_by.as_deref(), Some(WORKER));
     assert_eq!(lease.attempts, 1, "{HARNESS}: one claim is one attempt");
@@ -297,10 +313,17 @@ fn wf_trace_007__job_claimed() {
     );
     // The row, not the returned copy, is what a second worker would read.
     let row = job_row(&harness, &job.id);
-    assert_eq!(row.status, JobStatus::Locked, "{HARNESS}: the claim is durable");
+    assert_eq!(
+        row.status,
+        JobStatus::Locked,
+        "{HARNESS}: the claim is durable"
+    );
     assert_eq!(row.locked_by.as_deref(), Some(WORKER));
     assert_eq!(row.attempts, 1);
-    assert_eq!(row.updated_at, START_AT, "{HARNESS}: the claim is stamped with the claim instant");
+    assert_eq!(
+        row.updated_at, START_AT,
+        "{HARNESS}: the claim is stamped with the claim instant"
+    );
 
     // 5. The claim is on the durable trace, against the process instance.
     let claims = events_of_type(&harness, &instance, "job.claimed");
@@ -356,7 +379,10 @@ fn wf_trace_007__job_claimed() {
         Some(WORKER),
         "{HARNESS}: the second worker did not displace the lease"
     );
-    assert_eq!(unchanged.attempts, 1, "{HARNESS}: a refused claim is not an attempt");
+    assert_eq!(
+        unchanged.attempts, 1,
+        "{HARNESS}: a refused claim is not an attempt"
+    );
     assert_eq!(
         events_of_type(&harness, &instance, "job.claimed").len(),
         1,

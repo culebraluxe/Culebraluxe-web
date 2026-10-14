@@ -83,15 +83,25 @@ async fn chaos_forge_009__process_crash_before_queue_settlement_converges_after_
     let claimed = generation
         .claim_specific_agent_work(&work_item_id, &worker_id)
         .await
-        .expect("claim answers");
-    assert!(claimed.is_some());
+        .expect("claim answers")
+        .expect("DEV must hold a claimable work item");
+    // The settlement is FENCED (migration 278): `forge_finish_agent_work_run` writes only for the execution that
+    // holds the claim, so the owner and the generation the claim granted travel with every call. They are read off
+    // the row the claim returned, never invented here.
+    let claim_owner = claimed
+        .claimed_by
+        .clone()
+        .unwrap_or_else(|| worker_id.clone());
+    let claim_generation = claimed.claim_generation;
 
     // Generation one: settlement is initiated via forge_finish_agent_work_run, but the
     // process dies before the settlement is committed (simulated by rolling back).
     {
         let mut tx = db.begin("chaos-settlement").await.expect("begin");
-        sqlx::query("select forge_finish_agent_work_run($1::uuid, 'Done', null)")
+        sqlx::query("select forge_finish_agent_work_run($1::uuid, 'Done', null, $2, $3::bigint)")
             .bind(&work_item_id)
+            .bind(&claim_owner)
+            .bind(claim_generation)
             .execute(tx.connection())
             .await
             .expect("record settlement");
@@ -118,8 +128,10 @@ async fn chaos_forge_009__process_crash_before_queue_settlement_converges_after_
     .expect("set story to Complete");
 
     // Generation two restarts: the settlement is gone, so it is re-recorded.
-    sqlx::query("select forge_finish_agent_work_run($1::uuid, 'Done', null)")
+    sqlx::query("select forge_finish_agent_work_run($1::uuid, 'Done', null, $2, $3::bigint)")
         .bind(&work_item_id)
+        .bind(&claim_owner)
+        .bind(claim_generation)
         .execute(db.pool())
         .await
         .expect("record recovery settlement");
@@ -135,8 +147,10 @@ async fn chaos_forge_009__process_crash_before_queue_settlement_converges_after_
     );
 
     // The work item is now Done - a further settlement attempt would be a no-op.
-    sqlx::query("select forge_finish_agent_work_run($1::uuid, 'Error', 'test')")
+    sqlx::query("select forge_finish_agent_work_run($1::uuid, 'Error', 'test', $2, $3::bigint)")
         .bind(&work_item_id)
+        .bind(&claim_owner)
+        .bind(claim_generation)
         .execute(db.pool())
         .await
         .expect("attempt second settlement");

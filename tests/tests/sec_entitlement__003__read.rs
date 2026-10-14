@@ -273,7 +273,10 @@ fn sec_entitlement_003__read() {
         .map(|(_, entitlement)| entitlement)
         .filter(|code| !code.is_empty())
         .collect();
-    let reads: Vec<&String> = gates.iter().filter(|code| code.ends_with(".read")).collect();
+    let reads: Vec<&String> = gates
+        .iter()
+        .filter(|code| code.ends_with(".read"))
+        .collect();
     assert!(
         reads.len() >= 10,
         "the registry's read gates must be read; {} found",

@@ -14,7 +14,7 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test chaos_forge__003__process_crash_after_task_claim_converges_after_restart_to_one_legal_durable_forge_state -- --ignored
 
-use db::{Database, DbTarget, ForgeEngineDao};
+use db::{Database, DbTarget, ForgeControlDao, ForgeEngineDao};
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -134,11 +134,12 @@ async fn chaos_forge_003__process_crash_after_task_claim_converges_after_restart
     .await
     .expect("age the claim past the stale window");
 
-    // Recovery sweep: the stale claim is requeued back to Ready.
-    sqlx::query("select forge_requeue_stale_work($1::uuid, $2)")
-        .bind(&work_item_id)
-        .bind(&story_id)
-        .execute(db.pool())
+    // Recovery sweep: the stale claim is requeued back to Ready. `requeue_stale_work` reads the board first
+    // (`forge_settlement_pair`'s rule pointing the other way, migration 263) and delegates to the fenced
+    // `forge_recover_stale_work` (migrations 279/287) — the raw `forge_requeue_stale_work` this test used to
+    // call was dropped with the un-fenced generation, so calling it by name was calling a function that is gone.
+    ForgeControlDao::new(db.clone())
+        .requeue_stale_work(&work_item_id, &story_id)
         .await
         .expect("requeue stale work");
 

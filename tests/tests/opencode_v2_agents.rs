@@ -254,7 +254,9 @@ fn v2_read_only_roles_cannot_write_the_workspace() {
             // one key. Counting keys read an implementation detail as the control, and it read a strictly MORE
             // restrictive rendering as a violation of it. No allow is the control.
             assert!(
-                bash_rules.values().all(|verb| verb.as_str() == Some("deny")),
+                bash_rules
+                    .values()
+                    .all(|verb| verb.as_str() == Some("deny")),
                 "{read_only} grants no bash prefixes, got: {bash_rules:?}"
             );
             assert!(

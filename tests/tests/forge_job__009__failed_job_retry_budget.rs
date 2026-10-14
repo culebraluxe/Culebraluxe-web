@@ -122,6 +122,7 @@ fn a_permanent_failure_and_a_role_error_both_terminalize_at_once() {
     let lease = service.claim_one(&id, WORKER_A).expect("claim");
     let moved_on = ActiveForgeRoleTask {
         status: workflow::TaskStatus::Completed,
+        write_surface: None,
         ..t.clone()
     };
     assert!(execute_claimed_job(&service, WORKER_A, &lease, &moved_on, &registry).is_err());

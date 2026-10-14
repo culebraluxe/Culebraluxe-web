@@ -118,6 +118,7 @@ fn a_lease_that_no_longer_matches_its_workflow_task_runs_nothing() {
             "task",
             ActiveForgeRoleTask {
                 task_id: "t-other".into(),
+                write_surface: None,
                 ..base.clone()
             },
         ),
@@ -125,6 +126,7 @@ fn a_lease_that_no_longer_matches_its_workflow_task_runs_nothing() {
             "process",
             ActiveForgeRoleTask {
                 process_instance_id: "p-other".into(),
+                write_surface: None,
                 ..base.clone()
             },
         ),
@@ -132,6 +134,7 @@ fn a_lease_that_no_longer_matches_its_workflow_task_runs_nothing() {
             "story",
             ActiveForgeRoleTask {
                 story_id: "S-OTHER".into(),
+                write_surface: None,
                 ..base.clone()
             },
         ),
@@ -139,6 +142,7 @@ fn a_lease_that_no_longer_matches_its_workflow_task_runs_nothing() {
             "token",
             ActiveForgeRoleTask {
                 token_id: Some("k-other".into()),
+                write_surface: None,
                 ..base.clone()
             },
         ),
@@ -146,6 +150,7 @@ fn a_lease_that_no_longer_matches_its_workflow_task_runs_nothing() {
             "node",
             ActiveForgeRoleTask {
                 node_id: Some("smith".into()),
+                write_surface: None,
                 ..base.clone()
             },
         ),

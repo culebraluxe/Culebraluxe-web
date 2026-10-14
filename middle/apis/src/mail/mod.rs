@@ -396,7 +396,10 @@ mod tests {
             text: "Hello".into(),
             html: None,
             reply_to: None,
-            bcc: vec!["culebraluxe@gmail.com".into(), "lisa@culebraluxe.com".into()],
+            bcc: vec![
+                "culebraluxe@gmail.com".into(),
+                "lisa@culebraluxe.com".into(),
+            ],
             attachments: Vec::new(),
         };
         let message = build_message(&config, &mail).unwrap();

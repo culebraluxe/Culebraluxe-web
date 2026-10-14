@@ -6,7 +6,8 @@
 //!
 //! - Redirect policy delegates to `web::api::google_auth`.
 //! - Identity resolution runs the real `web::security::SecurityService`.
-//! - Entitlement decisions run the real production Casbin port through `SecurityService::decide`.
+//! - Entitlement decisions run the real production Casbin port through `SecurityService::decide`, or — for a
+//!   decision-only test with no harness state — through the free [`decide`] helper, which asks the same port.
 //! - Durable audit, when enabled, runs through the real `DurableSecurityAuditPort` and
 //!   `SecurityAuditDao` against the guarded DEV test database.
 //!
@@ -24,17 +25,20 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use axum::http::HeaderMap;
 use db::{DbFailure, DbResult, SecurityAuditDao};
-use model::security::{RoleEntitlements, SecurityUserRoles};
+use model::security::{
+    GuestClaim, GuestCodeAttempt, GuestCodeHistory, RoleEntitlements, SecurityUserRoles,
+};
 use model::{ActingUser, SecurityIdentityResolution};
 use serde_json::Value;
 use services::{
-    AuditPort, AuthorizationDecision, CapturingAuditPort, CapturingDomainEventPort, OperationKind,
-    ServiceActor, ServiceActorKind, ServiceContext, ServiceInfrastructure, ServicePrincipal,
-    AUTHJS_EDGE_ACTOR,
+    AuditPort, AuthorizationDecision, AuthorizationPort, AuthorizationRequest, CapturingAuditPort,
+    CapturingDomainEventPort, OperationKind, ServiceActor, ServiceActorKind, ServiceContext,
+    ServiceInfrastructure, ServicePrincipal, AUTHJS_EDGE_ACTOR,
 };
 use sqlx::PgPool;
 use web::security::{
-    CasbinAuthorizationPort, DurableSecurityAuditPort, SecurityRepository, SecurityService,
+    CasbinAuthorizationPort, DurableSecurityAuditPort, GuestRepository, SecurityRepository,
+    SecurityService,
 };
 use web::service_support::CoreServiceError;
 
@@ -471,5 +475,210 @@ mod tests {
             SecurityHarness::redirect_target(Some("https://evil.example")),
             web::api::google_auth::safe_next(Some("https://evil.example"))
         );
+    }
+}
+
+// -------------------------------------------------------------------------------------------------------------
+// The GUEST sign-in boundary: SEC.IDENTITY/002, 003, 005 and 007.
+//
+// Added 2026-10-14 with the Set-B security batch. Those four proofs were authored against module-level
+// `edge_context()`, `infrastructure()` and a `GuestHarness` that this file no longer had: between their authoring
+// and their landing the facade was rebuilt around `SecurityHarness` (durable audit, `CommittedAuditRow`), and the
+// free functions and the guest fake went with the rebuild — so the four tests referenced a harness that did not
+// exist, and could not have compiled since. They are restored here against TODAY's seams, not the old shape:
+//
+//   - `web::security::GuestRepository` still declares exactly the five methods faked below (`code_history`,
+//     `issue_code`, `attempt_code`, `consume_code`, `provision`), and `GuestSignInService` is still generic over
+//     it, so the REAL sign-in service runs against a deterministic store.
+//   - `ServiceInfrastructure::new(authorization, audit, events)` is still the production shape and
+//     `CasbinAuthorizationPort::new()` still loads the production catalog.
+//   - One production change was needed and is a VISIBILITY widening only: `mod guest` is `pub(crate)`, so
+//     `GuestRepository` could not be named from this crate at all. It is now re-exported from `web::security`
+//     beside `SecurityRepository`, which was already public — both are the adapter boundary the DAOs implement,
+//     so both are named the same way. No behavior changed.
+// -------------------------------------------------------------------------------------------------------------
+
+/// The correlation id the SEC.IDENTITY guest proofs run under, so a failure names the contract it came from.
+pub const CORRELATION: &str = "sec-identity";
+
+/// A named system context (the public website, the signer edge, …).
+pub fn system_context(actor: &str) -> ServiceContext {
+    ServiceContext {
+        actor: ServiceActor {
+            id: Some(actor.to_owned()),
+            kind: ServiceActorKind::System,
+        },
+        correlation_id: CORRELATION.into(),
+        causation_id: None,
+        principal: None,
+    }
+}
+
+/// The Auth.js edge: the one system actor the policy admits to resolve an identity for a session it holds
+/// (`web/src/security/entitlements.rs`, the `identity_resolution` rule).
+pub fn edge_context() -> ServiceContext {
+    system_context(AUTHJS_EDGE_ACTOR)
+}
+
+/// Production infrastructure: the real policy engine, capturing (non-writing) audit and event ports.
+pub async fn infrastructure() -> ServiceInfrastructure {
+    ServiceInfrastructure::new(
+        Arc::new(
+            CasbinAuthorizationPort::new()
+                .await
+                .expect("the production entitlement policy loads"),
+        ),
+        Arc::new(CapturingAuditPort::default()),
+        Arc::new(CapturingDomainEventPort::default()),
+    )
+}
+
+/// The exact principal shape the production authorization port consumes — the free-function form of
+/// [`SecurityHarness::principal`], for a decision-only test that has no harness state to hold.
+pub fn principal(
+    app_user_id: &str,
+    level: &str,
+    account_type: &str,
+    roles: &[&str],
+    grants: &[&str],
+) -> ServicePrincipal {
+    SecurityHarness::principal(app_user_id, level, account_type, roles, grants)
+}
+
+/// ONE ENTITLEMENT DECISION, asked the way `ServiceRuntime::authorize` asks it — no database, no harness state,
+/// no fixture policy.
+///
+/// A REFUSAL IS THE ANSWER, not an error: the port returns the denial with the policy that produced it
+/// (`account:external`, `domain:tech`, the kind check), which is what a test asserting *why* a door closed needs.
+/// `ServiceRuntime` turns the same decision into `Forbidden` because its callers are about to do the thing; this
+/// helper's callers are asking what the policy says.
+///
+/// The caller names the domain and operation because those are what production passes per door — the vault
+/// service asks `authorize(&self.runtime, "vault", "vault.read", OP, …)` and the person service asks with
+/// `"person"` — so a helper that invented them would be testing a request no service builds. (The
+/// `SecurityService::decide` wrapper derives the domain from the action; the domain-sensitive rules there are
+/// the `security`/`contract`/`luxesign`/`tech` namespaces, which no door here belongs to.)
+pub async fn decide(
+    action: &'static str,
+    kind: OperationKind,
+    principal: Option<ServicePrincipal>,
+    domain: &'static str,
+    operation: &'static str,
+) -> AuthorizationDecision {
+    let port = CasbinAuthorizationPort::new()
+        .await
+        .expect("the production entitlement policy loads");
+    port.authorize(AuthorizationRequest {
+        domain,
+        action,
+        operation,
+        kind,
+        actor: ServiceActor {
+            id: principal
+                .as_ref()
+                .map(|principal| principal.app_user_id.clone()),
+            kind: ServiceActorKind::User,
+        },
+        principal,
+    })
+    .await
+    .expect("the production policy port answers")
+}
+
+/// The in-memory guest store standing in for `GuestDao`, wired to the REAL `GuestSignInService`.
+///
+/// `provision` models the production rule the account-linking contract is about: the canonical user is looked up by
+/// `(provider, subject)` FIRST, so a repeat sign-in on the same provider identity links back to the account that
+/// already exists instead of minting a second one. Every claim that reaches it is recorded AFTER `normalize_claim`
+/// has run, which is what lets a test see the canonical form production would persist.
+#[derive(Clone)]
+pub struct GuestHarness {
+    by_identity: Arc<Mutex<HashMap<(String, String), String>>>,
+    claims: Arc<Mutex<Vec<(GuestClaim, String)>>>,
+    next_id: Arc<Mutex<u32>>,
+}
+
+impl Default for GuestHarness {
+    fn default() -> Self {
+        Self {
+            by_identity: Arc::new(Mutex::new(HashMap::new())),
+            claims: Arc::new(Mutex::new(Vec::new())),
+            next_id: Arc::new(Mutex::new(1)),
+        }
+    }
+}
+
+impl GuestHarness {
+    /// The claims production accepted, each with the canonical `app_user_id` it resolved to.
+    pub fn claims(&self) -> Vec<(GuestClaim, String)> {
+        self.claims
+            .lock()
+            .expect("the guest store is never poisoned")
+            .clone()
+    }
+
+    /// The app users this store handed out, in order — a second entry for one provider identity is a second account.
+    pub fn app_users(&self) -> Vec<String> {
+        self.claims
+            .lock()
+            .expect("the guest store is never poisoned")
+            .iter()
+            .map(|(_, app_user_id)| app_user_id.clone())
+            .collect()
+    }
+}
+
+#[async_trait]
+impl GuestRepository for GuestHarness {
+    async fn code_history(
+        &self,
+        _email: &str,
+        _requester_ip: Option<&str>,
+    ) -> DbResult<GuestCodeHistory> {
+        Ok(GuestCodeHistory::default())
+    }
+
+    async fn issue_code(
+        &self,
+        _id: &str,
+        _email: &str,
+        _code_hash: &str,
+        _requester_ip: Option<&str>,
+    ) -> DbResult<()> {
+        Ok(())
+    }
+
+    async fn attempt_code(&self, _email: &str) -> DbResult<Option<GuestCodeAttempt>> {
+        Ok(None)
+    }
+
+    async fn consume_code(&self, _id: &str) -> DbResult<bool> {
+        Ok(false)
+    }
+
+    async fn provision(&self, claim: &GuestClaim, display_name: &str) -> DbResult<String> {
+        let mut by_identity = self
+            .by_identity
+            .lock()
+            .expect("the guest store is never poisoned");
+        let key = (claim.provider.clone(), claim.subject.clone());
+        let app_user_id = by_identity
+            .entry(key)
+            .or_insert_with(|| {
+                let mut next = self
+                    .next_id
+                    .lock()
+                    .expect("the guest store is never poisoned");
+                let id = format!("guest-{}", *next);
+                *next += 1;
+                id
+            })
+            .clone();
+        self.claims
+            .lock()
+            .expect("the guest store is never poisoned")
+            .push((claim.clone(), app_user_id.clone()));
+        let _ = display_name;
+        Ok(app_user_id)
     }
 }

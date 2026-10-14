@@ -512,7 +512,8 @@ fn operation_patch(command_type: &str, result: &ForgeOperationResult) -> ForgeGa
         // so a failed *migration* was classified ENVIRONMENT and its stage reported as DERIVED_REFRESH
         // (TST-FORGE-RELEASE-001). A reader would blame the environment and refresh derived models on a migration
         // that never applied. One table, both answers, so the class and the stage cannot drift apart.
-        let (stage, class) = release_stage_of(command_type).unwrap_or(("DERIVED_REFRESH", "ENVIRONMENT"));
+        let (stage, class) =
+            release_stage_of(command_type).unwrap_or(("DERIVED_REFRESH", "ENVIRONMENT"));
         patch.failure_class = Some(class.into());
         patch.failed_release_stage = Some(stage.into());
         patch.last_failure = Some(result.detail.clone());
@@ -526,7 +527,9 @@ fn operation_patch(command_type: &str, result: &ForgeOperationResult) -> ForgeGa
 fn release_stage_of(command_type: &str) -> Option<(&'static str, &'static str)> {
     match command_type {
         "forge.migrate_dev" | "forge.verify_dev_migration" => Some(("DEV_MIGRATION", "MIGRATION")),
-        "forge.migrate_prod" | "forge.verify_prod_migration" => Some(("PROD_MIGRATION", "MIGRATION")),
+        "forge.migrate_prod" | "forge.verify_prod_migration" => {
+            Some(("PROD_MIGRATION", "MIGRATION"))
+        }
         "forge.refresh_derived_models" | "forge.verify_derived_models" => {
             Some(("DERIVED_REFRESH", "ENVIRONMENT"))
         }

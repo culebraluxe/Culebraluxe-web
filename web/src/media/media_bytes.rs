@@ -286,6 +286,13 @@ impl<R: MediaRepository> MediaService<R> {
 
     /// Opens a chunked upload. The browser calls this before it sends any bytes, so the destination Property, the
     /// role and the declared size are all known by the time the first chunk lands.
+    ///
+    /// The declared type is checked HERE, with the same rule and the same sentence as the single-shot upload above
+    /// (`upload_standalone`): the chunked protocol is the other door into a `media` row, and every row it creates is
+    /// written as `media_type = 'image'` (`db/src/media/assemble_media_upload.rs`). Without this check the declared
+    /// type travels verbatim into `media_upload.mime_type` and later onto the finished `media` row, so a
+    /// `text/html` declared here would reach the public site and be served back to browsers under its own
+    /// `Content-Type` — an image row that is not an image.
     pub async fn begin_media_upload(
         &self,
         request: db::BeginMediaUpload,
@@ -303,6 +310,12 @@ impl<R: MediaRepository> MediaService<R> {
         .await?;
 
         let result = async {
+            if !request.mime_type.to_ascii_lowercase().starts_with("image/") {
+                return Err(CoreServiceError::business(
+                    "MEDIA_TYPE_INVALID",
+                    "Only image uploads are supported.",
+                ));
+            }
             let repository = &self.repository;
             repository
                 .begin_media_upload(&request)

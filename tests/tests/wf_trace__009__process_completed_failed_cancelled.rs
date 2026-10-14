@@ -145,7 +145,10 @@ fn instance(harness: &EngineHarness, instance_id: &str) -> ProcessInstance {
 }
 
 /// `(status, outcome)`, read from the row rather than from any returned summary.
-fn terminal_state(harness: &EngineHarness, instance_id: &str) -> (ProcessStatus, Option<ProcessOutcome>) {
+fn terminal_state(
+    harness: &EngineHarness,
+    instance_id: &str,
+) -> (ProcessStatus, Option<ProcessOutcome>) {
     let row = instance(harness, instance_id);
     (row.status, row.outcome)
 }
@@ -157,7 +160,11 @@ fn history(harness: &EngineHarness, instance_id: &str) -> Vec<ProcessEvent> {
         .expect("the instance history reads")
 }
 
-fn events_of_type(harness: &EngineHarness, instance_id: &str, event_type: &str) -> Vec<ProcessEvent> {
+fn events_of_type(
+    harness: &EngineHarness,
+    instance_id: &str,
+    event_type: &str,
+) -> Vec<ProcessEvent> {
     history(harness, instance_id)
         .into_iter()
         .filter(|event| event.event_type == event_type)
@@ -248,9 +255,18 @@ fn wf_trace_009__process_completed_failed_cancelled() {
         exit[0].data.get("outcome").and_then(|v| v.as_str()),
         Some("completed")
     );
-    assert_eq!(exit[0].actor, STARTED_BY, "{HARNESS}: the exit names who caused it");
-    assert_eq!(exit[0].job_id, None, "{HARNESS}: a process exit is not a job fact");
-    assert_eq!(exit[0].task_id, None, "{HARNESS}: a process exit is not a task fact");
+    assert_eq!(
+        exit[0].actor, STARTED_BY,
+        "{HARNESS}: the exit names who caused it"
+    );
+    assert_eq!(
+        exit[0].job_id, None,
+        "{HARNESS}: a process exit is not a job fact"
+    );
+    assert_eq!(
+        exit[0].task_id, None,
+        "{HARNESS}: a process exit is not a task fact"
+    );
     assert_eq!(
         events_of_type(&harness, &completed_instance, "process.failed").len(),
         0,
@@ -379,7 +395,10 @@ fn wf_trace_009__process_completed_failed_cancelled() {
         "{HARNESS}: the open task is obsoleted with the process"
     );
     assert_eq!(obsoleted[0].task_id.as_deref(), Some(waiting_task.as_str()));
-    assert_eq!(task_row(&harness, &waiting_task).status, TaskStatus::Obsolete);
+    assert_eq!(
+        task_row(&harness, &waiting_task).status,
+        TaskStatus::Obsolete
+    );
     // Completing the obsoleted task afterwards is refused, and the refusal changes nothing.
     let refusal = complete_task(&harness, &waiting_task, APPROVE)
         .expect_err("an obsoleted task cannot be completed");

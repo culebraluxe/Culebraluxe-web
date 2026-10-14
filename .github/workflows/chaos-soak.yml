@@ -1,0 +1,101 @@
+name: chaos soak
+
+# ---------------------------------------------------------------------------
+# THE CHAOS MONKEY LIVES IN A CAGE, AND THIS IS THE CAGE.
+#
+# The captain, 2026-10-14: "i dont want random bots running chaos monkey just keep the board green".
+#
+# The monkey is a SOAK, not a gate. Every `tests/tests/chaos_*.rs` proof needs a DEV database, a fresh worker
+# id and a real clock, and its verdict is a coin toss on a loaded runner. So every one of them is
+# `#[ignore = "..."]`d and no default `cargo test` / `cargo nextest run` can start one — and `static` in
+# `gates.yml` fails the build the moment a chaos file loses that attribute. The attribute is the cage.
+#
+# This workflow is the only place the monkey is let out, and it is reachable only by:
+#   - a human running it by hand (`workflow_dispatch`), or
+#   - the weekly schedule, and only when the repository variable CHAOS_SOAK is 'true'.
+#
+# It never runs on `push` and never on `pull_request`. A soak that can redden a PR IS a gate, and a gate that
+# goes red on a coin toss teaches people to scroll past red. Nothing here is a release step and nothing here is
+# required by branch protection.
+#
+# WHAT IT NEEDS: `DATABASE_URL_DEV` and `APP_ENV=dev`. It is destructive-by-design against DEV only: the
+# harness's `TestDatabase` refuses PROD before opening a socket, and each proof rolls back or sweeps its own
+# rows. Read the names before adding one here — `chaos_*` is an allowlist by glob, on purpose: a new soak file
+# must be a deliberate act, not a file someone happened to name.
+# ---------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Run a single chaos proof (its file stem, e.g. chaos_forge__003__process_crash...); empty runs the whole family'
+        required: false
+        default: ''
+  schedule:
+    # Sunday 04:17 UTC — off-peak, and never on the hour (GitHub's scheduler queue is busiest then).
+    - cron: '17 4 * * 0'
+
+concurrency:
+  group: chaos-soak
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    name: chaos soak (DEV, controlled zone)
+    # Manual runs are a human decision and need no variable. The weekly schedule is opt-in: a repository
+    # variable, deliberately set, is what starts an unattended monkey.
+    if: |-
+      github.ref == 'refs/heads/main'
+      && (github.event_name == 'workflow_dispatch' || vars.CHAOS_SOAK == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      APP_ENV: dev
+      DATABASE_URL_DEV: ${{ secrets.DATABASE_URL_DEV }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: rust toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: refuse to soak without a DEV database
+        run: |
+          if [ -z "${DATABASE_URL_DEV:-}" ]; then
+            echo "::error::DATABASE_URL_DEV is not set. A soak with no database proves nothing, so this refuses rather than reporting green."
+            exit 1
+          fi
+
+      - name: the cage holds (every chaos proof is #[ignore]d)
+        run: |
+          fail=0
+          for file in tests/tests/chaos_*.rs; do
+            tests="$(grep -c '#\[tokio::test\]' "$file")"
+            ignored="$(grep -c '#\[ignore' "$file")"
+            if [ "$tests" != "$ignored" ]; then
+              echo "::error file=$file::$tests test function(s) but $ignored #[ignore] attribute(s) — a soak proof must never run by default"
+              fail=1
+            fi
+          done
+          if [ "$fail" = "0" ]; then
+            echo "every chaos proof is #[ignore]d: no default run can start the monkey"
+          fi
+          exit "$fail"
+
+      - name: the monkey (one proof at a time, DEV only)
+        run: |
+          only="${{ inputs.only }}"
+          for file in tests/tests/chaos_*.rs; do
+            name="$(basename "$file" .rs)"
+            if [ -n "$only" ] && [ "$name" != "$only" ]; then
+              continue
+            fi
+            echo "::group::$name"
+            cargo test -p test-harness --test "$name" -- --ignored --test-threads=1
+            echo "::endgroup::"
+          done

@@ -6,7 +6,8 @@ mod identity_cache;
 pub use audit::DurableSecurityAuditPort;
 pub use entitlements::CasbinAuthorizationPort;
 pub use guest::{
-    mail_from_env as guest_mail_from_env, GuestSignInService, GUEST_EMAIL_CODE_PROVIDER,
+    mail_from_env as guest_mail_from_env, GuestRepository, GuestSignInService,
+    GUEST_EMAIL_CODE_PROVIDER,
 };
 
 use crate::service_support::{audit_result, authorize, CoreServiceError};

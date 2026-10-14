@@ -25,8 +25,9 @@
 
 use test_harness::EngineHarness;
 use workflow::{
-    DefinitionStatus, Job, JobStatus, NodeDefinition, ProcessDefinition, ProcessEvent, ProcessGraph,
-    ProcessOutcome, ProcessStatus, StartProcessParams, TimerSpec, TransitionDefinition, Value,
+    DefinitionStatus, Job, JobStatus, NodeDefinition, ProcessDefinition, ProcessEvent,
+    ProcessGraph, ProcessOutcome, ProcessStatus, StartProcessParams, TimerSpec,
+    TransitionDefinition, Value,
 };
 
 const HARNESS: &str = "WorkflowHarness/L2 Composition";
@@ -134,7 +135,11 @@ fn history(harness: &EngineHarness, instance_id: &str) -> Vec<ProcessEvent> {
         .expect("the instance history reads")
 }
 
-fn events_of_type(harness: &EngineHarness, instance_id: &str, event_type: &str) -> Vec<ProcessEvent> {
+fn events_of_type(
+    harness: &EngineHarness,
+    instance_id: &str,
+    event_type: &str,
+) -> Vec<ProcessEvent> {
     history(harness, instance_id)
         .into_iter()
         .filter(|event| event.event_type == event_type)
@@ -168,7 +173,10 @@ fn start_and_park(harness: &EngineHarness) -> (String, Job) {
     assert_eq!(job.status, JobStatus::Pending);
     assert_eq!(job.job_type, "timer");
     assert_eq!(job.attempts, 0);
-    assert_eq!(job.locked_by, None, "{HARNESS}: the parked timer holds no lease");
+    assert_eq!(
+        job.locked_by, None,
+        "{HARNESS}: the parked timer holds no lease"
+    );
     assert_eq!(
         job.due_at, DUE_AT,
         "{HARNESS}: the parked job is due at the instant the node declared"
@@ -224,7 +232,10 @@ fn wf_trace_008__timer_fired() {
         0,
         "{HARNESS}: a timer that is not due is never even claimed"
     );
-    assert_eq!(before.fired, 0, "{HARNESS}: a timer that is not due does not fire");
+    assert_eq!(
+        before.fired, 0,
+        "{HARNESS}: a timer that is not due does not fire"
+    );
     assert_eq!(before.failed, 0, "{HARNESS}: nothing failed");
     assert_eq!(
         instance(&harness, &instance_id).status,
@@ -233,7 +244,10 @@ fn wf_trace_008__timer_fired() {
     );
     let untouched = job_row(&harness, &job.id);
     assert_eq!(untouched.status, JobStatus::Pending);
-    assert_eq!(untouched.attempts, 0, "{HARNESS}: a refused sweep is not an attempt");
+    assert_eq!(
+        untouched.attempts, 0,
+        "{HARNESS}: a refused sweep is not an attempt"
+    );
     assert_eq!(untouched.locked_by, None);
     assert_eq!(
         events_of_type(&harness, &instance_id, "timer.fired").len(),
@@ -243,7 +257,11 @@ fn wf_trace_008__timer_fired() {
 
     // 3. Advance onto the due instant and sweep again: now it fires, exactly once.
     harness.clock().advance_millis(DAY_MS);
-    assert_eq!(harness.now_millis(), DUE_AT, "{HARNESS}: the clock sits on the due instant");
+    assert_eq!(
+        harness.now_millis(),
+        DUE_AT,
+        "{HARNESS}: the clock sits on the due instant"
+    );
     let sweep = harness
         .engine()
         .run_due_jobs(WORKER, 8)
@@ -295,9 +313,18 @@ fn wf_trace_008__timer_fired() {
     // The consumed job is settled and its lease released — nothing is left to fire again.
     let consumed = job_row(&harness, &job.id);
     assert_eq!(consumed.status, JobStatus::Completed);
-    assert_eq!(consumed.locked_by, None, "{HARNESS}: the fire releases the lease");
-    assert_eq!(consumed.attempts, 1, "{HARNESS}: the claim it fired under was its one attempt");
-    assert!(consumed.completed_at.is_some(), "{HARNESS}: the row records when it completed");
+    assert_eq!(
+        consumed.locked_by, None,
+        "{HARNESS}: the fire releases the lease"
+    );
+    assert_eq!(
+        consumed.attempts, 1,
+        "{HARNESS}: the claim it fired under was its one attempt"
+    );
+    assert!(
+        consumed.completed_at.is_some(),
+        "{HARNESS}: the row records when it completed"
+    );
 
     // And no second fire is possible: the job is no longer open.
     let after = harness
