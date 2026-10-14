@@ -613,29 +613,38 @@ pub fn read_delivered_work(
     if let Some(sha) = turn.out.candidate_sha.clone() {
         evidence.candidate_sha = Some(sha.clone());
         if let Some(writer) = ctx.writer {
-            // The fail-safe runs FIRST: the stamp below is a pointer into git, and git is the part
-            // that goes missing — and a stamp DB error must never cost the code. It is keyed to the
-            // STORY and never to the run. `storyboard_story_run` rows are opened by a claim, and the
-            // lane a captain runs by hand opens none — so a capture gated on the run row stays silent
-            // on exactly the runs where nothing else records the code. `forge_tool_artifact.story_run_id`
-            // is nullable for this: NULL there means "no claim opened this", which is the truth and not
-            // a gap.
+            // THE POINTER IS STAMPED BEFORE THE CAPTURE IT POINTS AT (TST-FORGE-ASSAY-011). The run's
+            // candidate is the turn's own delivered SHA — a decision already made at delivery — while the
+            // capture is the payload copy of the code. Writing the pointer first means a capture that cannot
+            // be read leaves a pointer with no artifact behind it, which is exactly why that failure has to
+            // fail the lane loudly instead of passing silently.
+            //
+            // The stamp is a pointer into git and needs a row to point from. A run opened by a claim has one;
+            // the hand-run lane (`forge --story …`, no `--work-item`) opens none, so the stamp is skipped
+            // there. That is the whole difference: the stamp is skipped, the capture is not. It is keyed to
+            // the STORY, so a capture gated on the run row would stay silent on exactly the runs where nothing
+            // else records the code — `forge_tool_artifact.story_run_id` is nullable for this: NULL there
+            // means "no claim opened this", which is the truth and not a gap.
+            //
+            // The stamp's ERROR is raised only after the capture has been attempted, so a stamp DB error still
+            // cannot cost the code: the capture is the copy that outlives git and it runs whatever the stamp
+            // did. A stamp failure still fails the lane (TST-FORGE-ASSAY-012) — nothing here is silent.
+            let stamp_error = match ctx.story_run_id {
+                Some(run_id) => writer.stamp_run_candidate(run_id, &sha).err().map(|error| {
+                    WorkflowError::generic(format!(
+                        "stamp_run_candidate({}, {run_id}): {error}",
+                        turn.story_id
+                    ))
+                }),
+                None => None,
+            };
             // Capture is skipped only where there is nothing to capture from — no declared execution base
             // AND no base the harness measured against (the `RoleHarness` default is `None` for both).
             if let Some(base) = capture_base.as_deref() {
                 capture_smith_work(ctx, writer, turn.story_id, base, SmithWork::Candidate(&sha))?;
             }
-            // The stamp is a pointer into git and needs a row to point from. A run opened by a claim has
-            // one; the hand-run lane (`forge --story …`, no `--work-item`) opens none, so the stamp is
-            // skipped there. That is the whole difference: the stamp is skipped, the capture is not.
-            // It runs after the capture, so its failure propagates without taking the code with it.
-            if let Some(run_id) = ctx.story_run_id {
-                writer.stamp_run_candidate(run_id, &sha).map_err(|error| {
-                    WorkflowError::generic(format!(
-                        "stamp_run_candidate({}, {run_id}): {error}",
-                        turn.story_id
-                    ))
-                })?;
+            if let Some(error) = stamp_error {
+                return Err(error);
             }
         }
         if let Some(base) = evidence.extra.get("recordedBase").and_then(|v| v.as_str()) {

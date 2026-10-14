@@ -264,9 +264,13 @@ fn qa_fail_tool_artifact_has_correct_structure() {
     assert_eq!(tool_artifact.verdict, Some("FAIL".to_string()));
     assert_eq!(tool_artifact.story_id, "test-story");
     assert_eq!(tool_artifact.story_run_id, Some("test-run".to_string()));
+    // A QA FINDING CARRIES NO GIT IDENTITY (a FAIL is a measurement too). `assay_tool_artifact` attaches no
+    // candidate SHA, by design: "QA reports measurements only. Candidate and release lineage belong to Forge's
+    // publisher path and must never be attached to a QA finding" (8343d85bf). This case asserted the retired
+    // behaviour; the disposition and the summary below are what a reader routes on.
     assert_eq!(
-        tool_artifact.sha,
-        Some("0123456789abcdef0123456789abcdef01234567".to_string())
+        tool_artifact.sha, None,
+        "a QA finding must not be bound to a commit SHA"
     );
     assert!(tool_artifact.summary.is_some());
     assert_eq!(

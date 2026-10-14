@@ -9,13 +9,17 @@
 //! new hole) and a pin that no longer matches fails too (so the surface may only change
 //! deliberately):
 //!
-//!   - **The gate vocabulary.** The `create` entitlement must appear in
-//!     `web/ui/src/app/registry.rs` under the `actor.entitlement_codes.iter().any(...)` pattern,
-//     and every create handler in `web/src` must first verify the actor holds `create` through
-//!     the authorized endpoint.
-//!   - **The readers.** Exactly four places in `web/ui/src` read the actor's entitlement list to
-//!     decide a boolean: `registry.rs item_visible`, `registry.rs surface_visible`, `screen.rs can`
-//!     and `navigation.rs holds_entitlement`. A fifth reader is a second adjudicator.
+//!   - **The create side of the catalog.** This system has no verb `create`: creating a record is a *command*
+//!     action named `<domain>.write` in the `entitlement` table the authorize endpoint grants from
+//!     (`db/migrations/*.sql`). Every surface that can be created must have that action declared, and
+//!     declared as a command — a create path the catalog cannot name is one nobody can be granted. The
+//!     registry's `entry(...)` gates are read gates: opening a screen creates nothing.
+//!   - **The readers.** Exactly four places in `web/ui/src` adjudicate from the actor's entitlement list:
+//!     `registry.rs surface_visible` and `registry.rs item_visible` (what an actor may see),
+//!     `screen.rs can` (what a screen offers) and `navigation.rs holds_entitlement` (the shared rule the
+//!     other three mirror). A fifth adjudicator is a second answer to the same question. The pin also holds
+//!     the one reader in the tree that is **not** an adjudicator — the Roles screen's grants matrix reads a
+//!     *role's* list — so that a sixth read fails this test instead of arriving unnoticed.
 //!   - **The root-only codes have one writer.** `security.entitlement.manage` and `security.role.manage`
 //!     are written as string literals in exactly one file in the tree — `middle/model/src/security.rs` —
 //!     and every other production site names them through `model::security::{ENTITLEMENT_MANAGE, ROLE_MANAGE}`.
@@ -47,11 +51,16 @@ use test_harness::source;
 
 /// The entitlement every screen gate asks for, pinned. Adding a screen that asks for a new action
 /// is a deliberate edit here; removing one that the registry still requires fails too.
+///
+/// The signature codes are `luxesign.*`: `db/migrations/291_luxesign_rename.sql` renames the
+/// `documentSign.*` codes the docs pipeline shipped with, and the registry names the live spelling. The
+/// retired `documentSign.read` is pinned nowhere on purpose — a code the catalog no longer declares cannot
+/// gate a screen.
 const SCREEN_ENTITLEMENTS: [&str; 12] = [
     "accounting.read",
     "cockpit.read",
     "deal.read",
-    "documentSign.read",
+    "luxesign.read",
     "form.read",
     "person.read",
     "portal.read",
@@ -70,13 +79,23 @@ const SCREEN_AUTHORITIES: [&str; 4] = ["deal.read", "portal.read", "settings.rea
 /// and it shrinks by moving a screen's gate onto a catalogued entitlement or by cataloguing the action.
 const AUTHORITIES_WITHOUT_AN_ACTION: [&str; 1] = ["settings.read"];
 
-/// Every place in `web/ui/src` that reads the actor's entitlement list to decide a boolean, as
-/// `path function`.
-const ENTITLEMENT_READERS: [&str; 4] = [
+/// Every function in `web/ui/src` that reads an entitlement code list, as `path function` — the four
+/// adjudicators first, then the one reader that is not one.
+///
+/// The four are the decision: `surface_visible` and `item_visible` take in what the actor may see, `can`
+/// decides what a screen offers and `holds_entitlement` is the shared rule the other three mirror. Adding a
+/// fifth adjudicator is adding a second answer to the same question, which is what this pin refuses.
+///
+/// The fifth entry is pinned for the same reason, so a sixth read is a deliberate edit rather than a quiet
+/// one: `security.rs entitlement_panel` reads a **role's** granted codes to tick the grants matrix in the
+/// Roles screen. It shows an administration fact, it decides nothing about the actor, and it must not
+/// become an adjudicator.
+const ENTITLEMENT_READERS: [&str; 5] = [
     "web/ui/src/app/registry.rs item_visible",
     "web/ui/src/app/registry.rs surface_visible",
     "web/ui/src/app/screen.rs can",
     "web/ui/src/navigation.rs holds_entitlement",
+    "web/ui/src/app/screens/security.rs entitlement_panel",
 ];
 
 /// Ratchet: every pinned entry must have a matching finding, and every finding must be pinned.
@@ -95,6 +114,98 @@ fn ratchet(pinned: &[&str], actual: &[String], what: &str) {
     );
 }
 
+/// Every function in `web/ui/src` that reads an entitlement code list, as `path function`.
+///
+/// A reader is a function whose body calls the one shared rule (`holds_entitlement`) or reads a code list
+/// (`.entitlement_codes`). Reporting the **function** rather than the file is what makes the pin a list of
+/// decisions: `registry.rs` holds two of them, and a file that grows a third is a new finding.
+///
+/// A declaration (`pub entitlement_codes: Vec<String>`), a constructor (`entitlement_codes: vec![…]`) and a
+/// list joined for display name the field without reading a list, so none of them is a reader. Only code is
+/// read ([`source::code_of`]), so a sentence in a comment cannot be counted either.
+fn entitlement_readers(root: &Path) -> Vec<String> {
+    let mut readers: BTreeSet<String> = BTreeSet::new();
+    for path in test_harness::source::sources_under(root) {
+        let relative = test_harness::source::relative(&path);
+        let text = test_harness::source::read(&path);
+        let mut function = String::new();
+        for line in text.lines() {
+            let code = test_harness::source::code_of(line);
+            if let Some(name) = function_named(code) {
+                function = name;
+            }
+            if code.contains(".entitlement_codes") || code.contains("holds_entitlement") {
+                readers.insert(format!("{relative} {function}"));
+            }
+        }
+    }
+    readers.into_iter().collect()
+}
+
+/// The function a declaration names: `holds_entitlement` for `pub(crate) fn holds_entitlement(&self, …)`.
+///
+/// Read off code only, so a comment that mentions a `fn` cannot name the function it sits in.
+fn function_named(code: &str) -> Option<String> {
+    let after = code.split("fn ").nth(1)?;
+    let name: String = after
+        .chars()
+        .take_while(|character| character.is_alphanumeric() || *character == '_')
+        .collect();
+    (!name.is_empty()).then_some(name)
+}
+
+/// The entitlement catalog as the migrations leave it: `code -> operation_kind` (`query` or `command`).
+///
+/// A code is catalogued when a migration writes it into the `entitlement` table — that table is what the
+/// authorize endpoint grants from, so it is the only honest answer to "can this code be granted?". The
+/// migrations are read in file order because one of them **renames** codes: `291_luxesign_rename.sql`
+/// rewrites `documentSign.*` to `luxesign.*`, so an insert from before it has to be renamed for the live
+/// spelling to be found (`documentSign.read` is retired; `luxesign.read` is what the registry gates on).
+fn entitlement_catalog() -> BTreeMap<String, String> {
+    let dir = test_harness::source::workspace_root().join("db/migrations");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|error| panic!("{} must be readable: {error}", dir.display()))
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|extension| extension.to_str()) == Some("sql"))
+        .collect();
+    files.sort();
+
+    let mut catalog = BTreeMap::new();
+    for path in files {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_string();
+        // The rename lands in `291_*`; a migration numbered after it writes the live spelling itself.
+        let renames_document_sign = name.as_str() < "291_";
+        for chunk in test_harness::source::read(&path).split("('").skip(1) {
+            // Every catalog row is `('code', 'kind')`, and the kind is read as the quoted value that is
+            // literally `query` or `command` — so a grant list like `('portal.read', 'deal.read',
+            // 'settings.read')` is not mistaken for a row.
+            let Some(close) = chunk.find("', '") else {
+                continue;
+            };
+            let after = &chunk[close + 4..];
+            let Some(kind_end) = after.find('\'') else {
+                continue;
+            };
+            let kind = &after[..kind_end];
+            if kind != "query" && kind != "command" {
+                continue;
+            }
+            let code = if renames_document_sign {
+                chunk[..close].replacen("documentSign.", "luxesign.", 1)
+            } else {
+                chunk[..close].to_string()
+            };
+            catalog.insert(code, kind.to_string());
+        }
+    }
+    catalog
+}
+
 // ---- tests ----
 
 #[test]
@@ -111,30 +222,43 @@ fn sec_entitlement_004__create() {
         ui_files.len()
     );
 
-    // 1. THE CREATE ENTITLEMENT MUST BE IN THE CATALOG. The `create` entitlement must appear in
-    //    web/ui/src/app/registry.rs as one of the 12 screen entitlements.
-    let registry_text = test_harness::source::read(
-        &test_harness::source::workspace_root().join("web/ui/src/app/registry.rs"),
-    );
+    // 1. THE CREATE SIDE OF THE CATALOG. This system has no verb `create`: creating a record is a *command*
+    //    action named `<domain>.write` (`db/migrations/210_role_entitlements.sql`), and the registry's gates
+    //    are read gates — nobody creates a record by opening a screen, so there is no `create` code to find
+    //    there. The claim stands — a create path the catalog cannot name is one nobody can be granted — so
+    //    every surface this case names must have its creation action declared, and declared as a command.
+    let catalog = entitlement_catalog();
     assert!(
-        registry_text.contains("\"create\""),
-        "The `create` entitlement must appear in registry.rs catalog"
+        catalog.len() >= 40,
+        "the entitlement catalog must be read; {} code(s) found",
+        catalog.len()
+    );
+    for code in [
+        "deal.write",
+        "form.write",
+        "person.write",
+        "project.write",
+        "property.write",
+        "showing.write",
+    ] {
+        assert_eq!(
+            catalog.get(code).map(String::as_str),
+            Some("command"),
+            "The `{code}` create action must be a catalogued command — a create the catalog cannot name \
+             is a gap"
+        );
+    }
+    assert!(
+        catalog
+            .values()
+            .all(|kind| kind == "query" || kind == "command"),
+        "operation_kind is `query` or `command`; a third value would not be grantable"
     );
 
-    // 2. THE READERS. Exactly four places in web/ui/src read the actor's entitlement list.
-    let actual_readers: Vec<String> = test_harness::source::sources_under(&ui_root)
-        .iter()
-        .filter(|path| {
-            let text = test_harness::source::read(path);
-            text.lines().any(|line| {
-                test_harness::source::contains_segment(
-                    test_harness::source::code_of(line),
-                    "entitlement_codes",
-                ) || text.contains("holds_entitlement")
-            })
-        })
-        .map(|path| test_harness::source::relative(path))
-        .collect();
+    // 2. THE READERS. Four functions in web/ui/src adjudicate from the actor's entitlement list; the fifth
+    //    read of any code list there is the Roles screen showing a *role's* grants, pinned so it stays a
+    //    display and does not quietly become a fifth decision.
+    let actual_readers = entitlement_readers(&ui_root);
     ratchet(
         &ENTITLEMENT_READERS,
         &actual_readers,

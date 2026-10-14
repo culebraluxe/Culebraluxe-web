@@ -507,29 +507,31 @@ fn operation_patch(command_type: &str, result: &ForgeOperationResult) -> ForgeGa
         _ => {}
     }
     if !result.success {
-        patch.failure_class = Some(
-            if command_type.contains("migration") {
-                "MIGRATION"
-            } else {
-                "ENVIRONMENT"
-            }
-            .into(),
-        );
-        patch.failed_release_stage = Some(
-            if command_type.contains("migration") {
-                if command_type.contains("prod") {
-                    "PROD_MIGRATION"
-                } else {
-                    "DEV_MIGRATION"
-                }
-            } else {
-                "DERIVED_REFRESH"
-            }
-            .into(),
-        );
+        // THE STAGE DECIDES THE CLASS, BY NAME. This used to ask `command_type.contains("migration")`, and the
+        // two apply commands are named `forge.migrate_dev` / `forge.migrate_prod` — "migrate", not "migration" —
+        // so a failed *migration* was classified ENVIRONMENT and its stage reported as DERIVED_REFRESH
+        // (TST-FORGE-RELEASE-001). A reader would blame the environment and refresh derived models on a migration
+        // that never applied. One table, both answers, so the class and the stage cannot drift apart.
+        let (stage, class) = release_stage_of(command_type).unwrap_or(("DERIVED_REFRESH", "ENVIRONMENT"));
+        patch.failure_class = Some(class.into());
+        patch.failed_release_stage = Some(stage.into());
         patch.last_failure = Some(result.detail.clone());
     }
     patch
+}
+
+/// The release stage a command drives, and the failure class a failed run of it carries.
+///
+/// Keyed on the commands the release workflow actually issues, not on a substring of their names.
+fn release_stage_of(command_type: &str) -> Option<(&'static str, &'static str)> {
+    match command_type {
+        "forge.migrate_dev" | "forge.verify_dev_migration" => Some(("DEV_MIGRATION", "MIGRATION")),
+        "forge.migrate_prod" | "forge.verify_prod_migration" => Some(("PROD_MIGRATION", "MIGRATION")),
+        "forge.refresh_derived_models" | "forge.verify_derived_models" => {
+            Some(("DERIVED_REFRESH", "ENVIRONMENT"))
+        }
+        _ => None,
+    }
 }
 
 fn publish_patch(outcome: PublishOutcome) -> (ForgeGateEvidence, String, bool) {

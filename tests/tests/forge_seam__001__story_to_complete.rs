@@ -97,7 +97,13 @@ fn story_to_complete_uses_one_workflow_owned_role_chain() {
     let assay = fixture
         .assay_artifact()
         .expect("Assay produced deterministic evidence");
-    assert_eq!(assay.sha.as_deref(), Some(CANDIDATE_SHA));
+    // The finding carries no Git identity and must not: QA reports measurements only (8343d85bf). The
+    // candidate's survival is what the `candidate_stamps()` assertion above proves — it reached Assay on the
+    // run the lane measured, not as a field on the finding.
+    assert_eq!(
+        assay.sha, None,
+        "a QA finding must not be bound to a commit SHA"
+    );
     assert!(
         fixture.holds().is_empty(),
         "happy path opens no Hold: {:?}",

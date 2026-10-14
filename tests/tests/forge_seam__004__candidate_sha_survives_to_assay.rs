@@ -38,10 +38,14 @@ fn smith_candidate_sha_survives_to_assay_without_head_substitution() {
     let assay = fixture
         .assay_artifact()
         .expect("Workflow routed the same story into Assay");
+    // WHAT ASSAY MEASURED IS THE RUN'S CANDIDATE, AND THE FINDING NAMES NO GIT IDENTITY. The two assertions
+    // above are where the candidate's survival is proven — durable Workflow evidence and the Story Run stamp,
+    // both exactly `CANDIDATE_SHA`. The artifact itself carries no SHA by design: QA reports measurements only
+    // and must never be bound to a commit SHA (8343d85bf). The `git rev-parse HEAD` assertion below is the
+    // other half of the same claim: Assay does not re-resolve the target to current HEAD.
     assert_eq!(
-        assay.sha.as_deref(),
-        Some(CANDIDATE_SHA),
-        "Assay evaluates the Smith candidate, not HEAD/origin/main"
+        assay.sha, None,
+        "a QA finding must not be bound to a commit SHA"
     );
     assert!(
         fixture

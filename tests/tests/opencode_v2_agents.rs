@@ -248,7 +248,19 @@ fn v2_read_only_roles_cannot_write_the_workspace() {
                 .and_then(|permissions| permissions.get("bash"))
                 .and_then(Value::as_object)
                 .expect("read-only QA bash rule is an object");
-            assert_eq!(bash_rules.len(), 1, "{read_only} grants no bash prefixes");
+            // "GRANTS NO BASH PREFIXES" IS A CLAIM ABOUT ALLOW, NOT ABOUT THE SIZE OF THE MAP. The renderer
+            // gives every role the same publication denies (`git push`, `git remote`, `gh `, `psql`, `neonctl `,
+            // …) and closes with a catch-all deny, so a read-only QA profile renders 17 denies plus `*` and not
+            // one key. Counting keys read an implementation detail as the control, and it read a strictly MORE
+            // restrictive rendering as a violation of it. No allow is the control.
+            assert!(
+                bash_rules.values().all(|verb| verb.as_str() == Some("deny")),
+                "{read_only} grants no bash prefixes, got: {bash_rules:?}"
+            );
+            assert!(
+                bash_rules.contains_key("*"),
+                "{read_only} still closes with a catch-all deny, got: {bash_rules:?}"
+            );
         }
     }
     // Only Smith and the solo-implement lead may write at all.

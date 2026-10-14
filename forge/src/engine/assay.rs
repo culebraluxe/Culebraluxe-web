@@ -438,6 +438,16 @@ pub fn collect_rust_contract_assay_evidence(
 
     evidence.qa_passed = Some(true);
     evidence.deliverable_rejection = None;
+    // A CLEAN PASS RESOLVES THE FAILURE THAT SENT THE STORY TO REPAIR (TST-FORGE-QA-013). `deliverable_rejection`
+    // above is the CURRENT rejection; `last_failure` is the previous stage's durable reason
+    // (`forge_last_failure_reason`, what the work queue reads). A story that failed a stage, was repaired, and then
+    // measured clean is no longer a failure, so the reason that opened the repair is cleared with the pass. The
+    // release executor's publish-success path is the durable merge's other resolution
+    // (`db::ForgeEngineDao::merge_workflow_evidence` nulls `last_failure` when `release_failure_resolved` is set);
+    // this is the QA half of the same rule.
+    if runtime_failures.is_empty() {
+        evidence.last_failure = None;
+    }
     if !runtime_failures.is_empty() {
         evidence.last_failure = Some(format!(
             "RUST_CONTRACT observation: authored test currently fails against existing application code; \
@@ -498,6 +508,11 @@ pub fn collect_assay_evidence(
         };
     }
     evidence.qa_passed = Some(true);
+    // The general measurement path carries the same rule as the RUST_CONTRACT path above: a pass resolves the
+    // reason the story was sent to repair, so it must not survive the pass (TST-FORGE-QA-013). A FAIL returns
+    // above and leaves the reason standing.
+    evidence.deliverable_rejection = None;
+    evidence.last_failure = None;
     AssayEvidence {
         evidence,
         verdict: AssayVerdict::Pass,

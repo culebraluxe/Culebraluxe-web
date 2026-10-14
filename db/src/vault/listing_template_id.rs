@@ -495,7 +495,14 @@ pub(super) async fn list_signers_on(
         }
     }
 
-    if matches!(form.template_id.as_str(), "LISTING-01" | "PR-PNS") {
+    // The brokerage signer templates: the Listing and the purchase-and-sale notice, plus OFFER-01/SHOW-RPT —
+    // the offer and the showing report, whose pre-signed broker block is the agent (`cb6065aee`, 2026-10-10).
+    // This list must stay the same list as `FormDao::list_signer_people`'s, or the signer a preview offers is a
+    // signer issuance never writes (TST-DOCS-FORMS-EXECUTION-002).
+    if matches!(
+        form.template_id.as_str(),
+        "LISTING-01" | "PR-PNS" | "OFFER-01" | "SHOW-RPT"
+    ) {
         let brokers = sqlx::query_as::<_, BrokerRow>(
             r#"
             select person_id::text as person_id, email

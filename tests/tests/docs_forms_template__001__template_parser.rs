@@ -150,12 +150,27 @@ fn docs_forms_template_001__template_parser() {
         library.version("LISTING-01", 99).is_none(),
         "an unknown version must NOT resolve"
     );
-    // `newest` is the HEAD of the family in `middle/model/forms/templates`, which is v5 today — the
-    // assertion pinned v4 while the directory had already moved on, so it failed for a reason that was
-    // never about the parser (2026-10-08: found when this case was first executed). Pin the real head
-    // rather than dropping the claim: `newest` must be the highest version present, not the highest the
-    // case happens to name.
-    assert_eq!(library.newest("LISTING-01").map(|t| t.version), Some(5));
+    // `newest` is the HEAD of the family in `middle/model/forms/templates`, and the claim that matters is that
+    // it returns the HIGHEST version present — not the highest version this case happens to name. The head is
+    // therefore read from the directory instead of pinned: it was pinned at v4, then at v5, and every new
+    // version of the file turned the pin red for a reason that was never about the parser (2026-10-08: found
+    // when this case was first executed; the family is at v8 today).
+    let head = std::fs::read_dir(root.join("middle/model/forms/templates"))
+        .expect("the template directory is readable")
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter_map(|name| {
+            name.strip_prefix("LISTING-01.v")
+                .and_then(|rest| rest.strip_suffix(".xml"))
+                .and_then(|version| version.parse::<i32>().ok())
+        })
+        .max()
+        .expect("LISTING-01 has at least one version on disk");
+    assert!(
+        head > 5,
+        "the family is past the v5 the pin used to name, so this assertion still has work to do"
+    );
+    assert_eq!(library.newest("LISTING-01").map(|t| t.version), Some(head));
 
     // 4. NEGATIVE: a directory that does not exist is an error naming the path, never an empty library a
     //    render would silently accept.

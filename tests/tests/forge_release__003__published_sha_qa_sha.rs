@@ -53,7 +53,7 @@ use forge::engine::facts::{forge_lineage_error, project_forge_gate_facts, ForgeG
 use forge::engine::git_publish::{publish_candidate, publish_switch_off};
 use forge::engine::release::{
     DbForgeReleaseExecutor, EvidenceStore, ForgeCommandEnvelope, ForgeOperationResult,
-    ForgeReleaseOperations, PublishOutcome,
+    ForgeReleaseOperations, PublishOutcome, PublishReconciliation,
 };
 use workflow::{ApplicationCommandOutcome, Value};
 
@@ -104,6 +104,14 @@ impl ForgeReleaseOperations for ScriptedPublish {
     }
     fn publish(&self, _candidate_sha: Option<&str>, _frozen_proofs: &[String]) -> PublishOutcome {
         self.outcome.clone()
+    }
+    /// Pre-publish readback. This double's destination is only reachable through `publish`, and
+    /// nothing has been published yet, so reconciliation answers `NotPublished` and the command
+    /// proceeds to the seam under test. A double that left the default `Unknown` would stop at the
+    /// ambiguous-release settlement guard (`7b3299e9f fix(forge): require settlement for ambiguous
+    /// releases`) and never reach `publish` at all.
+    fn reconcile_publish(&self, _candidate_sha: &str) -> PublishReconciliation {
+        PublishReconciliation::NotPublished
     }
 }
 

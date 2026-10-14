@@ -105,10 +105,17 @@ fn docs_forms_execution_002__signer_selection() {
             text.contains("listing_direct_draft") && text.contains("\"SELLER\".into()"),
             "{name}: a listing direct draft selects the person as SELLER"
         );
-        // The broker block is added for the two brokerage templates only.
+        // The broker block is added for the brokerage signer templates only: LISTING-01/PR-PNS, plus
+        // OFFER-01/SHOW-RPT — the offer and the showing report, whose pre-signed broker block is the agent
+        // (`cb6065aee`, 2026-10-10, "Showing Report sends for signature to its visitor and property owner").
+        // Both copies carry the SAME list: a signer a preview offers but issuance never writes is a missing
+        // signer on a real document. The template list is pinned as its own literal because `rustfmt` wraps
+        // the `matches!` call once the list outgrows the call width, and the wrap is not the contract.
         assert!(
-            text.contains(r#"matches!(form.template_id.as_str(), "LISTING-01" | "PR-PNS")"#),
-            "{name}: the broker is selected only for LISTING-01/PR-PNS"
+            text.contains("matches!(")
+                && text.contains("form.template_id.as_str(),")
+                && text.contains(r#""LISTING-01" | "PR-PNS" | "OFFER-01" | "SHOW-RPT""#),
+            "{name}: the broker is selected only for LISTING-01/PR-PNS/OFFER-01/SHOW-RPT"
         );
     }
 

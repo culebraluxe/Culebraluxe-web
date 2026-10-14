@@ -176,9 +176,15 @@ fn qa_pass_tool_artifact_has_correct_structure() {
     assert_eq!(tool_artifact.verdict, Some("PASS".to_string()));
     assert_eq!(tool_artifact.story_id, "test-story");
     assert_eq!(tool_artifact.story_run_id, Some("test-run".to_string()));
+    // A QA FINDING CARRIES NO GIT IDENTITY. `assay_tool_artifact` attaches no candidate SHA, by design:
+    // "QA reports measurements only. Candidate and release lineage belong to Forge's publisher path and must
+    // never be attached to a QA finding" (`forge/src/roles/qa/mod.rs`, 8343d85bf "isolate QA from Git and
+    // release authority"). This case asserted the retired behaviour. What binds the finding is the Story Run
+    // asserted above; that the candidate itself survives to Assay is pinned where it is measured —
+    // `forge_assay__006__qa_verdict_independent_of_git_identity`.
     assert_eq!(
-        tool_artifact.sha,
-        Some("0123456789abcdef0123456789abcdef01234567".to_string())
+        tool_artifact.sha, None,
+        "a QA finding must not be bound to a commit SHA"
     );
     assert!(tool_artifact.summary.is_none());
     assert!(tool_artifact.detail.is_none());

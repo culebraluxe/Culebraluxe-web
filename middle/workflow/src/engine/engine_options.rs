@@ -530,7 +530,11 @@ impl<S: TxStore> WorkflowEngine<S> {
         self.store.with_tx(|tx| {
             let now = self.now();
             let lease = now + JOB_LEASE_MS;
-            tx.claim_job(job_id, worker_id, now, lease)
+            let claimed = tx.claim_job(job_id, worker_id, now, lease)?;
+            if let Some(job) = &claimed {
+                self.record_job_claim(tx, job, worker_id)?;
+            }
+            Ok(claimed)
         })
     }
 
@@ -538,7 +542,11 @@ impl<S: TxStore> WorkflowEngine<S> {
         self.store.with_tx(|tx| {
             let now = self.now();
             let lease = now + JOB_LEASE_MS;
-            tx.claim_due_jobs(worker_id, now, lease, limit)
+            let claimed = tx.claim_due_jobs(worker_id, now, lease, limit)?;
+            for job in &claimed {
+                self.record_job_claim(tx, job, worker_id)?;
+            }
+            Ok(claimed)
         })
     }
 
@@ -553,7 +561,40 @@ impl<S: TxStore> WorkflowEngine<S> {
         self.store.with_tx(|tx| {
             let now = self.now();
             let lease = now + JOB_LEASE_MS;
-            tx.claim_due_jobs_by_type(worker_id, job_type, now, lease, limit)
+            let claimed = tx.claim_due_jobs_by_type(worker_id, job_type, now, lease, limit)?;
+            for job in &claimed {
+                self.record_job_claim(tx, job, worker_id)?;
+            }
+            Ok(claimed)
         })
+    }
+
+    /// Announce a claim on the durable trace, in the same transaction that took the lease.
+    ///
+    /// Taking a job is the moment one worker becomes answerable for dispatched work, so it belongs on the
+    /// log exactly as `task.claimed` puts a human claim there. The row keeps the *current* lease
+    /// (`locked_by`, `locked_until`, `attempts`); the event keeps the *history* — who took it, which job,
+    /// and how many attempts it had taken. Without it the log shows the sibling job transitions
+    /// (`job.completed`, `job.failed`, `job.cancelled`, `job.requeued`, `job.rescheduled`) but never names
+    /// the worker who did the work. Only a claim that actually happened is announced: an empty sweep, a
+    /// second worker asking for a locked job, and a job already past its attempt limit all emit nothing.
+    /// A job with no process instance (a standalone row) has no process trace to join, so it is skipped.
+    fn record_job_claim(&self, tx: &mut dyn Store, job: &Job, worker_id: &str) -> Result<()> {
+        let Some(process_instance_id) = job.process_instance_id.clone() else {
+            return Ok(());
+        };
+        self.event(
+            &mut *tx,
+            EventInput {
+                tenant_id: job.tenant_id.clone(),
+                process_instance_id,
+                token_id: job.token_id.clone(),
+                job_id: Some(job.id.clone()),
+                event_type: "job.claimed",
+                actor: worker_id.to_string(),
+                data: json!({"type": job.job_type, "attempts": job.attempts}),
+                ..Default::default()
+            },
+        )
     }
 }
