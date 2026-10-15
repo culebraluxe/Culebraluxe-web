@@ -1,0 +1,14 @@
+{
+	"mcpServers": {
+		"my-mcp-server-6adf3f4d": {
+			"type": "stdio",
+			"command": "/Applications/OpenCADStudio.app/Contents/MacOS/OpenCADStudio",
+			"args": ["--mcp"]
+		},
+		"blender": {
+			"type": "stdio",
+			"command": "uvx",
+			"args": ["mcp-for-blender"]
+		}
+	}
+}
