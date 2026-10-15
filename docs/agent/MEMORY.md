@@ -2,6 +2,36 @@
 
 # Decision log
 
+- **2026-10-15 (the Captain's direction was given the day before and obeyed by nobody — because it was never written
+  down, while the handbook was still telling every agent to type git).** His words, 2026-10-14, in a session that had
+  spent the day on git: *"i asked for JJ yesterday to be the primary interface to git, and you should have a MD card to
+  indicate that"* … *"git has been 4 days of problems … it is my last attempt to make it work before i rip it out"* …
+  *"i want them to stop using git and use just JJ"*. **Measured rather than assumed, and the card did not exist and
+  never had:** `AGENTS.md`, `CLAUDE.md`, every `docs/agent/**` document and all 17 `.opencode/skills/` cards mention
+  `jujutsu` **zero** times, and `git log --all -S'jujutsu'` — every branch, every stash, every `refs/wip/*` backup —
+  found **no commit in any ref** that ever added the string. The only match anywhere on the machine was
+  `~/.claude/cache/changelog.md`, a vendor changelog. So the interface the fleet actually ran was House Rule 2's own
+  sentence: *"Every commit is followed at once by `git pull --rebase && git push`"*. **The cost, measured the same
+  day instead of described:** 18 of the 22 lanes sit on the same commit `d240acf14` (2026-10-12); at least 13
+  `agent/*` branches carry at least 26 commits that are on no branch anyone pulls; `lane-nemotron` held 3 unpushed
+  commits and 5 dirty files (including `web/ui/src/app/file_registry.rs` and a new test); 16 stashes, several naming
+  their own near-losses ("re-stashed after accidental pop", "stale forge claim/qa drafts … before rebase"); at least
+  12 `refs/wip/*` backups; and three tools (`recover:strand`, `recover:unblock`, `recover:relay`) that exist only
+  because this keeps happening. None of it is a permissions problem — git never refused the work; the *shape* of the
+  workflow (long-lived branches, per-lane trees, stashes, and nothing that forces work to become visible) is what let
+  paid work sit outside `main` for days. **What changed:** `docs/agent/JJ-INTERFACE.md` — the card, with the
+  direction, that evidence, the rules, and a **SCOPE, STATED HONESTLY** list of what is not converted yet; House Rule
+  2 rewritten to name the `jj` form first and keep the git form **only** for the lanes that are still git trees; and
+  a new House Rule 10 making `jj` the interface with `git` kept as a read-only instrument. **The finding that has to
+  travel with the switch, and the reason the card leads with it:** `jj` runs **no** git hooks, so
+  `.githooks/pre-push` (rule 5's `Cargo.lock --locked` check and the `web/ui` wasm build) and
+  `.githooks/post-checkout` (one cargo target dir per checkout) silently stop existing the moment a worker pushes with
+  `jj` — measured: a `jj git push` of a range that touches `web/` returned in about two seconds with no compile and no
+  hook output. Porting those two hooks, converting the lanes from git trees to `jj workspace`, and moving
+  `lane-new.sh` / `wip-snapshot.sh` / `ops/recover/*.sh` / `verify-checkout-build-dir.sh` (all of which read
+  `git worktree list`) are the next steps, named in the card rather than left to be discovered. Verified:
+  `pnpm protected-files`, `pnpm forge:guard-lint`, `pnpm forge:packet-lint`.
+
 - **2026-10-06 (the permission was already true, but it was written inside a `Never` list, so the Captain had to say it
   again).** His direction: *"change that orientation agents can access prod and have full CRUD"*. The mechanism is
   untouched; what moved is where the permission is written. `AGENTS.md` now opens `Always` with **"PROD access is open to

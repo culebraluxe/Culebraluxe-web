@@ -36,7 +36,9 @@ know" must be a file on `origin/main`, never a chat log the next agent cannot re
 ## House Rules — one house, one bathroom
 
 Several agents (Claude, GPT, DeepSeek, Cline) work in this repository at the same time. These rules keep it livable,
-and they override anything later in this file that says otherwise (including "worker branch" wording).
+and they override anything later in this file that says otherwise (including "worker branch" wording). **The
+version-control interface is `jj`, and its card is `docs/agent/JJ-INTERFACE.md` (rule 10) — read it before the first
+`jj` or `git` command you type, because it also names what the conversion has not reached yet.**
 
 1. **Trunk, and short-lived branches.** Work lands on `main`. A branch is allowed when a worker cannot finish in one
    sitting — a remote model with a hard timeout, a slice too big for a single hand-off — and it is **short-lived**:
@@ -45,11 +47,12 @@ and they override anything later in this file that says otherwise (including "wo
    *work nobody can pull does not exist* — but refusing branches did not stop branching: on 2026-10-02 it produced a
    five-day branch nobody could admit to, held by a worker who had broken rule 1 while obeying rule 6. Visibility is
    the goal; a hook is a poor place to enforce taste.
-2. **Push after every commit.** Every commit is followed at once by `git pull --rebase && git push` — on `main`, and on
-   your branch. In a relay worktree (a detached `HEAD`, which is how several of them are checked out) that reads
-   `git fetch origin main && git rebase origin/main && git push origin HEAD:main`, because `git pull` needs a branch and
-   `HEAD` is not one. Never leave commits only on your machine or in a sandbox: they strand the work and collide with
-   everyone else's.
+2. **Push after every commit.** Every commit is followed at once by its sync-and-push — `jj git fetch && jj rebase
+   -d main@origin && jj git push` (rule 10; the card is `docs/agent/JJ-INTERFACE.md`). In a checkout that is still a
+   git tree — the lanes, until they convert — and in a relay worktree (a detached `HEAD`, which is how several of them
+   are checked out) that reads `git fetch origin main && git rebase origin/main && git push origin HEAD:main`, because
+   `git pull` needs a branch and `HEAD` is not one. Never leave commits only on your machine or in a sandbox: they
+   strand the work and collide with everyone else's.
 3. **Small commits, often.** One working change per commit, committed as soon as it builds and passes the tier it owes
    (see "The gate is tiered" below — a slice does not wait for the whole suite). No multi-hour sessions of unpushed
    work.
@@ -91,6 +94,18 @@ branching, it only stops anyone hearing about it. A new clone turns the hook on 
 The WIP snapshot job (rule 9, `pnpm wip:install`) writes local `refs/wip/<name>` commits every 5 minutes for every
 worktree — tracked edits, untracked files, deletions. It never pushes, never runs a hook, and holds no lock anyone waits
 on, so it cannot block a worker; it exists so that a window closing mid-edit cannot cost code.
+10. **The interface is `jj` (2026-10-15).** Everything that moves a ref, writes an index or makes a commit goes
+    through `jj`: sync with `jj git fetch` and `jj rebase -d main@origin`, land with `jj bookmark set` and
+    `jj git push`, recover with `jj op log`, `jj undo`, `jj op restore`. `git` stays a **read-only instrument**
+    (`git log`, `git ls-remote`, `git cat-file`, `git reflog`, `git for-each-ref`) — this repo proves claims with
+    commands and that habit stays. **Never `git stash`** (a stash is a commit nobody can find) and never
+    `git push --force`: `jj git push` already sends force-with-lease, so a race refuses and names it instead of
+    clobbering. **The conversion is partial and the card says exactly where it stops:** the lanes are still git
+    trees (rule 4), and `jj` runs **no** git hooks, so the `Cargo.lock --locked` check, the `web/ui` build and the
+    per-checkout target dir do not fire on a `jj` push — until they are ported, a `jj` push owes those checks by
+    hand (`cargo metadata --manifest-path Cargo.toml --locked --offline --format-version 1`, `pnpm ui:check`). Read
+    `docs/agent/JJ-INTERFACE.md` before the first command you type, and do not trust a guard the card has not
+    listed as ported.
 
 ## The gate is tiered — a slice never runs a thousand tests
 
