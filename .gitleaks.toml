@@ -78,6 +78,12 @@ tags = ["apple", "icloud", "credentials"]
   # The rule stays as it is rather than gaining an entropy floor because a real app-specific password IS
   # random four-groups-of-four (`half` and `abcd` are not), and an entropy floor here would be a guess about
   # what Apple generates. If a fifth false positive appears, the honest fix is this list plus a comment.
+  #
+  # THE FIFTH APPEARED 2026-10-14, and this is that comment: `plan-fast-lane-test` is a test's own plan id
+  # (`tests/tests/forge_fast__001__fast_lane_story_to_complete.rs`, `ApprovedAssayPlan::plan_id`) — four
+  # four-letter English words that say what the value is, exactly like the four entries above. It was found
+  # only because the `static` job's `install (frozen lockfile)` step had been failing since it drifted, so
+  # `scan:secrets` below it had never run. It is not a credential and never was.
   [[rules.allowlists]]
   description = "English words and self-describing placeholders that share the four-group shape"
   regexTarget = "match"
@@ -86,6 +92,7 @@ tags = ["apple", "icloud", "credentials"]
     '''nope-nope-nope-nope''',
     '''xxxx-xxxx-xxxx-xxxx''',
     '''abcd-efgh-ijkl-mnop''',
+    '''plan-fast-lane-test''',
   ]
 
 [[rules]]

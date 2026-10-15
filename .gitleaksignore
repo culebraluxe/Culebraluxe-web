@@ -51,3 +51,41 @@
 ad28471ad682899c281f9a299ccde6dcff64a173:rust/test-harness/tests/wf_definition__005__missing_target.rs:generic-api-key:63
 ad28471ad682899c281f9a299ccde6dcff64a173:rust/test-harness/tests/wf_definition__005__missing_target.rs:generic-api-key:84
 b49bb83f5c0ce4928ab7bdcd294ac11b093c9199:rust/test-harness/tests/wf_definition__005__missing_target.rs:generic-api-key:218
+
+# ---------------------------------------------------------------------------
+# 2026-10-14 — THE SECOND BATCH, AND WHY IT IS FINGERPRINTS RATHER THAN AN EDIT.
+#
+# This step had never run. `pnpm scan:secrets` sits in the `static` job below `install (frozen lockfile)`,
+# and that install step was failing on every push, so everything under it — packet-lint, guard-lint, lint,
+# the ratchet, the app fences, squawk, gitleaks, osv — was skipped, run after run. Repairing the lockfile
+# exposed these eleven findings. Every one was read by hand; none is a credential:
+#
+#   * SEVEN are the `wf_definition__` fixtures' own XML `key="TST-WF-DEFINITION-00x-…"` attributes:
+#     `tests/tests/wf_definition__001__definition_parser.rs` carries three keys (`-OUTCOME`, `-ORDER`,
+#     `-NOORDER`) and `tests/tests/wf_definition__012__xml_graph_fidelity.rs` one, each committed twice for
+#     the `__001` file because the suite moved from `rust/test-harness/tests/` to `tests/tests/`. Same shape
+#     and the same reasoning as the `wf_definition__005` block above: a long dashed, numbered run reads as a
+#     generic API key, and on shape alone that reading is fair.
+#   * THREE are ONE doc comment: `MAESTRO_TEST_AGENT=<cheap test agent>`, the opt-in Maestro integration
+#     test's own instruction — an environment-variable name followed by a placeholder. Two fingerprints are
+#     its old path (`forge/src/engine/maestro.rs`, since split into `maestro/`) and one is its current path
+#     (`forge/src/engine/maestro/tests/session.rs`).
+#   * ONE is a handoff document quoting a SQL predicate — `process_instances.business_key='TST-…-001'`,
+#     the keyword `business_key=` followed by a test id — in
+#     `docs/agent/HANDOFF-attended-forge-run-2026-10-05.md`.
+#
+# NOTHING IN TODAY'S TREE WAS CHANGED FOR ANY OF THEM. The fixture keys are compared by the tests that own
+# them (`assert_eq!(parsed.key, …)`), so renaming one to please a scanner would edit the thing under test.
+# The fingerprints record the past because the past cannot be rewritten — the same rule as the block above.
+# ---------------------------------------------------------------------------
+61b097dcd568d4206f1e1536420d6a9fe15aa6c5:tests/tests/wf_definition__001__definition_parser.rs:generic-api-key:346
+61b097dcd568d4206f1e1536420d6a9fe15aa6c5:tests/tests/wf_definition__001__definition_parser.rs:generic-api-key:370
+61b097dcd568d4206f1e1536420d6a9fe15aa6c5:tests/tests/wf_definition__001__definition_parser.rs:generic-api-key:386
+cd96eae9754d7ee4e593286b87c66d3dbeaddacb:tests/tests/wf_definition__001__definition_parser.rs:generic-api-key:346
+cd96eae9754d7ee4e593286b87c66d3dbeaddacb:tests/tests/wf_definition__001__definition_parser.rs:generic-api-key:370
+cd96eae9754d7ee4e593286b87c66d3dbeaddacb:tests/tests/wf_definition__001__definition_parser.rs:generic-api-key:386
+feb786dc0aea22ab6921f60d24c7c3289b46be30:tests/tests/wf_definition__012__xml_graph_fidelity.rs:generic-api-key:44
+8b8cc8fa34a035416d04ba8e9968cd3abc1bd5e0:forge/src/engine/maestro/tests/session.rs:generic-api-key:22
+e2bb39783e4c66d03c5d111b03deb25a62d1d3f8:forge/src/engine/maestro.rs:generic-api-key:1149
+695733d42a693ca5ef2a3c7eb00e471a997d5042:forge/src/engine/maestro.rs:generic-api-key:1149
+48afd116f3e04b3faa35c306cb6d1260794961e9:docs/agent/HANDOFF-attended-forge-run-2026-10-05.md:generic-api-key:11
