@@ -207,7 +207,7 @@ fn the_composition_root_is_the_one_place_both_queues_meet() {
     }
     assert_eq!(
         both,
-        vec!["forge/src/bin/forge.rs".to_string()],
+        vec!["forge/src/bin/forge/main.rs".to_string()],
         "a second production file holds both queues — the place a re-collapse would start"
     );
 }

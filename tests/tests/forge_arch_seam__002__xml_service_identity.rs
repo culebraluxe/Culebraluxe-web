@@ -198,7 +198,7 @@ fn only_the_bridge_reads_the_binding_and_the_post_persistence_path_reads_only_th
         "forge/src/engine/executor/wave.rs",
         "forge/src/engine/runtime.rs",
         "forge/src/roles/lifecycle/mod.rs",
-        "forge/src/bin/forge.rs",
+        "forge/src/bin/forge/main.rs",
     ] {
         let code = production_code(&workspace_root().join(file));
         assert!(

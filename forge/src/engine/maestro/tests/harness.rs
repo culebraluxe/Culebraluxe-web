@@ -94,7 +94,7 @@ fn maestro_backend_never_runs_direct_opencode_preflight() {
     // require the direct Forge → OpenCode harness preflight to pass.
     let source = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/bin/forge.rs")
+            .join("src/bin/forge/main.rs")
             .as_path(),
     )
     .expect("forge.rs is readable");

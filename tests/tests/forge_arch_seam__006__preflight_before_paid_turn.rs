@@ -124,7 +124,7 @@ const PAID_AFTER_THE_GATE: [&str; 4] = [
 
 #[test]
 fn the_lane_verifies_its_vendor_before_it_opens_a_run_builds_a_harness_or_drives_a_turn() {
-    let main = production_code(&workspace_root().join("forge/src/bin/forge.rs"));
+    let main = production_code(&workspace_root().join("forge/src/bin/forge/main.rs"));
     let gate = main
         .find("verify_vendor_contract(")
         .expect("the lane verifies its vendor contract");

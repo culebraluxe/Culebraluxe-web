@@ -221,8 +221,11 @@ const RELEASE_NODE_SEGMENTS: [&str; 8] = [
 
 /// THE PINNED OWNER SET. Derived by scanning the tree, not guessed: each constant below is compared with
 /// what the sweep actually returns, so the set can only move by editing this file.
+///
+/// The composition root became a directory target (`bin/forge/main.rs`) on 2026-10-14 so the binary could
+/// carry modules; the two pins that name it follow the file, and nothing else about the set moves.
 const RELEASE_HANDLE_EXPORTER: &str = "forge/src/roles/dev_ops.rs";
-const RELEASE_HANDLE_WIRED: &str = "forge/src/bin/forge.rs";
+const RELEASE_HANDLE_WIRED: &str = "forge/src/bin/forge/main.rs";
 const THE_ONE_DOOR: &str = "forge/src/engine/git_publish.rs";
 /// Production files that READ the `FORGE_ALLOW_PUBLISH` switch itself. The door gates on it and the
 /// composition root reads it; a new reader is a new actor in the release path.
@@ -233,7 +236,7 @@ const THE_ONE_DOOR: &str = "forge/src/engine/git_publish.rs";
 /// `release.rs` names the switch only in a doc comment, which the strip removes — a comment is not a
 /// reader. A fourth reader still fails this pin.
 const SWITCH_READERS: [&str; 3] = [
-    "forge/src/bin/forge.rs",
+    "forge/src/bin/forge/main.rs",
     "forge/src/engine/config.rs",
     "forge/src/engine/git_publish.rs",
 ];
@@ -244,9 +247,13 @@ const SWITCH_READERS: [&str; 3] = [
 /// `shared_forge_runtime(...)` the `release: Option<Arc<dyn ForgeReleaseExecutor>>` parameter and hands it
 /// to `ForgeApplicationPort::new`, making the RE_supermodel host a second wiring point beside the
 /// composition root. It carries the trait object; it does not own release or deploy — that stays with
-/// `dev_ops`, asserted separately above. A sixth holder still fails this pin.
-const RELEASE_PORT_HOLDERS: [&str; 5] = [
-    "forge/src/bin/forge.rs",
+/// `dev_ops`, asserted separately above. `forge/src/bin/forge/drive_runtime.rs` is the sixth, joined on
+/// 2026-10-14: it is a slice of `main.rs` (the over-800-line boundedness split) carrying the same
+/// `Arc<dyn ForgeReleaseExecutor>` field the composition root used to hold, so the pin names the moved
+/// handle rather than losing sight of it. A seventh holder still fails this pin.
+const RELEASE_PORT_HOLDERS: [&str; 6] = [
+    "forge/src/bin/forge/main.rs",
+    "forge/src/bin/forge/drive_runtime.rs",
     "forge/src/engine/dispatch.rs",
     "forge/src/engine/port.rs",
     "forge/src/engine/re_runtime.rs",

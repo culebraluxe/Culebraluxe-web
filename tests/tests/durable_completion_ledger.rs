@@ -333,9 +333,9 @@ fn a_ledger_failure_reaches_the_caller_of_complete_role_task() {
 #[test]
 fn the_engine_binary_installs_the_durable_ledger() {
     // The path is the forge crate's, spelled from this file rather than from the crate it used to live in.
-    let source = include_str!("../../forge/src/bin/forge.rs");
+    let source = include_str!("../../forge/src/bin/forge/main.rs");
     assert!(
         source.contains("durable_completion_ledger()"),
-        "forge/src/bin/forge.rs must build its runtime with the receipt row; a process-local ledger there re-applies every completion in the instance history"
+        "forge/src/bin/forge/main.rs must build its runtime with the receipt row; a process-local ledger there re-applies every completion in the instance history"
     );
 }

@@ -221,7 +221,7 @@ const COMPOSITION_ORDER: [&str; 6] = [
 
 #[test]
 fn the_composition_root_wires_the_chain_in_order_and_nothing_drives_around_it() {
-    let root = production_code(&workspace_root().join("forge/src/bin/forge.rs"));
+    let root = production_code(&workspace_root().join("forge/src/bin/forge/main.rs"));
     let mut last = 0;
     for link in COMPOSITION_ORDER {
         let at = root[last..]
@@ -387,7 +387,7 @@ const ROLE_MOVING_LAYERS: [&str; 14] = [
     "forge/src/roles/service.rs",
     "forge/src/roles/lifecycle/mod.rs",
     "forge/src/engine/worker.rs",
-    "forge/src/bin/forge.rs",
+    "forge/src/bin/forge/main.rs",
 ];
 
 #[test]

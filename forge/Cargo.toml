@@ -12,7 +12,9 @@ test-support = []
 
 [[bin]]
 name = "forge"
-path = "src/bin/forge.rs"
+# A directory target (`forge/main.rs`) so the binary can carry modules — `forge/tests/` and
+# `forge/cli_contract_tests.rs` — instead of being one 1,200-line crate root (2026-10-14).
+path = "src/bin/forge/main.rs"
 
 [dependencies]
 async-trait.workspace = true

@@ -107,7 +107,7 @@ fn forge_writer_001__absent_writer_exits() {
 
     // LAYER THREE, the binary wiring: the writer is connected before the claim is opened, and writer-absent is
     // refused with exit 2 rather than falling back to NullWriter.
-    let forge_bin = source::read(&source::workspace_root().join("forge/src/bin/forge.rs"));
+    let forge_bin = source::read(&source::workspace_root().join("forge/src/bin/forge/main.rs"));
     assert!(
         forge_bin.lines().count() >= 500,
         "forge.rs is the subject of this contract; the read found almost nothing",

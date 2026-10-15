@@ -155,7 +155,10 @@ const PUBLISH_SWITCH: &str = "FORGE_ALLOW_PUBLISH";
 const PUBLISH_GATE_WINDOW: usize = 12;
 
 /// The only site that builds the release handle — the composition root, not a lane.
-const RELEASE_HANDLE_WIRED: &str = "forge/src/bin/forge.rs";
+///
+/// The root became a directory target (`bin/forge/main.rs`) on 2026-10-14 so the binary could carry modules;
+/// the pin follows the file.
+const RELEASE_HANDLE_WIRED: &str = "forge/src/bin/forge/main.rs";
 
 /// The QA lane module's entire export surface: four verification items, no handle.
 const QA_LANE_EXPORTS: [&str; 4] = [
