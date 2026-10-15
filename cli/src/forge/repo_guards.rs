@@ -110,9 +110,13 @@ const TREE_FIELD_TOKENS: [&str; 4] = [
 /// a directory that outlives the command, or that another lane reads, is a tree" — so each probe lives
 /// and dies inside one command, and a probe that only printed would not be a receipt. Recorded here by
 /// the Captain's call (`bless`, 2026-10-08) rather than removed: deleting the probes would delete the
-/// regression guard for the 2026-10-08 checkout bug they were written to catch.
-const WORKTREE_CAPABILITY_FILES: [&str; 7] = [
+/// regression guard for the 2026-10-08 checkout bug they were written to catch. `drive/batch.rs` joined on
+/// 2026-10-14, named deliberately rather than lost: it is a slice of `drive.rs` (the over-800-line
+/// boundedness split), so it prepares and discards the same lane worktrees its sibling always did — a
+/// move, not a new capability.
+const WORKTREE_CAPABILITY_FILES: [&str; 8] = [
     "forge/src/engine/executor/drive.rs",
+    "forge/src/engine/executor/drive/batch.rs",
     "forge/src/engine/worktree.rs",
     "forge/src/pianola/worker_lanes.rs",
     "scripts/lane-cargo-config.sh",

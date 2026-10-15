@@ -727,8 +727,12 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
     }
 
     // `assay.rs` is the bounded command runner itself: QA may execute only its packet-approved assay
-    // lines through these scoped `sh -c` children. Pin all three current sites (two production helpers,
-    // one process-existence test probe) so this exception cannot grow into arbitrary process spawning.
+    // lines through these scoped `sh -c` children. Pin both current sites (the two production helpers) so
+    // this exception cannot grow into arbitrary process spawning.
+    //
+    // The third site this pin used to count was the process-existence test probe. On 2026-10-14 the
+    // boundedness split moved that probe, move-only, into `assay/rust_contract_tests.rs`, so it is no
+    // longer part of the production surface this sweep reads and the pin is 2.
     let assay_code = swept
         .iter()
         .find(|(path, _)| path == "forge/src/engine/assay.rs")
@@ -736,12 +740,12 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
         .expect("the pinned QA surface contains the assay runner");
     assert_eq!(
         assay_code.matches("Command::new").count(),
-        3,
+        2,
         "the bounded assay runner's process-spawn surface changed"
     );
     assert_eq!(
         assay_code.matches("Command::new(\"sh\")").count(),
-        3,
+        2,
         "the assay runner may spawn only its scoped shell"
     );
 

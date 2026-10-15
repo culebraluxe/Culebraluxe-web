@@ -667,31 +667,7 @@ fn property_detail(slug: &str, p: &Value, similar: &Value, public_slugs: Value) 
 }
 
 #[cfg(test)]
-mod format_tests {
-    use super::*;
-
-    #[test]
-    fn prices_and_areas_read_as_the_typescript_cards_did() {
-        assert_eq!(format_price(Some(2_350_000.0)), "$2,350,000");
-        assert_eq!(format_price(Some(0.0)), "Price Upon Request");
-        assert_eq!(format_price(None), "Price Upon Request");
-        assert_eq!(
-            format_area(Some(1.0), Some("Acres")).as_deref(),
-            Some("1 Acre")
-        );
-        assert_eq!(
-            format_area(Some(2.5), Some("acres")).as_deref(),
-            Some("2.5 Acres")
-        );
-        assert_eq!(
-            format_area(Some(12500.0), Some("SqFt")).as_deref(),
-            Some("12,500 SF")
-        );
-        assert_eq!(en_us(1234.5), "1,234.5");
-        assert_eq!(whole(&json!(2224613.0)), json!(2224613));
-        assert_eq!(whole(&json!(1.5)), json!(1.5));
-    }
-}
+mod format_tests;
 
 /// A lead from the website's forms: validated, saved, and then the team and the visitor are emailed. The lead is saved
 /// before the mail goes, so a mail failure is recorded and the visitor still gets their thank-you.
@@ -766,40 +742,4 @@ async fn website_intake(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::select_maps_key;
-
-    fn clear() {
-        for key in [
-            "APP_ENV",
-            "VERCEL_ENV",
-            "GOOGLE_MAPS_API_KEY",
-            "GOOGLE_MAPS_DEMO_KEY",
-        ] {
-            std::env::remove_var(key);
-        }
-    }
-
-    #[test]
-    fn maps_key_follows_the_same_selection_as_readiness() {
-        clear();
-        // Nothing configured anywhere: the page draws its waiting state.
-        assert_eq!(select_maps_key(), None);
-
-        std::env::set_var("GOOGLE_MAPS_API_KEY", "api-key");
-        assert_eq!(select_maps_key().as_deref(), Some("api-key"));
-
-        // Outside production the demo key wins when set.
-        std::env::set_var("GOOGLE_MAPS_DEMO_KEY", "demo-key");
-        assert_eq!(select_maps_key().as_deref(), Some("demo-key"));
-
-        // In production the API key is the only answer, and the demo key
-        // must be absent there (the readiness gate asserts the same).
-        std::env::set_var("APP_ENV", "production");
-        assert_eq!(select_maps_key().as_deref(), Some("api-key"));
-
-        std::env::remove_var("GOOGLE_MAPS_API_KEY");
-        assert_eq!(select_maps_key(), None);
-        clear();
-    }
-}
+mod tests;
