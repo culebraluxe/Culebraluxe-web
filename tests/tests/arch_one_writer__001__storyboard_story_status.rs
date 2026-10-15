@@ -51,14 +51,19 @@ use std::path::PathBuf;
 
 use test_harness::source;
 
-/// The two files a fence must not read as writers, because each names the tokens it forbids.
+/// The three files a fence must not read as writers, because each names the tokens it forbids.
 ///
 /// `repo_guards.rs` is excluded for the same reason the production fence excludes itself
 /// (`is_guard_source`, `repo_guards.rs:408`): its `#[cfg(test)]` block carries planted samples like
 /// `"insert into storyboard_story(id) values ($1)"` that are assertions about the detector, not writes. A
 /// fence that reads its own negative controls reports itself as a violator and fences nothing.
-const NOT_A_WRITER: [&str; 2] = [
+///
+/// `repo_guards/tests.rs` is that same `#[cfg(test)]` block, moved out on 2026-10-14 by the boundedness
+/// split (move-only). The planted samples went with it, so the fence's own negative controls now live in a
+/// file of their own and have to be named here too — the exclusion follows the text, not the old path.
+const NOT_A_WRITER: [&str; 3] = [
     "tests/tests/arch_one_writer__001__storyboard_story_status.rs",
+    "cli/src/forge/repo_guards/tests.rs",
     BASELINE_FILE,
 ];
 

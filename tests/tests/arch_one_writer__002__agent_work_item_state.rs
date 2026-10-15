@@ -109,6 +109,11 @@ const PRODUCTION_ROOTS: [&str; 5] = ["web/", "middle/", "db/", "cli/", "forge/"]
 /// fixtures quote writes, and a scan that counted them would report the guard as a writer of the table.
 const GUARD_SOURCE: &str = "cli/src/forge/repo_guards.rs";
 
+/// The guard's test module — [`GUARD_SOURCE`]'s fixtures in their own file since 2026-10-14, when the
+/// boundedness split lifted the module out (move-only). The planted samples are the same ones, and the
+/// directory rule below (`/tests/`) no longer catches them at this path, so the file is named here.
+const GUARD_TESTS: &str = "cli/src/forge/repo_guards/tests.rs";
+
 /// The table and column under contract.
 const TABLE: &str = "agent_work_item";
 const COLUMN: &str = "state";
@@ -239,6 +244,7 @@ fn is_scanned_path(relative: &str) -> bool {
         && !relative.contains("/tests/")
         && !relative.ends_with("_test.rs")
         && relative != GUARD_SOURCE
+        && relative != GUARD_TESTS
 }
 
 /// The CODE in `source_text`: `//` and `/* … */` comments removed, string and char literals copied whole
@@ -873,6 +879,10 @@ fn arch_one_writer_002__agent_work_item_state() {
     assert!(
         !is_scanned_path(GUARD_SOURCE),
         "the production guard's fixtures quote writes and it is inside the scan"
+    );
+    assert!(
+        !is_scanned_path(GUARD_TESTS),
+        "the guard's fixtures moved to their own file and they are inside the scan"
     );
     assert!(
         !is_scanned_path("experiments/pool-bench/src/main.rs"),

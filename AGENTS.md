@@ -307,7 +307,7 @@ Never
   check, not a lane's habit. Lanes hold code, not
   workflow — Neon is still the only workflow and control-plane authority, and a
   lane's verdicts are about the code on its branch, never about the tree. Setup and rules: `docs/agent/LAYOUT.md`.
-  guard: cli/src/forge/repo_guards.rs
+  guard: cli/src/forge/repo_guards/tests.rs
 - Let git decide anything about work that exists. **PAID CODE > GIT SHA** — the work is the asset, the sha is
   a label. A git fact may never gate, void or replay work that has been paid for: QA answers "did the tests
   pass" in the directory it is given and holds no sha, so include the DevOps role in the chain when you want
@@ -323,13 +323,13 @@ Never
 - Reset PROD, copy DEV over PROD, or truncate canonical history. guard: NONE — no automated check; a destructive database action is a human decision the operator makes himself, and no test can stand between him and his own console. When he directs one it is authorized — name the target he named, run it, and report what it destroyed.
 - Keep a git commit as Scout, Assay, or Inspector. guard: cli/src/forge/lint.rs
 - Special-case Casa Luar or any one listing in application code. guard: NONE — no automated check; would need a consumer-specific scan, and inventing one is a story, not a line.
-- Treat WhatsApp as a new identity type. guard: cli/src/forge/repo_guards.rs
+- Treat WhatsApp as a new identity type. guard: cli/src/forge/repo_guards/tests.rs
 - Let two sources answer one fact. One fact has ONE writer; if two ever disagree, that is a REFUSAL (HOLD)
   naming both, never a resolution that picks a winner. A fallback parser, a second adjudicator, a cached copy
   or a log line must never outvote the row. (2026-09-16: the Architect reply parser still stood beside the
   findings rows, and the QA verdict had three authors — both produced verdicts nobody could trust, and both
   were ours, not a model's.)
-  guard: cli/src/forge/repo_guards.rs
+  guard: cli/src/forge/repo_guards/tests.rs
 
 ## Project
 
