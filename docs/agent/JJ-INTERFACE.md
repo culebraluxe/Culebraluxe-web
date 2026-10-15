@@ -90,11 +90,16 @@ Read this section before trusting a guard that is not listed as ported.
    through to `jj git push`. **What no alias can replace:** `.githooks/pre-push` deliberately moved the *workspace*
    compile to CI on 2026-10-01, and GitHub Actions is disabled repo-wide as of 2026-10-15 — so the workspace compile
    currently runs **nowhere**. The per-checkout cargo target dir waits for item 2.
-2. **The lanes are still git worktrees.** `git worktree list` is still the roster named in AGENTS.md (rule 4),
-   and a lane still drives git inside its own tree — that is the one place git remains the interface, and it is
-   the migration's next step (`jj workspace`). It moves as **one** change with the scripts that read
-   `git worktree list` — `scripts/lane-new.sh`, `scripts/wip-snapshot.sh`, `scripts/ops/recover/*.sh`,
-   `scripts/verify-checkout-build-dir.sh` — or those scripts start lying about what exists.
+2. **The lanes are still git worktrees, and today `jj` cannot run in one at all.** Measured 2026-10-15 — `jj status`
+   inside `lane-claude` answers *There is no jj repo in "."*, because a lane has no `.jj`. So a worker in a lane has
+   no `jj` to type, which is what makes this the migration's next step rather than a preference. It is **one**
+   change, and the tooling survives it, because `jj workspace add` inside a colocated repo registers a git worktree
+   as well (proven in a throwaway repo). The ten scripts that know about worktrees — `scripts/lane-new.sh`,
+   `scripts/wip-snapshot.sh`, `scripts/lane-cargo-config.sh`, `scripts/verify-checkout-build-dir.sh`,
+   `scripts/agent-worker-once.sh`, `scripts/opencode-session-stop.sh`, `scripts/restructure-domain-layout.sh`,
+   `scripts/ops/recover/relay.sh`, `scripts/ops/recover/unblock.sh`, `scripts/ops/recover/strand-report.sh` — keep
+   seeing the lane rather than lying about what exists. A lane's working tree is recreated, so its dirty files must
+   become commits first; they are already held in `refs/wip/*` and pushed as `salvage/wip/*`.
 3. **The WIP snapshot job stays** until the last lane is converted: it is a workaround for a problem `jj` does
    not have, and retiring it before the lanes move removes a safety net the op log has not replaced in practice.
 4. **`main` is protected** (`allow_force_pushes: false`, `enforce_admins: true`). An ordinary push lands. A
