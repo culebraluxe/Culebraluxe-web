@@ -32,6 +32,24 @@
   `git worktree list`) are the next steps, named in the card rather than left to be discovered. Verified:
   `pnpm protected-files`, `pnpm forge:guard-lint`, `pnpm forge:packet-lint`.
 
+- **2026-10-15 (later — the setup finished; the workspace compile now runs nowhere, and a lane cannot use `jj` at
+  all yet).** Three things were measured rather than assumed, after the card landed as `a0b537aa`. **`jj` cannot run
+  in a lane:** `jj status` inside `lane-claude` answers *"There is no jj repo in \".\""* — the lanes are git
+  worktrees with no `.jj`, so converting them is not a preference, it is what makes `jj` usable by a worker at all.
+  **`jj workspace add` is safe for the tooling:** inside a colocated repo it registers a git worktree as well
+  (proven in a throwaway repo), so the scripts that read `git worktree list` — `lane-new.sh`, `wip-snapshot.sh`,
+  `ops/recover/*.sh`, `verify-checkout-build-dir.sh`, `lane-cargo-config.sh`, `agent-worker-once.sh`,
+  `opencode-session-stop.sh`, `restructure-domain-layout.sh` — keep seeing the lane. The conversion can move as one
+  change instead of ten. **The hooks are ported, and one check has no home:** `jj` aliases can run commands *and*
+  receive the user's arguments, so `scripts/jj-pre-push.sh` restores the pre-push checks as the alias `jj push` (lock
+  check plus the `web/ui` wasm build, range-aware, same `CULEBRALUXE_*` escapes), while staying honest that a bare
+  `jj git push` bypasses it. The gap no alias closes: `.githooks/pre-push` moved the *workspace* compile to CI on
+  2026-10-01 and **GitHub Actions is disabled repo-wide** (measured: `{"enabled":false}`), so the workspace compile
+  currently runs nowhere. **The parked work was made durable instead of described:** 62 `salvage/*` refs pushed to
+  `origin` — the stranded branches (including `lane/ling`, 108 commits ahead of `main`, and
+  `backup/main-pre-rebase-20261012-124500`, 125 of them), the 16 stashes, and fresh `refs/wip` snapshots of the five
+  dirty lanes (`lane-claude`, `lane-mimo`, `lane-muse`, `lane-nemotron`, `lane-nemotron-2`).
+
 - **2026-10-06 (the permission was already true, but it was written inside a `Never` list, so the Captain had to say it
   again).** His direction: *"change that orientation agents can access prod and have full CRUD"*. The mechanism is
   untouched; what moved is where the permission is written. `AGENTS.md` now opens `Always` with **"PROD access is open to

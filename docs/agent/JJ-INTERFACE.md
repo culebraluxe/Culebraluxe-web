@@ -78,15 +78,18 @@ name its `jj` form.
 
 Read this section before trusting a guard that is not listed as ported.
 
-1. **The git hooks do not run under `jj`.** `jj` has no hook system, so `.githooks/pre-push` (House Rule 5's
-   `Cargo.lock --locked` check, and the `web/ui` wasm build behind the feature flag) and
-   `.githooks/post-checkout` (one cargo target dir per checkout) fire for git only. Measured on 2026-10-15: a
-   `jj git push --branch main` whose range **touches `web/`** returned in about two seconds, compiled nothing
-   and printed no hook output. Until the port lands, a `jj` push owes those two checks **by hand** —
-   `cargo metadata --manifest-path Cargo.toml --locked --offline --format-version 1` for the lock, and
-   `pnpm ui:check` for the artifact (`cargo check -p ui --features wasm --target wasm32-unknown-unknown`, the
-   compile a plain workspace check cannot see) — and the `CULEBRALUXE_*` escape hatches in House Rule 9 belong
-   to the git path, so under `jj` there is nothing to skip.
+1. **The git hooks do not run under `jj` — ported by hand on 2026-10-15, and one of them still has no server.**
+   `jj` has no hook system, so `.githooks/pre-push` (House Rule 5's `Cargo.lock --locked` check, and the `web/ui`
+   wasm build behind the feature flag) and `.githooks/post-checkout` (one cargo target dir per checkout) fire for
+   git only. Measured on 2026-10-15: a `jj git push --branch main` whose range **touches `web/`** returned in about
+   two seconds, compiled nothing and printed no hook output. **The stand-in is `scripts/jj-pre-push.sh`, installed
+   once per repo as the alias `jj push`** — an alias, not a guard: a bare `jj git push` still skips it, exactly as
+   `git push --no-verify` always could. It runs the hook's checks (the lock; `pnpm ui:check`, i.e. `cargo check -p ui
+   --features wasm --target wasm32-unknown-unknown`, the compile a plain workspace check cannot see) over the range
+   it is about to push, keeps the same `CULEBRALUXE_*` escape hatches as House Rule 9, and passes every argument
+   through to `jj git push`. **What no alias can replace:** `.githooks/pre-push` deliberately moved the *workspace*
+   compile to CI on 2026-10-01, and GitHub Actions is disabled repo-wide as of 2026-10-15 — so the workspace compile
+   currently runs **nowhere**. The per-checkout cargo target dir waits for item 2.
 2. **The lanes are still git worktrees.** `git worktree list` is still the roster named in AGENTS.md (rule 4),
    and a lane still drives git inside its own tree — that is the one place git remains the interface, and it is
    the migration's next step (`jj workspace`). It moves as **one** change with the scripts that read
@@ -104,8 +107,11 @@ Read this section before trusting a guard that is not listed as ported.
 jj git fetch                      # see what moved
 jj rebase -d main@origin          # sync by replay, never merge
 jj bookmark set main -r <rev>     # or: jj bookmark set lane/<name> -r @
-jj git push --branch main         # force-with-lease; a moved main refuses and names it
+jj push --branch main             # = scripts/jj-pre-push.sh + jj git push; a moved main refuses and names it
 ```
+
+`jj push` is the alias `bash scripts/jj-pre-push.sh --install` writes into `.jj/repo/config.toml` (shared by every
+workspace, not committed). `jj git push` still works and skips the checks — the same choice `--no-verify` always was.
 
 A refusal is a report, not a retry (House Rule 9). Name the cause in one line and stop.
 

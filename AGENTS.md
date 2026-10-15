@@ -101,11 +101,11 @@ on, so it cannot block a worker; it exists so that a window closing mid-edit can
     commands and that habit stays. **Never `git stash`** (a stash is a commit nobody can find) and never
     `git push --force`: `jj git push` already sends force-with-lease, so a race refuses and names it instead of
     clobbering. **The conversion is partial and the card says exactly where it stops:** the lanes are still git
-    trees (rule 4), and `jj` runs **no** git hooks, so the `Cargo.lock --locked` check, the `web/ui` build and the
-    per-checkout target dir do not fire on a `jj` push — until they are ported, a `jj` push owes those checks by
-    hand (`cargo metadata --manifest-path Cargo.toml --locked --offline --format-version 1`, `pnpm ui:check`). Read
-    `docs/agent/JJ-INTERFACE.md` before the first command you type, and do not trust a guard the card has not
-    listed as ported.
+    trees (rule 4), and `jj` runs **no** git hooks, so rule 5's checks come back as an alias, not a guard, and that
+    alias is `jj push` (`scripts/jj-pre-push.sh`, installed once with `bash scripts/jj-pre-push.sh --install`): it
+    runs the `Cargo.lock --locked` check and the `web/ui` wasm build, then pushes. A bare `jj git push` skips them,
+    exactly as `git push --no-verify` always could. Read `docs/agent/JJ-INTERFACE.md` before the first command you
+    type, and do not trust a guard the card has not listed as ported.
 
 ## The gate is tiered — a slice never runs a thousand tests
 
