@@ -8,24 +8,30 @@ Written 2026-10-01, when the tree moved out of `~/Documents`. This is the machin
 ```
 /Users/Shared/dev/
 ├── src/
-│   ├── Culebraluxe-web/     main checkout,   branch main        (the repo you are in)
-│   ├── lane-forge-observations/ git worktree, branch lane/forge-observations
-│   ├── lane-bot3/            git worktree,    branch lane/bot3
-│   ├── lane-claude/         git worktree,    branch lane/claude
-│   ├── lane-deep/           git worktree,    branch lane/deep
-│   ├── lane-step5/          git worktree,    branch lane/step5
-│   ├── lane-gpt/            git worktree,    branch lane/gpt
-│   ├── lane-grok/           git worktree,    branch lane/grok
-│   ├── lane-muse/           git worktree,    branch lane/muse
-│   ├── lane-muse-2/         git worktree,    branch lane/muse-2
-│   ├── lane-lightning/      git worktree,    branch lane/lightning
-│   ├── lane-ling/           git worktree,    branch lane/ling
-│   ├── lane-longcat/        git worktree,    branch lane/longcat
-│   ├── lane-mimo/           git worktree,    branch lane/mimo
-│   ├── lane-nemotron/       git worktree,    branch lane/nemotron
-│   ├── lane-nemotron-2/     git worktree,    branch lane/nemotron-2
-│   ├── lane-nemotron-lightning/  git worktree,  branch lane/nemotron-lightning
-│   └── lane-spacebunny/     git worktree,    branch lane/spacebunny
+│   ├── Culebraluxe-web/     main checkout (jj workspace "default"), bookmark main   (the repo you are in)
+│   ├── lane-forge-observations/ jj workspace, bookmark lane/forge-observations
+│   ├── lane-bot3/            jj workspace,    bookmark lane/bot3
+│   ├── lane-claude/         jj workspace,    bookmark lane/claude
+│   ├── lane-claude-deploy/  jj workspace,    no bookmark (detached HEAD for deploys)
+│   ├── lane-codex-forge-84-100/ jj workspace, bookmark lane/codex-forge-84-100
+│   ├── lane-deep/           jj workspace,    bookmark lane/deep
+│   ├── lane-forge-batch-2/  jj workspace,    bookmark lane/forge-batch-2
+│   ├── lane-forge-batch-4/  jj workspace,    bookmark lane/forge-batch-4
+│   ├── lane-jjtest/         jj workspace,    no bookmark (the conversion's smoke test)
+│   ├── lane-step5/          jj workspace,    bookmark lane/step5
+│   ├── lane-gpt/            jj workspace,    bookmark lane/gpt
+│   ├── lane-grok/           jj workspace,    bookmark lane/grok
+│   ├── lane-muse/           jj workspace,    bookmark lane/muse
+│   ├── lane-muse-2/         jj workspace,    bookmark lane/muse-2
+│   ├── lane-lightning/      jj workspace,    bookmark lane/lightning
+│   ├── lane-ling/           jj workspace,    bookmark lane/ling
+│   ├── lane-longcat/        jj workspace,    bookmark lane/longcat
+│   ├── lane-mimo/           jj workspace,    bookmark lane/mimo
+│   ├── lane-nemotron/       jj workspace,    bookmark lane/nemotron
+│   ├── lane-nemotron-2/     jj workspace,    bookmark lane/nemotron-2
+│   ├── lane-nemotron-lightning/  jj workspace,  bookmark lane/nemotron-lightning
+│   ├── lane-spacebunny/     jj workspace,    bookmark lane/spacebunny
+│   └── worktrees/wo/<id>/   disposable jj workspace, no bookmark (a Forge story sandbox)
 └── build/
     ├── rust-main/           cargo target dir for the main checkout and the launchd jobs
     ├── rust-lane-<name>/    cargo target dir for one lane, one per lane (made on first build)
@@ -39,7 +45,11 @@ checkout".
 
 Nothing else belongs in `src/`: no exports, no caches, no second copies of the repo.
 
-**The lanes (13 worktrees on 2026-10-04, 15 on 2026-10-05).** The picture above is a picture: **`git worktree list` is the roster**, and a
+**The lanes (13 worktrees on 2026-10-04, 15 on 2026-10-05, 22 `lane-*` on 2026-10-16).** The picture above is a picture:
+**`git worktree list` is the roster, and since 2026-10-16 it is the same list as `jj workspace list`** — both answered 24
+on that day (`default`, the 22 `lane-*`, and the Forge sandbox `worktrees/wo/204`), because a `jj` workspace in this
+colocated repo registers a git worktree as well. The conversion was `scripts/lane-adopt-jj.sh`; its receipts are in
+`docs/agent/JJ-INTERFACE.md` (SCOPE item 2). A
 lane exists only while it is in that output. One lane per agent, named for the model that works in it, because a second
 directory for the same model is the first lane wearing a card. Two deliberate exceptions stand beside that rule —
 `lane-muse-2` and `lane-nemotron-2`, second seats for two models, created on the Captain's call 2026-10-04 — and they are
@@ -49,8 +59,10 @@ it, and takes its place in `git worktree list` like any other lane.
 **A third seat was added on the Captain's call 2026-10-05: `lane-nemotron-lightning`**, a lane for the Nemotron 3.5
 Lightning model. `lane-lightning` — created 2026-10-03, listed in the table below as the Lightning lane, and holding no
 session and no Maestro tab on 2026-10-05 — already carries that model, so the two are two seats of one fact rather than
-two facts; retiring the older one is `git worktree remove ../lane-lightning && git branch -d lane/lightning`, and
-re-founding it in place is `git worktree move` plus `git branch -m`.
+two facts; retiring the older one is `jj workspace forget lane-lightning`, `jj bookmark delete lane/lightning` and
+`rm -rf ../lane-lightning` (the `jj` form of "retire a lane", below), and re-founding it in place is a new workspace and a
+new bookmark — there is no `jj` "move", because a workspace is a directory plus a working-copy commit, not a branch you
+can rename.
 
 | lane | model (ranked for this repo, 2026-10-03) | what it is for |
 | --- | --- | --- |
@@ -91,18 +103,23 @@ What the script does, written out — for when it has to be done without it:
 
 ```sh
 cd /Users/Shared/dev/src/Culebraluxe-web
-git worktree add ../lane-<name> -b lane/<name> origin/main
+jj workspace add ../lane-<name> --name lane-<name> -r main@origin   # a workspace — and a git worktree with it
+jj bookmark create lane/<name> -r main@origin                       # jj creates it untracked: nothing to aim at
 cd ../lane-<name>
 ln -sfn /Users/Shared/dev/.env.local     .env.local        # a symlink, never a copy
 ln -sfn /Users/Shared/dev/.env.scheduler .env.scheduler
 bash /Users/Shared/dev/src/Culebraluxe-web/scripts/lane-cargo-config.sh --at .   # this lane's own build dir
-git branch --unset-upstream                                # a bare `git push` must not aim at main
 chmod -R go-rwx .                                          # a fresh worktree lands 755 inside the 700 tree
 # pnpm install --frozen-lockfile   # ONLY in a lane that must build the website or run tailwind
 ```
 
-**A lane is 84 MB of code: the recipe is `git worktree add`, two symlinks, one line of cargo config and the modes, and
-`pnpm install` is not part of it (2026-10-03; the cargo-config line arrived 2026-10-07).** That 84 MB has never included
+**The old recipe's last line, `git branch --unset-upstream`, has no `jj` equivalent because the trap is gone:** a bookmark
+`jj` creates is untracked, so a bare push has nothing to aim at. A lane has no branch at all any more — measured
+2026-10-16, `git branch --show-current` in a lane answers `""` — and does not need one.
+
+**A lane is 84 MB of code: the recipe is one `jj workspace add`, two symlinks, one line of cargo config and the modes, and
+`pnpm install` is not part of it (2026-10-03; the cargo-config line arrived 2026-10-07, and the create step became
+`jj workspace add` on 2026-10-16).** That 84 MB has never included
 build output and still does not: the lane's target directory lives outside the tree, at `build/rust-lane-<name>` — see
 "One target directory per checkout" below. Measured that day: a plain lane is 84 MB on disk, and creating six of them moved `df` by
 0.56 GB (813.21 → 813.77 GB used) — 93 MB each, of which 74 MB is `public/images`, which every checkout materialises
@@ -132,14 +149,18 @@ CLI opens `repo_root()/.env.local` through `dotenvy::from_path` → `File::open`
 (`.env.scheduler`) keep the link itself invisible to git, so every lane's `git status` stays clean, and because the real
 file is outside every worktree it can no longer be committed from one. A new lane runs `ln -sfn`, never `cp`.
 
-One lane, one branch, one agent: commit on the lane branch, land it on `origin/main`, and mind house rule 1
-(`lane/*` is short-lived). **`origin/main` is the trunk, not the main checkout's local `main`:** Forge's publish path
-(`forge/src/engine/git_publish.rs`) pushes candidates straight to `origin/main`, so a local `main` is always behind
-something. Check out by rebasing (`git fetch origin && git rebase origin/main` in the lane), never by merging `main`
-in; check in with `git push origin lane/<name>:main`, which is fast-forward-only — a lane that has not rebased is
-refused instead of merged. Nobody commits on the main checkout; it follows the trunk with `git pull --ff-only`.
+One lane, one bookmark, one agent: describe your work in the lane's change, land it on `origin/main` (the `main`
+bookmark), and mind house rule 1 (`lane/*` is short-lived). **`origin/main` is the trunk, not the main checkout's local
+`main`:** Forge's publish path (`forge/src/engine/git_publish.rs`) pushes candidates straight to `origin/main`, so a local
+`main` is always behind something. Sync by replay — `jj git fetch && jj rebase -d main@origin` — never by merging, which
+is not part of this workflow at all; publish with `jj push --bookmark lane/<name>`, which is the push with the pre-push
+checks in front of it (`docs/agent/JJ-INTERFACE.md`, "Landing on `main` under `jj`"), and land by moving `main`.
+The main checkout follows the trunk the same way (`jj git fetch`, `jj rebase -d main@origin`); it is not where work
+belongs, which is why house rules 2 and 3 exist.
 No lane reads another lane's tree — work crosses lanes only through `main` (`AGENTS.md`,
-the 2026-10-03 lane exception to NO TREES). Lanes are worktrees, so they share history and one object store — that is the point.
+the 2026-10-03 lane exception to NO TREES). Lanes are `jj` workspaces in one colocated repo, so they share history and one
+object store — that is the point — and each one carries its own working-copy commit, which is why the roster is a list of
+workspaces and not of branches.
 **One target directory per checkout (2026-10-07).** The cargo target directory is per checkout, not shared:
 `/Users/Shared/dev/build/rust-lane-<name>` for a lane, `/Users/Shared/dev/build/rust-main` for the main checkout and the
 launchd jobs. It is named by a checkout-local `.cargo/config.toml` (written by `scripts/lane-cargo-config.sh`, which
@@ -151,8 +172,10 @@ now build at once, and fifteen times cargo's default of ten jobs would be 150 ru
 trading an idle queue for a thrashing box.
 
 **A disposable checkout builds inside its own tree (2026-10-08).** The one exception to that layout is the shape
-`git worktree add` makes and `git worktree remove` takes away — a Forge/Maestro sandbox, or the detached checkout
-`forge/src/engine/worktree.rs` uses to prove an integration commit — and it is deliberate: those are not lanes, and
+`git worktree add` makes and `git worktree remove` takes away — a Forge/Maestro sandbox, or the disposable story checkout
+`forge/src/engine/worktree.rs` uses to prove an integration commit (`provision_worker_workspace`, `:298`; it is
+branch-backed with `-b <branch>` and *not* detached — the only `--detach` in that file is a test helper, `:559`) — and
+it is deliberate: those are not lanes, and
 their build output is `<their own tree>/.cargo-target`, so it is deleted with the checkout that owned it. Until
 2026-10-08 they shared the `rust-main` fallback, which serialised a dozen sandbox worktrees against the main checkout
 and the launchd job exactly the way the shared directory used to. The name is `.cargo-target` and *not* `target` on
@@ -161,8 +184,11 @@ into `/target`, read-only on macOS — so an in-tree directory called `target` m
 `pnpm ui:build` and the deploy die, which is the trap the paragraph below records. A lane still builds into
 `build/rust-lane-<name>`, outside its tree: a lane is not disposable and its output is something a human manages.
 The naming rule lives in one place, `scripts/lane-cargo-config.sh`, and is applied by `.githooks/post-checkout`,
-which git runs inside each new worktree — one hook covers every creator (lane-new.sh, the engine, Maestro, a human
-typing `git worktree add`) instead of the same rule copied into four of them. The hook calls the script **from the
+which git runs inside each new worktree — one hook covers every git-created worktree (the engine, Maestro, a human
+typing `git worktree add`) instead of the same rule copied into four of them. **It no longer covers the lane path:**
+`jj workspace add` runs no hook, because `jj` has no hook system (`docs/agent/JJ-INTERFACE.md`, SCOPE item 1), which is
+why `scripts/lane-new.sh` calls `lane-cargo-config.sh` itself for every lane it creates — that direct call is the
+load-bearing one now, and the hook is what still covers the sandboxes. The hook calls the script **from the
 checkout it is creating**, so the copy that runs is the one at the commit being checked out: a change to the naming
 rule takes effect for the next worktree only once it is committed, and whatever is wrong at `HEAD` is what every
 `git worktree add` pays. That is worth remembering before blaming the hook for slowness — on 2026-10-08 an
@@ -207,10 +233,13 @@ one:
    used to remove every root's and every flag set's copies in one go (which is how the shared `build/rust` came down from
    36 GB to 9.9 GB, and why a `cargo clean` used to be a machine-wide event to be scheduled rather than a local tidy-up).
 
-Retiring a lane has three lines now, not two: `git worktree remove ../lane-<name>`, `git branch -d lane/<name>`, and
-`rm -rf /Users/Shared/dev/build/rust-lane-<name>` — the third is new on 2026-10-07 and it is the one that takes that
-lane's build output back, immediately and without touching any other lane. (Before, a lane's artifacts stayed inside the
-one shared directory until somebody ran one of the levers above.)
+Retiring a lane has four lines now, not two: `jj workspace forget lane-<name>`, `jj bookmark delete lane/<name>`,
+`rm -rf /Users/Shared/dev/src/lane-<name>`, and `rm -rf /Users/Shared/dev/build/rust-lane-<name>` — the build directory is
+the line added on 2026-10-07, and it is the one that takes that lane's build output back, immediately and without touching
+any other lane. (Before, a lane's artifacts stayed inside the one shared directory until somebody ran one of the levers
+above.) `jj workspace forget` only stops tracking a workspace — *"The workspace will not be touched on disk. It can be
+deleted from disk before or after running this command"* (`jj workspace forget --help`) — and it deletes neither the
+bookmark nor the commits, which is why this is four lines and not one.
 
 A shared target had a second failure mode, and it cost more than the lock: **a lane could be handed a stale artifact and
 lose an hour to an impossible error (2026-10-03).** One directory per checkout closes that path — nothing a lane compiles
@@ -242,30 +271,45 @@ sentence that bans exactly that report, written the day before.
 ## Rules that keep this working
 
 1. **Never work in `/tmp` or `~/Documents`.** macOS purges `/tmp`, and iCloud resurrects deletions in `~/Documents`;
-   both leave dead `git worktree` records behind, and a dead record makes `git worktree list` lie about what work exists.
+   both leave dead worktree records behind, and a dead record makes `git worktree list` lie about what work exists —
+   `jj workspace list` lists the same set since 2026-10-16 (both answered 24), so it inherits that lie. The `jj` spellings
+   of the cleanup are `jj workspace forget <name>` and `jj bookmark delete lane/<name>`.
 2. **No stores inside a checkout.** pnpm's store is `~/Library/pnpm/store/v10`; a `.pnpm-store` inside the repo is a
    leftover from an older config (one was removed on 2026-10-01, 936 MB, referenced by no `.npmrc`).
 3. **`700`, on purpose.** A second account (`cecochran`) exists on this Mac and `/Users/Shared` is world-readable, so
    the tree, the lanes and every `.env*` file are owner-only. Do not loosen the modes. Unix does not inherit modes —
-   a new lane or build directory is created as `mode & ~umask`, which is how a fresh `git worktree add` under a default
-   `022` shell lands at `755` inside the `700` tree: `chmod -R go-rwx /Users/Shared/dev` puts it back (never `-R 700`
+   a new lane or build directory is created as `mode & ~umask`, which is how a fresh `jj workspace add` (which makes a git
+   worktree under the hood) under a default `022` shell lands at `755` inside the `700` tree: `chmod -R go-rwx /Users/Shared/dev` puts it back (never `-R 700`
    or `-R 600` — the first adds an execute bit to every file, the second strips it from every script and binary in
    `node_modules` and `build/`), and `umask 077` stops it recurring. The `700` on `dev/` is what actually gates
    access — nothing inside is reachable by the other account while it holds — so this is defence in depth, not the door.
 4. **Never run a command that pages or waits for an editor.** `core.pager` is `cat` machine-wide for a reason — see below.
-5. **Uncommitted work is snapshotted, not lost.** `scripts/wip-snapshot.sh` writes every dirty worktree to
-   `refs/wip/<name>` every 5 minutes (launchd, `pnpm wip:install` / `wip:now` / `wip:uninstall`):
+5. **Uncommitted work is snapshotted, not lost — and under `jj` there are now two layers.** `jj` snapshots the working
+   copy into `@` at the start of every command, so the first receipt is `jj log -r @` / `jj --no-pager diff -r 'trunk()..@'`.
+   `scripts/wip-snapshot.sh` still runs every 5 minutes (launchd, `pnpm wip:install` / `wip:now` / `wip:uninstall`) and
+   still writes `refs/wip/<name>`, and measured on 2026-10-16 it is mostly redundant: **18 of the 24 checkouts log
+   `clean <name> (HEAD already equals the working tree)`** — that is its own code path, `scripts/wip-snapshot.sh:102` —
+   because `jj` keeps git's `HEAD` at the *parent* of `@`, so a clean lane equals `HEAD` again. The five it still
+   snapshots are the five that genuinely hold a working-copy change (`lane-claude` 1 file, `lane-mimo` 1, `lane-muse` 5,
+   `lane-nemotron` 5, `lane-nemotron-2` 3 — `jj status` names them), plus whichever checkout is being edited at the time;
+   the run read to write this paragraph logged `snapshot Culebraluxe-web`, which was this file:
 
    ```sh
-   git --no-pager diff HEAD refs/wip/lane-gpt --stat    # what the snapshot holds
-   git show refs/wip/lane-gpt:path/to/file              # a specific file
+   jj log -r @                                          # the work, as a commit
+   git --no-pager diff HEAD refs/wip/lane-gpt --stat     # what the 5-minute snapshot holds
+   git show refs/wip/lane-gpt:path/to/file               # a specific file
    ```
+
+   Deleting the job would remove a second copy of work `jj` already holds, so `pnpm wip:uninstall` is a deliberate step
+   (`docs/agent/JJ-INTERFACE.md`, SCOPE item 3 — *"The WIP snapshot job is now redundant and is still installed"* — carries
+   it), not a cleanup nobody would notice.
 6. **A lane holds code and nothing else.** No `node_modules`, no `target` inside the tree, and no `pnpm install` "to be
    safe": a lane's cargo output goes to `build/rust-lane-<name>`, outside the checkout (see "One target directory per
    checkout" above — a *sandbox* is not a lane and has no directory there at all: it builds into its own tree, because
    it dies with it), and `pnpm install` is the per-lane call of a lane that must build the website (30 MB,
-   `--with-website`). `pnpm lane:new <name>` is the whole recipe — it writes the lane's own cargo config too — and it
-   leaves the upstream unset so a bare `git push` in a lane cannot aim at `main`.
+   `--with-website`). `pnpm lane:new <name>` is the whole recipe — it writes the lane's own cargo config too — and under
+   `jj` there is no upstream to leave unset: the bookmark it creates is untracked, so a bare push in a lane has nothing it
+   could aim at `main`.
 
 ## Why here
 
@@ -300,7 +344,7 @@ Three of the four below closed on 2026-10-02/03. They are kept with the date rat
   repointed; the bodies they invoke were not. Fix: `pnpm agent:scheduler:install` from the main checkout (it
   rewrites the wrapper *and* the plist's `AGENT_WORKER_LOG_DIR`); the Apple jobs need their own `install` for the
   same reason.
-- **No Time Machine destination.** The repo, its lane branches and the exports live on one internal disk; iCloud is not a
+- **No Time Machine destination.** The repo, its lane bookmarks and the exports live on one internal disk; iCloud is not a
   backup, and it is currently holding ~43 GB of dead targets (see next line). This is the biggest open risk.
 - **The dead worktree records are gone (2026-10-03).** `git worktree list` shows only live trees — `Culebraluxe-web`
   plus the lanes, no estate: `/private/tmp/ocwt` is no longer registered (nor is its `refs/wip/ocwt`

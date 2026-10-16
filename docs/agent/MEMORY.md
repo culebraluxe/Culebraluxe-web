@@ -19,7 +19,8 @@
   looked at; and `PUBLICATION_DENY` grew from 17 to 23 entries, naming `jj push`, `jj git push`, `jj git fetch`,
   `jj git remote`, `jj git clone` and `jj util` beside their git spellings, because an implementer's shell catch-all is
   `allow` and every denied git verb therefore had a newer spelling one keystroke away — `jj push` is the repository's
-  own alias, and `jj util exec -- …` is literally how that alias is defined (`.jj/repo/config.toml`), so `jj util` is
+  own alias, and `jj util exec -- …` is literally how that alias is defined (in the repo config file `jj config path --repo`
+  prints — not `.jj/repo/config.toml`, which is a pointer file in a lane; corrected 2026-10-16), so `jj util` is
   denied with the verbs it could smuggle past. **This is a generated file, so the JSON was not hand-edited:** the
   renderer was changed and `pnpm forge:opencode-config` regenerated `opencode.json` (99 `jj` rules), with `--check`
   clean afterwards — a hand edit here is refused by design, and it would have changed what a human's session may do
@@ -96,7 +97,9 @@
   same binary the eight 26-hour hangs of 2026-10-01 were found inside; and the guide's publish instruction was
   `jj git push`, which is precisely the bypass of the checks this repository had ported to the alias `jj push` that
   same day. **What landed:** `docs/agent/JJ-FOR-AGENTS.md` — the cheat sheet corrected rather than copied, led by the
-  three facts that change every command after them (push with `jj push`; `jj` cannot run in a lane at all; `main` is
+  three facts that change every command after them (push with `jj push`; `jj` cannot run in a lane at all *(re-measured
+  2026-10-16: it can — the lanes are `jj` workspaces now, `jj status` answers in each; this claim held only while a lane
+  was a git worktree with no `.jj`, see the 2026-10-16 entry below)*; `main` is
   protected, measured `{"force_push": false, "admins": true}`) and with its rules numbered **J1–J15** deliberately
   apart from the House Rules, because a second meaning for "rule 10" is how the ambiguity that produced this file
   starts. Two pointer edits put it where a new agent actually looks: `AGENTS.md` rules 2 and 10 name it and now say
@@ -110,6 +113,40 @@
   Forge-owned. Forge's own publication path stays git on purpose (`forge/src/engine/git_publish.rs:174`) — it is not a
   model's shell, and that is the difference that keeps the deny list meaningful. **Verified:** `pnpm protected-files`,
   `pnpm forge:guard-lint`, `pnpm forge:packet-lint`, `pnpm forge:sync-agents --check`.
+- **2026-10-16 (the conversion the last commit named as "next" is done — and the prose it left behind said otherwise in
+  six places).** Every lane is a `jj` workspace: `jj workspace list` → **24** (`default` + the 22 `lane-*` + the Forge
+  sandbox `worktrees-wo-204`, which `lane-adopt-jj.sh --all` adopted along with the lanes), `git worktree list` → the same
+  24 (colocated: `jj workspace add` registers a git worktree as well), and `jj status` answers in a lane. **The bug class
+  this found was prose, not code:** six files said the `jj push` alias lives in `.jj/repo/config.toml`, which in a lane is
+  a pointer file — the alias is in the repo config `jj config path --repo` prints
+  (`~/.config/jj/repos/d0acdad294aa332619a6/config.toml`), outside every checkout and shared by every workspace, which is
+  why a lane has it too and why it is never committed. **Four readings were re-measured rather than reasoned about** (all
+  2026-10-16): `git branch --show-current` in a lane → `""` and `git rev-parse --abbrev-ref HEAD` → `HEAD`, because `jj`
+  leaves git's `HEAD` at the **parent** of `@` (`Culebraluxe-web` `HEAD=2e05599e0` / `@=785786512a1b`; `lane-bot3`
+  `32a92776d`/`8735056ef3ec`; `lane-mimo` `d240acf14`/`40125edf4d8d`). That single fact explains two things the docs had
+  got wrong: a lane's uncommitted work reaches git as *staged* changes, and `wip-snapshot.sh` still logs a snapshot for
+  exactly the five lanes whose `@` is not empty (`lane-claude`, `lane-mimo`, `lane-muse`, `lane-nemotron`,
+  `lane-nemotron-2`) while the other 18 checkouts log `clean`. **A lane is identified by its workspace name**
+  (`jj workspace root`), never by `jj bookmark list` — run in a lane that prints 92 bookmarks, 20 of them `lane/*`, and
+  `lane-claude` shares its target with 17 siblings. **A gate caught the one code-level consequence:** the frozen
+  `WORKTREE_CAPABILITY_FILES` (`cli/src/forge/repo_guards.rs:133`, `.guard AGENTS.md:151`) still expected
+  `scripts/lane-new.sh` — it creates the lane's one tree with `jj workspace add` now, so the textual scan no longer sees
+  it — and did not know `scripts/lane-adopt-jj.sh`, whose failure path puts a lane back with
+  `git worktree add --force --detach`. The set was corrected with both reasons written down, which is what that guard
+  demands. **And the same guard caught its own reviewer the same day:** the note written beside `INSPECT_SHELL`'s `git`
+  entries named the phrase the scan hunts — in prose, to explain why the entry survives — which enlarged the frozen set
+  to nine and failed `no_tree_residue_the_worktree_capability_set_is_frozen` (`cli/src/forge/repo_guards/tests.rs:106`,
+  an `assert_eq!` against that list) on a tree where every other gate had just passed. The scan is textual and it reads
+  prose; the comment now makes the same point without the token, and says why it must. **Still open, and named where an
+  agent will look** (`docs/agent/JJ-INTERFACE.md`, SCOPE items 1–6): six
+  control-plane scripts read a lane's branch the git way and now get `""`; the packet's "Create a local git commit" and
+  the git entries in `INSPECT_SHELL` both wait on one deliberate change; the workspace compile still runs nowhere; and
+  `wip-snapshot.sh` is redundant but installed, to be retired on purpose. **Verified:** `pnpm scripts:check` (59 shell
+  files), `pnpm protected-files`, `pnpm forge:guard-lint`, `pnpm forge:packet-lint` (the same 6 pre-existing failures, 0
+  new), `pnpm forge:sync-agents --check`, and `bash scripts/ops/gate/slice-check.sh` — T0 PASS, FMT PASS, T1 PASS once the
+  guard above was corrected.
+
+
 
 - **2026-10-06 (the permission was already true, but it was written inside a `Never` list, so the Captain had to say it
   again).** His direction: *"change that orientation agents can access prod and have full CRUD"*. The mechanism is

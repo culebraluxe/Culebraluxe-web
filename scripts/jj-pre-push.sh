@@ -30,8 +30,16 @@
 #   When the range cannot be resolved (a first push, a detached workspace) it
 #   checks everything, which is what the git hook did for a brand-new ref.
 #
-# INSTALL (once per repo — the alias is written to .jj/repo/config.toml, which
-# every workspace shares, and which is NOT committed because .jj/ is ignored):
+# INSTALL (once per repo — the alias is written to the repo's config file, and
+# the path is the one `jj config path --repo` prints:
+#     ~/.config/jj/repos/<repo-id>/config.toml        (measured 2026-10-16)
+# NOT `.jj/repo/config.toml`, which this file and three others claimed until
+# 2026-10-16: in a lane `.jj/repo` is a 30-byte pointer FILE naming the main
+# checkout's repo directory, not a directory, so that path does not exist. The
+# measured path is outside every checkout (so it is never committed) and every
+# workspace of this repo shares it — the same path answers from the main
+# checkout and from a lane, and `jj -R ../lane-claude config get aliases.push`
+# prints the alias below):
 #   bash scripts/jj-pre-push.sh --install
 #
 # RUN
@@ -53,7 +61,7 @@ if [ "${1:-}" = "--install" ]; then
     exit 1
   fi
   echo "jj-pre-push: installed alias 'push' — 'jj push' now runs the checks first"
-  echo "jj-pre-push: stored in .jj/repo/config.toml, so every workspace shares it; .jj/ is not committed"
+  echo "jj-pre-push: stored in $(jj config path --repo) — every workspace of this repo shares it, and it is outside every checkout, so it is not committed"
   exit 0
 fi
 

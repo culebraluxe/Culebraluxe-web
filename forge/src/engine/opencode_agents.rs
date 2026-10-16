@@ -313,10 +313,20 @@ const TEST_ANALYST_SKILLS: [&str; 2] = ["rust-testing", "semgrep"];
 /// bookmark verb that only reads. `jj bookmark set`/`delete` are absent (they move publication pointers) and so
 /// are `jj new`/`describe`/`commit` (they write) — read-only authority is what those denies encode.
 ///
-/// WHY `git` IS STILL LISTED: a lane is still a git worktree with no `.jj` (measured 2026-10-15: `jj status`
-/// fails with `There is no jj repo in "."` in every `lane-*`), so git inspection is the fallback a worker
-/// physically needs today. These entries retire with the lanes; they are listed last so that cleanup is a
-/// deletion rather than a re-think.
+/// WHY `git` IS STILL LISTED: this reason expired on 2026-10-16, and the entries are kept anyway — deliberately.
+/// A lane WAS a git worktree with no `.jj` (measured 2026-10-15: `jj status` failed with `There is no jj repo
+/// in "."` in every `lane-*`), and that is why the fallback was granted. The lanes are `jj` workspaces now
+/// (`jj workspace list` → 24; `docs/agent/JJ-INTERFACE.md`, SCOPE item 2), and a *fresh* Forge/Maestro sandbox
+/// is still created by git rather than by `jj` (`forge/src/engine/worktree.rs:298`), so a worker can still land
+/// in a checkout where `jj` does not answer — but that is no longer why these are listed. Retiring them changes
+/// what a Forge turn may do, so it rides the harness gates and `tests/tests/opencode_v2_agents.rs` rather than a
+/// docs change (`docs/agent/JJ-INTERFACE.md`, SCOPE item 5 — the same reason the packet's "Create a local git
+/// commit" sentence is still there). They are listed last so that cleanup is a deletion rather than a re-think.
+///
+/// The wording above avoids the token this crate's residue scan hunts (`cli/src/forge/repo_guards.rs`,
+/// `worktree_add_phrase`): this comment is inside a scanned root, so writing that phrase here — even in prose,
+/// even to deny it — adds this file to the frozen capability set and turns the guard red. Measured 2026-10-16:
+/// the first draft of this comment did exactly that.
 const INSPECT_SHELL: [&str; 11] = [
     "jj status",
     "jj diff",
@@ -735,7 +745,8 @@ pub const READ_TOOLS: [&str; 5] = ["glob", "grep", "list", "lsp", "read"];
 /// `scripts/jj-pre-push.sh` and then `jj git push`), `jj git push`, `jj git fetch`, `jj git remote` (repoint
 /// `origin`), `jj git clone`. A fence that names one spelling of a verb is not a fence, it is a gate. `jj util`
 /// is the general-purpose route around this whole list — `jj util exec -- <anything>`, which is literally how
-/// the `push` alias is defined (`.jj/repo/config.toml`) — so it is denied alongside the verbs it would smuggle
+/// the `push` alias is defined (in the repo config file `jj config path --repo` prints — not `.jj/repo/config.toml`,
+/// which is a 30-byte pointer file in a lane; corrected 2026-10-16) — so it is denied alongside the verbs it would smuggle
 /// past.
 ///
 /// WHAT THIS LIST IS NOT: a sandbox. The vendor matches command PREFIXES, so `env git push`,

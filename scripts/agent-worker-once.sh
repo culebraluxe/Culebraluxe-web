@@ -8,10 +8,16 @@
 # durable state all belong to Forge behind the Rust `forge-worker` binary.
 #
 # This file is intentionally boring and stable because launchd executes a
-# deployed copy outside ~/Documents (macOS TCC). The only Git responsibility
-# here is a fail-closed `git pull --ff-only origin main` so unattended work
-# never executes stale Forge code or stale packet contracts. Never stash,
-# reset, rebase, force-update, or mutate worker branches here.
+# deployed copy outside ~/Documents (macOS TCC). Its only source-control
+# responsibility is a fail-closed fast-forward of the control plane onto
+# origin/main, so unattended work never executes stale Forge code or stale
+# packet contracts: `jj git fetch` then `jj rebase -d main@origin` — the jj form
+# of `git pull --ff-only origin main`, which stopped being answerable by git on
+# 2026-10-15 when this checkout became a colocated jj workspace (measured that
+# day: `git branch --show-current` answers "" here, because jj detaches HEAD at
+# the working-copy commit). It never stashes, resets, force-updates or touches a
+# lane's branch, and it still speaks git when a checkout has no `.jj` — the
+# Forge worker sandboxes under forge/src/engine/worktree.rs still do not.
 # ---------------------------------------------------------------------------
 
 set -u
@@ -192,6 +198,26 @@ branch_err_file="$(mktemp -t culebraluxe-branch.XXXXXX)"
 branch="$(git branch --show-current 2>"$branch_err_file" || true)"
 branch_err="$(tr '\n' ' ' < "$branch_err_file" 2>/dev/null | sed 's/[[:space:]]*$//')"
 rm -f "$branch_err_file"
+
+# THE CONTROL PLANE IS A jj WORKSPACE SINCE 2026-10-15, and git alone cannot answer the question above any more.
+# Measured in this checkout on that day: `git branch --show-current` -> "" and `git symbolic-ref --short HEAD` ->
+# "", because jj detaches HEAD at the working-copy commit. So the check below read `found ''` on every scheduled
+# tick — 439 times between 2026-10-15T01:55 and 23:47 by `grep -c "checkout-not-main branch=''"` on
+# build/logs/agent-worker.invocations.log — and the worker never reached the Rust binary. That is the same shape
+# of bug the block above was written for (`found ''` reading as a mystery, Forge dead for twelve days), so the
+# check now asks whichever interface owns the answer: jj when this checkout is a jj workspace, git otherwise.
+# The intent is unchanged — the control plane must be ON main, not on a branch that wandered off — and in jj that
+# is: `main` is a bookmark, and `main` is an ancestor of (or equal to) the working-copy commit `@`.
+if [ -e "$REPO_ROOT/.jj" ] && ! command -v jj >/dev/null 2>&1; then
+  echo "agent-worker: this checkout is a jj workspace but jj is not on PATH; Forge not started" >&2
+  inv_log "stop: jj-missing"
+  exit 2
+fi
+if [ -z "$branch" ] && [ -e "$REPO_ROOT/.jj" ]; then
+  if jj --ignore-working-copy log -r 'main & ::@' --no-graph -T 'commit_id' 2>/dev/null | grep -q .; then
+    branch="main"
+  fi
+fi
 if [ "$branch" != "main" ]; then
   echo "agent-worker: expected control-plane checkout on main, found '$branch'" >&2
   if [ -n "$branch_err" ]; then
@@ -215,13 +241,45 @@ if [ "$branch" != "main" ]; then
   inv_log "stop: $stop_reason branch='$branch' git-error='$branch_err'"
   exit 2
 fi
-inv_log "git-sync: start origin/main"
-if ! git pull --ff-only origin main; then
-  echo "agent-worker: git fast-forward failed; Forge not started" >&2
-  inv_log "stop: git-sync-failed"
-  exit 2
+# THE FAST-FORWARD, IN THE INTERFACE THAT OWNS IT. `git pull --ff-only origin main` cannot be the answer in a
+# colocated jj workspace: HEAD is detached (there is no branch to fast-forward) and the working copy belongs to
+# jj, not to git's index — running git's pull here writes refs jj owns, which is how two checkouts end up
+# disagreeing about where main is. The jj form keeps every intent of the old line and fails closed the same way:
+# `jj bookmark set main -r main@origin` refuses a backwards or sideways move (that is the `--ff-only` refusal),
+# `jj rebase -d main@origin` is what moves this checkout's working copy onto the new trunk, and a conflict after
+# it is the jj form of "the pull would have overwritten something you have".
+if [ -e "$REPO_ROOT/.jj" ]; then
+  inv_log "jj-sync: start origin/main"
+  if ! jj git fetch; then
+    echo "agent-worker: jj git fetch failed; Forge not started" >&2
+    inv_log "stop: jj-sync-fetch-failed"
+    exit 2
+  fi
+  if ! jj bookmark set main -r main@origin; then
+    echo "agent-worker: control-plane main is not a fast-forward of origin/main; Forge not started" >&2
+    inv_log "stop: jj-sync-not-fast-forward"
+    exit 2
+  fi
+  if ! jj rebase -d main@origin; then
+    echo "agent-worker: rebasing the control plane onto origin/main failed; Forge not started" >&2
+    inv_log "stop: jj-sync-rebase-failed"
+    exit 2
+  fi
+  if [ "$(jj --ignore-working-copy log -r @ --no-graph -T 'if(conflict, "conflict", "ok")' 2>/dev/null)" != "ok" ]; then
+    echo "agent-worker: the control-plane working copy is in conflict after the sync; Forge not started" >&2
+    inv_log "stop: jj-sync-conflict"
+    exit 2
+  fi
+  inv_log "jj-sync: complete change=$(jj --ignore-working-copy log -r @ --no-graph -T 'commit_id.short()' 2>/dev/null || echo unknown)"
+else
+  inv_log "git-sync: start origin/main"
+  if ! git pull --ff-only origin main; then
+    echo "agent-worker: git fast-forward failed; Forge not started" >&2
+    inv_log "stop: git-sync-failed"
+    exit 2
+  fi
+  inv_log "git-sync: complete head=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 fi
-inv_log "git-sync: complete head=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 pass=1
 while [ "$pass" -le "$MAX_PASSES" ]; do

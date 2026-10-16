@@ -12,6 +12,12 @@ The teaching companion is `docs/agent/JJ-FOR-AGENTS.md` — the git instinct, th
 (`less` for a pager, an editor behind a bare `jj describe`). This card is the state of the conversion; that file is how
 to type it.
 
+**State, 2026-10-16: the lanes are converted to `jj` workspaces.** `jj workspace list` → 24 workspaces (`default`, the
+22 `lane-*`, and the Forge sandbox `worktrees/wo/204`), `jj status` answers in every one of them, and
+`docs/agent/LAYOUT.md` now describes a lane as a `jj` workspace. `scripts/lane-adopt-jj.sh` is the tool that did it and
+the place its receipts live. What the conversion did **not** finish is the prose it unblocked — items 2 and 6 of
+*SCOPE* below name it exactly.
+
 ## Why — the measured cost, not the argument
 
 The Captain's reason: *"git has been 4 days of problems … this is my last attempt to make it work before i rip
@@ -44,8 +50,12 @@ keep `origin`. What the switch removes is agents *typing* git, and the branch/st
   Rule 7 ("leave the kitchen clean") becomes structural instead of a promise.
 - **every operation is recorded.** `jj op log` is a durable, timestamped history of every ref movement in the
   repo, and `jj undo` / `jj op restore` walk it back. Recovering a lost afternoon is reading a list.
-- **no stash, no detached `HEAD`, no lost branch.** A stash is a commit you cannot find; a lane's work is a
-  commit `jj log` shows.
+- **no stash, no work stranded in a detached `HEAD`, no lost branch.** A stash is a commit you cannot find; a lane's
+  work is a commit `jj log` shows. (`jj` does keep git's `HEAD` detached — at the **parent** of the working-copy commit,
+  not at the working copy: measured across checkouts on 2026-10-16, `Culebraluxe-web` has `HEAD=2e05599e0` with
+  `@=785786512a1b`, `lane-bot3` `32a92776d`/`8735056ef3ec`, `lane-mimo` `d240acf14`/`40125edf4d8d`. That is exactly why
+  `git rev-parse --abbrev-ref HEAD` answers `HEAD` and a branch read is no longer how you identify a lane — and why a
+  lane's uncommitted work, which lives in `@`, reaches git as *staged* changes against `HEAD`.)
 - **concurrent workspaces are first-class** (`jj workspace add`), each with its own working-copy commit, and
   `jj git push` is force-with-lease by default — so a race *refuses* the push instead of clobbering someone.
 
@@ -70,15 +80,17 @@ name its `jj` form.
    `jj log` shows every lane's work.
 4. **Sync by rebase, never by merge** — House Rule 1's spirit, one command:
    `jj git fetch && jj rebase -d main@origin`.
-5. **Land by moving the bookmark and pushing**: `jj bookmark set main -r <rev> && jj git push --branch main`
-   (or push a lane bookmark short-lived, exactly as rule 1 allows a branch).
+5. **Land by moving the bookmark and pushing**: `jj bookmark set main -r <rev> && jj git push --bookmark main`
+   (`--bookmark` is the documented spelling in 0.46 and `--branch` the older one that still parses — or push a lane
+   bookmark short-lived, exactly as rule 1 allows a branch). `jj push --bookmark main` is the same landing with the
+   pre-push checks in front of it, which is what this card recommends everywhere else.
 6. **Never stash.** A stash is a commit nobody can find; `jj undo` reverses the last operation, `jj op restore
    <op>` returns the whole repo to a point in `jj op log`, and `jj op log` shows what happened, when, and by
    which host.
 7. **Nothing is invisible.** `jj log -r 'all()'` is the answer to "is there work nobody can pull" that
    `recover:strand` exists to approximate today.
 
-## SCOPE, STATED HONESTLY — what is NOT converted yet (2026-10-15)
+## SCOPE, STATED HONESTLY — what is NOT converted yet (2026-10-15, re-checked 2026-10-16)
 
 Read this section before trusting a guard that is not listed as ported.
 
@@ -94,18 +106,31 @@ Read this section before trusting a guard that is not listed as ported.
    through to `jj git push`. **What no alias can replace:** `.githooks/pre-push` deliberately moved the *workspace*
    compile to CI on 2026-10-01, and GitHub Actions is disabled repo-wide as of 2026-10-15 — so the workspace compile
    currently runs **nowhere**. The per-checkout cargo target dir waits for item 2.
-2. **The lanes are still git worktrees, and today `jj` cannot run in one at all.** Measured 2026-10-15 — `jj status`
-   inside `lane-claude` answers *There is no jj repo in "."*, because a lane has no `.jj`. So a worker in a lane has
-   no `jj` to type, which is what makes this the migration's next step rather than a preference. It is **one**
-   change, and the tooling survives it, because `jj workspace add` inside a colocated repo registers a git worktree
-   as well (proven in a throwaway repo). The ten scripts that know about worktrees — `scripts/lane-new.sh`,
-   `scripts/wip-snapshot.sh`, `scripts/lane-cargo-config.sh`, `scripts/verify-checkout-build-dir.sh`,
+2. **CLOSED 2026-10-16 — the lanes are `jj` workspaces, and this card's largest item is done.** `jj workspace list`
+   → **24** (`default` + the 22 `lane-*` + the Forge sandbox `worktrees/wo/204`), `git worktree list` → the same 24,
+   `jj status` answers in a lane (`The working copy has no changes.`), and the alias is there too
+   (`jj -R ../lane-claude config get aliases.push`). The old reading, replaced: *"The lanes are still git worktrees, and
+   today `jj` cannot run in one at all"* — `jj status` inside `lane-claude` answered *There is no jj repo in "."*. The
+   conversion was `scripts/lane-adopt-jj.sh` (`--all`, one at a time, `--dry-run`, a kept-copy path), and it verified
+   what it did: every `refs/heads/*` ref unmoved, `lane-claude-deploy`'s detached HEAD still at `d240acf14`, the kept
+   copy for each lane content-identical to what the workspace loaded (`rsync -rcn`; only mtimes differ), and no
+   `.jj-adopt-*` directory left behind. All ten worktree-aware scripts — `scripts/lane-new.sh` (which creates a `jj`
+   workspace now), `scripts/wip-snapshot.sh`, `scripts/lane-cargo-config.sh`, `scripts/verify-checkout-build-dir.sh`,
    `scripts/agent-worker-once.sh`, `scripts/opencode-session-stop.sh`, `scripts/restructure-domain-layout.sh`,
-   `scripts/ops/recover/relay.sh`, `scripts/ops/recover/unblock.sh`, `scripts/ops/recover/strand-report.sh` — keep
-   seeing the lane rather than lying about what exists. A lane's working tree is recreated, so its dirty files must
-   become commits first; they are already held in `refs/wip/*` and pushed as `salvage/wip/*`.
-3. **The WIP snapshot job stays** until the last lane is converted: it is a workaround for a problem `jj` does
-   not have, and retiring it before the lanes move removes a safety net the op log has not replaced in practice.
+   `scripts/ops/recover/relay.sh`, `scripts/ops/recover/unblock.sh`, `scripts/ops/recover/strand-report.sh` — still see
+   the lane, because `jj workspace add` inside a colocated repo registers a git worktree as well. **What the conversion
+   did not do is item 6 below:** six control-plane scripts still read a lane's branch the git way, and a lane answers
+   empty now (`git branch --show-current` → `""`, `git rev-parse --abbrev-ref HEAD` → `HEAD`, measured in `lane-claude`
+   and `lane-bot3`). A lane's working tree was recreated, so its dirty files had to become commits or belong to the
+   snapshot first; they are held in `refs/wip/*` and pushed as `salvage/wip/*`, and the conversion snapshotted the
+   previously-untracked files of five lanes into `@` — which is what `jj` does with a working copy, not a loss.
+3. **The WIP snapshot job is now redundant and is still installed.** Its own trigger was *"stays until the last lane is
+   converted"*, and on 2026-10-16 the last lane was: all 24 workspaces are `jj` workspaces, so the condition is met.
+   `launchctl list` still shows `com.culebraluxe.wip-snapshot` running with exit 0, and retiring it is a deliberate
+   step rather than a consequence of the conversion — what replaces it is `jj op log` plus the fact that a lane's
+   working copy is a commit, and those two are the reason it was written as a workaround in the first place. Until
+   somebody retires it, it is a second safety net and not a lie; what it must not become is a reason to leave work
+   uncommitted, because `refs/wip/*` is a private ref nobody pulls.
 4. **`main` is protected** (`allow_force_pushes: false`, `enforce_admins: true`). An ordinary push lands. A
    rewrite of published history needs the Captain's snapshot → flip → push → restore, and that protection is
    the only thing standing between `main` and a silent clobber — it is not the obstacle, it is the guard.
@@ -117,17 +142,38 @@ Read this section before trusting a guard that is not listed as ported.
    carry `jj status`, `jj diff`, `jj log`, `jj show` and `jj bookmark list`, so a read-only Forge role can run the
    commands rule 2, rule 10 and this card tell it to run. **Denied:** `PUBLICATION_DENY` now names `jj push`,
    `jj git push`, `jj git fetch`, `jj git remote`, `jj git clone` and `jj util` beside their git spellings — `jj util`
-   deliberately, because `jj util exec -- …` is how the `jj push` alias itself is defined (`.jj/repo/config.toml`) and
+   deliberately, because `jj util exec -- …` is how the `jj push` alias itself is defined (in the repo's config file —
+   `jj config path --repo` → `~/.config/jj/repos/d0acdad294aa332619a6/config.toml` on this machine, measured 2026-10-16;
+   not `.jj/repo/config.toml`, which is a pointer file in a lane) and
    is therefore the general route around that whole list. Two tests hold the halves in `tests/tests/opencode_v2_agents.rs`:
    `v2_the_jj_spelling_of_a_denied_git_verb_is_denied_too` (the pairing — a git verb added without its `jj` spelling
    fails) and `v2_read_only_roles_inspect_with_jj_and_only_inspect` (the grant, plus that no *other* `jj` verb is
    allowed to a read-only role). **What a deny list is not:** the vendor matches command *prefixes*, so `env git push`
    and `bash -c "git push"` were never covered and are not now; the durable control is the one §2/§20 always rested on
    — publication as Forge's own code path (`forge/src/engine/git_publish.rs`, still git on purpose, still not a model's
-   shell). The git entries in `INSPECT_SHELL` stay until the lanes convert (item 2), because a lane has no `.jj` to
-   inspect, and the packet instruction an implementer reads still says *"Create a local git commit"*
-   (`forge/src/engine/packet.rs`) — a sentence that is TRUE in a lane today, so it moves with the lanes rather than
-   before them.
+   shell). **The reason the git entries in `INSPECT_SHELL` were kept expired on 2026-10-16:** they stayed *"until the
+   lanes convert (item 2), because a lane has no `.jj` to inspect"*, the lanes converted, and `git status`, `git diff`
+   and `git log` are still granted beside their `jj` spellings for no reason that survives. The same is true of the
+   packet instruction an implementer reads — *"Create a local git commit with the intended changes when the story
+   requires it"* (`forge/src/engine/packet.rs:338`), a sentence that was TRUE in a lane and is **false in every
+   workspace now**. Both are deliberately not part of the conversion: each changes what a Forge turn may do, and each
+   carries the harness gates and the two tests in `tests/tests/opencode_v2_agents.rs` with it.
+
+6. **Six control-plane scripts read a lane's branch the git way, and a lane answers empty now (found 2026-10-16, by the
+   conversion).** `git branch --show-current` → `""` and `git rev-parse --abbrev-ref HEAD` → `HEAD`, measured in
+   `lane-claude` and `lane-bot3` — and true of the main checkout since it became colocated, which is why this is a bug
+   class the conversion *spread* from one checkout to 23 rather than created. `scripts/ops/recover/unblock.sh` and
+   `scripts/agent-worker-once.sh` already read a checkout the `jj`-aware way and say so in a comment; these six do not:
+   `scripts/ops/gate/slice-check.sh` (its receipt line prints `detached` — cosmetic),
+   `scripts/forge-v10-release-receipt.sh`, `scripts/release-record.sh` (two sites), `scripts/vercel-deploy-prod.sh`,
+   `scripts/vercel-release-prod.sh`, and `scripts/vercel-provision-rust-project.sh`, which compares the branch to `main`
+   and therefore **refuses** to run — fail-closed, which is the right direction for a production cutover. None of the six
+   is a lane tool, and the four release/deploy ones run from the control plane, so today this is a report and not an
+   outage. The `jj` spellings that replace a branch read: for *which checkout is this*, the **workspace name** —
+   `jj workspace root` (→ `/Users/Shared/dev/src/lane-bot3`) or the `NAME: path` column of `jj workspace list`, which is
+   the reading a lane-named script actually wants; for *where does this lane's work sit*,
+   `jj --no-pager log -r @- --no-graph -T 'bookmarks'` (`@` carries none — it is the empty working-copy commit). Plain
+   `jj bookmark list` is **not** an identifier: run in a lane it prints every bookmark in the repository.
 
 ## Landing on `main` under `jj`
 
@@ -138,8 +184,11 @@ jj bookmark set main -r <rev>     # or: jj bookmark set lane/<name> -r @
 jj push --bookmark main           # = scripts/jj-pre-push.sh + jj git push; a moved main refuses and names it
 ```
 
-`jj push` is the alias `bash scripts/jj-pre-push.sh --install` writes into `.jj/repo/config.toml` (shared by every
-workspace, not committed). `jj git push` still works and skips the checks — the same choice `--no-verify` always was.
+`jj push` is the alias `bash scripts/jj-pre-push.sh --install` writes into the repository's config file — the path
+`jj config path --repo` prints (`~/.config/jj/repos/<repo-id>/config.toml`), shared by every workspace and outside every
+checkout, so it is not committed. Measured 2026-10-16: a lane answers the same path, and
+`jj -R ../lane-claude config get aliases.push` prints the alias, so `jj push` is available in a lane too. `jj git push`
+still works and skips the checks — the same choice `--no-verify` always was.
 
 A refusal is a report, not a retry (House Rule 9). Name the cause in one line and stop.
 

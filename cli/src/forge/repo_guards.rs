@@ -95,6 +95,22 @@ const TREE_FIELD_TOKENS: [&str; 4] = [
 /// `pub mod worker_lanes;`. The baseline makes the capability visible instead of silent; retire the
 /// module when a story owns it.
 ///
+/// `scripts/lane-new.sh` LEFT this list on 2026-10-16, when the lanes became `jj` workspaces: it still
+/// creates the lane's one tree, but it now does so with `jj workspace add` (`docs/agent/LAYOUT.md`,
+/// "Creating a lane"), and this scan is *textual* — the `jj` spelling matches no token it hunts. The
+/// removal is recorded rather than silent because that is what the assertion above demands: the
+/// capability is unchanged and sanctioned, only its wording moved. Its `--setup-only` half is what
+/// `lane-adopt-jj.sh` calls after recreating a converted lane's directory.
+///
+/// `scripts/lane-adopt-jj.sh` is the one file here that is neither in `forge/` nor `tests/`
+/// (`bless`, 2026-10-16). It converted the standing checkouts into `jj` workspaces by moving each
+/// lane's directory aside and letting `jj workspace add` (`:302`) recreate it at the same path from
+/// the lane's own commit — and when that add fails it puts the lane back with
+/// `git worktree add --force --detach` (`:308`), so the capability sits on its rollback path and not
+/// only in its prose. It runs once per lane, by hand, with `--dry-run` and `--keep-copy` available,
+/// and it leaves no tree behind that outlives the command: the lane that comes back is the lane that
+/// went in.
+///
 /// `scripts/lane-cargo-config.sh` creates no worktree. It matches this scan because its prose names
 /// `git worktree add` while explaining which kind of checkout gets which target directory
 /// (`docs/agent/LAYOUT.md`, "One target directory per checkout"): a lane gets
@@ -119,8 +135,8 @@ const WORKTREE_CAPABILITY_FILES: [&str; 8] = [
     "forge/src/engine/executor/drive/batch.rs",
     "forge/src/engine/worktree.rs",
     "forge/src/pianola/worker_lanes.rs",
+    "scripts/lane-adopt-jj.sh",
     "scripts/lane-cargo-config.sh",
-    "scripts/lane-new.sh",
     "scripts/verify-checkout-build-dir.sh",
     "tests/src/git.rs",
 ];
