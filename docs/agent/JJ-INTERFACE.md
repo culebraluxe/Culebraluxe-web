@@ -8,6 +8,10 @@ workers obeyed a handbook whose rule 2 told them to type `git pull --rebase && g
 it said. That is this repo's recurring failure in one line: **an instruction that was given and never written
 down is not a rule, it is a conversation.**
 
+The teaching companion is `docs/agent/JJ-FOR-AGENTS.md` — the git instinct, the command to type instead, and the traps
+(`less` for a pager, an editor behind a bare `jj describe`). This card is the state of the conversion; that file is how
+to type it.
+
 ## Why — the measured cost, not the argument
 
 The Captain's reason: *"git has been 4 days of problems … this is my last attempt to make it work before i rip
@@ -105,6 +109,14 @@ Read this section before trusting a guard that is not listed as ported.
 4. **`main` is protected** (`allow_force_pushes: false`, `enforce_admins: true`). An ordinary push lands. A
    rewrite of published history needs the Captain's snapshot → flip → push → restore, and that protection is
    the only thing standing between `main` and a silent clobber — it is not the obstacle, it is the guard.
+5. **The agent config does not name `jj` at all.** Measured 2026-10-15: **zero** occurrences of `jj` in `opencode.json`,
+   `forge/src`, `cli/src`, `agent-runtime` and `legacy/workflow_app/forge`. Two consequences, both conversion work: a
+   read-only Forge role is governed by a declared shell allow list plus a catch-all deny
+   (`forge/src/engine/opencode_agents.rs:738`), so it cannot run `jj status`; and `PUBLICATION_DENY`
+   (`forge/src/engine/opencode_agents.rs:703`) names `git push`, `git remote` and `git fetch` and **no** `jj` verb, so
+   `jj push` — the command rule 2 and this card now tell an agent to publish with — is a shell route around the control
+   that exists to keep publication Forge-owned. Forge's own publication path is git on purpose
+   (`forge/src/engine/git_publish.rs:174`) and is not a model's shell: leave it.
 
 ## Landing on `main` under `jj`
 
@@ -112,7 +124,7 @@ Read this section before trusting a guard that is not listed as ported.
 jj git fetch                      # see what moved
 jj rebase -d main@origin          # sync by replay, never merge
 jj bookmark set main -r <rev>     # or: jj bookmark set lane/<name> -r @
-jj push --branch main             # = scripts/jj-pre-push.sh + jj git push; a moved main refuses and names it
+jj push --bookmark main           # = scripts/jj-pre-push.sh + jj git push; a moved main refuses and names it
 ```
 
 `jj push` is the alias `bash scripts/jj-pre-push.sh --install` writes into `.jj/repo/config.toml` (shared by every

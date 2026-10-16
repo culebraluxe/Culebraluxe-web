@@ -8,7 +8,9 @@ Three sentences, if that is all you read:
 1. **The domain is Rust.** Rules, validation, SQL and HTTP live in the tiers (`web/`, `middle/`, `db/`) and the entry points (`cli/`, `forge/`), and nowhere else.
 2. **Two things decide whether your work is real**: a build (`pnpm build`, `cargo check`, `cargo test`) and the harness
    gates (`pnpm forge:harness`). Confidence is not evidence; a command's output is.
-3. **Work lands on `main`.** Small commits, pushed at once. "Done" means `git log origin/main` shows your commit.
+3. **Work lands on `main`.** Small commits, pushed at once with `jj push`. "Done" means `git log origin/main` shows your
+   commit. The interface is Jujutsu, not git: `docs/agent/JJ-FOR-AGENTS.md` is the git-to-`jj` translation, and
+   `docs/agent/JJ-INTERFACE.md` says how far the conversion has got.
 
 ## What the repository is
 
@@ -38,6 +40,7 @@ place (`docs/agent/BROKEN-TS-INVENTORY.md`).
 | CLI | `cli/src/` | `forge` gates (`cli/src/forge/`: harness lint, vendor-block sync), `db-tool`, Apple intake. |
 | Retired TypeScript | `legacy/`, dead files in `scripts/` and `agent-runtime/` | Read-only reference, out of scope, never imported. |
 | Build and ops | `scripts/`, `devops/` | `dev.sh`, `site-build.sh`, `deploy-prod.sh`, and the container files (`Dockerfile.build`, `Dockerfile.runtime`, the runtime `Dockerfile`). |
+| Version control | `docs/agent/JJ-FOR-AGENTS.md`, `docs/agent/JJ-INTERFACE.md` | Jujutsu is the interface: the translation from git, and the card saying what has not converted yet (the lanes, the hooks). |
 | Docs | `docs/agent/` | This map, `MEMORY.md`, packets, skills, releases. |
 | Tests | `#[cfg(test)]` beside the code, and the contract suite in `tests/` (`tests/tests/*.rs`, one file per case, with `tests/src/` as the harness behind them) | The live suites. |
 

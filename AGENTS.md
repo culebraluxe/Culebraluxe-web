@@ -48,7 +48,8 @@ version-control interface is `jj`, and its card is `docs/agent/JJ-INTERFACE.md` 
    five-day branch nobody could admit to, held by a worker who had broken rule 1 while obeying rule 6. Visibility is
    the goal; a hook is a poor place to enforce taste.
 2. **Push after every commit.** Every commit is followed at once by its sync-and-push — `jj git fetch && jj rebase
-   -d main@origin && jj git push` (rule 10; the card is `docs/agent/JJ-INTERFACE.md`). In a checkout that is still a
+   -d main@origin && jj push` (rule 10 — the card is `docs/agent/JJ-INTERFACE.md`; a git-trained agent's
+   command-by-command translation is `docs/agent/JJ-FOR-AGENTS.md`). In a checkout that is still a
    git tree — the lanes, until they convert — and in a relay worktree (a detached `HEAD`, which is how several of them
    are checked out) that reads `git fetch origin main && git rebase origin/main && git push origin HEAD:main`, because
    `git pull` needs a branch and `HEAD` is not one. Never leave commits only on your machine or in a sandbox: they
@@ -95,8 +96,9 @@ The WIP snapshot job (rule 9, `pnpm wip:install`) writes local `refs/wip/<name>`
 worktree — tracked edits, untracked files, deletions. It never pushes, never runs a hook, and holds no lock anyone waits
 on, so it cannot block a worker; it exists so that a window closing mid-edit cannot cost code.
 10. **The interface is `jj` (2026-10-15).** Everything that moves a ref, writes an index or makes a commit goes
-    through `jj`: sync with `jj git fetch` and `jj rebase -d main@origin`, land with `jj bookmark set` and
-    `jj git push`, recover with `jj op log`, `jj undo`, `jj op restore`. `git` stays a **read-only instrument**
+    through `jj`: sync with `jj git fetch` and `jj rebase -d main@origin`, land with `jj bookmark set` and then
+    `jj push` (the alias that runs the checks — below), recover with `jj op log`, `jj undo`, `jj op restore`. `git`
+    stays a **read-only instrument**
     (`git log`, `git ls-remote`, `git cat-file`, `git reflog`, `git for-each-ref`) — this repo proves claims with
     commands and that habit stays. **Never `git stash`** (a stash is a commit nobody can find) and never
     `git push --force`: `jj git push` already sends force-with-lease, so a race refuses and names it instead of
@@ -105,7 +107,8 @@ on, so it cannot block a worker; it exists so that a window closing mid-edit can
     alias is `jj push` (`scripts/jj-pre-push.sh`, installed once with `bash scripts/jj-pre-push.sh --install`): it
     runs the `Cargo.lock --locked` check and the `web/ui` wasm build, then pushes. A bare `jj git push` skips them,
     exactly as `git push --no-verify` always could. Read `docs/agent/JJ-INTERFACE.md` before the first command you
-    type, and do not trust a guard the card has not listed as ported.
+    type, and do not trust a guard the card has not listed as ported. A git-trained agent's command-by-command
+    translation is `docs/agent/JJ-FOR-AGENTS.md`.
 
 ## The gate is tiered — a slice never runs a thousand tests
 

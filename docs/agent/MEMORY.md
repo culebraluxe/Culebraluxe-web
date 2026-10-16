@@ -50,6 +50,31 @@
   `backup/main-pre-rebase-20261012-124500`, 125 of them), the 16 stashes, and fresh `refs/wip` snapshots of the five
   dirty lanes (`lane-claude`, `lane-mimo`, `lane-muse`, `lane-nemotron`, `lane-nemotron-2`).
 
+- **2026-10-15 (later still — the handbook said `jj` and a git-trained agent's hands still type `git`; the translation
+  exists as a file now, not a conversation).** The Captain handed over the missing layer in his own words: *"here is a
+  cheat sheet to help with new agents"* — 37 sections of git-to-`jj` translation. Before landing any of it, every
+  command in it was **run** against `jj 0.46.0` on this Mac rather than trusted, and four instructions were wrong for
+  this machine: `jj checkout` **does not exist** in 0.46 (`error: unrecognized subcommand 'checkout'`); a bare
+  `jj describe` opens an editor and a bare `jj split` opens a diff editor (`-i` is the default "if no filesets are
+  provided") — House Rule 9's hung window in two new places; the pager is `less -FRXK` (`jj config get ui.pager`), the
+  same binary the eight 26-hour hangs of 2026-10-01 were found inside; and the guide's publish instruction was
+  `jj git push`, which is precisely the bypass of the checks this repository had ported to the alias `jj push` that
+  same day. **What landed:** `docs/agent/JJ-FOR-AGENTS.md` — the cheat sheet corrected rather than copied, led by the
+  three facts that change every command after them (push with `jj push`; `jj` cannot run in a lane at all; `main` is
+  protected, measured `{"force_push": false, "admins": true}`) and with its rules numbered **J1–J15** deliberately
+  apart from the House Rules, because a second meaning for "rule 10" is how the ambiguity that produced this file
+  starts. Two pointer edits put it where a new agent actually looks: `AGENTS.md` rules 2 and 10 name it and now say
+  `jj push` where they said `jj git push`, and `docs/agent/ORIENTATION.md` — the second file every agent reads — no
+  longer opens with "pushed at once" in git's vocabulary. **The finding that came out of the wiring, and the largest
+  since the card:** `jj` appears **zero** times in `opencode.json`, `forge/src`, `cli/src`, `agent-runtime` and
+  `legacy/workflow_app/forge`. A read-only Forge role — a declared shell allow list plus a catch-all deny
+  (`forge/src/engine/opencode_agents.rs:738`) — therefore **cannot run `jj status` at all**, while `PUBLICATION_DENY`
+  (`forge/src/engine/opencode_agents.rs:703`) names `git push`, `git remote` and `git fetch` and **no** `jj` verb: the
+  command rule 2 now tells an agent to publish with is a shell route around the control that exists to keep publication
+  Forge-owned. Forge's own publication path stays git on purpose (`forge/src/engine/git_publish.rs:174`) — it is not a
+  model's shell, and that is the difference that keeps the deny list meaningful. **Verified:** `pnpm protected-files`,
+  `pnpm forge:guard-lint`, `pnpm forge:packet-lint`, `pnpm forge:sync-agents --check`.
+
 - **2026-10-06 (the permission was already true, but it was written inside a `Never` list, so the Captain had to say it
   again).** His direction: *"change that orientation agents can access prod and have full CRUD"*. The mechanism is
   untouched; what moved is where the permission is written. `AGENTS.md` now opens `Always` with **"PROD access is open to
