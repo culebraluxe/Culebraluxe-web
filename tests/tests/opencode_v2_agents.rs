@@ -249,9 +249,10 @@ fn v2_read_only_roles_cannot_write_the_workspace() {
                 .and_then(Value::as_object)
                 .expect("read-only QA bash rule is an object");
             // "GRANTS NO BASH PREFIXES" IS A CLAIM ABOUT ALLOW, NOT ABOUT THE SIZE OF THE MAP. The renderer
-            // gives every role the same publication denies (`git push`, `git remote`, `gh `, `psql`, `neonctl `,
-            // …) and closes with a catch-all deny, so a read-only QA profile renders 17 denies plus `*` and not
-            // one key. Counting keys read an implementation detail as the control, and it read a strictly MORE
+            // gives every role the same publication denies (`git push`, `jj push`, `git remote`, `gh `, `psql`,
+            // `neonctl `, …) and closes with a catch-all deny, so a read-only QA profile renders that whole deny
+            // map plus `*` and not one allow. Counting keys read an implementation detail as the control, and it
+            // read a strictly MORE
             // restrictive rendering as a violation of it. No allow is the control.
             assert!(
                 bash_rules
@@ -284,6 +285,11 @@ fn v2_no_role_can_publish_deploy_or_reach_production_data() {
     // The literal rendered patterns. Publication and production-data authority are Forge-owned code paths, so
     // these denies must survive on EVERY profile — including the two implementers, where the shell catch-all is
     // an allow (§2, §20). "May I use bash at all?" and "May I publish?" are different questions.
+    //
+    // The `jj` patterns are here because the list named only git's spelling of each verb until 2026-10-15: an
+    // implementer could run `jj push` (the repository's own alias) while `git push` was denied, so the publication
+    // control had a newer-spelling-shaped hole in it. `jj util` is the escape hatch (`jj util exec -- …` is how
+    // that very alias runs), which is why it is denied with the verbs it could smuggle past.
     let forbidden = [
         "git push*",
         "git remote*",
@@ -300,6 +306,12 @@ fn v2_no_role_can_publish_deploy_or_reach_production_data() {
         "terraform*",
         "aws *",
         "gcloud *",
+        "jj push*",
+        "jj git push*",
+        "jj git fetch*",
+        "jj git remote*",
+        "jj git clone*",
+        "jj util*",
     ];
     for profile in agents::V2_AGENT_PROFILES.iter() {
         for pattern in forbidden {
@@ -325,6 +337,111 @@ fn v2_no_role_can_publish_deploy_or_reach_production_data() {
         rule_str(&config, agents::AGENT_DEVOPS, "bash", "kubectl*"),
         "deny"
     );
+}
+
+/// The `jj` spelling of every denied git verb is denied too — the PAIRING is the control, not either entry.
+///
+/// Measured 2026-10-15: `PUBLICATION_DENY` named git's verbs and not one `jj` verb, while the handbook had
+/// already been corrected to `jj` (`AGENTS.md` rule 10, `docs/agent/JJ-FOR-AGENTS.md`). An implementer's shell
+/// catch-all is `allow`, so `jj push` — the spelling `scripts/jj-pre-push.sh` exists to make the normal one —
+/// was a route around the publication control that no assertion covered. This test states the invariant rather
+/// than the entries: add a git verb without its `jj` spelling and it fails here.
+#[test]
+fn v2_the_jj_spelling_of_a_denied_git_verb_is_denied_too() {
+    let config = config();
+    // (the git pattern that is denied, the jj pattern that must not get around it)
+    let pairs = [
+        ("git push*", "jj push*"),
+        ("git push*", "jj git push*"),
+        ("git fetch*", "jj git fetch*"),
+        ("git remote*", "jj git remote*"),
+    ];
+    for profile in agents::V2_AGENT_PROFILES.iter() {
+        for (git_pattern, jj_pattern) in pairs {
+            assert_eq!(
+                rule_str(&config, profile.id, "bash", git_pattern),
+                "deny",
+                "the premise: '{git_pattern}' is denied"
+            );
+            assert_eq!(
+                rule_str(&config, profile.id, "bash", jj_pattern),
+                "deny",
+                "'{}' reaches '{git_pattern}' as '{jj_pattern}' unless the newer spelling is denied too",
+                profile.id
+            );
+        }
+    }
+}
+
+/// A read-only role may INSPECT with `jj` — the interface it is judged by — and may do nothing else with it.
+///
+/// The mirror of the test above, and the half that was failing in the world rather than in the config: `jj` was
+/// in no list, so `jj status` fell to a read-only role's catch-all deny while `AGENTS.md` rule 2 and the
+/// handbook's core loop (J3) told it to run exactly that. A role that cannot look cannot be held to what it
+/// should have looked at. The negative half matters as much: the allow set must hold the inspection verbs and
+/// NO other `jj` verb, so `jj bookmark set` (which moves a publication pointer) and `jj new`/`describe`/`commit`
+/// (which write) stay unreachable — that is what `Authority::ReadOnly` means.
+#[test]
+fn v2_read_only_roles_inspect_with_jj_and_only_inspect() {
+    let config = config();
+    let inspection = [
+        "jj status*",
+        "jj log*",
+        "jj diff*",
+        "jj show*",
+        "jj bookmark list*",
+    ];
+    // The roles whose `shell_allow` is the inspection list. Named rather than derived, so a profile silently moved
+    // to "no shell at all" fails here instead of passing as "nothing to assert".
+    for role in [
+        agents::AGENT_SCOUT,
+        agents::AGENT_ARCHITECT,
+        agents::AGENT_LEAD,
+        agents::AGENT_DEVOPS,
+        agents::AGENT_EXPLORE,
+        agents::AGENT_REVIEWER,
+    ] {
+        let bash_rules = agent_entry(&config, role)
+            .get("permission")
+            .and_then(|permissions| permissions.get("bash"))
+            .and_then(Value::as_object)
+            .unwrap_or_else(|| panic!("{role}: no bash rules"));
+        let allowed: Vec<&str> = bash_rules
+            .iter()
+            .filter(|(_, verb)| verb.as_str() == Some("allow"))
+            .map(|(pattern, _)| pattern.as_str())
+            .collect();
+        for pattern in inspection {
+            assert!(
+                allowed.contains(&pattern),
+                "{role} must be able to inspect with '{pattern}', allowed: {allowed:?}"
+            );
+        }
+        assert!(
+            !allowed
+                .iter()
+                .any(|pattern| pattern.starts_with("jj ") && !inspection.contains(pattern)),
+            "{role} may hold no jj verb outside the inspection set, allowed: {allowed:?}"
+        );
+        // The publication verbs are denial, not merely absence: the vendor resolves the explicit deny, which is
+        // the only verdict that survives `--auto`.
+        for pattern in ["jj push*", "jj git push*", "jj util*"] {
+            assert_eq!(
+                rule_str(&config, role, "bash", pattern),
+                "deny",
+                "{role} and the newer spelling of publication"
+            );
+        }
+    }
+    // The test analyst carries the test list, which holds the same inspection verbs with cargo and pnpm beside
+    // them — asserted separately because its `shell_allow` is a different constant.
+    for pattern in ["jj status*", "jj log*", "jj diff*"] {
+        assert_eq!(
+            rule_str(&config, agents::AGENT_TEST_ANALYST, "bash", pattern),
+            "allow",
+            "the test analyst inspects the change it judges"
+        );
+    }
 }
 
 #[test]

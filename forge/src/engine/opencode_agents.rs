@@ -302,7 +302,27 @@ const REVIEWER_SKILLS: [&str; 3] = ["abstract-service", "rust-testing", "semgrep
 const TEST_ANALYST_SKILLS: [&str; 2] = ["rust-testing", "semgrep"];
 
 /// Inspection commands a read-only role may still run. Deliberately tiny.
-const INSPECT_SHELL: [&str; 6] = [
+///
+/// THE `jj` GRANTS (2026-10-15). `jj` is the source-control interface now (`AGENTS.md` rule 10, and
+/// `docs/agent/JJ-FOR-AGENTS.md` for the commands themselves), but it appeared in NO list in this file, so a
+/// read-only role's `jj status` fell to the catch-all deny while the handbook told it to run exactly that
+/// (J3: "inspect `jj status` before you begin"). Measured the same day: `jj` appeared zero times in this file,
+/// `opencode.json`, `agent-runtime` and `legacy/`, and a read-only Forge role could not run `jj status` at all.
+/// A role that cannot look cannot be held to what it should have looked at, so the interface it is judged by is
+/// granted to it here. These are the read-only verbs: the four the handbook's core loop names plus the one
+/// bookmark verb that only reads. `jj bookmark set`/`delete` are absent (they move publication pointers) and so
+/// are `jj new`/`describe`/`commit` (they write) — read-only authority is what those denies encode.
+///
+/// WHY `git` IS STILL LISTED: a lane is still a git worktree with no `.jj` (measured 2026-10-15: `jj status`
+/// fails with `There is no jj repo in "."` in every `lane-*`), so git inspection is the fallback a worker
+/// physically needs today. These entries retire with the lanes; they are listed last so that cleanup is a
+/// deletion rather than a re-think.
+const INSPECT_SHELL: [&str; 11] = [
+    "jj status",
+    "jj diff",
+    "jj log",
+    "jj show",
+    "jj bookmark list",
     "git status",
     "git diff",
     "git log",
@@ -312,13 +332,21 @@ const INSPECT_SHELL: [&str; 6] = [
 ];
 
 /// Test commands for read-only analyst subagents. QA runs its separately constrained frozen assay plan.
-const TEST_SHELL: [&str; 6] = [
+///
+/// The `jj` verbs are the inspection half of `INSPECT_SHELL`, for the same reason and by the same measurement: a
+/// test analyst that has to judge coverage needs to see the change (`jj diff`) and the graph it sits in
+/// (`jj log`), and `jj status` is how it notices that the work it is judging is not in the state the report
+/// claims (J3). Granted here rather than inherited, because this profile's shell list replaces that one.
+const TEST_SHELL: [&str; 9] = [
     "cargo test",
     "cargo nextest",
     "cargo check",
     "pnpm test",
     "pnpm forge:",
     "git status",
+    "jj status",
+    "jj log",
+    "jj diff",
 ];
 
 /// The micro-subagent allowlists (§9). Child agents have empty `children`, so a child cannot spawn a grandchild.
@@ -700,7 +728,23 @@ pub const READ_TOOLS: [&str; 5] = ["glob", "grep", "list", "lsp", "read"];
 ///
 /// The vendor resolves a command pattern most-specifically-first and an explicit deny wins, which is what makes
 /// "broad allow + specific deny" a control rather than a comment.
-const PUBLICATION_DENY: [&str; 17] = [
+///
+/// THE `jj` ENTRIES (2026-10-15, the day `jj` became the interface). This list named git's verbs and not one
+/// `jj` verb, while the two implementer profiles hold a shell catch-all of `allow` — so every denied git verb
+/// had a newer spelling one keystroke away: `jj push` (the repository's own alias, which runs
+/// `scripts/jj-pre-push.sh` and then `jj git push`), `jj git push`, `jj git fetch`, `jj git remote` (repoint
+/// `origin`), `jj git clone`. A fence that names one spelling of a verb is not a fence, it is a gate. `jj util`
+/// is the general-purpose route around this whole list — `jj util exec -- <anything>`, which is literally how
+/// the `push` alias is defined (`.jj/repo/config.toml`) — so it is denied alongside the verbs it would smuggle
+/// past.
+///
+/// WHAT THIS LIST IS NOT: a sandbox. The vendor matches command PREFIXES, so `env git push`,
+/// `bash -c "git push"` or `/usr/bin/git push` are not covered, and cannot be while every implementer holds
+/// bash. The durable control is the one §2/§20 already rests on and this comment must not be mistaken for
+/// replacing: publication, deployment and production data are Forge's own code path (`git_publish.rs`), never a
+/// command a role is trusted not to type. What this list buys is that the honest spelling of a forbidden act is
+/// not the one nobody denied.
+const PUBLICATION_DENY: [&str; 23] = [
     "git push",
     "git remote",
     "git fetch",
@@ -718,6 +762,12 @@ const PUBLICATION_DENY: [&str; 17] = [
     "terraform",
     "aws ",
     "gcloud ",
+    "jj push",
+    "jj git push",
+    "jj git fetch",
+    "jj git remote",
+    "jj git clone",
+    "jj util",
 ];
 
 fn shell_rules(profile: &V2AgentProfile) -> Value {

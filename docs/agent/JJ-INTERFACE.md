@@ -109,14 +109,25 @@ Read this section before trusting a guard that is not listed as ported.
 4. **`main` is protected** (`allow_force_pushes: false`, `enforce_admins: true`). An ordinary push lands. A
    rewrite of published history needs the Captain's snapshot → flip → push → restore, and that protection is
    the only thing standing between `main` and a silent clobber — it is not the obstacle, it is the guard.
-5. **The agent config does not name `jj` at all.** Measured 2026-10-15: **zero** occurrences of `jj` in `opencode.json`,
-   `forge/src`, `cli/src`, `agent-runtime` and `legacy/workflow_app/forge`. Two consequences, both conversion work: a
-   read-only Forge role is governed by a declared shell allow list plus a catch-all deny
-   (`forge/src/engine/opencode_agents.rs:738`), so it cannot run `jj status`; and `PUBLICATION_DENY`
-   (`forge/src/engine/opencode_agents.rs:703`) names `git push`, `git remote` and `git fetch` and **no** `jj` verb, so
-   `jj push` — the command rule 2 and this card now tell an agent to publish with — is a shell route around the control
-   that exists to keep publication Forge-owned. Forge's own publication path is git on purpose
-   (`forge/src/engine/git_publish.rs:174`) and is not a model's shell: leave it.
+5. **The agent config names `jj` now — both halves** (closed 2026-10-15, hours after it was measured as *zero*). One
+   renderer, `forge/src/engine/opencode_agents.rs`, is the only place either half is written: the repo-root
+   `opencode.json` is generated from it (`pnpm forge:opencode-config`, drift-checked inside `pnpm forge:harness`) and a
+   live turn is handed the same document as `OPENCODE_CONFIG_CONTENT` (`v2_agent_env`), so a human session in this
+   checkout and a Forge turn cannot disagree. **Granted:** `INSPECT_SHELL` — and the test analyst's list beside it — now
+   carry `jj status`, `jj diff`, `jj log`, `jj show` and `jj bookmark list`, so a read-only Forge role can run the
+   commands rule 2, rule 10 and this card tell it to run. **Denied:** `PUBLICATION_DENY` now names `jj push`,
+   `jj git push`, `jj git fetch`, `jj git remote`, `jj git clone` and `jj util` beside their git spellings — `jj util`
+   deliberately, because `jj util exec -- …` is how the `jj push` alias itself is defined (`.jj/repo/config.toml`) and
+   is therefore the general route around that whole list. Two tests hold the halves in `tests/tests/opencode_v2_agents.rs`:
+   `v2_the_jj_spelling_of_a_denied_git_verb_is_denied_too` (the pairing — a git verb added without its `jj` spelling
+   fails) and `v2_read_only_roles_inspect_with_jj_and_only_inspect` (the grant, plus that no *other* `jj` verb is
+   allowed to a read-only role). **What a deny list is not:** the vendor matches command *prefixes*, so `env git push`
+   and `bash -c "git push"` were never covered and are not now; the durable control is the one §2/§20 always rested on
+   — publication as Forge's own code path (`forge/src/engine/git_publish.rs`, still git on purpose, still not a model's
+   shell). The git entries in `INSPECT_SHELL` stay until the lanes convert (item 2), because a lane has no `.jj` to
+   inspect, and the packet instruction an implementer reads still says *"Create a local git commit"*
+   (`forge/src/engine/packet.rs`) — a sentence that is TRUE in a lane today, so it moves with the lanes rather than
+   before them.
 
 ## Landing on `main` under `jj`
 

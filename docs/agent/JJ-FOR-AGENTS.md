@@ -238,7 +238,8 @@ edits are in a change anyway, so there is nothing to park.
 
 ## Where this file does not apply yet
 
-Three gaps, measured 2026-10-15. They are the conversion's remaining work, not advice:
+Three gaps, measured 2026-10-15; the third closed the same day it was measured, because a permission list that does
+not know the interface exists is not a scope note, it is a bug. What remains is the conversion's work, not advice:
 
 1. **The lanes are git worktrees and have no `.jj`.** There are 23 worktree registrations on this machine
    (`git worktree list` — House Rule 4 owns the roster) and `jj status` fails in every `lane-*` with
@@ -248,15 +249,21 @@ Three gaps, measured 2026-10-15. They are the conversion's remaining work, not a
 2. **The pre-push checks are an alias, not a guard.** `jj` runs no git hooks, so nothing forces the `Cargo.lock` and
    wasm checks; `jj push` runs them because it is the alias this repository installed. A bare `jj git push` is the
    hole, and the only thing standing in it is your habit of typing `jj push`.
-3. **The agent config does not know `jj` exists.** `jj` appears **zero** times in `opencode.json`, `forge/src`,
-   `cli/src`, `agent-runtime` and `legacy/workflow_app/forge` (grep, 2026-10-15). So a Forge role with read-only
-   authority — whose shell rules are a declared allow list plus a catch-all deny
-   (`forge/src/engine/opencode_agents.rs:738`) — cannot run `jj status` at all, while `PUBLICATION_DENY`
-   (`forge/src/engine/opencode_agents.rs:703`) names `git push`, `git remote` and `git fetch` and **no** `jj` verb.
-   Both halves matter: the control that keeps publication Forge-owned does not cover the interface this handbook now
-   tells an agent to publish with. Forge's own publication path is deliberately still git
-   (`forge/src/engine/git_publish.rs:174` pushes `<sha>:refs/heads/main`) and should stay that way — it is not a
-   model's shell.
+3. **The agent config knows `jj` now** (fixed 2026-10-15, the same day it was measured as *zero* occurrences across
+   `opencode.json`, `forge/src`, `cli/src`, `agent-runtime` and `legacy/workflow_app/forge`). Both halves landed in the
+   one renderer, `forge/src/engine/opencode_agents.rs`: a read-only Forge role's shell list (`INSPECT_SHELL`, and the
+   test analyst's beside it) now grants `jj status`, `jj diff`, `jj log`, `jj show` and `jj bookmark list` — the commands
+   J3, J4 and the core loop on the first page actually require — and `PUBLICATION_DENY` now denies `jj push`,
+   `jj git push`, `jj git fetch`, `jj git remote`, `jj git clone` and `jj util` beside git's spelling of each verb, so
+   publishing with `jj` is no longer the one spelling nobody denied. `jj util` is deliberate: `jj util exec -- …` is how
+   the `jj push` alias itself is defined (`.jj/repo/config.toml`). The repo-root `opencode.json` is generated from that
+   renderer and drift-checked inside `pnpm forge:harness`, and both halves are asserted in
+   `tests/tests/opencode_v2_agents.rs`. **Still open, and deliberately coupled to item 1:** the packet instruction an
+   implementer reads still says *"Create a local git commit with the intended changes when the story requires it"*
+   (`forge/src/engine/packet.rs`), and that sentence is TRUE in a lane today — a lane has no `.jj`, so `jj commit` would
+   fail there with `There is no jj repo in "."`. The prose moves with the lanes, not before them. Forge's own
+   publication path stays git on purpose (`forge/src/engine/git_publish.rs` pushes `<sha>:refs/heads/main`): it is not a
+   model's shell, and that difference is what keeps the deny list meaningful.
 
 ## The source-control rules in this file
 

@@ -2,6 +2,42 @@
 
 # Decision log
 
+- **2026-10-15 (the Captain's answer, and the hole it closed the same day).** Asked whether the publication fence was
+  right, his direction was plain: *"yes the new agents and exsisting agents MUST use JJ what ever is blocking this is
+  completely wrong and I grant you the authority to overwrite this"* … *"all agents must use JJ period end of story
+  there must be no Holes"* … *"i have blocked them from working so you could safely do your job"*. So yesterday's
+  finding was treated as the defect it is rather than as a note: the config had been corrected to `jj` in its **prose**
+  (`AGENTS.md` rules 2 and 10) while its **enforcement** still named only git. Two halves, one renderer, and the
+  renderer is the only place either half is written — `forge/src/engine/opencode_agents.rs`, which the repo-root
+  `opencode.json` is generated from (`pnpm forge:opencode-config`, drift-checked inside `pnpm forge:harness`) and which
+  every live turn receives as `OPENCODE_CONFIG_CONTENT` (`v2_agent_env`). **That last fact is why this was the right
+  file and not a docs edit:** the worker/helper sessions are spawned by the Rust `forge-worker` binary, which selects a
+  `forge-*` agent per node and injects that document, so the deny list binds the helpers and not merely a human's
+  hand-run session. **What landed:** `INSPECT_SHELL` (and the test analyst's list beside it) grants `jj status`,
+  `jj diff`, `jj log`, `jj show` and `jj bookmark list`, because a read-only role's `jj status` fell to its catch-all
+  deny while rule 2 and J3 told it to run exactly that — a role that cannot look cannot be held to what it should have
+  looked at; and `PUBLICATION_DENY` grew from 17 to 23 entries, naming `jj push`, `jj git push`, `jj git fetch`,
+  `jj git remote`, `jj git clone` and `jj util` beside their git spellings, because an implementer's shell catch-all is
+  `allow` and every denied git verb therefore had a newer spelling one keystroke away — `jj push` is the repository's
+  own alias, and `jj util exec -- …` is literally how that alias is defined (`.jj/repo/config.toml`), so `jj util` is
+  denied with the verbs it could smuggle past. **This is a generated file, so the JSON was not hand-edited:** the
+  renderer was changed and `pnpm forge:opencode-config` regenerated `opencode.json` (99 `jj` rules), with `--check`
+  clean afterwards — a hand edit here is refused by design, and it would have changed what a human's session may do
+  without changing what a Forge turn may do. **Held by tests, in the negative direction:** two new cases in
+  `tests/tests/opencode_v2_agents.rs` — `v2_the_jj_spelling_of_a_denied_git_verb_is_denied_too` asserts the *pairing*
+  on every profile (so a git verb added without its `jj` spelling fails rather than passing as covered) and
+  `v2_read_only_roles_inspect_with_jj_and_only_inspect` asserts the grant *and* that no other `jj` verb is allowed to a
+  read-only role (`jj bookmark set` moves a publication pointer; `jj new`/`describe`/`commit` write). **What this does
+  not claim:** the vendor matches command *prefixes*, so `env git push` and `bash -c "git push"` were never covered and
+  are not now — the durable control is unchanged and is the one §2/§20 always rested on, publication as Forge's own
+  code path (`forge/src/engine/git_publish.rs`, still git on purpose). **Two things deliberately left, both coupled to
+  the lanes** (item 2 of `docs/agent/JJ-INTERFACE.md`): the git entries in `INSPECT_SHELL` stay because a lane has no
+  `.jj` to inspect, and the packet instruction an implementer reads still says *"Create a local git commit"*
+  (`forge/src/engine/packet.rs`) — which is TRUE in a lane today, since `jj commit` there fails with `There is no jj
+  repo in "."`. Both move with the conversion, not before it. **Verified:** `pnpm protected-files`, `pnpm forge:guard-lint`,
+  `pnpm forge:packet-lint`, `pnpm forge:sync-agents --check`, `pnpm forge:opencode-config --check`, plus
+  `cargo test -p test-harness --test opencode_v2_agents` (31 passed) and the DevOps arch-boundary pin (1 passed).
+
 - **2026-10-15 (the Captain's direction was given the day before and obeyed by nobody — because it was never written
   down, while the handbook was still telling every agent to type git).** His words, 2026-10-14, in a session that had
   spent the day on git: *"i asked for JJ yesterday to be the primary interface to git, and you should have a MD card to
