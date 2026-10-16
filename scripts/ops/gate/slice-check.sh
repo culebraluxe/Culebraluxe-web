@@ -96,6 +96,46 @@ changed_count="$(printf '%s\n' "$changed_files" | grep -c . || true)"
 log="$(mktemp -t slice-check)"
 trap 'rm -f "$log"' EXIT
 
+# --- the beat ----------------------------------------------------------------------------------------------------
+# A gate that says nothing for nine minutes is indistinguishable from a hung gate, and the cost of the doubt is not the
+# waiting: it is that whoever is watching has to *guess*, and a guess is how a live run gets killed as a dead one
+# (`2026-10-16`: a detached `pnpm slice:check` was killed mid-T1 by a watcher that could not tell the two apart, and the
+# stage was paid for twice). The section output is already teed live for this same reason (`T1` below) — but a tee is
+# silent by nature whenever the thing it tees is quiet, and the receipt only exists once the gate is over. Neither can
+# say "still running, and at which stage" *while* the stage runs, which is the one thing a watcher needs. So: a tick
+# every 30 s on stdout, where it lands in whatever log that run was redirected to. `SLICE_TICK_SECONDS=0` silences it,
+# and the elapsed figure is the same `$SECONDS` arithmetic the receipt prints, so a beat and a verdict cannot disagree.
+beat_seconds="${SLICE_TICK_SECONDS:-30}"
+beat_pid=""
+beat_base=0
+beat_label=""
+beat_start() {
+  beat_stop
+  beat_label="$1"
+  beat_base=$SECONDS
+  case "$beat_seconds" in
+    '' | *[!0-9]*) return 0 ;;
+  esac
+  [ "$beat_seconds" -gt 0 ] || return 0
+  (
+    while :; do
+      sleep "$beat_seconds"
+      elapsed=$((SECONDS - beat_base))
+      printf 'slice-check: %s — alive, %dm%02ds elapsed (the beat; the verdict comes at the end)\n' \
+        "$beat_label" "$((elapsed / 60))" "$((elapsed % 60))"
+    done
+  ) &
+  beat_pid=$!
+}
+beat_stop() {
+  if [ -n "$beat_pid" ]; then
+    kill "$beat_pid" 2>/dev/null || true
+    wait "$beat_pid" 2>/dev/null || true
+    beat_pid=""
+  fi
+}
+trap 'beat_stop; rm -f "$log"' EXIT INT TERM
+
 t0="-"
 fmt="-"
 t1="-"
@@ -109,6 +149,7 @@ failed=""
 # The same check the pre-push hook runs, so the receipt says something the push will agree with. Warm target dir:
 # seconds. Cold: the price of the first build, paid once per machine.
 echo "slice-check: T0 — cargo check --workspace --all-targets"
+beat_start "T0 compile"
 started=$SECONDS
 if cargo check --manifest-path Cargo.toml --workspace --all-targets --quiet >"$log" 2>&1; then
   t0="PASS ($((SECONDS - started))s)"
@@ -127,6 +168,7 @@ fi
 # that says PASS while listing someone else's unformatted file is honest; one that says PASS and says nothing is not.
 if [ -z "$failed" ]; then
   echo "slice-check: FMT — rustfmt on this slice's files (four deferred trees exempt: the gates.yml list, not a guess)"
+  beat_start "FMT rustfmt"
   started=$SECONDS
   if ! cargo fmt --version >/dev/null 2>&1; then
     fmt="SKIPPED (no rustfmt on PATH)"
@@ -176,6 +218,7 @@ fi
 # --- T1 — the sections you touched ------------------------------------------------------------------------------
 if [ -z "$failed" ]; then
   echo "slice-check: T1 — $mode"
+  beat_start "T1 sections"
   started=$SECONDS
   if ! cargo build --manifest-path Cargo.toml -p cli --quiet >"$log" 2>&1; then
     t1="NOT RUN — the gate binary (cli) does not compile"
@@ -201,6 +244,7 @@ fi
 # --- T2 — the whole harness, only when asked for -----------------------------------------------------------------
 if [ "$full" = "1" ]; then
   echo "slice-check: T2 — the whole harness (1062 tests; CI, the nightly run and releases own this)"
+  beat_start "T2 full suite"
   started=$SECONDS
   if command -v cargo-nextest >/dev/null 2>&1; then
     if cargo nextest run --workspace --profile ci 2>&1 | tee "$log"; then
@@ -221,6 +265,7 @@ if [ "$full" = "1" ]; then
 fi
 
 # --- the receipt -------------------------------------------------------------------------------------------------
+beat_stop
 if [ -z "$failed" ]; then
   result="the slice may be handed over (T0 + FMT + T1 green; T2 belongs to CI)"
 else

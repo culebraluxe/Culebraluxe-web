@@ -335,13 +335,13 @@ fn compose_task_text(
     }
     parts.push(isolation.statement());
     parts.push(
-        "Work in the current repository. Verify your work by running tests/typecheck/build within the runtime policy above. Create a local git commit with the intended changes when the story requires it. Do NOT push. Do NOT mutate production data or schema. Report what you did."
+        "Work in the current repository. Verify your work by running tests/typecheck/build within the runtime policy above. Record the work when the story requires it, in the spelling the isolation line above implies: `jj describe -m \"what I changed\"` then `jj new` in a `.jj` workspace, `git commit` in an isolated Git worktree. Never a bare `jj describe` — it opens an editor and hangs. Do NOT push. Do NOT mutate production data or schema. Report what you did."
             .into(),
     );
     if packet.test_mode.as_deref() == Some("RUST_CONTRACT") {
         parts.push(
             "TEST-AUTHORING STORY (RUST_CONTRACT). The deliverable is a TEST ARTIFACT, not a product fix. \
-             Author the canonical Rust test under tests/ and commit it. You may NOT modify the \
+             Author the canonical Rust test under tests/ and record it the same way. You may NOT modify the \
              production crates (`web/**`, `middle/**`, `db/**`, `forge/**`, `cli/**`): a change there is an authoring defect, and the \
              artifact is rejected for it. A \"test seam\" means code inside the contract suite (`tests/`) or behind \
              #[cfg(test)], never a change to production behaviour. If your test fails against the existing \

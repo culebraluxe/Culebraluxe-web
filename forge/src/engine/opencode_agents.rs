@@ -320,8 +320,12 @@ const TEST_ANALYST_SKILLS: [&str; 2] = ["rust-testing", "semgrep"];
 /// is still created by git rather than by `jj` (`forge/src/engine/worktree.rs:298`), so a worker can still land
 /// in a checkout where `jj` does not answer — but that is no longer why these are listed. Retiring them changes
 /// what a Forge turn may do, so it rides the harness gates and `tests/tests/opencode_v2_agents.rs` rather than a
-/// docs change (`docs/agent/JJ-INTERFACE.md`, SCOPE item 5 — the same reason the packet's "Create a local git
-/// commit" sentence is still there). They are listed last so that cleanup is a deletion rather than a re-think.
+/// docs change (`docs/agent/JJ-INTERFACE.md`, SCOPE item 5). The packet's closing sentence was the same class of
+/// thing and has now been stated in both spellings, decided by the isolation line it follows
+/// (`forge/src/engine/packet.rs`, fenced by `tests/tests/forge_runtime.rs::packet_names_the_commit_verb_the_isolation_implies`).
+/// That sandbox case is also what keeps these entries: a turn can still land in a checkout where `jj` does not answer,
+/// so the git spellings stay beside their `jj` ones rather than being deleted. They are listed last so that cleanup is a
+/// deletion rather than a re-think.
 ///
 /// The wording above avoids the token this crate's residue scan hunts (`cli/src/forge/repo_guards.rs`,
 /// `worktree_add_phrase`): this comment is inside a scanned root, so writing that phrase here — even in prose,

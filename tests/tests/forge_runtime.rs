@@ -1470,6 +1470,55 @@ fn packet_includes_isolation_and_architect_brief() {
         .as_str()
         .contains("isolated Git worktree on branch forge/s1"));
     assert!(text.as_str().contains("Do NOT push"));
+    // The commit verb is named for the isolation stated above it (see the sibling test below).
+    assert!(text.as_str().contains("jj describe -m"));
+    assert!(text.as_str().contains("git commit"));
+}
+
+/// The closing sentence must be true wherever the turn lands, and Forge's two isolation states share no commit verb: a
+/// fresh sandbox is created by git and has no `.jj` (`forge/src/engine/worktree.rs:298`), while every lane is a `jj`
+/// workspace (`jj workspace list` → 24). Stating one spelling made the task text false in the other half, silently, in
+/// text an implementer obeys — this is that fence.
+#[test]
+fn packet_names_the_commit_verb_the_isolation_implies() {
+    let workspace = packet::ExecutionWorkspace {
+        worktree_path: "/tmp/wt".into(),
+        branch_name: "forge/s1".into(),
+        base_ref: "main".into(),
+        base_commit: "abc1234def".into(),
+    };
+    let story = packet::StoryPacket {
+        id: "s1".into(),
+        title: "Wire neon".into(),
+        ..Default::default()
+    };
+    let in_worktree = packet::TaskText::for_node(
+        "architect",
+        "t1",
+        &story,
+        packet::TaskIsolation::of(Some(&workspace)),
+        None,
+    );
+    let in_checkout = packet::TaskText::for_node(
+        "architect",
+        "t1",
+        &story,
+        packet::TaskIsolation::of(None),
+        None,
+    );
+    for text in [&in_worktree, &in_checkout] {
+        assert!(
+            text.as_str().contains("jj describe -m"),
+            "{}",
+            text.as_str()
+        );
+        assert!(text.as_str().contains("git commit"), "{}", text.as_str());
+        assert!(text.as_str().contains("Do NOT push"), "{}", text.as_str());
+    }
+    assert!(in_worktree
+        .as_str()
+        .contains("isolated Git worktree on branch forge/s1"));
+    assert!(in_checkout.as_str().contains("repository checkout itself"));
 }
 
 #[test]

@@ -151,13 +151,20 @@ Read this section before trusting a guard that is not listed as ported.
    allowed to a read-only role). **What a deny list is not:** the vendor matches command *prefixes*, so `env git push`
    and `bash -c "git push"` were never covered and are not now; the durable control is the one §2/§20 always rested on
    — publication as Forge's own code path (`forge/src/engine/git_publish.rs`, still git on purpose, still not a model's
-   shell). **The reason the git entries in `INSPECT_SHELL` were kept expired on 2026-10-16:** they stayed *"until the
-   lanes convert (item 2), because a lane has no `.jj` to inspect"*, the lanes converted, and `git status`, `git diff`
-   and `git log` are still granted beside their `jj` spellings for no reason that survives. The same is true of the
-   packet instruction an implementer reads — *"Create a local git commit with the intended changes when the story
-   requires it"* (`forge/src/engine/packet.rs:338`), a sentence that was TRUE in a lane and is **false in every
-   workspace now**. Both are deliberately not part of the conversion: each changes what a Forge turn may do, and each
-   carries the harness gates and the two tests in `tests/tests/opencode_v2_agents.rs` with it.
+   shell). **The packet instruction an implementer reads was corrected on 2026-10-16, and the deciding line is the
+   isolation statement it follows:** it said *"Create a local git commit with the intended changes when the story
+   requires it"* (`forge/src/engine/packet.rs:338`) — TRUE in the isolated Git worktree a run provisions, FALSE in every
+   one of the 24 `jj` workspaces — and it now names the spelling each state implies (`jj describe -m` then `jj new` in a
+   `.jj` workspace, `git commit` in a Git worktree), plus the bare-`jj describe` editor hang, because a turn that runs one
+   blocks and the packet is the only place that turn is told. Fenced by
+   `tests/tests/forge_runtime.rs::packet_names_the_commit_verb_the_isolation_implies`, which asserts **both** states, so
+   the sentence cannot silently be true in only one of them again. **The git entries in `INSPECT_SHELL` are kept, and the
+   reason is the measured one:** they stayed *"until the lanes convert (item 2), because a lane has no `.jj` to
+   inspect"*, the lanes converted, and what survives is the checkout git still makes — a fresh Forge/Maestro sandbox is
+   created by git (`forge/src/engine/worktree.rs:298`), has no `.jj`, and answers `There is no jj repo in "."` to `jj
+   status`, so the git spellings are the only ones that work there. Retiring them remains a deletion rather than a
+   re-think (they are listed last in the array) and it rides `tests/tests/opencode_v2_agents.rs` and the harness gates,
+   because it changes what a Forge turn may do.
 
 6. **Six control-plane scripts read a lane's branch the git way, and a lane answers empty now (found 2026-10-16, by the
    conversion).** `git branch --show-current` → `""` and `git rev-parse --abbrev-ref HEAD` → `HEAD`, measured in

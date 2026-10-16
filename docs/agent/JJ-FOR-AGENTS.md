@@ -288,12 +288,15 @@ item 3 the day it was measured, and what remains is item 2 and the prose items 3
    measured 2026-10-16). The repo-root `opencode.json` is generated from that
    renderer and drift-checked inside `pnpm forge:harness`, and both halves are asserted in
    `tests/tests/opencode_v2_agents.rs`. **The coupling to item 1 was discharged on 2026-10-16, and the prose it was
-   holding back has not moved yet:** the packet instruction an implementer reads still says *"Create a local git commit
-   with the intended changes when the story requires it"* (`forge/src/engine/packet.rs:338`), and that sentence was TRUE
-   in a lane while a lane had no `.jj` — it is **false in all 24 workspaces now**. The same is true of the read-only
-   roles' git entries (`git status`, `git diff`, `git log` remain granted beside the `jj` ones at
-   `forge/src/engine/opencode_agents.rs:326`): the reason they were kept was "a lane has no `.jj` to inspect", and that
-   reason expired. Neither is changed here, because both change what a Forge turn may do and this change does not.
+   holding back moved the same day:** the instruction an implementer reads said *"Create a local git commit with the
+   intended changes when the story requires it"* (`forge/src/engine/packet.rs:338`) — TRUE in a lane while a lane had no
+   `.jj`, false in all 24 workspaces — and it now states the verb the isolation line above it implies: `jj describe -m`
+   then `jj new` in a `.jj` workspace, `git commit` in an isolated Git worktree, and never a bare `jj describe` (it opens
+   an editor and hangs, J15). The read-only roles' git entries (`git status`, `git diff`, `git log` beside the `jj` ones
+   at `forge/src/engine/opencode_agents.rs`) stay, for the reason the packet sentence now states out loud: a fresh
+   Forge/Maestro sandbox is made by git and has no `.jj`, so those are the spellings that answer there. Forge's own
+   publication path stays git on purpose (`forge/src/engine/git_publish.rs` pushes `<sha>:refs/heads/main`): it is not a
+   model's shell, and that difference is what keeps the deny list meaningful.
    Forge's own
    publication path stays git on purpose (`forge/src/engine/git_publish.rs` pushes `<sha>:refs/heads/main`): it is not a
    model's shell, and that difference is what keeps the deny list meaningful.

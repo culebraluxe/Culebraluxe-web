@@ -148,6 +148,48 @@
 
 
 
+- **2026-10-16 (later still — the packet told an implementer in a `jj` workspace to run a git command, and nothing tested the
+  sentence that did it).** The closing line of every turn read *"Create a local git commit with the intended changes when
+  the story requires it"* (`forge/src/engine/packet.rs:338`). It was written when a lane was a Git worktree with no `.jj`;
+  the lanes are `jj` workspaces now (24, `jj workspace list`), and this checkout measures `git branch --show-current` →
+  `""` and `git rev-parse --abbrev-ref HEAD` → `HEAD`, so the verb it named no longer lands where a turn would expect. **It
+  now names the verb the isolation line above it implies** — `jj describe -m` then `jj new` in a `.jj` workspace, `git
+  commit` in an isolated Git worktree — and says that a bare `jj describe` opens an editor and hangs
+  (`docs/agent/JJ-FOR-AGENTS.md:113`, J15), because the packet is the only place a turn is told. Both spellings rather
+  than one, because both states are real: a run provisions a Git worktree (`forge/src/engine/worktree.rs:298`) that has no
+  `.jj`, and an unprovisioned turn edits the colocated checkout. **The sentence had no test**, which is why it survived two
+  changes that corrected the prose around it (`docs/agent/HANDOFF-ts-guards-to-rust-2026-09-29.md`, S11): it is now fenced
+  by `tests/tests/forge_runtime.rs::packet_names_the_commit_verb_the_isolation_implies`, which asserts **both** isolation
+  states, and `Do NOT push` is still asserted beside it — the phrase that was the only existing grip on this text. The same
+  fence settles the `INSPECT_SHELL` git entries' surviving reason: the sandbox case, measured, not the expired lane one —
+  recorded in `JJ-INTERFACE.md` §5 and `JJ-FOR-AGENTS.md`, which no longer list this sentence as held back. **Generalised: a
+  prompt sentence is code.** It is obeyed, it goes stale silently when the thing it describes moves, and the docs that
+  describe it are not the thing that fails when it is wrong; only a test on the rendered text is. **Verified:**
+  `cargo test -p test-harness --test forge_runtime packet` (2 passed, the new fence among them), `pnpm forge:packet-lint`
+  (the same 6 pre-existing `evidence-cites-missing-file` rows, 0 new), `pnpm protected-files`, `pnpm forge:guard-lint` (the
+  frozen capability set did not grow), `pnpm forge:sync-agents --check` (0 would change), `pnpm scripts:check` (59 shell
+  files). **And the gate:** `bash scripts/ops/gate/slice-check.sh` — T0 PASS (53s), FMT PASS (2s) *after* it caught the new
+  test unformatted on its first run, T1 PASS (543s) over `forge-engine, harness`, `SLICE_EXIT=0`, receipt *the slice may be
+  handed over* — with 62 beats across ten minutes of T1, which is the point of the entry below it.
+
+
+- **2026-10-16 (later — the gate now says it is alive, because a silent nine-minute run got itself killed as a hung
+  one).** A detached `pnpm slice:check` was killed mid-T1 by the person who started it, so the stage was run twice for
+  one verdict. **The gate was not silent by accident:** `slice-check.sh` tees the section output live for precisely this
+  reason (`"a section takes minutes, and a silent gate reads as a hung one"`, `:189`), and the receipt reports
+  `T1 PASS (485s)`. But a tee is silent whenever the thing it tees is quiet — a cargo build prints nothing for minutes —
+  and the watcher's own pipeline buffered the rest away (`| tail -25` emits nothing until EOF: no line for 12 minutes
+  while the run was healthy), while the receipt only exists *after* the gate, which is when a "still running?" answer is
+  worth nothing. **What landed:** `beat_start`/`beat_stop` in `scripts/ops/gate/slice-check.sh` — a tick every 30 s on
+  stdout naming the stage in progress and the elapsed time (`slice-check: T1 sections — alive, 4m05s elapsed (the beat;
+  the verdict comes at the end)`), started ahead of each of T0/FMT/T1/T2, stopped by the same `EXIT INT TERM` trap that
+  already removes the temp log, silenced with `SLICE_TICK_SECONDS=0`, and computed from the same `$SECONDS` arithmetic
+  the receipt prints so that a beat and a verdict cannot disagree. **The receipt is deliberately unchanged** — its shape
+  is quoted in `AGENTS.md` and in this log, and a reader should not have to learn a new field. **Generalised: a job that
+  runs for minutes owes whoever is watching it a way to tell alive from hung without guessing**, since the guess is what
+  cost this stage twice; the same reasoning is why the tee is there at all.
+
+
 - **2026-10-06 (the permission was already true, but it was written inside a `Never` list, so the Captain had to say it
   again).** His direction: *"change that orientation agents can access prod and have full CRUD"*. The mechanism is
   untouched; what moved is where the permission is written. `AGENTS.md` now opens `Always` with **"PROD access is open to
