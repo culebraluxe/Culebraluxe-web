@@ -94,6 +94,10 @@ fn run(cli: Cli, budget: forge::engine::db_budget::EngineDbBudget) {
                     .unwrap_or_else(|e| e.to_string()),
             )
         }
+        forge::engine::harness::HarnessBackend::Dsh => match forge::engine::dsh::default_cli() {
+            Ok(cli) => forge::engine::dsh::verify_vendor_contract(&cli),
+            Err(error) => Err(error.to_string()),
+        },
     };
     match vendor {
         Ok(vendor) => eprintln!("vendor={vendor}"),

@@ -342,6 +342,16 @@ pub(super) fn harness_identity_line(harness: forge::engine::harness::HarnessBack
             .unwrap_or_else(|e| format!("error: {e}"));
             format!("harness=maestro agent={agent} bin={bin} cwd={cwd}")
         }
+        forge::engine::harness::HarnessBackend::Dsh => {
+            let cli = forge::engine::dsh::default_cli()
+                .map(|cli| cli.display())
+                .unwrap_or_else(|e| format!("error: {e}"));
+            let model = forge::engine::dsh::resolve_model(None)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "profile-default".into());
+            format!("harness=dsh model={model} bin={cli} cwd={cwd}")
+        }
     }
 }
 

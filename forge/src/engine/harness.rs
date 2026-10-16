@@ -22,6 +22,7 @@ pub const TURN_INTERRUPTED_CODE: &str = "TURN_INTERRUPTED";
 pub enum HarnessBackend {
     OpenCode,
     Maestro,
+    Dsh,
 }
 
 impl HarnessBackend {
@@ -34,6 +35,7 @@ impl HarnessBackend {
         match std::env::var("FORGE_HARNESS").ok().as_deref() {
             None | Some("opencode") => Ok(HarnessBackend::OpenCode),
             Some("maestro") => Ok(HarnessBackend::Maestro),
+            Some("dsh") => Ok(HarnessBackend::Dsh),
             Some(other) => Err(workflow::WorkflowError::generic(format!(
                 "unknown FORGE_HARNESS={other:?}: expected \"opencode\" or \"maestro\". Refusing to guess a vendor."
             ))),
@@ -49,6 +51,7 @@ impl HarnessBackend {
         match self {
             HarnessBackend::OpenCode => "opencode",
             HarnessBackend::Maestro => "maestro",
+            HarnessBackend::Dsh => "dsh",
         }
     }
 }
@@ -206,6 +209,7 @@ pub fn usage_delta(after: &HarnessUsage, before: Option<&HarnessUsage>) -> Harne
 pub enum ForgeHarness {
     OpenCode(crate::engine::opencode::OpenCodeHarness),
     Maestro(crate::engine::maestro::MaestroHarness),
+    Dsh(crate::engine::dsh::DshHarness),
 }
 
 impl RoleHarness for ForgeHarness {
@@ -218,6 +222,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.run_role(node_id, task, self_heal),
             ForgeHarness::Maestro(h) => h.run_role(node_id, task, self_heal),
+            ForgeHarness::Dsh(h) => h.run_role(node_id, task, self_heal),
         }
     }
 
@@ -231,6 +236,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.run_role_scoped(execution_id, node_id, task, self_heal),
             ForgeHarness::Maestro(h) => h.run_role_scoped(execution_id, node_id, task, self_heal),
+            ForgeHarness::Dsh(h) => h.run_role_scoped(execution_id, node_id, task, self_heal),
         }
     }
 
@@ -243,6 +249,7 @@ impl RoleHarness for ForgeHarness {
                 Ok(Some(Arc::new(harness.fork_for_workspace(workspace)?)))
             }
             ForgeHarness::Maestro(_) => Ok(None),
+            ForgeHarness::Dsh(_) => Ok(None),
         }
     }
 
@@ -250,6 +257,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.interrupt_execution(reason),
             ForgeHarness::Maestro(h) => h.interrupt_execution(reason),
+            ForgeHarness::Dsh(h) => h.interrupt_execution(reason),
         }
     }
 
@@ -257,6 +265,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.begin_execution(execution_id),
             ForgeHarness::Maestro(h) => h.begin_execution(execution_id),
+            ForgeHarness::Dsh(h) => h.begin_execution(execution_id),
         }
     }
 
@@ -268,6 +277,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.interrupt_execution_scoped(execution_id, reason),
             ForgeHarness::Maestro(h) => h.interrupt_execution_scoped(execution_id, reason),
+            ForgeHarness::Dsh(h) => h.interrupt_execution_scoped(execution_id, reason),
         }
     }
 
@@ -275,6 +285,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.finish_execution(execution_id),
             ForgeHarness::Maestro(h) => h.finish_execution(execution_id),
+            ForgeHarness::Dsh(h) => h.finish_execution(execution_id),
         }
     }
 
@@ -282,6 +293,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.supports_interrupt(),
             ForgeHarness::Maestro(h) => h.supports_interrupt(),
+            ForgeHarness::Dsh(h) => h.supports_interrupt(),
         }
     }
 
@@ -289,6 +301,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.exists_on_base_ref(base_ref, path),
             ForgeHarness::Maestro(h) => h.exists_on_base_ref(base_ref, path),
+            ForgeHarness::Dsh(h) => h.exists_on_base_ref(base_ref, path),
         }
     }
 
@@ -296,6 +309,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.assay_cwd(),
             ForgeHarness::Maestro(h) => h.assay_cwd(),
+            ForgeHarness::Dsh(h) => h.assay_cwd(),
         }
     }
 
@@ -303,6 +317,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.execution_base_commit(),
             ForgeHarness::Maestro(h) => h.execution_base_commit(),
+            ForgeHarness::Dsh(h) => h.execution_base_commit(),
         }
     }
 
@@ -310,6 +325,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.execution_workspace(),
             ForgeHarness::Maestro(h) => h.execution_workspace(),
+            ForgeHarness::Dsh(h) => h.execution_workspace(),
         }
     }
 
@@ -317,6 +333,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.run_command(command),
             ForgeHarness::Maestro(h) => h.run_command(command),
+            ForgeHarness::Dsh(h) => h.run_command(command),
         }
     }
 
@@ -324,6 +341,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.candidate_probe(),
             ForgeHarness::Maestro(h) => h.candidate_probe(),
+            ForgeHarness::Dsh(h) => h.candidate_probe(),
         }
     }
 
@@ -331,6 +349,7 @@ impl RoleHarness for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h.production_probe(),
             ForgeHarness::Maestro(h) => h.production_probe(),
+            ForgeHarness::Dsh(h) => h.production_probe(),
         }
     }
 }
@@ -352,6 +371,14 @@ impl ForgeHarness {
         }
     }
 
+    /// Access the underlying DSH harness for setup.
+    pub fn as_dsh_mut(&mut self) -> Option<&mut crate::engine::dsh::DshHarness> {
+        match self {
+            ForgeHarness::Dsh(h) => Some(h),
+            _ => None,
+        }
+    }
+
     /// Set the story packet and story ID.
     pub fn set_packet_and_story_id(
         &mut self,
@@ -367,6 +394,10 @@ impl ForgeHarness {
                 h.packet = packet;
                 h.story_id = Some(story_id);
             }
+            ForgeHarness::Dsh(h) => {
+                h.packet = packet;
+                h.story_id = Some(story_id);
+            }
         }
     }
 
@@ -377,6 +408,9 @@ impl ForgeHarness {
                 h.workspace = workspace;
             }
             ForgeHarness::Maestro(h) => {
+                h.workspace = workspace;
+            }
+            ForgeHarness::Dsh(h) => {
                 h.workspace = workspace;
             }
         }
@@ -394,6 +428,9 @@ impl ForgeHarness {
             ForgeHarness::Maestro(h) => {
                 h.execution_workspace = Some(execution_workspace);
             }
+            ForgeHarness::Dsh(h) => {
+                h.execution_workspace = Some(execution_workspace);
+            }
         }
     }
 }
@@ -404,6 +441,7 @@ impl ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => &h.model,
             ForgeHarness::Maestro(h) => &h.model,
+            ForgeHarness::Dsh(h) => &h.model_name,
         }
     }
 
@@ -412,6 +450,7 @@ impl ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => &h.cli_bin,
             ForgeHarness::Maestro(h) => &h.cli_bin,
+            ForgeHarness::Dsh(h) => &h.cli.program,
         }
     }
 
@@ -420,6 +459,7 @@ impl ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => &h.workspace,
             ForgeHarness::Maestro(h) => &h.workspace,
+            ForgeHarness::Dsh(h) => &h.workspace,
         }
     }
 }
@@ -432,6 +472,7 @@ impl std::ops::Deref for ForgeHarness {
         match self {
             ForgeHarness::OpenCode(h) => h,
             ForgeHarness::Maestro(h) => h,
+            ForgeHarness::Dsh(h) => h,
         }
     }
 }
@@ -452,6 +493,10 @@ pub fn create_harness(
         HarnessBackend::Maestro => {
             let harness = crate::engine::maestro::MaestroHarness::from_context(&context)?;
             Ok(ForgeHarness::Maestro(harness))
+        }
+        HarnessBackend::Dsh => {
+            let harness = crate::engine::dsh::DshHarness::from_context(&context)?;
+            Ok(ForgeHarness::Dsh(harness))
         }
     }
 }
