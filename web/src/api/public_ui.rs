@@ -739,7 +739,14 @@ fn property_detail(
             "id": at(m, "id"),
             "playbackId": at(m, "muxPlaybackId"),
             "role": if text(m, "role") == Some("short") { "short" } else { "video" },
-            "title": m.get("filename").filter(|v| !v.is_null()).or_else(|| m.get("caption").filter(|v| !v.is_null())).unwrap_or(name),
+            // A film Mux holds was never uploaded under a filename: `attach_property_video` stores
+            // `mux-<asset id>` in that column (db/src/media/media_row.rs), which names the asset for
+            // us and is not a name a buyer should read. Only a real filename becomes a title; when
+            // this is null the site shows its own fallback ("Property Film") instead.
+            "title": text(m, "filename")
+                .filter(|filename| !filename.trim().to_ascii_lowercase().starts_with("mux-"))
+                .map(|filename| json!(filename))
+                .unwrap_or(Value::Null),
             "caption": at(m, "caption"),
             "aspectRatio": at(m, "aspectRatio"),
             "durationSeconds": at(m, "durationSeconds"),

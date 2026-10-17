@@ -342,7 +342,14 @@ pub(super) fn videos(record: &PropertyRecord) -> Html {
         <div class="flex flex-col gap-12">
             { for record.videos.iter().filter_map(|video| {
                 let playback = video.playback_id.as_deref()?;
-                let title = video.title.as_deref().unwrap_or("Property Film").to_string();
+                // A Mux film's `mux-<asset id>` filename is plumbing, not a title. The read model
+                // withholds it; this keeps it off the page even if an older server still sends it.
+                let title = video
+                    .title
+                    .as_deref()
+                    .filter(|title| !title.trim().to_ascii_lowercase().starts_with("mux-"))
+                    .unwrap_or("Property Film")
+                    .to_string();
                 Some(html! {
                     <section class="mx-auto w-full max-w-[860px]">
                         <p class="mb-5 text-xs font-medium uppercase tracking-[0.24em] text-brand-gold">{title.clone()}</p>
