@@ -190,6 +190,19 @@ impl MaestroHarness {
         Ok(MAESTRO_CLI_DEFAULT.to_string())
     }
 
+    /// Forge's role authority for this node, from the same V2 profile table the OpenCode renderer
+    /// uses. Unknown nodes fail closed to read-only.
+    fn read_only_for(&self, node_id: &str) -> bool {
+        use crate::engine::opencode_agents::{Authority, v2_agent_for_node, v2_profile};
+        !matches!(
+            v2_agent_for_node(node_id)
+                .ok()
+                .and_then(v2_profile)
+                .map(|profile| profile.authority),
+            Some(Authority::Implement)
+        )
+    }
+
     fn run_git(&self, args: &[&str]) -> Option<String> {
         let out = Command::new("git")
             .args(args)
@@ -333,7 +346,13 @@ impl RoleHarness for MaestroHarness {
         // The send contract, exactly as the vendor documents it (`maestro-cli send --help`): `send`
         // <agent> <message>, plus `--session` when resuming. No --model/--auto/--continue/--agent — those
         // are OpenCode flags the Maestro CLI does not accept, and inventing them fails the turn.
-        let args = build_maestro_send_args(&self.agent, task_text.as_str(), session.as_deref());
+        let read_only = self.read_only_for(node_id);
+        let args = build_maestro_send_args(
+            &self.agent,
+            task_text.as_str(),
+            session.as_deref(),
+            read_only,
+        );
 
         // Turn ceiling (wall-clock timeout)
         let max_turn = turn_ceiling(std::env::var(TURN_CEILING_ENV).ok().as_deref());

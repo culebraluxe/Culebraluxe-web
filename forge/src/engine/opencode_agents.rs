@@ -147,7 +147,43 @@ pub struct V2AgentProfile {
     /// Read-only shell command prefixes granted to an otherwise-shell-less agent (e.g. Assay running tests).
     /// Empty means `bash` is denied outright.
     pub shell_allow: &'static [&'static str],
+    /// Whether this profile may use the (read-only) web tools.
+    pub web: bool,
 }
+
+
+/// Phase 2 advisory profiles, rendered from `advisory_profiles.rs` (the one policy table). They are
+/// selectable execution profiles but never workflow nodes: `v2_agent_for_node` still binds only the
+/// seven Forge role lanes. All are read-only; `web` is the only per-seat tool difference.
+const fn advisory_v2_profile(index: usize) -> V2AgentProfile {
+    let profile = &crate::engine::advisory_profiles::ADVISORY_PROFILES[index];
+    V2AgentProfile {
+        id: profile.id,
+        mode: AgentMode::Primary,
+        authority: Authority::ReadOnly,
+        description: profile.description,
+        steps: profile.steps,
+        skills: profile.skills,
+        children: &NO_CHILDREN,
+        shell_allow: &INSPECT_SHELL,
+        web: profile.web,
+    }
+}
+
+pub const ADVISORY_AGENT_PROFILES: [V2AgentProfile; 12] = [
+    advisory_v2_profile(0),
+    advisory_v2_profile(1),
+    advisory_v2_profile(2),
+    advisory_v2_profile(3),
+    advisory_v2_profile(4),
+    advisory_v2_profile(5),
+    advisory_v2_profile(6),
+    advisory_v2_profile(7),
+    advisory_v2_profile(8),
+    advisory_v2_profile(9),
+    advisory_v2_profile(10),
+    advisory_v2_profile(11),
+];
 
 // -----------------------------------------------------------------------------------------------------------
 // Skill catalogue
@@ -382,6 +418,7 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
         skills: &SCOUT_SKILLS,
         children: &NO_CHILDREN,
         shell_allow: &INSPECT_SHELL,
+        web: true,
     },
     V2AgentProfile {
         id: AGENT_ARCHITECT,
@@ -392,6 +429,7 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
         skills: &ARCHITECT_SKILLS,
         children: &ARCHITECT_CHILDREN,
         shell_allow: &INSPECT_SHELL,
+        web: true,
     },
     V2AgentProfile {
         id: AGENT_LEAD,
@@ -402,6 +440,7 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
         skills: &LEAD_SKILLS,
         children: &NO_CHILDREN,
         shell_allow: &INSPECT_SHELL,
+        web: false,
     },
     V2AgentProfile {
         id: AGENT_LEAD_IMPLEMENT,
@@ -412,6 +451,7 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
         skills: &IMPLEMENT_SKILLS,
         children: &NO_CHILDREN,
         shell_allow: &[],
+        web: false,
     },
     V2AgentProfile {
         id: AGENT_SMITH,
@@ -422,6 +462,7 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
         skills: &SMITH_SKILLS,
         children: &SMITH_CHILDREN,
         shell_allow: &[],
+        web: false,
     },
     V2AgentProfile {
         id: AGENT_INSPECTOR,
@@ -432,6 +473,7 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
         skills: &INSPECTOR_SKILLS,
         children: &NO_CHILDREN,
         shell_allow: &[],
+        web: false,
     },
     V2AgentProfile {
         id: AGENT_ASSAY,
@@ -442,6 +484,7 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
         skills: &ASSAY_SKILLS,
         children: &NO_CHILDREN,
         shell_allow: &[],
+        web: false,
     },
     V2AgentProfile {
         id: AGENT_DEVOPS,
@@ -452,6 +495,7 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
         skills: &DEVOPS_SKILLS,
         children: &NO_CHILDREN,
         shell_allow: &INSPECT_SHELL,
+        web: false,
     },
     V2AgentProfile {
         id: AGENT_EXPLORE,
@@ -462,6 +506,7 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
         skills: &EXPLORE_SKILLS,
         children: &NO_CHILDREN,
         shell_allow: &INSPECT_SHELL,
+        web: false,
     },
     V2AgentProfile {
         id: AGENT_REVIEWER,
@@ -472,6 +517,7 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
         skills: &REVIEWER_SKILLS,
         children: &NO_CHILDREN,
         shell_allow: &INSPECT_SHELL,
+        web: false,
     },
     V2AgentProfile {
         id: AGENT_TEST_ANALYST,
@@ -482,6 +528,7 @@ pub const V2_AGENT_PROFILES: [V2AgentProfile; 11] = [
         skills: &TEST_ANALYST_SKILLS,
         children: &NO_CHILDREN,
         shell_allow: &TEST_SHELL,
+        web: false,
     },
 ];
 
@@ -509,9 +556,12 @@ pub fn v2_agent_for_node(node_id: &str) -> Result<&'static str, String> {
 }
 
 pub fn v2_profile(agent_id: &str) -> Option<&'static V2AgentProfile> {
-    V2_AGENT_PROFILES
+    ADVISORY_AGENT_PROFILES
         .iter()
         .find(|profile| profile.id == agent_id)
+        .or_else(|| V2_AGENT_PROFILES
+        .iter()
+        .find(|profile| profile.id == agent_id))
 }
 
 /// Every skill id Forge exposes to V2, in a stable order: canonical library first, then the added architecture
@@ -838,7 +888,7 @@ fn skill_rules(profile: &V2AgentProfile) -> Value {
 /// Web access is a deliberate exception, not a default: only Scout and Architect may reach the network, because
 /// only they are asked to reason about external facts. Everyone else is denied.
 fn web_enabled(profile: &V2AgentProfile) -> bool {
-    matches!(profile.id, AGENT_SCOUT | AGENT_ARCHITECT)
+    profile.web
 }
 
 /// The permission block for one profile. This is execution enforcement, not documentation.
@@ -943,6 +993,11 @@ pub fn v2_agent_block(profile: &V2AgentProfile, spawn: bool) -> Value {
 pub fn render_v2_agent_config_gated(spawn: bool) -> Value {
     let mut agents = Map::new();
     for profile in V2_AGENT_PROFILES.iter() {
+        agents.insert(profile.id.to_string(), v2_agent_block(profile, spawn));
+    }
+    // Phase 2 advisory profiles: the same renderer, the same read-only enforcement, rendered from
+    // the single `advisory_profiles` catalogue rather than a second hand-written list.
+    for profile in ADVISORY_AGENT_PROFILES.iter() {
         agents.insert(profile.id.to_string(), v2_agent_block(profile, spawn));
     }
     let mut config = Map::new();

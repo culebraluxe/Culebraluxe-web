@@ -95,7 +95,7 @@ fn maestro_agent_missing_fails_closed() {
 #[test]
 fn maestro_send_args_contract() {
     // No session: exactly `send <agent> <message>`, and none of OpenCode's flags.
-    let args = build_maestro_send_args("forge-nemotron", "hello", None);
+    let args = build_maestro_send_args("forge-nemotron", "hello", None, false);
     assert_eq!(args, vec!["send", "forge-nemotron", "hello"]);
     for forbidden in ["--model", "--auto", "--continue", "--agent", "run"] {
         assert!(
@@ -104,7 +104,7 @@ fn maestro_send_args_contract() {
         );
     }
     // Resuming: exactly one `--session` with the id, appended once.
-    let args = build_maestro_send_args("forge-nemotron", "hello", Some("abc123"));
+    let args = build_maestro_send_args("forge-nemotron", "hello", Some("abc123"), false);
     assert_eq!(
         args,
         vec!["send", "forge-nemotron", "hello", "--session", "abc123"]
@@ -117,8 +117,21 @@ fn maestro_send_args_contract() {
         "the session argument appears exactly once"
     );
     // Blank session is no session.
-    let args = build_maestro_send_args("forge-nemotron", "hello", Some("  "));
+    let args = build_maestro_send_args("forge-nemotron", "hello", Some("  "), false);
     assert_eq!(args.len(), 3);
+    // Forge's read-only authority reaches the vendor as the vendor's own flag.
+    let args = build_maestro_send_args("forge-nemotron", "hello", Some("abc123"), true);
+    assert_eq!(
+        args,
+        vec![
+            "send",
+            "forge-nemotron",
+            "hello",
+            "--read-only",
+            "--session",
+            "abc123"
+        ]
+    );
 }
 
 #[test]

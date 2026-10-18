@@ -375,58 +375,40 @@ that stays parked rather than lost.
 - `forge/src/engine/dsh/advisory.rs` + `forge/src/engine/advisory_runner.rs` — a Phase 2 panel executed
   through the DSH harness: independent read-only seats, verdict/synthesis JSON validation, no writes.
 
-**Deferred, with exits and priority (do not delete — this is the part we keep):**
+**Landed 2026-10-18 (P1/P2/P3 of the Phase 2 integration):**
+- **P1 durable decisions/HOLD/handoff.** `db::NewForgeDecision` + `ForgeEngineDao::insert_decision`
+  write a `candidate` row (idempotent by key, never self-promoted); `decisions::record_panel_decision`,
+  `record_handoff_artifact`, and `open_panel_hold` persist the panel; `PanelOutcome::record` writes the
+  decision, attaches the `ForgeDecisionHandoff` as a story artifact when a story id is supplied, and
+  opens a HOLD when a story + workflow instance are supplied. Draft-story auto-creation is NOT done —
+  see remaining item 5.
+- **P2 Council rounds.** `advisory_runner` now runs the three rounds already specified in
+  `docs/agent/executive/COUNCIL.md`: independent Round 1, cross-examination Round 2 (Council only),
+  and Round 3 synthesis; `SeatRunner` makes the protocol testable without a model call. Per-seat tool
+  differences are materialized where enforcement exists: OpenCode advisory profiles carry the web
+  allowlist; the DSH panel still uses one read-only sandbox (remaining item 1).
+- **P3 materializers.** `opencode_agents::ADVISORY_AGENT_PROFILES` renders the twelve profiles from
+  `advisory_profiles.rs` (single catalogue, read-only, ADVISORY_MAX_STEPS, web only for the four
+  research seats) with rails (`v2_advisory_profiles_render_read_only_from_one_catalogue`); the
+  regenerated `opencode.json` carries them. The Maestro adapter now passes `--read-only` for Forge's
+  read-only role nodes (vendor-side enforcement).
 
-**P1 — next, before the panel is used for a real decision.**
-1. **Durable decision/HOLD persistence + `ForgeDecisionHandoff`.** The panel runner returns an
-   in-memory `PanelOutcome`; nothing becomes a row. Research findings: `forge_decision` has a schema
-   (migration 180) and a READER only — no Rust writer exists; `forge_hold_record` HAS a writer
-   (`db::forge_engine::open_hold`, used by role lifecycle) but a HOLD needs a story/process instance,
-   so a story-less strategic decision belongs in a `forge_decision` row + the durable doc, not a HOLD.
-   `ForgeDecisionHandoff` is a contract with `handoff_to_forge()` and NO consumer; the Story Board has
-   existing write seams (`db/src/forge_control.rs`, `db/src/tech.rs`), so the handoff should attach to
-   an existing story packet or create a *draft* story, never auto-start work.
-   Exit: a decision row written for every completed panel; HOLD opened when a story exists and owner
-   authority is required; handoff attached to a packet/candidate story with a product decision on
-   auto-create vs attach. Small pieces first: decision writer (~0.5 d), runner persistence + dedupe by
-   decision_id (~0.5 d), hold/attach (~0.5 d), story handoff (~1 d, needs the product call).
-
-**P2 — design already exists, execution is missing.**
-2. **Council challenge rounds.** DO NOT redesign: `docs/agent/executive/COUNCIL.md` already defines the
-   three rounds (independent positions → cross-examination → decision) with the required fields,
-   triggers, mandatory Adversary, and authority limits. What is missing is the runner: Round 1 exists
-   (independent seats), Round 2 (each seat challenges the strongest opposing position), Round 3
-   (moderator decision record) are not implemented, and none of it persists.
-   Exit: extend `advisory_runner` with round 2/3 prompts and a decision record; keep Round 1 blind.
-   Depends on P1 for the record to be durable.
-3. **Per-seat tool profiles.** Today every advisory seat is one read-only sandbox + a role prompt.
-   DSH headless is a *rosterless* deployment (`--dump-config` has no `agent-presets` mount), so per-seat
-   tools mean composing agent presets into a profile (12 presets, or at minimum two read-only variants:
-   with and without web) and selecting one per seat. OpenCode already has per-profile permission
-   allowlists, so if per-tool enforcement matters more than the transport, the OpenCode materializer is
-   the cheaper route. Importance: moderate — read-only seats differ mainly by web research access.
-   Exit: two read-only presets first (no-web, web), then per-seat only where a seat genuinely needs a
-   different tool set.
-
-**P3 — only if the panel runs on those transports.**
-4. **OpenCode / Maestro materializers and the handoff §5 permission rails.** A materializer is the
-   translation of the canonical `advisory_profiles.rs` table into a transport's native profile:
-   OpenCode → a `V2AgentProfile`/rendered permission block (and the 13 harness rails); Maestro → a
-   roster agent + `send --read-only` (weaker: no per-tool enforcement, roster lives outside the repo).
-   Neither is needed while DSH is the panel transport; both must render FROM the catalogue, never a
-   second list. Exit: when an advisory turn must run on that transport (e.g. parallel forks on OpenCode,
-   or cross-vendor adversaries via Maestro).
-
-**Deferred, unchanged (keep in TD):**
-5. **Read-only web research for advisor/principal-architect/adversary/research.** Exit: a read-only
-   preset with web tools enabled plus an audit of where it can read (pairs with item 3).
-6. **Advisory spend accounting.** DSH reports tokens in the session log and the adapter parses them;
-   cost needs operator rates (`DSH_PRICE_INPUT_PER_MTOK`, `DSH_PRICE_OUTPUT_PER_MTOK`,
-   `DSH_PRICE_CACHE_READ_PER_MTOK`). Exit: rates configured and per-panel totals recorded.
-7. **Micro-agent children in advisory seats (contract allows 3, depth 1).** DSH subagents exist but the
-   spend join is unproven; keep the stricter bound (no children) until the harness can account for them.
-8. **Maestro `send --read-only` wiring.** The CLI has the flag; Forge's Maestro adapter does not pass it.
-   Exit: only if Maestro is used for advisory turns.
+**Remaining TD:**
+1. **DSH per-seat agent presets.** Headless is a rosterless deployment; per-seat tools on DSH need a
+   composed agent-presets profile (start with two read-only variants: with/without web).
+2. **Read-only web research on DSH.** The OpenCode web allowlist exists; the DSH panel needs a
+   read-only web preset plus an audit of what it can read.
+3. **Advisory spend rates.** DSH records tokens and the adapter parses them; cost needs
+   `DSH_PRICE_INPUT_PER_MTOK` / `DSH_PRICE_OUTPUT_PER_MTOK` / `DSH_PRICE_CACHE_READ_PER_MTOK`.
+4. **Micro-agent children in advisory seats.** Contract allows 3/depth 1; DSH subagent spend join is
+   unproven, so the stricter bound (none) remains.
+5. **Handoff auto-create vs attach.** Current behavior: persist the handoff as a story artifact when a
+   story id is given; creating a Story Board draft automatically is a product decision (not debt by
+   accident).
+6. **Maestro advisory roster.** The OpenCode profile half is rendered; a Maestro roster agent per
+   advisory role and the external roster configuration remain an operational step.
+7. **OpenCode/Maestro seat runners.** The panel executes through DSH today; add `SeatRunner`
+   implementations for the other transports when the panel should run there.
 
 **Not debt, by rule:** no fourth agent registry, no executive nodes in `FORGE_SDLC-v6.xml`, and no
 swarm write authority. The contract module and the advisory catalogue are the single source.

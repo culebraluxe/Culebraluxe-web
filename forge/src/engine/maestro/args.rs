@@ -78,8 +78,14 @@ pub(super) fn build_maestro_send_args(
     agent: &str,
     task: &str,
     session: Option<&str>,
+    read_only: bool,
 ) -> Vec<String> {
     let mut args = vec!["send".to_string(), agent.to_string(), task.to_string()];
+    // Forge's role authority, enforced by the vendor: a read-only lane cannot modify files even
+    // though the roster agent itself is write-capable.
+    if read_only {
+        args.push("--read-only".to_string());
+    }
     if let Some(id) = session.map(str::trim).filter(|id| !id.is_empty()) {
         args.push("--session".to_string());
         args.push(id.to_string());

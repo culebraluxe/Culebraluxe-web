@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-18 07:50:38Z
-- commit: `b7d8b9bb9` (working tree dirty) on `HEAD`
+- generated: 2026-10-18 08:00:57Z
+- commit: `8f4344edc` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest ENG-FORGE-DOCTOR-01`
 - rows: 16 — packet, cited paths and story commits first, lexical matches after
 
@@ -19,10 +19,10 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `legacy/db/storyboard.ts` **MISSING** — cited · cited by ENG-FORGE-DOCTOR-01 · last touched untracked
 - `scripts/forge-batch-status.ts` **MISSING** — cited · cited by ENG-FORGE-DOCTOR-01 · last touched untracked
 - `docs/agent/RUNLOG.md` — lexical · term match: acceptance, access, action, active · last touched 2026-10-12
-- `docs/agent/HANDOFF-forge-pool-io-2026-09-29.md` — lexical · term match: absence, action, active, agent · last touched untracked
 - `docs/agent/ARCH-HANDOFF.md` — lexical · term match: absence, acceptance, access, action · last touched 2026-10-12
+- `docs/agent/HANDOFF-forge-pool-io-2026-09-29.md` — lexical · term match: absence, action, active, agent · last touched untracked
 - `docs/agent/HANDOFF-forge-port-2026-09-28.md` — lexical · term match: access, action, agent, agents · last touched untracked
-- `docs/agent/TECH-DEBT.md` — lexical · term match: 2026-09-15, acceptance, access, active · last touched 2026-10-18
+- `docs/agent/TECH-DEBT.md` — lexical · term match: 2026-09-15, acceptance, active, agent · last touched 2026-10-18
 - `docs/agent/preserved/arch-handoff/ARCH-HANDOFF-pre-cleanup-2026-09-12.md` — lexical · term match: absence, acceptance, access, action · last touched untracked
 - `docs/agent/WORKFLOW-ARCHITECTURE.md` — lexical · term match: acceptance, active, agent, agent-work · last touched untracked
 - `docs/agent/OLD-ENGINE-CONTRACT-RESTORATION.md` — lexical · term match: absence, acceptance, agent, agent-work · last touched 2026-10-12

@@ -448,9 +448,18 @@ fn v2_read_only_roles_inspect_with_jj_and_only_inspect() {
 fn v2_web_access_is_reserved_for_scout_and_architect() {
     let config = config();
     for profile in agents::V2_AGENT_PROFILES.iter() {
-        let expected = match profile.id {
-            agents::AGENT_SCOUT | agents::AGENT_ARCHITECT => "allow",
-            _ => "deny",
+        let advisory_web = [
+            "exec-advisor",
+            "exec-principal-architect",
+            "exec-adversary",
+            "expert-research",
+        ];
+        let expected = if matches!(profile.id, agents::AGENT_SCOUT | agents::AGENT_ARCHITECT)
+            || advisory_web.contains(&profile.id)
+        {
+            "allow"
+        } else {
+            "deny"
         };
         for tool in ["webfetch", "websearch"] {
             assert_eq!(
@@ -664,7 +673,7 @@ fn v2_config_disables_snapshots_compaction_and_grandchildren() {
             .get("agent")
             .and_then(Value::as_object)
             .map(|a| a.len()),
-        Some(11)
+        Some(11 + 12)
     );
     // Warming would be spend Forge never requested and cannot attribute, so it must not appear at all.
     let rendered = agents::v2_agent_config_content().expect("content");
@@ -1614,4 +1623,26 @@ fn v2_the_subagent_declaration_reports_the_value_that_decided_it() {
         armed_unset.contains("ARMED") && armed_unset.contains("<unset>"),
         "an armed turn must report the posture it is running, whatever the variable now says: {armed_unset:?}"
     );
+}
+
+#[test]
+fn v2_advisory_profiles_render_read_only_from_one_catalogue() {
+    use forge::engine::advisory_profiles::advisory_ids;
+    let config = config();
+    let ids = advisory_ids();
+    assert_eq!(agents::ADVISORY_AGENT_PROFILES.len(), ids.len());
+    for profile in agents::ADVISORY_AGENT_PROFILES.iter() {
+        assert!(ids.contains(&profile.id), "advisory id {} is not in the catalogue", profile.id);
+        let entry = agent_entry(&config, profile.id);
+        assert!(entry.is_object(), "{} missing from rendered config", profile.id);
+        assert_eq!(rule_str(&config, profile.id, "edit", "*"), "deny");
+        assert_eq!(rule_str(&config, profile.id, "patch", "*"), "deny");
+        assert_eq!(rule_str(&config, profile.id, "task", "*"), "deny");
+        assert_eq!(
+            entry.get("mode").and_then(Value::as_str),
+            Some("primary"),
+            "advisory profiles are selectable primary profiles"
+        );
+        assert_eq!(profile.steps, forge::engine::advisory_profiles::ADVISORY_MAX_STEPS);
+    }
 }

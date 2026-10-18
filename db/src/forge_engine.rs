@@ -457,6 +457,19 @@ pub struct ForgeDecisionRow {
     pub owner: Option<String>,
 }
 
+/// A decision row to write (migration 180). `active` requires an owner and a promotion time; the
+/// advisory panel writes `candidate` rows so a human/lane promotes them, never the model.
+#[derive(Debug, Clone)]
+pub struct NewForgeDecision<'a> {
+    pub key: &'a str,
+    pub statement: &'a str,
+    pub status: &'a str,
+    pub owner: Option<&'a str>,
+    pub evidence_sha: Option<&'a str>,
+    pub source: &'a str,
+    pub domain: &'a str,
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct ProcessDefinitionRow {
     pub id: String,
@@ -984,6 +997,32 @@ impl ForgeEngineDao {
         .fetch_all(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_engine.active_decisions", &error))
+    }
+
+    /// Write a decision row idempotently by key: a re-run updates the statement/evidence but never
+    /// demotes or re-promotes an existing decision.
+    pub async fn insert_decision(&self, decision: &NewForgeDecision<'_>) -> DbResult<String> {
+        sqlx::query_scalar::<_, String>(
+            "insert into forge_decision(key,statement,status,owner,evidence_sha,source,domain,promoted_at)
+             values($1,$2,$3,$4,$5,$6,$7, case when $3='active' then now() else null end)
+             on conflict (key) do update set
+               statement = excluded.statement,
+               evidence_sha = coalesce(excluded.evidence_sha, forge_decision.evidence_sha),
+               source = excluded.source,
+               domain = excluded.domain,
+               superseded_at = null
+             returning id::text",
+        )
+        .bind(decision.key)
+        .bind(decision.statement)
+        .bind(decision.status)
+        .bind(decision.owner)
+        .bind(decision.evidence_sha)
+        .bind(decision.source)
+        .bind(decision.domain)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_engine.insert_decision", &error))
     }
 
     pub async fn process_definition(

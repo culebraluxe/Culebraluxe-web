@@ -29,7 +29,7 @@ fn maestro_live_send_integration() {
         "FORGE_MAESTRO_INTEGRATION=1 requires MAESTRO_TEST_AGENT naming a cheap test agent",
     );
     let bin = MaestroHarness::default_cli_bin().expect("maestro-cli resolves");
-    let args = build_maestro_send_args(&agent, "Reply with exactly: integration-ok", None);
+    let args = build_maestro_send_args(&agent, "Reply with exactly: integration-ok", None, false);
     let output = std::process::Command::new(&bin)
         .args(&args)
         .stdin(std::process::Stdio::null())
