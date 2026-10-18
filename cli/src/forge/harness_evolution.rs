@@ -24,6 +24,10 @@
 //!       [--model M] [--model-policy P] [--executor E] [--tool T]... [--dataset D]
 //!       [--test-plan P] [--replay-id R] [--mode parallel|sequential] [--k N] [--seed N]
 //!       [--target dev|prod] [--dry-run] [--format json]
+//!   cargo run -p cli -- forge harness-evolution probe ... --authorize-model-run
+//!       [--model-backend dsh|opencode]
+//!       (model-turn sandbox instead of --command; mutually exclusive with --command, and a real
+//!        run spends a paid model turn — explicit authorization is required)
 
 use std::path::PathBuf;
 
@@ -45,6 +49,9 @@ use forge::engine::harness_evolution::metrics::{
 };
 use forge::engine::harness_evolution::model::{
     AdoptionVerdict, EnvironmentClass, EvolutionBudget, EvolutionMode, HarnessDomain, ProposalKind,
+};
+use forge::engine::harness_evolution::model_turn_sandbox::{
+    ModelTurnAuthorization, ModelTurnBackend, ModelTurnSandbox,
 };
 use forge::engine::harness_evolution::probe::ProbePins;
 use forge::engine::harness_evolution::probe_replay::{
@@ -1368,6 +1375,57 @@ fn probe_experiment_id(story_id: &str) -> String {
     format!("probe-{}-{nanos}", sanitize_identifier(story_id))
 }
 
+/// Which sandbox the probe will use. Derived from the flags only (no backend availability check),
+/// so argument errors are deterministic and testable without a model or a database.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProbeSandboxChoice {
+    /// The command sandbox (`--command`, the default and the only no-spend sandbox).
+    Command,
+    /// The model-turn sandbox (`--authorize-model-run`), which spends one paid turn per probe.
+    ModelTurn,
+}
+
+/// Argument contract for the two sandboxes:
+/// * `--command` and `--authorize-model-run` are mutually exclusive;
+/// * `--model-backend` is only meaningful with explicit model-run authorization;
+/// * absence of both is the command sandbox (a real run then fails closed on the missing command,
+///   while `--dry-run` still works).
+fn probe_sandbox_choice(args: &[String]) -> Result<ProbeSandboxChoice, Failure> {
+    let authorized_model_run = args
+        .iter()
+        .any(|value| value == ModelTurnAuthorization::FLAG);
+    let has_command = flag(args, "--command").is_some();
+    let has_model_backend = flag(args, "--model-backend").is_some();
+    if authorized_model_run && has_command {
+        return Err(Failure::usage(format!(
+            "{} and --command are mutually exclusive: one probe runs one sandbox",
+            ModelTurnAuthorization::FLAG
+        )));
+    }
+    if has_model_backend && !authorized_model_run {
+        return Err(Failure::usage(format!(
+            "--model-backend requires {} (a model turn is refused without explicit authorization)",
+            ModelTurnAuthorization::FLAG
+        )));
+    }
+    Ok(if authorized_model_run {
+        ProbeSandboxChoice::ModelTurn
+    } else {
+        ProbeSandboxChoice::Command
+    })
+}
+
+/// `--model-backend dsh|opencode`, else the `FORGE_HARNESS` backend, else the dsh default. An unknown
+/// word is a typed refusal (the model-turn backend is never guessed).
+fn parse_model_backend(args: &[String]) -> Result<ModelTurnBackend, Failure> {
+    match flag(args, "--model-backend") {
+        Some(name) => ModelTurnBackend::from_name(Some(&name))
+            .map_err(|error| Failure::failed(format!("model-run backend refused: {error}"))),
+        None => ModelTurnBackend::from_env()
+            .map_err(|error| Failure::failed(format!("model-run backend refused: {error}"))),
+    }
+}
+
 /// Build the command sandbox for a real run. Missing `--command` fails closed: the probe will not
 /// invent a command, and the sandbox still enforces its exact-invocation allowlist.
 fn probe_command_sandbox(args: &[String]) -> Result<CommandSandbox, Failure> {
@@ -1389,6 +1447,9 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
     let database = database_for(args).await?;
     let target = database.declared_target().as_str().to_string();
     let dry_run = args.iter().any(|value| value == "--dry-run");
+    // Sandbox-flag contract first: a mutually exclusive combination is a usage error before any
+    // database read, never a run that gets halfway.
+    let sandbox_choice = probe_sandbox_choice(args)?;
 
     let domain_id = required_flag(args, "--domain")?;
     let domain = HarnessDomain::from_id(&domain_id).ok_or_else(|| {
@@ -1499,6 +1560,13 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
     if dry_run {
         let plan = plan_recorded_replay(&loader, &revisions, &request)
             .map_err(|error| Failure::failed(format!("probe dry run refused: {error}")))?;
+        let dry_run_sandbox = match sandbox_choice {
+            ProbeSandboxChoice::Command => "command".to_string(),
+            ProbeSandboxChoice::ModelTurn => {
+                let backend = parse_model_backend(args)?;
+                format!("model-turn:{}", backend.id())
+            }
+        };
         if format == OutputFormat::Json {
             print_json(&json!({
                 "command": "probe",
@@ -1512,6 +1580,8 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
                 "base_revision": plan.base.id,
                 "candidate_revision": plan.candidate.id,
                 "contract_digest": plan.contract_digest(),
+                "sandbox": dry_run_sandbox,
+                "model_run_authorized": sandbox_choice == ProbeSandboxChoice::ModelTurn,
                 "evidence_refs": plan.task.evidence_refs,
                 "persisted": Value::Null,
             }))?;
@@ -1528,14 +1598,44 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
                 plan.candidate.id,
                 &plan.contract_digest()[..12.min(plan.contract_digest().len())]
             );
+            println!(
+                "  sandbox     {dry_run_sandbox}{}",
+                if sandbox_choice == ProbeSandboxChoice::ModelTurn {
+                    "  (explicit model-run authorization; a real run would spend one paid turn)"
+                } else {
+                    ""
+                }
+            );
             println!("  not run     the sandbox is not executed in a dry run; nothing was written");
         }
         return Ok(0);
     }
 
-    let sandbox = probe_command_sandbox(args)?;
-    let outcome = run_recorded_replay(&loader, &sandbox, &revisions, &request)
-        .map_err(|error| Failure::failed(format!("probe refused or failed ({error})")))?;
+    // Real run: pick the sandbox the flags authorized. The model-turn path mints its authorization
+    // here, which checks backend availability and refuses production BEFORE any spend.
+    let (sandbox_label, outcome) = match sandbox_choice {
+        ProbeSandboxChoice::Command => {
+            let sandbox = probe_command_sandbox(args)?;
+            let outcome = run_recorded_replay(&loader, &sandbox, &revisions, &request)
+                .map_err(|error| Failure::failed(format!("probe refused or failed ({error})")))?;
+            ("command".to_string(), outcome)
+        }
+        ProbeSandboxChoice::ModelTurn => {
+            let backend = parse_model_backend(args)?;
+            let authorization =
+                ModelTurnAuthorization::authorize_model_run(backend.clone(), environment).map_err(
+                    |error| Failure::failed(format!("model-run authorization refused: {error}")),
+                )?;
+            let sandbox = ModelTurnSandbox::new(authorization);
+            sandbox.validate().map_err(|error| {
+                Failure::failed(format!("model-turn sandbox refused the probe: {error}"))
+            })?;
+            let label = format!("model-turn:{}", backend.id());
+            let outcome = run_recorded_replay(&loader, &sandbox, &revisions, &request)
+                .map_err(|error| Failure::failed(format!("probe refused or failed ({error})")))?;
+            (label, outcome)
+        }
+    };
     let meta = ReplayPersistenceMeta {
         experiment_id: &experiment_id,
         domain,
@@ -1607,6 +1707,7 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
             "base_revision": outcome.base.id,
             "candidate_revision": outcome.candidate.id,
             "contract_digest": outcome.contract_digest,
+            "sandbox": sandbox_label,
             "probes": probe_views,
             "contrast": {
                 "contrast_id": outcome.contrast.id,
@@ -1637,6 +1738,7 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
             outcome.candidate.id,
             &outcome.contract_digest[..12.min(outcome.contract_digest.len())]
         );
+        println!("  sandbox     {sandbox_label}");
         for probe in &probe_views {
             println!(
                 "  probe       {}  {}  revision={}  evidence={}",
@@ -2022,6 +2124,63 @@ mod probe_tests {
         let other = probe_experiment_id("story-2");
         assert!(other.starts_with("probe-story-2-"), "{other}");
         assert_eq!(sanitize_identifier("---"), "story");
+    }
+
+    #[test]
+    fn model_run_authorization_and_command_are_mutually_exclusive() {
+        let both = probe_sandbox_choice(&args(&[
+            "--authorize-model-run",
+            "--command",
+            "/usr/bin/true",
+        ]))
+        .expect_err("both sandboxes cannot run");
+        assert!(both.to_string().contains("mutually exclusive"), "{both}");
+
+        let backend_without_authorization =
+            probe_sandbox_choice(&args(&["--model-backend", "dsh"])).expect_err("no token");
+        assert!(
+            backend_without_authorization
+                .to_string()
+                .contains("requires --authorize-model-run"),
+            "{backend_without_authorization}"
+        );
+
+        assert_eq!(
+            probe_sandbox_choice(&args(&[])).unwrap(),
+            ProbeSandboxChoice::Command
+        );
+        assert_eq!(
+            probe_sandbox_choice(&args(&["--command", "/usr/bin/true"])).unwrap(),
+            ProbeSandboxChoice::Command
+        );
+        assert_eq!(
+            probe_sandbox_choice(&args(&["--authorize-model-run"])).unwrap(),
+            ProbeSandboxChoice::ModelTurn
+        );
+        assert_eq!(
+            probe_sandbox_choice(&args(&[
+                "--authorize-model-run",
+                "--model-backend",
+                "opencode"
+            ]))
+            .unwrap(),
+            ProbeSandboxChoice::ModelTurn
+        );
+    }
+
+    #[test]
+    fn the_model_backend_selector_is_a_closed_vocabulary() {
+        assert_eq!(
+            parse_model_backend(&args(&["--model-backend", "dsh"])).unwrap(),
+            ModelTurnBackend::Dsh
+        );
+        assert_eq!(
+            parse_model_backend(&args(&["--model-backend", "opencode"])).unwrap(),
+            ModelTurnBackend::OpenCode
+        );
+        let unknown = parse_model_backend(&args(&["--model-backend", "anthropic"]))
+            .expect_err("unknown backend is refused");
+        assert!(unknown.to_string().contains("unknown"), "{unknown}");
     }
 
     #[test]

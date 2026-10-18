@@ -47,8 +47,8 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
 
 | # | Item | status | scope |
 | --- | --- | --- | --- |
-| D1 | Run dogfood: 3–5 historical Rust stories, prompt/tool-guidance only, k=1, command sandbox first | IN PROGRESS | model-turn sandbox landed (task-19); next: wire executor into probe CLI, then run on DEV | `scripts/harness-dogfood.sh` + probe entrypoint |
-| D2 | Review evidence manually before any adoption; write first experience/correction rows | BLOCKED (D1) | DB + decision record |
+| D1 | Run dogfood: 3–5 historical Rust stories, prompt/tool-guidance only, k=1, command sandbox first | PARTIAL / BLOCKED (principal) | wiring + command-sandbox E2E on DEV verified (persisted experiment/candidate/2 probes/contrast, cleaned); paid model run needs principal approval: `--authorize-model-run --model-backend opencode` = 2 opencode turns | `scripts/harness-dogfood.sh` + probe entrypoint |
+| D2 | Review evidence manually before any adoption; write first experience/correction rows | BLOCKED (D1 model run) | DB + decision record |
 | D3 | Automatic adoption stays OFF until effective-GREEN has production evidence | BLOCKED | blocked by D1/D2 + principal approval |
 
 ## E. Later (do not start until A–D empty)
@@ -70,6 +70,7 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
   ledger->feed evidence adapter, writeback honesty, correction-key contract + boot gate,
   dogfood authorization/partial-load refusal, calibration provenance/label) — 1024 forge tests,
   63 db tests, gate PASS.
+- 2026-10-18: D1 probe CLI wired for model turns (mutually exclusive with --command); command-sandbox dogfood E2E on DEV persisted and cleaned; model-turn dry-run verified without spend. Paid opencode run requires principal approval.
 - 2026-10-18: D1 model-turn sandbox adapter landed (ModelTurnSandbox + ModelTurnAuthorization, DSH/OpenCode backends, fake-transport tests; no live model call). Remaining D1: wire into probe CLI and run.
 - 2026-10-18: C3 CTO Office local git repo initialized + initial commit (off-machine mirror pending principal).
 - 2026-10-18: O1-O3 operator surface landed: CLI feed|metrics|calibration + probe entrypoint

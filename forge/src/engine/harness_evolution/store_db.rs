@@ -583,9 +583,7 @@ mod tests {
     }
 
     fn replay_outcome() -> crate::engine::harness_evolution::probe_replay::RecordedReplayOutcome {
-        use crate::engine::harness_evolution::model::{
-            BehaviorEvidence, ProbeSpec, QaVerdict,
-        };
+        use crate::engine::harness_evolution::model::{BehaviorEvidence, ProbeSpec, QaVerdict};
         use crate::engine::harness_evolution::probe::{ProbeOutcome, ProbeReading, ProbeSide};
         use crate::engine::harness_evolution::probe_replay::HistoricalTask;
 
@@ -703,6 +701,122 @@ mod tests {
             Some("probe-cand")
         );
         assert_eq!(plan.contrast.contrast_id, "contrast-1");
+    }
+
+    #[test]
+    fn model_turn_readings_persist_tokens_and_unmeasured_cost_as_option() {
+        use crate::engine::harness_evolution::model::{BehaviorEvidence, ProbeSpec, QaVerdict};
+        use crate::engine::harness_evolution::model_turn_sandbox::USAGE_UNMEASURED_REF;
+        use crate::engine::harness_evolution::probe::{ProbeOutcome, ProbeReading, ProbeSide};
+        use crate::engine::harness_evolution::probe_replay::HistoricalTask;
+
+        let base = revision();
+        let candidate = HarnessRevision::draft(
+            "rev-2",
+            HarnessDomain::RustBackend,
+            base.manifest
+                .clone()
+                .with_component(prompt("candidate prompt")),
+            "owner",
+        )
+        .with_parent(Some("rev-1".to_string()));
+        let spec = ProbeSpec::new("forge-story:story-1", "rev-1", "rev-2")
+            .with_model("deepseek-chat")
+            .with_model_policy("default")
+            .with_executor("dsh")
+            .with_tools(Vec::new())
+            .with_environment_class(
+                crate::engine::harness_evolution::model::EnvironmentClass::Development,
+            )
+            .with_input_dataset("forge-harness-evolution")
+            .with_test_plan("cargo test -p forge")
+            .with_replay_id("replay-harness-evolution");
+        let digest = "0".repeat(64);
+        let reading = |probe_id: &str, side: ProbeSide, revision_id: &str| {
+            let mut behavior = BehaviorEvidence::new(format!("evidence-{probe_id}"), probe_id);
+            behavior.success = true;
+            behavior.qa = QaVerdict::Pass;
+            // Model-turn shaped reading: measured tokens, unpriced cost (None, never zero), and
+            // the sandbox's explicit unmeasured-usage label in the evidence refs.
+            behavior.tokens_in = 120;
+            behavior.tokens_out = 30;
+            behavior.cost_micros = None;
+            behavior.evidence_refs = vec![
+                format!("model-turn:exec:{probe_id}"),
+                USAGE_UNMEASURED_REF.to_string(),
+            ];
+            let outcome = ProbeOutcome {
+                probe_id: probe_id.into(),
+                side,
+                revision: revision_id.into(),
+                contract_digest: digest.clone(),
+                evidence_id: behavior.evidence_id.clone(),
+                evidence_refs: behavior.evidence_refs.clone(),
+            };
+            ProbeReading::new(outcome, behavior).expect("reading")
+        };
+        let reference = reading("probe-ref", ProbeSide::Reference, "rev-1");
+        let candidate_reading = reading("probe-cand", ProbeSide::Candidate, "rev-2");
+        let identity = spec.identity();
+        let report = crate::engine::harness_evolution::contrast::contrast(
+            "contrast-1",
+            "rev-1",
+            "rev-2",
+            &reference.behavior,
+            &candidate_reading.behavior,
+            &identity,
+            &identity,
+        )
+        .expect("contrast");
+        let outcome = crate::engine::harness_evolution::probe_replay::RecordedReplayOutcome {
+            task: HistoricalTask::new("story-1", "run-1", "title", "packet"),
+            base,
+            candidate,
+            contract_digest: digest,
+            spec,
+            reference,
+            candidate_reading,
+            contrast: report,
+        };
+        let meta = super::ReplayPersistenceMeta {
+            experiment_id: "exp-model-turn-1",
+            domain: HarnessDomain::RustBackend,
+            candidate_kind: crate::engine::harness_evolution::model::ProposalKind::Domain,
+            mode: crate::engine::harness_evolution::model::EvolutionMode::Parallel,
+            budget: crate::engine::harness_evolution::model::EvolutionBudget::k1(),
+            seed: 0,
+        };
+        let plan = super::plan_replay_persistence(&meta, &outcome).expect("plan");
+        assert_eq!(plan.probes.len(), 2);
+        for probe in &plan.probes {
+            assert!(
+                probe
+                    .evidence_refs
+                    .as_array()
+                    .is_some_and(|refs| refs.contains(&serde_json::json!(USAGE_UNMEASURED_REF))),
+                "the unmeasured-usage label is persisted: {:?}",
+                probe.evidence_refs
+            );
+            assert_eq!(probe.spec["model"], serde_json::json!("deepseek-chat"));
+        }
+        // The contrast report persists the model-turn readings: tokens captured, cost as null
+        // (NOT CAPTURED) rather than 0.
+        let dimensions = plan.contrast.report["dimensions"]
+            .as_array()
+            .expect("dimensions");
+        let tokens = dimensions
+            .iter()
+            .find(|dimension| dimension["dimension"] == serde_json::json!("tokens"))
+            .expect("tokens dimension");
+        assert_eq!(tokens["candidate_value"], serde_json::json!(150.0));
+        assert_eq!(tokens["direction"], serde_json::json!("unchanged"));
+        let cost = dimensions
+            .iter()
+            .find(|dimension| dimension["dimension"] == serde_json::json!("cost"))
+            .expect("cost dimension");
+        assert_eq!(cost["reference_value"], serde_json::Value::Null);
+        assert_eq!(cost["candidate_value"], serde_json::Value::Null);
+        assert_eq!(cost["direction"], serde_json::json!("unknown"));
     }
 
     /// DEV smoke test for the O2 persistence path: insert a real experiment/candidate/probe/contrast
