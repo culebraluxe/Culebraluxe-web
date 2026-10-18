@@ -44,6 +44,35 @@ pub trait RevisionStore {
         revision_id: &str,
         status: RevisionStatus,
     ) -> Result<(), CatalogError>;
+
+    /// Persist one pointer move **atomically**: the activation rows and the lifecycle status
+    /// writes the plan carries must commit together or not at all.
+    ///
+    /// This is the D4 seam. The catalog validates first, builds the plan, and calls this method
+    /// before touching the in-memory pointer: a store that returns `Err` (a refused transaction,
+    /// a stale pointer, a lost connection) leaves the active pointer and every revision status
+    /// exactly as they were. In-memory v1 validates all writes before applying any; the durable
+    /// store runs one PostgreSQL transaction.
+    fn apply_activation(&mut self, plan: &ActivationPlan) -> Result<(), CatalogError>;
+
+    /// The revision recorded as active in the durable store, if the store keeps one. The
+    /// in-memory store starts empty; [`HarnessCatalog::restore_active_pointer`] uses this to
+    /// rehydrate a catalog from a durable store.
+    fn current_activation(
+        &self,
+        _domain: HarnessDomain,
+    ) -> Result<Option<String>, CatalogError> {
+        Ok(None)
+    }
+
+    /// The highest activation sequence the store already holds for a domain. A rehydrated catalog
+    /// resumes from here so the next activation keeps advancing; the in-memory store starts at 0.
+    fn last_activation_sequence(
+        &self,
+        _domain: HarnessDomain,
+    ) -> Result<u64, CatalogError> {
+        Ok(0)
+    }
 }
 
 /// The v1 store: a process-local map. Useful for tests and for one experiment process; a durable
@@ -102,6 +131,38 @@ impl RevisionStore for InMemoryRevisionStore {
         revision.status = status;
         Ok(())
     }
+
+    /// Validate every write first, then apply all of them. The in-memory analogue of the database
+    /// transaction: a plan that names an unknown revision or an illegal transition writes nothing.
+    fn apply_activation(&mut self, plan: &ActivationPlan) -> Result<(), CatalogError> {
+        for (revision_id, next) in &plan.status_writes {
+            let revision = self.revisions.get(revision_id).ok_or_else(|| {
+                CatalogError::UnknownRevision {
+                    revision_id: revision_id.clone(),
+                }
+            })?;
+            if revision.status != *next && !revision.status.can_transition_to(*next) {
+                return Err(CatalogError::IllegalStatusTransition {
+                    revision_id: revision_id.clone(),
+                    from: revision.status,
+                    to: *next,
+                });
+            }
+        }
+        for (revision_id, next) in &plan.status_writes {
+            if let Some(revision) = self.revisions.get_mut(revision_id) {
+                revision.status = *next;
+            }
+        }
+        Ok(())
+    }
+
+    fn current_activation(
+        &self,
+        _domain: HarnessDomain,
+    ) -> Result<Option<String>, CatalogError> {
+        Ok(None)
+    }
 }
 
 /// Why a catalog operation was refused. Every variant is a refusal: no operation degrades into a
@@ -150,6 +211,9 @@ pub enum CatalogError {
         from: RevisionStatus,
         to: RevisionStatus,
     },
+    /// The revision store refused the write (durable transaction failure, stale pointer, ...).
+    /// The catalog has not moved anything when this is returned.
+    Store(String),
 }
 
 impl fmt::Display for CatalogError {
@@ -214,6 +278,7 @@ impl fmt::Display for CatalogError {
                 f,
                 "revision {revision_id} may not move from {from} to {to}"
             ),
+            Self::Store(message) => write!(f, "revision store refused the write: {message}"),
         }
     }
 }
@@ -257,6 +322,38 @@ pub struct Activation {
     /// The adoption/rollback decision id that justified it.
     pub decision_id: String,
     pub activated_by: String,
+}
+
+/// One transactional pointer move handed to a [`RevisionStore`].
+///
+/// It carries everything the durable store needs to commit the activation and its two lifecycle
+/// writes together: the audit row (domain, sequence, decision, actor) and the status writes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActivationPlan {
+    pub domain: HarnessDomain,
+    pub sequence: u64,
+    pub kind: ActivationKind,
+    pub from_revision: Option<String>,
+    pub to_revision: String,
+    pub decision_id: String,
+    pub activated_by: String,
+    /// Lifecycle writes applied in the same transaction as the pointer move:
+    /// `(revision_id, next_status)`.
+    pub status_writes: Vec<(String, RevisionStatus)>,
+}
+
+impl ActivationPlan {
+    pub fn activation(&self) -> Activation {
+        Activation {
+            domain: self.domain,
+            sequence: self.sequence,
+            kind: self.kind,
+            from_revision: self.from_revision.clone(),
+            to_revision: self.to_revision.clone(),
+            decision_id: self.decision_id.clone(),
+            activated_by: self.activated_by.clone(),
+        }
+    }
 }
 
 /// The active pointer for one domain, plus the stack of revisions it displaced. A stack (not a
@@ -304,6 +401,48 @@ impl<S: RevisionStore> HarnessCatalog<S> {
 
     pub fn store(&self) -> &S {
         &self.store
+    }
+
+    pub fn store_mut(&mut self) -> &mut S {
+        &mut self.store
+    }
+
+    pub fn into_store(self) -> S {
+        self.store
+    }
+
+    /// Rehydrate the active pointer for one domain from the durable store. The prior stack starts
+    /// empty (the pointer history that matters for rollback is the store's own activation rows);
+    /// the in-memory store returns `None` by default, so this is a no-op for the test store.
+    pub fn restore_active_pointer(
+        &mut self,
+        domain: HarnessDomain,
+    ) -> Result<Option<String>, CatalogError> {
+        let Some(revision_id) = self.store.current_activation(domain)? else {
+            return Ok(None);
+        };
+        let revision = self
+            .store
+            .get(&revision_id)
+            .ok_or_else(|| CatalogError::UnknownRevision {
+                revision_id: revision_id.clone(),
+            })?;
+        if revision.domain != domain {
+            return Err(CatalogError::DomainMismatch {
+                revision_id,
+                expected: domain,
+                actual: revision.domain,
+            });
+        }
+        self.sequence = self.store.last_activation_sequence(domain).unwrap_or(0);
+        self.active.insert(
+            domain,
+            DomainPointer {
+                revision_id: revision_id.clone(),
+                prior: Vec::new(),
+            },
+        );
+        Ok(Some(revision_id))
     }
 
     pub fn len(&self) -> usize {
@@ -508,26 +647,35 @@ impl<S: RevisionStore> HarnessCatalog<S> {
             });
         }
 
-        // --- infallible from here: pointer, statuses and audit move together. ---
-        if let Some(pointer) = current.clone() {
-            self.store
-                .set_status(&pointer.revision_id, RevisionStatus::Superseded)?;
+        // D4: persist the pointer move and its lifecycle writes FIRST, as one transaction. If the
+        // store refuses (a failed commit, a stale pointer), nothing below runs and the in-memory
+        // pointer, history and statuses stay exactly as they were.
+        let sequence = self.sequence + 1;
+        let from_revision = current
+            .as_ref()
+            .map(|pointer| pointer.revision_id.clone());
+        let mut status_writes: Vec<(String, RevisionStatus)> = Vec::new();
+        if let (Some(status), Some(pointer)) = (current_status, current.as_ref()) {
+            if status != RevisionStatus::Superseded {
+                status_writes.push((pointer.revision_id.clone(), RevisionStatus::Superseded));
+            }
         }
-        self.store
-            .set_status(revision_id, RevisionStatus::Adopted)?;
-
-        self.sequence += 1;
-        let activation = Activation {
+        if revision.status != RevisionStatus::Adopted {
+            status_writes.push((revision_id.to_string(), RevisionStatus::Adopted));
+        }
+        let plan = ActivationPlan {
             domain,
-            sequence: self.sequence,
+            sequence,
             kind: ActivationKind::Adopt,
-            from_revision: current
-                .as_ref()
-                .map(|pointer| pointer.revision_id.clone()),
+            from_revision,
             to_revision: revision_id.to_string(),
             decision_id: decision_id.into(),
             activated_by: activated_by.into(),
+            status_writes,
         };
+        self.store.apply_activation(&plan)?;
+        let activation = plan.activation();
+
         let mut displaced = current
             .as_ref()
             .map(|pointer| pointer.prior.clone())
@@ -542,6 +690,7 @@ impl<S: RevisionStore> HarnessCatalog<S> {
                 prior: displaced,
             },
         );
+        self.sequence = sequence;
         self.activations.push(activation.clone());
         Ok(activation)
     }
@@ -608,21 +757,28 @@ impl<S: RevisionStore> HarnessCatalog<S> {
             });
         }
 
-        // --- infallible from here. ---
-        self.store
-            .set_status(&pointer.revision_id, RevisionStatus::RolledBack)?;
-        self.store
-            .set_status(&prior_id, RevisionStatus::Adopted)?;
-        self.sequence += 1;
-        let activation = Activation {
+        // D4: one transactional pointer move; a refused write leaves the pointer where it was.
+        let sequence = self.sequence + 1;
+        let mut status_writes: Vec<(String, RevisionStatus)> = Vec::new();
+        if displaced.status != RevisionStatus::RolledBack {
+            status_writes.push((pointer.revision_id.clone(), RevisionStatus::RolledBack));
+        }
+        if prior.status != RevisionStatus::Adopted {
+            status_writes.push((prior_id.clone(), RevisionStatus::Adopted));
+        }
+        let plan = ActivationPlan {
             domain,
-            sequence: self.sequence,
+            sequence,
             kind: ActivationKind::Rollback,
             from_revision: Some(pointer.revision_id.clone()),
             to_revision: prior_id.clone(),
             decision_id: decision_id.into(),
             activated_by: activated_by.into(),
+            status_writes,
         };
+        self.store.apply_activation(&plan)?;
+        let activation = plan.activation();
+
         let mut remaining = pointer.prior;
         remaining.pop();
         self.active.insert(
@@ -632,6 +788,7 @@ impl<S: RevisionStore> HarnessCatalog<S> {
                 prior: remaining,
             },
         );
+        self.sequence = sequence;
         self.activations.push(activation.clone());
         Ok(activation)
     }
@@ -960,6 +1117,261 @@ mod tests {
         catalog
             .activate(HarnessDomain::YewMvi, "yew-1", "bootstrap", "owner")
             .unwrap();
+        assert_eq!(
+            catalog.active_revision_id(HarnessDomain::RustBackend),
+            Some("rev-1")
+        );
+    }
+
+    /// A store double that records the activation plans it was asked to persist and can be told
+    /// to fail the next write. This is how the D4 contract is asserted without a database.
+    #[derive(Default)]
+    struct FlakyStore {
+        inner: InMemoryRevisionStore,
+        plans: Vec<ActivationPlan>,
+        fail_next: bool,
+    }
+
+    impl RevisionStore for FlakyStore {
+        fn insert(&mut self, revision: HarnessRevision) -> Result<(), CatalogError> {
+            self.inner.insert(revision)
+        }
+
+        fn get(&self, revision_id: &str) -> Option<&HarnessRevision> {
+            self.inner.get(revision_id)
+        }
+
+        fn all(&self) -> Vec<&HarnessRevision> {
+            self.inner.all()
+        }
+
+        fn len(&self) -> usize {
+            self.inner.len()
+        }
+
+        fn set_status(
+            &mut self,
+            revision_id: &str,
+            status: RevisionStatus,
+        ) -> Result<(), CatalogError> {
+            self.inner.set_status(revision_id, status)
+        }
+
+        fn apply_activation(&mut self, plan: &ActivationPlan) -> Result<(), CatalogError> {
+            self.plans.push(plan.clone());
+            if self.fail_next {
+                return Err(CatalogError::Store(
+                    "simulated transactional write failure".into(),
+                ));
+            }
+            self.inner.apply_activation(plan)
+        }
+    }
+
+    fn catalog_with_store(store: FlakyStore) -> HarnessCatalog<FlakyStore> {
+        HarnessCatalog::with_store(store)
+    }
+
+    #[test]
+    fn activation_is_persisted_through_the_store_seam() {
+        let mut catalog = catalog_with_store(FlakyStore::default());
+        catalog.insert(base()).unwrap();
+        catalog.insert(next("rev-2")).unwrap();
+        catalog
+            .activate(HarnessDomain::RustBackend, "rev-1", "bootstrap", "owner")
+            .unwrap();
+        catalog
+            .activate(HarnessDomain::RustBackend, "rev-2", "adopt-1", "policy")
+            .unwrap();
+        let plans = &catalog.store().plans;
+        assert_eq!(plans.len(), 2, "both pointer moves go through the store");
+        assert_eq!(plans[0].kind, ActivationKind::Adopt);
+        assert_eq!(plans[0].to_revision, "rev-1");
+        assert!(
+            plans[0].status_writes.is_empty(),
+            "a bootstrap revision already Adopted needs no lifecycle write: {:?}",
+            plans[0].status_writes
+        );
+        assert_eq!(
+            plans[1].status_writes,
+            vec![
+                ("rev-1".to_string(), RevisionStatus::Superseded),
+                ("rev-2".to_string(), RevisionStatus::Adopted),
+            ]
+        );
+        // The catalog's own view agrees with what it asked the store to write.
+        assert_eq!(catalog.revision("rev-1").unwrap().status, RevisionStatus::Superseded);
+        assert_eq!(catalog.revision("rev-2").unwrap().status, RevisionStatus::Adopted);
+    }
+
+    #[test]
+    fn rollback_is_persisted_through_the_store_seam() {
+        let mut catalog = catalog_with_store(FlakyStore::default());
+        catalog.insert(base()).unwrap();
+        catalog.insert(next("rev-2")).unwrap();
+        catalog
+            .activate(HarnessDomain::RustBackend, "rev-1", "bootstrap", "owner")
+            .unwrap();
+        catalog
+            .activate(HarnessDomain::RustBackend, "rev-2", "adopt-1", "policy")
+            .unwrap();
+        catalog
+            .rollback(HarnessDomain::RustBackend, "rollback-1", "owner")
+            .unwrap();
+        let plans = &catalog.store().plans;
+        assert_eq!(plans.len(), 3);
+        assert_eq!(plans[2].kind, ActivationKind::Rollback);
+        assert_eq!(plans[2].to_revision, "rev-1");
+        assert_eq!(
+            plans[2].status_writes,
+            vec![
+                ("rev-2".to_string(), RevisionStatus::RolledBack),
+                ("rev-1".to_string(), RevisionStatus::Adopted),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_failed_store_write_leaves_the_pointer_and_statuses_unchanged() {
+        let mut catalog = catalog_with_store(FlakyStore::default());
+        catalog.insert(base()).unwrap();
+        catalog.insert(next("rev-2")).unwrap();
+        catalog
+            .activate(HarnessDomain::RustBackend, "rev-1", "bootstrap", "owner")
+            .unwrap();
+        let pointer_before = catalog.pointer(HarnessDomain::RustBackend).cloned();
+        let activations_before = catalog.activations().len();
+
+        catalog.store_mut().fail_next = true;
+        let error = catalog
+            .activate(HarnessDomain::RustBackend, "rev-2", "adopt-1", "policy")
+            .expect_err("the store refuses the transaction");
+        assert!(matches!(error, CatalogError::Store(_)), "{error}");
+
+        // D4: the failed write moved nothing — pointer, history and both statuses are untouched.
+        assert_eq!(pointer_before, catalog.pointer(HarnessDomain::RustBackend).cloned());
+        assert_eq!(activations_before, catalog.activations().len());
+        assert_eq!(
+            catalog.active_revision_id(HarnessDomain::RustBackend),
+            Some("rev-1")
+        );
+        assert_eq!(
+            catalog.revision("rev-1").unwrap().status,
+            RevisionStatus::Adopted
+        );
+        assert_eq!(
+            catalog.revision("rev-2").unwrap().status,
+            RevisionStatus::Adoptable
+        );
+    }
+
+    #[test]
+    fn a_failed_store_write_does_not_advance_the_activation_sequence() {
+        let mut catalog = catalog_with_store(FlakyStore::default());
+        catalog.insert(base()).unwrap();
+        catalog.insert(next("rev-2")).unwrap();
+        catalog
+            .activate(HarnessDomain::RustBackend, "rev-1", "bootstrap", "owner")
+            .unwrap();
+        catalog.store_mut().fail_next = true;
+        catalog
+            .activate(HarnessDomain::RustBackend, "rev-2", "adopt-1", "policy")
+            .expect_err("refused");
+        catalog.store_mut().fail_next = false;
+        let activation = catalog
+            .activate(HarnessDomain::RustBackend, "rev-2", "adopt-2", "policy")
+            .expect("retry succeeds");
+        assert_eq!(activation.sequence, 2);
+        assert_eq!(catalog.activations().len(), 2);
+    }
+
+    #[test]
+    fn the_in_memory_transactional_write_is_all_or_nothing() {
+        let mut store = InMemoryRevisionStore::new();
+        store.insert(revision(
+            "rev-1",
+            None,
+            HarnessDomain::RustBackend,
+            "base",
+            RevisionStatus::Draft,
+        ))
+        .unwrap();
+        let plan = ActivationPlan {
+            domain: HarnessDomain::RustBackend,
+            sequence: 1,
+            kind: ActivationKind::Adopt,
+            from_revision: None,
+            to_revision: "rev-1".to_string(),
+            decision_id: "adopt".to_string(),
+            activated_by: "policy".to_string(),
+            status_writes: vec![
+                ("rev-1".to_string(), RevisionStatus::Proposed),
+                ("missing-revision".to_string(), RevisionStatus::Adopted),
+            ],
+        };
+        let error = store.apply_activation(&plan).expect_err("plan is invalid");
+        assert!(matches!(error, CatalogError::UnknownRevision { .. }), "{error}");
+        assert_eq!(
+            store.get("rev-1").unwrap().status,
+            RevisionStatus::Draft,
+            "the first (legal) write must not survive a failed transaction"
+        );
+    }
+
+    #[test]
+    fn restoring_the_active_pointer_from_the_store_uses_the_durable_pointer() {
+        #[derive(Default)]
+        struct PointerStore {
+            inner: InMemoryRevisionStore,
+            current: Option<String>,
+        }
+
+        impl RevisionStore for PointerStore {
+            fn insert(&mut self, revision: HarnessRevision) -> Result<(), CatalogError> {
+                self.inner.insert(revision)
+            }
+
+            fn get(&self, revision_id: &str) -> Option<&HarnessRevision> {
+                self.inner.get(revision_id)
+            }
+
+            fn all(&self) -> Vec<&HarnessRevision> {
+                self.inner.all()
+            }
+
+            fn len(&self) -> usize {
+                self.inner.len()
+            }
+
+            fn set_status(
+                &mut self,
+                revision_id: &str,
+                status: RevisionStatus,
+            ) -> Result<(), CatalogError> {
+                self.inner.set_status(revision_id, status)
+            }
+
+            fn apply_activation(&mut self, plan: &ActivationPlan) -> Result<(), CatalogError> {
+                self.inner.apply_activation(plan)
+            }
+
+            fn current_activation(
+                &self,
+                _domain: HarnessDomain,
+            ) -> Result<Option<String>, CatalogError> {
+                Ok(self.current.clone())
+            }
+        }
+
+        let mut catalog = HarnessCatalog::with_store(PointerStore {
+            inner: InMemoryRevisionStore::new(),
+            current: Some("rev-1".to_string()),
+        });
+        catalog.insert(base()).unwrap();
+        let restored = catalog
+            .restore_active_pointer(HarnessDomain::RustBackend)
+            .unwrap();
+        assert_eq!(restored.as_deref(), Some("rev-1"));
         assert_eq!(
             catalog.active_revision_id(HarnessDomain::RustBackend),
             Some("rev-1")

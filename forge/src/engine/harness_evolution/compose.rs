@@ -54,6 +54,11 @@ pub struct ComposeRequest<'a> {
 
 /// A composed successor: the decision record, the new immutable revision, and the exact changes
 /// that reconstruct the successor from the base manifest.
+///
+/// `changes` is the canonical list this composer produced, rationales included. Callers that need
+/// a change list for validation/audit must carry THIS list (the experiment seam adapts it through
+/// `experiment::ComposedSuccessor::from`), never re-derive one from the manifest pair — a
+/// re-derived diff synthesizes rationales and loses the evidence-linked ones.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComposedHarness {
     pub decision: CompositionDecision,

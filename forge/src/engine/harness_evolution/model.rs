@@ -862,8 +862,9 @@ impl Candidate {
     }
 }
 
-/// Recursion mode. v1 is always `k = 1`; the type exists so experiments with k > 1 are a data
-/// change, not a schema change.
+/// Recursion mode. `k = 1` is the default; k > 1 is implemented by
+/// `experiment::run_recursion` (parallel: one shared evidence phase and k compositions;
+/// sequential: k chained single passes), with the mode and budget carried here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvolutionMode {
@@ -882,13 +883,15 @@ impl EvolutionMode {
     }
 }
 
-/// The Harness² recursion budget. v1 uses [`EvolutionBudget::k1`]; k > 1 is expressed here but
-/// the parallel recursion itself is deliberately not implemented in v1.
+/// The Harness² recursion budget. [`EvolutionBudget::k1`] is the default; k > 1 is implemented by
+/// `experiment::run_recursion`, which refuses a budget above the recursion ceilings before any
+/// stage runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvolutionBudget {
     /// k: reference executions of the base harness, and candidates per scope.
     pub k: u32,
-    /// Propose–Probe–Compose steps for sequential mode. v1 = 1.
+    /// Propose–Probe–Compose steps for sequential mode (sequential recursion requires
+    /// `max_steps == k`). The default is 1.
     pub max_steps: u32,
     /// Hard cap on probe executions for one experiment.
     pub max_probes: u32,

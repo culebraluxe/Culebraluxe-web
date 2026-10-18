@@ -94,3 +94,13 @@ report "idle"; this one reports the real bottleneck.
    of these HOLDs (`forge/src/engine/advisory_profiles.rs` is the canonical catalogue).
 3. Feed the packet into the existing Workflow `hold` resolution path, so a decision made above
    Forge still lands as a durable row rather than chat prose.
+
+### Harness Evolution visibility
+
+The daily digest now includes a `HARNESS` line: one line per domain with an active harness revision
+(or an explicit "no active harness revision"). The read-only operator command is:
+
+    cargo run -q -p cli -- forge harness-evolution status|revisions|experiments|experience [--format json]
+
+It reads the migration-294 tables (`forge_harness_revision`, `forge_harness_activation`, ...). It does
+not adopt, roll back, or probe; those are subsystem operations behind policy/adoption gates.

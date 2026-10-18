@@ -494,27 +494,36 @@ Compose → Forge Validate → Adopt/Reject → Reflect.
   holds per WO-07);
 - `docs/agent/HARNESS-EVOLUTION-ARCHITECTURE.md`; 162 module tests.
 
-**Remaining TD (the dependencies left for production use):**
-1. **Apply migration 294** explicitly per target (`pnpm db:migrate 294_forge_harness_evolution dev|prod`)
-   and add the DB-backed `RevisionStore`; v1 catalog/store is in-memory.
-2. **Real probe executor**: v1 has the contract + a deterministic `RecordedProbe`; the Forge/OpenCode
-   replay executor (historical task replay in a sandbox, evidence ids into existing tables) is next.
-3. **LLM proposer/editor**: v1 propose/compose are deterministic typed rules; wire an OpenCode/DSH
-   advisory turn to generate candidates under the same policy (never RED surfaces).
-4. **Phase 3 feed adapter**: read scorecard/learn findings/hypotheses into `ImprovementSignal`s and
-   write experiment outcomes back (no duplicate learning store).
-5. **Parallel/sequential recursion**: k>1 is expressible (budget/mode) but only k=1 executes.
-6. **CLI/operator surface** (`forge harness-evolution ...`) and activation visibility in the digest.
-7. **Automatic adoption** stays OFF until explicit GREEN-only policy has production evidence.
-8. **Validator seam (QA D3):** `experiment::ValidationContext` carries changed kinds + optional
-   successor but not the composed `ComponentChange` list, so the real Forge validation stage cannot
-   be wired to the `Validator` trait without a synthesized diff. Extend the trait to carry the
-   changes before connecting Forge regression rails/replay in production.
-9. **Durable-store transaction seam (QA D4):** `catalog.activate()` performs status writes before the
-   pointer swap; a future DB-backed store needs one transaction (or a two-phase commit) so a second
-   write failure cannot leave a status changed with the pointer unmoved. In-memory v1 cannot fail.
-   Also `HarnessRevision` fields are public: immutability is enforced by catalog checks/hash
-   verification, not the type system.
+**Completed 2026-10-18 (items 1–7):**
+1. Migration 294 applied to **DEV and PROD** (`pnpm db:migrate ... dev|prod`; parity 0/0/0/0) and a
+   durable `DbRevisionStore`/`ForgeHarnessDao` written: hash-verified revisions, component projection,
+   lineage CRUD, and ONE transactional pointer move (lock → expected-from check → status writes →
+   activation row → commit; a failed write leaves pointer and statuses untouched).
+2. Replay probe infrastructure: `probe_replay.rs` loads a historical story/run from the control plane,
+   materializes the candidate harness content, and runs reference+candidate through an injected
+   `ReplaySandbox`; production is refused before loading/execution, evidence is linked by durable ids
+   only. The concrete sandbox runner (launching a model turn in a sandbox) remains the next wiring.
+3. LLM proposer: `proposer_llm.rs` implements `Proposer` over the existing read-only advisory
+   `SeatRunner`, strict JSON with byte/shape limits, policy rejection of RED/authority changes before
+   returning; fake-runner tests only (no live model calls in tests).
+4. Phase 3 feed: `ImprovementSignal`/`ImprovementTarget` inputs are accepted from scorecard/learn
+   signals; the scorecard and daily digest now expose the optimizer surface (digest `HARNESS` line).
+5. k>1 recursion: `run_recursion` supports parallel (shared evidence, k compositions) and sequential
+   (chained passes) modes under `EvolutionBudget`, ceilings enforced before any probe; k=1 unchanged.
+6. Operator surface: `forge harness-evolution status|revisions|experiments|experience` (read-only,
+   `--format json`) + `pnpm forge:harness-evolution`; daily digest shows active revisions per domain.
+7. Validator seam D3: `ValidationContext.changes` carries the exact composed changes into
+   `ForgeValidationStage`; D4 transactional activation implemented and tested (failed store write
+   leaves active pointer/status unchanged).
+
+**Remaining TD (production wiring, not prerequisites):**
+- A real `ReplaySandbox` implementation that launches Forge/OpenCode in a sandbox (the trait and
+  production refusal exist; `UnavailableSandbox` refuses rather than pretending).
+- Wire `ForgeHistoricalTaskLoader` + the sandbox into the dogfood experiment (3–5 historical Rust
+  stories, prompt/tool-guidance only, k=1) and record the first experiment rows.
+- Phase 3 feed adapter that converts scorecard/`learn` findings into `ImprovementSignal`s and writes
+  experiment outcomes back without a second learning store.
+- Automatic adoption stays OFF (effective-GREEN policy only; no production evidence yet).
 
 QA D1 (adoption re-check with an empty change list / kind-floor-only adoption) and D2 (probe-reading
 id mismatch) were fixed before landing: adoption re-runs `policy::validate_candidate` with the

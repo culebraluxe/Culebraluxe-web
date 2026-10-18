@@ -33,6 +33,7 @@ pub mod repo_guards;
 pub mod reset;
 pub mod roi;
 pub mod salvage;
+pub mod harness_evolution;
 pub mod scorecard;
 pub mod secret_shapes;
 pub mod sql;
@@ -96,7 +97,7 @@ impl std::error::Error for Failure {}
 
 /// The command list the dispatcher prints when it is asked for something it does not know. Kept as one
 /// constant so the usage text a reader sees and the test that proves a command is advertised cannot drift.
-const FORGE_USAGE: &str = "forge <harness-lint|guard-lint|sync-agents|build-info|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|scorecard|sql|salvage|reset|recover|clean> [options]";
+const FORGE_USAGE: &str = "forge <harness-lint|guard-lint|sync-agents|build-info|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|scorecard|harness-evolution|sql|salvage|reset|recover|clean> [options]";
 
 pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
     match args.first().map(String::as_str).unwrap_or_default() {
@@ -141,6 +142,9 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         // command can name its database (`--target`) instead of inheriting APP_ENV — a scorecard is often a
         // comparison, and a comparison between two databases needs both named.
         "scorecard" => scorecard::run(args).await,
+        // The Harness Evolution operator surface: read-only revisions/experiments/experience and the
+        // active pointer per domain. The optimizer's write paths stay inside the subsystem.
+        "harness-evolution" => harness_evolution::run(&args[1..]).await,
         // The writer. Its guard rails (PROD only, --force, a positive stale window) are checked before
         // anything touches the database.
         "reset" | "recover" | "clean" => reset::run(&forward_reset_args(args)).await,

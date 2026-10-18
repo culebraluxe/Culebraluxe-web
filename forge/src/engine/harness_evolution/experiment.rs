@@ -12,9 +12,13 @@
 //!
 //! Propose/Contrast/Compose/Validate are injected as traits. v1 ships no optimizer; the seams
 //! let the Smith modules (or the deterministic test doubles) drive one experiment without
-//! teaching this file their internals. k = 1 is the default; `EvolutionBudget` and
-//! `CandidateSet` already express k > 1, but parallel/sequential recursion over several
-//! Propose–Probe–Compose steps is intentionally a documented seam, not implemented here.
+//! teaching this file their internals. k = 1 stays the default; [`run_recursion`] implements the
+//! k > 1 modes (parallel: one shared evidence phase and k compositions from it; sequential: k
+//! chained single passes), bounded by [`RECURSION_K_CEILING`] / [`RECURSION_STEP_CEILING`].
+//!
+//! A composition travels as Compose returned it: [`ComposedSuccessor`] carries the successor
+//! manifest **and** Compose's exact change list, so Forge validation receives the composer's real
+//! rationales instead of a diff re-derived from the manifest pair.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -91,13 +95,42 @@ impl ExperimentFailure {
     }
 }
 
-/// A composition: the component decisions *and* the successor manifest they produced. The model
-/// decision alone carries no component content, so the manifest must travel with it or the
-/// successor could not be materialized without re-deriving it.
+/// A composition as the composer returned it: the component decisions, the successor manifest and
+/// the **exact** change list that produced that manifest.
+///
+/// The change list travels with the composition instead of being re-derived downstream. Compose
+/// already carries it (`compose::ComposedHarness::changes`), and re-deriving it from the manifest
+/// pair would synthesize generic rationales — which would make the validator's "exact composed
+/// changes" claim false.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComposedSuccessor {
     pub decision: CompositionDecision,
     pub manifest: HarnessManifest,
+    /// Compose's canonical change list. Invariant: `base.manifest.apply_changes(changes)` equals
+    /// [`ComposedSuccessor::manifest`]; [`HarnessExperiment::record_composition`] proves it.
+    pub changes: Vec<ComponentChange>,
+}
+
+/// The adapter from Compose's own result to the experiment seam. The change list is carried
+/// verbatim; nothing is re-derived.
+impl From<super::compose::ComposedHarness> for ComposedSuccessor {
+    fn from(composed: super::compose::ComposedHarness) -> Self {
+        Self {
+            decision: composed.decision,
+            manifest: composed.successor.manifest,
+            changes: composed.changes,
+        }
+    }
+}
+
+impl From<&super::compose::ComposedHarness> for ComposedSuccessor {
+    fn from(composed: &super::compose::ComposedHarness) -> Self {
+        Self {
+            decision: composed.decision.clone(),
+            manifest: composed.successor.manifest.clone(),
+            changes: composed.changes.clone(),
+        }
+    }
 }
 
 /// Injected proposal stage (Smith `propose`).
@@ -112,12 +145,18 @@ pub trait Contrastor {
 
 /// Injected composition stage (Smith `compose`).
 pub trait Composer {
-    fn compose(&self, context: &CompositionContext<'_>) -> Result<ComposedSuccessor, EvolutionError>;
+    fn compose(
+        &self,
+        context: &CompositionContext<'_>,
+    ) -> Result<ComposedSuccessor, EvolutionError>;
 }
 
 /// Injected Forge validation stage (Smith `validate`).
 pub trait Validator {
-    fn validate(&self, context: &ValidationContext<'_>) -> Result<ValidationEvidence, EvolutionError>;
+    fn validate(
+        &self,
+        context: &ValidationContext<'_>,
+    ) -> Result<ValidationEvidence, EvolutionError>;
 }
 
 /// Everything the proposal stage is allowed to know. A proposer never sees the active pointer.
@@ -161,6 +200,10 @@ pub struct ValidationContext<'a> {
     pub composition: &'a CompositionDecision,
     pub contrasts: &'a [ContrastReport],
     pub changed_kinds: &'a [ComponentKind],
+    /// The composed change list, exactly as Compose produced it. Forge validation re-runs the
+    /// static policy gate on this list (proving `successor = base + changes`) instead of
+    /// synthesizing a diff from the two manifests.
+    pub changes: &'a [ComponentChange],
 }
 
 /// The five injected stages one experiment needs.
@@ -179,15 +222,39 @@ pub enum ExperimentError {
     Evolution(EvolutionError),
     Catalog(CatalogError),
     Probe(ProbeError),
-    IllegalTransition { from: RevisionStatus, to: RevisionStatus },
-    NotRunFromDraft { state: RevisionStatus },
-    BaseMissing { revision_id: String },
-    PinnedBaseMismatch { revision_id: String, expected: String, actual: String },
-    DomainMismatch { expected: HarnessDomain, actual: HarnessDomain },
-    PolicyRejected { violations: Vec<String> },
-    ProbeBudgetExceeded { planned: u32, budget: u32 },
-    CompositionMismatch { expected: String, actual: String },
-    UnknownCandidateRevision { revision_id: String },
+    IllegalTransition {
+        from: RevisionStatus,
+        to: RevisionStatus,
+    },
+    NotRunFromDraft {
+        state: RevisionStatus,
+    },
+    BaseMissing {
+        revision_id: String,
+    },
+    PinnedBaseMismatch {
+        revision_id: String,
+        expected: String,
+        actual: String,
+    },
+    DomainMismatch {
+        expected: HarnessDomain,
+        actual: HarnessDomain,
+    },
+    PolicyRejected {
+        violations: Vec<String>,
+    },
+    ProbeBudgetExceeded {
+        planned: u32,
+        budget: u32,
+    },
+    CompositionMismatch {
+        expected: String,
+        actual: String,
+    },
+    UnknownCandidateRevision {
+        revision_id: String,
+    },
     Failed(ExperimentFailure),
 }
 
@@ -241,7 +308,10 @@ impl fmt::Display for ExperimentError {
                 write!(f, "experiment already ran; state is {state}")
             }
             Self::BaseMissing { revision_id } => {
-                write!(f, "pinned base revision {revision_id} is not in the catalog")
+                write!(
+                    f,
+                    "pinned base revision {revision_id} is not in the catalog"
+                )
             }
             Self::PinnedBaseMismatch {
                 revision_id,
@@ -252,10 +322,17 @@ impl fmt::Display for ExperimentError {
                 "experiment pinned base {revision_id} at {expected}, but the catalog holds {actual}"
             ),
             Self::DomainMismatch { expected, actual } => {
-                write!(f, "experiment domain {expected} does not match revision domain {actual}")
+                write!(
+                    f,
+                    "experiment domain {expected} does not match revision domain {actual}"
+                )
             }
             Self::PolicyRejected { violations } => {
-                write!(f, "policy refused the candidate before probing: {}", violations.join("; "))
+                write!(
+                    f,
+                    "policy refused the candidate before probing: {}",
+                    violations.join("; ")
+                )
             }
             Self::ProbeBudgetExceeded { planned, budget } => write!(
                 f,
@@ -312,9 +389,14 @@ fn can_fail(state: RevisionStatus) -> bool {
     )
 }
 
-/// The canonical component diff between two manifests, as a well-formed [`ComponentChange`]
-/// list. This is the list Forge's policy gate validates: `base.apply_changes(&changes)` equals
-/// `successor` by construction, one change per component kind, every change carries a rationale.
+/// A structural component diff between two manifests, as a well-formed [`ComponentChange`]
+/// list: `base.apply_changes(&changes)` equals `successor` by construction, one change per
+/// component kind, every change carries a rationale.
+///
+/// This is a general-purpose diff (reports, [`component_changes`]) with synthesized rationales. It
+/// is **not** the validation seam: the experiment carries Compose's own list through
+/// [`ComposedSuccessor::changes`], because a re-derived diff cannot preserve the composer's
+/// evidence-linked rationales.
 pub fn manifest_changes(
     base: &HarnessManifest,
     successor: &HarnessManifest,
@@ -504,9 +586,7 @@ impl HarnessExperiment {
         candidates: CandidateSet,
     ) -> Result<(), ExperimentError> {
         if self.state != RevisionStatus::Draft {
-            return Err(ExperimentError::NotRunFromDraft {
-                state: self.state,
-            });
+            return Err(ExperimentError::NotRunFromDraft { state: self.state });
         }
         candidates.validate()?;
         let base = self.require_base(catalog)?;
@@ -514,12 +594,12 @@ impl HarnessExperiment {
         let mut revisions: Vec<HarnessRevision> = Vec::new();
         for candidate in candidates.all() {
             if candidate.base_revision != self.base_revision {
-                return Err(ExperimentError::Evolution(EvolutionError::InvalidCandidate(
-                    format!(
+                return Err(ExperimentError::Evolution(
+                    EvolutionError::InvalidCandidate(format!(
                         "candidate {} targets {}, not the pinned base {}",
                         candidate.id, candidate.base_revision, self.base_revision
-                    ),
-                )));
+                    )),
+                ));
             }
             let revision = HarnessRevision::from_changes(
                 &base,
@@ -586,11 +666,8 @@ impl HarnessExperiment {
             });
         }
 
-        let pairs: Vec<(Candidate, HarnessRevision)> = candidates
-            .all()
-            .cloned()
-            .zip(candidate_revisions)
-            .collect();
+        let pairs: Vec<(Candidate, HarnessRevision)> =
+            candidates.all().cloned().zip(candidate_revisions).collect();
         let reference_probe_id = format!("{}-reference", self.id);
         let mut reference: Option<ProbeReading> = None;
         let mut readings: BTreeMap<String, ProbeReading> = BTreeMap::new();
@@ -614,7 +691,8 @@ impl HarnessExperiment {
                 verify_reading_matches_request(&request, &reading)?;
                 reference = Some(reading);
             }
-            let request = contract.candidate_request(format!("{}-{}-candidate", self.id, candidate.id));
+            let request =
+                contract.candidate_request(format!("{}-{}-candidate", self.id, candidate.id));
             let candidate_reading = runner.executor.execute(&request)?;
             verify_reading_matches_request(&request, &candidate_reading)?;
 
@@ -689,7 +767,20 @@ impl HarnessExperiment {
             });
         }
 
-        self.composed_changes = manifest_changes(&base.manifest, &composed.manifest);
+        // Compose's own change list is the seam's source of truth. Re-deriving a diff here would
+        // synthesize rationales and break the validator's "exact composed changes" contract, so
+        // the list is carried through and proven against the manifest instead.
+        for change in &composed.changes {
+            change.validate_shape()?;
+        }
+        let reconstructed = base.manifest.apply_changes(&composed.changes)?;
+        if reconstructed != composed.manifest {
+            return Err(ExperimentError::CompositionMismatch {
+                expected: composed.manifest.manifest_hash(),
+                actual: reconstructed.manifest_hash(),
+            });
+        }
+        self.composed_changes = composed.changes.clone();
         let successor = if composed.manifest == base.manifest {
             // Composing the unchanged base is legal; no new revision is invented for it.
             base.id.clone()
@@ -710,7 +801,10 @@ impl HarnessExperiment {
         self.transition(RevisionStatus::Composed)
     }
 
-    pub fn begin_validation(&mut self, catalog: &mut HarnessCatalog) -> Result<(), ExperimentError> {
+    pub fn begin_validation(
+        &mut self,
+        catalog: &mut HarnessCatalog,
+    ) -> Result<(), ExperimentError> {
         if self.state != RevisionStatus::Composed {
             return Err(ExperimentError::IllegalTransition {
                 from: self.state,
@@ -823,7 +917,13 @@ impl HarnessExperiment {
         result
     }
 
-    fn run_inner(
+    /// Run the Propose + Probe + Contrast phases: `Draft` -> `Compared`.
+    ///
+    /// Public so the k > 1 recursion layer can share ONE evidence phase across several
+    /// compositions (Harness² parallel recursion) without proposing or probing again: the
+    /// candidates, the shared reference execution and every per-candidate contrast stay fixed
+    /// while each composition is attempted from them.
+    pub fn run_proposals_and_probes(
         &mut self,
         catalog: &mut HarnessCatalog,
         runner: &ExperimentRunner<'_>,
@@ -868,6 +968,27 @@ impl HarnessExperiment {
         if let Err(error) = self.execute_probes(catalog, runner) {
             return Err(self.ensure_failure(ExperimentStage::Probe, error));
         }
+        Ok(())
+    }
+
+    /// Run the Compose + Forge Validate phases: `Compared` -> `Adoptable` / `Validating` /
+    /// `Rejected`.
+    ///
+    /// This is where a composition becomes a successor revision and where Forge validation decides
+    /// whether it may be adopted. The active harness pointer is never written here; only lineage
+    /// revisions and lifecycle statuses are.
+    pub fn run_composition_and_validation(
+        &mut self,
+        catalog: &mut HarnessCatalog,
+        runner: &ExperimentRunner<'_>,
+    ) -> Result<(), ExperimentError> {
+        if self.state != RevisionStatus::Compared {
+            return Err(ExperimentError::IllegalTransition {
+                from: self.state,
+                to: RevisionStatus::Composed,
+            });
+        }
+        let base = self.require_base(catalog)?;
 
         // 3. Compose. The successor is a new child revision; the base stays untouched.
         let composition = {
@@ -922,6 +1043,7 @@ impl HarnessExperiment {
                 composition,
                 contrasts: &self.contrasts,
                 changed_kinds: &changed_kinds,
+                changes: &self.composed_changes,
             };
             runner.validator.validate(&context)
         };
@@ -931,6 +1053,15 @@ impl HarnessExperiment {
         self.record_validation(catalog, validation)
             .map_err(|error| self.ensure_failure(ExperimentStage::Validate, error))?;
         Ok(())
+    }
+
+    fn run_inner(
+        &mut self,
+        catalog: &mut HarnessCatalog,
+        runner: &ExperimentRunner<'_>,
+    ) -> Result<(), ExperimentError> {
+        self.run_proposals_and_probes(catalog, runner)?;
+        self.run_composition_and_validation(catalog, runner)
     }
 
     /// Component kinds whose manifest entry differs between the base and the successor.
@@ -970,6 +1101,313 @@ impl HarnessExperiment {
     }
 }
 
+/// The widest parallel recursion this build will express: k invariant + k domain candidates per
+/// evidence phase. A larger `k` is refused before any stage runs — recursion multiplies probes, so
+/// a typo in `k` must not launch a large experiment.
+pub const RECURSION_K_CEILING: u32 = 4;
+
+/// The deepest sequential recursion this build will express.
+pub const RECURSION_STEP_CEILING: u32 = 4;
+
+/// The per-step budget of one Propose–Probe–Compose pass: one invariant + one domain candidate,
+/// one shared reference execution and two candidate probes.
+pub const SINGLE_PASS_BUDGET: EvolutionBudget = EvolutionBudget {
+    k: 1,
+    max_steps: 1,
+    max_probes: 3,
+};
+
+/// Validate a recursion budget against the mode's shape and this build's ceilings.
+///
+/// * `Parallel` — one evidence phase: `max_steps` is 1, and the budget must cover one shared
+///   reference run plus `k` invariant and `k` domain candidate probes (`1 + 2k`).
+/// * `Sequential` — `k` successive single passes, so `k` *is* the step count (`k == max_steps`) and
+///   the budget must cover `3` probes per step.
+///
+/// Refusals happen before a catalog write or a probe, so an over-budget request costs nothing.
+pub fn validate_recursion_budget(
+    mode: EvolutionMode,
+    budget: &EvolutionBudget,
+) -> Result<(), ExperimentError> {
+    budget.validate()?;
+    if budget.k > RECURSION_K_CEILING {
+        return Err(ExperimentError::Evolution(EvolutionError::InvalidBudget(format!(
+            "k={} exceeds the recursion ceiling of {RECURSION_K_CEILING}",
+            budget.k
+        ))));
+    }
+    match mode {
+        EvolutionMode::Parallel => {
+            if budget.max_steps != 1 {
+                return Err(ExperimentError::Evolution(EvolutionError::InvalidBudget(
+                    "parallel recursion is one shared evidence step; max_steps must be 1".into(),
+                )));
+            }
+            let planned = 1 + 2 * budget.k;
+            if planned > budget.max_probes {
+                return Err(ExperimentError::ProbeBudgetExceeded {
+                    planned,
+                    budget: budget.max_probes,
+                });
+            }
+        }
+        EvolutionMode::Sequential => {
+            if budget.max_steps > RECURSION_STEP_CEILING {
+                return Err(ExperimentError::Evolution(EvolutionError::InvalidBudget(format!(
+                    "sequential recursion is capped at {RECURSION_STEP_CEILING} steps"
+                ))));
+            }
+            if budget.k != budget.max_steps {
+                return Err(ExperimentError::Evolution(EvolutionError::InvalidBudget(
+                    "sequential recursion's k is its step count; k must equal max_steps".into(),
+                )));
+            }
+            let planned = SINGLE_PASS_BUDGET.max_probes * budget.max_steps;
+            if planned > budget.max_probes {
+                return Err(ExperimentError::ProbeBudgetExceeded {
+                    planned,
+                    budget: budget.max_probes,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// One step of a k > 1 recursion.
+///
+/// * parallel — one independent composition attempt over the shared evidence phase;
+/// * sequential — one full Propose–Probe–Compose–Validate pass whose refined harness is carried
+///   into the next step.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecursionStep {
+    pub index: u32,
+    /// The base revision this step's evidence was measured against.
+    pub base_revision: String,
+    pub experiment: HarnessExperiment,
+    pub successor_revision: Option<String>,
+    /// True only when Forge validation finished clean (`Adoptable`); adoption still decides.
+    pub adoptable: bool,
+}
+
+/// What one k > 1 recursion produced.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecursionOutcome {
+    pub mode: EvolutionMode,
+    pub budget: EvolutionBudget,
+    /// Parallel only: the ONE shared propose + probe + contrast phase every composition used.
+    /// Sequential carries its evidence inside each step's experiment instead.
+    pub evidence_phase: Option<HarnessExperiment>,
+    pub steps: Vec<RecursionStep>,
+    /// The revision a next recursion would carry forward: the first adoptable parallel composition,
+    /// or the last adoptable sequential step.
+    pub final_successor: Option<String>,
+    /// Set when sequential recursion stopped early because a step was not adoptable (the chain
+    /// refuses to carry an unvalidated harness forward).
+    pub stopped_reason: Option<String>,
+}
+
+impl RecursionOutcome {
+    pub fn adoptable_count(&self) -> usize {
+        self.steps.iter().filter(|step| step.adoptable).count()
+    }
+
+    pub fn is_fully_adoptable(&self) -> bool {
+        !self.steps.is_empty() && self.steps.iter().all(|step| step.adoptable)
+    }
+
+    pub fn step(&self, index: u32) -> Option<&RecursionStep> {
+        self.steps.iter().find(|step| step.index == index)
+    }
+}
+
+/// One k > 1 recursion request: the pinned base, the probe pins and the recursion budget.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecursionRequest {
+    pub experiment_id: String,
+    pub domain: HarnessDomain,
+    pub base: HarnessRevision,
+    pub pins: ProbePins,
+    pub mode: EvolutionMode,
+    pub budget: EvolutionBudget,
+    pub seed: u64,
+}
+
+impl RecursionRequest {
+    pub fn new(
+        experiment_id: impl Into<String>,
+        base: &HarnessRevision,
+        pins: ProbePins,
+        mode: EvolutionMode,
+        budget: EvolutionBudget,
+        seed: u64,
+    ) -> Self {
+        Self {
+            experiment_id: experiment_id.into(),
+            domain: base.domain,
+            base: base.clone(),
+            pins,
+            mode,
+            budget,
+            seed,
+        }
+    }
+
+    /// The v1 default: parallel k = 1, one step.
+    pub fn k1(
+        experiment_id: impl Into<String>,
+        base: &HarnessRevision,
+        pins: ProbePins,
+    ) -> Self {
+        Self::new(
+            experiment_id,
+            base,
+            pins,
+            EvolutionMode::Parallel,
+            EvolutionBudget::k1(),
+            0,
+        )
+    }
+}
+
+/// Run a k > 1 recursion. The active harness pointer is never written: steps only insert lineage
+/// revisions and set lifecycle statuses, exactly like a single pass. Adoption remains the Lead's
+/// separate, policy-gated step.
+///
+/// * **Parallel** (`k` > 1): one shared evidence phase proposes `k` invariant + `k` domain
+///   candidates and probes them once; then `k` independent compositions/validations are attempted
+///   from that same evidence. Every attempt is its own [`RecursionStep`].
+/// * **Sequential** (`k` steps): `k` successive single passes; each step's adoptable successor
+///   becomes the next step's base (and a step that is not adoptable stops the chain).
+pub fn run_recursion(
+    request: &RecursionRequest,
+    catalog: &mut HarnessCatalog,
+    runner: &ExperimentRunner<'_>,
+) -> Result<RecursionOutcome, ExperimentError> {
+    request.base.verify_integrity()?;
+    if request.base.domain != request.domain {
+        return Err(ExperimentError::DomainMismatch {
+            expected: request.domain,
+            actual: request.base.domain,
+        });
+    }
+    validate_recursion_budget(request.mode, &request.budget)?;
+    match request.mode {
+        EvolutionMode::Parallel => run_parallel_recursion(request, catalog, runner),
+        EvolutionMode::Sequential => run_sequential_recursion(request, catalog, runner),
+    }
+}
+
+fn run_parallel_recursion(
+    request: &RecursionRequest,
+    catalog: &mut HarnessCatalog,
+    runner: &ExperimentRunner<'_>,
+) -> Result<RecursionOutcome, ExperimentError> {
+    let mut evidence = HarnessExperiment::new(
+        request.experiment_id.clone(),
+        request.domain,
+        &request.base,
+        request.pins.clone(),
+        EvolutionMode::Parallel,
+        request.budget,
+        request.seed,
+    )?;
+    evidence.run_proposals_and_probes(catalog, runner)?;
+
+    let mut steps = Vec::with_capacity(request.budget.k as usize);
+    for index in 1..=request.budget.k {
+        // Each composition is an independent attempt over the SAME evidence: clone the
+        // evidence-complete experiment, then compose + validate. Cloning is what keeps the
+        // composition attempts from consuming one another's state.
+        let mut attempt = evidence.clone();
+        attempt.id = format!("{}-composition-{index}", request.experiment_id);
+        attempt.run_composition_and_validation(catalog, runner)?;
+        let adoptable = attempt.state == RevisionStatus::Adoptable;
+        steps.push(RecursionStep {
+            index,
+            base_revision: attempt.base_revision.clone(),
+            successor_revision: attempt.successor_revision.clone(),
+            adoptable,
+            experiment: attempt,
+        });
+    }
+
+    let final_successor = steps
+        .iter()
+        .find(|step| step.adoptable)
+        .and_then(|step| step.successor_revision.clone());
+    Ok(RecursionOutcome {
+        mode: EvolutionMode::Parallel,
+        budget: request.budget,
+        evidence_phase: Some(evidence),
+        steps,
+        final_successor,
+        stopped_reason: None,
+    })
+}
+
+fn run_sequential_recursion(
+    request: &RecursionRequest,
+    catalog: &mut HarnessCatalog,
+    runner: &ExperimentRunner<'_>,
+) -> Result<RecursionOutcome, ExperimentError> {
+    let mut steps = Vec::with_capacity(request.budget.max_steps as usize);
+    let mut current_base_id = request.base.id.clone();
+    let mut final_successor: Option<String> = None;
+    let mut stopped_reason: Option<String> = None;
+
+    for index in 1..=request.budget.max_steps {
+        let base = catalog
+            .revision(&current_base_id)
+            .cloned()
+            .ok_or_else(|| ExperimentError::BaseMissing {
+                revision_id: current_base_id.clone(),
+            })?;
+        let mut experiment = HarnessExperiment::new(
+            format!("{}-step-{index}", request.experiment_id),
+            request.domain,
+            &base,
+            request.pins.clone(),
+            EvolutionMode::Sequential,
+            SINGLE_PASS_BUDGET,
+            request.seed,
+        )?;
+        // A full single pass: the same policy-before-probe and adoption rails as k = 1.
+        experiment.run(catalog, runner)?;
+        let adoptable = experiment.state == RevisionStatus::Adoptable;
+        let end_state = experiment.state;
+        let successor = experiment.successor_revision.clone();
+        steps.push(RecursionStep {
+            index,
+            base_revision: current_base_id.clone(),
+            successor_revision: successor.clone(),
+            adoptable,
+            experiment,
+        });
+        if !adoptable {
+            stopped_reason = Some(format!(
+                "step {index} ended {end_state} instead of adoptable; sequential recursion will not carry an unvalidated harness"
+            ));
+            break;
+        }
+        final_successor = successor.clone();
+        if let Some(successor) = successor {
+            current_base_id = successor;
+        }
+        // A composition that legally chose the unchanged base leaves current_base_id alone; the
+        // next step then refines from the same base. That is a real (no-op) step, not a failure.
+    }
+
+    Ok(RecursionOutcome {
+        mode: EvolutionMode::Sequential,
+        budget: request.budget,
+        evidence_phase: None,
+        steps,
+        final_successor,
+        stopped_reason,
+    })
+}
+
 /// Behavioral dimensions a v1 experiment reports, exposed so a test/report can assert that the
 /// contrast is behavioral and not stylistic. (The Smith contrast stage owns the real reading.)
 pub const CONTRAST_DIMENSIONS: [BehaviorDimension; 16] = BehaviorDimension::ALL;
@@ -984,13 +1422,15 @@ mod tests {
         BehaviorEvidence, Component, ComponentDecision, ComponentDecisionRecord, DimensionContrast,
         EnvironmentClass, QaVerdict,
     };
-    use crate::engine::harness_evolution::probe::{
-        ProbeOutcome, ProbeSide, RecordedProbe,
-    };
+    use crate::engine::harness_evolution::probe::{ProbeOutcome, ProbeSide, RecordedProbe};
     use std::cell::RefCell;
 
     fn prompt(content: &str) -> Component {
-        Component::green(ComponentKind::SystemPrompt, content, "experiment test prompt")
+        Component::green(
+            ComponentKind::SystemPrompt,
+            content,
+            "experiment test prompt",
+        )
     }
 
     fn base_revision() -> HarnessRevision {
@@ -1036,7 +1476,10 @@ mod tests {
     struct FixedContrastor;
 
     impl Contrastor for FixedContrastor {
-        fn contrast(&self, context: &ContrastContext<'_>) -> Result<ContrastReport, EvolutionError> {
+        fn contrast(
+            &self,
+            context: &ContrastContext<'_>,
+        ) -> Result<ContrastReport, EvolutionError> {
             Ok(ContrastReport {
                 id: format!("contrast-{}-{}", context.base.id, context.candidate.id),
                 base_revision: context.base.id.clone(),
@@ -1055,6 +1498,16 @@ mod tests {
         }
     }
 
+    /// Compose's canonical change list for the deterministic fixture. The validator test compares
+    /// against THIS list (and against a re-derived diff) rather than against the experiment field
+    /// it is checking, so the assertion is not tautological.
+    fn fixed_composer_changes() -> Vec<ComponentChange> {
+        vec![ComponentChange::set(
+            prompt("composed prompt"),
+            "compose adoption: candidate guidance beat the base on the behavioral contrast",
+        )]
+    }
+
     struct FixedComposer;
 
     impl Composer for FixedComposer {
@@ -1062,11 +1515,8 @@ mod tests {
             &self,
             context: &CompositionContext<'_>,
         ) -> Result<ComposedSuccessor, EvolutionError> {
-            let manifest = context
-                .base
-                .manifest
-                .clone()
-                .with_component(prompt("composed prompt"));
+            let changes = fixed_composer_changes();
+            let manifest = context.base.manifest.clone().apply_changes(&changes)?;
             Ok(ComposedSuccessor {
                 decision: CompositionDecision {
                     id: "composition-1".into(),
@@ -1093,6 +1543,7 @@ mod tests {
                     evidence_refs: vec!["evidence-1".into()],
                 },
                 manifest,
+                changes,
             })
         }
     }
@@ -1105,7 +1556,7 @@ mod tests {
         fn clean() -> Self {
             Self {
                 evidence: RefCell::new(Some(ValidationEvidence::all_passed(vec![
-                    "validation-1".into(),
+                    "validation-1".into()
                 ]))),
             }
         }
@@ -1122,8 +1573,7 @@ mod tests {
                     static_policy: crate::engine::harness_evolution::model::GateStatus::Failed,
                     regression_rails: crate::engine::harness_evolution::model::GateStatus::Passed,
                     replay: crate::engine::harness_evolution::model::GateStatus::Passed,
-                    phase3_evidence:
-                        crate::engine::harness_evolution::model::GateStatus::Passed,
+                    phase3_evidence: crate::engine::harness_evolution::model::GateStatus::Passed,
                     evidence_refs: vec!["validation-1".into()],
                 })),
             }
@@ -1286,10 +1736,17 @@ mod tests {
             RevisionStatus::Adoptable
         );
         assert_eq!(
-            catalog.revision(successor).unwrap().parent_revision_id.as_deref(),
+            catalog
+                .revision(successor)
+                .unwrap()
+                .parent_revision_id
+                .as_deref(),
             Some("base-1")
         );
-        assert_eq!(experiment.reference.as_ref().unwrap().evidence_refs().len(), 1);
+        assert_eq!(
+            experiment.reference.as_ref().unwrap().evidence_refs().len(),
+            1
+        );
     }
 
     #[test]
@@ -1301,10 +1758,12 @@ mod tests {
             "c1",
             base.id.clone(),
             ProposalKind::Invariant,
-            vec![crate::engine::harness_evolution::model::ComponentChange::set(
-                Component::red(ComponentKind::Scripts, "rm -rf /", "publication surface"),
-                "try to take over scripts",
-            )],
+            vec![
+                crate::engine::harness_evolution::model::ComponentChange::set(
+                    Component::red(ComponentKind::Scripts, "rm -rf /", "publication surface"),
+                    "try to take over scripts",
+                ),
+            ],
         );
         let executor = RecordedProbe::new(Vec::new());
         let proposer = FixedProposer { candidate: red };
@@ -1317,7 +1776,10 @@ mod tests {
         };
         let error = run_experiment(&mut experiment, &mut catalog, &parts).unwrap_err();
         assert_eq!(error.stage(), ExperimentStage::Policy);
-        assert!(!parts.executor.was_called(), "no probe may run after a policy refusal");
+        assert!(
+            !parts.executor.was_called(),
+            "no probe may run after a policy refusal"
+        );
         assert_eq!(experiment.state, RevisionStatus::Failed);
         assert_eq!(
             catalog.active_revision_id(HarnessDomain::RustBackend),
@@ -1349,7 +1811,10 @@ mod tests {
             Some("base-1"),
             "a failed probe cannot mutate the active harness"
         );
-        assert_eq!(catalog.revision("base-1").unwrap().status, RevisionStatus::Adopted);
+        assert_eq!(
+            catalog.revision("base-1").unwrap().status,
+            RevisionStatus::Adopted
+        );
     }
 
     #[test]
@@ -1431,7 +1896,10 @@ mod tests {
             catalog.revision("exp-1-successor").unwrap().status,
             RevisionStatus::Validating
         );
-        assert!(experiment.mark_adopted().is_err(), "more evidence is required");
+        assert!(
+            experiment.mark_adopted().is_err(),
+            "more evidence is required"
+        );
     }
 
     #[test]
@@ -1471,7 +1939,648 @@ mod tests {
 
     #[test]
     fn proposal_kinds_stay_separate_until_compose() {
-        assert_eq!(PROPOSAL_KINDS, [ProposalKind::Invariant, ProposalKind::Domain]);
+        assert_eq!(
+            PROPOSAL_KINDS,
+            [ProposalKind::Invariant, ProposalKind::Domain]
+        );
         assert_eq!(CONTRAST_DIMENSIONS.len(), 16);
     }
+
+    struct RecordingValidator {
+        evidence: ValidationEvidence,
+        seen_changes: RefCell<Vec<ComponentChange>>,
+        seen_successor: RefCell<Option<String>>,
+    }
+
+    impl RecordingValidator {
+        fn clean() -> Self {
+            Self {
+                evidence: ValidationEvidence::all_passed(vec!["validation-1".into()]),
+                seen_changes: RefCell::new(Vec::new()),
+                seen_successor: RefCell::new(None),
+            }
+        }
+    }
+
+    impl Validator for RecordingValidator {
+        fn validate(
+            &self,
+            context: &ValidationContext<'_>,
+        ) -> Result<ValidationEvidence, EvolutionError> {
+            *self.seen_changes.borrow_mut() = context.changes.to_vec();
+            *self.seen_successor.borrow_mut() =
+                context.successor.map(|successor| successor.id.clone());
+            Ok(self.evidence.clone())
+        }
+    }
+
+    #[test]
+    fn validator_receives_the_exact_composed_changes() {
+        let base = base_revision();
+        let mut catalog = catalog_with(&base);
+        let mut experiment = experiment(&base);
+        let fixed = parts(&base);
+        let recording = RecordingValidator::clean();
+        let runner = ExperimentRunner {
+            executor: &fixed.executor,
+            proposer: &fixed.proposer,
+            contrastor: &fixed.contrastor,
+            composer: &fixed.composer,
+            validator: &recording,
+        };
+
+        experiment.run(&mut catalog, &runner).expect("run");
+
+        // The expectation is the COMPOSER's own list, not the experiment field under test: this
+        // assertion would still fail if the seam re-derived a diff.
+        let composer_changes = fixed_composer_changes();
+        assert_eq!(
+            *recording.seen_changes.borrow(),
+            composer_changes,
+            "Forge validation must receive Compose's exact changes, rationales included"
+        );
+        assert_eq!(experiment.composed_changes, composer_changes);
+
+        // A re-derived diff exists and differs: it has a synthesized rationale, which is exactly
+        // what the seam must not substitute for Compose's evidence-linked one.
+        let successor_id = experiment
+            .successor_revision
+            .clone()
+            .expect("composed successor");
+        let base_manifest = catalog
+            .revision(&experiment.base_revision)
+            .expect("base in catalog")
+            .manifest
+            .clone();
+        let successor_manifest = catalog
+            .revision(&successor_id)
+            .expect("successor in catalog")
+            .manifest
+            .clone();
+        let re_derived = manifest_changes(&base_manifest, &successor_manifest);
+        assert_ne!(
+            composer_changes, re_derived,
+            "the composer's rationale must survive; a re-derived diff replaces it"
+        );
+
+        assert_eq!(
+            recording.seen_successor.borrow().as_deref(),
+            Some(successor_id.as_str()),
+            "the validator sees the composed successor revision"
+        );
+        assert_eq!(experiment.state, RevisionStatus::Adoptable);
+    }
+
+    #[test]
+    fn composition_changes_are_the_adapter_carried_list_not_a_rederived_diff() {
+        // The experiment must consume Compose's ComposedHarness verbatim (the From adapter), not
+        // re-derive a diff. Construct a real ComposedHarness and prove the mapping.
+        use crate::engine::harness_evolution::compose::ComposedHarness;
+
+        let base = base_revision();
+        let changes = vec![ComponentChange::set(prompt("adapted prompt"), "compose rationale")];
+        let manifest = base.manifest.clone().apply_changes(&changes).expect("fixture");
+        let successor = HarnessRevision::draft(
+            "successor-adapted",
+            base.domain,
+            manifest.clone(),
+            "smith",
+        )
+        .with_parent(Some(base.id.clone()));
+        let decision = CompositionDecision {
+            id: "composition-adapted".into(),
+            base_revision: base.id.clone(),
+            candidates: vec!["c1".into()],
+            contrast_ids: vec!["contrast-c1".into()],
+            decisions: vec![ComponentDecisionRecord::new(
+                ComponentKind::SystemPrompt,
+                ComponentDecision::Adopt,
+                "compose rationale",
+            )
+            .with_evidence_for(vec!["evidence-1".into()])
+            .with_confidence(80)],
+            successor_manifest_hash: manifest.manifest_hash(),
+            summary: "adapted".into(),
+            evidence_refs: vec!["evidence-1".into()],
+        };
+        let composed_harness = ComposedHarness {
+            decision: decision.clone(),
+            successor,
+            changes: changes.clone(),
+        };
+
+        let borrowed = ComposedSuccessor::from(&composed_harness);
+        assert_eq!(borrowed.decision, decision);
+        assert_eq!(borrowed.manifest, manifest);
+        assert_eq!(borrowed.changes, changes);
+
+        let owned = ComposedSuccessor::from(composed_harness);
+        assert_eq!(owned.changes, changes);
+        assert_eq!(owned.manifest, manifest);
+    }
+
+    #[test]
+    fn a_composition_whose_changes_do_not_reconstruct_its_manifest_is_refused() {
+        let base = base_revision();
+        let mut catalog = catalog_with(&base);
+        let mut experiment = experiment(&base);
+        let parts = parts(&base);
+        let runner = ExperimentRunner {
+            executor: &parts.executor,
+            proposer: &parts.proposer,
+            contrastor: &parts.contrastor,
+            composer: &parts.composer,
+            validator: &parts.validator,
+        };
+        experiment
+            .run_proposals_and_probes(&mut catalog, &runner)
+            .expect("evidence phase");
+
+        // Manifest claims the prompt changed, but the carried change list is empty.
+        let manifest = base
+            .manifest
+            .clone()
+            .with_component(prompt("composed prompt"));
+        let decision = CompositionDecision {
+            id: "composition-1".into(),
+            base_revision: base.id.clone(),
+            candidates: vec!["c1".into()],
+            contrast_ids: vec!["contrast-c1".into()],
+            decisions: vec![ComponentDecisionRecord::new(
+                ComponentKind::SystemPrompt,
+                ComponentDecision::Adopt,
+                "compose",
+            )
+            .with_evidence_for(vec!["evidence-1".into()])
+            .with_confidence(80)],
+            successor_manifest_hash: manifest.manifest_hash(),
+            summary: "claim".into(),
+            evidence_refs: vec!["evidence-1".into()],
+        };
+        let composed = ComposedSuccessor {
+            decision,
+            manifest,
+            changes: Vec::new(),
+        };
+        let error = experiment
+            .record_composition(&mut catalog, composed)
+            .expect_err("inconsistent change list");
+        assert_eq!(error.code(), "composition_mismatch");
+        assert_eq!(
+            catalog.active_revision_id(HarnessDomain::RustBackend),
+            Some("base-1")
+        );
+    }
+    // ---------------------------------------------------------------------------------------
+    // k > 1 recursion (task-9)
+    // ---------------------------------------------------------------------------------------
+
+    /// Proposes one candidate against whatever base the context names, so sequential steps can
+    /// each target the previous step's successor.
+    struct ContextProposer;
+
+    impl Proposer for ContextProposer {
+        fn propose(&self, context: &ProposalContext<'_>) -> Result<CandidateSet, EvolutionError> {
+            let mut set = CandidateSet::k1();
+            set.invariant.push(Candidate::new(
+                "c1",
+                context.base.id.clone(),
+                ProposalKind::Invariant,
+                vec![ComponentChange::set(
+                    prompt(&format!("candidate at {}", context.base.id)),
+                    "candidate update",
+                )],
+            ));
+            Ok(set)
+        }
+    }
+
+    /// Composes a manifest that depends on the step's base, so a carried successor is a genuinely
+    /// new revision and the chain is observable.
+    struct StepComposer;
+
+    impl Composer for StepComposer {
+        fn compose(
+            &self,
+            context: &CompositionContext<'_>,
+        ) -> Result<ComposedSuccessor, EvolutionError> {
+            let content = format!("composed at {}", context.base.id);
+            let changes = vec![ComponentChange::set(
+                prompt(&content),
+                "step compose: the step's contrast supported adopting the candidate guidance",
+            )];
+            let manifest = context.base.manifest.clone().apply_changes(&changes)?;
+            Ok(ComposedSuccessor {
+                decision: CompositionDecision {
+                    id: format!("composition-{}", context.base.id),
+                    base_revision: context.base.id.clone(),
+                    candidates: context
+                        .candidates
+                        .all()
+                        .map(|candidate| candidate.id.clone())
+                        .collect(),
+                    contrast_ids: context
+                        .contrasts
+                        .iter()
+                        .map(|report| report.id.clone())
+                        .collect(),
+                    decisions: vec![ComponentDecisionRecord::new(
+                        ComponentKind::SystemPrompt,
+                        ComponentDecision::Adopt,
+                        "the step improved",
+                    )
+                    .with_evidence_for(vec!["evidence-1".into()])
+                    .with_confidence(80)],
+                    successor_manifest_hash: manifest.manifest_hash(),
+                    summary: "step compose".into(),
+                    evidence_refs: vec!["evidence-1".into()],
+                },
+                manifest,
+                changes,
+            })
+        }
+    }
+
+    /// Proposes k invariant + k domain candidates, the parallel-recursion width.
+    struct TwoPerScopeProposer;
+
+    impl Proposer for TwoPerScopeProposer {
+        fn propose(&self, context: &ProposalContext<'_>) -> Result<CandidateSet, EvolutionError> {
+            let mut set = CandidateSet::new(context.mode, context.budget);
+            for index in 1..=context.budget.k {
+                set.invariant.push(Candidate::new(
+                    format!("inv-{index}"),
+                    context.base.id.clone(),
+                    ProposalKind::Invariant,
+                    vec![ComponentChange::set(
+                        prompt(&format!("invariant {index}")),
+                        "invariant guidance",
+                    )],
+                ));
+                set.domain.push(Candidate::new(
+                    format!("dom-{index}"),
+                    context.base.id.clone(),
+                    ProposalKind::Domain,
+                    vec![ComponentChange::set(
+                        Component::green(
+                            ComponentKind::Memory,
+                            format!("domain {index}"),
+                            "domain memory",
+                        ),
+                        "domain knowledge",
+                    )],
+                ));
+            }
+            set.validate()?;
+            Ok(set)
+        }
+    }
+
+    #[test]
+    fn recursion_default_k1_is_one_parallel_step() {
+        let base = base_revision();
+        let mut catalog = catalog_with(&base);
+        let request = RecursionRequest::k1("exp-1", &base, pins());
+        let parts = parts(&base);
+        let runner = ExperimentRunner {
+            executor: &parts.executor,
+            proposer: &parts.proposer,
+            contrastor: &parts.contrastor,
+            composer: &parts.composer,
+            validator: &parts.validator,
+        };
+        let outcome = run_recursion(&request, &mut catalog, &runner).expect("k1 recursion");
+        assert_eq!(outcome.mode, EvolutionMode::Parallel);
+        assert_eq!(outcome.steps.len(), 1);
+        assert!(outcome.steps[0].adoptable);
+        assert_eq!(outcome.adoptable_count(), 1);
+        assert_eq!(
+            outcome.steps[0].successor_revision.as_deref(),
+            Some("exp-1-composition-1-successor")
+        );
+        assert_eq!(outcome.final_successor, outcome.steps[0].successor_revision);
+        assert_eq!(
+            catalog.active_revision_id(HarnessDomain::RustBackend),
+            Some("base-1"),
+            "recursion never moves the active pointer"
+        );
+    }
+
+    #[test]
+    fn parallel_k2_runs_one_evidence_phase_and_two_compositions() {
+        let base = base_revision();
+        let mut catalog = catalog_with(&base);
+        let budget = EvolutionBudget {
+            k: 2,
+            max_steps: 1,
+            max_probes: 5,
+        };
+        let request = RecursionRequest::new(
+            "rec-1",
+            &base,
+            pins(),
+            EvolutionMode::Parallel,
+            budget,
+            0,
+        );
+        let executor = RecordedProbe::new(vec![
+            reading("rec-1-reference", ProbeSide::Reference, "base-1"),
+            reading("rec-1-inv-1-candidate", ProbeSide::Candidate, "rec-1-inv-1"),
+            reading("rec-1-inv-2-candidate", ProbeSide::Candidate, "rec-1-inv-2"),
+            reading("rec-1-dom-1-candidate", ProbeSide::Candidate, "rec-1-dom-1"),
+            reading("rec-1-dom-2-candidate", ProbeSide::Candidate, "rec-1-dom-2"),
+        ]);
+        let runner = ExperimentRunner {
+            executor: &executor,
+            proposer: &TwoPerScopeProposer,
+            contrastor: &FixedContrastor,
+            composer: &FixedComposer,
+            validator: &FixedValidator::clean(),
+        };
+        let outcome = run_recursion(&request, &mut catalog, &runner).expect("parallel k2");
+
+        let evidence = outcome.evidence_phase.as_ref().expect("shared evidence phase");
+        assert_eq!(evidence.candidate_revisions.len(), 4, "k invariant + k domain");
+        assert_eq!(evidence.contrasts.len(), 4);
+        assert_eq!(outcome.steps.len(), 2, "k compositions from the shared evidence");
+        assert_eq!(outcome.adoptable_count(), 2);
+        assert!(outcome.is_fully_adoptable());
+        for step in &outcome.steps {
+            assert!(step.adoptable);
+            assert_eq!(step.base_revision, "base-1");
+            assert_eq!(step.experiment.state, RevisionStatus::Adoptable);
+            // Every composition saw exactly the one shared evidence set.
+            assert_eq!(step.experiment.contrasts, evidence.contrasts);
+            assert_eq!(
+                step.experiment.candidate_revisions,
+                evidence.candidate_revisions
+            );
+        }
+        let first = outcome.steps[0].successor_revision.clone();
+        let second = outcome.steps[1].successor_revision.clone();
+        assert_ne!(first, second, "each composition is its own successor revision");
+        assert_eq!(outcome.final_successor, first);
+        assert_eq!(
+            catalog.active_revision_id(HarnessDomain::RustBackend),
+            Some("base-1")
+        );
+    }
+
+    #[test]
+    fn sequential_k2_carries_the_adopted_successor_into_the_next_step() {
+        let base = base_revision();
+        let mut catalog = catalog_with(&base);
+        let budget = EvolutionBudget {
+            k: 2,
+            max_steps: 2,
+            max_probes: 6,
+        };
+        let request = RecursionRequest::new(
+            "seq-1",
+            &base,
+            pins(),
+            EvolutionMode::Sequential,
+            budget,
+            0,
+        );
+        let executor = RecordedProbe::new(vec![
+            reading("seq-1-step-1-reference", ProbeSide::Reference, "base-1"),
+            reading(
+                "seq-1-step-1-c1-candidate",
+                ProbeSide::Candidate,
+                "seq-1-step-1-c1",
+            ),
+            reading(
+                "seq-1-step-2-reference",
+                ProbeSide::Reference,
+                "seq-1-step-1-successor",
+            ),
+            reading(
+                "seq-1-step-2-c1-candidate",
+                ProbeSide::Candidate,
+                "seq-1-step-2-c1",
+            ),
+        ]);
+        let runner = ExperimentRunner {
+            executor: &executor,
+            proposer: &ContextProposer,
+            contrastor: &FixedContrastor,
+            composer: &StepComposer,
+            validator: &FixedValidator::clean(),
+        };
+        let outcome = run_recursion(&request, &mut catalog, &runner).expect("sequential k2");
+
+        assert_eq!(outcome.mode, EvolutionMode::Sequential);
+        assert_eq!(outcome.steps.len(), 2);
+        assert!(outcome.is_fully_adoptable());
+        assert!(outcome.stopped_reason.is_none());
+        assert_eq!(
+            outcome.steps[0].successor_revision.as_deref(),
+            Some("seq-1-step-1-successor")
+        );
+        assert_eq!(outcome.steps[1].base_revision, "seq-1-step-1-successor");
+        assert_eq!(
+            outcome.final_successor.as_deref(),
+            Some("seq-1-step-2-successor")
+        );
+        // The carried base is the previous step's successor, not the original base.
+        assert_ne!(outcome.steps[1].base_revision, "base-1");
+        assert_eq!(
+            catalog.active_revision_id(HarnessDomain::RustBackend),
+            Some("base-1"),
+            "sequential recursion never moves the active pointer"
+        );
+    }
+
+    #[test]
+    fn a_failed_sequential_step_is_isolated_from_the_active_harness() {
+        let base = base_revision();
+        let mut catalog = catalog_with(&base);
+        let budget = EvolutionBudget {
+            k: 2,
+            max_steps: 2,
+            max_probes: 6,
+        };
+        let request = RecursionRequest::new(
+            "seq-1",
+            &base,
+            pins(),
+            EvolutionMode::Sequential,
+            budget,
+            0,
+        );
+        // Step 1 can run; step 2's reference probe is missing, so step 2 fails.
+        let executor = RecordedProbe::new(vec![
+            reading("seq-1-step-1-reference", ProbeSide::Reference, "base-1"),
+            reading(
+                "seq-1-step-1-c1-candidate",
+                ProbeSide::Candidate,
+                "seq-1-step-1-c1",
+            ),
+        ]);
+        let runner = ExperimentRunner {
+            executor: &executor,
+            proposer: &ContextProposer,
+            contrastor: &FixedContrastor,
+            composer: &StepComposer,
+            validator: &FixedValidator::clean(),
+        };
+        let error = run_recursion(&request, &mut catalog, &runner).unwrap_err();
+        assert_eq!(error.stage(), ExperimentStage::Probe);
+        assert_eq!(
+            catalog.active_revision_id(HarnessDomain::RustBackend),
+            Some("base-1"),
+            "a failed step cannot mutate the active harness"
+        );
+        // Step 1's successor is lineage, not activation.
+        let successor = catalog
+            .revision("seq-1-step-1-successor")
+            .expect("step 1 successor recorded");
+        assert_eq!(successor.status, RevisionStatus::Adoptable);
+        assert_ne!(
+            catalog.active_revision_id(HarnessDomain::RustBackend),
+            Some("seq-1-step-1-successor")
+        );
+    }
+
+    #[test]
+    fn a_non_adoptable_step_stops_sequential_recursion() {
+        let base = base_revision();
+        let mut catalog = catalog_with(&base);
+        let budget = EvolutionBudget {
+            k: 2,
+            max_steps: 2,
+            max_probes: 6,
+        };
+        let request = RecursionRequest::new(
+            "seq-1",
+            &base,
+            pins(),
+            EvolutionMode::Sequential,
+            budget,
+            0,
+        );
+        let executor = RecordedProbe::new(vec![
+            reading("seq-1-step-1-reference", ProbeSide::Reference, "base-1"),
+            reading(
+                "seq-1-step-1-c1-candidate",
+                ProbeSide::Candidate,
+                "seq-1-step-1-c1",
+            ),
+        ]);
+        let runner = ExperimentRunner {
+            executor: &executor,
+            proposer: &ContextProposer,
+            contrastor: &FixedContrastor,
+            composer: &StepComposer,
+            validator: &FixedValidator::incomplete(),
+        };
+        let outcome = run_recursion(&request, &mut catalog, &runner).expect("recursion completes");
+        assert_eq!(outcome.steps.len(), 1, "the chain stops after an unvalidated step");
+        assert!(!outcome.steps[0].adoptable);
+        assert!(outcome.stopped_reason.is_some());
+        assert_eq!(outcome.final_successor, None);
+        assert_eq!(
+            catalog.active_revision_id(HarnessDomain::RustBackend),
+            Some("base-1")
+        );
+    }
+
+    #[test]
+    fn a_budget_above_the_recursion_ceiling_is_refused_before_any_stage() {
+        let base = base_revision();
+        let mut catalog = catalog_with(&base);
+        let budget = EvolutionBudget {
+            k: RECURSION_K_CEILING + 1,
+            max_steps: 1,
+            max_probes: 100,
+        };
+        let request = RecursionRequest::new(
+            "rec-1",
+            &base,
+            pins(),
+            EvolutionMode::Parallel,
+            budget,
+            0,
+        );
+        let executor = RecordedProbe::new(Vec::new());
+        let validator = FixedValidator::clean();
+        let runner = ExperimentRunner {
+            executor: &executor,
+            proposer: &TwoPerScopeProposer,
+            contrastor: &FixedContrastor,
+            composer: &FixedComposer,
+            validator: &validator,
+        };
+        let error = run_recursion(&request, &mut catalog, &runner).unwrap_err();
+        assert_eq!(error.code(), "invalid_budget");
+        assert!(!executor.was_called(), "an over-budget request costs no probe");
+        assert_eq!(
+            catalog.active_revision_id(HarnessDomain::RustBackend),
+            Some("base-1")
+        );
+    }
+
+    #[test]
+    fn recursion_budget_shape_is_mode_specific() {
+        // Parallel: one evidence step only.
+        assert!(matches!(
+            validate_recursion_budget(
+                EvolutionMode::Parallel,
+                &EvolutionBudget {
+                    k: 2,
+                    max_steps: 2,
+                    max_probes: 10,
+                },
+            ),
+            Err(ExperimentError::Evolution(EvolutionError::InvalidBudget(_)))
+        ));
+        // Parallel: the budget must cover 1 + 2k probes.
+        assert!(matches!(
+            validate_recursion_budget(
+                EvolutionMode::Parallel,
+                &EvolutionBudget {
+                    k: 2,
+                    max_steps: 1,
+                    max_probes: 4,
+                },
+            ),
+            Err(ExperimentError::ProbeBudgetExceeded { planned: 5, budget: 4 })
+        ));
+        // Sequential: k is the step count.
+        assert!(matches!(
+            validate_recursion_budget(
+                EvolutionMode::Sequential,
+                &EvolutionBudget {
+                    k: 1,
+                    max_steps: 2,
+                    max_probes: 6,
+                },
+            ),
+            Err(ExperimentError::Evolution(EvolutionError::InvalidBudget(_)))
+        ));
+        // Sequential: 3 probes per step.
+        assert!(matches!(
+            validate_recursion_budget(
+                EvolutionMode::Sequential,
+                &EvolutionBudget {
+                    k: 2,
+                    max_steps: 2,
+                    max_probes: 5,
+                },
+            ),
+            Err(ExperimentError::ProbeBudgetExceeded { planned: 6, budget: 5 })
+        ));
+        // The ceilings themselves are accepted.
+        assert!(validate_recursion_budget(
+            EvolutionMode::Sequential,
+            &EvolutionBudget {
+                k: 2,
+                max_steps: 2,
+                max_probes: 6,
+            },
+        )
+        .is_ok());
+    }
+
 }

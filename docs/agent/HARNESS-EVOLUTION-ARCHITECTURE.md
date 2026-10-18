@@ -158,9 +158,16 @@ Harness² runs k reference executions of the base harness, then either:
 * **sequential** — the refined harness and accumulated evidence carried through k
   Propose–Probe–Compose steps.
 
-v1 is **k = 1** and does not implement parallel recursion. The contracts already express k > 1
-(`EvolutionBudget{k,max_steps,max_probes}`, `CandidateSet.invariant/domain`, `EvolutionMode`)
-so a later batch is a data/experiment change, not a model rewrite.
+`k = 1` stays the default; k > 1 is implemented natively in `experiment::run_recursion` under
+`EvolutionBudget{k,max_steps,max_probes}`:
+
+* **parallel** — one shared Propose/Probe/Contrast phase over k invariant + k domain candidates
+  (1 reference + 2k candidate probes), then k independent compositions from that same evidence;
+* **sequential** — k successive single passes (`max_steps == k`), carrying each adoptable
+  successor into the next step and stopping before an unvalidated harness would be carried.
+
+The build refuses `k`/step counts above `RECURSION_K_CEILING`/`RECURSION_STEP_CEILING` and refuses
+a probe budget that cannot cover the planned probes, before any catalog write or probe runs.
 
 Experience libraries are separated by **domain, executor, mode, budget and seed**
 (`ExperienceScope`). Tasks within a domain read only earlier entries
@@ -194,7 +201,7 @@ promotion.
 | C | Smith | `propose.rs`, `contrast.rs`, `compose.rs`, `validate.rs`, `experience.rs` | next |
 | D | Lead + Architect | wire `mod.rs`, module exports, end-to-end test double (`RecordedProbe`) and one recorded experiment fixture | after B/C |
 | E | QA | safety-rail verification, clippy, `pnpm forge:harness` | last |
-| F (future) | — | k > 1 parallel/sequential recursion, routing metrics, correction rail | not v1 |
+| F (future) | — | routing metrics, correction rail | future |
 
 Wiring: `mod.rs` (Lead) declares `pub mod model; pub mod policy;` and the rest as batches
 land; `engine/mod.rs` adds `pub mod harness_evolution;`.
@@ -223,3 +230,20 @@ evidence linkage, validation gate semantics, adoption authority rules, experienc
 every protected-surface refusal (RED change, authority expansion/declassification, QA/Git,
 production, workflow XML, OpenCode denies, destructive gates, tool/MCP, manifest mismatch,
 parent/domain mismatch, duplicate changes).
+
+## Implementation status (2026-10-18)
+
+v1 landed on `main`; the remaining items 1–7 are implemented natively:
+
+- `db/src/forge_harness.rs` + `forge/.../store_db.rs`: durable catalog with hash-verified revisions and
+  one transactional activation pointer; migration `294_forge_harness_evolution.sql` applied to DEV and
+  PROD (parity clean).
+- `probe_replay.rs`: historical-task loader + content-only harness materialization + injected
+  `ReplaySandbox`; production refusal; evidence linked by durable ids.
+- `proposer_llm.rs`: read-only advisory `SeatRunner` proposer with strict JSON and policy rejection.
+- `experiment.rs`: k>1 parallel/sequential recursion under `EvolutionBudget`.
+- `validate.rs`: `ForgeValidationStage` consumes the exact composed changes (D3 seam).
+- `cli/src/forge/harness_evolution.rs`: `forge harness-evolution status|revisions|experiments|experience`;
+  digest `HARNESS` line.
+- The concrete sandbox runner (model turn execution) and the Phase 3 signal adapter are the remaining
+  wiring, not prerequisites; automatic adoption stays OFF.

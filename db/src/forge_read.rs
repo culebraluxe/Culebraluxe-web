@@ -834,5 +834,77 @@ impl ForgeReadDao {
     }
 }
 
+/// One historical Forge execution, as the Harness Evolution replay executor loads it.
+///
+/// The run's OWN specification snapshots win over the story's current columns: a replay must
+/// reproduce the task as it was when the run executed, not as the story reads today. `packet` is
+/// the labelled packet text the replay sandbox receives; `packet_sha` is the durable snapshot
+/// fingerprint when the run recorded one.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeHistoricalHarnessTaskRow {
+    pub story_id: String,
+    pub run_id: String,
+    pub title: String,
+    pub run_type: Option<String>,
+    pub agent_runtime: Option<String>,
+    pub result_status: Option<String>,
+    pub execution_environment: Option<String>,
+    pub packet_sha: Option<String>,
+    pub packet: String,
+}
+
+impl ForgeReadDao {
+    /// One historical task for the Harness Evolution replay path, by story + run id.
+    ///
+    /// `run_id = None` selects the story's newest run. The row is `None` when the story (or the
+    /// requested run) does not exist — a replay never invents a task.
+    ///
+    /// READ ONLY: one `select`, no writes, no claim. The packet is assembled from the run's
+    /// specification snapshots with the story's current columns only as a fallback for runs
+    /// written before the snapshots existed.
+    pub async fn historical_harness_task(
+        &self,
+        story_id: &str,
+        run_id: Option<&str>,
+    ) -> DbResult<Option<ForgeHistoricalHarnessTaskRow>> {
+        sqlx::query_as::<_, ForgeHistoricalHarnessTaskRow>(
+            "select r.story_id,
+                    r.id::text as run_id,
+                    coalesce(s.title, '') as title,
+                    r.run_type,
+                    r.agent_runtime,
+                    r.result_status,
+                    r.execution_environment,
+                    coalesce(nullif(trim(r.packet_sha_snapshot),''), nullif(trim(s.packet_sha),'')) as packet_sha,
+                    coalesce(
+                      concat_ws(E'\\n\\n',
+                        case when nullif(trim(coalesce(nullif(trim(r.goal_snapshot),''), s.goal)),'') is not null
+                             then 'GOAL:' || E'\\n' || coalesce(nullif(trim(r.goal_snapshot),''), s.goal) end,
+                        case when nullif(trim(coalesce(nullif(trim(r.architect_brief_snapshot),''), s.architect_brief)),'') is not null
+                             then 'BRIEF:' || E'\\n' || coalesce(nullif(trim(r.architect_brief_snapshot),''), s.architect_brief) end,
+                        case when nullif(trim(coalesce(nullif(trim(r.acceptance_criteria_snapshot),''), s.acceptance_criteria)),'') is not null
+                             then 'ACCEPTANCE CRITERIA:' || E'\\n' || coalesce(nullif(trim(r.acceptance_criteria_snapshot),''), s.acceptance_criteria) end,
+                        case when nullif(trim(coalesce(nullif(trim(r.test_mode_snapshot),''), s.test_mode)),'') is not null
+                             then 'TEST MODE:' || E'\\n' || coalesce(nullif(trim(r.test_mode_snapshot),''), s.test_mode) end,
+                        case when nullif(trim(coalesce(nullif(trim(r.assay_commands_snapshot),''), s.assay_commands)),'') is not null
+                             then 'ASSAY COMMANDS:' || E'\\n' || coalesce(nullif(trim(r.assay_commands_snapshot),''), s.assay_commands) end
+                      ),
+                      ''
+                    ) as packet
+             from storyboard_story_run r
+             join storyboard_story s on s.id = r.story_id
+             where r.story_id = $1
+               and ($2::text is null or r.id::text = $2::text)
+             order by r.started_at desc, r.created_at desc, r.id desc
+             limit 1",
+        )
+        .bind(story_id)
+        .bind(run_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_read.historical_harness_task", &error))
+    }
+}
+
 #[cfg(test)]
 mod tests;

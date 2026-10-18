@@ -113,6 +113,14 @@ DIGEST_QUERIES = {
           from forge_runtime_control
          where id = 1
     """,
+    "harness": """
+        select a.domain, a.to_revision_id as revision_id, r.status,
+               a.activation_kind, a.activated_at
+          from forge_harness_activation a
+          left join forge_harness_revision r on r.revision_id = a.to_revision_id
+         where a.is_current
+         order by a.domain
+    """,
     "decisions": """
         select key, statement, owner, promoted_at
           from forge_decision
@@ -206,6 +214,7 @@ def build_digest(target: str) -> dict:
         "runtime": rows["runtime"][0] if rows["runtime"] else None,
         "decisions": rows["decisions"],
         "candidates": rows["candidates"],
+        "active_harnesses": rows["harness"],
     }
 
 
@@ -333,6 +342,18 @@ def print_digest(digest: dict) -> None:
             print(f"  … {len(holds) - MAX_HOLD_GROUPS} more HOLD groups")
     else:
         print("HOLDS     none open")
+
+    harnesses = digest["active_harnesses"]
+    if harnesses:
+        print(f"HARNESS   {len(harnesses)} domain(s) with an active harness revision")
+        for harness in harnesses[:5]:
+            print(
+                f"  {harness.get('domain')}  {harness.get('revision_id')}  "
+                f"({harness.get('activation_kind') or 'adopt'}, {harness.get('status') or 'unknown'})  "
+                f"{_short(harness.get('activated_at'), 20)}"
+            )
+    else:
+        print("HARNESS   no active harness revision (optimizer not adopted anything)")
 
     failures = digest["failures"]
     if failures:

@@ -39,6 +39,10 @@ mod forge_control;
 mod luxesign;
 // The reads behind `forge doctor`: the control plane in one command, read-only.
 pub mod forge_doctor;
+// Harness Evolution's durable boundary (migration 294): immutable revisions, lineage rows and the
+// one transactional active-pointer move. The `forge` crate's `store_db` adapts this to the engine's
+// `RevisionStore`; policy and lifecycle decisions stay in `forge`.
+pub mod forge_harness;
 // The Forge reset / recover / clean writer. One writer, three modes, all of them deliberate.
 mod forge_engine;
 pub mod forge_reset;
@@ -130,6 +134,15 @@ pub use forge_engine::{
     RunTrajectoryTurn, SettlementResult, StoryPacketRow, StoryRunTurns, ToolArtifactRow,
     TurnTrajectoryRow, TurnUsage, UnfinishedForgeCompletion, WorkflowCommandReceiptRow,
     WorkflowReceiptClaim,
+};
+pub use forge_harness::{
+    ActivationRequest, ForgeHarnessActivationRow, ForgeHarnessCandidateRow,
+    ForgeHarnessComponentRow, ForgeHarnessCompositionRow, ForgeHarnessContrastRow,
+    ForgeHarnessDao, ForgeHarnessExperimentRow, ForgeHarnessExperienceRow, ForgeHarnessProbeRow,
+    ForgeHarnessRevisionRow, NewForgeHarnessCandidate, NewForgeHarnessComponent,
+    NewForgeHarnessComposition, NewForgeHarnessContrast, NewForgeHarnessExperiment,
+    NewForgeHarnessExperience, NewForgeHarnessProbe, NewForgeHarnessRevision,
+    StoredForgeHarnessRevision,
 };
 pub use forge_read::{
     ForgeBatchRow, ForgeBenchRow, ForgeQueueWorkRow, ForgeReadDao, ForgeStoryBoardRow,

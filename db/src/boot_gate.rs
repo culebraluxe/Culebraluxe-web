@@ -56,6 +56,10 @@ pub const REQUIRED_BOOT_MIGRATIONS: &[&str] = &[
     "276_docsign_copy_and_reminders.sql",
     "292_storyboard_run_trajectory.sql",
     "293_run_trajectory_turn_identity.sql",
+    // 294 (2026-10-18): the native Harness Evolution durable catalog, experiments and the one
+    // active-pointer table. Code that proposes/adopts a harness revision writes these tables, so a
+    // host without them must refuse to boot rather than fail on the first experiment.
+    "294_forge_harness_evolution.sql",
 ];
 
 /// The required migrations that hold no ledger row for this database's declared target, in list order.

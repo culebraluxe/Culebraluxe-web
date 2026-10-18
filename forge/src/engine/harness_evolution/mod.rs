@@ -16,5 +16,8 @@ pub mod experiment;
 pub mod model;
 pub mod policy;
 pub mod probe;
+pub mod probe_replay;
 pub mod propose;
+pub mod proposer_llm;
+pub mod store_db;
 pub mod validate;

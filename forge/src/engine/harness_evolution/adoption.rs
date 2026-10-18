@@ -18,7 +18,7 @@
 
 use std::fmt;
 
-use super::catalog::{Activation, CatalogError, HarnessCatalog};
+use super::catalog::{Activation, CatalogError, HarnessCatalog, RevisionStore};
 use super::experiment::{ExperimentError, HarnessExperiment};
 use super::model::{
     AdoptionDecision, AdoptionVerdict, ComponentKind, HarnessDomain, HarnessRevision,
@@ -166,9 +166,9 @@ impl From<ExperimentError> for AdoptionError {
 
 /// Read the policy recommendation for an experiment without applying anything. Used by the
 /// operator surface and by [`apply`] as the single source of truth.
-pub fn recommend(
+pub fn recommend<S: RevisionStore>(
     experiment: &HarnessExperiment,
-    catalog: &HarnessCatalog,
+    catalog: &HarnessCatalog<S>,
 ) -> Result<(AdoptionVerdict, Vec<ComponentKind>, Vec<String>), AdoptionError> {
     let successor_id = experiment
         .successor_revision
@@ -237,10 +237,10 @@ fn policy_gate(
 /// This is the only function in the subsystem that calls [`HarnessCatalog::activate`]. It
 /// recomputes the policy recommendation first: a decision that contradicts policy is refused
 /// outright, so no caller can hand-craft an `Adopt` for a YELLOW or RED change.
-pub fn apply(
+pub fn apply<S: RevisionStore>(
     decision: &AdoptionDecision,
     experiment: &mut HarnessExperiment,
-    catalog: &mut HarnessCatalog,
+    catalog: &mut HarnessCatalog<S>,
 ) -> Result<AdoptionOutcome, AdoptionError> {
     if decision.domain != experiment.domain {
         return Err(AdoptionError::WrongDomain {
@@ -374,8 +374,8 @@ pub fn apply(
 ///
 /// The catalog owns the pointer stack; this wrapper names the operation for the adoption surface
 /// and returns the restored revision so the caller can verify it is the revision it expected.
-pub fn rollback(
-    catalog: &mut HarnessCatalog,
+pub fn rollback<S: RevisionStore>(
+    catalog: &mut HarnessCatalog<S>,
     domain: HarnessDomain,
     decision_id: impl Into<String>,
     activated_by: impl Into<String>,
@@ -774,6 +774,98 @@ mod tests {
             apply(&wrong_revision, &mut experiment, &mut catalog),
             Err(AdoptionError::RevisionMismatch { .. })
         ));
+    }
+
+    /// A store double that can be told to fail the transactional activation write.
+    #[derive(Default)]
+    struct FlakyStore {
+        inner: super::super::catalog::InMemoryRevisionStore,
+        fail_next: bool,
+    }
+
+    impl RevisionStore for FlakyStore {
+        fn insert(&mut self, revision: HarnessRevision) -> Result<(), CatalogError> {
+            self.inner.insert(revision)
+        }
+
+        fn get(&self, revision_id: &str) -> Option<&HarnessRevision> {
+            self.inner.get(revision_id)
+        }
+
+        fn all(&self) -> Vec<&HarnessRevision> {
+            self.inner.all()
+        }
+
+        fn len(&self) -> usize {
+            self.inner.len()
+        }
+
+        fn set_status(
+            &mut self,
+            revision_id: &str,
+            status: RevisionStatus,
+        ) -> Result<(), CatalogError> {
+            self.inner.set_status(revision_id, status)
+        }
+
+        fn apply_activation(
+            &mut self,
+            plan: &super::super::catalog::ActivationPlan,
+        ) -> Result<(), CatalogError> {
+            if self.fail_next {
+                return Err(CatalogError::Store(
+                    "simulated transactional write failure".into(),
+                ));
+            }
+            self.inner.apply_activation(plan)
+        }
+    }
+
+    #[test]
+    fn a_failed_transactional_activation_does_not_adopt_or_move_the_pointer() {
+        let base = base_revision();
+        let successor = successor_revision(
+            &base,
+            prompt("better prompt"),
+            RevisionStatus::Adoptable,
+        );
+        let mut catalog: HarnessCatalog<FlakyStore> = HarnessCatalog::with_store(FlakyStore::default());
+        catalog.insert(base.clone()).unwrap();
+        catalog.insert(successor.clone()).unwrap();
+        catalog
+            .activate(HarnessDomain::RustBackend, &base.id, "bootstrap", "owner")
+            .unwrap();
+        let mut experiment = adoptable_experiment(
+            &base,
+            &successor,
+            ValidationEvidence::all_passed(vec!["validation-1".into()]),
+        );
+        catalog.store_mut().fail_next = true;
+
+        let error = apply(
+            &decision("successor-1", AdoptionVerdict::Adopt, "policy"),
+            &mut experiment,
+            &mut catalog,
+        )
+        .expect_err("store transaction fails");
+        assert!(
+            matches!(error, AdoptionError::Catalog(CatalogError::Store(_))),
+            "{error}"
+        );
+        // D4: neither the catalog pointer nor the experiment lifecycle advanced.
+        assert_eq!(
+            catalog.active_revision_id(HarnessDomain::RustBackend),
+            Some("base-1")
+        );
+        assert_eq!(
+            catalog.revision("base-1").unwrap().status,
+            RevisionStatus::Adopted
+        );
+        assert_eq!(
+            catalog.revision("successor-1").unwrap().status,
+            RevisionStatus::Adoptable
+        );
+        assert_eq!(experiment.state, RevisionStatus::Adoptable);
     }
 
     #[test]

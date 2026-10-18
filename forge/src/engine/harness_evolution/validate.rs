@@ -17,6 +17,7 @@
 //! predecessor ran before any probe, and the candidate has since been rebuilt into a successor by
 //! Compose. The gate re-proves `successor = base + changes` and re-refuses protected surfaces.
 
+use super::experiment::{ValidationContext, Validator};
 use super::model::{
     ComponentChange, ContrastReport, EvolutionError, GateStatus, HarnessRevision,
     ValidationEvidence,
@@ -225,23 +226,20 @@ pub fn validate(request: &ValidationRequest<'_>) -> Result<ValidationOutcome, Ev
     }
 
     // Gate 1: static policy, re-run against the composed successor.
-    let static_policy = match policy::validate_candidate(
-        request.base,
-        request.successor,
-        request.changes,
-    ) {
-        Ok(()) => GateStatus::Passed,
-        Err(violations) => {
-            for violation in &violations {
-                reasons.push(format!(
-                    "static policy {}: {}",
-                    violation.code.id(),
-                    violation.message
-                ));
+    let static_policy =
+        match policy::validate_candidate(request.base, request.successor, request.changes) {
+            Ok(()) => GateStatus::Passed,
+            Err(violations) => {
+                for violation in &violations {
+                    reasons.push(format!(
+                        "static policy {}: {}",
+                        violation.code.id(),
+                        violation.message
+                    ));
+                }
+                GateStatus::Failed
             }
-            GateStatus::Failed
-        }
-    };
+        };
 
     // Gate 2: regression rails.
     let regression_rails = match request.regression_rails.status {
@@ -288,8 +286,7 @@ pub fn validate(request: &ValidationRequest<'_>) -> Result<ValidationOutcome, Ev
     // Gate 4: Phase 3 evidence review.
     let phase3_evidence = match request.phase3.status {
         GateStatus::Passed
-            if request.phase3.note.trim().is_empty()
-                || request.phase3.evidence_refs.is_empty() =>
+            if request.phase3.note.trim().is_empty() || request.phase3.evidence_refs.is_empty() =>
         {
             reasons.push(
                 "Phase 3 evidence review was reported passed without a note or durable evidence"
@@ -331,6 +328,75 @@ pub fn validate(request: &ValidationRequest<'_>) -> Result<ValidationOutcome, Ev
         contrast_ids,
         reasons,
     })
+}
+
+/// The bridge from an experiment [`ValidationContext`] to Forge's real validation stage.
+///
+/// The experiment carries the composed change list verbatim, so this adapter builds the
+/// [`ValidationRequest`] from the context's base, successor, **exact changes** and contrasts — no
+/// diff is synthesized and no gate evidence is invented. The three Forge-side gate inputs
+/// (regression rails, replay, Phase 3 review) are supplied when the stage is constructed because
+/// they are operator/CI evidence, not harness content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForgeValidationStage {
+    pub regression_rails: RegressionRails,
+    pub replay: ReplayValidation,
+    pub phase3: Phase3EvidenceReview,
+}
+
+impl ForgeValidationStage {
+    pub fn new(
+        regression_rails: RegressionRails,
+        replay: ReplayValidation,
+        phase3: Phase3EvidenceReview,
+    ) -> Self {
+        Self {
+            regression_rails,
+            replay,
+            phase3,
+        }
+    }
+
+    /// Build the exact request the seam carries. A missing successor is a contract error, never a
+    /// quietly empty validation: "no successor" would otherwise read as "not run".
+    pub fn request<'a>(
+        &self,
+        context: &ValidationContext<'a>,
+    ) -> Result<ValidationRequest<'a>, EvolutionError> {
+        let successor = context.successor.ok_or_else(|| {
+            EvolutionError::MissingEvidence(
+                "Forge validation needs the composed successor revision".into(),
+            )
+        })?;
+        Ok(ValidationRequest {
+            base: context.base,
+            successor,
+            changes: context.changes,
+            contrasts: context.contrasts.iter().collect(),
+            regression_rails: self.regression_rails.clone(),
+            replay: self.replay.clone(),
+            phase3: self.phase3.clone(),
+        })
+    }
+
+    /// Run the four gates and keep the reasons/contrast ids for the operator surface.
+    pub fn validate_outcome(
+        &self,
+        context: &ValidationContext<'_>,
+    ) -> Result<ValidationOutcome, EvolutionError> {
+        let request = self.request(context)?;
+        validate(&request)
+    }
+}
+
+impl Validator for ForgeValidationStage {
+    fn validate(
+        &self,
+        context: &ValidationContext<'_>,
+    ) -> Result<ValidationEvidence, EvolutionError> {
+        self.validate_outcome(context)
+            .map(|outcome| outcome.validation)
+    }
 }
 
 /// Evidence links for a contrast. A contrast with no direct refs still identifies itself, so a
@@ -495,13 +561,9 @@ mod tests {
             "unrelated",
             "base prompt",
         ));
-        let successor = HarnessRevision::draft(
-            "successor-1",
-            HarnessDomain::RustBackend,
-            bogus,
-            "smith",
-        )
-        .with_parent(Some(base.id.clone()));
+        let successor =
+            HarnessRevision::draft("successor-1", HarnessDomain::RustBackend, bogus, "smith")
+                .with_parent(Some(base.id.clone()));
         let changes = vec![ComponentChange::set(
             Component::green(
                 ComponentKind::SystemPrompt,
@@ -659,5 +721,253 @@ mod tests {
             .map(|(name, _)| name)
             .collect();
         assert_eq!(names, VALIDATION_GATE_NAMES.to_vec());
+    }
+}
+
+#[cfg(test)]
+mod seam_tests {
+    //! D3 seam tests: the validator receives the experiment's exact composed changes, and a
+    //! "passed" Forge gate with no durable evidence is downgraded to Failed at the seam.
+
+    use super::*;
+    use crate::engine::harness_evolution::experiment::ValidationContext;
+    use crate::engine::harness_evolution::model::{
+        BehaviorDimension, BehaviorEvidence, Component, ComponentDecision, ComponentDecisionRecord,
+        ComponentKind, CompositionDecision, DimensionContrast, EnvironmentClass, HarnessDomain,
+        HarnessManifest, ProbeIdentity, QaVerdict,
+    };
+
+    fn identity() -> ProbeIdentity {
+        ProbeIdentity {
+            model: "flash".into(),
+            model_policy: "default".into(),
+            executor: "opencode".into(),
+            tools: vec!["read".into()],
+            environment_class: EnvironmentClass::Development,
+            input_dataset: "seam-fixture".into(),
+        }
+    }
+
+    fn evidence(id: &str, steps: u64) -> BehaviorEvidence {
+        let mut evidence = BehaviorEvidence::new(format!("evidence-{id}"), format!("probe-{id}"));
+        evidence.success = true;
+        evidence.qa = QaVerdict::Pass;
+        evidence.steps = steps;
+        evidence.evidence_refs = vec![format!("receipt:{id}")];
+        evidence
+    }
+
+    fn base_revision() -> HarnessRevision {
+        HarnessRevision::draft(
+            "base-1",
+            HarnessDomain::RustBackend,
+            HarnessManifest::empty().with_component(Component::green(
+                ComponentKind::SystemPrompt,
+                "baseline prompt",
+                "base prompt",
+            )),
+            "owner",
+        )
+    }
+
+    fn composed_successor(base: &HarnessRevision) -> (HarnessRevision, Vec<ComponentChange>) {
+        let changes = vec![ComponentChange::set(
+            Component::green(
+                ComponentKind::SystemPrompt,
+                "baseline prompt\n\nplan before editing",
+                "base prompt",
+            ),
+            "validated change",
+        )];
+        let successor = HarnessRevision::from_changes(base, "successor-1", &changes, "smith")
+            .expect("successor is base + changes");
+        (successor, changes)
+    }
+
+    fn composition(successor: &HarnessRevision) -> CompositionDecision {
+        CompositionDecision {
+            id: "composition-1".into(),
+            base_revision: "base-1".into(),
+            candidates: vec!["candidate-1".into()],
+            contrast_ids: vec!["contrast-1".into()],
+            decisions: vec![ComponentDecisionRecord::new(
+                ComponentKind::SystemPrompt,
+                ComponentDecision::Adopt,
+                "the candidate was better",
+            )
+            .with_evidence_for(vec!["evidence:1".into()])],
+            successor_manifest_hash: successor.manifest_hash.clone(),
+            summary: "seam composition".into(),
+            evidence_refs: vec!["evidence:1".into()],
+        }
+    }
+
+    fn contrast_report() -> ContrastReport {
+        let identity = identity();
+        let reference = evidence("ref", 10);
+        let candidate = evidence("cand", 5);
+        ContrastReport {
+            id: "contrast-1".into(),
+            base_revision: "base-1".into(),
+            candidate_revision: "successor-1".into(),
+            reference_identity: identity.clone(),
+            candidate_identity: identity,
+            dimensions: vec![DimensionContrast::from_evidence(
+                BehaviorDimension::Steps,
+                &reference,
+                &candidate,
+                "fewer steps",
+            )],
+            summary: "seam contrast".into(),
+            evidence_refs: vec!["evidence:1".into()],
+        }
+    }
+
+    fn clean_stage() -> ForgeValidationStage {
+        ForgeValidationStage::new(
+            RegressionRails::passed(vec!["rails:seam".into()]),
+            ReplayValidation::passed("replay:seam", vec!["replay:seam".into()]),
+            Phase3EvidenceReview::passed(
+                "the scorecard weakness disappeared",
+                vec!["scorecard:run-seam".into()],
+            ),
+        )
+    }
+
+    fn context<'a>(
+        base: &'a HarnessRevision,
+        successor: &'a HarnessRevision,
+        changes: &'a [ComponentChange],
+        composition: &'a CompositionDecision,
+        contrasts: &'a [ContrastReport],
+        changed_kinds: &'a [ComponentKind],
+    ) -> ValidationContext<'a> {
+        ValidationContext {
+            experiment_id: "experiment-seam",
+            domain: HarnessDomain::RustBackend,
+            base,
+            successor: Some(successor),
+            composition,
+            contrasts,
+            changed_kinds,
+            changes,
+        }
+    }
+
+    #[test]
+    fn validator_receives_the_exact_composed_changes() {
+        let base = base_revision();
+        let (successor, changes) = composed_successor(&base);
+        let composition = composition(&successor);
+        let contrast = contrast_report();
+        let kinds = [ComponentKind::SystemPrompt];
+        let stage = clean_stage();
+        let ctx = context(
+            &base,
+            &successor,
+            &changes,
+            &composition,
+            std::slice::from_ref(&contrast),
+            &kinds,
+        );
+
+        let evidence = stage.validate(&ctx).expect("exact changes validate");
+        assert_eq!(evidence.static_policy, GateStatus::Passed);
+        assert!(evidence.is_clean());
+        assert_eq!(evidence.regression_rails, GateStatus::Passed);
+
+        // The same successor with an EMPTY change list is not base + changes: the static policy
+        // gate must fail, proving the validator consumed the composed changes rather than a diff
+        // synthesized from the two manifests.
+        let no_changes: [ComponentChange; 0] = [];
+        let wrong = context(
+            &base,
+            &successor,
+            &no_changes,
+            &composition,
+            std::slice::from_ref(&contrast),
+            &kinds,
+        );
+        let evidence = stage
+            .validate(&wrong)
+            .expect("a failed gate is an outcome, not an error");
+        assert_eq!(
+            evidence.static_policy,
+            GateStatus::Failed,
+            "the validator must see the exact changes it was handed"
+        );
+        assert!(!evidence.is_clean());
+    }
+
+    #[test]
+    fn unlinked_passed_gate_is_downgraded_to_failed_at_the_seam() {
+        let base = base_revision();
+        let (successor, changes) = composed_successor(&base);
+        let composition = composition(&successor);
+        let contrast = contrast_report();
+        let kinds = [ComponentKind::SystemPrompt];
+        let stage = ForgeValidationStage::new(
+            // "passed" with no durable evidence refs must not count as passed.
+            RegressionRails::passed(Vec::new()),
+            ReplayValidation::passed("replay:seam", vec!["replay:seam".into()]),
+            Phase3EvidenceReview::passed(
+                "the scorecard weakness disappeared",
+                vec!["scorecard:run-seam".into()],
+            ),
+        );
+        let ctx = context(
+            &base,
+            &successor,
+            &changes,
+            &composition,
+            std::slice::from_ref(&contrast),
+            &kinds,
+        );
+
+        let outcome = stage.validate_outcome(&ctx).expect("outcome");
+        assert_eq!(outcome.validation.regression_rails, GateStatus::Failed);
+        assert!(!outcome.sufficient_for_adoption());
+        assert!(outcome
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("without any durable evidence refs")));
+    }
+
+    #[test]
+    fn missing_successor_and_missing_contrast_are_refused() {
+        let base = base_revision();
+        let (successor, changes) = composed_successor(&base);
+        let composition = composition(&successor);
+        let kinds = [ComponentKind::SystemPrompt];
+        let stage = clean_stage();
+        let contrasts: [ContrastReport; 0] = [];
+
+        let no_successor = ValidationContext {
+            experiment_id: "experiment-seam",
+            domain: HarnessDomain::RustBackend,
+            base: &base,
+            successor: None,
+            composition: &composition,
+            contrasts: &contrasts,
+            changed_kinds: &kinds,
+            changes: &changes,
+        };
+        let error = stage
+            .validate(&no_successor)
+            .expect_err("missing successor is a contract error");
+        assert!(error.to_string().contains("successor"));
+
+        let no_contrast = context(
+            &base,
+            &successor,
+            &changes,
+            &composition,
+            &contrasts,
+            &kinds,
+        );
+        let error = stage
+            .validate(&no_contrast)
+            .expect_err("no contrast means nothing to validate");
+        assert!(error.to_string().contains("contrast"));
     }
 }
