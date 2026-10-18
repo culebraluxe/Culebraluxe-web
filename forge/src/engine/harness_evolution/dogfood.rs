@@ -383,6 +383,19 @@ pub enum DogfoodError {
     DuplicateStory {
         story_id: String,
     },
+    /// A real run was requested without the explicit authorization predicate.
+    RealRunNotAuthorized {
+        reason: String,
+    },
+    /// The loader returned a task that is not the requested story/run.
+    LoaderMismatch {
+        requested_story: String,
+        loaded_story: String,
+    },
+    /// An apparently complete run produced a placeholder story slot: partial load is a failure.
+    LoaderPartial {
+        story_id: String,
+    },
     InvalidStory {
         story_id: String,
     },
@@ -421,6 +434,9 @@ impl DogfoodError {
             Self::ProductionRefused { .. } => "dogfood_production_refused",
             Self::StoryCount { .. } => "dogfood_story_count",
             Self::DuplicateStory { .. } => "dogfood_duplicate_story",
+            Self::RealRunNotAuthorized { .. } => "dogfood_real_run_not_authorized",
+            Self::LoaderMismatch { .. } => "dogfood_loader_mismatch",
+            Self::LoaderPartial { .. } => "dogfood_loader_partial",
             Self::InvalidStory { .. } => "dogfood_invalid_story",
             Self::WrongDomain { .. } => "dogfood_wrong_domain",
             Self::EditableSurface { .. } => "dogfood_editable_surface",
@@ -451,6 +467,21 @@ impl std::fmt::Display for DogfoodError {
             Self::DuplicateStory { story_id } => {
                 write!(f, "dogfood story {story_id} is listed more than once")
             }
+            Self::RealRunNotAuthorized { reason } => write!(
+                f,
+                "real dogfood run refused: explicit authorization is required ({reason}); pass --authorize-sandbox"
+            ),
+            Self::LoaderMismatch {
+                requested_story,
+                loaded_story,
+            } => write!(
+                f,
+                "loader mismatch: requested story {requested_story}, loader returned {loaded_story}"
+            ),
+            Self::LoaderPartial { story_id } => write!(
+                f,
+                "loader returned no historical task for story {story_id}; a partial load is refused, not degraded to a dry-run placeholder"
+            ),
             Self::InvalidStory { story_id } => {
                 write!(f, "dogfood story {story_id} is not a usable story id")
             }
@@ -522,9 +553,42 @@ pub fn build_plan_loaded(
     check_story_slots(&request.stories)?;
     let mut tasks = Vec::with_capacity(request.stories.len());
     for story in &request.stories {
-        tasks.push(loader.load(story)?);
+        let task = loader.load(story)?;
+        // A loader that returns a different story/run is not "close enough": the probe would run
+        // the wrong historical input. Refuse before any plan is built.
+        if task.story_id != story.story_id {
+            return Err(DogfoodError::LoaderMismatch {
+                requested_story: story.story_id.clone(),
+                loaded_story: task.story_id.clone(),
+            });
+        }
+        if let Some(requested_run) = &story.run_id {
+            if &task.run_id != requested_run {
+                return Err(DogfoodError::LoaderMismatch {
+                    requested_story: story.story_id.clone(),
+                    loaded_story: task.story_id.clone(),
+                });
+            }
+        }
+        tasks.push(task);
     }
-    build_plan_with_tasks(request, &tasks)
+    let plan = build_plan_with_tasks(request, &tasks)?;
+    // No silent placeholder degradation: a read-only run must have loaded every story.
+    ensure_complete_history(&plan)?;
+    Ok(plan)
+}
+
+/// Every probe slot must carry loaded history. A placeholder in a run that claimed to load its
+/// stories is a partial load, and a partial load is refused.
+fn ensure_complete_history(plan: &DogfoodPlan) -> Result<(), DogfoodError> {
+    for probe in &plan.probes {
+        if probe.source == DogfoodStorySource::DryRunPlaceholder {
+            return Err(DogfoodError::LoaderPartial {
+                story_id: probe.story_id.clone(),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn build_plan_with_tasks(
@@ -780,6 +844,126 @@ fn probe_command(
         story.run_id.as_deref().unwrap_or("<latest-run>"),
         environment_class.id()
     )
+}
+
+/// Explicit authorization to leave the dry run and enter the real-run boundary.
+///
+/// The fields are private on purpose: outside this module the only ways to obtain one are
+/// [`RealRunAuthorization::authorize_sandbox`] (programmatic, explicit sandbox name) and
+/// [`RealRunAuthorization::from_script_args`] (the `--authorize-sandbox` flag). An
+/// unauthorized real-run request is refused, not silently downgraded to a dry run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RealRunAuthorization {
+    sandbox: String,
+    environment_class: EnvironmentClass,
+}
+
+impl RealRunAuthorization {
+    /// The script/CLI flag that expresses explicit authorization.
+    pub const FLAG: &'static str = "--authorize-sandbox";
+
+    /// Authorize a named sandbox in a non-production class.
+    pub fn authorize_sandbox(
+        sandbox: impl Into<String>,
+        environment_class: EnvironmentClass,
+    ) -> Result<Self, DogfoodError> {
+        let sandbox = sandbox.into();
+        if sandbox.trim().is_empty() {
+            return Err(DogfoodError::RealRunNotAuthorized {
+                reason: "no sandbox was named".into(),
+            });
+        }
+        if environment_class.is_production() || !environment_class.allows_probe() {
+            return Err(DogfoodError::ProductionRefused { environment_class });
+        }
+        Ok(Self {
+            sandbox,
+            environment_class,
+        })
+    }
+
+    /// Parse explicit authorization from script arguments. The flag must be present verbatim.
+    pub fn from_script_args(
+        args: &[String],
+        sandbox: impl Into<String>,
+        environment_class: EnvironmentClass,
+    ) -> Result<Self, DogfoodError> {
+        if !args.iter().any(|argument| argument == Self::FLAG) {
+            return Err(DogfoodError::RealRunNotAuthorized {
+                reason: format!("missing {} flag", Self::FLAG),
+            });
+        }
+        Self::authorize_sandbox(sandbox, environment_class)
+    }
+
+    pub fn sandbox(&self) -> &str {
+        &self.sandbox
+    }
+
+    pub fn environment_class(&self) -> EnvironmentClass {
+        self.environment_class
+    }
+}
+
+/// A real-run plan: the validated dogfood plan plus the explicit authorization that released it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RealRunPlan {
+    pub plan: DogfoodPlan,
+    pub authorization: RealRunAuthorization,
+}
+
+impl RealRunPlan {
+    pub fn render(&self) -> String {
+        let mut out = String::new();
+        out.push_str("REAL DOGFOOD RUN AUTHORIZED\n");
+        out.push_str(&format!(
+            "authorization: sandbox={} env={}\n",
+            self.authorization.sandbox(),
+            self.authorization.environment_class().id()
+        ));
+        out.push_str("the dry-run plan is unchanged; execution still requires the probe entrypoint (O2), a sandbox runtime and DATABASE_URL_DEV\n");
+        out.push_str("----------------------------------------------------------------------\n");
+        out.push_str(&self.plan.render());
+        out
+    }
+}
+
+/// Build a real-run plan. This is the **only** way past the dry run:
+///
+/// 1. an explicit [`RealRunAuthorization`] must be supplied (the script's `--authorize-sandbox`);
+/// 2. production is refused before the loader is called;
+/// 3. the authorization's sandbox and environment must be non-production and consistent with the
+///    request pins;
+/// 4. every story must load completely — a partial load is a failure, never a placeholder.
+///
+/// The plan is still a plan: this function does not execute probes, which remain the probe
+/// entrypoint's job (O2).
+pub fn build_real_run_plan(
+    request: &DogfoodRequest,
+    loader: &dyn HistoricalTaskLoader,
+    authorization: &RealRunAuthorization,
+) -> Result<RealRunPlan, DogfoodError> {
+    refuse_production(&request.pins)?;
+    if authorization.sandbox().trim().is_empty() {
+        return Err(DogfoodError::RealRunNotAuthorized {
+            reason: "authorization names no sandbox".into(),
+        });
+    }
+    if authorization.environment_class() != request.pins.environment_class {
+        return Err(DogfoodError::RealRunNotAuthorized {
+            reason: format!(
+                "authorized environment {} does not match the probe pins {}",
+                authorization.environment_class().id(),
+                request.pins.environment_class.id()
+            ),
+        });
+    }
+    let plan = build_plan_loaded(request, loader)?;
+    ensure_complete_history(&plan)?;
+    Ok(RealRunPlan {
+        plan,
+        authorization: authorization.clone(),
+    })
 }
 
 /// The deterministic dry-run fixture: a Rust-backend base revision with prompt and tool guidance,
@@ -1163,6 +1347,166 @@ mod tests {
         assert!(text.contains("END OF DRY-RUN PLAN"));
     }
 
+    #[test]
+    fn the_dry_run_is_pure_and_side_effect_free() {
+        // Two calls with the same deterministic fixture produce identical output: no clock, no
+        // random id, no database and no model participate in the dry-run path.
+        let first = dry_run_for_rust_backend().expect("first dry run");
+        let second = dry_run_for_rust_backend().expect("second dry run");
+        assert_eq!(first, second);
+
+        let plan = build_plan(&dry_run_fixture()).expect("dry-run plan");
+        assert!(
+            plan.probes
+                .iter()
+                .all(|probe| probe.source == DogfoodStorySource::DryRunPlaceholder),
+            "the dry run must not claim to have loaded history"
+        );
+        assert!(plan
+            .limitations
+            .iter()
+            .any(|limitation| limitation.contains("no model turn, no database")));
+    }
+
+    #[test]
+    fn a_real_run_requires_the_explicit_authorization_flag() {
+        let missing = RealRunAuthorization::from_script_args(
+            &[],
+            "sandbox_command::CommandSandbox",
+            EnvironmentClass::Development,
+        )
+        .unwrap_err();
+        assert_eq!(missing.code(), "dogfood_real_run_not_authorized");
+        assert!(missing.to_string().contains("--authorize-sandbox"));
+
+        let authorized = RealRunAuthorization::from_script_args(
+            &["--authorize-sandbox".to_string()],
+            "sandbox_command::CommandSandbox",
+            EnvironmentClass::Development,
+        )
+        .expect("authorized");
+        assert_eq!(authorized.sandbox(), "sandbox_command::CommandSandbox");
+        assert_eq!(authorized.environment_class(), EnvironmentClass::Development);
+    }
+
+    #[test]
+    fn real_run_authorization_refuses_production_and_unusable_environments() {
+        let production = RealRunAuthorization::authorize_sandbox(
+            "sandbox_command::CommandSandbox",
+            EnvironmentClass::Production,
+        )
+        .unwrap_err();
+        assert_eq!(production.code(), "dogfood_production_refused");
+
+        let unnamed = RealRunAuthorization::authorize_sandbox(" ", EnvironmentClass::Development)
+            .unwrap_err();
+        assert_eq!(unnamed.code(), "dogfood_real_run_not_authorized");
+    }
+
+    #[test]
+    fn a_real_run_plan_carries_the_authorization_and_complete_history() {
+        let request = dry_run_fixture();
+        let loader = StubLoader::new(fixture_tasks());
+        let authorization = RealRunAuthorization::authorize_sandbox(
+            "sandbox_command::CommandSandbox",
+            EnvironmentClass::Development,
+        )
+        .expect("authorized");
+        let real = build_real_run_plan(&request, &loader, &authorization).expect("real-run plan");
+        assert_eq!(loader.loads.get(), 3);
+        assert!(real
+            .plan
+            .probes
+            .iter()
+            .all(|probe| matches!(probe.source, DogfoodStorySource::Loaded { .. })));
+        let rendered = real.render();
+        assert!(rendered.contains("REAL DOGFOOD RUN AUTHORIZED"));
+        assert!(rendered.contains("sandbox_command::CommandSandbox"));
+        assert!(rendered.contains("execution still requires the probe entrypoint (O2)"));
+        assert!(rendered.contains("END OF DRY-RUN PLAN"));
+    }
+
+    #[test]
+    fn a_loader_returning_a_different_story_is_refused() {
+        // A silent partial/incorrect loader result must not degrade to a placeholder.
+        struct WrongStoryLoader;
+        impl HistoricalTaskLoader for WrongStoryLoader {
+            fn load(
+                &self,
+                request: &HistoricalTaskRequest,
+            ) -> Result<HistoricalTask, ReplayError> {
+                Ok(HistoricalTask::new(
+                    "someone-else",
+                    request.run_id.clone().unwrap_or_else(|| "run-x".into()),
+                    "Wrong story",
+                    "GOAL:\nwrong",
+                ))
+            }
+        }
+        let error = build_plan_loaded(&dry_run_fixture(), &WrongStoryLoader).unwrap_err();
+        assert_eq!(error.code(), "dogfood_loader_mismatch");
+        assert!(error.to_string().contains("requested story smith-100"));
+    }
+
+    #[test]
+    fn a_partial_history_is_refused_not_degraded_to_placeholders() {
+        // `build_plan_loaded` refuses loader errors outright...
+        struct PartialLoader {
+            loads: Cell<usize>,
+        }
+        impl HistoricalTaskLoader for PartialLoader {
+            fn load(
+                &self,
+                request: &HistoricalTaskRequest,
+            ) -> Result<HistoricalTask, ReplayError> {
+                self.loads.set(self.loads.get() + 1);
+                if self.loads.get() > 2 {
+                    return Err(ReplayError::TaskNotFound {
+                        story_id: request.story_id.clone(),
+                        run_id: request.run_id.clone(),
+                    });
+                }
+                Ok(HistoricalTask::new(
+                    &request.story_id,
+                    request.run_id.clone().unwrap_or_else(|| "run-x".into()),
+                    "Story",
+                    "GOAL:\nfix",
+                ))
+            }
+        }
+        let error = build_plan_loaded(
+            &dry_run_fixture(),
+            &PartialLoader {
+                loads: Cell::new(0),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), "dogfood_loader_refused");
+
+        // ...and the placeholder guard is the second line of defence: a plan with any unloaded slot
+        // cannot pass as a completed history load.
+        let dry_run_plan = build_plan(&dry_run_fixture()).expect("dry-run plan");
+        let error = ensure_complete_history(&dry_run_plan).unwrap_err();
+        assert_eq!(error.code(), "dogfood_loader_partial");
+        assert!(error.to_string().contains("partial load is refused"));
+    }
+
+    #[test]
+    fn a_real_run_refuses_an_authorization_for_another_environment() {
+        let mut request = dry_run_fixture();
+        request.pins.environment_class = EnvironmentClass::Ci;
+        let authorization = RealRunAuthorization::authorize_sandbox(
+            "sandbox_command::CommandSandbox",
+            EnvironmentClass::Development,
+        )
+        .expect("authorized");
+        let loader = StubLoader::new(fixture_tasks());
+        let error = build_real_run_plan(&request, &loader, &authorization).unwrap_err();
+        assert_eq!(error.code(), "dogfood_real_run_not_authorized");
+        assert!(error.to_string().contains("does not match"));
+        assert_eq!(loader.loads.get(), 0, "mismatch is refused before loading");
+    }
+
     /// The test `scripts/harness-dogfood.sh` runs with `--nocapture` to print the plan.
     #[test]
     fn print_dry_run_plan() {
@@ -1170,4 +1514,24 @@ mod tests {
         println!("{text}");
         assert!(text.contains("DRY RUN"));
     }
+    /// The test `scripts/harness-dogfood.sh --authorize-sandbox` runs to print the real-run
+    /// boundary. It proves authorization + complete history are required, and says plainly that
+    /// probe execution is still not wired.
+    #[test]
+    fn print_authorized_real_run_boundary() {
+        let authorization = RealRunAuthorization::authorize_sandbox(
+            "sandbox_command::CommandSandbox",
+            EnvironmentClass::Development,
+        )
+        .expect("authorized");
+        let loader = StubLoader::new(fixture_tasks());
+        let real = build_real_run_plan(&dry_run_fixture(), &loader, &authorization)
+            .expect("real-run plan");
+        let text = real.render();
+        println!("{text}");
+        assert!(text.contains("REAL DOGFOOD RUN AUTHORIZED"));
+        assert!(text.contains("--authorize-sandbox") || text.contains("authorization:"));
+        assert!(text.contains("execution still requires the probe entrypoint (O2)"));
+    }
+
 }

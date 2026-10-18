@@ -6,8 +6,10 @@
 -- link to the correction -> specification -> rail pipeline: the ledger row exists first, the rule
 -- and its guard/test come later, and no free-text self-writer can promote itself.
 --
--- `correction_key` is the SHA-256 of the normalized correction text (whitespace-collapsed,
--- case-folded), computed by the Rust DAO. It is what repeat detection groups on: the same
+-- `correction_key` is the PLAIN SHA-256 (hex) of the normalized correction text: trimmed,
+-- internal whitespace collapsed to one space, lower-cased, hashed as UTF-8. No salt, no domain
+-- prefix, no length prefix, so any SHA-256 tool reproduces a stored key from the text. The
+-- correction text itself is stored VERBATIM in `correction`; normalization is only for the key. It is what repeat detection groups on: the same
 -- correction requested for the same lane more than once is the signal Harness Evolution consumes
 -- (`ImprovementSignal::RepeatedCorrection`), and it is not the same thing as the correction id.
 --
@@ -23,7 +25,8 @@ create table if not exists forge_correction_ledger (
     id bigserial primary key,
     -- The lane the correction was for (`lead`, `smith`, `assay`, `dev_ops`, a harness domain id, ...).
     lane text not null,
-    -- SHA-256 hex of the normalized correction text (see `db::forge_corrections::correction_key`).
+    -- Plain SHA-256 hex of the normalized correction text (see
+    -- `db::forge_corrections::correction_key`): trim, collapse whitespace, lower-case, hash UTF-8.
     correction_key text not null,
     -- What the lane was told, verbatim.
     correction text not null,
@@ -67,7 +70,7 @@ create index if not exists idx_forge_correction_ledger_experiment
 comment on table forge_correction_ledger is
     'Durable correction ledger for Phase 3 learning: what each lane was corrected on, keyed for repeat detection. Additive to Forge evidence; no second learning store.';
 comment on column forge_correction_ledger.correction_key is
-    'SHA-256 of the normalized correction text (trim, whitespace-collapsed, lower-cased). Same lane + same key recurring is a repeated correction.';
+    'Plain SHA-256 hex of the normalized correction text (trim, whitespace collapsed to one space, lower-cased UTF-8; no salt/domain/length prefix). Same lane + same key recurring is a repeated correction. The correction column stores the text verbatim.';
 comment on column forge_correction_ledger.permanent_rule_created is
     'True only after a human turned this correction into a permanent rule plus its guard/test; the ledger never self-promotes.';
 comment on column forge_correction_ledger.evidence_refs is

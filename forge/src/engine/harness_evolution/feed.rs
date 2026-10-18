@@ -13,7 +13,7 @@
 use super::experiment::HarnessExperiment;
 use super::model::{AdoptionDecision, AdoptionVerdict, HarnessDomain, ValidationEvidence};
 use super::propose::{ImprovementSignal, ImprovementTarget};
-use db::{NewForgeCorrection, NewForgeHarnessExperience};
+use db::{ForgeCorrectionRepeatRow, NewForgeCorrection, NewForgeHarnessExperience};
 
 /// One read-only scorecard bucket, as `forge scorecard` reports it. Kept deliberately small so the
 /// feed does not depend on the CLI's rendering types.
@@ -184,6 +184,41 @@ pub struct CorrectionFeedRow {
     pub evidence_refs: Vec<String>,
 }
 
+/// Adapt database repeat rows into feed rows.
+///
+/// The database query (migration 295 table) owns the grouping and returns the union of the group's
+/// `evidence_refs` as jsonb; this adapter is the one place that shape becomes feed input, so a
+/// `RepeatedCorrection` target always carries the evidence its ledger rows carried. Empty/blank
+/// ids are dropped; order is preserved and duplicates removed.
+pub fn correction_feed_rows(repeats: &[ForgeCorrectionRepeatRow]) -> Vec<CorrectionFeedRow> {
+    repeats
+        .iter()
+        .map(|repeat| {
+            let mut evidence_refs: Vec<String> = repeat
+                .evidence_refs
+                .as_array()
+                .map(|array| {
+                    array
+                        .iter()
+                        .filter_map(|value| value.as_str())
+                        .map(str::trim)
+                        .filter(|reference| !reference.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            evidence_refs.sort();
+            evidence_refs.dedup();
+            CorrectionFeedRow {
+                lane: repeat.lane.clone(),
+                correction: repeat.correction.clone(),
+                occurrences: u32::try_from(repeat.occurrences).unwrap_or(u32::MAX),
+                evidence_refs,
+            }
+        })
+        .collect()
+}
+
 /// Thresholds for correction targets. Separate from [`FeedOptions`] so the scorecard/HOLD defaults
 /// stay untouched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -341,10 +376,20 @@ pub fn targets_from_learning_sources(
 // ---------------------------------------------------------------------------------------------
 
 /// A rejected experiment's correction, ready to become a `forge_correction_ledger` row.
+///
+/// The decider's rationale is NOT the correction text. `correction` is the corrective statement
+/// (None when the outcome only states a rationale), and `rejection_rationale` is the rationale
+/// verbatim. The applied ledger schema has one text column, so [`CorrectionWriteback::to_new`]
+/// documents the one honest mapping: when no separate correction text exists, the verbatim
+/// rationale is what the ledger stores. A future additive column can split them without changing
+/// the rows written today.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CorrectionWriteback {
     pub lane: String,
-    pub correction: String,
+    /// The corrective statement, when the outcome stated one.
+    pub correction: Option<String>,
+    /// The decider's stated reason for rejecting, verbatim. None = not stated, not "unknown".
+    pub rejection_rationale: Option<String>,
     pub context: Option<String>,
     pub root_cause: Option<String>,
     pub spec_location: Option<String>,
@@ -354,10 +399,20 @@ pub struct CorrectionWriteback {
 }
 
 impl CorrectionWriteback {
+    /// The text the ledger's single `correction` column stores: the stated correction when there is
+    /// one, otherwise the verbatim rejection rationale. No generated text, no placeholder.
+    pub fn ledger_text(&self) -> Option<&str> {
+        self.correction
+            .as_deref()
+            .or(self.rejection_rationale.as_deref())
+    }
+
     pub fn to_new(&self) -> NewForgeCorrection<'_> {
+        // `ledger_text` is enforced non-empty by `writeback_from_experiment`; `to_new` is only
+        // called for a writeback built by that function.
         NewForgeCorrection {
             lane: &self.lane,
-            correction: &self.correction,
+            correction: self.ledger_text().unwrap_or_default(),
             context: self.context.as_deref(),
             root_cause: self.root_cause.as_deref(),
             spec_location: self.spec_location.as_deref(),
@@ -386,7 +441,9 @@ pub struct ExperienceWriteback {
     pub lesson: String,
     pub applicability: Vec<String>,
     pub counterevidence: Vec<String>,
-    pub confidence: u8,
+    /// The composition's own stated confidence (max over component decisions), or `None` when the
+    /// composition stated none. Never fabricated as 0.
+    pub confidence: Option<u8>,
     pub contrast_id: String,
     pub validation: ValidationEvidence,
     pub evidence_refs: Vec<String>,
@@ -415,7 +472,10 @@ impl ExperienceWriteback {
             lesson: self.lesson.clone(),
             applicability: serde_json::json!(self.applicability),
             counterevidence: serde_json::json!(self.counterevidence),
-            confidence: i32::from(self.confidence),
+            confidence: i32::from(self.confidence.ok_or_else(|| {
+                "experience writeback has no stated confidence; refusing to fabricate one"
+                    .to_string()
+            })?),
             contrast_id: self.contrast_id.clone(),
             validation,
             evidence_refs: serde_json::json!(self.evidence_refs),
@@ -456,11 +516,8 @@ fn writeback_evidence(
     refs.retain(|reference| !reference.trim().is_empty());
     refs.sort();
     refs.dedup();
-    if refs.is_empty() {
-        // The experiment row itself is durable (migration 294); for an outcome produced from a
-        // probe run the harness experiment id is the coarsest honest evidence reference.
-        refs.push(format!("forge_harness_experiment:{}", experiment.id));
-    }
+    // No fallback. The experiment row naming itself is not evidence for its own outcome: a
+    // writeback without at least one externally-owned evidence id is refused by the caller.
     refs
 }
 
@@ -477,6 +534,12 @@ pub fn writeback_from_experiment(
     decision: &AdoptionDecision,
 ) -> Result<Option<ExperimentWriteback>, String> {
     let evidence_refs = writeback_evidence(decision, experiment);
+    if evidence_refs.is_empty() {
+        return Err(
+            "experiment outcome carries no durable evidence ids; refusing a self-referential writeback"
+                .to_string(),
+        );
+    }
     match decision.verdict {
         AdoptionVerdict::Adopt => {
             let contrast = experiment
@@ -507,12 +570,15 @@ pub fn writeback_from_experiment(
             if composition.successor_manifest_hash.trim().is_empty() {
                 return Err("adopted experiment has no successor manifest hash".into());
             }
+            // ComponentDecisionRecord::new starts at 0 = "no confidence stated"; only a stated
+            // (>0) confidence is carried, and the maximum is used so one well-supported component
+            // does not get averaged away by unstated ones.
             let confidence = composition
                 .decisions
                 .iter()
                 .map(|record| record.confidence)
-                .max()
-                .unwrap_or(0);
+                .filter(|confidence| *confidence > 0)
+                .max();
             Ok(Some(ExperimentWriteback::Experience(Box::new(
                 ExperienceWriteback {
                     experiment_id: experiment.id.clone(),
@@ -546,7 +612,9 @@ pub fn writeback_from_experiment(
             Ok(Some(ExperimentWriteback::Correction(Box::new(
                 CorrectionWriteback {
                     lane: experiment.domain.id().to_string(),
-                    correction: correction.to_string(),
+                    // The reject outcome states a rationale, not a separate corrective text.
+                    correction: None,
+                    rejection_rationale: Some(correction.to_string()),
                     context: Some(format!(
                         "harness-experiment:{} verdict=rejected successor={:?}",
                         experiment.id, experiment.successor_revision
@@ -790,6 +858,88 @@ mod tests {
         assert_eq!(targets, repeated);
     }
 
+    #[test]
+    fn ledger_repeat_rows_adapt_into_evidence_linked_repeated_correction_targets() {
+        let repeats = vec![ForgeCorrectionRepeatRow {
+            lane: "smith".into(),
+            correction_key: "ab".repeat(32),
+            correction: "name the migration".into(),
+            occurrences: 3,
+            latest_at: chrono::Utc::now(),
+            evidence_refs: serde_json::json!([
+                "forge_correction_ledger:1",
+                "forge_hold_record:2",
+                "forge_correction_ledger:1",
+                "  ",
+            ]),
+        }];
+        let rows = correction_feed_rows(&repeats);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].occurrences, 3);
+        assert_eq!(
+            rows[0].evidence_refs,
+            vec![
+                "forge_correction_ledger:1".to_string(),
+                "forge_hold_record:2".to_string()
+            ],
+            "evidence union is deduplicated and blanks dropped"
+        );
+        let targets = targets_from_corrections(&rows, CorrectionFeedOptions::default());
+        assert_eq!(targets.len(), 1, "real ledger rows produce a target");
+        assert_eq!(
+            targets[0].evidence_refs,
+            rows[0].evidence_refs,
+            "the target carries the ledger evidence"
+        );
+    }
+
+    #[test]
+    fn an_experience_without_a_stated_confidence_is_not_given_a_fabricated_zero() {
+        let decision = AdoptionDecision::new(
+            "decision-1",
+            HarnessDomain::RustBackend,
+            "successor-1",
+            AdoptionVerdict::Adopt,
+            "policy",
+            "the candidate reduced rework",
+        )
+        .with_evidence_refs(vec!["evidence-1".into()]);
+        let mut experiment = experiment_for_writeback(
+            decision.clone(),
+            ValidationEvidence::all_passed(vec!["validation-1".into()]),
+        );
+        experiment.composition.as_mut().unwrap().decisions[0].confidence = 0;
+        let writeback = writeback_from_experiment(&experiment, &decision)
+            .expect("writeback")
+            .expect("adopted outcome has a writeback");
+        match writeback {
+            ExperimentWriteback::Experience(experience) => {
+                assert_eq!(experience.confidence, None, "0 stated means 'none stated'");
+                let error = experience.to_new().expect_err("db row requires a confidence");
+                assert!(error.contains("no stated confidence"), "{error}");
+            }
+            other => panic!("expected an experience writeback, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_writeback_without_external_evidence_is_refused_not_self_cited() {
+        let decision = AdoptionDecision::new(
+            "decision-2",
+            HarnessDomain::RustBackend,
+            "successor-1",
+            AdoptionVerdict::Reject,
+            "policy",
+            "replay gate failed",
+        );
+        let mut experiment =
+            experiment_for_writeback(decision.clone(), ValidationEvidence::pending());
+        experiment.contrasts[0].evidence_refs.clear();
+        let error = writeback_from_experiment(&experiment, &decision)
+            .expect_err("experiment id is not evidence for its own outcome");
+        assert!(error.contains("no durable evidence"), "{error}");
+    }
+
     fn experiment_for_writeback(
         _decision: AdoptionDecision,
         validation: ValidationEvidence,
@@ -888,13 +1038,18 @@ mod tests {
                 assert_eq!(experience.manifest_hash, "manifest-hash");
                 assert_eq!(experience.contrast_id, "contrast-1");
                 assert_eq!(experience.lesson, "the candidate reduced rework");
-                assert_eq!(experience.confidence, 70, "confidence comes from composition");
+                assert_eq!(
+                    experience.confidence,
+                    Some(70),
+                    "confidence comes from composition"
+                );
                 assert_eq!(experience.executor, "opencode");
                 assert_eq!(experience.mode, "parallel");
                 assert_eq!(experience.k, 1);
                 let new_row = experience.to_new().expect("db row");
                 assert_eq!(new_row.contrast_id, "contrast-1");
                 assert_eq!(new_row.domain, "rust-backend");
+                assert_eq!(new_row.confidence, 70);
                 assert!(new_row.evidence_refs.as_array().unwrap().len() >= 2);
             }
             other => panic!("expected an experience writeback, got {other:?}"),
@@ -922,6 +1077,15 @@ mod tests {
         match writeback {
             ExperimentWriteback::Correction(correction) => {
                 assert_eq!(correction.lane, "rust-backend");
+                assert_eq!(
+                    correction.correction, None,
+                    "a reject outcome states a rationale, not a correction text"
+                );
+                assert_eq!(
+                    correction.rejection_rationale.as_deref(),
+                    Some("replay gate failed; the prompt change regressed the focused test"),
+                    "the rationale has its own verbatim field"
+                );
                 assert!(correction.context.as_deref().unwrap().contains("exp-1"));
                 assert_eq!(correction.root_cause, None, "not invented");
                 assert_eq!(correction.spec_location, None, "not invented");
@@ -935,6 +1099,12 @@ mod tests {
                 let new_row = correction.to_new();
                 assert_eq!(new_row.lane, "rust-backend");
                 assert_eq!(new_row.experiment_id, Some("exp-1"));
+                // The ledger's single text column stores the verbatim rationale when no separate
+                // corrective text exists; no generated text.
+                assert_eq!(
+                    new_row.correction,
+                    "replay gate failed; the prompt change regressed the focused test"
+                );
             }
             other => panic!("expected a correction writeback, got {other:?}"),
         }

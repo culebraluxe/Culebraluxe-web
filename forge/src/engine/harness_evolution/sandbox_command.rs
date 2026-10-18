@@ -10,15 +10,20 @@
 //!
 //! * **No shell.** The program is an absolute path and the arguments are an `OsString` vector:
 //!   there is no shell string to inject into. Metacharacters in an argument are literal text.
-//! * **Allowlisted program.** Only programs this sandbox was configured with may run; the default
-//!   allowlist is four harmless POSIX binaries. `/bin/sh` is deliberately *not* allowed by default.
+//! * **Argument allowlist, not just a program allowlist.** An invocation is allowed only when its
+//!   *exact* program and argument vector match one configured [`AllowedInvocation`]. Allowing
+//!   `/bin/echo` does not allow `/bin/echo` with arbitrary arguments.
 //! * **No production.** A production (or otherwise non-probe) environment is refused before the
 //!   command is spawned, via the same guard the replay executor uses.
 //! * **Isolated workspace.** Each execution gets a fresh directory under the run root, with
 //!   `env_clear()` and a minimal environment (`HOME`/`TMPDIR` point into that workspace), stdin from
-//!   `/dev/null`, and a hard timeout. Nothing from the parent environment (tokens, URLs) leaks in.
-//! * **Bounded capture.** stdout/stderr are captured to files (no pipe deadlock) and read back
-//!   truncated to a fixed cap; the exit status and duration are recorded.
+//!   `/dev/null`, and a hard timeout.
+//! * **Bounded streaming capture.** stdout/stderr are read on dedicated threads into fixed-size
+//!   buffers while the child runs: memory is capped by the output cap, the child is never blocked by
+//!   a full pipe, and read errors are propagated instead of swallowed.
+//! * **Process-group kill on timeout.** The child leads its own process group; on timeout the
+//!   *group* is killed and the child is reaped, so a command that spawned helpers cannot survive the
+//!   probe and no zombie is left behind.
 //! * **Durable local receipt.** Each execution writes a JSON receipt under the run root and returns
 //!   refs to it. This is a *file* receipt, not a `forge_harness_probe` row: the DB row is written by
 //!   the real executor wiring (out of scope here), so the ref is honest about what exists.
@@ -27,10 +32,10 @@
 //! verdict, steps = 1, and cost stays `None` (unpriced, never zero). A command is not a model, and
 //! the plan/contrast stages treat it as behavioral evidence only.
 
-use std::fs;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::thread;
+use std::process::{Child, Command, Stdio};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::model::{BehaviorEvidence, QaVerdict};
@@ -44,19 +49,8 @@ pub const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
 /// The longest timeout this sandbox will accept. A replay probe must stay bounded.
 pub const MAX_COMMAND_TIMEOUT: Duration = Duration::from_secs(600);
 
-/// How much of stdout/stderr is captured per stream. The rest is discarded with a marker.
+/// How much of stdout/stderr is retained per stream. Everything beyond it is counted and discarded.
 pub const DEFAULT_OUTPUT_CAP_BYTES: usize = 64 * 1024;
-
-/// The default allowlist: harmless POSIX binaries (with the two common install locations for
-/// `echo`, so the defaults work on both macOS and Linux). No shell, no interpreter, no network
-/// tool.
-pub const DEFAULT_ALLOWED_PROGRAMS: [&str; 5] = [
-    "/bin/echo",
-    "/usr/bin/echo",
-    "/usr/bin/false",
-    "/bin/sleep",
-    "/usr/bin/true",
-];
 
 /// Ref prefix for the execution id (the receipt's id for one run).
 pub const EXEC_REF_PREFIX: &str = "sandbox-command:exec:";
@@ -64,6 +58,46 @@ pub const EXEC_REF_PREFIX: &str = "sandbox-command:exec:";
 pub const RECEIPT_REF_PREFIX: &str = "sandbox-command:receipt:";
 /// Ref prefix for the program that ran.
 pub const PROGRAM_REF_PREFIX: &str = "sandbox-command:program:";
+
+/// How much of one capture buffer is read from a pipe at a time.
+const STREAM_CHUNK_BYTES: usize = 8192;
+
+/// One exact invocation the sandbox is allowed to run: an absolute program **and** its complete
+/// argument vector. This is the argument allowlist: matching a program is not enough.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AllowedInvocation {
+    pub program: PathBuf,
+    pub args: Vec<String>,
+}
+
+impl AllowedInvocation {
+    pub fn new(program: impl Into<PathBuf>, args: Vec<String>) -> Self {
+        Self {
+            program: program.into(),
+            args,
+        }
+    }
+
+    /// An allowed program called with no arguments.
+    pub fn exact(program: impl Into<PathBuf>) -> Self {
+        Self::new(program, Vec::new())
+    }
+}
+
+/// The default allowlist: harmless POSIX binaries, each with the exact arguments it may receive.
+///
+/// The defaults are deliberately narrow. A caller that wants a different command must say so with
+/// [`CommandSandbox::with_allowed_invocations`]; production wiring builds its own allowlist around
+/// the real sandbox.
+pub fn default_allowed_invocations() -> Vec<AllowedInvocation> {
+    vec![
+        AllowedInvocation::exact("/usr/bin/true"),
+        AllowedInvocation::exact("/usr/bin/false"),
+        AllowedInvocation::exact("/bin/echo"),
+        AllowedInvocation::exact("/usr/bin/echo"),
+        AllowedInvocation::new("/bin/sleep", vec!["1".to_string()]),
+    ]
+}
 
 /// The command a [`CommandSandbox`] runs to stand in for one model turn.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,7 +131,7 @@ impl SandboxCommand {
         self
     }
 
-    /// Configuration validation: absolute program, sane timeout, non-empty label.
+    /// Configuration validation: absolute program, bounded timeout, non-empty label.
     pub fn validate(&self) -> Result<(), ReplayError> {
         if !self.program.is_absolute() {
             return Err(ReplayError::SandboxRefused {
@@ -143,33 +177,46 @@ pub struct SandboxExecutionReceipt {
     /// Up to [`CommandSandbox::output_cap`] bytes of each stream, with a truncation marker.
     pub stdout_excerpt: String,
     pub stderr_excerpt: String,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
+    /// Total bytes the child wrote, including the part that was not retained.
+    pub stdout_bytes: u64,
+    pub stderr_bytes: u64,
     pub workspace: String,
+}
+
+/// One stream as captured: bounded text, whether it was truncated, and the true total.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StreamCapture {
+    pub text: String,
+    pub truncated: bool,
+    pub total_bytes: u64,
 }
 
 /// The concrete command sandbox.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSandbox {
     command: SandboxCommand,
-    allowed_programs: Vec<PathBuf>,
+    allowed_invocations: Vec<AllowedInvocation>,
     run_root: PathBuf,
     output_cap: usize,
 }
 
 impl CommandSandbox {
-    /// A sandbox for one command, using the default allowlist and the default run root.
+    /// A sandbox for one command, using the default invocation allowlist and run root.
     pub fn new(command: SandboxCommand) -> Self {
         Self {
             command,
-            allowed_programs: DEFAULT_ALLOWED_PROGRAMS.iter().map(PathBuf::from).collect(),
+            allowed_invocations: default_allowed_invocations(),
             run_root: default_run_root(),
             output_cap: DEFAULT_OUTPUT_CAP_BYTES,
         }
     }
 
-    /// Replace the allowlist. Tests use this to allow `/bin/sh`; production wiring should keep it
-    /// as narrow as possible (a real model sandbox replaces this entirely).
-    pub fn with_allowed_programs(mut self, programs: Vec<PathBuf>) -> Self {
-        self.allowed_programs = programs;
+    /// Replace the invocation allowlist. Tests use this to allow a fake command; production wiring
+    /// should keep it as narrow as possible (a real model sandbox replaces this entirely).
+    pub fn with_allowed_invocations(mut self, allowed_invocations: Vec<AllowedInvocation>) -> Self {
+        self.allowed_invocations = allowed_invocations;
         self
     }
 
@@ -193,8 +240,8 @@ impl CommandSandbox {
         &self.run_root
     }
 
-    /// Validate the sandbox configuration without executing anything: absolute allowlisted program,
-    /// bounded timeout, non-empty label, non-zero output cap.
+    /// Validate the configuration without executing anything: absolute program, bounded timeout,
+    /// non-empty label, non-zero output cap, and an **exact** allowlisted invocation.
     pub fn validate(&self) -> Result<(), ReplayError> {
         self.command.validate()?;
         if self.output_cap == 0 {
@@ -203,27 +250,50 @@ impl CommandSandbox {
                 message: "output cap must be non-zero".into(),
             });
         }
-        if !self.is_allowlisted(&self.command.program) {
+        self.authorize_invocation()
+    }
+
+    /// The argument allowlist check. A matching program with a different argv is refused, and the
+    /// refusal names the allowed invocations so a misconfiguration is obvious.
+    fn authorize_invocation(&self) -> Result<(), ReplayError> {
+        let program_allowed = self
+            .allowed_invocations
+            .iter()
+            .any(|allowed| allowed.program == self.command.program);
+        if !program_allowed {
             return Err(ReplayError::SandboxRefused {
                 sandbox: "command".into(),
                 message: format!(
-                    "program {} is not allowlisted (allowed: {})",
+                    "program {} is not allowlisted (allowed programs: {})",
                     self.command.program.display(),
-                    self.allowed_programs
+                    self.allowed_invocations
                         .iter()
-                        .map(|program| program.display().to_string())
+                        .map(|allowed| allowed.program.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            });
+        }
+        let arguments_allowed = self.allowed_invocations.iter().any(|allowed| {
+            allowed.program == self.command.program && allowed.args == self.command.args
+        });
+        if !arguments_allowed {
+            return Err(ReplayError::SandboxRefused {
+                sandbox: "command".into(),
+                message: format!(
+                    "argument vector {:?} is not allowed for program {}; allowed invocations: {}",
+                    self.command.args,
+                    self.command.program.display(),
+                    self.allowed_invocations
+                        .iter()
+                        .filter(|allowed| allowed.program == self.command.program)
+                        .map(|allowed| format!("{}{:?}", allowed.program.display(), allowed.args))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
             });
         }
         Ok(())
-    }
-
-    fn is_allowlisted(&self, program: &Path) -> bool {
-        self.allowed_programs
-            .iter()
-            .any(|allowed| allowed == program)
     }
 
     fn workspace_for(&self, probe_id: &str) -> PathBuf {
@@ -243,25 +313,13 @@ impl ReplaySandbox for CommandSandbox {
         self.validate()?;
 
         let workspace = self.workspace_for(request.probe_id);
-        fs::create_dir_all(&workspace).map_err(|error| ReplayError::SandboxFailed {
+        std::fs::create_dir_all(&workspace).map_err(|error| ReplayError::SandboxFailed {
             probe_id: request.probe_id.to_string(),
             message: format!(
                 "cannot create sandbox workspace {}: {error}",
                 workspace.display()
             ),
         })?;
-        let stdout_path = workspace.join("stdout.log");
-        let stderr_path = workspace.join("stderr.log");
-        let stdout_file =
-            fs::File::create(&stdout_path).map_err(|error| ReplayError::SandboxFailed {
-                probe_id: request.probe_id.to_string(),
-                message: format!("cannot create {}: {error}", stdout_path.display()),
-            })?;
-        let stderr_file =
-            fs::File::create(&stderr_path).map_err(|error| ReplayError::SandboxFailed {
-                probe_id: request.probe_id.to_string(),
-                message: format!("cannot create {}: {error}", stderr_path.display()),
-            })?;
 
         let mut command = Command::new(&self.command.program);
         command
@@ -275,16 +333,32 @@ impl ReplaySandbox for CommandSandbox {
             .env("TMPDIR", &workspace)
             .env("LANG", "C")
             .stdin(Stdio::null())
-            .stdout(Stdio::from(stdout_file))
-            .stderr(Stdio::from(stderr_file));
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        // Own process group so a timeout can kill the whole tree, not just the direct child.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
 
         let started = Instant::now();
-        let mut child = command
-            .spawn()
-            .map_err(|error| ReplayError::SandboxFailed {
-                probe_id: request.probe_id.to_string(),
-                message: format!("cannot spawn {}: {error}", self.command.program.display()),
-            })?;
+        let mut child = command.spawn().map_err(|error| ReplayError::SandboxFailed {
+            probe_id: request.probe_id.to_string(),
+            message: format!("cannot spawn {}: {error}", self.command.program.display()),
+        })?;
+
+        let stdout = child.stdout.take().ok_or_else(|| ReplayError::SandboxFailed {
+            probe_id: request.probe_id.to_string(),
+            message: "stdout pipe missing".into(),
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| ReplayError::SandboxFailed {
+            probe_id: request.probe_id.to_string(),
+            message: "stderr pipe missing".into(),
+        })?;
+        let output_cap = self.output_cap;
+        let stdout_thread = thread::spawn(move || read_stream_bounded(stdout, output_cap));
+        let stderr_thread = thread::spawn(move || read_stream_bounded(stderr, output_cap));
 
         let mut timed_out = false;
         let exit_status = loop {
@@ -292,15 +366,14 @@ impl ReplaySandbox for CommandSandbox {
                 Ok(Some(status)) => break Some(status),
                 Ok(None) => {
                     if started.elapsed() >= self.command.timeout {
-                        let _ = child.kill();
-                        let _ = child.wait();
+                        kill_process_group(&mut child);
                         timed_out = true;
                         break None;
                     }
                     thread::sleep(Duration::from_millis(10));
                 }
                 Err(error) => {
-                    let _ = child.kill();
+                    kill_process_group(&mut child);
                     return Err(ReplayError::SandboxFailed {
                         probe_id: request.probe_id.to_string(),
                         message: format!("cannot wait for command: {error}"),
@@ -309,6 +382,10 @@ impl ReplaySandbox for CommandSandbox {
             }
         };
         let duration = started.elapsed();
+
+        // The pipes close when the child (and its group) exits, so the readers finish here.
+        let stdout_capture = join_capture(stdout_thread, request.probe_id, "stdout")?;
+        let stderr_capture = join_capture(stderr_thread, request.probe_id, "stderr")?;
 
         let execution_id = format!(
             "{EXEC_REF_PREFIX}{}:{}",
@@ -327,8 +404,12 @@ impl ReplaySandbox for CommandSandbox {
             exit_code: exit_status.and_then(|status| status.code()),
             timed_out,
             duration_ms: u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
-            stdout_excerpt: read_capped(&stdout_path, self.output_cap),
-            stderr_excerpt: read_capped(&stderr_path, self.output_cap),
+            stdout_excerpt: stdout_capture.text.clone(),
+            stderr_excerpt: stderr_capture.text.clone(),
+            stdout_truncated: stdout_capture.truncated,
+            stderr_truncated: stderr_capture.truncated,
+            stdout_bytes: stdout_capture.total_bytes,
+            stderr_bytes: stderr_capture.total_bytes,
             workspace: workspace.display().to_string(),
         };
         let receipt_path = write_receipt(&self.run_root, &receipt)?;
@@ -338,7 +419,7 @@ impl ReplaySandbox for CommandSandbox {
             return Err(ReplayError::SandboxFailed {
                 probe_id: request.probe_id.to_string(),
                 message: format!(
-                    "command timed out after {:?}; receipt {}",
+                    "command timed out after {:?} (process group killed); receipt {}",
                     self.command.timeout,
                     receipt_path.display()
                 ),
@@ -394,23 +475,88 @@ fn sanitize_component(value: &str) -> String {
     }
 }
 
-fn read_capped(path: &Path, cap: usize) -> String {
-    let bytes = fs::read(path).unwrap_or_default();
-    if bytes.len() <= cap {
-        return String::from_utf8_lossy(&bytes).to_string();
+/// Read a stream into a buffer capped at `cap` bytes while counting the true total.
+///
+/// Bounded: memory never exceeds `cap` plus one fixed-size read chunk. Streaming: the pipe keeps
+/// being drained after the cap so the child is never blocked by a full pipe. Errors are returned,
+/// never swallowed.
+pub fn read_stream_bounded<R: Read>(mut reader: R, cap: usize) -> io::Result<StreamCapture> {
+    let mut retained: Vec<u8> = Vec::new();
+    let mut total: u64 = 0;
+    let mut buffer = [0u8; STREAM_CHUNK_BYTES];
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        total = total.saturating_add(read as u64);
+        let remaining = cap.saturating_sub(retained.len());
+        if remaining > 0 {
+            let take = remaining.min(read);
+            retained.extend_from_slice(&buffer[..take]);
+        }
     }
-    let boundary = cap.min(bytes.len());
-    format!(
-        "{}\n[truncated at {boundary} bytes]",
-        String::from_utf8_lossy(&bytes[..boundary])
-    )
+    let truncated = total > cap as u64;
+    let mut text = String::from_utf8_lossy(&retained).to_string();
+    if truncated {
+        text.push_str(&format!("\n[truncated at {cap} bytes of {total}]"));
+    }
+    Ok(StreamCapture {
+        text,
+        truncated,
+        total_bytes: total,
+    })
+}
+
+fn join_capture(
+    handle: JoinHandle<io::Result<StreamCapture>>,
+    probe_id: &str,
+    stream: &str,
+) -> Result<StreamCapture, ReplayError> {
+    match handle.join() {
+        Ok(Ok(capture)) => Ok(capture),
+        Ok(Err(error)) => Err(ReplayError::SandboxFailed {
+            probe_id: probe_id.to_string(),
+            message: format!("cannot read {stream}: {error}"),
+        }),
+        Err(_) => Err(ReplayError::SandboxFailed {
+            probe_id: probe_id.to_string(),
+            message: format!("{stream} reader thread panicked"),
+        }),
+    }
+}
+
+/// Kill the child's whole process group, then reap the child.
+#[cfg(unix)]
+fn kill_process_group(child: &mut Child) {
+    use std::os::raw::c_int;
+    extern "C" {
+        fn kill(pid: c_int, sig: c_int) -> c_int;
+    }
+    const SIGKILL: c_int = 9;
+    let pid = child.id() as c_int;
+    if pid > 0 {
+        // A negative pid addresses the process group the child leads (`process_group(0)`), so any
+        // helpers the command spawned are killed with it.
+        unsafe {
+            kill(-pid, SIGKILL);
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[cfg(not(unix))]
+fn kill_process_group(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn write_receipt(
     run_root: &Path,
     receipt: &SandboxExecutionReceipt,
 ) -> Result<PathBuf, ReplayError> {
-    fs::create_dir_all(run_root).map_err(|error| ReplayError::SandboxFailed {
+    std::fs::create_dir_all(run_root).map_err(|error| ReplayError::SandboxFailed {
         probe_id: receipt.probe_id.clone(),
         message: format!(
             "cannot create sandbox run root {}: {error}",
@@ -425,7 +571,7 @@ fn write_receipt(
         probe_id: receipt.probe_id.clone(),
         message: format!("cannot encode sandbox receipt: {error}"),
     })?;
-    fs::write(&path, body).map_err(|error| ReplayError::SandboxFailed {
+    std::fs::write(&path, body).map_err(|error| ReplayError::SandboxFailed {
         probe_id: receipt.probe_id.clone(),
         message: format!("cannot write sandbox receipt {}: {error}", path.display()),
     })?;
@@ -495,8 +641,14 @@ mod tests {
             }
         }
 
-        fn sandbox(&self, command: SandboxCommand) -> CommandSandbox {
-            CommandSandbox::new(command).with_run_root(self.run_root.path())
+        fn sandbox(
+            &self,
+            command: SandboxCommand,
+            allowed: Vec<AllowedInvocation>,
+        ) -> CommandSandbox {
+            CommandSandbox::new(command)
+                .with_run_root(self.run_root.path())
+                .with_allowed_invocations(allowed)
         }
     }
 
@@ -520,17 +672,34 @@ mod tests {
             .iter()
             .find_map(|reference| reference.strip_prefix(RECEIPT_REF_PREFIX))
             .expect("receipt ref");
-        let body = fs::read(reference).expect("receipt file");
+        let body = std::fs::read(reference).expect("receipt file");
         serde_json::from_slice(&body).expect("receipt json")
+    }
+
+    fn receipt_of_error(error: &ReplayError) -> SandboxExecutionReceipt {
+        let message = error.to_string();
+        let path = message
+            .split("receipt ")
+            .nth(1)
+            .expect("timeout error names its receipt")
+            .trim();
+        let body = std::fs::read(path).expect("timeout receipt file");
+        serde_json::from_slice(&body).expect("timeout receipt json")
+    }
+
+    fn echo(argument: &str) -> (SandboxCommand, Vec<AllowedInvocation>) {
+        let args = vec![argument.to_string()];
+        (
+            SandboxCommand::new("/bin/echo", args.clone()),
+            vec![AllowedInvocation::new("/bin/echo", args)],
+        )
     }
 
     #[test]
     fn a_successful_command_returns_a_reading_with_a_durable_receipt_ref() {
         let fixture = Fixture::new();
-        let sandbox = fixture.sandbox(SandboxCommand::new(
-            "/bin/echo",
-            vec!["sandbox-hello".into()],
-        ));
+        let (command, allowed) = echo("sandbox-hello");
+        let sandbox = fixture.sandbox(command, allowed);
         let reading = run(&sandbox, &fixture, "probe-ref").expect("reading");
 
         assert!(reading.behavior.success);
@@ -559,7 +728,10 @@ mod tests {
     #[test]
     fn a_nonzero_exit_is_a_failed_behavior_not_a_sandbox_error() {
         let fixture = Fixture::new();
-        let sandbox = fixture.sandbox(SandboxCommand::new("/usr/bin/false", Vec::new()));
+        let sandbox = fixture.sandbox(
+            SandboxCommand::new("/usr/bin/false", Vec::new()),
+            vec![AllowedInvocation::exact("/usr/bin/false")],
+        );
         let reading = run(&sandbox, &fixture, "probe-ref").expect("reading");
 
         assert!(!reading.behavior.success);
@@ -574,20 +746,77 @@ mod tests {
     fn a_command_that_exceeds_the_timeout_is_a_failed_probe() {
         let fixture = Fixture::new();
         let sandbox = fixture.sandbox(
-            SandboxCommand::new("/bin/sleep", vec!["5".into()])
+            SandboxCommand::new("/bin/sleep", vec!["5".to_string()])
                 .with_timeout(Duration::from_millis(100)),
+            vec![AllowedInvocation::new(
+                "/bin/sleep",
+                vec!["5".to_string()],
+            )],
         );
         let error = run(&sandbox, &fixture, "probe-ref").unwrap_err();
         assert_eq!(error.code(), "replay_sandbox_failed");
         assert!(error.to_string().contains("timed out"));
-        // The receipt for the killed execution still exists and is named in the error.
-        assert!(error.to_string().contains("receipt"));
+        let receipt = receipt_of_error(&error);
+        assert!(receipt.timed_out);
+        assert_eq!(receipt.exit_code, None);
+    }
+
+    #[cfg(unix)]
+    fn process_exists(pid: i32) -> bool {
+        use std::os::raw::c_int;
+        extern "C" {
+            fn kill(pid: c_int, sig: c_int) -> c_int;
+        }
+        unsafe { kill(pid, 0) == 0 }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_timeout_kills_the_whole_process_group_and_reaps_the_child() {
+        let fixture = Fixture::new();
+        // The shell spawns a helper, records its pid, and waits. A timeout must kill both.
+        let args = vec![
+            "-c".to_string(),
+            "sleep 30 & echo $! > grandchild.pid; wait".to_string(),
+        ];
+        let sandbox = fixture.sandbox(
+            SandboxCommand::new("/bin/sh", args.clone()).with_timeout(Duration::from_millis(300)),
+            vec![AllowedInvocation::new("/bin/sh", args)],
+        );
+        let started = std::time::Instant::now();
+        let error = run(&sandbox, &fixture, "probe-group").unwrap_err();
+        // The timeout bounds the wait; killing the group must not add a full timeout of latency.
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(error.to_string().contains("process group killed"));
+
+        let receipt = receipt_of_error(&error);
+        assert!(receipt.timed_out);
+        let workspace = Path::new(&receipt.workspace).to_path_buf();
+        let pid_path = workspace.join("grandchild.pid");
+        // The helper may take a moment to be reaped after SIGKILL.
+        let mut helper_pid = None;
+        for _ in 0..40 {
+            if let Ok(text) = std::fs::read_to_string(&pid_path) {
+                if let Ok(pid) = text.trim().parse::<i32>() {
+                    helper_pid = Some(pid);
+                    if !process_exists(pid) {
+                        return;
+                    }
+                }
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        panic!(
+            "helper process {:?} survived the process-group kill",
+            helper_pid
+        );
     }
 
     #[test]
     fn production_is_refused_before_any_workspace_or_receipt() {
         let fixture = Fixture::new();
-        let sandbox = fixture.sandbox(SandboxCommand::new("/bin/echo", vec!["x".into()]));
+        let (command, allowed) = echo("x");
+        let sandbox = fixture.sandbox(command, allowed);
         let error = sandbox
             .run(&request(
                 "probe-prod",
@@ -598,7 +827,7 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code(), "replay_production_refused");
         assert_eq!(
-            fs::read_dir(fixture.run_root.path())
+            std::fs::read_dir(fixture.run_root.path())
                 .map(|entries| entries.count())
                 .unwrap_or(0),
             0,
@@ -607,25 +836,46 @@ mod tests {
     }
 
     #[test]
-    fn a_program_outside_the_allowlist_is_refused() {
+    fn an_argument_outside_the_program_allowlist_is_refused() {
         let fixture = Fixture::new();
-        let sandbox = fixture.sandbox(SandboxCommand::new("/usr/bin/env", Vec::new()));
+        let sandbox = fixture.sandbox(
+            SandboxCommand::new("/bin/echo", vec!["allowed".to_string()]),
+            vec![AllowedInvocation::new(
+                "/bin/echo",
+                vec!["different".to_string()],
+            )],
+        );
         let error = run(&sandbox, &fixture, "probe-ref").unwrap_err();
         assert_eq!(error.code(), "replay_sandbox_refused");
-        assert!(error.to_string().contains("not allowlisted"));
+        assert!(error.to_string().contains("argument vector"));
         assert_eq!(
-            fs::read_dir(fixture.run_root.path())
+            std::fs::read_dir(fixture.run_root.path())
                 .map(|entries| entries.count())
                 .unwrap_or(0),
             0,
-            "an unallowlisted program is refused before any workspace exists"
+            "argument refusal happens before any workspace exists"
         );
+    }
+
+    #[test]
+    fn a_program_outside_the_allowlist_is_refused() {
+        let fixture = Fixture::new();
+        let sandbox = fixture.sandbox(
+            SandboxCommand::new("/usr/bin/env", Vec::new()),
+            vec![AllowedInvocation::exact("/bin/echo")],
+        );
+        let error = run(&sandbox, &fixture, "probe-ref").unwrap_err();
+        assert_eq!(error.code(), "replay_sandbox_refused");
+        assert!(error.to_string().contains("not allowlisted"));
     }
 
     #[test]
     fn a_relative_program_is_refused_no_path_lookup() {
         let fixture = Fixture::new();
-        let sandbox = fixture.sandbox(SandboxCommand::new("echo", vec!["x".into()]));
+        let sandbox = fixture.sandbox(
+            SandboxCommand::new("echo", Vec::new()),
+            vec![AllowedInvocation::exact("echo")],
+        );
         let error = run(&sandbox, &fixture, "probe-ref").unwrap_err();
         assert_eq!(error.code(), "replay_sandbox_refused");
         assert!(error.to_string().contains("absolute"));
@@ -640,7 +890,10 @@ mod tests {
             "`touch pwned2`".to_string(),
             "&& echo injected".to_string(),
         ];
-        let sandbox = fixture.sandbox(SandboxCommand::new("/bin/echo", metacharacters.clone()));
+        let sandbox = fixture.sandbox(
+            SandboxCommand::new("/bin/echo", metacharacters.clone()),
+            vec![AllowedInvocation::new("/bin/echo", metacharacters.clone())],
+        );
         let reading = run(&sandbox, &fixture, "probe-shell").expect("reading");
         let receipt = receipt_for(&reading);
         // Each argument is echoed literally: no shell parsed it.
@@ -651,8 +904,6 @@ mod tests {
             );
         }
         assert_eq!(receipt.args, metacharacters);
-        // Nothing was injected into the workspace.
-        assert!(!receipt.workspace.is_empty());
         let workspace = Path::new(&receipt.workspace);
         assert!(!workspace.join("pwned").exists());
         assert!(!workspace.join("pwned2").exists());
@@ -661,12 +912,11 @@ mod tests {
     #[test]
     fn the_child_environment_is_cleared_and_home_points_into_the_workspace() {
         let fixture = Fixture::new();
-        let sandbox = fixture
-            .sandbox(SandboxCommand::new(
-                "/bin/sh",
-                vec!["-c".into(), "printf %s \"$HOME\"".into()],
-            ))
-            .with_allowed_programs(vec![PathBuf::from("/bin/sh")]);
+        let args = vec!["-c".to_string(), "printf %s \"$HOME\"".to_string()];
+        let sandbox = fixture.sandbox(
+            SandboxCommand::new("/bin/sh", args.clone()),
+            vec![AllowedInvocation::new("/bin/sh", args)],
+        );
         let reading = run(&sandbox, &fixture, "probe-env").expect("reading");
         let receipt = receipt_for(&reading);
         assert_eq!(
@@ -681,57 +931,88 @@ mod tests {
     }
 
     #[test]
-    fn captured_output_is_bounded() {
+    fn captured_output_is_streamed_and_bounded_with_an_honest_marker() {
         let fixture = Fixture::new();
-        let sandbox = fixture
-            .sandbox(SandboxCommand::new(
-                "/bin/echo",
-                vec!["0123456789abcdef".into()],
-            ))
-            .with_output_cap(8);
+        let long = "0123456789abcdef";
+        let (command, allowed) = echo(long);
+        let sandbox = fixture.sandbox(command, allowed).with_output_cap(8);
         let reading = run(&sandbox, &fixture, "probe-cap").expect("reading");
         let receipt = receipt_for(&reading);
-        assert!(receipt.stdout_excerpt.contains("[truncated at 8 bytes]"));
-        assert!(!receipt.stdout_excerpt.contains("0123456789abcdef"));
+        assert!(receipt.stdout_truncated);
+        assert!(
+            receipt
+                .stdout_excerpt
+                .contains("[truncated at 8 bytes of "),
+            "marker must state cap and true total, got {:?}",
+            receipt.stdout_excerpt
+        );
+        assert!(!receipt.stdout_excerpt.contains(long));
+        assert!(receipt.stdout_bytes > 8);
+    }
+
+    #[test]
+    fn the_bounded_reader_propagates_read_errors_instead_of_swallowing_them() {
+        struct FailingReader;
+        impl Read for FailingReader {
+            fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::other("simulated read failure"))
+            }
+        }
+        let error = read_stream_bounded(FailingReader, 16).expect_err("read error must surface");
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert!(error.to_string().contains("simulated read failure"));
+    }
+
+    #[test]
+    fn the_bounded_reader_keeps_draining_after_the_cap() {
+        // A reader over more data than the cap still consumes everything and reports the total,
+        // so a child writing past the cap is never blocked by a full pipe.
+        let payload = vec![b'x'; 100_000];
+        let capture = read_stream_bounded(io::Cursor::new(payload), 16).expect("capture");
+        assert!(capture.truncated);
+        assert_eq!(capture.total_bytes, 100_000);
+        assert_eq!(capture.text.lines().next().unwrap().len(), 16);
     }
 
     #[test]
     fn a_timeout_outside_the_bounds_is_refused_at_configuration_time() {
         let fixture = Fixture::new();
+        let (command, allowed) = echo("x");
         let too_long = fixture.sandbox(
-            SandboxCommand::new("/bin/echo", vec!["x".into()])
+            command
+                .clone()
                 .with_timeout(MAX_COMMAND_TIMEOUT + Duration::from_secs(1)),
+            allowed.clone(),
         );
         assert_eq!(
             too_long.validate().unwrap_err().code(),
             "replay_sandbox_refused"
         );
-        let zero = fixture.sandbox(
-            SandboxCommand::new("/bin/echo", vec!["x".into()]).with_timeout(Duration::ZERO),
-        );
-        assert_eq!(
-            zero.validate().unwrap_err().code(),
-            "replay_sandbox_refused"
-        );
+        let zero = fixture.sandbox(command.with_timeout(Duration::ZERO), allowed);
+        assert_eq!(zero.validate().unwrap_err().code(), "replay_sandbox_refused");
+        let (command, allowed) = echo("x");
+        let no_cap = fixture.sandbox(command, allowed).with_output_cap(0);
+        assert_eq!(no_cap.validate().unwrap_err().code(), "replay_sandbox_refused");
     }
 
     #[test]
     fn two_executions_get_distinct_durable_refs() {
         let fixture = Fixture::new();
-        let sandbox = fixture.sandbox(SandboxCommand::new("/bin/echo", vec!["x".into()]));
+        let (command, allowed) = echo("x");
+        let sandbox = fixture.sandbox(command, allowed);
         let first = run(&sandbox, &fixture, "probe-ref").expect("first");
         let second = run(&sandbox, &fixture, "probe-ref").expect("second");
         assert_ne!(first.behavior.evidence_id, second.behavior.evidence_id);
-        assert_ne!(
-            receipt_for(&first).workspace,
-            receipt_for(&second).workspace
-        );
+        assert_ne!(receipt_for(&first).workspace, receipt_for(&second).workspace);
     }
 
     #[test]
     fn the_receipt_round_trips_through_json() {
         let fixture = Fixture::new();
-        let sandbox = fixture.sandbox(SandboxCommand::new("/usr/bin/true", Vec::new()));
+        let sandbox = fixture.sandbox(
+            SandboxCommand::new("/usr/bin/true", Vec::new()),
+            vec![AllowedInvocation::exact("/usr/bin/true")],
+        );
         let reading = run(&sandbox, &fixture, "probe-roundtrip").expect("reading");
         let receipt = receipt_for(&reading);
         let encoded = serde_json::to_string(&receipt).expect("serialize");

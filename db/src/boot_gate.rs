@@ -60,6 +60,10 @@ pub const REQUIRED_BOOT_MIGRATIONS: &[&str] = &[
     // active-pointer table. Code that proposes/adopts a harness revision writes these tables, so a
     // host without them must refuse to boot rather than fail on the first experiment.
     "294_forge_harness_evolution.sql",
+    // 295 (2026-10-18): the correction ledger the Phase 3 learning loop writes and reads back
+    // (corrections, repeat detection, experiment-outcome corrections). Applied to DEV 2026-10-18
+    // 17:40Z and PROD by the Lead; code that reports learning corrections needs these rows.
+    "295_forge_correction_ledger.sql",
 ];
 
 /// The required migrations that hold no ledger row for this database's declared target, in list order.

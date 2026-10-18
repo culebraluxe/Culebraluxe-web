@@ -141,7 +141,7 @@ pub use forge_engine::{
 };
 pub use forge_corrections::{
     correction_key, ForgeCorrectionRepeatRow, ForgeCorrectionRow, ForgeCorrectionsDao,
-    ForgeLearnFindingRow, NewForgeCorrection, CORRECTION_KEY_DOMAIN,
+    ForgeLearnFindingRow, NewForgeCorrection,
 };
 pub use forge_harness::{
     ActivationRequest, ForgeHarnessActivationRow, ForgeHarnessCandidateRow,

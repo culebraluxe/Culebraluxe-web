@@ -3,10 +3,10 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-18 15:37:49Z
-- commit: `1e4593fee` (working tree dirty) on `HEAD`
+- generated: 2026-10-18 18:17:29Z
+- commit: `3e5dfa544` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest FORGE-B3`
-- rows: 105 — packet, cited paths and story commits first, lexical matches after
+- rows: 106 — packet, cited paths and story commits first, lexical matches after
 
 Read top-down. A row is a file to open, and the why column says why it is here.
 
@@ -14,6 +14,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/ORIENTATION.md` — handbook · always-read handbook · last touched 2026-10-15
 - `docs/agent/MEMORY.md` — handbook · always-read handbook · last touched 2026-10-16
 - `docs/agent/CURRENT.md` — handbook · always-read handbook · last touched untracked
+- `docs/agent/ACTIVE-NOTECARD.md` — index · top-level harness page · last touched untracked
 - `docs/agent/AGENT-OS-PHASE-1.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/AGENT-OS-PHASE-2.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/AGENT_WORKER_SCHEDULER.md` — index · top-level harness page · last touched 2026-10-12

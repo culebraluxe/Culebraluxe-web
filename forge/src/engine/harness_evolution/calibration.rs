@@ -1,4 +1,8 @@
-//! Council calibration (Phase 3 TD 3.15): how well do Council/owner verdicts predict outcomes?
+//! Decision calibration (Phase 3 TD 3.15): how well do Council/owner/Forge verdicts predict outcomes?
+//!
+//! This report is **blended across verdict classes**: the headline Brier score averages every
+//! scorable sample, so it is a decision-quality number, not a Council-only score. Per-verdict
+//! buckets are reported beside it for anyone who needs "how calibrated was Council specifically".
 //!
 //! The durable decision rows say what was decided; a later outcome says whether it was right. This
 //! module is the pure scoring half: verdict + a **stated probability** + an **observed outcome** in,
@@ -12,8 +16,10 @@
 //! * **A missing outcome is not a loss.** A sample with no observed outcome is counted in
 //!   `missing_outcomes` and excluded from the score. If nothing can be scored, the score is `None`
 //!   — never `0.0`, which would read as perfect calibration.
-//! * **Per-verdict buckets** so "Council was right" and "owner was right" are not blended: a
-//!   `Council` verdict and a `Reject` verdict answered different questions.
+//! * **Per-verdict buckets** so "Council was right" and "owner was right" can be read separately:
+//!   the blended headline intentionally averages them, the buckets do not.
+//! * **Provenance is carried**: a sample records who declared the verdict and where the stated
+//!   probability came from, so an unlabelled number cannot masquerade as a Council estimate.
 //!
 //! Brier score definition: mean of `(p - o)^2` over scored samples, where `p` is the probability
 //! the verdict was the right call and `o ∈ {0,1}` is whether it proved right. Lower is better; the
@@ -31,6 +37,12 @@ pub struct CalibrationSample {
     /// `Some(true)` = the verdict proved right; `Some(false)` = it proved wrong; `None` = outcome
     /// not observed yet.
     pub outcome: Option<bool>,
+    /// Who declared the verdict/probability (`"policy"`, `"council"`, `"chris"`, ...). `None` = not
+    /// recorded; the report does not guess an owner.
+    pub declared_by: Option<String>,
+    /// Where the stated probability came from (`"decision_row"`, `"council_note"`, ...). `None` =
+    /// provenance not recorded; the sample is still scorable but the source is visibly unknown.
+    pub probability_source: Option<String>,
     pub evidence_refs: Vec<String>,
 }
 
@@ -41,8 +53,20 @@ impl CalibrationSample {
             verdict,
             stated_probability: None,
             outcome: None,
+            declared_by: None,
+            probability_source: None,
             evidence_refs: Vec::new(),
         }
+    }
+
+    pub fn with_declared_by(mut self, declared_by: impl Into<String>) -> Self {
+        self.declared_by = Some(declared_by.into());
+        self
+    }
+
+    pub fn with_probability_source(mut self, probability_source: impl Into<String>) -> Self {
+        self.probability_source = Some(probability_source.into());
+        self
     }
 
     pub fn with_probability(mut self, probability: f64) -> Self {
@@ -94,7 +118,12 @@ pub struct CalibrationBucket {
     pub samples: usize,
     pub scored: usize,
     pub missing_outcomes: usize,
+    /// Missing only a probability (the outcome was observed). Excludes `missing_both`, so each
+    /// sample is counted once across `scored + missing_outcomes + missing_probabilities`.
     pub missing_probabilities: usize,
+    /// Missing BOTH an outcome and a probability. Diagnostic only: it is already inside
+    /// `missing_outcomes` and is NOT added to `missing_probabilities` (no double-counting).
+    pub missing_both: usize,
     /// `None` when no sample in this bucket had both a probability and an outcome.
     pub brier: Option<f64>,
 }
@@ -104,9 +133,16 @@ pub struct CalibrationBucket {
 pub struct CalibrationReport {
     pub samples: usize,
     pub scored: usize,
+    /// Samples with no observed outcome (including the `missing_both` subset).
     pub missing_outcomes: usize,
+    /// Samples with an observed outcome but no stated probability (missing only a probability).
+    /// Excludes `missing_both`; `scored + missing_outcomes + missing_probabilities == samples`.
     pub missing_probabilities: usize,
-    /// `None` when nothing was scorable.
+    /// Samples missing both an outcome and a probability. Subset of `missing_outcomes`, never
+    /// counted again in `missing_probabilities`.
+    pub missing_both: usize,
+    /// **Blended** Brier score across every scorable sample (all verdict classes). `None` when
+    /// nothing was scorable.
     pub brier: Option<f64>,
     /// One bucket per verdict that has at least one sample, in `AdoptionVerdict::ALL` order.
     pub buckets: Vec<CalibrationBucket>,
@@ -176,7 +212,15 @@ pub fn calibration_report(
                 .count(),
             missing_probabilities: in_bucket
                 .iter()
-                .filter(|sample| sample.stated_probability.is_none())
+                .filter(|sample| {
+                    sample.stated_probability.is_none() && sample.outcome.is_some()
+                })
+                .count(),
+            missing_both: in_bucket
+                .iter()
+                .filter(|sample| {
+                    sample.stated_probability.is_none() && sample.outcome.is_none()
+                })
                 .count(),
             brier: brier_over(&in_bucket),
         });
@@ -194,7 +238,11 @@ pub fn calibration_report(
             .count(),
         missing_probabilities: samples
             .iter()
-            .filter(|sample| sample.stated_probability.is_none())
+            .filter(|sample| sample.stated_probability.is_none() && sample.outcome.is_some())
+            .count(),
+        missing_both: samples
+            .iter()
+            .filter(|sample| sample.stated_probability.is_none() && sample.outcome.is_none())
             .count(),
         brier: brier_over(&refs),
         buckets,
@@ -202,14 +250,22 @@ pub fn calibration_report(
 }
 
 impl CalibrationReport {
+    /// The report's honest label: a blended decision score, not a Council-only number.
+    pub const LABEL: &'static str = "decision calibration (blended across verdicts)";
+
     /// Human line for the operator surface. A missing score prints NOT SCORED, never `0.0`.
     pub fn summary_line(&self) -> String {
         let brier = self
             .brier
             .map_or("NOT SCORED".to_string(), |brier| format!("{brier:.4}"));
         format!(
-            "council calibration: brier={brier} scored={} samples={} missing_outcomes={} missing_probabilities={}",
-            self.scored, self.samples, self.missing_outcomes, self.missing_probabilities
+            "{}: brier={brier} scored={} samples={} missing_outcomes={} missing_probabilities={} missing_both={}",
+            Self::LABEL,
+            self.scored,
+            self.samples,
+            self.missing_outcomes,
+            self.missing_probabilities,
+            self.missing_both
         )
     }
 }
@@ -261,6 +317,8 @@ mod tests {
             "only the observed outcome is scored: {:?}",
             report.brier
         );
+        assert_eq!(report.missing_probabilities, 0, "the outcome-only miss is not a probability miss");
+        assert_eq!(report.missing_both, 0);
         let bucket = &report.buckets[0];
         assert_eq!(bucket.verdict, AdoptionVerdict::Council);
         assert_eq!(bucket.missing_outcomes, 1);
@@ -292,6 +350,16 @@ mod tests {
         assert_eq!(report.brier, None);
         assert_eq!(report.scored, 0);
         assert_eq!(report.buckets.len(), 2);
+        // A row missing BOTH is counted once in missing_outcomes and once (diagnostically) in
+        // missing_both — never a second time in missing_probabilities.
+        assert_eq!(report.missing_outcomes, 2);
+        assert_eq!(report.missing_probabilities, 0);
+        assert_eq!(report.missing_both, 1);
+        assert_eq!(
+            report.scored + report.missing_outcomes + report.missing_probabilities,
+            report.samples,
+            "every sample is counted exactly once across scored/missing_outcomes/missing_probabilities"
+        );
         assert!(report.buckets.iter().all(|bucket| bucket.brier.is_none()));
         assert!(report.summary_line().contains("NOT SCORED"));
         assert_eq!(brier_score(&samples).unwrap(), None);
@@ -339,5 +407,71 @@ mod tests {
         let report = calibration_report(&[scored("d1", AdoptionVerdict::Council, 0.5, true)]).unwrap();
         assert_eq!(report.buckets.len(), 1);
         assert_eq!(report.buckets[0].verdict, AdoptionVerdict::Council);
+    }
+
+    #[test]
+    fn the_report_is_labelled_blended_not_council_only() {
+        let report = calibration_report(&[scored("d1", AdoptionVerdict::Council, 0.8, true)]).unwrap();
+        assert_eq!(
+            CalibrationReport::LABEL,
+            "decision calibration (blended across verdicts)"
+        );
+        let line = report.summary_line();
+        assert!(line.starts_with(CalibrationReport::LABEL), "{line}");
+        assert!(!line.to_ascii_lowercase().contains("council calibration"), "{line}");
+        assert_eq!(
+            report.buckets.len(),
+            1,
+            "the Council bucket is still available separately: {:?}",
+            report.buckets
+        );
+    }
+
+    #[test]
+    fn provenance_is_carried_on_the_sample_and_never_guessed() {
+        let sample = CalibrationSample::new("d1", AdoptionVerdict::Council)
+            .with_probability(0.75)
+            .with_probability_source("council_note")
+            .with_declared_by("council")
+            .with_outcome(true);
+        assert_eq!(sample.declared_by.as_deref(), Some("council"));
+        assert_eq!(sample.probability_source.as_deref(), Some("council_note"));
+        let bare = CalibrationSample::new("d2", AdoptionVerdict::Adopt)
+            .with_probability(0.5)
+            .with_outcome(true);
+        assert_eq!(bare.declared_by, None, "no owner is invented");
+        assert_eq!(bare.probability_source, None, "no source is invented");
+        // Provenance is metadata: it does not change the score.
+        assert!((brier_score(std::slice::from_ref(&sample)).unwrap().unwrap() - 0.0625).abs() < 1e-12);
+        assert!((brier_score(&[bare]).unwrap().unwrap() - 0.25).abs() < 1e-12);
+    }
+
+    #[test]
+    fn every_sample_is_counted_once_across_the_missing_buckets() {
+        let samples = vec![
+            scored("scored", AdoptionVerdict::Adopt, 0.9, true),
+            CalibrationSample::new("outcome-only-missing", AdoptionVerdict::Reject)
+                .with_probability(0.4),
+            CalibrationSample::new("probability-only-missing", AdoptionVerdict::Council)
+                .with_outcome(false),
+            CalibrationSample::new("both-missing", AdoptionVerdict::Chris),
+        ];
+        let report = calibration_report(&samples).unwrap();
+        assert_eq!(report.samples, 4);
+        assert_eq!(report.scored, 1);
+        assert_eq!(report.missing_outcomes, 2, "outcome-missing + both-missing");
+        assert_eq!(report.missing_probabilities, 1, "probability-only-missing");
+        assert_eq!(report.missing_both, 1);
+        assert_eq!(
+            report.scored + report.missing_outcomes + report.missing_probabilities,
+            report.samples
+        );
+        for bucket in &report.buckets {
+            assert_eq!(
+                bucket.scored + bucket.missing_outcomes + bucket.missing_probabilities,
+                bucket.samples,
+                "bucket {bucket:?} double-counts a sample"
+            );
+        }
     }
 }

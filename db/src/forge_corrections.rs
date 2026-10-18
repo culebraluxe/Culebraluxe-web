@@ -30,12 +30,10 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::FromRow;
 
-/// Domain separation for correction keys. Bumping this makes every stored key a different repeat
-/// group on purpose, so a silent normalization change cannot merge two unrelated corrections.
-pub const CORRECTION_KEY_DOMAIN: &str = "forge.correction_ledger.v1";
-
-/// The durable identity of a correction text: trim, collapse internal whitespace, lower-case, then
-/// SHA-256. Pure, so repeat detection is testable without a database.
+/// The durable identity of a correction text: **plain SHA-256 of the normalized UTF-8 text**
+/// (trim, internal whitespace collapsed to one space, lower-cased), hex encoded. No salt, no
+/// domain prefix, no length prefix — exactly what migration 295's column comment promises, so a
+/// reader can recompute a stored key from the text with any SHA-256 tool.
 ///
 /// Normalization deliberately does NOT strip punctuation or words: two different corrections that
 /// happen to mention the same file are still different corrections. The key answers "was this same
@@ -46,11 +44,7 @@ pub fn correction_key(correction: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase();
-    let mut out = Vec::new();
-    out.extend_from_slice(CORRECTION_KEY_DOMAIN.as_bytes());
-    out.extend_from_slice(&(normalized.len() as u64).to_le_bytes());
-    out.extend_from_slice(normalized.as_bytes());
-    let digest = Sha256::digest(&out);
+    let digest = Sha256::digest(normalized.as_bytes());
     use std::fmt::Write as _;
     let mut hex = String::with_capacity(digest.len() * 2);
     for byte in digest {
@@ -116,6 +110,9 @@ pub struct ForgeCorrectionRepeatRow {
     pub correction: String,
     pub occurrences: i64,
     pub latest_at: DateTime<Utc>,
+    /// Union of the durable evidence ids carried by every row in the group, deduplicated. This is
+    /// what lets the feed build an evidence-linked `RepeatedCorrection` target from real rows.
+    pub evidence_refs: Value,
 }
 
 /// One learn-loop observation ("hypothesis"), read from `forge_learn_finding` (migration 284).
@@ -154,13 +151,16 @@ impl ForgeCorrectionsDao {
         new: &NewForgeCorrection<'_>,
     ) -> DbResult<ForgeCorrectionRow> {
         let lane = new.lane.trim();
-        let correction = new.correction.trim();
-        if lane.is_empty() || correction.is_empty() {
+        if lane.is_empty() || new.correction.trim().is_empty() {
             return Err(DbFailure::schema_mismatch(
                 "forge_corrections.insert",
                 "a correction row needs a non-empty lane and correction text",
             ));
         }
+        // The text is stored VERBATIM (only validated through its trimmed view); the key is
+        // computed from the normalized view. Storing the trimmed text would quietly rewrite the
+        // instruction a lane was given.
+        let correction = new.correction;
         let key = correction_key(correction);
         sqlx::query_as::<_, ForgeCorrectionRow>(
             "insert into forge_correction_ledger
@@ -234,12 +234,18 @@ impl ForgeCorrectionsDao {
             "select lane,
                     correction_key,
                     (array_agg(correction order by created_at desc, id desc))[1] as correction,
-                    count(*)::bigint as occurrences,
-                    max(created_at) as latest_at
-             from forge_correction_ledger
+                    count(distinct id)::bigint as occurrences,
+                    max(created_at) as latest_at,
+                    coalesce(
+                        jsonb_agg(distinct evidence_ref)
+                            filter (where evidence_ref is not null),
+                        '[]'::jsonb
+                    ) as evidence_refs
+             from forge_correction_ledger row
+             left join lateral jsonb_array_elements_text(row.evidence_refs) as evidence_ref on true
              group by lane, correction_key
-             having count(*) >= $1
-             order by count(*) desc, max(created_at) desc, lane, correction_key
+             having count(distinct id) >= $1
+             order by count(distinct id) desc, max(created_at) desc, lane, correction_key
              limit $2",
         )
         .bind(min_occurrences.max(1))
@@ -285,6 +291,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_correction_key_is_plain_sha256_of_the_normalized_text() {
+        // The contract migration 295 documents: any SHA-256 tool must reproduce the key from the
+        // trimmed / whitespace-collapsed / lower-cased UTF-8 text.
+        let digest = Sha256::digest(b"name the migration");
+        let expected: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+        assert_eq!(correction_key("  Name\tthe   migration "), expected);
+    }
+
+    #[test]
     fn the_correction_key_is_normalized_deterministic_and_content_sensitive() {
         let one = correction_key("  Use the   typed DAO,\nnot raw SQL.  ");
         let same = correction_key("use the typed dao, not raw sql.");
@@ -311,6 +326,101 @@ mod tests {
         // An empty correction still has a stable key; the DAO refuses to store it, the key function
         // does not panic on it (pure input handling).
         assert_eq!(correction_key(""), correction_key("   \n\t "));
+    }
+
+    /// DEV smoke test for the repeat grouping and evidence aggregation (migration 295 applied).
+    /// Ignored by default; run with DATABASE_URL_DEV present:
+    ///
+    /// ```sh
+    /// set -a; . /Users/Shared/dev/.env.local; set +a
+    /// cargo test -p db --lib forge_corrections -- --ignored
+    /// ```
+    #[test]
+    #[ignore = "needs DATABASE_URL_DEV; keeps the unit suite database-free"]
+    fn dev_smoke_repeat_grouping_exposes_evidence_and_cleans_up() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let database = runtime
+            .block_on(Database::connect_target(crate::DbTarget::Dev))
+            .expect("connect DEV");
+        let dao = ForgeCorrectionsDao::new(database.clone());
+        let lane = format!("smoke-corrections-{}", uuid::Uuid::new_v4());
+
+        let outcome: Result<(), String> = (|| {
+            for (index, evidence) in [
+                serde_json::json!(["storyboard_story_run:smoke-1"]),
+                serde_json::json!(["forge_hold_record:smoke-2"]),
+                serde_json::json!(["forge_hold_record:smoke-2", "storyboard_story_run:smoke-1"]),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                runtime
+                    .block_on(dao.insert_correction(&NewForgeCorrection {
+                        lane: &lane,
+                        correction: if index == 2 {
+                            "  Name the   migration.  "
+                        } else {
+                            "name the migration."
+                        },
+                        context: Some("smoke"),
+                        root_cause: None,
+                        spec_location: None,
+                        permanent_rule_created: false,
+                        evidence_refs: evidence,
+                        experiment_id: None,
+                    }))
+                    .map_err(|error| format!("insert correction {index}: {error}"))?;
+            }
+            let repeats = runtime
+                .block_on(dao.repeated_corrections(2, 10))
+                .map_err(|error| format!("repeat query: {error}"))?;
+            let group = repeats
+                .iter()
+                .find(|row| row.lane == lane)
+                .ok_or_else(|| "repeat group for the smoke lane is missing".to_string())?;
+            if group.occurrences != 3 {
+                return Err(format!("expected 3 occurrences, got {}", group.occurrences));
+            }
+            let refs: Vec<String> = group
+                .evidence_refs
+                .as_array()
+                .map(|array| {
+                    array
+                        .iter()
+                        .filter_map(|value| value.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            for expected in [
+                "storyboard_story_run:smoke-1",
+                "forge_hold_record:smoke-2",
+            ] {
+                if !refs.contains(&expected.to_string()) {
+                    return Err(format!("evidence union is missing {expected}: {refs:?}"));
+                }
+            }
+            if refs.len() != 2 {
+                return Err(format!("evidence union should deduplicate: {refs:?}"));
+            }
+            // The representative text is verbatim (not trimmed) and the key ignores spacing/case.
+            if !group.correction.contains("Name the   migration") {
+                return Err(format!(
+                    "representative correction was rewritten: {:?}",
+                    group.correction
+                ));
+            }
+            Ok(())
+        })();
+
+        // Cleanup always runs, even when an assertion failed above.
+        let cleanup = runtime.block_on(async {
+            sqlx::query("delete from forge_correction_ledger where lane=$1")
+                .bind(&lane)
+                .execute(database.pool())
+                .await
+        });
+        assert!(cleanup.is_ok(), "smoke cleanup must remove its rows");
+        outcome.expect("correction repeat-group smoke");
     }
 
     #[test]
