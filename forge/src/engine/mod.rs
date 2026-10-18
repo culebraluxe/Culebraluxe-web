@@ -1,4 +1,5 @@
 pub mod action_profiles;
+pub mod advisory_profiles;
 pub mod agent_work;
 pub mod alerts;
 pub mod architect;

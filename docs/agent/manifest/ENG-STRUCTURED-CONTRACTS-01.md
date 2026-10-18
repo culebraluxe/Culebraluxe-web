@@ -3,16 +3,16 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-11 07:23:39Z
-- commit: `f1234d68a` (working tree dirty) on `main`
+- generated: 2026-10-18 07:14:17Z
+- commit: `61b241ad9` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest ENG-STRUCTURED-CONTRACTS-01`
 - rows: 18 — packet, cited paths and story commits first, lexical matches after
 
 Read top-down. A row is a file to open, and the why column says why it is here.
 
-- `AGENTS.md` — handbook · always-read handbook · last touched 2026-10-11
-- `docs/agent/ORIENTATION.md` — handbook · always-read handbook · last touched 2026-10-10
-- `docs/agent/MEMORY.md` — handbook · always-read handbook · last touched 2026-10-10
+- `AGENTS.md` — handbook · always-read handbook · last touched 2026-10-15
+- `docs/agent/ORIENTATION.md` — handbook · always-read handbook · last touched 2026-10-15
+- `docs/agent/MEMORY.md` — handbook · always-read handbook · last touched 2026-10-16
 - `docs/agent/CURRENT.md` — handbook · always-read handbook · last touched untracked
 - `docs/agent/packets/ENG-STRUCTURED-CONTRACTS-01.md` — packet · the packet for ENG-STRUCTURED-CONTRACTS-01 · last touched untracked
 - `scripts/forge-doctor.ts` **MISSING** — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched untracked
@@ -20,11 +20,11 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `legacy/workflow_app/forge/agents/architect-handoff.ts` **MISSING** — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched untracked
 - `lib/forge-kind.ts` **MISSING** — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched untracked
 - `lib/field-mediator.ts` **MISSING** — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched untracked
-- `docs/agent/OLD-ENGINE-CONTRACT-RESTORATION.md` — lexical · term match: absent, acceptance, agent, agents · last touched 2026-10-10
-- `docs/agent/RUNLOG.md` — lexical · term match: absent, acceptance, accepted, additive · last touched 2026-10-10
+- `docs/agent/OLD-ENGINE-CONTRACT-RESTORATION.md` — lexical · term match: absent, acceptance, agent, agents · last touched 2026-10-12
+- `docs/agent/RUNLOG.md` — lexical · term match: absent, acceptance, accepted, additive · last touched 2026-10-12
 - `docs/agent/HANDOFF-forge-pool-io-2026-09-29.md` — lexical · term match: absent, accepted, agent, agent-worker · last touched untracked
-- `docs/agent/ARCH-HANDOFF.md` — lexical · term match: absent, acceptance, agent, agent-worker · last touched 2026-10-11
+- `docs/agent/ARCH-HANDOFF.md` — lexical · term match: absent, acceptance, agent, agent-worker · last touched 2026-10-12
 - `docs/agent/WORKFLOW-ARCHITECTURE.md` — lexical · term match: acceptance, accepted, agent, agents · last touched untracked
 - `docs/agent/mailbox/GROK-2026-09-16-mediator.md` — lexical · term match: 2026-09-16, accept, accepted, agents · last touched untracked
-- `docs/agent/HANDOFF-MERGE-QUEUE-2026-10-08.md` — lexical · term match: absent, additive, agent, agents · last touched 2026-10-10
+- `docs/agent/HANDOFF-MERGE-QUEUE-2026-10-08.md` — lexical · term match: absent, additive, agent, agents · last touched 2026-10-12
 - `docs/agent/proposals/LEDGER.md` — lexical · term match: absent, agent, agents, already · last touched untracked
