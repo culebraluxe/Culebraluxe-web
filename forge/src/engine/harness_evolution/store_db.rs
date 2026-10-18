@@ -236,6 +236,9 @@ pub struct ReplayPersistencePlan {
     pub candidate: db::NewForgeHarnessCandidate,
     pub probes: Vec<db::NewForgeHarnessProbe>,
     pub contrast: db::NewForgeHarnessContrast,
+    /// True when either probe execution failed. The evidence is still persisted, but the
+    /// experiment is recorded `failed`, never as a normal `compared` result.
+    pub probe_failed: bool,
 }
 
 impl ReplayPersistencePlan {
@@ -274,7 +277,12 @@ pub fn plan_replay_persistence(
         max_steps: i32::try_from(meta.budget.max_steps).unwrap_or(i32::MAX),
         max_probes: i32::try_from(meta.budget.max_probes).unwrap_or(i32::MAX),
         seed: i64::try_from(meta.seed).unwrap_or(i64::MAX),
-        state: "compared".to_string(),
+        // A failed probe pair is evidence for review, not a comparison: mark the experiment failed.
+        state: if outcome.probe_failed() {
+            "failed".to_string()
+        } else {
+            "compared".to_string()
+        },
         successor_revision_id: None,
         validation: None,
     };
@@ -328,6 +336,7 @@ pub fn plan_replay_persistence(
         candidate,
         probes,
         contrast,
+        probe_failed: outcome.probe_failed(),
     })
 }
 
@@ -704,6 +713,30 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_probe_pair_is_a_failed_experiment_not_a_comparison() {
+        let mut outcome = replay_outcome();
+        outcome.reference.behavior.success = false;
+        outcome.candidate_reading.behavior.success = false;
+        let meta = super::ReplayPersistenceMeta {
+            experiment_id: "exp-failed-probe-1",
+            domain: HarnessDomain::RustBackend,
+            candidate_kind: crate::engine::harness_evolution::model::ProposalKind::Invariant,
+            mode: crate::engine::harness_evolution::model::EvolutionMode::Parallel,
+            budget: crate::engine::harness_evolution::model::EvolutionBudget::k1(),
+            seed: 0,
+        };
+        let plan = super::plan_replay_persistence(&meta, &outcome).expect("plan");
+        assert!(plan.probe_failed);
+        assert_eq!(
+            plan.experiment.state, "failed",
+            "failed probe turns must not be recorded as a normal compared experiment"
+        );
+        // The evidence rows are still built and persistable for review.
+        assert_eq!(plan.probes.len(), 2);
+        assert_eq!(plan.candidate.experiment_id, "exp-failed-probe-1");
+    }
+
+    #[test]
     fn model_turn_readings_persist_tokens_and_unmeasured_cost_as_option() {
         use crate::engine::harness_evolution::model::{BehaviorEvidence, ProbeSpec, QaVerdict};
         use crate::engine::harness_evolution::model_turn_sandbox::USAGE_UNMEASURED_REF;
@@ -817,6 +850,91 @@ mod tests {
         assert_eq!(cost["reference_value"], serde_json::Value::Null);
         assert_eq!(cost["candidate_value"], serde_json::Value::Null);
         assert_eq!(cost["direction"], serde_json::json!("unknown"));
+    }
+
+    /// D1 dogfood seed (persistent, idempotent): two verified DEV harness revisions with ONE green
+    /// SystemPrompt change, inserted through the durable DAO. Ignored; run once with
+    /// DATABASE_URL_DEV present. Does NOT clean up: D2 review needs these rows.
+    #[test]
+    #[ignore = "seeds persistent DEV dogfood revisions; needs DATABASE_URL_DEV"]
+    fn seed_d1_dogfood_revisions() {
+        use crate::engine::harness_evolution::model::{
+            Component, ComponentChange, ComponentKind, HarnessManifest,
+        };
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let database = runtime
+            .block_on(db::Database::connect_target(db::DbTarget::Dev))
+            .expect("connect DEV");
+        let dao = db::ForgeHarnessDao::new(database);
+        let base_id = "d1-dogfood-rust-base-20261018";
+        let candidate_id = "d1-dogfood-rust-cand-20261018";
+
+        let base = HarnessRevision::draft(
+            base_id,
+            HarnessDomain::RustBackend,
+            HarnessManifest::from_components([Component::green(
+                ComponentKind::SystemPrompt,
+                "You are the SMITH lane implementing one Rust backend story. Read the packet, make the smallest correct change, run the focused tests, and report the exact commands and results. Do not touch anything outside the story scope.",
+                "D1 dogfood base system prompt",
+            )]),
+            "he-lead",
+        );
+        let changes = [ComponentChange::set(
+            Component::green(
+                ComponentKind::SystemPrompt,
+                "You are the SMITH lane implementing one Rust backend story. Read the packet, name the acceptance criterion you are satisfying, make the smallest correct change, run the focused test first and then the broader suite, and report exact commands, results, and any remaining risk. Do not touch anything outside the story scope.",
+                "D1 dogfood candidate system prompt",
+            ),
+            "candidate guidance: state the acceptance criterion and run the focused test first",
+        )];
+        let candidate = HarnessRevision::from_changes(&base, candidate_id, &changes, "he-lead")
+            .expect("candidate revision");
+        crate::engine::harness_evolution::policy::validate_candidate(&base, &candidate, &changes)
+            .expect("candidate must pass the pre-probe policy gate");
+        base.verify_integrity().expect("base integrity");
+        candidate.verify_integrity().expect("candidate integrity");
+
+        // Idempotent: if the rows already exist, print them and stop (no duplicate insert).
+        let existing_base = runtime
+            .block_on(dao.get_revision(base_id))
+            .expect("read base revision");
+        if let Some(existing) = existing_base {
+            let existing_candidate = runtime
+                .block_on(dao.get_revision(candidate_id))
+                .expect("read candidate revision");
+            let candidate_row =
+                existing_candidate.expect("candidate revision must exist with base");
+            println!(
+                "exists base={base_id} hash={}",
+                existing.revision.manifest_hash
+            );
+            println!(
+                "exists candidate={candidate_id} hash={}",
+                candidate_row.revision.manifest_hash
+            );
+            return;
+        }
+        runtime
+            .block_on(dao.insert_revision(&revision_to_new(&base).expect("base row")))
+            .expect("insert base revision");
+        runtime
+            .block_on(dao.insert_revision(&revision_to_new(&candidate).expect("candidate row")))
+            .expect("insert candidate revision");
+        let stored_base = runtime
+            .block_on(dao.get_revision(base_id))
+            .expect("read base revision")
+            .expect("base written");
+        let stored_candidate = runtime
+            .block_on(dao.get_revision(candidate_id))
+            .expect("read candidate revision")
+            .expect("candidate written");
+        stored_revision(stored_base.revision).expect("base verifies on read");
+        stored_revision(stored_candidate.revision).expect("candidate verifies on read");
+        println!("seeded base={base_id} hash={}", base.manifest_hash);
+        println!(
+            "seeded candidate={candidate_id} hash={} parent={base_id}",
+            candidate.manifest_hash
+        );
     }
 
     /// DEV smoke test for the O2 persistence path: insert a real experiment/candidate/probe/contrast

@@ -3,10 +3,10 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-18 19:24:03Z
-- commit: `4d31058dc` (working tree dirty) on `HEAD`
+- generated: 2026-10-18 19:46:49Z
+- commit: `c64bfa347` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest FORGE-B3`
-- rows: 107 — packet, cited paths and story commits first, lexical matches after
+- rows: 108 — packet, cited paths and story commits first, lexical matches after
 
 Read top-down. A row is a file to open, and the why column says why it is here.
 
@@ -34,6 +34,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/DEPENDENCY-TRIAGE.md` — index · top-level harness page · last touched 2026-10-15
 - `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` — index · top-level harness page · last touched untracked
 - `docs/agent/DEV-OPS-RELEASE.md` — index · top-level harness page · last touched 2026-10-12
+- `docs/agent/DOGFOOD-2026-10-18.md` — index · top-level harness page · last touched untracked
 - `docs/agent/ESCALATION-QUEUES.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/FAILFAST_ESCALATION_POLICY.md` — index · top-level harness page · last touched untracked
 - `docs/agent/FORGE-84-TO-100-ACCEPTANCE.md` — index · top-level harness page · last touched 2026-10-12
@@ -93,7 +94,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/ORCHESTRATOR-IN-THE-LOOP.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/PERIMETER.md` — index · top-level harness page · last touched untracked
 - `docs/agent/PERSON-PROPERTY-DESIGN.md` — index · top-level harness page · last touched untracked
-- `docs/agent/PRINCIPAL-DECISIONS.md` — index · top-level harness page · last touched untracked
+- `docs/agent/PRINCIPAL-DECISIONS.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/PROOF-2026-09-28-grok-100.md` — index · top-level harness page · last touched untracked
 - `docs/agent/PROOF-2026-09-28-review-gaps.md` — index · top-level harness page · last touched untracked
 - `docs/agent/PROPOSALS.md` — index · top-level harness page · last touched untracked

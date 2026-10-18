@@ -37,9 +37,11 @@ use std::fmt;
 use super::catalog::HarnessCatalog;
 use super::contrast::contrast;
 use super::model::{
-    BehaviorEvidence, ComponentKind, ContrastReport, EnvironmentClass, EvolutionBudget,
-    EvolutionMode, HarnessRevision, ProbeSpec,
+    BehaviorDimension, BehaviorEvidence, ComponentKind, ContrastDirection, ContrastReport,
+    DimensionContrast, EnvironmentClass, EvolutionBudget, EvolutionMode, HarnessRevision,
+    ProbeSpec,
 };
+use super::model_turn_sandbox::USAGE_UNMEASURED_REF;
 use super::probe::{
     validate_matched_pair, ProbeContract, ProbeError, ProbeExecutor, ProbeOutcome,
     ProbePairReading, ProbePins, ProbeReading, ProbeRequest, ProbeSide,
@@ -859,6 +861,68 @@ pub fn plan_recorded_replay(
     })
 }
 
+impl RecordedReplayOutcome {
+    /// True when either side's execution failed (`BehaviorEvidence.success == false`). A failed
+    /// pair is still evidence, but it must be recorded as a failed experiment, not a comparison.
+    pub fn probe_failed(&self) -> bool {
+        !self.reference.behavior.success || !self.candidate_reading.behavior.success
+    }
+}
+
+/// True when the sandbox explicitly labelled this execution's usage as unmeasured. The label lives
+/// in the durable evidence refs, so the honesty rule survives persistence.
+fn usage_unmeasured(reading: &ProbeReading) -> bool {
+    reading
+        .outcome
+        .evidence_refs
+        .iter()
+        .any(|reference| reference == USAGE_UNMEASURED_REF)
+}
+
+/// Recompute the human summary from the (possibly normalized) dimensions.
+fn summarize_dimensions(dimensions: &[DimensionContrast]) -> String {
+    let mut improved = 0;
+    let mut regressed = 0;
+    let mut unchanged = 0;
+    let mut unknown = 0;
+    for contrast in dimensions {
+        match contrast.direction {
+            ContrastDirection::Improved => improved += 1,
+            ContrastDirection::Regressed => regressed += 1,
+            ContrastDirection::Unchanged => unchanged += 1,
+            ContrastDirection::Unknown => unknown += 1,
+        }
+    }
+    format!(
+        "{improved} improved, {regressed} regressed, {unchanged} unchanged, {unknown} not captured"
+    )
+}
+
+/// An unmeasured token count is NOT a zero reading. `BehaviorEvidence` carries `u64` token counts,
+/// so the sandbox's `model-turn:usage:unmeasured` label is the only reliable signal; when it is
+/// present on either side, the tokens dimension becomes `Unknown` with `None` values instead of a
+/// fabricated `0.0` comparison.
+fn normalize_unmeasured_usage(
+    report: &mut ContrastReport,
+    reference: &ProbeReading,
+    candidate: &ProbeReading,
+) {
+    if !usage_unmeasured(reference) && !usage_unmeasured(candidate) {
+        return;
+    }
+    for dimension in &mut report.dimensions {
+        if dimension.dimension != BehaviorDimension::Tokens {
+            continue;
+        }
+        dimension.direction = ContrastDirection::Unknown;
+        dimension.reference_value = None;
+        dimension.candidate_value = None;
+        dimension.note =
+            "usage unmeasured by the sandbox; token counts are not a reading".to_string();
+    }
+    report.summary = summarize_dimensions(&report.dimensions);
+}
+
 /// One complete recorded replay: both matched executions plus the behavioral contrast.
 ///
 /// The pair is validated before the loader/sandbox runs (via `execute_pair`); a sandbox that
@@ -876,7 +940,7 @@ pub fn run_recorded_replay(
     let pair = executor.execute_pair(&contract)?;
     let reference_identity = contract.reference_spec().identity();
     let candidate_identity = contract.candidate_spec().identity();
-    let report = contrast(
+    let mut report = contrast(
         format!("{}-contrast", contract.experiment_id),
         base.id.clone(),
         candidate.id.clone(),
@@ -888,6 +952,7 @@ pub fn run_recorded_replay(
     .map_err(|error| ReplayError::ContrastRefused {
         message: error.to_string(),
     })?;
+    normalize_unmeasured_usage(&mut report, &pair.reference, &pair.candidate);
     Ok(RecordedReplayOutcome {
         task: executor.load_task()?,
         base,
@@ -1594,6 +1659,42 @@ mod tests {
             );
         }
         assert_eq!(sandbox.calls().len(), 2, "reference and candidate executed");
+    }
+
+    #[test]
+    fn unmeasured_usage_is_not_persisted_as_a_zero_token_comparison() {
+        let loader = StubLoader::returning(task());
+        let mut failed = behavior("evidence-reference", vec![USAGE_UNMEASURED_REF]);
+        failed.success = false;
+        let mut failed_candidate = behavior("evidence-candidate", vec![USAGE_UNMEASURED_REF]);
+        failed_candidate.success = false;
+        let sandbox = FakeSandbox::with_readings(vec![
+            SandboxReading::new(failed),
+            SandboxReading::new(failed_candidate),
+        ]);
+        let revisions = revisions();
+        let request = recorded_request(ProbePins::development("task-1"));
+        let outcome =
+            run_recorded_replay(&loader, &sandbox, &revisions, &request).expect("recorded run");
+        let tokens = outcome
+            .contrast
+            .dimensions
+            .iter()
+            .find(|dimension| dimension.dimension == BehaviorDimension::Tokens)
+            .expect("tokens dimension");
+        assert_eq!(
+            tokens.direction,
+            ContrastDirection::Unknown,
+            "unmeasured usage is not a zero comparison"
+        );
+        assert_eq!(tokens.reference_value, None);
+        assert_eq!(tokens.candidate_value, None);
+        assert!(
+            outcome.contrast.summary.contains("not captured"),
+            "recomputed summary must account for the unmeasured dimension: {}",
+            outcome.contrast.summary
+        );
+        assert!(outcome.probe_failed(), "both executions failed");
     }
 
     #[test]

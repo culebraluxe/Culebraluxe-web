@@ -1708,6 +1708,7 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
             "candidate_revision": outcome.candidate.id,
             "contract_digest": outcome.contract_digest,
             "sandbox": sandbox_label,
+            "outcome": if outcome.probe_failed() { "failed" } else { "compared" },
             "probes": probe_views,
             "contrast": {
                 "contrast_id": outcome.contrast.id,
@@ -1739,6 +1740,14 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
             &outcome.contract_digest[..12.min(outcome.contract_digest.len())]
         );
         println!("  sandbox     {sandbox_label}");
+        println!(
+            "  outcome     {}",
+            if outcome.probe_failed() {
+                "FAILED probe execution(s) — recorded as a failed experiment for review (nothing adopted)"
+            } else {
+                "compared"
+            }
+        );
         for probe in &probe_views {
             println!(
                 "  probe       {}  {}  revision={}  evidence={}",
@@ -1763,6 +1772,12 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
             "  persisted   experiment/candidate/{} probe(s)/contrast",
             rows.probes.len()
         );
+    }
+    // The rows are persisted for review, but a failed probe pair must not look like a clean run.
+    if outcome.probe_failed() {
+        return Err(Failure::failed(format!(
+            "probe recorded FAILED execution(s); experiment {experiment_id} is persisted as failed for review"
+        )));
     }
     Ok(0)
 }
