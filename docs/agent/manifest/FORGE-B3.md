@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-18 07:36:48Z
-- commit: `c52fa4063` (working tree dirty) on `HEAD`
+- generated: 2026-10-18 07:50:48Z
+- commit: `b7d8b9bb9` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest FORGE-B3`
 - rows: 104 — packet, cited paths and story commits first, lexical matches after
 
@@ -101,7 +101,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/SECRET-ROTATION-CHECKLIST.md` — index · top-level harness page · last touched untracked
 - `docs/agent/SOP-DEV-REFRESH.md` — index · top-level harness page · last touched untracked
 - `docs/agent/STORY_EXECUTION_CONTRACT.md` — index · top-level harness page · last touched untracked
-- `docs/agent/TECH-DEBT.md` — index · top-level harness page · last touched 2026-10-13
+- `docs/agent/TECH-DEBT.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/TEST-BUDGET.md` — index · top-level harness page · last touched untracked
 - `docs/agent/TEST-SAFETY-SWEEP-2026-09-29.md` — index · top-level harness page · last touched untracked
 - `docs/agent/TEST_ISOLATION.md` — index · top-level harness page · last touched untracked
