@@ -24,6 +24,7 @@ pub mod evidence_gate;
 pub mod evidence_store;
 pub mod execution_target;
 pub mod executor;
+pub mod executive_swarm;
 pub mod facts;
 pub mod failure;
 pub mod first_violation;
