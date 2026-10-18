@@ -412,3 +412,54 @@ that stays parked rather than lost.
 
 **Not debt, by rule:** no fourth agent registry, no executive nodes in `FORGE_SDLC-v6.xml`, and no
 swarm write authority. The contract module and the advisory catalogue are the single source.
+
+## Agent OS Phase 3 (self-learning / earned autonomy) — reviewed 2026-10-18
+
+**Verdict: do not build a "learning engine" or a second telemetry store.** Most of Phase 3 is
+deferred; two read-only slices are worth doing now because the durable rows already exist.
+
+**Already exists (do not rebuild):**
+- `forge/src/engine/learn.rs` — Rust learn pass: hunts silent-failure patterns + stale claims in a
+  window, files AT MOST one learn story per pass, dedupes by pattern key, never fixes/merges/promotes.
+- `forge doctor` (control-plane health), `forge roi` (widgets, explicitly not dollars; null ≠ zero),
+  `forge/src/engine/profile_analysis.rs` + `profile_report.rs` (cost per accepted candidate by
+  profile/turn, unpriced turns never imputed as zero).
+- Durable outcome rows: `forge_engine_task_execution`, `forge_role_contract`, `forge_role_finding`,
+  `forge_tool_artifact`, `forge_hold_record`, `forge_decision`, run usage/trajectory, QA receipts.
+- Enforcement rails: `action_profiles`, OpenCode permission rendering, arch-boundary/citation/
+  manifest/repo guards. There is no autonomy engine, and none should be added yet.
+
+**Worth doing now (read-only, no schema, no new telemetry):**
+1. **`forge scorecard` port** — already a PENDING row in `docs/agent/DEAD-COMMANDS.md` (row 9) with a
+   planned Rust home: rules in `forge/src/scorecard.rs`, reads in `db::forge_read`/`forge_doctor`,
+   command in `cli/src/forge/`. Derive per-role/agent outcomes (first-pass QA, rework, holds,
+   escalations, cost coverage) from the rows above. Honesty rules: null is not 0; an unpopulated
+   metric reads NOT CAPTURED (the old TS scorecard already learned this).
+2. **Daily proactive digest** — extend `scripts/orchestrate-status.sh` (or a `forge audit` read) into a
+   one-page daily digest: stuck claims, open HOLDs, failed runs, repeated HOLD reasons, empty queue.
+   Read-only; no learning writes.
+
+**Tech debt, with exits (the rest of Phase 3):**
+- **Correction → specification → rail (3.3).** High value, but it needs a durable correction→rule→
+  guard→test pipeline AND an owner gate; build it only next to the rail that enforces it, never as a
+  free-text self-writer.
+- **Hypothesis ledger (3.4).** Needs a durable store and review dates; start after scorecard data exists.
+- **Improvement backlog (3.5).** The learn loop already files one story/pass; extend its pattern
+  sources after the scorecard, do not add a second backlog.
+- **Routing effectiveness (3.6).** Needs route/agent/model attributes captured per run; profile_analysis
+  covers cost per accepted candidate, not route accuracy.
+- **Earned autonomy / automatic demotion (3.7–3.8).** Requires a policy engine, owner approval for
+  promotion, and a safety-first demotion design. Do not let learning grant its own authority.
+- **Architecture drift scan (3.9).** Boundary/citation/manifest/repo guards already enforce; a periodic
+  drift REPORT is later.
+- **Freshness / revisit triggers (3.11), weekly/monthly audits (3.12).** After the daily digest.
+- **Skill effectiveness (3.13).** No skill-invocation log exists; needs capture first.
+- **Model/role fit (3.14).** profile_analysis is partial; needs role × model linkage per turn.
+- **Council calibration (3.15).** Needs decisions linked to later outcomes; after scorecards + the
+  durable decision rows.
+- **Self-modification boundary (3.16).** Mandatory rails before ANY learning write API: observation,
+  scorecard and hypothesis writes are allowed; authority/QA/release/workflow changes stay owner-only.
+
+**Not debt, by rule:** no new telemetry database (learn from durable Forge rows), no automatic
+authority promotion, and no learning agent that can publish or edit code.
+
