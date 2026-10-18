@@ -568,9 +568,8 @@ command yet.
   `deepseek/deepseek-flash`; an unpinned default was rejected as `deepseek-chat`). DSH is now the
   primary backend. Revisit OpenCode when service/provider routing is stable; no code depends on it
   except the alternative `--model-backend opencode` path.
-- **DSH usage capture:** the first real DSH dogfood ran (2 turns, exit 0) but `session_id=null` and
-  tokens/cost are NOT CAPTURED because session discovery under the sandbox's sanitized `DSH_HOME`
-  did not find the log. Fix the discovery path before using token/cost evidence.
-- **Probe identity executor:** the persisted probe spec said `opencode` while the sandbox executed
-  `dsh`. The identity must name the actual executor.
-- **Dogfood breadth:** the first run was 1 story; a verdict needs 3–5 stories.
+- **DSH usage capture:** FIXED (canonical realpath session discovery, real DSH home, measured/unmeasured
+  refs). Cohort measured 8/10 turns. Cost remains NOT CAPTURED until operator price rates exist.
+- **Probe identity executor:** FIXED (probe spec records `dsh`/`command` and the explicit model run).
+- **Dogfood breadth:** cohort of 5 done (7 improved / 2 regressed / 65 unchanged); mixed signal, no
+  adoption. Next: cost rates + another cohort before compose/validate.

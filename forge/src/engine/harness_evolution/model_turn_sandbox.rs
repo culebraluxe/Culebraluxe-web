@@ -221,7 +221,10 @@ pub fn parse_usage_marker(stdout: &str) -> Option<CapturedUsage> {
         .lines()
         .rev()
         .find(|line| line.trim_start().starts_with(USAGE_MARKER_PREFIX))?;
-    let payload = line.trim_start().trim_start_matches(USAGE_MARKER_PREFIX).trim();
+    let payload = line
+        .trim_start()
+        .trim_start_matches(USAGE_MARKER_PREFIX)
+        .trim();
     let value: serde_json::Value = serde_json::from_str(payload).ok()?;
     let input_tokens = value.get("input_tokens")?.as_u64()?;
     let output_tokens = value.get("output_tokens")?.as_u64()?;
@@ -406,22 +409,30 @@ impl ReplaySandbox for ModelTurnSandbox {
         }
 
         let started = Instant::now();
-        let mut child = command.spawn().map_err(|error| ReplayError::SandboxFailed {
-            probe_id: request.probe_id.to_string(),
-            message: format!(
-                "cannot spawn {} ({}) for the model turn: {error}",
-                invocation.program,
-                self.authorization.backend.id()
-            ),
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| ReplayError::SandboxFailed {
-            probe_id: request.probe_id.to_string(),
-            message: "model-turn stdout pipe missing".into(),
-        })?;
-        let stderr = child.stderr.take().ok_or_else(|| ReplayError::SandboxFailed {
-            probe_id: request.probe_id.to_string(),
-            message: "model-turn stderr pipe missing".into(),
-        })?;
+        let mut child = command
+            .spawn()
+            .map_err(|error| ReplayError::SandboxFailed {
+                probe_id: request.probe_id.to_string(),
+                message: format!(
+                    "cannot spawn {} ({}) for the model turn: {error}",
+                    invocation.program,
+                    self.authorization.backend.id()
+                ),
+            })?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ReplayError::SandboxFailed {
+                probe_id: request.probe_id.to_string(),
+                message: "model-turn stdout pipe missing".into(),
+            })?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| ReplayError::SandboxFailed {
+                probe_id: request.probe_id.to_string(),
+                message: "model-turn stderr pipe missing".into(),
+            })?;
         let output_cap = self.output_cap;
         let stdout_thread = thread::spawn(move || read_stream_bounded(stdout, output_cap));
         let stderr_thread = thread::spawn(move || read_stream_bounded(stderr, output_cap));
@@ -448,19 +459,22 @@ impl ReplaySandbox for ModelTurnSandbox {
             }
         };
         let duration = started.elapsed();
-        let stdout_capture =
-            join_capture(stdout_thread, request.probe_id, "model-turn stdout")?;
-        let stderr_capture =
-            join_capture(stderr_thread, request.probe_id, "model-turn stderr")?;
+        let stdout_capture = join_capture(stdout_thread, request.probe_id, "model-turn stdout")?;
+        let stderr_capture = join_capture(stderr_thread, request.probe_id, "model-turn stderr")?;
 
         // The model patch overlay is only needed while the child runs.
         drop(invocation.patch);
 
-        // Usage is read from the harness's OWN record; absence is UNMEASURED, never zero.
-        let dsh_home = dsh_home_path(&workspace);
-        let session_root = dsh::args::session_root(&workspace, &dsh_home);
-        let session = dsh::args::discover_latest_session(&session_root);
-        let usage = self.capture_usage(&stdout_capture.text, session.as_ref(), &session_root);
+        // Usage is read from the harness's OWN record; absence is UNMEASURED, never zero. The
+        // session may live under the real DSH home or the isolated workspace home depending on how
+        // the vendor resolves its home, so discovery scans both.
+        let session_roots = dsh_session_roots(&workspace);
+        let discovered = discover_session_across(&session_roots);
+        let session = discovered.as_ref().map(|(name, _)| name.clone());
+        let usage = self.capture_usage(
+            &stdout_capture.text,
+            discovered.as_ref().map(|(_, path)| path.as_path()),
+        );
 
         let execution_id = format!(
             "{EXEC_REF_PREFIX}{}:{}",
@@ -493,9 +507,10 @@ impl ReplaySandbox for ModelTurnSandbox {
             input_tokens: usage.as_ref().map(|usage| usage.input_tokens),
             output_tokens: usage.as_ref().map(|usage| usage.output_tokens),
             cost_micros: usage.as_ref().and_then(|usage| usage.cost_micros),
-            usage_source: usage
-                .as_ref()
-                .map_or_else(|| "unmeasured".to_string(), |usage| usage.source.to_string()),
+            usage_source: usage.as_ref().map_or_else(
+                || "unmeasured".to_string(),
+                |usage| usage.source.to_string(),
+            ),
             session_id: session,
             prompt_sha256,
             prompt_bytes: u64::try_from(prompt.len()).unwrap_or(u64::MAX),
@@ -576,26 +591,22 @@ impl ModelTurnSandbox {
                     .map_err(|error| refused(format!("DSH is unavailable: {error}")))?;
                 // The DSH headless path has no `--model` flag; the only pin seam is a patch overlay.
                 // A pin we cannot express is left to the profile and recorded as not applied.
-                let (patch, model_pin_applied) =
-                    match dsh::args::validate_model(request.model) {
-                        Ok(model) => {
-                            let patch = dsh::args::ModelPatchFile::create(&model)
-                                .map_err(|error| refused(format!("DSH model patch: {error}")))?;
-                            (Some(patch), true)
-                        }
-                        Err(_) => (None, false),
-                    };
+                let model_pin_applied = dsh::args::validate_model(request.model).is_ok();
+                let patch = if model_pin_applied {
+                    Some(SandboxPatchFile::create(workspace, request.model)?)
+                } else {
+                    None
+                };
                 let args = dsh::args::headless_args(
                     dsh::DSH_PROFILE,
-                    patch.as_ref().map(dsh::args::ModelPatchFile::path),
+                    patch.as_ref().map(SandboxPatchFile::path),
                     prompt,
                 );
                 // Read-only where the backend supports it: DSH's permission mode.
                 env.push(("DSH_PERMISSION_MODE".into(), "read-only".into()));
-                // Session discovery must look where this child writes.
-                let dsh_home = std::env::var_os("DSH_HOME")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| workspace.join(".dsh"));
+                // The child needs the vendor's real DSH home (profiles/credentials) to boot; the
+                // workspace stays the cwd/HOME for the turn's own files.
+                let dsh_home = dsh_home_path(workspace);
                 env.push(("DSH_HOME".into(), dsh_home.to_string_lossy().to_string()));
                 Ok(TurnInvocation {
                     program: cli.program,
@@ -645,20 +656,14 @@ impl ModelTurnSandbox {
 
     /// Usage from the harness's own record. DSH's session log is metered; OpenCode's export is not
     /// wired here; the fake command backend uses the deterministic marker.
-    fn capture_usage(
-        &self,
-        _stdout: &str,
-        session: Option<&String>,
-        session_root: &Path,
-    ) -> Option<CapturedUsage> {
+    fn capture_usage(&self, _stdout: &str, session_dir: Option<&Path>) -> Option<CapturedUsage> {
         match &self.authorization.backend {
             ModelTurnBackend::Dsh => {
-                let session = session?;
-                let totals = dsh::usage::read_token_totals(&session_root.join(session))?;
+                let session_dir = session_dir?;
+                let totals = dsh::usage::read_token_totals(session_dir)?;
                 let cost_micros = dsh::usage::rates_from_env().and_then(|rates| {
                     let usd = totals.cost_usd(&rates);
-                    usd.is_finite()
-                        .then(|| (usd * 1_000_000.0).round() as u64)
+                    usd.is_finite().then(|| (usd * 1_000_000.0).round() as u64)
                 });
                 Some(CapturedUsage {
                     input_tokens: totals.input_tokens,
@@ -674,12 +679,51 @@ impl ModelTurnSandbox {
     }
 }
 
+/// The DSH overlay the sandbox writes for one turn: the model pin only.
+///
+/// `dsh-base` already mounts the DeepSeek adapter (`@deepseek-ai/dsh-llm-deepseek`, provider route
+/// `deepseek-official`); the pin must therefore name THAT provider, not a bare `deepseek/...` (which
+/// fails `NO_ADAPTER` before a session log exists). Inserting the adapter here again would be a
+/// `DUPLICATE_ADAPTER`. The file deletes itself when the turn ends.
+struct SandboxPatchFile {
+    path: PathBuf,
+}
+
+impl SandboxPatchFile {
+    fn create(workspace: &Path, model: &str) -> Result<Self, ReplayError> {
+        let path = workspace.join("harness-model-patch.yml");
+        std::fs::write(&path, dsh_patch_content(model)).map_err(|error| {
+            refused(format!(
+                "cannot write DSH model overlay {}: {error}",
+                path.display()
+            ))
+        })?;
+        Ok(Self { path })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for SandboxPatchFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// The exact overlay content: the model pin, using the vendor's `provider/model` ids. Pure, so the
+/// contract is tested without spawning a model turn.
+fn dsh_patch_content(model: &str) -> String {
+    dsh::args::model_patch(model)
+}
+
 struct TurnInvocation {
     program: String,
     prefix: Vec<String>,
     args: Vec<String>,
     env: Vec<(String, String)>,
-    patch: Option<dsh::args::ModelPatchFile>,
+    patch: Option<SandboxPatchFile>,
     model_pin_applied: bool,
 }
 
@@ -699,7 +743,11 @@ Report what you did and whether the task's acceptance checks passed.\n",
     out.push_str(&format!("revision: {}\n", harness.revision));
     out.push_str(&format!("manifest: {}\n", harness.manifest_hash));
     for (kind, content) in &harness.components {
-        out.push_str(&format!("\n--- component: {} ---\n{}\n", kind.id(), content));
+        out.push_str(&format!(
+            "\n--- component: {} ---\n{}\n",
+            kind.id(),
+            content
+        ));
     }
     out.push_str("\n--- task packet ---\n");
     out.push_str(&task.packet);
@@ -790,10 +838,93 @@ fn terminate_process_group(child: &mut Child) {
 
 /// Where this child would write DSH sessions: the explicit `DSH_HOME`, else `$HOME/.dsh` where
 /// `HOME` is the throwaway workspace.
+/// Resolve the DSH home the CHILD should use. The isolated workspace home alone is not a working
+/// DSH home: profiles, bundles and `.credentials.yaml` live in the user's real DSH home, so a
+/// sanitized workspace-only home made the headless turn unable to boot (and therefore wrote no
+/// session log). `$DSH_HOME` wins, then `$HOME/.dsh`, then the workspace `.dsh`. Pure, so the
+/// resolution is testable without spawning anything.
+fn resolve_dsh_home(
+    workspace: &Path,
+    env_dsh_home: Option<&std::ffi::OsStr>,
+    env_home: Option<&std::ffi::OsStr>,
+) -> PathBuf {
+    if let Some(explicit) = env_dsh_home.filter(|value| !value.is_empty()) {
+        return PathBuf::from(explicit);
+    }
+    if let Some(home) = env_home.filter(|value| !value.is_empty()) {
+        return Path::new(home).join(".dsh");
+    }
+    workspace.join(".dsh")
+}
+
 fn dsh_home_path(workspace: &Path) -> PathBuf {
-    std::env::var_os("DSH_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| workspace.join(".dsh"))
+    resolve_dsh_home(
+        workspace,
+        std::env::var_os("DSH_HOME").as_deref(),
+        std::env::var_os("HOME").as_deref(),
+    )
+}
+
+/// Every session root DSH could have written under for this workspace, most likely first: the
+/// resolved DSH home, the isolated workspace home, and the real user home. Discovery scans all of
+/// them so a vendor that honours `HOME` rather than `DSH_HOME` (or vice versa) is still captured.
+fn dsh_session_roots(workspace: &Path) -> Vec<PathBuf> {
+    let mut homes: Vec<PathBuf> = Vec::new();
+    for home in [
+        std::env::var_os("DSH_HOME").map(PathBuf::from),
+        std::env::var_os("HOME").map(|home| Path::new(&home).join(".dsh")),
+        Some(workspace.join(".dsh")),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !homes.contains(&home) {
+            homes.push(home);
+        }
+    }
+    session_roots_for(workspace, &homes)
+}
+
+/// Session roots for one workspace across every candidate DSH home. The workspace is included both
+/// as given and as its canonical path: the vendor stores sessions under the realpath project key
+/// (on macOS a temp `/var/...` workspace is persisted under `--private-var-...--`), so a discovery
+/// that only hashed the uncanonicalised path missed the log and recorded usage as unmeasured.
+fn session_roots_for(workspace: &Path, homes: &[PathBuf]) -> Vec<PathBuf> {
+    let mut workspaces = vec![workspace.to_path_buf()];
+    if let Ok(canonical) = std::fs::canonicalize(workspace) {
+        if canonical != workspace {
+            workspaces.push(canonical);
+        }
+    }
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for home in homes {
+        for candidate in &workspaces {
+            let root = dsh::args::session_root(candidate, home);
+            if !roots.contains(&root) {
+                roots.push(root);
+            }
+        }
+    }
+    roots
+}
+
+/// The newest session directory across all candidate roots, as `(session_name, session_dir)`.
+/// Pure apart from the directory reads.
+fn discover_session_across(roots: &[PathBuf]) -> Option<(String, PathBuf)> {
+    let mut newest: Option<(std::time::SystemTime, String, PathBuf)> = None;
+    for root in roots {
+        let Some(session) = dsh::args::discover_latest_session(root) else {
+            continue;
+        };
+        let path = root.join(&session);
+        let modified = std::fs::metadata(&path)
+            .and_then(|meta| meta.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        if newest.as_ref().is_none_or(|(at, _, _)| modified > *at) {
+            newest = Some((modified, session, path));
+        }
+    }
+    newest.map(|(_, session, path)| (session, path))
 }
 
 fn write_receipt(run_root: &Path, receipt: &ModelTurnReceipt) -> Result<PathBuf, ReplayError> {
@@ -814,7 +945,10 @@ fn write_receipt(run_root: &Path, receipt: &ModelTurnReceipt) -> Result<PathBuf,
     })?;
     std::fs::write(&path, body).map_err(|error| ReplayError::SandboxFailed {
         probe_id: receipt.probe_id.clone(),
-        message: format!("cannot write model-turn receipt {}: {error}", path.display()),
+        message: format!(
+            "cannot write model-turn receipt {}: {error}",
+            path.display()
+        ),
     })?;
     Ok(path)
 }
@@ -953,7 +1087,10 @@ mod tests {
             EnvironmentClass::Development,
         )
         .expect("authorized");
-        assert_eq!(authorized.environment_class(), EnvironmentClass::Development);
+        assert_eq!(
+            authorized.environment_class(),
+            EnvironmentClass::Development
+        );
     }
 
     #[test]
@@ -986,7 +1123,10 @@ mod tests {
         assert!(reading.behavior.success);
         assert_eq!(reading.behavior.qa, QaVerdict::Pass);
         assert_eq!(reading.behavior.steps, 1);
-        assert_eq!(reading.behavior.tokens_in, 0, "unmeasured is labelled below");
+        assert_eq!(
+            reading.behavior.tokens_in, 0,
+            "unmeasured is labelled below"
+        );
         assert_eq!(reading.behavior.tokens_out, 0);
         assert_eq!(reading.behavior.cost_micros, None, "unpriced is not zero");
         assert!(reading
@@ -1012,7 +1152,9 @@ mod tests {
         assert_eq!(receipt.prompt_sha256.len(), 64);
         assert!(receipt.prompt_bytes > 0);
         // The materialized prompt reached the fake harness as argv, content only.
-        assert!(receipt.stdout_excerpt.contains("HARNESS EVOLUTION REPLAY PROBE"));
+        assert!(receipt
+            .stdout_excerpt
+            .contains("HARNESS EVOLUTION REPLAY PROBE"));
         assert!(receipt.stdout_excerpt.contains("GOAL:"));
         assert!(!receipt.stdout_excerpt.contains("authority"));
     }
@@ -1132,7 +1274,13 @@ mod tests {
         let red_prompt = materialize_prompt(&red_harness, &task);
         // The header names the (different) immutable revisions, so compare the payload: same
         // content, different declared authority means the sandbox receives the same content.
-        let payload = |prompt: &str| prompt.split("--- component:").nth(1).unwrap_or("").to_string();
+        let payload = |prompt: &str| {
+            prompt
+                .split("--- component:")
+                .nth(1)
+                .unwrap_or("")
+                .to_string()
+        };
         assert_eq!(payload(&green_prompt), payload(&red_prompt));
         assert!(green_prompt.contains(content));
         assert!(green_prompt.contains("GOAL:"));
@@ -1161,7 +1309,9 @@ mod tests {
         let reading = run(&sandbox, &fixture, "probe-cap").expect("reading");
         let receipt = receipt_for(&reading);
         assert!(receipt.stdout_truncated);
-        assert!(receipt.stdout_excerpt.contains("[truncated at 16 bytes of "));
+        assert!(receipt
+            .stdout_excerpt
+            .contains("[truncated at 16 bytes of "));
         assert!(receipt.stdout_bytes > 16);
     }
 
@@ -1177,5 +1327,76 @@ mod tests {
         let decoded: ModelTurnReceipt = serde_json::from_str(&encoded).unwrap();
         assert_eq!(receipt, decoded);
         assert!(receipt.execution_id.starts_with(EXEC_REF_PREFIX));
+    }
+
+    #[test]
+    fn the_dsh_overlay_pins_the_vendor_provider_and_never_reinstalls_the_adapter() {
+        let content = dsh_patch_content("deepseek-official/deepseek-v4-flash");
+        assert!(content.contains("provider: deepseek-official"), "{content}");
+        assert!(content.contains("model: deepseek-v4-flash"), "{content}");
+        assert!(
+            !content.contains("llm-deepseek"),
+            "the base bundle already mounts the adapter; re-inserting it is DUPLICATE_ADAPTER"
+        );
+    }
+
+    #[test]
+    fn dsh_home_resolution_prefers_explicit_then_home_then_workspace() {
+        use std::ffi::OsStr;
+        let workspace = std::path::Path::new("/tmp/sandbox-workspace");
+        assert_eq!(
+            resolve_dsh_home(
+                workspace,
+                Some(OsStr::new("/explicit/dsh")),
+                Some(OsStr::new("/home/u"))
+            ),
+            std::path::PathBuf::from("/explicit/dsh")
+        );
+        assert_eq!(
+            resolve_dsh_home(workspace, None, Some(OsStr::new("/home/u"))),
+            std::path::PathBuf::from("/home/u/.dsh")
+        );
+        assert_eq!(
+            resolve_dsh_home(workspace, Some(OsStr::new("")), Some(OsStr::new(""))),
+            std::path::PathBuf::from("/tmp/sandbox-workspace/.dsh")
+        );
+    }
+
+    #[test]
+    fn session_roots_include_the_canonical_workspace_variant() {
+        let root =
+            std::env::temp_dir().join(format!("forge-dsh-canonical-test-{}", std::process::id()));
+        let workspace = root.join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let homes = vec![root.join("dsh-home")];
+        let roots = session_roots_for(&workspace, &homes);
+        let canonical = std::fs::canonicalize(&workspace).expect("canonical");
+        assert!(
+            roots.contains(&dsh::args::session_root(&canonical, &homes[0])),
+            "the vendor stores sessions under the realpath project key: {roots:?}"
+        );
+        assert!(roots.contains(&dsh::args::session_root(&workspace, &homes[0])));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn session_discovery_scans_every_candidate_root_and_picks_the_newest() {
+        let root =
+            std::env::temp_dir().join(format!("forge-dsh-discovery-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let first_root = root.join("real-home/sessions/project");
+        let second_root = root.join("workspace/sessions/project");
+        std::fs::create_dir_all(&first_root).unwrap();
+        std::fs::create_dir_all(&second_root).unwrap();
+        std::fs::create_dir_all(first_root.join("session-old")).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::create_dir_all(second_root.join("session-new")).unwrap();
+        std::fs::write(second_root.join("session-new").join("log"), "").unwrap();
+        let found = discover_session_across(&[first_root, second_root]).expect("newest session");
+        assert_eq!(found.0, "session-new");
+        assert_eq!(found.1, root.join("workspace/sessions/project/session-new"));
+        // No sessions anywhere: UNMEASURED, never a fabricated id.
+        assert_eq!(discover_session_across(&[root.join("empty")]), None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

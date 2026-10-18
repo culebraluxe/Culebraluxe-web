@@ -47,8 +47,8 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
 
 | # | Item | status | scope |
 | --- | --- | --- | --- |
-| D1 | Run dogfood: 3–5 historical Rust stories, prompt/tool-guidance only, k=1, command sandbox first | DONE (DSH) | first real run: experiment `probe-…1792353093608471000`, 2 DSH turns, elapsed 166s→68s, no regressions; tokens/cost NOT CAPTURED; 1 story only. OpenCode deferred to TD (2026-10-18 incident). See docs/agent/DOGFOOD-2026-10-18-DSH.md | wiring + command-sandbox E2E on DEV verified (persisted experiment/candidate/2 probes/contrast, cleaned); paid model run needs principal approval: `--authorize-model-run --model-backend opencode` = 2 opencode turns | `scripts/harness-dogfood.sh` + probe entrypoint |
-| D2 | Review evidence manually before any adoption; write first experience/correction rows | DONE | reviewed the DSH run in docs/agent/DOGFOOD-2026-10-18-DSH.md; weak single-task signal, no adoption, no writeback; adoption OFF | DB + decision record |
+| D1 | Run dogfood: 3–5 historical Rust stories, prompt/tool-guidance only, k=1, command sandbox first | DONE (DSH) | 5-story cohort: 7 improved / 2 regressed / 65 unchanged; tokens measured 8/10; cost NOT CAPTURED; 36.3 min. OpenCode deferred to TD. See docs/agent/DOGFOOD-2026-10-18-DSH.md | wiring + command-sandbox E2E on DEV verified (persisted experiment/candidate/2 probes/contrast, cleaned); paid model run needs principal approval: `--authorize-model-run --model-backend opencode` = 2 opencode turns | `scripts/harness-dogfood.sh` + probe entrypoint |
+| D2 | Review evidence manually before any adoption; write first experience/correction rows | DONE | cohort reviewed: mixed signal, no adoption, no writeback (no adoption decision); adoption OFF. Needs cost rates + another cohort before compose/validate | DB + decision record |
 | D3 | Automatic adoption stays OFF until effective-GREEN has production evidence | BLOCKED | blocked by D1/D2 + principal approval |
 
 ## E. Later (do not start until A–D empty)

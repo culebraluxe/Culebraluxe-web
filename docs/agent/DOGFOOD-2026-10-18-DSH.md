@@ -46,3 +46,30 @@ Backend switched from OpenCode (deferred — infrastructure incident 2026-10-18)
 OpenCode was the intended backend, but its infrastructure was attacked on 2026-10-18 and provider
 routing failed before inference (`provider.no-route`). Deferred as tech debt; DSH is primary.
 Revisit OpenCode when its service/provider routing is stable.
+
+## Cohort — 5 stories (2026-10-18, after fixes)
+
+Backend DSH, model `deepseek-official/deepseek-v4-flash`, k=1, base/candidate as above, 900s turn
+budget. All 5 exit 0, state `compared`, nothing adopted.
+
+| Story | Contrast | Elapsed (ref→cand) | Tokens (ref→cand) |
+| --- | --- | --- | --- |
+| CRM-14F | 1 improved, 13 unchanged, 2 not captured | 303s→193s improved | unmeasured (pre-discovery run) |
+| CRM-14J | 2 improved, 13 unchanged, 1 not captured | 233s→119s improved | 86,885→55,244 improved |
+| APP-WHATSAPP-ATTRIBUTION-01 | 2 improved, 13 unchanged, 1 not captured | 247s→154s improved | 80,052→60,628 improved |
+| AUTH-CAPABILITIES-01 | 1 improved, **1 regressed**, 13 unchanged, 1 not captured | 303s→203s improved | 66,789→73,819 **regressed** |
+| CRM-14H | 1 improved, **1 regressed**, 13 unchanged, 1 not captured | 206s→217s **regressed** | 124,805→104,000 improved |
+
+Aggregate: **7 improved, 2 regressed, 65 unchanged, 6 not captured**. Token coverage 8/10 probe
+turns (input 444,578 / output 207,644); cost 0 priced turns (NULL/unknown, never 0). Wall 36.3 min
+(≈7.3 min/story) — well under the 12h flag.
+
+## Decision (D2)
+
+- The candidate is **not a clear win**: faster in 4/5 and token-lighter in 3/5, but AUTH used 10.5%
+  more tokens and CRM-14H was 5% slower. Behavior dimensions (success/tests/QA) are unchanged.
+- **Do not adopt.** Keep the base harness. The signal is worth one more cohort with cost rates
+  configured and more stories, not a promotion.
+- No experience writeback: adoption was not attempted, so there is no adopted/rejected decision to
+  write back. Recorded here for the next review.
+- Rows kept in DEV: 5 compared experiments (+1 failed pre-fix) with candidates/probes/contrasts.

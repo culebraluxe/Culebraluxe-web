@@ -25,7 +25,7 @@
 //!       [--test-plan P] [--replay-id R] [--mode parallel|sequential] [--k N] [--seed N]
 //!       [--target dev|prod] [--dry-run] [--format json]
 //!   cargo run -p cli -- forge harness-evolution probe ... --authorize-model-run
-//!       [--model-backend dsh|opencode]
+//!       [--model-backend dsh|opencode] [--model-turn-timeout-seconds N]
 //!       (model-turn sandbox instead of --command; mutually exclusive with --command, and a real
 //!        run spends a paid model turn — explicit authorization is required)
 
@@ -1426,6 +1426,105 @@ fn parse_model_backend(args: &[String]) -> Result<ModelTurnBackend, Failure> {
     }
 }
 
+/// The probe identity the selected sandbox actually implies. The persisted `ProbeSpec.executor`
+/// must name the real executor (`command` or `dsh`), never a stale vendor default.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProbeIdentitySelection {
+    executor: String,
+    /// The model pin is required for a model turn (DSH has no default we can honestly claim).
+    model: String,
+}
+
+/// Resolve the identity from the chosen sandbox:
+/// * command sandbox -> executor `command`;
+/// * model-turn -> executor = the backend id, and the backend must be DSH (OpenCode is deferred);
+/// * a model run must name `--model provider/model` explicitly, so the pin is the model the turn
+///   actually runs under;
+/// * an explicit `--executor` that contradicts the sandbox is a usage error.
+fn probe_identity(
+    args: &[String],
+    sandbox_choice: ProbeSandboxChoice,
+    model_backend: Option<&ModelTurnBackend>,
+) -> Result<ProbeIdentitySelection, Failure> {
+    match sandbox_choice {
+        ProbeSandboxChoice::Command => {
+            let executor = "command".to_string();
+            if let Some(explicit) = flag(args, "--executor") {
+                if explicit != executor {
+                    return Err(Failure::usage(format!(
+                        "--executor {explicit} contradicts the command sandbox (executor is `command`)"
+                    )));
+                }
+            }
+            Ok(ProbeIdentitySelection {
+                executor,
+                model: flag(args, "--model").unwrap_or_else(|| "deepseek-chat".to_string()),
+            })
+        }
+        ProbeSandboxChoice::ModelTurn => {
+            let backend = model_backend.ok_or_else(|| {
+                Failure::usage("a model-turn probe needs a resolved --model-backend")
+            })?;
+            if *backend != ModelTurnBackend::Dsh {
+                return Err(Failure::usage(
+                    "OpenCode is deferred for probe dogfood; use --model-backend dsh",
+                ));
+            }
+            let executor = backend.id().to_string();
+            if let Some(explicit) = flag(args, "--executor") {
+                if explicit != executor {
+                    return Err(Failure::usage(format!(
+                        "--executor {explicit} contradicts the model-turn sandbox (executor is `{executor}`)"
+                    )));
+                }
+            }
+            let model = flag(args, "--model").ok_or_else(|| {
+                Failure::usage(
+                    "--authorize-model-run requires --model provider/model: the probe identity must name the model the turn runs under",
+                )
+            })?;
+            let parts: Vec<&str> = model.split('/').collect();
+            if parts.len() != 2 || parts[0].trim().is_empty() || parts[1].trim().is_empty() {
+                return Err(Failure::usage(format!(
+                    "--model {model:?} must be an exact provider/model id"
+                )));
+            }
+            Ok(ProbeIdentitySelection {
+                executor,
+                model: model.trim().to_string(),
+            })
+        }
+    }
+}
+
+/// `--model-turn-timeout-seconds` for one paid model turn: absent keeps the sandbox default (300),
+/// above the vendor maximum (1800) or zero is a usage error. Only meaningful with a model turn; a
+/// command-sandbox probe that also passes it is refused rather than silently ignoring the intent.
+fn parse_model_turn_timeout(
+    args: &[String],
+    sandbox_choice: ProbeSandboxChoice,
+) -> Result<Option<std::time::Duration>, Failure> {
+    match flag(args, "--model-turn-timeout-seconds") {
+        None => Ok(None),
+        Some(value) => {
+            if sandbox_choice != ProbeSandboxChoice::ModelTurn {
+                return Err(Failure::usage(
+                    "--model-turn-timeout-seconds only applies to a model-turn probe (--authorize-model-run)",
+                ));
+            }
+            let seconds = value
+                .parse::<u64>()
+                .map_err(|_| Failure::usage("--model-turn-timeout-seconds must be an integer"))?;
+            if seconds == 0 || seconds > 1800 {
+                return Err(Failure::usage(
+                    "--model-turn-timeout-seconds must be in 1..=1800",
+                ));
+            }
+            Ok(Some(std::time::Duration::from_secs(seconds)))
+        }
+    }
+}
+
 /// Build the command sandbox for a real run. Missing `--command` fails closed: the probe will not
 /// invent a command, and the sandbox still enforces its exact-invocation allowlist.
 fn probe_command_sandbox(args: &[String]) -> Result<CommandSandbox, Failure> {
@@ -1450,6 +1549,12 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
     // Sandbox-flag contract first: a mutually exclusive combination is a usage error before any
     // database read, never a run that gets halfway.
     let sandbox_choice = probe_sandbox_choice(args)?;
+    let model_backend = match sandbox_choice {
+        ProbeSandboxChoice::ModelTurn => Some(parse_model_backend(args)?),
+        ProbeSandboxChoice::Command => None,
+    };
+    let identity = probe_identity(args, sandbox_choice, model_backend.as_ref())?;
+    let model_turn_timeout = parse_model_turn_timeout(args, sandbox_choice)?;
 
     let domain_id = required_flag(args, "--domain")?;
     let domain = HarnessDomain::from_id(&domain_id).ok_or_else(|| {
@@ -1531,9 +1636,9 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
 
     let pins = ProbePins::new(
         format!("forge-story:{story_id}"),
-        flag(args, "--model").unwrap_or_else(|| "deepseek-chat".to_string()),
+        identity.model.clone(),
         flag(args, "--model-policy").unwrap_or_else(|| "default".to_string()),
-        flag(args, "--executor").unwrap_or_else(|| "opencode".to_string()),
+        identity.executor.clone(),
         repeated_flag(args, "--tool"),
         environment,
         flag(args, "--dataset").unwrap_or_else(|| "forge-harness-evolution".to_string()),
@@ -1560,12 +1665,12 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
     if dry_run {
         let plan = plan_recorded_replay(&loader, &revisions, &request)
             .map_err(|error| Failure::failed(format!("probe dry run refused: {error}")))?;
-        let dry_run_sandbox = match sandbox_choice {
-            ProbeSandboxChoice::Command => "command".to_string(),
-            ProbeSandboxChoice::ModelTurn => {
-                let backend = parse_model_backend(args)?;
+        let dry_run_sandbox = match (&sandbox_choice, &model_backend) {
+            (ProbeSandboxChoice::Command, _) => identity.executor.clone(),
+            (ProbeSandboxChoice::ModelTurn, Some(backend)) => {
                 format!("model-turn:{}", backend.id())
             }
+            _ => identity.executor.clone(),
         };
         if format == OutputFormat::Json {
             print_json(&json!({
@@ -1581,6 +1686,8 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
                 "candidate_revision": plan.candidate.id,
                 "contract_digest": plan.contract_digest(),
                 "sandbox": dry_run_sandbox,
+                "executor": identity.executor,
+                "model": identity.model,
                 "model_run_authorized": sandbox_choice == ProbeSandboxChoice::ModelTurn,
                 "evidence_refs": plan.task.evidence_refs,
                 "persisted": Value::Null,
@@ -1621,12 +1728,17 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
             ("command".to_string(), outcome)
         }
         ProbeSandboxChoice::ModelTurn => {
-            let backend = parse_model_backend(args)?;
+            let backend = model_backend.clone().ok_or_else(|| {
+                Failure::usage("a model-turn probe needs a resolved --model-backend")
+            })?;
             let authorization =
                 ModelTurnAuthorization::authorize_model_run(backend.clone(), environment).map_err(
                     |error| Failure::failed(format!("model-run authorization refused: {error}")),
                 )?;
-            let sandbox = ModelTurnSandbox::new(authorization);
+            let mut sandbox = ModelTurnSandbox::new(authorization);
+            if let Some(timeout) = model_turn_timeout {
+                sandbox = sandbox.with_timeout(timeout);
+            }
             sandbox.validate().map_err(|error| {
                 Failure::failed(format!("model-turn sandbox refused the probe: {error}"))
             })?;
@@ -1708,6 +1820,9 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
             "candidate_revision": outcome.candidate.id,
             "contract_digest": outcome.contract_digest,
             "sandbox": sandbox_label,
+            "model_turn_timeout_seconds": model_turn_timeout.map(|timeout| timeout.as_secs()),
+            "executor": identity.executor,
+            "model": identity.model,
             "outcome": if outcome.probe_failed() { "failed" } else { "compared" },
             "probes": probe_views,
             "contrast": {
@@ -2196,6 +2311,108 @@ mod probe_tests {
         let unknown = parse_model_backend(&args(&["--model-backend", "anthropic"]))
             .expect_err("unknown backend is refused");
         assert!(unknown.to_string().contains("unknown"), "{unknown}");
+    }
+
+    #[test]
+    fn probe_identity_names_the_actual_executor_and_model() {
+        // Command sandbox: executor is `command`, never the stale vendor default.
+        let command_identity = probe_identity(
+            &args(&["--command", "/usr/bin/true"]),
+            ProbeSandboxChoice::Command,
+            None,
+        )
+        .expect("command identity");
+        assert_eq!(command_identity.executor, "command");
+
+        // A model turn: executor is the backend id, and an explicit provider/model pin is required.
+        let dsh = ModelTurnBackend::Dsh;
+        let model_identity = probe_identity(
+            &args(&[
+                "--authorize-model-run",
+                "--model",
+                "deepseek/deepseek-flash",
+            ]),
+            ProbeSandboxChoice::ModelTurn,
+            Some(&dsh),
+        )
+        .expect("model identity");
+        assert_eq!(model_identity.executor, "dsh");
+        assert_eq!(model_identity.model, "deepseek/deepseek-flash");
+
+        // Contradicting the sandbox is a usage error, not a silent override.
+        assert!(probe_identity(
+            &args(&["--command", "/usr/bin/true", "--executor", "opencode"]),
+            ProbeSandboxChoice::Command,
+            None,
+        )
+        .is_err());
+        assert!(probe_identity(
+            &args(&[
+                "--authorize-model-run",
+                "--model",
+                "deepseek/deepseek-flash",
+                "--executor",
+                "opencode"
+            ]),
+            ProbeSandboxChoice::ModelTurn,
+            Some(&dsh),
+        )
+        .is_err());
+
+        // A model turn without a provider/model pin would misname the model: refused.
+        assert!(probe_identity(
+            &args(&["--authorize-model-run"]),
+            ProbeSandboxChoice::ModelTurn,
+            Some(&dsh),
+        )
+        .is_err());
+        assert!(probe_identity(
+            &args(&["--authorize-model-run", "--model", "deepseek-chat"]),
+            ProbeSandboxChoice::ModelTurn,
+            Some(&dsh),
+        )
+        .is_err());
+
+        // OpenCode is deferred for the dogfood backend.
+        let opencode = ModelTurnBackend::OpenCode;
+        assert!(probe_identity(
+            &args(&["--authorize-model-run", "--model", "x/y"]),
+            ProbeSandboxChoice::ModelTurn,
+            Some(&opencode),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn the_model_turn_timeout_is_bounded_and_only_for_model_runs() {
+        assert_eq!(
+            parse_model_turn_timeout(&args(&[]), ProbeSandboxChoice::ModelTurn).unwrap(),
+            None
+        );
+        assert_eq!(
+            parse_model_turn_timeout(
+                &args(&["--model-turn-timeout-seconds", "900"]),
+                ProbeSandboxChoice::ModelTurn
+            )
+            .unwrap()
+            .map(|timeout| timeout.as_secs()),
+            Some(900)
+        );
+        assert!(parse_model_turn_timeout(
+            &args(&["--model-turn-timeout-seconds", "0"]),
+            ProbeSandboxChoice::ModelTurn
+        )
+        .is_err());
+        assert!(parse_model_turn_timeout(
+            &args(&["--model-turn-timeout-seconds", "1801"]),
+            ProbeSandboxChoice::ModelTurn
+        )
+        .is_err());
+        assert!(parse_model_turn_timeout(
+            &args(&["--model-turn-timeout-seconds", "900"]),
+            ProbeSandboxChoice::Command
+        )
+        .is_err());
     }
 
     #[test]

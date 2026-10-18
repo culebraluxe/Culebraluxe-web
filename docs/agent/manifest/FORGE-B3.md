@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-18 19:59:17Z
-- commit: `b62d23d69` (working tree dirty) on `HEAD`
+- generated: 2026-10-18 21:34:58Z
+- commit: `62eacfba0` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest FORGE-B3`
 - rows: 109 — packet, cited paths and story commits first, lexical matches after
 
@@ -34,7 +34,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/DEPENDENCY-TRIAGE.md` — index · top-level harness page · last touched 2026-10-15
 - `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` — index · top-level harness page · last touched untracked
 - `docs/agent/DEV-OPS-RELEASE.md` — index · top-level harness page · last touched 2026-10-12
-- `docs/agent/DOGFOOD-2026-10-18-DSH.md` — index · top-level harness page · last touched untracked
+- `docs/agent/DOGFOOD-2026-10-18-DSH.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/DOGFOOD-2026-10-18.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/ESCALATION-QUEUES.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/FAILFAST_ESCALATION_POLICY.md` — index · top-level harness page · last touched untracked
