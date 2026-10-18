@@ -34,6 +34,7 @@ pub mod first_violation;
 pub mod git_publish;
 pub mod graph;
 pub mod harness;
+pub mod harness_evolution;
 pub mod harness_profile;
 pub mod harness_usage;
 pub mod hold;

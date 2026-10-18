@@ -3,10 +3,10 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-18 07:50:54Z
-- commit: `b7d8b9bb9` (working tree dirty) on `HEAD`
+- generated: 2026-10-18 10:08:17Z
+- commit: `c6100c8f3` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest all`
-- rows: 104 — packet, cited paths and story commits first, lexical matches after
+- rows: 105 — packet, cited paths and story commits first, lexical matches after
 
 Read top-down. A row is a file to open, and the why column says why it is here.
 
@@ -74,6 +74,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/HANDOFF-main-site-2026-09-24.md` — index · top-level harness page · last touched untracked
 - `docs/agent/HANDOFF-ts-guards-to-rust-2026-09-29.md` — index · top-level harness page · last touched untracked
 - `docs/agent/HANDOFF-work-queue-inlet-2026-10-05.md` — index · top-level harness page · last touched 2026-10-06
+- `docs/agent/HARNESS-EVOLUTION-ARCHITECTURE.md` — index · top-level harness page · last touched untracked
 - `docs/agent/JJ-FOR-AGENTS.md` — index · top-level harness page · last touched 2026-10-16
 - `docs/agent/JJ-INTERFACE.md` — index · top-level harness page · last touched 2026-10-16
 - `docs/agent/LAYOUT.md` — index · top-level harness page · last touched 2026-10-16

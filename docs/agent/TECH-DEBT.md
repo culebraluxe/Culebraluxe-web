@@ -466,3 +466,58 @@ freshness/audits, Council calibration, and self-modification rails.
 **Not debt, by rule:** no new telemetry database (learn from durable Forge rows), no automatic
 authority promotion, and no learning agent that can publish or edit code.
 
+## Harness Evolution (Harness²-inspired) — v1 landed 2026-10-18
+
+Native Rust subsystem `forge/src/engine/harness_evolution/` (no Python sidecar, no new queue, no
+second telemetry store). Built by Architect/Lead/Smith/QA agents: Propose → Probe → Contrast →
+Compose → Forge Validate → Adopt/Reject → Reflect.
+
+**Landed:**
+- immutable harness revisions (`HarnessManifest` hash, `HarnessRevision::from_changes`, closed lifecycle);
+- protected-surface policy (`validate_candidate` rejects RED/authority/QA/production/tool-MCP/XML/
+  destructive changes BEFORE probing; adoption policy Adopt only for GREEN+clean, YELLOW→Council,
+  RED→Chris);
+- `HarnessCatalog` (atomic activate pointer, rollback to exact prior revision, one active per domain);
+- probe contract pinning full identity (+ mode/k/seed digest) and refusing production;
+- `HarnessExperiment` with k=1 default, injected Propose/Contrast/Compose/Validate/Probe stages, and
+  failure isolation (a failed experiment never touches the active harness);
+- adoption module (only caller of activate; explicit Reject/MoreEvidence/Council/Chris never move
+  the pointer);
+- behavioral contrast over 16 dimensions with identity-mismatch invalidation;
+- evidence-linked composition (may keep the base; successor immutable);
+- Forge validation gates (static policy, regression rails, replay, Phase 3 evidence) where a
+  contrast alone is insufficient;
+- domain-scoped experience library requiring contrast + complete validation, capped retrieval,
+  scope = domain+executor+mode+budget+seed;
+- additive migration `db/migrations/294_forge_harness_evolution.sql` (9 tables, FKs to existing
+  evidence, one-active-per-domain index) — **deliberately NOT applied** (migrations are human
+  holds per WO-07);
+- `docs/agent/HARNESS-EVOLUTION-ARCHITECTURE.md`; 162 module tests.
+
+**Remaining TD (the dependencies left for production use):**
+1. **Apply migration 294** explicitly per target (`pnpm db:migrate 294_forge_harness_evolution dev|prod`)
+   and add the DB-backed `RevisionStore`; v1 catalog/store is in-memory.
+2. **Real probe executor**: v1 has the contract + a deterministic `RecordedProbe`; the Forge/OpenCode
+   replay executor (historical task replay in a sandbox, evidence ids into existing tables) is next.
+3. **LLM proposer/editor**: v1 propose/compose are deterministic typed rules; wire an OpenCode/DSH
+   advisory turn to generate candidates under the same policy (never RED surfaces).
+4. **Phase 3 feed adapter**: read scorecard/learn findings/hypotheses into `ImprovementSignal`s and
+   write experiment outcomes back (no duplicate learning store).
+5. **Parallel/sequential recursion**: k>1 is expressible (budget/mode) but only k=1 executes.
+6. **CLI/operator surface** (`forge harness-evolution ...`) and activation visibility in the digest.
+7. **Automatic adoption** stays OFF until explicit GREEN-only policy has production evidence.
+8. **Validator seam (QA D3):** `experiment::ValidationContext` carries changed kinds + optional
+   successor but not the composed `ComponentChange` list, so the real Forge validation stage cannot
+   be wired to the `Validator` trait without a synthesized diff. Extend the trait to carry the
+   changes before connecting Forge regression rails/replay in production.
+9. **Durable-store transaction seam (QA D4):** `catalog.activate()` performs status writes before the
+   pointer swap; a future DB-backed store needs one transaction (or a two-phase commit) so a second
+   write failure cannot leave a status changed with the pointer unmoved. In-memory v1 cannot fail.
+   Also `HarnessRevision` fields are public: immutability is enforced by catalog checks/hash
+   verification, not the type system.
+
+QA D1 (adoption re-check with an empty change list / kind-floor-only adoption) and D2 (probe-reading
+id mismatch) were fixed before landing: adoption re-runs `policy::validate_candidate` with the
+canonical `changes_between` diff, and adoption classifies the effective authority of changed
+surfaces; module tests are 170/170.
+

@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-18 08:53:01Z
-- commit: `55234c655` (working tree dirty) on `HEAD`
+- generated: 2026-10-18 10:10:04Z
+- commit: `c6100c8f3` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest ENG-STRUCTURED-CONTRACTS-01`
 - rows: 18 — packet, cited paths and story commits first, lexical matches after
 
@@ -21,10 +21,10 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `lib/forge-kind.ts` **MISSING** — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched untracked
 - `lib/field-mediator.ts` **MISSING** — cited · cited by ENG-STRUCTURED-CONTRACTS-01 · last touched untracked
 - `docs/agent/OLD-ENGINE-CONTRACT-RESTORATION.md` — lexical · term match: absent, acceptance, agent, agents · last touched 2026-10-12
+- `docs/agent/TECH-DEBT.md` — lexical · term match: accept, acceptance, accepted, additive · last touched 2026-10-18
 - `docs/agent/RUNLOG.md` — lexical · term match: absent, acceptance, accepted, additive · last touched 2026-10-12
 - `docs/agent/HANDOFF-forge-pool-io-2026-09-29.md` — lexical · term match: absent, accepted, agent, agent-worker · last touched untracked
 - `docs/agent/ARCH-HANDOFF.md` — lexical · term match: absent, acceptance, agent, agent-worker · last touched 2026-10-12
 - `docs/agent/WORKFLOW-ARCHITECTURE.md` — lexical · term match: acceptance, accepted, agent, agents · last touched untracked
-- `docs/agent/TECH-DEBT.md` — lexical · term match: accept, acceptance, accepted, agent · last touched 2026-10-18
 - `docs/agent/mailbox/GROK-2026-09-16-mediator.md` — lexical · term match: 2026-09-16, accept, accepted, agents · last touched untracked
 - `docs/agent/HANDOFF-MERGE-QUEUE-2026-10-08.md` — lexical · term match: absent, additive, agent, agents · last touched 2026-10-12
