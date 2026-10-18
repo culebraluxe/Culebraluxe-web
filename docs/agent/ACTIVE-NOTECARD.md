@@ -39,9 +39,9 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
 
 | # | Item | status | scope |
 | --- | --- | --- | --- |
-| O1 | CLI `forge harness-evolution feed|metrics|calibration` (read-only, `--format json`) | OPEN | `cli/src/forge/harness_evolution.rs` |
-| O2 | `forge harness-evolution probe` entrypoint that records probe/contrast rows through the durable store | OPEN | CLI + `store_db.rs`/`probe_replay.rs` |
-| O3 | Digest lines: corrections awaiting root cause, calibration status, active experiment | OPEN | `scripts/orchestrate-status.py` |
+| O1 | CLI `forge harness-evolution feed|metrics|calibration` (read-only, `--format json`) | DONE (2026-10-18) | `cli/src/forge/harness_evolution.rs` |
+| O2 | `forge harness-evolution probe` entrypoint that records probe/contrast rows through the durable store | DONE (2026-10-18) | CLI + `store_db.rs`/`probe_replay.rs` |
+| O3 | Digest lines: corrections awaiting root cause, calibration status, active experiment | DONE (2026-10-18) | `scripts/orchestrate-status.py` |
 
 ## D. First real experiment
 
@@ -70,3 +70,6 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
   ledger->feed evidence adapter, writeback honesty, correction-key contract + boot gate,
   dogfood authorization/partial-load refusal, calibration provenance/label) — 1024 forge tests,
   63 db tests, gate PASS.
+- 2026-10-18: O1-O3 operator surface landed: CLI feed|metrics|calibration + probe entrypoint
+  (persists experiment/candidate/probes/contrast on DEV, cleans up), digest corrections/experiment/
+  calibration lines; CLI suite fixed (stale opencode config test) — 1030 forge, 63 db, 181 cli, gate PASS.

@@ -30,11 +30,13 @@ use db::{
 };
 use tokio::runtime::Runtime;
 
-use super::catalog::{ActivationPlan, ActivationKind, CatalogError, RevisionStore};
+use super::catalog::{ActivationKind, ActivationPlan, CatalogError, RevisionStore};
 use super::model::{
-    AuthorityClass, ComponentKind, HarnessDomain, HarnessManifest, HarnessRevision,
-    RevisionStatus,
+    AuthorityClass, ComponentKind, EvolutionBudget, EvolutionMode, HarnessDomain, HarnessManifest,
+    HarnessRevision, ProposalKind, RevisionStatus,
 };
+use super::policy;
+use super::probe_replay::{RecordedReplayOutcome, ReplayError, RevisionSource};
 
 /// A [`RevisionStore`] backed by the applied `forge_harness_*` tables.
 pub struct DbRevisionStore {
@@ -49,7 +51,9 @@ impl DbRevisionStore {
     /// Must be called outside an async runtime (it drives its own runtime to load).
     pub fn open(db: Database) -> Result<Self, CatalogError> {
         let runtime = Runtime::new().map_err(|error| {
-            CatalogError::Store(format!("no runtime for the durable revision store: {error}"))
+            CatalogError::Store(format!(
+                "no runtime for the durable revision store: {error}"
+            ))
         })?;
         let mut store = Self {
             dao: ForgeHarnessDao::new(db),
@@ -193,20 +197,138 @@ impl RevisionStore for DbRevisionStore {
         Ok(())
     }
 
-    fn current_activation(
-        &self,
-        domain: HarnessDomain,
-    ) -> Result<Option<String>, CatalogError> {
+    fn current_activation(&self, domain: HarnessDomain) -> Result<Option<String>, CatalogError> {
         self.durable_current(domain)
     }
 
-    fn last_activation_sequence(
-        &self,
-        domain: HarnessDomain,
-    ) -> Result<u64, CatalogError> {
+    fn last_activation_sequence(&self, domain: HarnessDomain) -> Result<u64, CatalogError> {
         let sequence = self.block_on(self.dao.last_activation_sequence(domain.id()))?;
         Ok(u64::try_from(sequence).unwrap_or(0))
     }
+}
+
+impl RevisionSource for DbRevisionStore {
+    fn revision(&self, revision_id: &str) -> Result<HarnessRevision, ReplayError> {
+        RevisionStore::get(self, revision_id)
+            .cloned()
+            .ok_or_else(|| ReplayError::UnknownRevision {
+                revision_id: revision_id.to_string(),
+            })
+    }
+}
+
+/// The experiment identity a recorded replay persists under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplayPersistenceMeta<'a> {
+    pub experiment_id: &'a str,
+    pub domain: HarnessDomain,
+    pub candidate_kind: ProposalKind,
+    pub mode: EvolutionMode,
+    pub budget: EvolutionBudget,
+    pub seed: u64,
+}
+
+/// The durable rows one completed replay writes. Built as pure values so the operator surface only
+/// calls the DAO insert methods; a shape mistake is a unit-test failure, not a partial write.
+#[derive(Debug, Clone)]
+pub struct ReplayPersistencePlan {
+    pub experiment: db::NewForgeHarnessExperiment,
+    pub candidate: db::NewForgeHarnessCandidate,
+    pub probes: Vec<db::NewForgeHarnessProbe>,
+    pub contrast: db::NewForgeHarnessContrast,
+}
+
+impl ReplayPersistencePlan {
+    pub fn experiment_id(&self) -> &str {
+        &self.experiment.experiment_id
+    }
+}
+
+/// Build the probe/candidate/contrast/experiment rows for a completed replay.
+///
+/// The plan is a projection of the replay outcome: candidate changes are the canonical
+/// base→candidate diff, probe rows carry each reading's durable evidence ids and the pinned spec,
+/// and the contrast row references the two probe ids. Nothing is invented: a field the replay did
+/// not produce stays `None`/empty rather than a placeholder.
+pub fn plan_replay_persistence(
+    meta: &ReplayPersistenceMeta<'_>,
+    outcome: &RecordedReplayOutcome,
+) -> Result<ReplayPersistencePlan, CatalogError> {
+    let experiment_id = meta.experiment_id.trim();
+    if experiment_id.is_empty() {
+        return Err(CatalogError::Store(
+            "a recorded replay needs a non-empty experiment id".into(),
+        ));
+    }
+    let changes = policy::changes_between(&outcome.base, &outcome.candidate);
+    let changes = serde_json::to_value(&changes).map_err(|error| {
+        CatalogError::Store(format!("composed changes are not serializable: {error}"))
+    })?;
+    let experiment = db::NewForgeHarnessExperiment {
+        experiment_id: experiment_id.to_string(),
+        domain: meta.domain.id().to_string(),
+        base_revision_id: outcome.base.id.clone(),
+        base_manifest_hash: outcome.base.manifest_hash.clone(),
+        mode: meta.mode.id().to_string(),
+        k: i32::try_from(meta.budget.k).unwrap_or(i32::MAX),
+        max_steps: i32::try_from(meta.budget.max_steps).unwrap_or(i32::MAX),
+        max_probes: i32::try_from(meta.budget.max_probes).unwrap_or(i32::MAX),
+        seed: i64::try_from(meta.seed).unwrap_or(i64::MAX),
+        state: "compared".to_string(),
+        successor_revision_id: None,
+        validation: None,
+    };
+    let candidate = db::NewForgeHarnessCandidate {
+        candidate_id: format!("{experiment_id}-candidate"),
+        experiment_id: experiment_id.to_string(),
+        base_revision_id: outcome.base.id.clone(),
+        proposal_kind: meta.candidate_kind.id().to_string(),
+        changes,
+        candidate_revision_id: Some(outcome.candidate.id.clone()),
+    };
+    let spec = serde_json::to_value(&outcome.spec)
+        .map_err(|error| CatalogError::Store(format!("probe spec is not serializable: {error}")))?;
+    let mut probes = Vec::with_capacity(2);
+    for (side, reading) in [
+        (super::probe::ProbeSide::Reference, &outcome.reference),
+        (
+            super::probe::ProbeSide::Candidate,
+            &outcome.candidate_reading,
+        ),
+    ] {
+        probes.push(db::NewForgeHarnessProbe {
+            probe_id: reading.outcome.probe_id.clone(),
+            experiment_id: experiment_id.to_string(),
+            candidate_revision_id: Some(outcome.candidate.id.clone()),
+            side: side.id().to_string(),
+            revision_id: reading.outcome.revision.clone(),
+            contract_digest: reading.outcome.contract_digest.clone(),
+            spec: spec.clone(),
+            evidence_id: Some(reading.outcome.evidence_id.clone()),
+            evidence_refs: serde_json::json!(reading.outcome.evidence_refs),
+            process_instance_id: None,
+            story_run_id: Some(outcome.task.run_id.clone()),
+            engine_task_id: None,
+        });
+    }
+    let contrast = db::NewForgeHarnessContrast {
+        contrast_id: outcome.contrast.id.clone(),
+        experiment_id: experiment_id.to_string(),
+        base_revision_id: outcome.base.id.clone(),
+        candidate_revision_id: outcome.candidate.id.clone(),
+        reference_probe_id: Some(outcome.reference.outcome.probe_id.clone()),
+        candidate_probe_id: Some(outcome.candidate_reading.outcome.probe_id.clone()),
+        report: serde_json::to_value(&outcome.contrast).map_err(|error| {
+            CatalogError::Store(format!("contrast report is not serializable: {error}"))
+        })?,
+        evidence_refs: serde_json::json!(outcome.contrast.evidence_refs),
+    };
+    Ok(ReplayPersistencePlan {
+        experiment,
+        candidate,
+        probes,
+        contrast,
+    })
 }
 
 /// Convert a model revision into the DAO's insert shape.
@@ -270,12 +392,13 @@ pub fn stored_revision(row: db::ForgeHarnessRevisionRow) -> Result<HarnessRevisi
             row.revision_id, row.status
         ))
     })?;
-    let manifest: HarnessManifest = serde_json::from_value(row.manifest.clone()).map_err(|error| {
-        CatalogError::Store(format!(
-            "stored revision {} manifest is not readable: {error}",
-            row.revision_id
-        ))
-    })?;
+    let manifest: HarnessManifest =
+        serde_json::from_value(row.manifest.clone()).map_err(|error| {
+            CatalogError::Store(format!(
+                "stored revision {} manifest is not readable: {error}",
+                row.revision_id
+            ))
+        })?;
     let revision = HarnessRevision {
         id: row.revision_id,
         parent_revision_id: row.parent_revision_id,
@@ -300,7 +423,10 @@ pub fn stored_revision_with_components(
     let revision = stored_revision(stored.revision)?;
     for component in &stored.components {
         let kind = component_kind_from_id(&component.kind).ok_or_else(|| {
-            CatalogError::Store(format!("component row names unknown kind {}", component.kind))
+            CatalogError::Store(format!(
+                "component row names unknown kind {}",
+                component.kind
+            ))
         })?;
         let authority = authority_from_id(&component.authority).ok_or_else(|| {
             CatalogError::Store(format!(
@@ -334,9 +460,7 @@ fn status_from_id(id: &str) -> Option<RevisionStatus> {
 }
 
 fn component_kind_from_id(id: &str) -> Option<ComponentKind> {
-    ComponentKind::ALL
-        .into_iter()
-        .find(|kind| kind.id() == id)
+    ComponentKind::ALL.into_iter().find(|kind| kind.id() == id)
 }
 
 fn authority_from_id(id: &str) -> Option<AuthorityClass> {
@@ -458,6 +582,334 @@ mod tests {
         assert_eq!(evidence.qa, QaVerdict::NotRun);
     }
 
+    fn replay_outcome() -> crate::engine::harness_evolution::probe_replay::RecordedReplayOutcome {
+        use crate::engine::harness_evolution::model::{
+            BehaviorEvidence, ProbeSpec, QaVerdict,
+        };
+        use crate::engine::harness_evolution::probe::{ProbeOutcome, ProbeReading, ProbeSide};
+        use crate::engine::harness_evolution::probe_replay::HistoricalTask;
+
+        let base = revision();
+        let candidate = HarnessRevision::draft(
+            "rev-2",
+            HarnessDomain::RustBackend,
+            base.manifest
+                .clone()
+                .with_component(prompt("candidate prompt")),
+            "owner",
+        )
+        .with_parent(Some("rev-1".to_string()));
+        let spec = ProbeSpec::new("forge-story:story-1", "rev-1", "rev-2")
+            .with_model("deepseek-chat")
+            .with_model_policy("default")
+            .with_executor("opencode")
+            .with_tools(Vec::new())
+            .with_environment_class(
+                crate::engine::harness_evolution::model::EnvironmentClass::Development,
+            )
+            .with_input_dataset("forge-harness-evolution")
+            .with_test_plan("cargo test -p forge")
+            .with_replay_id("replay-harness-evolution");
+        let digest = "0".repeat(64);
+        let reading = |probe_id: &str, side: ProbeSide, revision_id: &str| {
+            let mut behavior = BehaviorEvidence::new(format!("evidence-{probe_id}"), probe_id);
+            behavior.success = true;
+            behavior.tests_passed = 1;
+            behavior.qa = QaVerdict::Pass;
+            behavior.evidence_refs = vec![format!("sandbox-command:exec:{probe_id}")];
+            let outcome = ProbeOutcome {
+                probe_id: probe_id.into(),
+                side,
+                revision: revision_id.into(),
+                contract_digest: digest.clone(),
+                evidence_id: behavior.evidence_id.clone(),
+                evidence_refs: behavior.evidence_refs.clone(),
+            };
+            ProbeReading::new(outcome, behavior).expect("reading")
+        };
+        let reference = reading("probe-ref", ProbeSide::Reference, "rev-1");
+        let candidate_reading = reading("probe-cand", ProbeSide::Candidate, "rev-2");
+        let identity = spec.identity();
+        let report = crate::engine::harness_evolution::contrast::contrast(
+            "contrast-1",
+            "rev-1",
+            "rev-2",
+            &reference.behavior,
+            &candidate_reading.behavior,
+            &identity,
+            &identity,
+        )
+        .expect("contrast");
+        crate::engine::harness_evolution::probe_replay::RecordedReplayOutcome {
+            task: HistoricalTask::new("story-1", "run-1", "title", "packet"),
+            base,
+            candidate,
+            contract_digest: digest.clone(),
+            spec,
+            reference,
+            candidate_reading,
+            contrast: report,
+        }
+    }
+
+    #[test]
+    fn a_replay_persistence_plan_projects_real_rows_without_inventing_fields() {
+        let outcome = replay_outcome();
+        let meta = super::ReplayPersistenceMeta {
+            experiment_id: "exp-probe-1",
+            domain: HarnessDomain::RustBackend,
+            candidate_kind: crate::engine::harness_evolution::model::ProposalKind::Invariant,
+            mode: crate::engine::harness_evolution::model::EvolutionMode::Parallel,
+            budget: crate::engine::harness_evolution::model::EvolutionBudget::k1(),
+            seed: 7,
+        };
+        let plan = super::plan_replay_persistence(&meta, &outcome).expect("plan");
+        assert_eq!(plan.experiment.experiment_id, "exp-probe-1");
+        assert_eq!(plan.experiment.state, "compared");
+        assert_eq!(plan.experiment.domain, "rust-backend");
+        assert_eq!(plan.experiment.k, 1);
+        assert_eq!(plan.experiment.seed, 7);
+        assert_eq!(plan.candidate.proposal_kind, "invariant");
+        assert!(
+            plan.candidate
+                .changes
+                .as_array()
+                .is_some_and(|rows| !rows.is_empty()),
+            "candidate changes are the canonical base->candidate diff"
+        );
+        assert_eq!(
+            plan.candidate.candidate_revision_id.as_deref(),
+            Some("rev-2")
+        );
+        assert_eq!(plan.probes.len(), 2);
+        let reference = plan
+            .probes
+            .iter()
+            .find(|probe| probe.side == "reference")
+            .expect("reference probe");
+        assert_eq!(reference.revision_id, "rev-1");
+        assert_eq!(reference.evidence_id.as_deref(), Some("evidence-probe-ref"));
+        assert_eq!(reference.story_run_id.as_deref(), Some("run-1"));
+        assert_eq!(
+            reference.evidence_refs,
+            serde_json::json!(["sandbox-command:exec:probe-ref"])
+        );
+        assert_eq!(
+            plan.contrast.reference_probe_id.as_deref(),
+            Some("probe-ref")
+        );
+        assert_eq!(
+            plan.contrast.candidate_probe_id.as_deref(),
+            Some("probe-cand")
+        );
+        assert_eq!(plan.contrast.contrast_id, "contrast-1");
+    }
+
+    /// DEV smoke test for the O2 persistence path: insert a real experiment/candidate/probe/contrast
+    /// set through the DAO, read it back, then remove every row. Ignored by default (needs
+    /// DATABASE_URL_DEV); migration 294 is applied on DEV.
+    #[test]
+    #[ignore = "needs DATABASE_URL_DEV; keeps the unit suite database-free"]
+    fn dev_smoke_replay_persistence_rows_and_cleanup() {
+        use crate::engine::harness_evolution::model::{
+            BehaviorEvidence, HarnessDomain, ProbeSpec, QaVerdict,
+        };
+        use crate::engine::harness_evolution::probe::{ProbeOutcome, ProbeReading, ProbeSide};
+        use crate::engine::harness_evolution::probe_replay::HistoricalTask;
+
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let database = runtime
+            .block_on(db::Database::connect_target(db::DbTarget::Dev))
+            .expect("connect DEV");
+        let dao = db::ForgeHarnessDao::new(database.clone());
+        let suffix = uuid::Uuid::new_v4();
+        let base = HarnessRevision::draft(
+            format!("smoke-base-{suffix}"),
+            HarnessDomain::RustBackend,
+            HarnessManifest::from_components([prompt("base prompt")]),
+            "smoke",
+        );
+        let candidate = HarnessRevision::draft(
+            format!("smoke-cand-{suffix}"),
+            HarnessDomain::RustBackend,
+            base.manifest
+                .clone()
+                .with_component(prompt("candidate prompt")),
+            "smoke",
+        )
+        .with_parent(Some(base.id.clone()));
+        // probe.story_run_id is an FK to a real storyboard_story_run when present. Prefer a real
+        // DEV run id; if DEV has none, the plan's probe FK is nulled below rather than invented.
+        let existing_run: Option<String> = runtime
+            .block_on(async {
+                sqlx::query_scalar::<_, String>("select id::text from storyboard_story_run limit 1")
+                    .fetch_optional(database.pool())
+                    .await
+            })
+            .ok()
+            .flatten();
+        let run_id = existing_run
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let spec = ProbeSpec::new("forge-story:smoke", &base.id, &candidate.id)
+            .with_model("deepseek-chat")
+            .with_model_policy("default")
+            .with_executor("opencode")
+            .with_tools(Vec::new())
+            .with_environment_class(
+                crate::engine::harness_evolution::model::EnvironmentClass::Development,
+            )
+            .with_input_dataset("forge-harness-evolution")
+            .with_test_plan("cargo test -p forge")
+            .with_replay_id("replay-harness-evolution");
+        let digest = "0".repeat(64);
+        let reading = |probe_id: String, side: ProbeSide, revision_id: &str| {
+            let mut behavior = BehaviorEvidence::new(format!("evidence-{probe_id}"), &probe_id);
+            behavior.success = true;
+            behavior.qa = QaVerdict::Pass;
+            behavior.evidence_refs = vec![format!("sandbox-command:exec:{probe_id}")];
+            let outcome = ProbeOutcome {
+                probe_id: probe_id.clone(),
+                side,
+                revision: revision_id.into(),
+                contract_digest: digest.clone(),
+                evidence_id: behavior.evidence_id.clone(),
+                evidence_refs: behavior.evidence_refs.clone(),
+            };
+            ProbeReading::new(outcome, behavior).expect("reading")
+        };
+        let reference = reading(
+            format!("smoke-probe-ref-{suffix}"),
+            ProbeSide::Reference,
+            &base.id,
+        );
+        let candidate_reading = reading(
+            format!("smoke-probe-cand-{suffix}"),
+            ProbeSide::Candidate,
+            &candidate.id,
+        );
+        let identity = spec.identity();
+        let report = crate::engine::harness_evolution::contrast::contrast(
+            format!("smoke-contrast-{suffix}"),
+            &base.id,
+            &candidate.id,
+            &reference.behavior,
+            &candidate_reading.behavior,
+            &identity,
+            &identity,
+        )
+        .expect("contrast");
+        let outcome = crate::engine::harness_evolution::probe_replay::RecordedReplayOutcome {
+            task: HistoricalTask::new("smoke-story", &run_id, "smoke", "packet"),
+            base: base.clone(),
+            candidate: candidate.clone(),
+            contract_digest: digest,
+            spec,
+            reference,
+            candidate_reading,
+            contrast: report,
+        };
+        let experiment_id = format!("smoke-exp-{suffix}");
+        let meta = ReplayPersistenceMeta {
+            experiment_id: &experiment_id,
+            domain: HarnessDomain::RustBackend,
+            candidate_kind: crate::engine::harness_evolution::model::ProposalKind::Invariant,
+            mode: crate::engine::harness_evolution::model::EvolutionMode::Parallel,
+            budget: crate::engine::harness_evolution::model::EvolutionBudget::k1(),
+            seed: 0,
+        };
+        let mut rows = plan_replay_persistence(&meta, &outcome).expect("plan");
+        if existing_run.is_none() {
+            for probe in &mut rows.probes {
+                probe.story_run_id = None;
+            }
+        }
+
+        let outcome_result: Result<(), String> = (|| {
+            for revision in [&outcome.base, &outcome.candidate] {
+                let new =
+                    revision_to_new(revision).map_err(|error| format!("revision row: {error}"))?;
+                runtime
+                    .block_on(dao.insert_revision(&new))
+                    .map_err(|error| format!("insert revision: {error}"))?;
+            }
+            runtime
+                .block_on(dao.insert_experiment(&rows.experiment))
+                .map_err(|error| format!("insert experiment: {error}"))?;
+            runtime
+                .block_on(dao.insert_candidate(&rows.candidate))
+                .map_err(|error| format!("insert candidate: {error}"))?;
+            for probe in &rows.probes {
+                runtime
+                    .block_on(dao.insert_probe(probe))
+                    .map_err(|error| format!("insert probe: {error}"))?;
+            }
+            runtime
+                .block_on(dao.insert_contrast(&rows.contrast))
+                .map_err(|error| format!("insert contrast: {error}"))?;
+            let probes = runtime
+                .block_on(dao.list_probes(&experiment_id))
+                .map_err(|error| format!("read probes: {error}"))?;
+            if probes.len() != 2 {
+                return Err(format!("expected 2 probes, got {}", probes.len()));
+            }
+            let experiment = runtime
+                .block_on(dao.get_experiment(&experiment_id))
+                .map_err(|error| format!("read experiment: {error}"))?
+                .ok_or_else(|| "experiment missing after insert".to_string())?;
+            if experiment.state != "compared" {
+                return Err(format!("unexpected experiment state {}", experiment.state));
+            }
+            let contrasts = runtime
+                .block_on(dao.list_contrasts(&experiment_id))
+                .map_err(|error| format!("read contrasts: {error}"))?;
+            if contrasts.len() != 1 {
+                return Err(format!("expected 1 contrast, got {}", contrasts.len()));
+            }
+            Ok(())
+        })();
+
+        // Cleanup always runs, in FK order.
+        let cleanup = runtime.block_on(async {
+            sqlx::query("delete from forge_harness_contrast where experiment_id=$1")
+                .bind(&experiment_id)
+                .execute(database.pool())
+                .await?;
+            sqlx::query("delete from forge_harness_probe where experiment_id=$1")
+                .bind(&experiment_id)
+                .execute(database.pool())
+                .await?;
+            sqlx::query("delete from forge_harness_candidate where experiment_id=$1")
+                .bind(&experiment_id)
+                .execute(database.pool())
+                .await?;
+            for revision in [&outcome.candidate, &outcome.base] {
+                sqlx::query("delete from forge_harness_component where revision_id=$1")
+                    .bind(&revision.id)
+                    .execute(database.pool())
+                    .await?;
+            }
+            sqlx::query("delete from forge_harness_experiment where experiment_id=$1")
+                .bind(&experiment_id)
+                .execute(database.pool())
+                .await?;
+            // Children first: a child revision references its parent ON DELETE RESTRICT.
+            for revision in [&outcome.candidate, &outcome.base] {
+                sqlx::query("delete from forge_harness_revision where revision_id=$1")
+                    .bind(&revision.id)
+                    .execute(database.pool())
+                    .await?;
+            }
+            Ok::<(), sqlx::Error>(())
+        });
+        if let Err(error) = cleanup {
+            panic!("smoke cleanup failed: {error}");
+        }
+        if let Err(error) = outcome_result {
+            panic!("O2 persistence smoke failed: {error}");
+        }
+    }
+
     /// DEV smoke test: proves migration 294's tables exist and one revision can be inserted and read
     /// through the DAO, then removes the row. Ignored by default (needs DATABASE_URL_DEV):
     ///
@@ -474,12 +926,10 @@ mod tests {
             .expect("connect DEV");
         let tables = runtime
             .block_on(async {
-                sqlx::query_as::<_, (Option<String>,)>(
-                    "select to_regclass($1)::text",
-                )
-                .bind("public.forge_harness_revision")
-                .fetch_one(database.pool())
-                .await
+                sqlx::query_as::<_, (Option<String>,)>("select to_regclass($1)::text")
+                    .bind("public.forge_harness_revision")
+                    .fetch_one(database.pool())
+                    .await
             })
             .expect("table lookup");
         assert!(tables.0.is_some(), "migration 294 must be applied on DEV");
@@ -494,9 +944,9 @@ mod tests {
             store
                 .insert(revision.clone())
                 .map_err(|error| format!("insert: {error}"))?;
-            let read = store
-                .get(&revision_id)
-                .ok_or_else(|| "inserted revision missing from the write-through view".to_string())?;
+            let read = store.get(&revision_id).ok_or_else(|| {
+                "inserted revision missing from the write-through view".to_string()
+            })?;
             Ok((read.id.clone(), read.manifest_hash.clone()))
         })();
 

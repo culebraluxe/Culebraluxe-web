@@ -35,12 +35,14 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use super::catalog::HarnessCatalog;
+use super::contrast::contrast;
 use super::model::{
-    BehaviorEvidence, ComponentKind, EnvironmentClass, HarnessRevision, ProbeSpec,
+    BehaviorEvidence, ComponentKind, ContrastReport, EnvironmentClass, EvolutionBudget,
+    EvolutionMode, HarnessRevision, ProbeSpec,
 };
 use super::probe::{
     validate_matched_pair, ProbeContract, ProbeError, ProbeExecutor, ProbeOutcome,
-    ProbePairReading, ProbeReading, ProbeRequest, ProbeSide,
+    ProbePairReading, ProbePins, ProbeReading, ProbeRequest, ProbeSide,
 };
 
 /// Map the durable `storyboard_story_run.execution_environment` word to the model class.
@@ -106,6 +108,10 @@ pub enum ReplayError {
         probe_id: String,
         message: String,
     },
+    /// The two readings could not be contrasted (missing/shared evidence, identity drift, ...).
+    ContrastRefused {
+        message: String,
+    },
 }
 
 impl ReplayError {
@@ -123,6 +129,7 @@ impl ReplayError {
             Self::SandboxFailed { .. } => "replay_sandbox_failed",
             Self::EvidenceMissing { .. } => "replay_evidence_missing",
             Self::SandboxReadingRejected { .. } => "replay_reading_rejected",
+            Self::ContrastRefused { .. } => "replay_contrast_refused",
         }
     }
 }
@@ -142,10 +149,16 @@ impl fmt::Display for ReplayError {
             }
             Self::InvalidTask { message } => write!(f, "historical task is unusable: {message}"),
             Self::UnknownRevision { revision_id } => {
-                write!(f, "harness revision {revision_id} is not available to the replay")
+                write!(
+                    f,
+                    "harness revision {revision_id} is not available to the replay"
+                )
             }
             Self::HarnessMaterialization { revision, message } => {
-                write!(f, "cannot materialize harness revision {revision}: {message}")
+                write!(
+                    f,
+                    "cannot materialize harness revision {revision}: {message}"
+                )
             }
             Self::ProductionRefused { environment_class } => write!(
                 f,
@@ -153,7 +166,10 @@ impl fmt::Display for ReplayError {
                 environment_class.id()
             ),
             Self::UnmatchedPair { message } => {
-                write!(f, "replay refused an unmatched reference/candidate pair: {message}")
+                write!(
+                    f,
+                    "replay refused an unmatched reference/candidate pair: {message}"
+                )
             }
             Self::SandboxRefused { sandbox, message } => {
                 write!(f, "sandbox {sandbox} refused to execute: {message}")
@@ -168,6 +184,9 @@ impl fmt::Display for ReplayError {
                 f,
                 "probe {probe_id} sandbox reading is inconsistent: {message}"
             ),
+            Self::ContrastRefused { message } => {
+                write!(f, "replay contrast was refused: {message}")
+            }
         }
     }
 }
@@ -177,9 +196,11 @@ impl std::error::Error for ReplayError {}
 impl From<ReplayError> for ProbeError {
     fn from(error: ReplayError) -> Self {
         match error {
-            ReplayError::ProductionRefused { environment_class } => Self::Evolution(
-                super::model::EvolutionError::ProductionProbeForbidden { environment_class },
-            ),
+            ReplayError::ProductionRefused { environment_class } => {
+                Self::Evolution(super::model::EvolutionError::ProductionProbeForbidden {
+                    environment_class,
+                })
+            }
             ReplayError::EvidenceMissing { probe_id, .. } => Self::MissingEvidence { probe_id },
             ReplayError::SandboxRefused { .. }
             | ReplayError::SandboxFailed { .. }
@@ -286,7 +307,12 @@ impl HistoricalTask {
             format!("storyboard_story_run:{}", self.run_id),
             format!("storyboard_story:{}", self.story_id),
         ];
-        if let Some(sha) = self.packet_sha.as_deref().map(str::trim).filter(|sha| !sha.is_empty()) {
+        if let Some(sha) = self
+            .packet_sha
+            .as_deref()
+            .map(str::trim)
+            .filter(|sha| !sha.is_empty())
+        {
             refs.push(format!("storyboard_story_run:{}:packet:{sha}", self.run_id));
         }
         self.evidence_refs = refs;
@@ -371,12 +397,12 @@ impl MapRevisionSource {
     }
 
     pub fn insert(&mut self, revision: HarnessRevision) -> Result<(), ReplayError> {
-        revision.verify_integrity().map_err(|error| {
-            ReplayError::HarnessMaterialization {
+        revision
+            .verify_integrity()
+            .map_err(|error| ReplayError::HarnessMaterialization {
                 revision: revision.id.clone(),
                 message: error.to_string(),
-            }
-        })?;
+            })?;
         self.revisions.insert(revision.id.clone(), revision);
         Ok(())
     }
@@ -515,8 +541,9 @@ impl ReplaySandbox for UnavailableSandbox {
         assert_non_production_environment(request.environment_class)?;
         Err(ReplayError::SandboxRefused {
             sandbox: "unavailable".into(),
-            message: "no non-production sandbox runtime is wired in this build; inject a ReplaySandbox"
-                .into(),
+            message:
+                "no non-production sandbox runtime is wired in this build; inject a ReplaySandbox"
+                    .into(),
         })
     }
 }
@@ -594,9 +621,11 @@ impl<'a> ReplayProbeExecutor<'a> {
                 message: error.to_string(),
             },
         )?;
-        contract.validate().map_err(|error| ReplayError::UnmatchedPair {
-            message: error.to_string(),
-        })?;
+        contract
+            .validate()
+            .map_err(|error| ReplayError::UnmatchedPair {
+                message: error.to_string(),
+            })?;
 
         let reference = self.execute_replay(
             &contract.reference_request(format!("{}-reference", contract.experiment_id)),
@@ -737,11 +766,145 @@ pub fn replay_spec_for(
         .with_replay_id("replay-harness-evolution")
 }
 
+/// One recorded replay probe request: the operator surface's O2 input.
+///
+/// It pins exactly what a reproducible probe needs (the [`ProbePins`] identity plus the recursion
+/// mode/budget/seed) and names the two durable revisions under test. Nothing here grants authority:
+/// the sandbox still executes in a non-production class and the executor still refuses production.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedReplayRequest {
+    pub experiment_id: String,
+    pub pins: ProbePins,
+    pub mode: EvolutionMode,
+    pub budget: EvolutionBudget,
+    pub seed: u64,
+    pub base_revision: String,
+    pub candidate_revision: String,
+    pub task_request: HistoricalTaskRequest,
+}
+
+/// What a dry run produces: the loaded task, both revisions and the pinned contract. No sandbox is
+/// touched, nothing is written.
+#[derive(Debug)]
+pub struct RecordedReplayPlan {
+    pub task: HistoricalTask,
+    pub base: HarnessRevision,
+    pub candidate: HarnessRevision,
+    pub contract: ProbeContract,
+}
+
+impl RecordedReplayPlan {
+    pub fn contract_digest(&self) -> String {
+        self.contract.digest()
+    }
+}
+
+/// What a completed replay produces: both readings and the behavioral contrast. The caller records
+/// these rows through the durable DAO; this module never writes.
+#[derive(Debug)]
+pub struct RecordedReplayOutcome {
+    pub task: HistoricalTask,
+    pub base: HarnessRevision,
+    pub candidate: HarnessRevision,
+    pub contract_digest: String,
+    /// The pinned spec both executions ran under (persisted as the probe row's `spec`).
+    pub spec: ProbeSpec,
+    pub reference: ProbeReading,
+    pub candidate_reading: ProbeReading,
+    pub contrast: ContrastReport,
+}
+
+fn recorded_contract(
+    request: &RecordedReplayRequest,
+    revisions: &dyn RevisionSource,
+) -> Result<(HarnessRevision, HarnessRevision, ProbeContract), ReplayError> {
+    // Production is refused before a revision is read, let alone a sandbox reached.
+    assert_non_production_environment(request.pins.environment_class)?;
+    let base = revisions.revision(&request.base_revision)?;
+    let candidate = revisions.revision(&request.candidate_revision)?;
+    let contract = ProbeContract::new(
+        request.experiment_id.clone(),
+        &base,
+        &candidate,
+        request.pins.clone(),
+        request.mode,
+        request.budget,
+        request.seed,
+    )
+    .map_err(|error| ReplayError::UnmatchedPair {
+        message: error.to_string(),
+    })?;
+    contract
+        .validate()
+        .map_err(|error| ReplayError::UnmatchedPair {
+            message: error.to_string(),
+        })?;
+    Ok((base, candidate, contract))
+}
+
+/// Dry run: load the historical task and build the pinned contract, executing nothing.
+pub fn plan_recorded_replay(
+    loader: &dyn HistoricalTaskLoader,
+    revisions: &dyn RevisionSource,
+    request: &RecordedReplayRequest,
+) -> Result<RecordedReplayPlan, ReplayError> {
+    let (base, candidate, contract) = recorded_contract(request, revisions)?;
+    let task = loader.load(&request.task_request)?;
+    task.validate()?;
+    Ok(RecordedReplayPlan {
+        task,
+        base,
+        candidate,
+        contract,
+    })
+}
+
+/// One complete recorded replay: both matched executions plus the behavioral contrast.
+///
+/// The pair is validated before the loader/sandbox runs (via `execute_pair`); a sandbox that
+/// returns no durable evidence is refused by the executor; a pair whose readings cannot be
+/// contrasted is a [`ReplayError::ContrastRefused`], not a silent skip.
+pub fn run_recorded_replay(
+    loader: &dyn HistoricalTaskLoader,
+    sandbox: &dyn ReplaySandbox,
+    revisions: &dyn RevisionSource,
+    request: &RecordedReplayRequest,
+) -> Result<RecordedReplayOutcome, ReplayError> {
+    let (base, candidate, contract) = recorded_contract(request, revisions)?;
+    let executor =
+        ReplayProbeExecutor::new(loader, sandbox, revisions, request.task_request.clone());
+    let pair = executor.execute_pair(&contract)?;
+    let reference_identity = contract.reference_spec().identity();
+    let candidate_identity = contract.candidate_spec().identity();
+    let report = contrast(
+        format!("{}-contrast", contract.experiment_id),
+        base.id.clone(),
+        candidate.id.clone(),
+        &pair.reference.behavior,
+        &pair.candidate.behavior,
+        &reference_identity,
+        &candidate_identity,
+    )
+    .map_err(|error| ReplayError::ContrastRefused {
+        message: error.to_string(),
+    })?;
+    Ok(RecordedReplayOutcome {
+        task: executor.load_task()?,
+        base,
+        candidate,
+        contract_digest: pair.contract_digest,
+        spec: contract.spec().clone(),
+        reference: pair.reference,
+        candidate_reading: pair.candidate,
+        contrast: report,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::engine::harness_evolution::model::{
-        Component, EvolutionMode, EvolutionBudget, HarnessDomain, HarnessManifest, QaVerdict,
+        Component, EvolutionBudget, EvolutionMode, HarnessDomain, HarnessManifest, QaVerdict,
     };
     use crate::engine::harness_evolution::probe::ProbePins;
     use std::cell::Cell;
@@ -917,12 +1080,12 @@ mod tests {
             environment_class_for(Some("DEV")),
             EnvironmentClass::Development
         );
-        assert_eq!(environment_class_for(Some("LOCAL")), EnvironmentClass::Sandbox);
-        assert_eq!(environment_class_for(Some("TEST")), EnvironmentClass::Ci);
         assert_eq!(
-            environment_class_for(None),
-            EnvironmentClass::Development
+            environment_class_for(Some("LOCAL")),
+            EnvironmentClass::Sandbox
         );
+        assert_eq!(environment_class_for(Some("TEST")), EnvironmentClass::Ci);
+        assert_eq!(environment_class_for(None), EnvironmentClass::Development);
         assert_eq!(
             environment_class_for(Some("a-typo")),
             EnvironmentClass::Development
@@ -944,7 +1107,9 @@ mod tests {
         // The historical environment is metadata, not the execution class.
         assert!(task.source_environment.is_production());
         task.validate().expect("valid task");
-        assert!(HistoricalTask::new("story-1", "run-1", "", " ").validate().is_err());
+        assert!(HistoricalTask::new("story-1", "run-1", "", " ")
+            .validate()
+            .is_err());
     }
 
     #[test]
@@ -953,12 +1118,7 @@ mod tests {
         pins.environment_class = EnvironmentClass::Production;
         // A production contract cannot even be constructed; build the request directly to prove
         // the executor is the second line of defence.
-        let spec = replay_spec_for(
-            "task-1",
-            "base-1",
-            "cand-1",
-            EnvironmentClass::Production,
-        );
+        let spec = replay_spec_for("task-1", "base-1", "cand-1", EnvironmentClass::Production);
         let request = ProbeRequest {
             probe_id: "probe-prod".into(),
             side: ProbeSide::Reference,
@@ -978,7 +1138,10 @@ mod tests {
         let error = executor.execute_replay(&request).unwrap_err();
         assert_eq!(error.code(), "replay_production_refused");
         assert_eq!(loader.loads(), 0, "no loader call for a production probe");
-        assert!(sandbox.calls().is_empty(), "no sandbox call for a production probe");
+        assert!(
+            sandbox.calls().is_empty(),
+            "no sandbox call for a production probe"
+        );
         // The same refusal survives the ProbeExecutor seam as a typed Evolution error.
         let probe_error = ProbeExecutor::execute(&executor, &request).unwrap_err();
         assert_eq!(
@@ -1012,7 +1175,10 @@ mod tests {
         let reading = executor.execute_replay(&request).expect("sandbox replay");
         assert_eq!(reading.outcome.evidence_id, "sandbox-evidence-1");
         assert_eq!(reading.behavior.probe_id, "probe-ref");
-        assert_eq!(reading.outcome.evidence_refs, reading.behavior.evidence_refs);
+        assert_eq!(
+            reading.outcome.evidence_refs,
+            reading.behavior.evidence_refs
+        );
         assert!(reading
             .outcome
             .evidence_refs
@@ -1298,7 +1464,10 @@ mod tests {
         assert_eq!(pair.reference.outcome.revision, "base-1");
         assert_eq!(pair.candidate.outcome.side, ProbeSide::Candidate);
         assert_eq!(pair.candidate.outcome.revision, "cand-1");
-        assert_ne!(pair.reference.outcome.evidence_id, pair.candidate.outcome.evidence_id);
+        assert_ne!(
+            pair.reference.outcome.evidence_id,
+            pair.candidate.outcome.evidence_id
+        );
         let calls = sandbox.calls();
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0].0, ProbeSide::Reference);
@@ -1342,5 +1511,110 @@ mod tests {
                 .code(),
             "replay_production_refused"
         );
+    }
+
+    fn recorded_request(pins: ProbePins) -> RecordedReplayRequest {
+        RecordedReplayRequest {
+            experiment_id: "exp-1".into(),
+            pins,
+            mode: EvolutionMode::Parallel,
+            budget: EvolutionBudget::k1(),
+            seed: 0,
+            base_revision: "base-1".into(),
+            candidate_revision: "cand-1".into(),
+            task_request: HistoricalTaskRequest::for_story("story-1"),
+        }
+    }
+
+    fn recorded_sandbox() -> FakeSandbox {
+        FakeSandbox::with_readings(vec![
+            SandboxReading::new(behavior("evidence-reference", vec!["sandbox:reference"])),
+            SandboxReading::new(behavior("evidence-candidate", vec!["sandbox:candidate"])),
+        ])
+    }
+
+    #[test]
+    fn recorded_plan_is_read_only_and_loads_without_executing() {
+        let loader = StubLoader::returning(task());
+        let revisions = revisions();
+        let request = recorded_request(ProbePins::development("task-1"));
+        let plan = plan_recorded_replay(&loader, &revisions, &request).expect("plan");
+        assert_eq!(plan.task.story_id, "story-1");
+        assert_eq!(plan.base.id, "base-1");
+        assert_eq!(plan.candidate.id, "cand-1");
+        assert_eq!(plan.contract_digest().len(), 64);
+        assert_eq!(loader.loads(), 1, "the plan loads the historical task");
+    }
+
+    #[test]
+    fn recorded_plan_refuses_production_before_loader_or_revision() {
+        let mut pins = ProbePins::development("task-1");
+        pins.environment_class = EnvironmentClass::Production;
+        let loader = StubLoader::returning(task());
+        let revisions = revisions();
+        let request = recorded_request(pins);
+        let error = plan_recorded_replay(&loader, &revisions, &request).unwrap_err();
+        assert_eq!(error.code(), "replay_production_refused");
+        assert_eq!(loader.loads(), 0, "production is refused before the loader");
+    }
+
+    #[test]
+    fn a_recorded_run_pairs_readings_and_builds_a_behavioral_contrast() {
+        let loader = StubLoader::returning(task());
+        let sandbox = recorded_sandbox();
+        let revisions = revisions();
+        let request = recorded_request(ProbePins::development("task-1"));
+        let outcome =
+            run_recorded_replay(&loader, &sandbox, &revisions, &request).expect("recorded run");
+        assert_eq!(outcome.contrast.base_revision, "base-1");
+        assert_eq!(outcome.contrast.candidate_revision, "cand-1");
+        assert_eq!(outcome.contrast.dimensions.len(), 16);
+        assert_eq!(outcome.contract_digest.len(), 64);
+        assert_eq!(
+            outcome.reference.outcome.probe_id,
+            "exp-1-reference".to_string()
+        );
+        assert_eq!(
+            outcome.candidate_reading.outcome.probe_id,
+            "exp-1-candidate".to_string()
+        );
+        for evidence in [
+            "storyboard_story_run:run-1",
+            "storyboard_story:story-1",
+            "sandbox:reference",
+            "sandbox:candidate",
+        ] {
+            assert!(
+                outcome
+                    .contrast
+                    .evidence_refs
+                    .contains(&evidence.to_string()),
+                "contrast must link {evidence}: {:?}",
+                outcome.contrast.evidence_refs
+            );
+        }
+        assert_eq!(sandbox.calls().len(), 2, "reference and candidate executed");
+    }
+
+    #[test]
+    fn a_recorded_run_refuses_an_unknown_revision_before_the_sandbox() {
+        let loader = StubLoader::returning(task());
+        let sandbox = FakeSandbox::default();
+        let revisions = revisions();
+        let mut request = recorded_request(ProbePins::development("task-1"));
+        request.base_revision = "missing-revision".into();
+        let error = run_recorded_replay(&loader, &sandbox, &revisions, &request).unwrap_err();
+        assert_eq!(error.code(), "replay_unknown_revision");
+        assert!(sandbox.calls().is_empty(), "no execution without revisions");
+    }
+
+    #[test]
+    fn a_recorded_run_surfaces_a_sandbox_refusal_instead_of_a_partial_contrast() {
+        let loader = StubLoader::returning(task());
+        let sandbox = FakeSandbox::default(); // no readings queued
+        let revisions = revisions();
+        let request = recorded_request(ProbePins::development("task-1"));
+        let error = run_recorded_replay(&loader, &sandbox, &revisions, &request).unwrap_err();
+        assert_eq!(error.code(), "replay_sandbox_failed");
     }
 }

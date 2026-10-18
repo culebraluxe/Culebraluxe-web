@@ -9,7 +9,8 @@ claimed by the Forge engine/worker, a HOLD is resolved through the HOLD path, a 
 
     scripts/orchestrate-status.sh                 # human summary
     scripts/orchestrate-status.sh --format json   # the decision packet as JSON
-    scripts/orchestrate-status.sh --digest        # one-page daily digest (stuck claims, HOLDs, failures)
+    scripts/orchestrate-status.sh --digest        # one-page daily digest (stuck claims, HOLDs, failures,
+                                                 # corrections, active experiment, calibration)
 
 The digest is one page and actionable. Its thresholds, defined here rather than implied:
 
@@ -19,6 +20,14 @@ The digest is one page and actionable. Its thresholds, defined here rather than 
     second definition of "stale".
   * FAILED — `agent_work_item.state = 'Error'` whose `finished_at` (or `updated_at`) is within 24 hours.
   * HOLDS — unresolved `forge_hold_record` rows, grouped by story and reason with repeat counts.
+  * CORRECTIONS — `forge_correction_ledger` (migration 295) rows with no stated root cause that have
+    not become a permanent rule, grouped by lane. This is the correction -> rail backlog, read-only.
+  * EXPERIMENT — `forge_harness_experiment` (migration 294) rows still in a non-terminal state,
+    newest first, with the stage they failed at when they did.
+  * CALIBRATION — read from an OPTIONAL report artifact (never computed here, never invented):
+    `$CULEBRALUXE_CALIBRATION_REPORT`, else `runs/harness-evolution/calibration-latest.json`, else
+    `experiments/harness-evolution/calibration-latest.json`. With no artifact the line says
+    NOT CAPTURED; a report's own label/scored/samples/brier are printed verbatim.
 
 Requires the repo's `.env.local` (DATABASE_URL_PROD etc.) and the `cli` crate; `--target prod` is
 explicit because a read that does not name its database is a read nobody can trust.
@@ -28,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -43,6 +53,16 @@ MAX_HOLD_GROUPS = 10
 MAX_FAILURE_LINES = 5
 MAX_DECISION_LINES = 5
 MAX_CANDIDATE_LINES = 3
+MAX_CORRECTION_LANES = 5
+MAX_EXPERIMENT_LINES = 5
+
+# The repository root (this file is scripts/orchestrate-status.py). Used only to look for the optional
+# calibration report artifact; the digest never writes it.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CALIBRATION_REPORT_PATHS = (
+    "runs/harness-evolution/calibration-latest.json",
+    "experiments/harness-evolution/calibration-latest.json",
+)
 
 QUERIES = {
     "work": """
@@ -133,6 +153,25 @@ DIGEST_QUERIES = {
          where status = 'candidate'
          order by created_at desc
     """,
+    # Correction -> rail backlog (migration 295). A correction with no stated root cause that has
+    # not become a permanent rule is the work the learning loop has not closed yet.
+    "corrections_open": """
+        select lane, count(*) as corrections, min(created_at) as oldest
+          from forge_correction_ledger
+         where root_cause is null
+           and permanent_rule_created = false
+         group by lane
+         order by count(*) desc, lane
+    """,
+    # Harness Evolution experiments that have not reached a terminal state (migration 294).
+    "active_experiments": """
+        select experiment_id, domain, state, base_revision_id, successor_revision_id,
+               failure_stage, failure_code, updated_at
+          from forge_harness_experiment
+         where state not in ('adopted', 'rejected', 'failed', 'superseded', 'rolled_back')
+         order by updated_at desc
+         limit 5
+    """,
 }
 
 
@@ -171,6 +210,67 @@ def forge_sql(sql: str, target: str) -> list[dict]:
     return payload.get("result", [])
 
 
+def forge_sql_optional(sql: str, target: str, label: str) -> tuple[list[dict] | None, str | None]:
+    """Read a digest section that may legitimately be unavailable (e.g. migration not yet applied).
+
+    A missing table must not blank the whole daily digest: the section reports "unavailable" and the
+    rest of the digest still prints. Every other query keeps the strict `forge_sql` behavior."""
+    try:
+        return forge_sql(sql, target), None
+    except StatusError as error:
+        return None, f"{label} unavailable: {error}"
+
+
+def read_calibration_status() -> dict:
+    """Read the OPTIONAL calibration report artifact.
+
+    The digest never computes a Brier score: a score is a report's claim with the report's label,
+    sample count and provenance. No artifact -> NOT CAPTURED, never a fabricated 0.0."""
+    searched: list[str] = []
+    configured = (os.environ.get("CULEBRALUXE_CALIBRATION_REPORT") or "").strip()
+    candidates = ([configured] if configured else []) + [
+        os.path.join(REPO_ROOT, relative) for relative in CALIBRATION_REPORT_PATHS
+    ]
+    for path in candidates:
+        searched.append(path)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, json.JSONDecodeError) as error:
+            return {
+                "available": False,
+                "status": "NOT CAPTURED",
+                "reason": f"report {path} is unreadable: {error}",
+                "searched": searched,
+            }
+        if not isinstance(payload, dict):
+            return {
+                "available": False,
+                "status": "NOT CAPTURED",
+                "reason": f"report {path} is not a JSON object",
+                "searched": searched,
+            }
+        return {
+            "available": True,
+            "path": path,
+            "label": payload.get("label") or "decision calibration (blended across verdicts)",
+            "brier": payload.get("brier"),
+            "scored": payload.get("scored"),
+            "samples": payload.get("samples"),
+            "missing_outcomes": payload.get("missing_outcomes"),
+            "missing_probabilities": payload.get("missing_probabilities"),
+            "missing_both": payload.get("missing_both"),
+        }
+    return {
+        "available": False,
+        "status": "NOT CAPTURED",
+        "reason": "no calibration report artifact found",
+        "searched": searched,
+    }
+
+
 def build_packet(target: str) -> dict:
     rows = {name: forge_sql(sql, target) for name, sql in QUERIES.items()}
     work = rows["work"]
@@ -196,7 +296,17 @@ def build_packet(target: str) -> dict:
 
 def build_digest(target: str) -> dict:
     """The one-page daily digest: only the facts that change today's action."""
-    rows = {name: forge_sql(sql, target) for name, sql in DIGEST_QUERIES.items()}
+    rows = {
+        name: forge_sql(sql, target)
+        for name, sql in DIGEST_QUERIES.items()
+        if name not in ("corrections_open", "active_experiments")
+    }
+    corrections_open, corrections_unavailable = forge_sql_optional(
+        DIGEST_QUERIES["corrections_open"], target, "correction ledger"
+    )
+    active_experiments, experiments_unavailable = forge_sql_optional(
+        DIGEST_QUERIES["active_experiments"], target, "harness experiments"
+    )
     work = forge_sql(QUERIES["work"], target)
     ready = [item for item in work if item.get("state") == "Ready"]
     active = [item for item in work if item.get("state") in ("Claimed", "Running")]
@@ -215,6 +325,11 @@ def build_digest(target: str) -> dict:
         "decisions": rows["decisions"],
         "candidates": rows["candidates"],
         "active_harnesses": rows["harness"],
+        "corrections_open": corrections_open or [],
+        "corrections_unavailable": corrections_unavailable,
+        "active_experiments": active_experiments or [],
+        "experiments_unavailable": experiments_unavailable,
+        "calibration": read_calibration_status(),
     }
 
 
@@ -354,6 +469,63 @@ def print_digest(digest: dict) -> None:
             )
     else:
         print("HARNESS   no active harness revision (optimizer not adopted anything)")
+
+    corrections = digest["corrections_open"]
+    if digest.get("corrections_unavailable"):
+        print(f"CORRECTIONS unavailable — {digest['corrections_unavailable']}")
+    elif corrections:
+        total = sum(int(row.get("corrections") or 0) for row in corrections)
+        print(
+            f"CORRECTIONS {total} awaiting root cause across {len(corrections)} lane(s) "
+            "(no permanent rule yet)"
+        )
+        for row in corrections[:MAX_CORRECTION_LANES]:
+            print(
+                f"  {row.get('lane')}  {row.get('corrections')}×  "
+                f"oldest {_short(row.get('oldest'), 20)}"
+            )
+        if len(corrections) > MAX_CORRECTION_LANES:
+            print(f"  … {len(corrections) - MAX_CORRECTION_LANES} more lane(s)")
+    else:
+        print("CORRECTIONS none awaiting root cause")
+
+    experiments = digest["active_experiments"]
+    if digest.get("experiments_unavailable"):
+        print(f"EXPERIMENT unavailable — {digest['experiments_unavailable']}")
+    elif experiments:
+        print(f"EXPERIMENT {len(experiments)} in a non-terminal state")
+        for experiment in experiments[:MAX_EXPERIMENT_LINES]:
+            failure = ""
+            if experiment.get("failure_stage") or experiment.get("failure_code"):
+                failure = (
+                    f"  failed at {experiment.get('failure_stage') or '?'}"
+                    f"/{experiment.get('failure_code') or '?'}"
+                )
+            print(
+                f"  {experiment.get('experiment_id')}  {experiment.get('domain')}  "
+                f"{experiment.get('state')}  {_short(experiment.get('updated_at'), 20)}{failure}"
+            )
+        if len(experiments) > MAX_EXPERIMENT_LINES:
+            print(f"  … {len(experiments) - MAX_EXPERIMENT_LINES} more")
+    else:
+        print("EXPERIMENT none active (no non-terminal harness experiment)")
+
+    calibration = digest["calibration"]
+    if calibration.get("available"):
+        brier = calibration.get("brier")
+        # A report with no scorable samples carries null brier; that is NOT SCORED, never 0.
+        brier_text = f"{brier:.4f}" if isinstance(brier, (int, float)) else "NOT SCORED"
+        print(
+            f"CALIBRATION brier={brier_text} scored={calibration.get('scored')} "
+            f"samples={calibration.get('samples')} "
+            f"({calibration.get('label')}; {_short(calibration.get('path'), 80)})"
+        )
+    else:
+        print(
+            f"CALIBRATION {calibration.get('status')} "
+            f"({calibration.get('reason')}; set CULEBRALUXE_CALIBRATION_REPORT or write "
+            f"{CALIBRATION_REPORT_PATHS[0]})"
+        )
 
     failures = digest["failures"]
     if failures:

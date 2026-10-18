@@ -157,8 +157,11 @@ mod tests {
         assert_eq!(parsed["snapshot"], serde_json::Value::Bool(false));
         assert_eq!(
             parsed["agent"].as_object().map(|agents| agents.len()),
-            Some(forge::engine::opencode_agents::V2_AGENT_PROFILES.len()),
-            "every profile must be published, or `--agent <name>` names an agent the file never defines"
+            Some(
+                forge::engine::opencode_agents::V2_AGENT_PROFILES.len()
+                    + forge::engine::opencode_agents::ADVISORY_AGENT_PROFILES.len()
+            ),
+            "every base and advisory profile must be published, or `--agent <name>` names an agent the file never defines"
         );
         assert!(
             rendered.ends_with('\n'),
