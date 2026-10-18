@@ -33,6 +33,7 @@ pub mod repo_guards;
 pub mod reset;
 pub mod roi;
 pub mod salvage;
+pub mod scorecard;
 pub mod secret_shapes;
 pub mod sql;
 pub mod sync_agents;
@@ -95,7 +96,7 @@ impl std::error::Error for Failure {}
 
 /// The command list the dispatcher prints when it is asked for something it does not know. Kept as one
 /// constant so the usage text a reader sees and the test that proves a command is advertised cannot drift.
-const FORGE_USAGE: &str = "forge <harness-lint|guard-lint|sync-agents|build-info|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|sql|salvage|reset|recover|clean> [options]";
+const FORGE_USAGE: &str = "forge <harness-lint|guard-lint|sync-agents|build-info|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|scorecard|sql|salvage|reset|recover|clean> [options]";
 
 pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
     match args.first().map(String::as_str).unwrap_or_default() {
@@ -135,6 +136,11 @@ pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
         // The session rollup: read-only, one query, and it names the database it read (a cost figure
         // without its environment is a figure someone will quote about the wrong one).
         "roi" => roi::run(args).await,
+        // The scorecard: per-role/agent outcomes read-only from the durable run rows, with the HOLD ledger
+        // beside them. The read boundary is `db::forge_read`, the rules are `forge::scorecard`, and the
+        // command can name its database (`--target`) instead of inheriting APP_ENV — a scorecard is often a
+        // comparison, and a comparison between two databases needs both named.
+        "scorecard" => scorecard::run(args).await,
         // The writer. Its guard rails (PROD only, --force, a positive stale window) are checked before
         // anything touches the database.
         "reset" | "recover" | "clean" => reset::run(&forward_reset_args(args)).await,
@@ -262,6 +268,14 @@ mod tests {
         assert!(
             FORGE_USAGE.contains("build-info"),
             "the dispatcher usage must name build-info: {FORGE_USAGE}"
+        );
+    }
+
+    #[test]
+    fn the_usage_lists_scorecard() {
+        assert!(
+            FORGE_USAGE.contains("scorecard"),
+            "the dispatcher usage must name scorecard: {FORGE_USAGE}"
         );
     }
 

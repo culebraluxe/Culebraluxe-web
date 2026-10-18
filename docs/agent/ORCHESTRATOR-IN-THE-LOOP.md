@@ -21,7 +21,39 @@ existing read-only verb `forge sql` (single SELECT, `begin read only`, no writes
 ```sh
 scripts/orchestrate-status.sh                 # human summary
 scripts/orchestrate-status.sh --format json   # decision packet
+scripts/orchestrate-status.sh --digest        # one-page daily digest
 ```
+
+## Daily digest
+
+`scripts/orchestrate-status.sh --digest` is the one-page read the orchestrator opens at the start of a
+day (or after a long absence). It is the same read-only surface as the packet — no queue, no writes, no
+state — but it answers the questions that change the next action instead of dumping every row:
+
+- **STUCK** — `Claimed`/`Running` items the engine's own reaper would reap at its default window:
+  `forge_reapable_claims(15)` (no heartbeat for 15 minutes — `FORGE_DEFAULT_STALE_MINUTES` — or a worker
+  marked `stale` in `forge_worker_health`). The digest reuses that rule; it does not invent a second
+  definition of "stale".
+- **HOLDS** — unresolved `forge_hold_record` rows grouped by story **and reason**, with repeat counts
+  (`3×`), the oldest age, and the resume target, so a repeated reason reads as one decision rather than
+  twenty lines. Failure class is shown when one is recorded.
+- **FAILED** — `agent_work_item.state = 'Error'` rows finished in the last 24 hours, with attempts and
+  the first line of the error. Older failures are history, not today's action.
+- **QUEUE / NEXT / ACTION** — ready/active counts, whether claims are paused in
+  `forge_runtime_control`, the work-queue Pending/Running depth, the next Ready story, and the single
+  next action (or an explicit "stay idle; do not invent work"). Active `forge_decision` rows close the
+  page; candidate decisions awaiting promotion are listed when present.
+
+Caps keep it one page (5 stuck lines, 10 HOLD groups, 5 failures, 5 active decisions); each capped
+section still prints the total and how many rows it hid, so the digest never quietly drops state.
+
+```sh
+scripts/orchestrate-status.sh --digest
+```
+
+It is read-only in exactly the same way as the packet: it calls `forge sql`, which refuses non-SELECT
+statements and runs inside `begin read only`. Resolving a HOLD, reclaiming a stuck claim, and re-queueing
+a failed item happen on their canonical paths, never through this script.
 
 ## The loop
 

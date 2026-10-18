@@ -429,15 +429,18 @@ deferred; two read-only slices are worth doing now because the durable rows alre
 - Enforcement rails: `action_profiles`, OpenCode permission rendering, arch-boundary/citation/
   manifest/repo guards. There is no autonomy engine, and none should be added yet.
 
-**Worth doing now (read-only, no schema, no new telemetry):**
-1. **`forge scorecard` port** — already a PENDING row in `docs/agent/DEAD-COMMANDS.md` (row 9) with a
-   planned Rust home: rules in `forge/src/scorecard.rs`, reads in `db::forge_read`/`forge_doctor`,
-   command in `cli/src/forge/`. Derive per-role/agent outcomes (first-pass QA, rework, holds,
-   escalations, cost coverage) from the rows above. Honesty rules: null is not 0; an unpopulated
-   metric reads NOT CAPTURED (the old TS scorecard already learned this).
-2. **Daily proactive digest** — extend `scripts/orchestrate-status.sh` (or a `forge audit` read) into a
-   one-page daily digest: stuck claims, open HOLDs, failed runs, repeated HOLD reasons, empty queue.
-   Read-only; no learning writes.
+**Landed 2026-10-18 (both read-only slices):**
+1. **`forge scorecard`** (`forge/src/scorecard.rs` rules + `cli/src/forge/scorecard.rs` command): per
+   role/agent rows over `storyboard_story_run` + `forge_hold_record`; verdict classification, rework,
+   holds, cost/wall coverage. Honesty: null is not 0, unpopulated reads NOT CAPTURED, widgets are
+   never dollars, vendor USD only from `cost_source='vendor'`. `cargo test -p forge scorecard` 17/17.
+2. **Daily proactive digest** (`scripts/orchestrate-status.sh --digest`): queue/stuck/HOLD/failed/
+   decisions one-pager over the read-only `forge sql` path; the 15-minute stuck window reuses the
+   engine's `forge_reapable_claims` rule. Existing human/JSON modes unchanged.
+
+Remaining Phase 3 TD: DSH per-seat web presets, skill-invocation capture, model/role linkage,
+correction/hypothesis ledgers, routing metrics, earned autonomy (owner-approved only), drift report,
+freshness/audits, Council calibration, and self-modification rails.
 
 **Tech debt, with exits (the rest of Phase 3):**
 - **Correction → specification → rail (3.3).** High value, but it needs a durable correction→rule→

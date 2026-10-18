@@ -115,6 +115,7 @@
     "broken:ts:commands": "cargo run --manifest-path Cargo.toml -p cli -- forge dead-commands",
     "protected-files": "cargo run --manifest-path Cargo.toml -p cli -- forge protected-files",
     "forge:roi": "APP_ENV=production cargo run --manifest-path Cargo.toml -p cli -- forge roi",
+    "forge:scorecard": "APP_ENV=production cargo run --manifest-path Cargo.toml -p cli -- forge scorecard --target prod",
     "test:persistence": "cargo test --manifest-path Cargo.toml -p workflow",
     "agent:work": "APP_ENV=production EXECUTION_ENV=PROD cargo run --manifest-path Cargo.toml -p forge --bin forge-worker --",
     "agent:scheduler:install": "cargo run --manifest-path Cargo.toml -p cli -- launchd agent-worker install",

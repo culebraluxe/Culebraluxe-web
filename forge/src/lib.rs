@@ -23,6 +23,10 @@ pub mod service;
 pub mod doctor_report;
 pub mod qa_consistency;
 pub mod roi;
+// The scorecard's rules, in Rust: per-role/agent outcomes from the durable run rows, pure, so the honesty
+// rules (a null metric is not zero; an unpopulated one prints NOT CAPTURED; widgets are not dollars) are
+// unit tests rather than a screenshot. The read half is `db::forge_read`, the command `cli/src/forge/`.
+pub mod scorecard;
 // The scope manifest's rules, in Rust: lanes, scoring, rendering, drift and the write refusal. Pure, so the
 // ranking can be asserted without a filesystem or a git binary — the gather-and-print half is
 // `cli/src/forge/manifest.rs`, the same split as the doctor. Ported from `lib/scope-manifest.ts` +

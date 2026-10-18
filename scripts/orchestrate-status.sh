@@ -3,6 +3,7 @@
 #
 #   scripts/orchestrate-status.sh                 # human summary
 #   scripts/orchestrate-status.sh --format json   # the packet as JSON
+#   scripts/orchestrate-status.sh --digest        # one-page daily digest (stuck claims, HOLDs, failures)
 #
 # Read-only by construction: it calls the existing `forge sql` verb, which refuses non-SELECT
 # statements and runs inside `begin read only`. It creates no queue and writes no state; dispatch and

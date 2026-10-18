@@ -750,5 +750,89 @@ pub fn parse_string_array(raw: Option<&str>) -> Vec<String> {
     }
 }
 
+/// One `storyboard_story_run` row, as `forge scorecard` reads it. Appended for the scorecard port
+/// (`docs/agent/DEAD-COMMANDS.md` row 9, Phase 3 slice 1); it shares the read-only guarantee and the
+/// SQL-side normalisation of this module.
+///
+/// `retry_index` is ranked over the run's FULL (story, role, phase) history before the window filters, so a
+/// retry that starts inside the window is still known to be a retry. `cost_usd` is set only where the row
+/// says `cost_source='vendor'`; it is never derived from `cost_widgets`.
+#[derive(Debug, Clone, FromRow)]
+pub struct ScorecardRunRow {
+    pub role: Option<String>,
+    pub agent: Option<String>,
+    pub result_status: Option<String>,
+    pub retry_index: i64,
+    pub wall_minutes: Option<f64>,
+    pub cost_widgets: Option<f64>,
+    pub cost_usd: Option<f64>,
+}
+
+/// Holds recorded in the window, grouped by originating node and failure class. Resolved and unresolved
+/// holds are both counted — the HOLD audit is a historical record, so filtering to open ones would hide
+/// every hold the operator has already dealt with.
+#[derive(Debug, Clone, FromRow)]
+pub struct ScorecardHoldCountRow {
+    pub node: Option<String>,
+    pub failure_class: Option<String>,
+    pub holds: i64,
+    pub open: i64,
+}
+
+impl ForgeReadDao {
+    /// The durable run rows behind `forge scorecard`, one row per run in the window.
+    ///
+    /// READ ONLY: one `select`, no transaction of its own, and no derived fact beyond the ranking and the
+    /// two cost quantities the scorecard needs kept apart.
+    pub async fn scorecard_runs(&self, days: i64) -> DbResult<Vec<ScorecardRunRow>> {
+        let sql = format!(
+            "select ranked.role, ranked.agent, ranked.result_status, ranked.retry_index,
+                    ranked.wall_minutes, ranked.cost_widgets, ranked.cost_usd
+             from (
+               select run_type as role,
+                      agent_runtime as agent,
+                      result_status,
+                      row_number() over (
+                        partition by story_id, coalesce(run_type, ''), coalesce(run_phase, '')
+                        order by started_at nulls last, created_at, id
+                      )::bigint as retry_index,
+                      created_at,
+                      (extract(epoch from (ended_at - started_at)) / 60)::float8 as wall_minutes,
+                      cost_widgets::float8 as cost_widgets,
+                      case when cost_source = 'vendor' then cost_usd::float8 end as cost_usd
+               from storyboard_story_run
+             ) ranked
+             where ranked.created_at >= now() - ($1::text || ' days')::interval
+             order by ranked.created_at desc, ranked.retry_index"
+        );
+        sqlx::query_as::<_, ScorecardRunRow>(sqlx::AssertSqlSafe(sql))
+            .bind(days.max(1).to_string())
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_read.scorecard_runs", &error))
+    }
+
+    /// The HOLD audit behind `forge scorecard`, grouped by originating node and failure class.
+    ///
+    /// The base table (not the `forge_open_holds` view) because the scorecard asks how many holds the window
+    /// produced AND how many are still open; the view answers only the second question.
+    pub async fn scorecard_holds(&self, days: i64) -> DbResult<Vec<ScorecardHoldCountRow>> {
+        sqlx::query_as::<_, ScorecardHoldCountRow>(
+            "select originating_node as node,
+                    failure_class,
+                    count(*)::bigint as holds,
+                    (count(*) filter (where resolved_at is null))::bigint as open
+             from forge_hold_record
+             where created_at >= now() - ($1::text || ' days')::interval
+             group by originating_node, failure_class
+             order by holds desc, originating_node, failure_class",
+        )
+        .bind(days.max(1).to_string())
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_read.scorecard_holds", &error))
+    }
+}
+
 #[cfg(test)]
 mod tests;
