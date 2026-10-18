@@ -43,6 +43,10 @@ pub mod forge_doctor;
 // one transactional active-pointer move. The `forge` crate's `store_db` adapts this to the engine's
 // `RevisionStore`; policy and lifecycle decisions stay in `forge`.
 pub mod forge_harness;
+// The correction ledger + learning writeback reads (migration 295). Additive: corrections, repeat
+// detection for `ImprovementSignal::RepeatedCorrection`, learn-loop hypotheses, and the delegated
+// experience writeback. No second learning store.
+pub mod forge_corrections;
 // The Forge reset / recover / clean writer. One writer, three modes, all of them deliberate.
 mod forge_engine;
 pub mod forge_reset;
@@ -134,6 +138,10 @@ pub use forge_engine::{
     RunTrajectoryTurn, SettlementResult, StoryPacketRow, StoryRunTurns, ToolArtifactRow,
     TurnTrajectoryRow, TurnUsage, UnfinishedForgeCompletion, WorkflowCommandReceiptRow,
     WorkflowReceiptClaim,
+};
+pub use forge_corrections::{
+    correction_key, ForgeCorrectionRepeatRow, ForgeCorrectionRow, ForgeCorrectionsDao,
+    ForgeLearnFindingRow, NewForgeCorrection, CORRECTION_KEY_DOMAIN,
 };
 pub use forge_harness::{
     ActivationRequest, ForgeHarnessActivationRow, ForgeHarnessCandidateRow,

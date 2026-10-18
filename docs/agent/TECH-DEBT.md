@@ -532,3 +532,30 @@ id mismatch) were fixed before landing: adoption re-runs `policy::validate_candi
 canonical `changes_between` diff, and adoption classifies the effective authority of changed
 surfaces; module tests are 170/170.
 
+
+## Tech-debt closure — 2026-10-18 (afternoon)
+
+All remaining named items were built rather than deferred:
+- **Concrete sandbox runner** (`sandbox_command.rs`): allowlisted absolute program, args vector (no
+  shell), fresh workspace, env-clear, hard timeout, capped captured output, durable execution refs;
+  production refused before spawn.
+- **First dogfood plan** (`dogfood.rs` + `scripts/harness-dogfood.sh`): Rust backend, 3–5 stories,
+  k=1, prompt/tool-guidance only, policy-checked candidate revision and matched ProbeContract per
+  story; dry-run prints the plan and never calls a model or moves the pointer.
+- **Correction ledger** (migration 295, now applied to DEV and PROD; `db/src/forge_corrections.rs`):
+  every correction occurrence, normalized key, repeat grouping, nullable root-cause/spec location,
+  experiment FK; no second outcome store.
+- **Learn/hypothesis feed + outcome writeback** (`feed.rs`): repeated corrections become
+  `ImprovementSignal::RepeatedCorrection`; learn findings become typed review targets (not confirmed
+  weaknesses); adopted experiments write experience, rejected ones write corrections, other verdicts
+  write nothing.
+- **Routing/model-role metrics** (`metrics.rs`): per role/model attempts, outcomes, completion,
+  rework, cost coverage; unobserved/unpriced are `None`, never 0/100%.
+- **Council calibration** (`calibration.rs`): Brier-style score from stated probability + observed
+  outcome, unscored when data is missing, out-of-range probabilities are typed errors.
+- **Automatic adoption remains OFF** (effective-GREEN policy only; no production evidence yet).
+
+Remaining honest limits: the sandbox is a command runner (exit status stands in for a model turn,
+cost `None`, receipt is a local file not a probe DB row); the dogfood experiment is a dry-run plan
+until a real probe entrypoint records probe rows; `forge harness-evolution probe` is not a CLI
+command yet.
