@@ -559,3 +559,18 @@ Remaining honest limits: the sandbox is a command runner (exit status stands in 
 cost `None`, receipt is a local file not a probe DB row); the dogfood experiment is a dry-run plan
 until a real probe entrypoint records probe rows; `forge harness-evolution probe` is not a CLI
 command yet.
+
+
+## Harness execution backends — 2026-10-18
+
+- **OpenCode deferred (tech debt):** the intended dogfood backend, but on 2026-10-18 its
+  infrastructure was attacked and provider routing failed before inference (`provider.no-route` for
+  `deepseek/deepseek-flash`; an unpinned default was rejected as `deepseek-chat`). DSH is now the
+  primary backend. Revisit OpenCode when service/provider routing is stable; no code depends on it
+  except the alternative `--model-backend opencode` path.
+- **DSH usage capture:** the first real DSH dogfood ran (2 turns, exit 0) but `session_id=null` and
+  tokens/cost are NOT CAPTURED because session discovery under the sandbox's sanitized `DSH_HOME`
+  did not find the log. Fix the discovery path before using token/cost evidence.
+- **Probe identity executor:** the persisted probe spec said `opencode` while the sandbox executed
+  `dsh`. The identity must name the actual executor.
+- **Dogfood breadth:** the first run was 1 story; a verdict needs 3–5 stories.

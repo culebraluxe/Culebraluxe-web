@@ -47,8 +47,8 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
 
 | # | Item | status | scope |
 | --- | --- | --- | --- |
-| D1 | Run dogfood: 3–5 historical Rust stories, prompt/tool-guidance only, k=1, command sandbox first | BLOCKED (provider route) | paid run approved+executed 2x; OpenCode refused pre-inference (`deepseek-chat` invalid pin, then `provider.no-route` for `deepseek/deepseek-flash`); no usage/session, no retry. See docs/agent/DOGFOOD-2026-10-18.md | wiring + command-sandbox E2E on DEV verified (persisted experiment/candidate/2 probes/contrast, cleaned); paid model run needs principal approval: `--authorize-model-run --model-backend opencode` = 2 opencode turns | `scripts/harness-dogfood.sh` + probe entrypoint |
-| D2 | Review evidence manually before any adoption; write first experience/correction rows | DONE | reviewed both failed attempts in docs/agent/DOGFOOD-2026-10-18.md; no behavioral evidence so no experience/correction writeback; adoption OFF | DB + decision record |
+| D1 | Run dogfood: 3–5 historical Rust stories, prompt/tool-guidance only, k=1, command sandbox first | DONE (DSH) | first real run: experiment `probe-…1792353093608471000`, 2 DSH turns, elapsed 166s→68s, no regressions; tokens/cost NOT CAPTURED; 1 story only. OpenCode deferred to TD (2026-10-18 incident). See docs/agent/DOGFOOD-2026-10-18-DSH.md | wiring + command-sandbox E2E on DEV verified (persisted experiment/candidate/2 probes/contrast, cleaned); paid model run needs principal approval: `--authorize-model-run --model-backend opencode` = 2 opencode turns | `scripts/harness-dogfood.sh` + probe entrypoint |
+| D2 | Review evidence manually before any adoption; write first experience/correction rows | DONE | reviewed the DSH run in docs/agent/DOGFOOD-2026-10-18-DSH.md; weak single-task signal, no adoption, no writeback; adoption OFF | DB + decision record |
 | D3 | Automatic adoption stays OFF until effective-GREEN has production evidence | BLOCKED | blocked by D1/D2 + principal approval |
 
 ## E. Later (do not start until A–D empty)
@@ -70,7 +70,7 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
   ledger->feed evidence adapter, writeback honesty, correction-key contract + boot gate,
   dogfood authorization/partial-load refusal, calibration provenance/label) — 1024 forge tests,
   63 db tests, gate PASS.
-- 2026-10-18: paid dogfood attempts executed (2x) but OpenCode refused before inference; D2 review recorded; D1 blocked on provider routing/auth.
+- 2026-10-18: OpenCode attempts failed pre-inference (provider.no-route); switched dogfood to DSH. First real DSH run: 2 turns, candidate matched base and was faster (166s→68s), no regressions, tokens/cost NOT CAPTURED, 1 story; no adoption. OpenCode deferred to TD. D1/D2 DONE.
 - 2026-10-18: principal decision packet written (docs/agent/PRINCIPAL-DECISIONS.md); all remaining items blocked on principal approvals; goal stopped for input.
 - 2026-10-18: D1 probe CLI wired for model turns (mutually exclusive with --command); command-sandbox dogfood E2E on DEV persisted and cleaned; model-turn dry-run verified without spend. Paid opencode run requires principal approval.
 - 2026-10-18: D1 model-turn sandbox adapter landed (ModelTurnSandbox + ModelTurnAuthorization, DSH/OpenCode backends, fake-transport tests; no live model call). Remaining D1: wire into probe CLI and run.
