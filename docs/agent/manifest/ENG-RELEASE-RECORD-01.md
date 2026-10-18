@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-18 07:14:14Z
-- commit: `61b241ad9` (working tree dirty) on `HEAD`
+- generated: 2026-10-18 07:36:45Z
+- commit: `c52fa4063` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest ENG-RELEASE-RECORD-01`
 - rows: 13 — packet, cited paths and story commits first, lexical matches after
 
@@ -17,8 +17,8 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/packets/ENG-RELEASE-RECORD-01.md` — packet · the packet for ENG-RELEASE-RECORD-01 · last touched untracked
 - `docs/agent/ARCH-HANDOFF.md` — lexical · term match: acceptance, actually, agents, already · last touched 2026-10-12
 - `docs/agent/preserved/arch-handoff/ARCH-HANDOFF-pre-cleanup-2026-09-12.md` — lexical · term match: acceptance, actually, agents, already · last touched untracked
-- `docs/agent/RUNLOG.md` — lexical · term match: acceptance, actually, agents, already · last touched 2026-10-12
 - `docs/agent/TECH-DEBT.md` — lexical · term match: 2026-09-15, acceptance, actually, agents · last touched 2026-10-13
+- `docs/agent/RUNLOG.md` — lexical · term match: acceptance, actually, agents, already · last touched 2026-10-12
 - `docs/agent/WORKFLOW-ARCHITECTURE.md` — lexical · term match: acceptance, actually, agents, already · last touched untracked
 - `docs/agent/HANDOFF-MERGE-QUEUE-2026-10-08.md` — lexical · term match: actually, agents, already, answered · last touched 2026-10-12
 - `docs/agent/HANDOFF-forge-pool-io-2026-09-29.md` — lexical · term match: already, answer, answered, anything · last touched untracked

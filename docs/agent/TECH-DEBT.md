@@ -361,3 +361,39 @@ and it never covered the Rust guard targets above.
 - **Two modules import bare `fs`/`crypto` instead of the `node:` scheme** (`lib/execution-target.ts`,
   `legacy/db/database-gateway.ts`). The `node:` form is not stubbable in the Edge compilation, so the bare form is
   load-bearing. Exit: if Next stops bundling instrumentation for Edge, revert to `node:` and delete this.
+
+## Agent OS Phase 2 (GPT contract) — landed vs deliberately deferred (2026-10-18)
+
+The Phase 2 contract was ambitious; this records the part that fits the current stack and the part
+that stays parked rather than lost.
+
+**Landed:**
+- `forge/src/engine/executive_swarm.rs` — the typed contract (4 executives + 8 experts, deterministic
+  routing, Council gate, limits, `ExpertVerdict`, `DecisionSynthesis`, escalation, `ForgeDecisionHandoff`).
+- `forge/src/engine/advisory_profiles.rs` — one backend-neutral policy table for the twelve ids, consuming
+  the contract's catalogue; read-only, bounded steps, canonical skills, web only where justified.
+- `forge/src/engine/dsh/advisory.rs` + `forge/src/engine/advisory_runner.rs` — a Phase 2 panel executed
+  through the DSH harness: independent read-only seats, verdict/synthesis JSON validation, no writes.
+
+**Deferred, with exits (do not delete — this is the part we keep):**
+1. **OpenCode / Maestro materializers and the handoff §5 permission rails.** Exit: when an advisory
+   turn must run on those transports; render from `advisory_profiles.rs`, never a second list.
+2. **Durable decision persistence (`forge_decision`/HOLD/artifact) and `ForgeDecisionHandoff` into the
+   Story Board.** Exit: the first advisory decision that must survive the session; write through the
+   existing decision/HOLD writers and packet entry seam — not a new table.
+3. **Council challenge/reconsideration round.** Exit: the first Council decision that actually needs a
+   second round; extend the panel runner, keep Round 1 independent.
+4. **Read-only web research for advisor/principal-architect/adversary/research.** Exit: a DSH profile
+   with web tools enabled under the read-only sandbox, plus an audit of where it can read.
+5. **Advisory spend accounting.** DSH now reports tokens in the session log and the adapter parses them;
+   cost needs operator rates (`DSH_PRICE_INPUT_PER_MTOK`, `DSH_PRICE_OUTPUT_PER_MTOK`,
+   `DSH_PRICE_CACHE_READ_PER_MTOK`). Exit: rates configured and per-panel totals recorded.
+6. **Per-seat DSH profiles (tool-level differences).** Today every advisory seat is one read-only
+   sandbox plus a role prompt. Exit: when seats genuinely need different tools; DSH agent presets.
+7. **Micro-agent children in advisory seats (contract allows 3, depth 1).** DSH subagents exist but the
+   spend join is unproven; keep the stricter bound (no children) until the harness can account for them.
+8. **Maestro `send --read-only` wiring.** The CLI has the flag; Forge's Maestro adapter does not pass it.
+   Exit: only if Maestro is used for advisory turns.
+
+**Not debt, by rule:** no fourth agent registry, no executive nodes in `FORGE_SDLC-v6.xml`, and no
+swarm write authority. The contract module and the advisory catalogue are the single source.

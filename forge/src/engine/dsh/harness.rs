@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::*;
@@ -13,10 +14,10 @@ use crate::engine::packet::{ExecutionWorkspace, StoryPacket};
 use crate::engine::runner::{HarnessOutput, RoleHarness};
 
 /// A completed headless process.
-struct DshRunResult {
-    exit_code: Option<i32>,
-    stdout: String,
-    stderr: String,
+pub(super) struct DshRunResult {
+    pub(super) exit_code: Option<i32>,
+    pub(super) stdout: String,
+    pub(super) stderr: String,
 }
 
 /// The DSH execution harness: one headless turn per Forge role turn.
@@ -50,6 +51,10 @@ pub struct DshHarness {
     pub assay_commands: Vec<String>,
     /// Whether acceptance criteria are mapped to assay commands.
     pub acceptance_mapped: bool,
+    /// Operator-configured token rates; `None` means cost is unmeasured (never a fabricated zero).
+    pub rates: Option<usage::ModelRates>,
+    /// The live child of the running turn, so a scoped interrupt can stop it.
+    child: Arc<Mutex<Option<std::process::Child>>>,
 }
 
 impl DshHarness {
@@ -79,6 +84,8 @@ impl DshHarness {
             spend_cap_usd: context.spend_cap_usd,
             assay_commands: context.assay_commands.clone(),
             acceptance_mapped: context.acceptance_mapped,
+            rates: usage::rates_from_env(),
+            child: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -145,7 +152,48 @@ impl DshHarness {
             execution_workspace: None,
             story_id: std::env::var("FORGE_STORY_ID").ok(),
             model_policy: None,
+            rates: usage::rates_from_env(),
+            child: Arc::new(Mutex::new(None)),
         })
+    }
+
+    /// The DSH sandbox mode for one role turn: implement roles write, every other role is
+    /// read-only. This reuses the Forge V2 profile authority table (single source), and an unknown
+    /// node fails closed to read-only rather than silently gaining write access.
+    pub fn permission_mode_for(&self, node_id: &str) -> &'static str {
+        use crate::engine::opencode_agents::{v2_agent_for_node, v2_profile, Authority};
+        match v2_agent_for_node(node_id)
+            .ok()
+            .and_then(v2_profile)
+            .map(|profile| profile.authority)
+        {
+            Some(Authority::Implement) => "workspace-write",
+            _ => "read-only",
+        }
+    }
+
+    /// A fork for a concurrent lane: a fresh process slot and the lane's workspace, same CLI,
+    /// model and policy. DSH is process-per-turn, so a fork is a clone with a new workspace.
+    fn clone_for_workspace(
+        &self,
+        workspace: &crate::engine::packet::ExecutionWorkspace,
+    ) -> DshHarness {
+        DshHarness {
+            cli: self.cli.clone(),
+            workspace: PathBuf::from(&workspace.worktree_path),
+            model: self.model.clone(),
+            model_name: self.model_name.clone(),
+            env: self.env.clone(),
+            packet: self.packet.clone(),
+            execution_workspace: Some(workspace.clone()),
+            story_id: self.story_id.clone(),
+            model_policy: self.model_policy.clone(),
+            spend_cap_usd: self.spend_cap_usd,
+            assay_commands: self.assay_commands.clone(),
+            acceptance_mapped: self.acceptance_mapped,
+            rates: self.rates,
+            child: Arc::new(Mutex::new(None)),
+        }
     }
 
     fn run_git(&self, args: &[&str]) -> Option<String> {
@@ -178,12 +226,13 @@ impl DshHarness {
 }
 
 /// Run one headless DSH process to completion, enforcing the wall-clock turn ceiling.
-fn run_headless(
+pub(super) fn run_headless(
     cli: &args::DshCli,
     cwd: &str,
     argv: &[String],
     env: Option<&HashMap<String, String>>,
     max_turn: Option<Duration>,
+    child_slot: &Arc<Mutex<Option<std::process::Child>>>,
 ) -> Result<DshRunResult> {
     let mut cmd = Command::new(&cli.program);
     cmd.args(&cli.prefix);
@@ -204,14 +253,23 @@ fn run_headless(
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
-    let mut child = cmd.spawn().map_err(|error| {
+    let child = cmd.spawn().map_err(|error| {
         WorkflowError::generic(format!(
             "failed to spawn dsh (`{}`): {error}",
             cli.display()
         ))
     })?;
-    let mut stdout_pipe = child.stdout.take().expect("piped stdout");
-    let mut stderr_pipe = child.stderr.take().expect("piped stderr");
+    let (mut stdout_pipe, mut stderr_pipe) = {
+        let mut guard = child_slot
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *guard = Some(child);
+        let child = guard.as_mut().expect("child stored");
+        (
+            child.stdout.take().expect("piped stdout"),
+            child.stderr.take().expect("piped stderr"),
+        )
+    };
     let stdout_thread = std::thread::spawn(move || {
         let mut text = String::new();
         let _ = stdout_pipe.read_to_string(&mut text);
@@ -224,28 +282,44 @@ fn run_headless(
     });
 
     let deadline = max_turn.map(|ceiling| Instant::now() + ceiling);
-    let exit_code =
-        loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break status.code(),
-                Ok(None) => {
-                    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err(WorkflowError::generic(format!(
-                        "dsh harness turn exceeded the wall-clock ceiling ({}s); process killed",
-                        max_turn.map(|ceiling| ceiling.as_secs()).unwrap_or_default()
-                    )));
-                    }
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-                Err(error) => {
-                    return Err(WorkflowError::generic(format!(
-                        "could not observe the dsh process: {error}"
-                    )));
-                }
+    let exit_code = loop {
+        let mut guard = child_slot
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let outcome = guard
+            .as_mut()
+            .expect("child stored")
+            .try_wait()
+            .map_err(|error| {
+                WorkflowError::generic(format!("could not observe the dsh process: {error}"))
+            });
+        match outcome {
+            Ok(Some(status)) => {
+                let _ = guard.take();
+                drop(guard);
+                break status.code();
             }
-        };
+            Ok(None) => {}
+            Err(error) => return Err(error),
+        }
+        drop(guard);
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            let mut guard = child_slot
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(mut child) = guard.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            return Err(WorkflowError::generic(format!(
+                "dsh harness turn exceeded the wall-clock ceiling ({}s); process killed",
+                max_turn
+                    .map(|ceiling| ceiling.as_secs())
+                    .unwrap_or_default()
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
     let stdout = stdout_thread.join().unwrap_or_default();
     let stderr = stderr_thread.join().unwrap_or_default();
     Ok(DshRunResult {
@@ -325,7 +399,17 @@ impl RoleHarness for DshHarness {
             task_text.as_str(),
         );
         let max_turn = turn_ceiling(std::env::var(TURN_CEILING_ENV).ok().as_deref());
-        let result = run_headless(&self.cli, &cwd, &argv, self.env.as_ref(), max_turn)?;
+        let permission_mode = self.permission_mode_for(node_id);
+        eprintln!(
+            "harness={} permission={permission_mode}",
+            DSH_HARNESS_ADAPTER_ID
+        );
+        let mut env = self.env.clone().unwrap_or_default();
+        env.insert(
+            "DSH_PERMISSION_MODE".to_string(),
+            permission_mode.to_string(),
+        );
+        let result = run_headless(&self.cli, &cwd, &argv, Some(&env), max_turn, &self.child)?;
         drop(patch);
 
         if result.exit_code != Some(0) {
@@ -382,6 +466,14 @@ impl RoleHarness for DshHarness {
             self.assay_commands.clone()
         };
 
+        let usage = parsed
+            .session_id
+            .as_deref()
+            .zip(parsed.session_dir.as_deref())
+            .and_then(|(session_id, dir)| {
+                usage::harness_usage(dir, session_id, self.rates.as_ref())
+            });
+
         Ok(HarnessOutput {
             raw: parsed.assistant_text,
             candidate_sha,
@@ -389,8 +481,9 @@ impl RoleHarness for DshHarness {
             acceptance_mapped: self.acceptance_mapped,
             refusal: None,
             execution_base,
-            // The headless path reports no machine-readable usage: UNMEASURED, never zero.
-            usage: None,
+            // Measured from the session log; UNMEASURED (None) when no token rates are configured
+            // or the session log carries no usage.
+            usage,
             trajectory: None,
         })
     }
@@ -399,9 +492,32 @@ impl RoleHarness for DshHarness {
         &self,
         _reason: &str,
     ) -> Result<Option<crate::engine::harness::TurnTermination>> {
-        // V1: the blocking spawn has no shared handle to signal. Return "did not stop" rather than
-        // claiming an interruption; the wall-clock ceiling is the enforced bound.
-        Ok(None)
+        let mut guard = self
+            .child
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(child) = guard.as_mut() else {
+            return Ok(None);
+        };
+        let pid = child.id();
+        let killed = child.kill().is_ok();
+        Ok(Some(crate::engine::harness::TurnTermination {
+            pid,
+            existed: true,
+            killed,
+            signalled: Vec::new(),
+        }))
+    }
+
+    fn supports_interrupt(&self) -> bool {
+        true
+    }
+
+    fn fork_for_workspace(
+        &self,
+        workspace: crate::engine::packet::ExecutionWorkspace,
+    ) -> Result<Option<Arc<dyn RoleHarness>>> {
+        Ok(Some(Arc::new(self.clone_for_workspace(&workspace))))
     }
 
     fn exists_on_base_ref(&self, base_ref: &str, path: &str) -> bool {

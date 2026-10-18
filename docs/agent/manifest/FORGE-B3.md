@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-18 07:14:17Z
-- commit: `61b241ad9` (working tree dirty) on `HEAD`
+- generated: 2026-10-18 07:36:48Z
+- commit: `c52fa4063` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest FORGE-B3`
 - rows: 104 — packet, cited paths and story commits first, lexical matches after
 
@@ -88,7 +88,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/OPEN-QA-LIST.md` — index · top-level harness page · last touched 2026-10-14
 - `docs/agent/OPS-INTAKE-FRESHNESS.md` — index · top-level harness page · last touched untracked
 - `docs/agent/OPS-PROPERTY-COLUMN-RECONCILIATION.md` — index · top-level harness page · last touched untracked
-- `docs/agent/ORCHESTRATOR-IN-THE-LOOP.md` — index · top-level harness page · last touched untracked
+- `docs/agent/ORCHESTRATOR-IN-THE-LOOP.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/PERIMETER.md` — index · top-level harness page · last touched untracked
 - `docs/agent/PERSON-PROPERTY-DESIGN.md` — index · top-level harness page · last touched untracked
 - `docs/agent/PROOF-2026-09-28-grok-100.md` — index · top-level harness page · last touched untracked

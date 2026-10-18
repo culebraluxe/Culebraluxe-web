@@ -26,10 +26,12 @@
 use crate::engine::runtime::ActiveForgeRoleTask;
 use workflow::{Result, WorkflowError};
 
+pub mod advisory;
 pub mod args;
 pub mod harness;
 pub mod output;
 pub mod preflight;
+pub mod usage;
 
 pub use harness::DshHarness;
 pub use preflight::verify_vendor_contract;
