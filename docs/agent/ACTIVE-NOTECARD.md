@@ -19,7 +19,7 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
 | # | Item | status | notes |
 | --- | --- | --- | --- |
 | C1 | Phase 1 foundation: constitution, principal, authority, memory index, hot context, decisions, backlog | DONE | `/Users/Shared/dev/src/cto-office/` written 2026-10-18 |
-| C2 | Principal answers: money threshold, high-stakes comms, first real skill | BLOCKED (principal) | asked in `memory/waiting_on_me.md`; conservative defaults in force |
+| C2 | Principal answers: money threshold, high-stakes comms, first real skill | BLOCKED (principal) | see docs/agent/PRINCIPAL-DECISIONS.md §2 | asked in `memory/waiting_on_me.md`; conservative defaults in force |
 | C3 | Durable backup target for CTO Office memory (git remote/encrypted) | DONE (local repo) | local git repo initialized + initial commit; off-machine/encrypted mirror still needs principal choice | survival requirement |
 | C4 | Phase 3 runtime: `/start-session` + `/end-session` hooks, env, delta, alerts | BLOCKED (C2) | after C2 |
 | C5 | Phase 4: first real skill with triggers/NOT FOR/tests | BLOCKED (C2) | after C2 |
@@ -47,7 +47,7 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
 
 | # | Item | status | scope |
 | --- | --- | --- | --- |
-| D1 | Run dogfood: 3–5 historical Rust stories, prompt/tool-guidance only, k=1, command sandbox first | PARTIAL / BLOCKED (principal) | wiring + command-sandbox E2E on DEV verified (persisted experiment/candidate/2 probes/contrast, cleaned); paid model run needs principal approval: `--authorize-model-run --model-backend opencode` = 2 opencode turns | `scripts/harness-dogfood.sh` + probe entrypoint |
+| D1 | Run dogfood: 3–5 historical Rust stories, prompt/tool-guidance only, k=1, command sandbox first | PARTIAL / BLOCKED (principal) | approve 2 paid opencode turns: docs/agent/PRINCIPAL-DECISIONS.md §1 | wiring + command-sandbox E2E on DEV verified (persisted experiment/candidate/2 probes/contrast, cleaned); paid model run needs principal approval: `--authorize-model-run --model-backend opencode` = 2 opencode turns | `scripts/harness-dogfood.sh` + probe entrypoint |
 | D2 | Review evidence manually before any adoption; write first experience/correction rows | BLOCKED (D1 model run) | DB + decision record |
 | D3 | Automatic adoption stays OFF until effective-GREEN has production evidence | BLOCKED | blocked by D1/D2 + principal approval |
 
@@ -55,11 +55,11 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
 
 | # | Item | status |
 | --- | --- | --- |
-| L1 | DSH per-seat web presets + skill-invocation capture | OPEN |
-| L2 | Model-role linkage metrics feeding routing | OPEN |
-| L3 | Correction→specification automation + regression tests | OPEN |
+| L1 | DSH per-seat web presets + skill-invocation capture | BLOCKED (A-D not empty) |
+| L2 | Model-role linkage metrics feeding routing | BLOCKED (A-D not empty) |
+| L3 | Correction→specification automation + regression tests | BLOCKED (A-D not empty) |
 | L4 | Earned autonomy gates (evidence-only, never self-granted) | BLOCKED |
-| L5 | Freshness/routing/cross-model audits | OPEN |
+| L5 | Freshness/routing/cross-model audits | BLOCKED (A-D not empty) |
 
 ## Done log
 
@@ -70,6 +70,7 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
   ledger->feed evidence adapter, writeback honesty, correction-key contract + boot gate,
   dogfood authorization/partial-load refusal, calibration provenance/label) — 1024 forge tests,
   63 db tests, gate PASS.
+- 2026-10-18: principal decision packet written (docs/agent/PRINCIPAL-DECISIONS.md); all remaining items blocked on principal approvals; goal stopped for input.
 - 2026-10-18: D1 probe CLI wired for model turns (mutually exclusive with --command); command-sandbox dogfood E2E on DEV persisted and cleaned; model-turn dry-run verified without spend. Paid opencode run requires principal approval.
 - 2026-10-18: D1 model-turn sandbox adapter landed (ModelTurnSandbox + ModelTurnAuthorization, DSH/OpenCode backends, fake-transport tests; no live model call). Remaining D1: wire into probe CLI and run.
 - 2026-10-18: C3 CTO Office local git repo initialized + initial commit (off-machine mirror pending principal).
