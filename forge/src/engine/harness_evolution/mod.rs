@@ -18,6 +18,7 @@ pub mod experiment;
 pub mod feed;
 pub mod metrics;
 pub mod model;
+pub mod model_turn_sandbox;
 pub mod policy;
 pub mod probe;
 pub mod probe_replay;

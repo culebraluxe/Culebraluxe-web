@@ -27,6 +27,7 @@ use super::probe::{ProbeContract, ProbeError, ProbePins};
 use super::probe_replay::{
     HistoricalTask, HistoricalTaskLoader, HistoricalTaskRequest, ReplayError,
 };
+use super::model_turn_sandbox::ModelTurnAuthorization;
 use super::propose::{propose, ImprovementSignal, ImprovementTarget, ProposalRequest};
 
 /// The dogfood experiment's domain: the Rust backend lane.
@@ -758,6 +759,7 @@ fn build_plan_with_tasks(
             "a real ReplaySandbox that runs a model turn (this build has sandbox_command::CommandSandbox as a stand-in and UnavailableSandbox as a refusal)".into(),
             "a live advisory model to drive proposer_llm for a real proposal (this plan uses typed targets; the dry run calls no model)".into(),
             "DATABASE_URL_DEV plus migration 294 applied, and a DB-backed catalog/probe writer for experiment/probe/contrast rows (the dry run writes nothing)".into(),
+            "a model-turn sandbox with explicit ModelTurnAuthorization (--authorize-model-run) before any paid turn; the dry run makes no model call".into(),
             "human review before adoption: automatic adoption stays OFF (effective-GREEN policy only)".into(),
         ],
         limitations: vec![
@@ -905,6 +907,11 @@ impl RealRunAuthorization {
     }
 }
 
+/// The script/CLI flag that opens the model-turn boundary (D1). It is a second, separate
+/// authorization on top of [`RealRunAuthorization::FLAG`]: the sandbox token opens a real run, and
+/// the model-run token opens the paid turn.
+pub const MODEL_RUN_AUTHORIZATION_FLAG: &str = ModelTurnAuthorization::FLAG;
+
 /// A real-run plan: the validated dogfood plan plus the explicit authorization that released it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RealRunPlan {
@@ -922,6 +929,10 @@ impl RealRunPlan {
             self.authorization.environment_class().id()
         ));
         out.push_str("the dry-run plan is unchanged; execution still requires the probe entrypoint (O2), a sandbox runtime and DATABASE_URL_DEV\n");
+        out.push_str(&format!(
+            "model-turn execution additionally requires ModelTurnAuthorization ({} ) and an available DSH/OpenCode headless backend; no live model call is made here\n",
+            MODEL_RUN_AUTHORIZATION_FLAG
+        ));
         out.push_str("----------------------------------------------------------------------\n");
         out.push_str(&self.plan.render());
         out
@@ -964,6 +975,46 @@ pub fn build_real_run_plan(
         plan,
         authorization: authorization.clone(),
     })
+}
+
+/// Render the D1 model-turn boundary for an already-authorized real-run plan.
+///
+/// This is the second gate: [`RealRunPlan`] proves a real run is authorized by a named sandbox,
+/// and this function requires the separate [`ModelTurnAuthorization`] (the `--authorize-model-run`
+/// token) that opens the paid model turn. It decides nothing about execution — the probe
+/// entrypoint (O2) is not wired, so it prints the boundary and refuses to pretend a turn ran.
+pub fn authorized_model_run_boundary(
+    real: &RealRunPlan,
+    model_authorization: &ModelTurnAuthorization,
+) -> Result<String, DogfoodError> {
+    let plan_environment = real
+        .plan
+        .probes
+        .first()
+        .map(|probe| probe.environment_class)
+        .unwrap_or(EnvironmentClass::Development);
+    if model_authorization.environment_class() != plan_environment {
+        return Err(DogfoodError::RealRunNotAuthorized {
+            reason: format!(
+                "model-run authorization covers {}, but the plan runs {}",
+                model_authorization.environment_class().id(),
+                plan_environment.id()
+            ),
+        });
+    }
+    let mut out = String::new();
+    out.push_str("MODEL RUN AUTHORIZED (D1 boundary)\n");
+    out.push_str(&format!(
+        "authorization: backend={} env={} flag={}\n",
+        model_authorization.backend().id(),
+        model_authorization.environment_class().id(),
+        MODEL_RUN_AUTHORIZATION_FLAG
+    ));
+    out.push_str("EXECUTION REFUSED: the probe entrypoint (O2) is not wired; no model turn was executed.\n");
+    out.push_str("This token only opens the boundary; the sandbox runner (ModelTurnSandbox) is the executor once wired.\n");
+    out.push_str("----------------------------------------------------------------------\n");
+    out.push_str(&real.render());
+    Ok(out)
 }
 
 /// The deterministic dry-run fixture: a Rust-backend base revision with prompt and tool guidance,
@@ -1047,6 +1098,7 @@ pub fn dry_run_for_rust_backend() -> Result<String, DogfoodError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::harness_evolution::model_turn_sandbox::ModelTurnBackend;
     use crate::engine::harness_evolution::probe_replay::{
         HistoricalTask, HistoricalTaskLoader, ReplayError,
     };
@@ -1507,6 +1559,68 @@ mod tests {
         assert_eq!(loader.loads.get(), 0, "mismatch is refused before loading");
     }
 
+    fn command_model_authorization() -> ModelTurnAuthorization {
+        ModelTurnAuthorization::authorize_model_run(
+            ModelTurnBackend::Command {
+                program: std::path::PathBuf::from("/bin/echo"),
+                args: vec!["fake-model-turn".to_string()],
+            },
+            EnvironmentClass::Development,
+        )
+        .expect("fake model-run authorization")
+    }
+
+    fn real_run_plan() -> RealRunPlan {
+        let loader = StubLoader::new(fixture_tasks());
+        let authorization = RealRunAuthorization::authorize_sandbox(
+            "sandbox_command::CommandSandbox",
+            EnvironmentClass::Development,
+        )
+        .expect("authorized");
+        build_real_run_plan(&dry_run_fixture(), &loader, &authorization).expect("real-run plan")
+    }
+
+    #[test]
+    fn the_dry_run_plan_states_the_model_run_precondition() {
+        let plan = build_plan(&dry_run_fixture()).expect("plan");
+        assert!(plan
+            .requirements
+            .iter()
+            .any(|requirement| requirement.contains("--authorize-model-run")));
+        assert_eq!(MODEL_RUN_AUTHORIZATION_FLAG, "--authorize-model-run");
+        let rendered = plan.render();
+        assert!(rendered.contains("--authorize-model-run"));
+    }
+
+    #[test]
+    fn the_model_run_boundary_requires_its_own_authorization_and_environment() {
+        let real = real_run_plan();
+        let boundary = authorized_model_run_boundary(&real, &command_model_authorization())
+            .expect("boundary");
+        assert!(boundary.contains("MODEL RUN AUTHORIZED (D1 boundary)"));
+        assert!(boundary.contains("backend=command"));
+        assert!(boundary.contains("flag=--authorize-model-run"));
+        assert!(boundary.contains("EXECUTION REFUSED"));
+        assert!(boundary.contains("no model turn was executed"));
+        assert!(boundary.contains("REAL DOGFOOD RUN AUTHORIZED"));
+
+        // A model-run authorization for another environment is refused.
+        let mut request = dry_run_fixture();
+        request.pins.environment_class = EnvironmentClass::Ci;
+        let loader = StubLoader::new(fixture_tasks());
+        let sandbox_authorization = RealRunAuthorization::authorize_sandbox(
+            "sandbox_command::CommandSandbox",
+            EnvironmentClass::Ci,
+        )
+        .expect("authorized");
+        let ci_real =
+            build_real_run_plan(&request, &loader, &sandbox_authorization).expect("ci plan");
+        let error = authorized_model_run_boundary(&ci_real, &command_model_authorization())
+            .unwrap_err();
+        assert_eq!(error.code(), "dogfood_real_run_not_authorized");
+        assert!(error.to_string().contains("model-run authorization covers"));
+    }
+
     /// The test `scripts/harness-dogfood.sh` runs with `--nocapture` to print the plan.
     #[test]
     fn print_dry_run_plan() {
@@ -1532,6 +1646,17 @@ mod tests {
         assert!(text.contains("REAL DOGFOOD RUN AUTHORIZED"));
         assert!(text.contains("--authorize-sandbox") || text.contains("authorization:"));
         assert!(text.contains("execution still requires the probe entrypoint (O2)"));
+    }
+
+    /// The test `scripts/harness-dogfood.sh --authorize-model-run` runs (no live model call).
+    #[test]
+    fn print_authorized_model_run_boundary() {
+        let real = real_run_plan();
+        let text = authorized_model_run_boundary(&real, &command_model_authorization())
+            .expect("boundary");
+        println!("{text}");
+        assert!(text.contains("MODEL RUN AUTHORIZED (D1 boundary)"));
+        assert!(text.contains("EXECUTION REFUSED"));
     }
 
 }
