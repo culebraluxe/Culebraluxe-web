@@ -13,6 +13,7 @@ pub mod compose;
 pub mod contrast;
 pub mod experience;
 pub mod experiment;
+pub mod feed;
 pub mod model;
 pub mod policy;
 pub mod probe;

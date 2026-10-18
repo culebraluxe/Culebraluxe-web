@@ -506,8 +506,10 @@ Compose → Forge Validate → Adopt/Reject → Reflect.
 3. LLM proposer: `proposer_llm.rs` implements `Proposer` over the existing read-only advisory
    `SeatRunner`, strict JSON with byte/shape limits, policy rejection of RED/authority changes before
    returning; fake-runner tests only (no live model calls in tests).
-4. Phase 3 feed: `ImprovementSignal`/`ImprovementTarget` inputs are accepted from scorecard/learn
-   signals; the scorecard and daily digest now expose the optimizer surface (digest `HARNESS` line).
+4. Phase 3 feed: `feed.rs` converts read-only scorecard buckets and repeated HOLD groups into typed
+   `ImprovementTarget`s (conservative thresholds, evidence refs required, deterministic/capped), which
+   `propose.rs` consumes; the scorecard and daily digest also expose the optimizer surface (digest
+   `HARNESS` line).
 5. k>1 recursion: `run_recursion` supports parallel (shared evidence, k compositions) and sequential
    (chained passes) modes under `EvolutionBudget`, ceilings enforced before any probe; k=1 unchanged.
 6. Operator surface: `forge harness-evolution status|revisions|experiments|experience` (read-only,
@@ -521,7 +523,7 @@ Compose → Forge Validate → Adopt/Reject → Reflect.
   production refusal exist; `UnavailableSandbox` refuses rather than pretending).
 - Wire `ForgeHistoricalTaskLoader` + the sandbox into the dogfood experiment (3–5 historical Rust
   stories, prompt/tool-guidance only, k=1) and record the first experiment rows.
-- Phase 3 feed adapter that converts scorecard/`learn` findings into `ImprovementSignal`s and writes
+- Feed `learn.rs` correction/hypothesis findings (beyond scorecard buckets and HOLD groups) and write
   experiment outcomes back without a second learning store.
 - Automatic adoption stays OFF (effective-GREEN policy only; no production evidence yet).
 
