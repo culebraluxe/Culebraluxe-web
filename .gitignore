@@ -180,3 +180,6 @@ skills-lock.json
 # one `git add -A` away from being committed. 2026-09-28: it was.
 __pycache__/
 *.py[cod]
+
+# Forge release artifacts (scripts/build-forge.sh)
+/build/
