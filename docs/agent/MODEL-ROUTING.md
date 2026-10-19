@@ -1,88 +1,85 @@
-# Model routing — orchestrator's team map
+# Model routing — principal's authoritative roster
 
-Status: active 2026-10-19. Purpose: the orchestrator chooses which model each agent runs, instead of
-every agent inheriting one default. Credentials are **session-local** (the Unix shell/login already
-holds Claude/ChatGPT/DeepSeek/OpenCode auth). Routing does **not** manage secrets and must never
-write them to a file or repo.
+Status: active 2026-10-19 (supersedes earlier generic tier examples). Credentials are **session-local**
+(Unix shell already holds Claude/ChatGPT/DeepSeek/OpenCode auth); routing never stores or prints
+secrets.
 
-## Providers and harnesses (what exists)
+## Roster (authoritative, ranked)
 
-| Provider | Invocation | Notes |
+### T1 — Daily Drivers
+1. `deepseek-v4.1-flash-free`
+2. `meta/muse-spark-1.3-contributor`
+3. `opencode/nemotron-3.5-super-vl-free`
+4. Claude Haiku 5.5
+5. `opencode/space-bunny-free`
+6. `opencode/mimo-v2.6-flash-free`
+7. GPT 6.0 Luna High
+8. GPT-6.1 Sol Medium
+
+### T2 — Judgement
+Baseline candidate: `opencode/deepseek-v4.1-flash-free`
+1. `opencode/nemotron-3-ultra-free`
+2. `deepseek/deepseek-v4-pro`
+3. Claude Sonnet 5.5
+4. GPT-6.1 Sol High
+
+### T3 — Ultra (conditional; expensive)
+- `meta/muse-wonder-1.0`
+- Claude Fable 5.1
+- Claude Opus 5.5
+- Grok
+- GPT-6.0 Astra Light
+- GPT-6.0 Astra Medium
+
+### T3 — Experimental (free; experiments only, never authority)
+- `opencode/glm-5.3-flash-free`
+- `opencode/longcat-2.5-preview-free`
+- `opencode/nemotron-3.5-lightning-free`
+- `opencode/beam-free`
+- `opencode/big-pickle`
+
+Model IDs not visible in `opencode models` (Claude/GPT/Grok entries) are invoked through their own
+CLIs with the session credentials; do not invent API ids for them.
+
+## Selection algorithm
+
+1. Determine the task tier from the role map (below).
+2. Pick the **highest-ranked available** model in that tier; on failure/unavailability, fall back
+   down the ranked list before crossing tiers.
+3. T1/T2 may be chosen by the orchestrator without asking.
+4. **T3 Ultra requires all of:** principal request OR irreversible/high-stakes/Council; T0–T2 tried
+   or clearly insufficient (state why); call logged (reason/model/expected output/stop condition);
+   max 3 Ultra calls/session unless the principal raises it; never for routine code/tests/docs; never
+   to bypass authority/security.
+5. **T3 Experimental** models may be used for experiments/spikes, but never as the authority for a
+   decision or production change; same logging, free so no cost gate.
+6. Budget: over N=120 minutes is flagged, not blocked (`RUN-BUDGET.md`).
+
+## Role → tier
+
+| Role | Tier | Notes |
 | --- | --- | --- |
-| DeepSeek | DSH (primary coordinator), `DSH_MODEL` / profile default; OpenCode `deepseek/*` | daily driver |
-| Meta/Muse | OpenCode `meta/muse-spark-*` | strong agentic/reasoning, T2 |
-| OpenCode | `opencode` harness + its models (`opencode/*-free`) | free tier for bulk work |
-| Claude | `claude` CLI (separate shell auth) | **T3 — 4 expensive models, never auto-routed** |
-| ChatGPT | `codex` CLI (separate shell auth) | T3 expensive; read-only second opinion by default |
-
-## Tiers
-
-| Tier | Models | Use for | Rule |
-| --- | --- | --- | --- |
-| **T0 free** | `opencode/deepseek-v4.1-flash-free`, `opencode/glm-5.3-flash-free`, `opencode/nemotron-3-ultra-free`, `opencode/space-bunny-free` | bulk drafts, test scaffolding, parallel grunt work, first-pass research | default for fan-out; no authority |
-| **T1 daily** | `deepseek/deepseek-v4-flash`, `deepseek/deepseek-flash`, `meta/muse-spark-1.3` | normal implementation, docs, ops, QA runs | default working tier |
-| **T2 judgment** | `deepseek/deepseek-v4-pro`, `meta/muse-spark-1.3-contributor`, `meta/muse-wonder-1.0` | architecture, strategy, adversarial review, Council, complex debugging | orchestrator may choose without asking |
-| **T3 ultra** | Claude family (4 expensive models), ChatGPT high-end | irreversible/high-stakes decisions, final legal/security review, Council escalation | **conditional only — see below** |
-
-## Role → tier map
-
-| Agent/role | Default tier | Escalate to T3 when |
-| --- | --- | --- |
-| Chief of Staff (orchestrator) | T1/T2 | one-way-door decision, contradictory staff verdicts |
-| Strategist | T2 | major strategy commitment |
-| Engineer | T1 (T2 for architecture) | security-critical design review |
-| Operator | T1 | destructive/irreversible ops plan |
-| Researcher | T1/T2 | evidence conflicting with high-stakes claim |
-| Comms | T1 | high-stakes external communication (draft only; no send) |
+| Chief of Staff (orchestrator) | T2 (fallback T1) | one-way-door decisions may request Ultra |
+| Strategist | T2 | major commitment may request Ultra |
+| Engineer | T1 (T2 for architecture) | security-critical design may request Ultra |
+| Operator | T1 | destructive plan may request Ultra |
+| Researcher | T1/T2 | conflicting high-stakes evidence → T2 |
+| Comms | T1 | high-stakes external comm: draft only, no send |
 | Finance/Commercial | T2 | contract/commitment analysis |
-| Devil's Advocate | T2 | final red-team before an irreversible commitment |
-| Forge Scout | T0/T1 | — |
-| Forge Architect | T2 | architecture drift/security review |
-| Forge Lead | T1/T2 | — |
-| Forge Smith | T1 | — |
-| Forge QA/Inspector | T1/T2 | final production sign-off |
+| Devil's Advocate | T2 | pre-commit red team may request Ultra |
+| Forge Scout | T1 | bulk/first pass |
+| Forge Architect | T2 | architecture/security review |
+| Forge Lead | T2 (fallback T1) | — |
+| Forge Smith | T1 | implementation |
+| Forge QA/Inspector | T2 (fallback T1) | production sign-off may request Ultra |
 | Forge Assay | T2 | — |
 | Forge DevOps | T1 | production release/rollback |
 
-## T3 (Claude/ChatGPT) conditions — mandatory
+## Pin mechanics
 
-Use T3 only when **all** are true:
-1. The principal explicitly requested it, **or** the decision is irreversible/high-stakes/Council.
-2. T0–T2 have been attempted or are clearly insufficient (state why).
-3. The call is logged with: reason, requested tier, which T3 model, expected output, and a stop
-   condition.
-4. It is a single consult, not an autonomous loop: **max 3 T3 calls per session** unless the
-   principal raises the cap.
-5. No T3 for routine code, tests, docs, formatting, or "second opinion" where T2 suffices.
-6. Never use T3 to bypass an authority/security gate — model choice is not authority.
-
-If a T3 call is proposed without the principal present, produce an escalation packet with the
-question and the expected value; do not spend.
-
-## How the pin is applied (mechanics)
-
-- **Forge probes:** `forge harness-evolution probe --model <provider/model>`; identity records the
-  actual model. OpenCode only accepts `*-free` models for probes.
-- **DSH coordinator/agents:** `DSH_MODEL=<provider/model>` or the profile default; per-seat model
-  override requires a DSH subagent-model plugin/profile (not installed yet — see below).
-- **OpenCode harness:** `opencode run --model <provider/model>`; free models only for probe work.
-- **Claude/ChatGPT:** separate CLIs, session-local auth; invoked only under the T3 conditions.
-
-## Known gap (to close)
-
-The harness's `spawn_teammate` tool does not expose a per-spawn model parameter today; teammates
-inherit the session model. To make role→model automatic we need one of:
-1. a DSH profile per tier (e.g. `headless-t3`) launched with `DSH_MODEL`, or
-2. a vetted subagent model-picker plugin (e.g. `@zim9729/dsh-subagent-model-picker`) installed in the
-   profile, or
-3. for Forge roles, set the model via the probe/CLI path (already supported).
-
-Until then the orchestrator can honour the map by choosing the **profile/CLI** used to launch an
-agent and by pinning Forge runs; T3 stays manual by design.
-
-## Principal controls
-
-- "use T3 for this" — approves one T3 consult.
-- "stay T1/T2" — hard cap for the session.
-- "free only" — T0/T1 only (no paid models).
-- Budget rule: over N=120 minutes is flagged, not blocked (see `RUN-BUDGET.md`).
+- Forge probes: `--model <provider/model>`; actual model recorded in evidence.
+- OpenCode: `opencode run --model <id>`; free models only for probe work.
+- DSH: `DSH_MODEL` or profile default.
+- Claude/ChatGPT/Grok: their CLIs, session auth; only under T3 conditions.
+- Spawned teammates currently inherit the session model; per-role pinning needs per-tier DSH
+  profiles or a vetted subagent model-picker (known gap).
