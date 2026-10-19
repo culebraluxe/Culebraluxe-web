@@ -1,0 +1,2784 @@
+use crate::email::{EmailRepository, EmailService, EMAIL_DELIVERY_ROUTING_KEY};
+use crate::service_support::{audit_result, authorize, CoreServiceError};
+use crate::signature::{SignatureRepository, SignatureService};
+use crate::signer::{SignerRepository, SignerService};
+use crate::vault::{VaultRepository, VaultService};
+use async_trait::async_trait;
+use chrono::{DateTime, Duration, Utc};
+use db::{
+    DbResult, DbTransaction, EmailDao, FinalizeInputs, LuxesignDao, SignatureDao, SignerDao,
+    VaultDao,
+};
+use model::{
+    validate_luxesign_recipients, EmailMessageKind, ImportAnchorFieldsRequest,
+    ImportAnchorFieldsResult, IssueLuxesignRequest, LuxesignConfig, LuxesignEnvelopeSummary,
+    LuxesignFinalizeResult, LuxesignIssueResult, LuxesignRecipient, LuxesignSendResult,
+    LuxesignSnapshot, LuxesignSweepResult, PrepareLuxesignRequest, PrepareSignatureRequest,
+    PreparedSignatureRecipient, PutSignatureFieldRequest, QueueEmailRequest,
+    RemoveSignatureFieldRequest, SendFieldPlacement, SendLuxesignRequest,
+    SetLuxesignRecipientsRequest, SignatureField, SignatureFieldType, SignatureRecipientRole,
+    SignatureRequestStatus, TemplateAnchor,
+};
+use serde_json::{json, Value};
+use services::{
+    AbstractService, OperationKind, ServiceCapability, ServiceContext, ServiceDescriptor,
+    ServiceDispatchError, ServiceEnvelope, ServiceExecutionPolicy, ServiceInfrastructure,
+    ServiceRuntime,
+};
+
+use std::sync::Arc;
+
+pub const LUXESIGN_SERVICE_ACTOR: &str = "luxesign-service";
+const DEFAULT_EXPIRY_DAYS: i64 = 7;
+
+#[async_trait]
+pub trait LuxesignRepository: Send + Sync {
+    async fn config(&self, signature_request_id: &str) -> DbResult<Option<LuxesignConfig>>;
+    async fn list_envelopes(&self, limit: i64) -> DbResult<Vec<LuxesignEnvelopeSummary>>;
+    async fn recipients(&self, signature_request_id: &str) -> DbResult<Vec<LuxesignRecipient>>;
+    async fn recipients_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Vec<LuxesignRecipient>>;
+    async fn fields(&self, signature_request_id: &str) -> DbResult<Vec<SignatureField>>;
+    async fn fields_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Vec<SignatureField>>;
+    async fn create_config_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        subject: Option<&str>,
+        signing_mode: model::LuxesignSigningMode,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> DbResult<LuxesignConfig>;
+    async fn set_notice_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        copy_to_emails: &[String],
+        reminder_every_days: i32,
+    ) -> DbResult<()>;
+    async fn notice_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<(Vec<String>, i32)>;
+    async fn operator_email_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>>;
+    async fn document_title_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>>;
+    async fn reminders_due_tx(
+        &self,
+        tx: &mut DbTransaction,
+        max_reminders: i64,
+    ) -> DbResult<Vec<(String, String)>>;
+    async fn put_field_tx(
+        &self,
+        tx: &mut DbTransaction,
+        request: &PutSignatureFieldRequest,
+    ) -> DbResult<Option<SignatureField>>;
+    async fn remove_field_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        field_id: &str,
+    ) -> DbResult<bool>;
+    async fn lock_config_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<LuxesignConfig>>;
+    async fn mark_issued_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        expires_at: DateTime<Utc>,
+    ) -> DbResult<bool>;
+    async fn required_field_gaps_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Vec<String>>;
+    async fn store_audit_artifact_tx(
+        &self,
+        tx: &mut DbTransaction,
+        transaction_document_id: &str,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
+    ) -> DbResult<String>;
+    async fn audit_media_for_request_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>>;
+    async fn link_signed_media_tx(
+        &self,
+        tx: &mut DbTransaction,
+        transaction_document_id: &str,
+        media_id: &str,
+    ) -> DbResult<()>;
+    async fn store_signed_artifact_tx(
+        &self,
+        tx: &mut DbTransaction,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
+    ) -> DbResult<String>;
+    async fn overdue_envelopes_tx(&self, tx: &mut DbTransaction) -> DbResult<Vec<String>>;
+    /// The canonical status and owning document, read inside the caller's
+    /// transaction. Finalize uses this instead of `signature.get` because
+    /// the internal context carries no principal and must not depend on
+    /// query grants.
+    async fn canonical_status_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<(String, String)>>;
+    async fn signed_media_for_request_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>>;
+    async fn template_anchors_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<serde_json::Value>>;
+}
+
+#[async_trait]
+impl LuxesignRepository for LuxesignDao {
+    async fn config(&self, signature_request_id: &str) -> DbResult<Option<LuxesignConfig>> {
+        LuxesignDao::config(self, signature_request_id).await
+    }
+    async fn list_envelopes(&self, limit: i64) -> DbResult<Vec<LuxesignEnvelopeSummary>> {
+        LuxesignDao::list_envelopes(self, limit).await
+    }
+    async fn recipients(&self, signature_request_id: &str) -> DbResult<Vec<LuxesignRecipient>> {
+        LuxesignDao::recipients(self, signature_request_id).await
+    }
+    async fn recipients_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Vec<LuxesignRecipient>> {
+        LuxesignDao::recipients_tx(self, tx, signature_request_id).await
+    }
+    async fn fields(&self, signature_request_id: &str) -> DbResult<Vec<SignatureField>> {
+        LuxesignDao::fields(self, signature_request_id).await
+    }
+    async fn fields_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Vec<SignatureField>> {
+        LuxesignDao::fields_tx(self, tx, signature_request_id).await
+    }
+    async fn set_notice_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        copy_to_emails: &[String],
+        reminder_every_days: i32,
+    ) -> DbResult<()> {
+        LuxesignDao::set_notice_tx(
+            self,
+            tx,
+            signature_request_id,
+            copy_to_emails,
+            reminder_every_days,
+        )
+        .await
+    }
+    async fn notice_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<(Vec<String>, i32)> {
+        LuxesignDao::notice_tx(self, tx, signature_request_id).await
+    }
+    async fn operator_email_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>> {
+        LuxesignDao::operator_email_tx(self, tx, signature_request_id).await
+    }
+    async fn document_title_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>> {
+        LuxesignDao::document_title_tx(self, tx, signature_request_id).await
+    }
+    async fn reminders_due_tx(
+        &self,
+        tx: &mut DbTransaction,
+        max_reminders: i64,
+    ) -> DbResult<Vec<(String, String)>> {
+        LuxesignDao::reminders_due_tx(self, tx, max_reminders).await
+    }
+    async fn create_config_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        subject: Option<&str>,
+        signing_mode: model::LuxesignSigningMode,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> DbResult<LuxesignConfig> {
+        LuxesignDao::create_config_tx(
+            self,
+            tx,
+            signature_request_id,
+            subject,
+            signing_mode,
+            expires_at,
+        )
+        .await
+    }
+    async fn put_field_tx(
+        &self,
+        tx: &mut DbTransaction,
+        request: &PutSignatureFieldRequest,
+    ) -> DbResult<Option<SignatureField>> {
+        LuxesignDao::put_field_tx(self, tx, request).await
+    }
+    async fn remove_field_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        field_id: &str,
+    ) -> DbResult<bool> {
+        LuxesignDao::remove_field_tx(self, tx, signature_request_id, field_id).await
+    }
+    async fn lock_config_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<LuxesignConfig>> {
+        LuxesignDao::lock_config_tx(self, tx, signature_request_id).await
+    }
+    async fn mark_issued_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        expires_at: DateTime<Utc>,
+    ) -> DbResult<bool> {
+        LuxesignDao::mark_issued_tx(self, tx, signature_request_id, expires_at).await
+    }
+    async fn required_field_gaps_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Vec<String>> {
+        LuxesignDao::required_field_gaps_tx(self, tx, signature_request_id).await
+    }
+    async fn store_audit_artifact_tx(
+        &self,
+        tx: &mut DbTransaction,
+        transaction_document_id: &str,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
+    ) -> DbResult<String> {
+        LuxesignDao::store_audit_artifact_tx(
+            self,
+            tx,
+            transaction_document_id,
+            filename,
+            mime_type,
+            bytes,
+        )
+        .await
+    }
+    async fn audit_media_for_request_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>> {
+        LuxesignDao::audit_media_for_request_tx(self, tx, signature_request_id).await
+    }
+    async fn link_signed_media_tx(
+        &self,
+        tx: &mut DbTransaction,
+        transaction_document_id: &str,
+        media_id: &str,
+    ) -> DbResult<()> {
+        LuxesignDao::link_signed_media_tx(self, tx, transaction_document_id, media_id).await
+    }
+    async fn store_signed_artifact_tx(
+        &self,
+        tx: &mut DbTransaction,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
+    ) -> DbResult<String> {
+        LuxesignDao::store_signed_artifact_tx(self, tx, filename, mime_type, bytes).await
+    }
+    async fn overdue_envelopes_tx(&self, tx: &mut DbTransaction) -> DbResult<Vec<String>> {
+        LuxesignDao::overdue_envelopes_tx(self, tx).await
+    }
+    async fn canonical_status_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<(String, String)>> {
+        LuxesignDao::canonical_status_tx(self, tx, signature_request_id).await
+    }
+    async fn signed_media_for_request_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<String>> {
+        LuxesignDao::signed_media_for_request_tx(self, tx, signature_request_id).await
+    }
+    async fn template_anchors_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+    ) -> DbResult<Option<serde_json::Value>> {
+        LuxesignDao::template_anchors_tx(self, tx, signature_request_id).await
+    }
+}
+
+pub struct LuxesignService<R, SR, SGR, ER, VR> {
+    repository: R,
+    signature: Arc<SignatureService<SR>>,
+    signer: Arc<SignerService<SGR>>,
+    email: Arc<EmailService<ER>>,
+    vault: Arc<VaultService<VR>>,
+    runtime: ServiceRuntime,
+}
+
+impl<R, SR, SGR, ER, VR> LuxesignService<R, SR, SGR, ER, VR>
+where
+    R: LuxesignRepository,
+    SR: SignatureRepository,
+    SGR: SignerRepository,
+    ER: EmailRepository,
+    VR: VaultRepository,
+{
+    pub fn new(
+        repository: R,
+        signature: Arc<SignatureService<SR>>,
+        signer: Arc<SignerService<SGR>>,
+        email: Arc<EmailService<ER>>,
+        vault: Arc<VaultService<VR>>,
+        infrastructure: ServiceInfrastructure,
+    ) -> Self {
+        Self {
+            repository,
+            signature,
+            signer,
+            email,
+            vault,
+            runtime: ServiceRuntime::new(infrastructure),
+        }
+    }
+
+    pub async fn get(
+        &self,
+        signature_request_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<LuxesignSnapshot>, CoreServiceError> {
+        const OP: &str = "luxesign.get";
+        let decision = authorize(
+            &self.runtime,
+            "luxesign",
+            "luxesign.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            let Some(config) = self.repository.config(signature_request_id).await? else {
+                return Ok(None);
+            };
+            let luxesign_request = self
+                .signature
+                .get(signature_request_id, context)
+                .await?
+                .ok_or_else(|| {
+                    CoreServiceError::business(
+                        "LUXESIGN_NOT_FOUND",
+                        "Canonical signature request not found.",
+                    )
+                })?;
+            let recipients = self.repository.recipients(signature_request_id).await?;
+            let fields = self.repository.fields(signature_request_id).await?;
+            Ok(Some(LuxesignSnapshot {
+                luxesign_request,
+                config,
+                recipients,
+                fields,
+            }))
+        }
+        .await;
+
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Recent native envelopes for the ops desk. Inline query: no mutation,
+    /// no command receipt, the desk re-reads after each action.
+    pub async fn list(
+        &self,
+        context: &ServiceContext,
+    ) -> Result<Vec<LuxesignEnvelopeSummary>, CoreServiceError> {
+        const OP: &str = "luxesign.list";
+        let decision = authorize(
+            &self.runtime,
+            "luxesign",
+            "luxesign.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self.repository.list_envelopes(50).await.map_err(Into::into);
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn fields(
+        &self,
+        signature_request_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Vec<SignatureField>, CoreServiceError> {
+        const OP: &str = "luxesign.fields";
+        let decision = authorize(
+            &self.runtime,
+            "luxesign",
+            "luxesign.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+        let result = self
+            .repository
+            .fields(signature_request_id)
+            .await
+            .map_err(Into::into);
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn prepare_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        request: &PrepareLuxesignRequest,
+        context: &ServiceContext,
+    ) -> Result<LuxesignSnapshot, CoreServiceError> {
+        const OP: &str = "luxesign.prepare";
+        let decision = authorize(
+            &self.runtime,
+            "luxesign",
+            "luxesign.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            validate_prepare(request)?;
+            let expires_at = parse_future_expiry(request.expires_at.as_deref())?;
+            let recipients = prepared_recipients(&request.recipients);
+            let internal = internal_context(context);
+            let canonical = self
+                .signature
+                .prepare_transactional(
+                    tx,
+                    &PrepareSignatureRequest {
+                        transaction_document_id: request.transaction_document_id.clone(),
+                        recipients,
+                        message: request.message.clone(),
+                        created_by_user_id: context
+                            .principal
+                            .as_ref()
+                            .map(|principal| principal.app_user_id.clone()),
+                    },
+                    &internal,
+                )
+                .await?;
+
+            let config = if canonical.existing {
+                self.repository
+                    .lock_config_tx(tx, &canonical.luxesign_request.id)
+                    .await?
+                    .ok_or_else(|| {
+                        CoreServiceError::business(
+                            "LUXESIGN_ACTIVE_SIGNATURE_EXISTS",
+                            "This document already has an active non-native signature request.",
+                        )
+                    })?
+            } else {
+                self.repository
+                    .create_config_tx(
+                        tx,
+                        &canonical.luxesign_request.id,
+                        request.subject.as_deref(),
+                        request.signing_mode,
+                        expires_at.clone(),
+                    )
+                    .await?
+            };
+
+            let recipients = self
+                .repository
+                .recipients_tx(tx, &canonical.luxesign_request.id)
+                .await?;
+            if canonical.existing
+                && !prepare_intent_matches(&config, &recipients, request, expires_at)
+            {
+                return Err(CoreServiceError::business(
+                    "LUXESIGN_ALREADY_PREPARED",
+                    "This document already has an active native signing draft with different intent.",
+                ));
+            }
+            let fields = self
+                .repository
+                .fields_tx(tx, &canonical.luxesign_request.id)
+                .await?;
+
+            Ok(LuxesignSnapshot {
+                luxesign_request: canonical.luxesign_request,
+                config,
+                recipients,
+                fields,
+            })
+        }
+        .await;
+
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn set_recipients_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        request: &SetLuxesignRecipientsRequest,
+        context: &ServiceContext,
+    ) -> Result<Vec<LuxesignRecipient>, CoreServiceError> {
+        const OP: &str = "luxesign.setRecipients";
+        let decision = authorize(
+            &self.runtime,
+            "luxesign",
+            "luxesign.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            ensure_mutable_config(&self.repository, tx, &request.signature_request_id).await?;
+            let errors = validate_luxesign_recipients(&request.recipients);
+            if !errors.is_empty() {
+                return Err(CoreServiceError::business(
+                    "LUXESIGN_RECIPIENT_INVALID",
+                    errors.join(" "),
+                ));
+            }
+            let internal = internal_context(context);
+            self.signature
+                .replace_recipients_transactional(
+                    tx,
+                    &request.signature_request_id,
+                    &prepared_recipients(&request.recipients),
+                    &internal,
+                )
+                .await?;
+            self.repository
+                .recipients_tx(tx, &request.signature_request_id)
+                .await
+                .map_err(Into::into)
+        }
+        .await;
+
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn put_field_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        request: &PutSignatureFieldRequest,
+        context: &ServiceContext,
+    ) -> Result<SignatureField, CoreServiceError> {
+        const OP: &str = "luxesign.putField";
+        let decision = authorize(
+            &self.runtime,
+            "luxesign",
+            "luxesign.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            ensure_mutable_config(&self.repository, tx, &request.signature_request_id).await?;
+            validate_field(request)?;
+            self.repository
+                .put_field_tx(tx, request)
+                .await?
+                .ok_or_else(|| {
+                    CoreServiceError::business(
+                        "LUXESIGN_FIELD_INVALID",
+                        "Field was not found in this signature request.",
+                    )
+                })
+        }
+        .await;
+
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn remove_field_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        request: &RemoveSignatureFieldRequest,
+        context: &ServiceContext,
+    ) -> Result<(), CoreServiceError> {
+        const OP: &str = "luxesign.removeField";
+        let decision = authorize(
+            &self.runtime,
+            "luxesign",
+            "luxesign.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            ensure_mutable_config(&self.repository, tx, &request.signature_request_id).await?;
+            if self
+                .repository
+                .remove_field_tx(tx, &request.signature_request_id, &request.field_id)
+                .await?
+            {
+                Ok(())
+            } else {
+                Err(CoreServiceError::business(
+                    "LUXESIGN_FIELD_INVALID",
+                    "Field was not found in this signature request.",
+                ))
+            }
+        }
+        .await;
+
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Prepare, place every signer's signature field, and issue — in the caller's one transaction, so an envelope is
+    /// never left half-built. Each step is still authorized on its own (`luxesign.write`, then
+    /// `luxesign.issue`), so this grants nothing the three commands did not.
+    pub async fn send_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        request: &SendLuxesignRequest,
+        context: &ServiceContext,
+    ) -> Result<LuxesignSendResult, CoreServiceError> {
+        // The page count is read first (under the caller's authority) so a request for "the last page" is resolved
+        // against the real document, and so a bad page is refused before anything is written.
+        let page_count = self
+            .vault
+            .pdf_page_count(&request.transaction_document_id, context)
+            .await?;
+        let page = match &request.placement {
+            SendFieldPlacement::Template => None,
+            SendFieldPlacement::LastPage => Some(page_count.ok_or_else(|| {
+                CoreServiceError::business(
+                    "LUXESIGN_FIELD_INVALID",
+                    "The document has no readable PDF, so its last page is unknown.",
+                )
+            })? as i32),
+            SendFieldPlacement::Page { page_number } => {
+                if *page_number < 1 || page_count.is_some_and(|count| *page_number as u32 > count) {
+                    return Err(CoreServiceError::business(
+                        "LUXESIGN_FIELD_INVALID",
+                        match page_count {
+                            Some(count) => format!(
+                                "Page {page_number} does not exist: the document has {count} page(s)."
+                            ),
+                            None => "The signature page must be 1 or higher.".to_owned(),
+                        },
+                    ));
+                }
+                Some(*page_number)
+            }
+        };
+
+        let snapshot = self
+            .prepare_transactional(
+                tx,
+                &PrepareLuxesignRequest {
+                    transaction_document_id: request.transaction_document_id.clone(),
+                    recipients: request.recipients.clone(),
+                    subject: request.subject.clone(),
+                    message: request.message.clone(),
+                    signing_mode: request.signing_mode,
+                    expires_at: request.expires_at.clone(),
+                },
+                context,
+            )
+            .await?;
+        let signature_request_id = snapshot.luxesign_request.id.clone();
+        let copy_to = clean_copy_to(&request.copy_to)?;
+        let reminder_every_days = request.reminder_every_days.unwrap_or(DEFAULT_REMINDER_DAYS);
+        if !(0..=60).contains(&reminder_every_days) {
+            return Err(CoreServiceError::business(
+                "LUXESIGN_REMINDER_INVALID",
+                "Reminders must be every 0 to 60 days (0 turns them off).",
+            ));
+        }
+        self.repository
+            .set_notice_tx(tx, &signature_request_id, &copy_to, reminder_every_days)
+            .await?;
+
+        match page {
+            None => {
+                self.import_fields_transactional(
+                    tx,
+                    &ImportAnchorFieldsRequest {
+                        signature_request_id: signature_request_id.clone(),
+                        anchors: Vec::new(),
+                        absent_roles: request.absent_roles.clone(),
+                    },
+                    context,
+                )
+                .await?;
+            }
+            Some(page_number) => {
+                let owners: std::collections::BTreeSet<String> = snapshot
+                    .fields
+                    .iter()
+                    .map(|field| field.recipient_id.clone())
+                    .collect();
+                let signers = snapshot
+                    .recipients
+                    .iter()
+                    .filter(|recipient| recipient.role == SignatureRecipientRole::Signer)
+                    .filter(|recipient| !owners.contains(&recipient.id));
+                for (slot, recipient) in signers.enumerate() {
+                    let (x, y, width, height) = default_signature_box(slot);
+                    self.put_field_transactional(
+                        tx,
+                        &PutSignatureFieldRequest {
+                            signature_request_id: signature_request_id.clone(),
+                            field_id: None,
+                            recipient_id: recipient.id.clone(),
+                            // The key is unique per envelope, so each signer's box needs its own.
+                            field_key: format!("signature-{}", recipient.id),
+                            field_type: SignatureFieldType::Signature,
+                            page_number,
+                            position_x: x,
+                            position_y: y,
+                            width,
+                            height,
+                            required: true,
+                            label: Some("Signature".into()),
+                            configuration: json!({}),
+                        },
+                        context,
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        let issued = self
+            .issue_transactional(
+                tx,
+                &IssueLuxesignRequest {
+                    signature_request_id: signature_request_id.clone(),
+                },
+                context,
+            )
+            .await?;
+        let recipients = self
+            .repository
+            .recipients_tx(tx, &signature_request_id)
+            .await?;
+        let fields = self.repository.fields_tx(tx, &signature_request_id).await?;
+        Ok(LuxesignSendResult {
+            snapshot: LuxesignSnapshot {
+                recipients,
+                fields,
+                ..snapshot
+            },
+            issued,
+        })
+    }
+
+    pub async fn issue_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        request: &IssueLuxesignRequest,
+        context: &ServiceContext,
+    ) -> Result<LuxesignIssueResult, CoreServiceError> {
+        const OP: &str = "luxesign.issue";
+        let decision = authorize(
+            &self.runtime,
+            "luxesign",
+            "luxesign.issue",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            let config = self
+                .repository
+                .lock_config_tx(tx, &request.signature_request_id)
+                .await?
+                .ok_or_else(|| {
+                    CoreServiceError::business(
+                        "LUXESIGN_NOT_FOUND",
+                        "Native luxesign request not found.",
+                    )
+                })?;
+
+            if config.issued_at.is_some() {
+                return Err(CoreServiceError::business(
+                    "LUXESIGN_ALREADY_ISSUED",
+                    "This luxesign request has already been issued.",
+                ));
+            }
+
+            let gaps = self
+                .repository
+                .required_field_gaps_tx(tx, &request.signature_request_id)
+                .await?;
+            if !gaps.is_empty() {
+                return Err(CoreServiceError::business(
+                    "LUXESIGN_FIELD_INVALID",
+                    format!(
+                        "{} signing recipient(s) have no required field.",
+                        gaps.len()
+                    ),
+                ));
+            }
+
+            // Every field must sit on a page the document has: sealing fails on a missing page, and by then the
+            // signers have already signed. Skipped only when the PDF itself cannot be read.
+            if let Some((_, document_id)) = self
+                .repository
+                .canonical_status_tx(tx, &request.signature_request_id)
+                .await?
+            {
+                if let Some(pages) = self.vault.pdf_page_count(&document_id, context).await? {
+                    let fields = self
+                        .repository
+                        .fields_tx(tx, &request.signature_request_id)
+                        .await?;
+                    if let Some(field) = fields
+                        .iter()
+                        .find(|field| field.page_number < 1 || field.page_number as u32 > pages)
+                    {
+                        return Err(CoreServiceError::business(
+                            "LUXESIGN_FIELD_INVALID",
+                            format!(
+                                "Field '{}' is on page {}, but the document has {pages} page(s).",
+                                field.field_key, field.page_number
+                            ),
+                        ));
+                    }
+                }
+            }
+
+            let recipients = self
+                .repository
+                .recipients_tx(tx, &request.signature_request_id)
+                .await?;
+            if recipients.is_empty() {
+                return Err(CoreServiceError::business(
+                    "LUXESIGN_RECIPIENT_INVALID",
+                    "At least one recipient is required before issue.",
+                ));
+            }
+
+            let expires_at = match config.expires_at.as_deref() {
+                Some(value) => DateTime::parse_from_rfc3339(value)
+                    .map_err(|_| {
+                        CoreServiceError::business(
+                            "LUXESIGN_EXPIRY_INVALID",
+                            "Stored signing expiry is invalid.",
+                        )
+                    })?
+                    .with_timezone(&Utc),
+                None => Utc::now() + Duration::days(DEFAULT_EXPIRY_DAYS),
+            };
+            if expires_at <= Utc::now() {
+                return Err(CoreServiceError::business(
+                    "LUXESIGN_EXPIRY_INVALID",
+                    "Signing expiry must be in the future.",
+                ));
+            }
+
+            let internal = internal_context(context);
+            // The sender gets a hidden copy of every invitation, so their own mailboxes keep the record.
+            let sender_copy = sender_copies(
+                self.repository
+                    .operator_email_tx(tx, &request.signature_request_id)
+                    .await?,
+                self.email.sender_address(),
+            );
+            let mut invitation_message_ids = Vec::with_capacity(recipients.len());
+            for recipient in &recipients {
+                let grant = self
+                    .signer
+                    .issue_access_transactional(
+                        tx,
+                        &recipient.id,
+                        Some(expires_at.clone()),
+                        &internal,
+                    )
+                    .await?;
+                let queued = self
+                    .email
+                    .queue_transactional(
+                        tx,
+                        &QueueEmailRequest {
+                            message_kind: EmailMessageKind::SignatureInvitation,
+                            recipient_email: recipient.email.clone(),
+                            template_key: "luxesign.invitation".into(),
+                            template_payload: json!({
+                                "recipientName": recipient.name,
+                                "signingUrl": grant.signing_url,
+                                "subject": config.subject,
+                                "bcc": sender_copy,
+                            }),
+                            dedupe_key: format!(
+                                "signature-invite:{}:{}:v{}",
+                                request.signature_request_id, recipient.id, grant.token_version
+                            ),
+                            correlation_id: Some(context.correlation_id.clone()),
+                            causation_id: context.causation_id.clone(),
+                        },
+                        &internal,
+                    )
+                    .await?;
+                invitation_message_ids.push(queued.message_id);
+                self.signer
+                    .mark_notified_transactional(
+                        tx,
+                        &recipient.id,
+                        &request.signature_request_id,
+                        &internal,
+                    )
+                    .await?;
+            }
+
+            self.signature
+                .transition_transactional(
+                    tx,
+                    &request.signature_request_id,
+                    SignatureRequestStatus::Sent,
+                    &internal,
+                )
+                .await?;
+
+            if !self
+                .repository
+                .mark_issued_tx(tx, &request.signature_request_id, expires_at.clone())
+                .await?
+            {
+                return Err(CoreServiceError::business(
+                    "LUXESIGN_ALREADY_ISSUED",
+                    "This luxesign request changed while it was being issued.",
+                ));
+            }
+
+            Ok(LuxesignIssueResult {
+                signature_request_id: request.signature_request_id.clone(),
+                invitation_message_ids,
+                expires_at: expires_at.to_rfc3339(),
+            })
+        }
+        .await;
+
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn signer_completed_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        envelope_ready_to_finalize: bool,
+        context: &ServiceContext,
+    ) -> Result<(), CoreServiceError> {
+        if !envelope_ready_to_finalize {
+            return Ok(());
+        }
+        let internal = internal_context(context);
+        self.signature
+            .transition_transactional(
+                tx,
+                signature_request_id,
+                SignatureRequestStatus::Signed,
+                &internal,
+            )
+            .await?;
+        // Completion is announced when the document is SEALED (`finalize_transactional`), not here: the notice carries
+        // the signed document and its certificate, which do not exist until then. This flip only marks the envelope
+        // signed; the finalizer picks it up from the READY_TO_FINALIZE event.
+        Ok(())
+    }
+
+    pub async fn signer_declined_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        decliner_recipient_id: &str,
+        reason: Option<&str>,
+        context: &ServiceContext,
+    ) -> Result<Vec<String>, CoreServiceError> {
+        let internal = internal_context(context);
+        self.signer
+            .revoke_request_access_transactional(tx, signature_request_id, &internal)
+            .await?;
+        self.signature
+            .transition_transactional(
+                tx,
+                signature_request_id,
+                SignatureRequestStatus::Declined,
+                &internal,
+            )
+            .await?;
+        // Everyone except the decliner learns the envelope died (the decliner already knows), with who declined and
+        // why. Queued here so the notices and the status flip share one transaction.
+        self.queue_outcome_emails_tx(
+            tx,
+            signature_request_id,
+            &OutcomeNotice::Declined {
+                decliner_recipient_id,
+                reason,
+            },
+            context,
+        )
+        .await
+    }
+
+    /// Queue the outcome notice (completed or declined) for everyone who should hear it: the envelope's recipients
+    /// (except the decliner, who already knows), the people the sender copied, and the sender. One message per email
+    /// address, deduplicated case-insensitively, so a person who is both a signer and the sender is told once.
+    async fn queue_outcome_emails_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        notice: &OutcomeNotice<'_>,
+        context: &ServiceContext,
+    ) -> Result<Vec<String>, CoreServiceError> {
+        let internal = internal_context(context);
+        let recipients = self
+            .repository
+            .recipients_tx(tx, signature_request_id)
+            .await?;
+        let (copy_to, _) = self.repository.notice_tx(tx, signature_request_id).await?;
+        let operator = self
+            .repository
+            .operator_email_tx(tx, signature_request_id)
+            .await?;
+        let title = self
+            .repository
+            .document_title_tx(tx, signature_request_id)
+            .await?;
+
+        let (kind, template_key, dedupe_kind, skip_recipient, decliner, reason) = match notice {
+            OutcomeNotice::Completed => (
+                EmailMessageKind::SignatureCompleted,
+                "luxesign.completed",
+                "signature-completed",
+                None,
+                None,
+                None,
+            ),
+            OutcomeNotice::Declined {
+                decliner_recipient_id,
+                reason,
+            } => (
+                EmailMessageKind::SignatureDeclined,
+                "luxesign.declined",
+                "signature-declined",
+                Some(*decliner_recipient_id),
+                recipients
+                    .iter()
+                    .find(|recipient| recipient.id == *decliner_recipient_id)
+                    .map(|recipient| recipient.name.clone()),
+                reason.map(str::to_owned),
+            ),
+        };
+
+        let signers: Vec<String> = recipients
+            .iter()
+            .filter(|recipient| recipient.role == SignatureRecipientRole::Signer)
+            .map(|recipient| recipient.name.clone())
+            .collect();
+        let mut addressees: Vec<(String, String)> = Vec::new();
+        // The decliner is not told, so their address is "already seen": it stays out even when they are also the
+        // sender or on the copy list.
+        let mut seen: std::collections::BTreeSet<String> = recipients
+            .iter()
+            .filter(|recipient| Some(recipient.id.as_str()) == skip_recipient)
+            .map(|recipient| recipient.email.trim().to_lowercase())
+            .collect();
+        let mut add = |name: String, email: &str| {
+            let email = email.trim();
+            if !email.is_empty() && seen.insert(email.to_lowercase()) {
+                addressees.push((name, email.to_owned()));
+            }
+        };
+        for recipient in &recipients {
+            if Some(recipient.id.as_str()) == skip_recipient {
+                continue;
+            }
+            add(recipient.name.clone(), &recipient.email);
+        }
+        for email in &copy_to {
+            add(String::new(), email);
+        }
+        if let Some(email) = operator.as_deref() {
+            add(String::new(), email);
+        }
+
+        let mut message_ids = Vec::with_capacity(addressees.len());
+        for (name, email) in addressees {
+            let queued = self
+                .email
+                .queue_transactional(
+                    tx,
+                    &QueueEmailRequest {
+                        message_kind: kind,
+                        recipient_email: email.clone(),
+                        template_key: template_key.into(),
+                        template_payload: json!({
+                            "recipientName": name,
+                            "documentTitle": title,
+                            "signatureRequestId": signature_request_id,
+                            "signers": signers,
+                            "declinerName": decliner,
+                            "reason": reason,
+                            // The completed document and its certificate travel with the notice; the delivery worker
+                            // reads them from the Vault when it sends.
+                            "attachCompletion": matches!(notice, OutcomeNotice::Completed),
+                        }),
+                        dedupe_key: format!(
+                            "{dedupe_kind}:{signature_request_id}:{}",
+                            email.to_lowercase()
+                        ),
+                        correlation_id: Some(context.correlation_id.clone()),
+                        causation_id: context.causation_id.clone(),
+                    },
+                    &internal,
+                )
+                .await?;
+            message_ids.push(queued.message_id);
+        }
+        Ok(message_ids)
+    }
+
+    /// One reminder to one waiting recipient, over their live link. `None` when there is nothing to remind them with
+    /// (their link can no longer be read, or they are no longer waiting).
+    async fn queue_reminder_tx(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        recipient_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<String>, CoreServiceError> {
+        let internal = internal_context(context);
+        let Some(recipient) = self
+            .repository
+            .recipients_tx(tx, signature_request_id)
+            .await?
+            .into_iter()
+            .find(|recipient| recipient.id == recipient_id)
+        else {
+            return Ok(None);
+        };
+        let Ok(signing_url) = self.signer.active_signing_url(tx, recipient_id).await else {
+            return Ok(None);
+        };
+        let subject = self
+            .repository
+            .lock_config_tx(tx, signature_request_id)
+            .await?
+            .and_then(|config| config.subject);
+        let sender_copy = sender_copies(
+            self.repository
+                .operator_email_tx(tx, signature_request_id)
+                .await?,
+            self.email.sender_address(),
+        );
+        let queued = self
+            .email
+            .queue_transactional(
+                tx,
+                &QueueEmailRequest {
+                    message_kind: EmailMessageKind::SignatureReminder,
+                    recipient_email: recipient.email.clone(),
+                    template_key: "luxesign.reminder".into(),
+                    template_payload: json!({
+                        "recipientName": recipient.name,
+                        "signingUrl": signing_url,
+                        "subject": subject,
+                        "bcc": sender_copy,
+                    }),
+                    // The `signature-reminder:{request}:{recipient}:` prefix is what `reminders_due_tx` counts.
+                    dedupe_key: format!(
+                        "signature-reminder:{signature_request_id}:{recipient_id}:{}",
+                        Utc::now().timestamp_millis()
+                    ),
+                    correlation_id: Some(context.correlation_id.clone()),
+                    causation_id: context.causation_id.clone(),
+                },
+                &internal,
+            )
+            .await?;
+        Ok(Some(queued.message_id))
+    }
+
+    pub async fn void_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        context: &ServiceContext,
+    ) -> Result<(), CoreServiceError> {
+        const OP: &str = "luxesign.void";
+        let decision = authorize(
+            &self.runtime,
+            "luxesign",
+            "luxesign.void",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            self.repository
+                .lock_config_tx(tx, signature_request_id)
+                .await?
+                .ok_or_else(|| {
+                    CoreServiceError::business(
+                        "LUXESIGN_NOT_FOUND",
+                        "Native luxesign request not found.",
+                    )
+                })?;
+            let internal = internal_context(context);
+            self.signer
+                .revoke_request_access_transactional(tx, signature_request_id, &internal)
+                .await?;
+            self.signature
+                .transition_transactional(
+                    tx,
+                    signature_request_id,
+                    SignatureRequestStatus::Voided,
+                    &internal,
+                )
+                .await?;
+            Ok(())
+        }
+        .await;
+
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Re-send an invitation to one recipient of an issued envelope.
+    /// A reminder reuses the live link; a resend rotates access (the old link
+    /// dies with evidence) and sends a fresh invitation. Either way only the
+    /// queue insert happens here — SMTP stays asynchronous.
+    pub async fn resend_invitation_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        recipient_id: &str,
+        as_reminder: bool,
+        context: &ServiceContext,
+    ) -> Result<String, CoreServiceError> {
+        const OP: &str = "luxesign.resend";
+        let decision = authorize(
+            &self.runtime,
+            "luxesign",
+            "luxesign.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            let config = self
+                .repository
+                .lock_config_tx(tx, signature_request_id)
+                .await?
+                .ok_or_else(|| {
+                    CoreServiceError::business(
+                        "LUXESIGN_NOT_FOUND",
+                        "Native luxesign request not found.",
+                    )
+                })?;
+            if config.issued_at.is_none() {
+                return Err(CoreServiceError::business(
+                    "LUXESIGN_NOT_MUTABLE",
+                    "There is nothing to resend before issue.",
+                ));
+            }
+            let recipient = self
+                .repository
+                .recipients_tx(tx, signature_request_id)
+                .await?
+                .into_iter()
+                .find(|recipient| recipient.id == recipient_id)
+                .ok_or_else(|| {
+                    CoreServiceError::business(
+                        "LUXESIGN_RECIPIENT_INVALID",
+                        "Recipient does not belong to this signing request.",
+                    )
+                })?;
+            let internal = internal_context(context);
+            let state = self.signer.current_state(recipient_id).await?;
+            if state.state.is_terminal() {
+                return Err(CoreServiceError::business(
+                    "SIGNER_ALREADY_TERMINAL",
+                    "This signer can no longer be invited.",
+                ));
+            }
+            let (signing_url, kind, template_key, dedupe_kind) = if as_reminder {
+                (
+                    self.signer.active_signing_url(tx, recipient_id).await?,
+                    EmailMessageKind::SignatureReminder,
+                    "luxesign.reminder",
+                    "signature-reminder",
+                )
+            } else {
+                let grant = self
+                    .signer
+                    .issue_access_transactional(tx, recipient_id, None, &internal)
+                    .await?;
+                (
+                    grant.signing_url,
+                    EmailMessageKind::SignatureInvitation,
+                    "luxesign.invitation",
+                    "signature-resend",
+                )
+            };
+            let sender_copy = sender_copies(
+                self.repository
+                    .operator_email_tx(tx, signature_request_id)
+                    .await?,
+                self.email.sender_address(),
+            );
+            let queued = self
+                .email
+                .queue_transactional(
+                    tx,
+                    &QueueEmailRequest {
+                        message_kind: kind,
+                        recipient_email: recipient.email.clone(),
+                        template_key: template_key.into(),
+                        template_payload: json!({
+                            "recipientName": recipient.name,
+                            "signingUrl": signing_url,
+                            "subject": config.subject,
+                            "bcc": sender_copy,
+                        }),
+                        dedupe_key: format!(
+                            "{dedupe_kind}:{signature_request_id}:{recipient_id}:{}",
+                            Utc::now().timestamp_millis()
+                        ),
+                        correlation_id: Some(context.correlation_id.clone()),
+                        causation_id: context.causation_id.clone(),
+                    },
+                    &internal,
+                )
+                .await?;
+            self.signer
+                .mark_notified_transactional(tx, recipient_id, signature_request_id, &internal)
+                .await?;
+            Ok(queued.message_id)
+        }
+        .await;
+
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Close a fully-signed envelope: build the deterministic audit artifact
+    /// from the evidence ledger, store it through Vault-readable media,
+    /// link it, and transition the canonical request to Completed.
+    /// No authorize call here by design — like the signer-completed fan-in,
+    /// this runs only inside the durable dispatcher, which owns auth.
+    /// The signed PDF overlay itself is a future renderer step behind the
+    /// same seam; this ships the complete, queryable audit trail now.
+    /// Import template anchor blocks as recipient-owned native fields.
+    /// Mirrors the retired BoldSign matcher: anchors group by (role, slot),
+    /// each recipient claims the group named by its execution role and slot,
+    /// and initials/date anchors ride with their signature group. A recipient
+    /// with no group, or a group with no recipient, fails loud — a half-mapped
+    /// envelope is a broken envelope. Geometry converts from PDF points
+    /// (bottom-left) to field percentages (top-left); re-importing reuses
+    /// existing keys, so geometry moves only through putField.
+    pub async fn import_fields_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        request: &ImportAnchorFieldsRequest,
+        context: &ServiceContext,
+    ) -> Result<ImportAnchorFieldsResult, CoreServiceError> {
+        const OP: &str = "luxesign.importFields";
+        let decision = authorize(
+            &self.runtime,
+            "luxesign",
+            "luxesign.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            ensure_mutable_config(&self.repository, tx, &request.signature_request_id).await?;
+            let anchors = if request.anchors.is_empty() {
+                // No anchors supplied: read the issuing template's own
+                // blocks from Vault's snapshot, so the desk button sends no
+                // geometry at all — just the envelope.
+                let raw = self
+                    .repository
+                    .template_anchors_tx(tx, &request.signature_request_id)
+                    .await?
+                    .ok_or_else(|| {
+                        CoreServiceError::business(
+                            "LUXESIGN_FIELD_INVALID",
+                            "The issued document carries no template anchor blocks.",
+                        )
+                    })?;
+                serde_json::from_value::<Vec<TemplateAnchor>>(raw).map_err(|_| {
+                    CoreServiceError::business(
+                        "LUXESIGN_FIELD_INVALID",
+                        "The issued document's anchor blocks are unreadable.",
+                    )
+                })?
+            } else {
+                request.anchors.clone()
+            };
+            let recipients = self
+                .repository
+                .recipients_tx(tx, &request.signature_request_id)
+                .await?;
+            let groups = group_anchor_sets(&anchors)?;
+            let known: std::collections::BTreeMap<String, String> = self
+                .repository
+                .fields_tx(tx, &request.signature_request_id)
+                .await?
+                .into_iter()
+                .map(|field| (field.field_key, field.id))
+                .collect();
+            // Pass one maps every anchor to at most one recipient; pass two
+            // inserts. Nothing is written before every group is claimed, so
+            // an unmapped template fails before touching the envelope.
+            let mut claimed = vec![false; groups.len()];
+            let mut plan: Vec<(&model::LuxesignRecipient, Vec<GroupedAnchor>)> = Vec::new();
+            for (index, recipient) in recipients.iter().enumerate() {
+                let role = recipient.execution_role.as_deref();
+                let slot = recipient.execution_slot_id.as_deref();
+                // An explicit claim needs a named role or slot: a recipient
+                // naming neither cannot take a slotted group by default, or
+                // one group would land on every slotless recipient in turn.
+                // Slotless recipients map positionally only when the counts
+                // align; otherwise they simply claim nothing here.
+                let explicit: Vec<usize> = groups
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, group)| {
+                        (role.is_some() || slot.is_some())
+                            && role.is_none_or(|role| role == group.role)
+                            && slot.is_none_or(|slot| group.slot.as_deref() == Some(slot))
+                    })
+                    .map(|(position, _)| position)
+                    .collect();
+                let positions = if explicit.len() == 1 {
+                    explicit
+                } else if !explicit.is_empty() {
+                    return Err(CoreServiceError::business(
+                        "LUXESIGN_FIELD_INVALID",
+                        format!(
+                            "Ambiguous template blocks for recipient {} (execution role + slot must name one block).",
+                            recipient.email
+                        ),
+                    ));
+                } else if role.is_none() && slot.is_none() && groups.len() == recipients.len() {
+                    vec![index]
+                } else {
+                    Vec::new()
+                };
+                let mut selected = Vec::new();
+                for position in positions {
+                    claimed[position] = true;
+                    selected.extend(groups[position].anchors.clone());
+                }
+                plan.push((recipient, selected));
+            }
+            let unclaimed: Vec<String> = groups
+                .iter()
+                .enumerate()
+                .filter(|(position, _)| !claimed[*position])
+                .filter(|(_, group)| !request.absent_roles.contains(&group.role))
+                .map(|(_, group)| match &group.slot {
+                    Some(slot) => format!("{}:{slot}", group.role),
+                    None => group.role.clone(),
+                })
+                .collect();
+            if !unclaimed.is_empty() {
+                return Err(CoreServiceError::business(
+                    "LUXESIGN_FIELD_INVALID",
+                    format!(
+                        "Template blocks no recipient claims: {}. Give a recipient the matching execution role + slot.",
+                        unclaimed.join(", ")
+                    ),
+                ));
+            }
+            let mut created_field_ids = Vec::new();
+            for (recipient, selected) in plan {
+                for anchor in selected {
+                    if let Some(id) = known.get(&anchor_key(&anchor)) {
+                        // Re-importing a template reuses its fields: geometry
+                        // moves through putField, never as an import side effect.
+                        created_field_ids.push(id.clone());
+                        continue;
+                    }
+                    let field = self
+                        .put_field_transactional(
+                            tx,
+                            &PutSignatureFieldRequest {
+                                signature_request_id: request.signature_request_id.clone(),
+                                field_id: None,
+                                recipient_id: recipient.id.clone(),
+                                field_key: anchor_key(&anchor),
+                                field_type: anchor.field_type(),
+                                page_number: anchor.page_number(),
+                                position_x: anchor.x_percent(),
+                                position_y: anchor.y_percent(),
+                                width: anchor.width_percent(),
+                                height: anchor.height_percent(),
+                                required: true,
+                                label: None,
+                                configuration: json!({}),
+                            },
+                            context,
+                        )
+                        .await?;
+                    created_field_ids.push(field.id);
+                }
+            }
+            Ok(ImportAnchorFieldsResult {
+                signature_request_id: request.signature_request_id.clone(),
+                created_field_ids,
+            })
+        }
+        .await;
+
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
+        result
+    }
+
+    pub async fn finalize_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        context: &ServiceContext,
+    ) -> Result<LuxesignFinalizeResult, CoreServiceError> {
+        // Finalizing seals another party's document and mails it out: it is a write, decided like one. The
+        // automatic finalizer is the narrow system actor Casbin admits for exactly this operation.
+        const OP: &str = "luxesign.finalize";
+        let decision = authorize(
+            &self.runtime,
+            "luxesign",
+            "luxesign.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+        let result = self
+            .finalize_authorized_transactional(tx, signature_request_id, context)
+            .await;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
+        result
+    }
+
+    async fn finalize_authorized_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        signature_request_id: &str,
+        context: &ServiceContext,
+    ) -> Result<LuxesignFinalizeResult, CoreServiceError> {
+        let internal = internal_context(context);
+        let (status, transaction_document_id) = self
+            .repository
+            .canonical_status_tx(tx, signature_request_id)
+            .await?
+            .ok_or_else(|| {
+                CoreServiceError::business(
+                    "LUXESIGN_NOT_FOUND",
+                    "Canonical signature request not found.",
+                )
+            })?;
+        if status == SignatureRequestStatus::Completed.as_str() {
+            let audit_media_id = self
+                .repository
+                .audit_media_for_request_tx(tx, signature_request_id)
+                .await?;
+            let signed_media_id = self
+                .repository
+                .signed_media_for_request_tx(tx, signature_request_id)
+                .await?;
+            return Ok(LuxesignFinalizeResult {
+                signature_request_id: signature_request_id.to_owned(),
+                audit_media_id,
+                signed_media_id,
+                already_completed: true,
+                notification_message_ids: Vec::new(),
+            });
+        }
+        if status != SignatureRequestStatus::Signed.as_str() {
+            return Err(CoreServiceError::business(
+                "LUXESIGN_NOT_MUTABLE",
+                "Only a signed envelope can be finalized.",
+            ));
+        }
+        if !self
+            .signer
+            .envelope_ready_tx(tx, signature_request_id)
+            .await?
+        {
+            return Err(CoreServiceError::business(
+                "LUXESIGN_NOT_MUTABLE",
+                "All required recipients must complete before finalize.",
+            ));
+        }
+        let inputs = self
+            .signer
+            .finalize_inputs_tx(tx, signature_request_id)
+            .await?;
+        let finalized_at = Utc::now().to_rfc3339();
+        // The original bytes travel through Vault under the CALLER's authority, never the internal service actor:
+        // sealing another party's document is the operator's own grant or it does not happen.
+        let original: Option<Vec<u8>> = match self
+            .vault
+            .get_document(&transaction_document_id, context)
+            .await
+            .map_err(CoreServiceError::from)?
+            .and_then(|document| document.media_id)
+        {
+            Some(media_id) => self
+                .vault
+                .media_bytes(&media_id, context)
+                .await
+                .map_err(CoreServiceError::from)?
+                .map(|media| media.bytes),
+            None => None,
+        };
+        // The sealed copy is drawn first so the certificate can state the fingerprint of both documents: the one that
+        // was sent and the one that came back signed.
+        let sealed: Option<Vec<u8>> = match &original {
+            Some(bytes) => Some(seal_overlay(&inputs, bytes)?),
+            None => None,
+        };
+        let sha256 = |bytes: &[u8]| {
+            use sha2::{Digest, Sha256};
+            format!("{:x}", Sha256::digest(bytes))
+        };
+        let original_sha256 = original.as_deref().map(sha256);
+        let sealed_sha256 = sealed.as_deref().map(sha256);
+        let document_title = self
+            .repository
+            .document_title_tx(tx, signature_request_id)
+            .await?;
+        let page_count = original
+            .as_deref()
+            .and_then(crate::vault::signing_overlay::page_count);
+        let certificate = crate::vault::signing_certificate::render_completion_certificate(
+            &crate::vault::signing_certificate::Certificate {
+                signature_request_id,
+                transaction_document_id: &transaction_document_id,
+                document_title: document_title.as_deref(),
+                recipients: &inputs.recipients,
+                fields: &inputs.fields,
+                events: &inputs.events,
+                finalized_at: &finalized_at,
+                original_sha256: original_sha256.as_deref(),
+                sealed_sha256: sealed_sha256.as_deref(),
+                page_count,
+            },
+        )
+        .map_err(|error| {
+            CoreServiceError::business(
+                "LUXESIGN_FINALIZE_FAILED",
+                format!("Completion certificate could not be rendered: {error}"),
+            )
+        })?;
+        let audit_media_id = self
+            .repository
+            .store_audit_artifact_tx(
+                tx,
+                &transaction_document_id,
+                &format!("signature-completion-{signature_request_id}.pdf"),
+                "application/pdf",
+                &certificate,
+            )
+            .await?;
+        let signed_media_id = match sealed {
+            Some(overlay) => {
+                let media_id = self
+                    .repository
+                    .store_signed_artifact_tx(
+                        tx,
+                        &format!("signature-signed-{signature_request_id}.pdf"),
+                        "application/pdf",
+                        &overlay,
+                    )
+                    .await?;
+                self.repository
+                    .link_signed_media_tx(tx, &transaction_document_id, &media_id)
+                    .await?;
+                Some(media_id)
+            }
+            None => None,
+        };
+        self.signer
+            .append_finalize_evidence_tx(
+                tx,
+                signature_request_id,
+                &audit_media_id,
+                signed_media_id.as_deref(),
+                &internal,
+            )
+            .await?;
+        self.signature
+            .transition_transactional(
+                tx,
+                signature_request_id,
+                SignatureRequestStatus::Completed,
+                &internal,
+            )
+            .await?;
+        // Everyone learns the outcome in the same transaction as the status flip: the signers, whoever the sender
+        // copied (a listing's broker), and the sender. Each gets the signed document and the certificate attached.
+        let notification_message_ids = self
+            .queue_outcome_emails_tx(tx, signature_request_id, &OutcomeNotice::Completed, context)
+            .await?;
+        Ok(LuxesignFinalizeResult {
+            signature_request_id: signature_request_id.to_owned(),
+            audit_media_id: Some(audit_media_id),
+            signed_media_id,
+            already_completed: false,
+            notification_message_ids,
+        })
+    }
+
+    /// Expire what the clock has passed: overdue recipients first, then
+    /// overdue envelopes (access revoked, canonical status to Expired).
+    /// Runs inside the durable dispatcher; auth comes from the command.
+    /// Terminal states never reopen, and envelopes without an expiry clock
+    /// are left alone no matter how old they are.
+    pub async fn sweep_due_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        context: &ServiceContext,
+    ) -> Result<LuxesignSweepResult, CoreServiceError> {
+        const OP: &str = "luxesign.sweepDue";
+        let decision = authorize(
+            &self.runtime,
+            "luxesign",
+            "luxesign.write",
+            OP,
+            OperationKind::Command,
+            context,
+        )
+        .await?;
+        let result = self.sweep_due_authorized_transactional(tx, context).await;
+        audit_result(&self.runtime, "luxesign", OP, context, decision, &result).await?;
+        result
+    }
+
+    async fn sweep_due_authorized_transactional(
+        &self,
+        tx: &mut DbTransaction,
+        context: &ServiceContext,
+    ) -> Result<LuxesignSweepResult, CoreServiceError> {
+        let internal = internal_context(context);
+        let mut expired_recipients = Vec::new();
+        for (recipient_id, signature_request_id) in self
+            .signer
+            .expire_overdue_recipients_tx(tx)
+            .await
+            .map_err(CoreServiceError::from)?
+        {
+            self.signer
+                .append_sweep_evidence_tx(tx, &signature_request_id, &recipient_id, &internal)
+                .await
+                .map_err(CoreServiceError::from)?;
+            expired_recipients.push(recipient_id);
+        }
+        let mut expired_envelopes = Vec::new();
+        for signature_request_id in self.repository.overdue_envelopes_tx(tx).await? {
+            self.signer
+                .revoke_request_access_transactional(tx, &signature_request_id, &internal)
+                .await?;
+            self.signature
+                .transition_transactional(
+                    tx,
+                    &signature_request_id,
+                    SignatureRequestStatus::Expired,
+                    &internal,
+                )
+                .await?;
+            expired_envelopes.push(signature_request_id);
+        }
+        // Reminders go to the signers whose turn it is and who have gone quiet (the envelope's own cadence, three at
+        // most). A recipient whose link can no longer be read is skipped, not fatal: one bad row must not stop the
+        // sweep that expires everyone else.
+        let mut reminder_message_ids = Vec::new();
+        for (signature_request_id, recipient_id) in
+            self.repository.reminders_due_tx(tx, MAX_REMINDERS).await?
+        {
+            if let Some(message_id) = self
+                .queue_reminder_tx(tx, &signature_request_id, &recipient_id, context)
+                .await?
+            {
+                reminder_message_ids.push(message_id);
+            }
+        }
+        Ok(LuxesignSweepResult {
+            expired_recipients,
+            expired_envelopes,
+            reminder_message_ids,
+        })
+    }
+}
+
+/// Printable text for one answered field. Signature and initials draw
+/// the recipient's name in their adopted form; dates draw the completion
+/// day; everything else draws its stored scalar. Unanswered or
+/// non-scalar values draw nothing rather than a placeholder.
+fn overlay_text(
+    field_type: &str,
+    value: &Option<serde_json::Value>,
+    recipient_name: &str,
+    completed_at: &Option<String>,
+) -> Option<String> {
+    match field_type {
+        "signature" => Some(recipient_name.to_owned()),
+        "initials" => {
+            // The brokerage's own rule (first letter, then the last name's), so a seller's initials read like Lisa's.
+            let marks = model::forms_applied_signature::format_broker_initials(recipient_name);
+            if marks.trim().is_empty() {
+                None
+            } else {
+                Some(marks)
+            }
+        }
+        // The day they signed, written the way the brokerage writes it ("October 7, 2026", Puerto Rico's own day).
+        "date" => completed_at
+            .as_deref()
+            .and_then(|at| model::forms_applied_signature::format_broker_signature_date(at).ok())
+            .or_else(|| {
+                completed_at
+                    .as_deref()
+                    .and_then(|at| at.get(..10))
+                    .map(str::to_owned)
+            })
+            .or_else(|| {
+                value
+                    .as_ref()
+                    .and_then(|value| value.as_str().map(str::to_owned))
+            }),
+        "checkbox" => match value {
+            Some(serde_json::Value::Bool(true)) => Some("X".into()),
+            _ => None,
+        },
+        _ => value.as_ref().and_then(|value| match value {
+            serde_json::Value::String(text) => {
+                let trimmed = text.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_owned())
+                }
+            }
+            serde_json::Value::Number(number) => Some(number.to_string()),
+            serde_json::Value::Bool(flag) => Some(flag.to_string()),
+            _ => None,
+        }),
+    }
+}
+
+/// How a block is drawn: by what it is.
+fn overlay_kind(field_type: &str) -> crate::vault::signing_overlay::OverlayKind {
+    use crate::vault::signing_overlay::OverlayKind;
+    match field_type {
+        "signature" => OverlayKind::Signature,
+        "initials" => OverlayKind::Initials,
+        "date" => OverlayKind::Date,
+        _ => OverlayKind::Text,
+    }
+}
+
+/// What this signer's signature page will look like once they sign, drawn on the original: their own blocks only, with
+/// the picture they chose, their initials and today's date, and nothing but the page(s) those blocks are on. Nothing is
+/// stored: it is the same drawing the seal makes, shown ahead of time so the signer sees exactly what they are signing.
+pub fn preview_pdf(
+    original: &[u8],
+    fields: &[SignatureField],
+    recipient_name: &str,
+    signature_png: Option<&str>,
+    now: &str,
+) -> Result<Vec<u8>, CoreServiceError> {
+    use crate::vault::signing_overlay::{keep_pages, overlay_fields, OverlayField};
+    let failure = |detail: String| {
+        CoreServiceError::business(
+            "SIGNER_PREVIEW_FAILED",
+            format!("The preview could not be drawn: {detail}"),
+        )
+    };
+    let completed = Some(now.to_owned());
+    let mut drawn = Vec::new();
+    let mut pages = Vec::new();
+    for field in fields {
+        let kind = field.field_type.as_str();
+        let Some(text) = overlay_text(kind, &None, recipient_name, &completed) else {
+            continue;
+        };
+        // Only the signature is a picture (the signer's chosen cursive). Initials and date are typeset exactly as the
+        // brokerage's own are, so every party's marks are the same size and face.
+        let picture = (kind == "signature").then_some(signature_png).flatten();
+        drawn.push(OverlayField {
+            kind: overlay_kind(kind),
+            page_number: field.page_number,
+            x_percent: field.position_x,
+            y_percent: field.position_y,
+            width_percent: field.width,
+            height_percent: field.height,
+            signature: kind == "signature",
+            style: 0,
+            caption: None,
+            text,
+            image: picture.and_then(decode_data_url_png),
+            ruled: field.field_key.starts_with("signature-"),
+        });
+        if field.page_number > 0 && !pages.contains(&(field.page_number as u32)) {
+            pages.push(field.page_number as u32);
+        }
+    }
+    if pages.is_empty() {
+        return Err(failure("this signer has no blocks to show".into()));
+    }
+    pages.sort_unstable();
+    let drawn_on = overlay_fields(original, &drawn).map_err(failure)?;
+    keep_pages(&drawn_on, &pages).map_err(failure)
+}
+
+/// The bytes of a `data:image/png;base64,…` picture, or `None` when it is anything else.
+pub(crate) fn decode_data_url_png(value: &str) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    let payload = value.trim().strip_prefix("data:image/png;base64,")?;
+    base64::engine::general_purpose::STANDARD
+        .decode(payload)
+        .ok()
+}
+
+/// Seal the original bytes with every answered field, positioned by the
+/// field geometry the template import recorded. Pure apart from parsing.
+fn seal_overlay(inputs: &FinalizeInputs, original: &[u8]) -> Result<Vec<u8>, CoreServiceError> {
+    use crate::vault::signing_overlay::{overlay_fields, OverlayField};
+    let names: std::collections::BTreeMap<&str, &str> = inputs
+        .recipients
+        .iter()
+        .map(|recipient| (recipient.id.as_str(), recipient.name.as_str()))
+        .collect();
+    let mut fields = Vec::new();
+    for field in &inputs.fields {
+        let name = names
+            .get(field.recipient_id.as_str())
+            .copied()
+            .unwrap_or("");
+        let Some(text) = overlay_text(&field.field_type, &field.value, name, &field.completed_at)
+        else {
+            continue;
+        };
+        // The signer's own picture (their chosen cursive), for a signature only. Initials and date are typeset exactly as
+        // the brokerage's are. The signing door already proved the picture is a readable PNG; one that still fails here
+        // falls back to the typeset name inside the overlay.
+        let picture_key = (field.field_type == "signature").then_some("image");
+        let image = picture_key
+            .and_then(|key| field.value.as_ref().and_then(|value| value.get(key)))
+            .and_then(Value::as_str)
+            .and_then(decode_data_url_png);
+        fields.push(OverlayField {
+            kind: overlay_kind(&field.field_type),
+            page_number: field.page_number,
+            x_percent: field.position_x,
+            y_percent: field.position_y,
+            width_percent: field.width,
+            height_percent: field.height,
+            signature: field.field_type == "signature",
+            style: field
+                .value
+                .as_ref()
+                .and_then(|value| value.get("style"))
+                .and_then(Value::as_u64)
+                .map(|style| style.min(2) as u8)
+                .unwrap_or(0),
+            caption: field
+                .completed_at
+                .as_deref()
+                .and_then(|at| at.get(..10))
+                .map(|day| format!("Electronically signed {day}")),
+            text,
+            image,
+            // A block the template placed prints its own line; one placed by default (`signature-<recipient>`) does not.
+            ruled: field.field_key.starts_with("signature-"),
+        });
+    }
+    overlay_fields(original, &fields).map_err(|error| {
+        CoreServiceError::business(
+            "LUXESIGN_FINALIZE_FAILED",
+            format!("Signed PDF could not be sealed: {error}"),
+        )
+    })
+}
+
+fn internal_context(context: &ServiceContext) -> ServiceContext {
+    ServiceContext {
+        actor: services::ServiceActor {
+            id: Some(LUXESIGN_SERVICE_ACTOR.into()),
+            kind: services::ServiceActorKind::System,
+        },
+        correlation_id: context.correlation_id.clone(),
+        causation_id: context.causation_id.clone(),
+        principal: None,
+    }
+}
+
+fn prepared_recipients(
+    recipients: &[model::LuxesignRecipientInput],
+) -> Vec<PreparedSignatureRecipient> {
+    recipients
+        .iter()
+        .map(|recipient| PreparedSignatureRecipient {
+            role: recipient.role,
+            name: recipient.name.clone(),
+            email: recipient.email.clone(),
+            order: recipient.signer_order,
+            signing_step: recipient.signing_step,
+            execution_role: recipient.execution_role.clone(),
+            execution_slot_id: recipient.execution_slot_id.clone(),
+        })
+        .collect()
+}
+
+fn prepare_intent_matches(
+    config: &LuxesignConfig,
+    existing: &[LuxesignRecipient],
+    request: &PrepareLuxesignRequest,
+    requested_expiry: Option<DateTime<Utc>>,
+) -> bool {
+    if config.signing_mode != request.signing_mode || config.subject != request.subject {
+        return false;
+    }
+    let stored_expiry = config
+        .expires_at
+        .as_deref()
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc));
+    if stored_expiry != requested_expiry {
+        return false;
+    }
+
+    let mut requested = request.recipients.clone();
+    requested.sort_by_key(|recipient| recipient.signer_order);
+    if existing.len() != requested.len() {
+        return false;
+    }
+    existing.iter().zip(requested.iter()).all(|(left, right)| {
+        left.role == right.role
+            && left.name.trim() == right.name.trim()
+            && left.email.trim().eq_ignore_ascii_case(right.email.trim())
+            && left.signer_order == right.signer_order
+            && left.signing_step == right.signing_step
+            && left.execution_role == right.execution_role
+            && left.execution_slot_id == right.execution_slot_id
+    })
+}
+
+/// A signature box in the lower part of the page, two to a row and filling upward. Page percent: x, y, width, height.
+const DEFAULT_REMINDER_DAYS: i32 = 3;
+/// A waiting signer is reminded at most this many times; after that the sender's own follow-up is the next step.
+const MAX_REMINDERS: i64 = 3;
+
+/// Which outcome an email announces.
+enum OutcomeNotice<'a> {
+    Completed,
+    Declined {
+        decliner_recipient_id: &'a str,
+        reason: Option<&'a str>,
+    },
+}
+
+/// Trim, lower-case and de-duplicate the copy list, refusing anything that is not an email address.
+/// The addresses that get a hidden copy of a signer's email: the envelope's creator and the address mail is sent as.
+/// Each address appears once, whatever its case.
+fn sender_copies(operator: Option<String>, sender: Option<String>) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    operator
+        .into_iter()
+        .chain(sender)
+        .map(|address| address.trim().to_owned())
+        .filter(|address| !address.is_empty() && seen.insert(address.to_lowercase()))
+        .collect()
+}
+
+fn clean_copy_to(values: &[String]) -> Result<Vec<String>, CoreServiceError> {
+    let mut out: Vec<String> = Vec::new();
+    for value in values {
+        let email = value.trim().to_lowercase();
+        if email.is_empty() {
+            continue;
+        }
+        let plausible = email.split_once('@').is_some_and(|(local, domain)| {
+            !local.is_empty()
+                && domain.contains('.')
+                && !domain.starts_with('.')
+                && !domain.ends_with('.')
+                && !email.contains(char::is_whitespace)
+        });
+        if !plausible {
+            return Err(CoreServiceError::business(
+                "LUXESIGN_RECIPIENT_INVALID",
+                format!("'{value}' is not a valid email address to copy."),
+            ));
+        }
+        if !out.contains(&email) {
+            out.push(email);
+        }
+    }
+    Ok(out)
+}
+
+fn default_signature_box(slot: usize) -> (f64, f64, f64, f64) {
+    const WIDTH: f64 = 38.0;
+    const HEIGHT: f64 = 7.0;
+    let column = (slot % 2) as f64;
+    let row = (slot / 2) as f64;
+    (
+        8.0 + column * (WIDTH + 8.0),
+        (86.0 - row * (HEIGHT + 3.0)).max(2.0),
+        WIDTH,
+        HEIGHT,
+    )
+}
+
+fn validate_prepare(request: &PrepareLuxesignRequest) -> Result<(), CoreServiceError> {
+    if request.transaction_document_id.trim().is_empty() {
+        return Err(CoreServiceError::business(
+            "LUXESIGN_DOCUMENT_REQUIRED",
+            "transactionDocumentId is required.",
+        ));
+    }
+    if request
+        .subject
+        .as_ref()
+        .is_some_and(|value| value.chars().count() > 500)
+    {
+        return Err(CoreServiceError::business(
+            "LUXESIGN_SUBJECT_INVALID",
+            "subject must be 500 characters or fewer.",
+        ));
+    }
+    let errors = validate_luxesign_recipients(&request.recipients);
+    if !errors.is_empty() {
+        return Err(CoreServiceError::business(
+            "LUXESIGN_RECIPIENT_INVALID",
+            errors.join(" "),
+        ));
+    }
+    Ok(())
+}
+
+fn parse_future_expiry(value: Option<&str>) -> Result<Option<DateTime<Utc>>, CoreServiceError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let parsed = DateTime::parse_from_rfc3339(value)
+        .map_err(|_| {
+            CoreServiceError::business("LUXESIGN_EXPIRY_INVALID", "expiresAt must be RFC3339.")
+        })?
+        .with_timezone(&Utc);
+    if parsed <= Utc::now() {
+        return Err(CoreServiceError::business(
+            "LUXESIGN_EXPIRY_INVALID",
+            "expiresAt must be in the future.",
+        ));
+    }
+    Ok(Some(parsed))
+}
+
+/// One parsed template anchor with its owning group key.
+#[derive(Debug, Clone)]
+struct GroupedAnchor {
+    role: String,
+    slot: Option<String>,
+    kind: SignatureFieldType,
+    page_number: i32,
+    key: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+impl GroupedAnchor {
+    fn field_type(&self) -> SignatureFieldType {
+        self.kind
+    }
+    fn page_number(&self) -> i32 {
+        self.page_number
+    }
+    fn x_percent(&self) -> f64 {
+        self.x
+    }
+    fn y_percent(&self) -> f64 {
+        self.y
+    }
+    fn width_percent(&self) -> f64 {
+        self.width
+    }
+    fn height_percent(&self) -> f64 {
+        self.height
+    }
+}
+
+fn slug(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn parse_anchor(anchor: &TemplateAnchor, index: usize) -> Result<GroupedAnchor, CoreServiceError> {
+    let invalid = |detail: &str| {
+        CoreServiceError::business(
+            "LUXESIGN_FIELD_INVALID",
+            format!("Template anchor {index} is unusable: {detail}."),
+        )
+    };
+    if anchor.role.trim().is_empty() {
+        return Err(invalid("missing role"));
+    }
+    let kind = match anchor.kind.as_str() {
+        "signature" => SignatureFieldType::Signature,
+        // Forms names it `initial`; the field type says `initials`. Both are the same block.
+        "initials" | "initial" => SignatureFieldType::Initials,
+        "date" => SignatureFieldType::Date,
+        other => return Err(invalid(&format!("unknown kind {other}"))),
+    };
+    if anchor.page_index < 0
+        || !anchor.page_width.is_finite()
+        || anchor.page_width <= 0.0
+        || !anchor.page_height.is_finite()
+        || anchor.page_height <= 0.0
+    {
+        return Err(invalid("bad page"));
+    }
+    let rect = &anchor.rect;
+    for value in [rect.x, rect.y, rect.width, rect.height] {
+        if !value.is_finite() {
+            return Err(invalid("bad rectangle"));
+        }
+    }
+    if rect.x < 0.0 || rect.y < 0.0 || rect.width <= 0.0 || rect.height <= 0.0 {
+        return Err(invalid("bad rectangle"));
+    }
+    if rect.y + rect.height > anchor.page_height {
+        return Err(invalid("rectangle leaves the page"));
+    }
+    // PDF points run bottom-left; field percentages run top-left.
+    let clamp = |value: f64| value.clamp(0.0, 100.0);
+    let slot = anchor
+        .slot_id
+        .clone()
+        .map(|slot| slot.trim().to_owned())
+        .filter(|slot| !slot.is_empty());
+    let key = format!(
+        "{}-{}-{}-{}-{}",
+        slug(&anchor.role),
+        slot.as_deref().unwrap_or("open"),
+        anchor.kind,
+        anchor.page_index,
+        index,
+    );
+    Ok(GroupedAnchor {
+        role: anchor.role.trim().to_owned(),
+        slot,
+        kind,
+        page_number: anchor.page_index + 1,
+        key,
+        x: clamp(rect.x / anchor.page_width * 100.0),
+        y: clamp((1.0 - (rect.y + rect.height) / anchor.page_height) * 100.0),
+        width: clamp(rect.width / anchor.page_width * 100.0),
+        height: clamp(rect.height / anchor.page_height * 100.0),
+    })
+}
+
+/// Group anchors by (role, slot) in first-seen order — the retired
+/// BoldSign matcher's grouping, minus the provider.
+fn group_anchor_sets(
+    anchors: &[TemplateAnchor],
+) -> Result<Vec<GroupedAnchorSet>, CoreServiceError> {
+    let mut order: Vec<(String, Option<String>)> = Vec::new();
+    let mut parsed = Vec::with_capacity(anchors.len());
+    for (index, anchor) in anchors.iter().enumerate() {
+        let entry = parse_anchor(anchor, index)?;
+        if !order.contains(&(entry.role.clone(), entry.slot.clone())) {
+            order.push((entry.role.clone(), entry.slot.clone()));
+        }
+        parsed.push(entry);
+    }
+    Ok(order
+        .into_iter()
+        .map(|(role, slot)| {
+            let members = parsed
+                .iter()
+                .filter(|entry| entry.role == role && entry.slot == slot)
+                .cloned()
+                .collect();
+            GroupedAnchorSet {
+                role,
+                slot,
+                anchors: members,
+            }
+        })
+        .collect())
+}
+
+struct GroupedAnchorSet {
+    role: String,
+    slot: Option<String>,
+    anchors: Vec<GroupedAnchor>,
+}
+
+fn anchor_key(anchor: &GroupedAnchor) -> String {
+    anchor.key.clone()
+}
+
+fn validate_field(request: &PutSignatureFieldRequest) -> Result<(), CoreServiceError> {
+    let valid_geometry = request.page_number > 0
+        && request.position_x >= 0.0
+        && request.position_y >= 0.0
+        && request.width > 0.0
+        && request.height > 0.0
+        && request.position_x + request.width <= 100.0
+        && request.position_y + request.height <= 100.0;
+    if request.recipient_id.trim().is_empty()
+        || request.field_key.trim().is_empty()
+        || !request.configuration.is_object()
+        || !valid_geometry
+    {
+        return Err(CoreServiceError::business(
+            "LUXESIGN_FIELD_INVALID",
+            "Field owner, key, object configuration and valid page geometry are required.",
+        ));
+    }
+    Ok(())
+}
+
+async fn ensure_mutable_config<R: LuxesignRepository>(
+    repository: &R,
+    tx: &mut DbTransaction,
+    signature_request_id: &str,
+) -> Result<LuxesignConfig, CoreServiceError> {
+    let config = repository
+        .lock_config_tx(tx, signature_request_id)
+        .await?
+        .ok_or_else(|| {
+            CoreServiceError::business("LUXESIGN_NOT_FOUND", "Native luxesign request not found.")
+        })?;
+    if config.issued_at.is_some() {
+        return Err(CoreServiceError::business(
+            "LUXESIGN_NOT_MUTABLE",
+            "Issued recipients and fields are immutable.",
+        ));
+    }
+    Ok(config)
+}
+
+fn capability(
+    name: &str,
+    kind: OperationKind,
+    description: &str,
+    authorization: &str,
+    idempotent: bool,
+    execution: ServiceExecutionPolicy,
+) -> ServiceCapability {
+    ServiceCapability {
+        name: name.into(),
+        kind,
+        description: description.into(),
+        authorization: authorization.into(),
+        idempotent,
+        execution,
+    }
+}
+
+#[async_trait]
+impl<R, SR, SGR, ER, VR> AbstractService for LuxesignService<R, SR, SGR, ER, VR>
+where
+    R: LuxesignRepository + 'static,
+    SR: SignatureRepository + 'static,
+    SGR: SignerRepository + 'static,
+    ER: EmailRepository + 'static,
+    VR: VaultRepository + 'static,
+{
+    fn descriptor(&self) -> ServiceDescriptor {
+        ServiceDescriptor {
+            domain: "luxesign".into(),
+            version: "1".into(),
+            description: "Native CulebraLuxe luxesign orchestration service".into(),
+            capabilities: vec![
+                capability(
+                    "luxesign.get",
+                    OperationKind::Query,
+                    "Read one native luxesign envelope.",
+                    "luxesign.read",
+                    true,
+                    ServiceExecutionPolicy::inline(),
+                ),
+                capability(
+                    "luxesign.fields",
+                    OperationKind::Query,
+                    "Read native recipient-owned signing fields.",
+                    "luxesign.read",
+                    true,
+                    ServiceExecutionPolicy::inline(),
+                ),
+                capability(
+                    "luxesign.list",
+                    OperationKind::Query,
+                    "List recent native envelopes with recipient progress.",
+                    "luxesign.read",
+                    true,
+                    ServiceExecutionPolicy::inline(),
+                ),
+                capability(
+                    "luxesign.prepare",
+                    OperationKind::Command,
+                    "Prepare a native signing envelope without external-provider delivery.",
+                    "luxesign.write",
+                    true,
+                    ServiceExecutionPolicy::ordered("transactionDocumentId"),
+                ),
+                capability(
+                    "luxesign.setRecipients",
+                    OperationKind::Command,
+                    "Replace draft recipients before issue.",
+                    "luxesign.write",
+                    true,
+                    ServiceExecutionPolicy::ordered("signatureRequestId"),
+                ),
+                capability(
+                    "luxesign.putField",
+                    OperationKind::Command,
+                    "Create or edit a recipient-owned draft signing field.",
+                    "luxesign.write",
+                    true,
+                    ServiceExecutionPolicy::ordered("signatureRequestId"),
+                ),
+                capability(
+                    "luxesign.removeField",
+                    OperationKind::Command,
+                    "Remove a draft signing field.",
+                    "luxesign.write",
+                    true,
+                    ServiceExecutionPolicy::ordered("signatureRequestId"),
+                ),
+                capability(
+                    "luxesign.send",
+                    OperationKind::Command,
+                    "Prepare, place signature fields, and issue an envelope in one transaction.",
+                    "luxesign.issue",
+                    true,
+                    ServiceExecutionPolicy::ordered("transactionDocumentId"),
+                ),
+                capability(
+                    "luxesign.issue",
+                    OperationKind::Command,
+                    "Atomically issue a native envelope and queue signer invitations.",
+                    "luxesign.issue",
+                    true,
+                    ServiceExecutionPolicy::ordered("signatureRequestId"),
+                ),
+                capability(
+                    "luxesign.void",
+                    OperationKind::Command,
+                    "Void a native envelope.",
+                    "luxesign.void",
+                    true,
+                    ServiceExecutionPolicy::ordered("signatureRequestId"),
+                ),
+                capability(
+                    "luxesign.finalize",
+                    OperationKind::Command,
+                    "Close a fully-signed envelope with its audit artifact.",
+                    "luxesign.write",
+                    true,
+                    ServiceExecutionPolicy::ordered("signatureRequestId"),
+                ),
+                capability(
+                    "luxesign.sweepDue",
+                    OperationKind::Command,
+                    "Expire overdue recipients and envelopes.",
+                    "luxesign.write",
+                    true,
+                    ServiceExecutionPolicy::inline(),
+                ),
+                capability(
+                    "luxesign.resend",
+                    OperationKind::Command,
+                    "Re-send an invitation (fresh link) or a reminder (live link) to one recipient.",
+                    "luxesign.write",
+                    true,
+                    ServiceExecutionPolicy::ordered("signatureRequestId"),
+                ),
+                capability(
+                    "luxesign.importFields",
+                    OperationKind::Command,
+                    "Build recipient-owned fields from template anchor blocks.",
+                    "luxesign.write",
+                    true,
+                    ServiceExecutionPolicy::ordered("signatureRequestId"),
+                ),
+            ],
+            dependencies: vec![
+                "signature".into(),
+                "signer".into(),
+                "email".into(),
+                "vault".into(),
+            ],
+            invariants: vec![
+                "luxesign_request is the only canonical envelope lifecycle.".into(),
+                "Issued recipient identity and field ownership are immutable.".into(),
+                "Issuance and durable invitation queueing commit atomically.".into(),
+                "Document bytes remain owned and authorized by Vault.".into(),
+                format!(
+                    "Invitation delivery leaves the issue transaction through the existing {EMAIL_DELIVERY_ROUTING_KEY} MQ route."
+                ),
+            ],
+        }
+    }
+
+    async fn dispatch(
+        &self,
+        envelope: &ServiceEnvelope,
+        context: &ServiceContext,
+    ) -> Result<Value, ServiceDispatchError> {
+        match envelope.operation.as_str() {
+            "luxesign.get" => {
+                let id = required_string(envelope, "signatureRequestId")?;
+                serde_json::to_value(self.get(&id, context).await.map_err(service_error)?)
+                    .map_err(serialization_error)
+            }
+            "luxesign.fields" => {
+                let id = required_string(envelope, "signatureRequestId")?;
+                serde_json::to_value(self.fields(&id, context).await.map_err(service_error)?)
+                    .map_err(serialization_error)
+            }
+            "luxesign.list" => {
+                serde_json::to_value(self.list(context).await.map_err(service_error)?)
+                    .map_err(serialization_error)
+            }
+            "luxesign.prepare"
+            | "luxesign.setRecipients"
+            | "luxesign.putField"
+            | "luxesign.removeField"
+            | "luxesign.issue"
+            | "luxesign.void"
+            | "luxesign.resend"
+            | "luxesign.finalize"
+            | "luxesign.sweepDue"
+            | "luxesign.send"
+            | "luxesign.importFields" => Err(ServiceDispatchError::business(
+                "DURABLE_COMMAND_REQUIRED",
+                format!(
+                    "{} must enter through the durable command dispatcher.",
+                    envelope.operation
+                ),
+                false,
+            )),
+            operation => Err(ServiceDispatchError::UnknownOperation {
+                domain: "luxesign".into(),
+                operation: operation.into(),
+            }),
+        }
+    }
+}
+
+fn required_string(
+    envelope: &ServiceEnvelope,
+    field: &str,
+) -> Result<String, ServiceDispatchError> {
+    envelope
+        .payload
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| ServiceDispatchError::InvalidPayload {
+            domain: envelope.domain.clone(),
+            operation: envelope.operation.clone(),
+            message: format!("{field} is required."),
+        })
+}
+
+fn service_error(error: CoreServiceError) -> ServiceDispatchError {
+    match error {
+        CoreServiceError::Business { code, message } => {
+            ServiceDispatchError::business(code, message, false)
+        }
+        CoreServiceError::Database(error) => {
+            ServiceDispatchError::infrastructure("DATABASE", error.to_string(), error.retryable)
+        }
+        CoreServiceError::Runtime(error) => {
+            ServiceDispatchError::infrastructure("SERVICE_RUNTIME", error.to_string(), true)
+        }
+    }
+}
+
+fn serialization_error(error: serde_json::Error) -> ServiceDispatchError {
+    ServiceDispatchError::infrastructure("SERVICE_SERIALIZATION_FAILED", error.to_string(), false)
+}
+
+pub type ProductionLuxesignService =
+    LuxesignService<LuxesignDao, SignatureDao, SignerDao, EmailDao, VaultDao>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use model::SignatureFieldType;
+
+    fn field() -> PutSignatureFieldRequest {
+        PutSignatureFieldRequest {
+            signature_request_id: "11111111-1111-4111-8111-111111111111".into(),
+            field_id: None,
+            recipient_id: "22222222-2222-4222-8222-222222222222".into(),
+            field_key: "buyer.signature".into(),
+            field_type: SignatureFieldType::Signature,
+            page_number: 1,
+            position_x: 10.0,
+            position_y: 20.0,
+            width: 25.0,
+            height: 8.0,
+            required: true,
+            label: Some("Buyer signature".into()),
+            configuration: json!({}),
+        }
+    }
+
+    #[test]
+    fn signature_fields_cannot_escape_the_pdf_page() {
+        assert!(validate_field(&field()).is_ok());
+
+        let mut bad = field();
+        bad.position_x = 90.0;
+        bad.width = 20.0;
+        assert!(validate_field(&bad).is_err());
+
+        let mut bad = field();
+        bad.position_y = 97.0;
+        bad.height = 4.0;
+        assert!(validate_field(&bad).is_err());
+    }
+
+    #[test]
+    fn signing_expiry_must_be_future_rfc3339() {
+        assert!(parse_future_expiry(Some("not-a-date")).is_err());
+        assert!(parse_future_expiry(Some("2000-01-01T00:00:00Z")).is_err());
+        assert!(parse_future_expiry(None).unwrap().is_none());
+    }
+}
+
+#[cfg(test)]
+mod anchor_import_tests {
+    use super::*;
+    use model::{TemplateAnchor, TemplateAnchorRect};
+
+    fn anchor(role: &str, slot: Option<&str>, kind: &str) -> TemplateAnchor {
+        TemplateAnchor {
+            role: role.into(),
+            slot_id: slot.map(str::to_owned),
+            kind: kind.into(),
+            page_index: 0,
+            page_width: 612.0,
+            page_height: 792.0,
+            rect: TemplateAnchorRect {
+                x: 72.0,
+                y: 650.0,
+                width: 180.0,
+                height: 20.0,
+            },
+        }
+    }
+
+    #[test]
+    fn groups_form_by_role_and_slot_with_percentage_geometry() {
+        let groups = group_anchor_sets(&[
+            anchor("seller", Some("s1"), "signature"),
+            anchor("seller", Some("s1"), "date"),
+            anchor("buyer", None, "signature"),
+        ])
+        .expect("valid anchors group");
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].anchors.len(), 2);
+        let first = &groups[0].anchors[0];
+        assert_eq!(first.page_number(), 1);
+        assert!((first.x_percent() - 11.76).abs() < 0.01);
+        // PDF bottom-left to percentage top-left.
+        assert!((first.y_percent() - 15.40).abs() < 0.01);
+        assert!(first.key.starts_with("seller-s1-signature-0-"));
+    }
+
+    #[test]
+    fn bad_anchors_fail_loud() {
+        assert!(group_anchor_sets(&[anchor("", Some("s1"), "signature")]).is_err());
+        assert!(group_anchor_sets(&[anchor("seller", Some("s1"), "seal")]).is_err());
+        let mut off_page = anchor("seller", Some("s1"), "signature");
+        off_page.rect.y = 780.0;
+        assert!(group_anchor_sets(&[off_page]).is_err());
+    }
+}
