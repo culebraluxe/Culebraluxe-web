@@ -131,7 +131,9 @@
     "rw:map": "ripwire . --exclude=.next --exclude=node_modules --exclude=gsd-core --exclude=praxis --exclude=claude-orchestrate --report",
     "rw:for": "bash scripts/ripwire-task.sh",
     "db:seed:projects": "cargo run --manifest-path Cargo.toml -p cli -- db-tool apply db/seeds/dev-projects-workspace.sql dev",
-    "forge:harness-evolution": "APP_ENV=production cargo run --manifest-path Cargo.toml -p cli -- forge harness-evolution"
+    "forge:harness-evolution": "APP_ENV=production cargo run --manifest-path Cargo.toml -p cli -- forge harness-evolution",
+    "forge:build": "bash scripts/build-forge.sh",
+    "forge:deploy": "bash scripts/deploy-forge-prod.sh"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

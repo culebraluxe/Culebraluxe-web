@@ -286,7 +286,18 @@ while [ "$pass" -le "$MAX_PASSES" ]; do
   inv_log "pass=$pass start cmd=\"cargo run --manifest-path Cargo.toml -p forge --bin forge-worker --\""
 
   output_file="$(mktemp -t culebraluxe-forge-worker.XXXXXX)"
-  cargo run --manifest-path Cargo.toml -p forge --bin forge-worker -- 2>&1 | tee "$output_file"
+  if [ -n "${AGENT_WORKER_BIN:-}" ]; then
+    # Deployed release artifact (scripts/deploy-forge-prod.sh): no cargo compile on the wake path.
+    if [ ! -x "$AGENT_WORKER_BIN" ]; then
+      echo "agent-worker: AGENT_WORKER_BIN is not executable: $AGENT_WORKER_BIN" >&2
+      rm -f "$output_file"
+      inv_log "stop: worker-bin-missing $AGENT_WORKER_BIN"
+      exit 2
+    fi
+    "$AGENT_WORKER_BIN" 2>&1 | tee "$output_file"
+  else
+    cargo run --manifest-path Cargo.toml -p forge --bin forge-worker -- 2>&1 | tee "$output_file"
+  fi
   rc=${PIPESTATUS[0]}
 
   inv_log "pass=$pass end exit=$rc"
