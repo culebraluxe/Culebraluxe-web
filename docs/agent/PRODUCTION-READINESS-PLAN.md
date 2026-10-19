@@ -25,7 +25,7 @@ and a named sign-off. Green unit tests alone do not count.
 
 | WO | Scope | Acceptance | Status |
 |---|---|---|---|
-| FORGE-01 | Controlled DSH cohort + decision | pre-registered interleaved cohort passes; cost/usage coverage reported; adoption decision recorded (adoption stays OFF unless rule passes) | IN FLIGHT |
+| FORGE-01 | Controlled DSH cohort + decision | pre-registered interleaved cohort passes; cost/usage coverage reported; adoption decision recorded (adoption stays OFF unless rule passes) | DONE (mechanical PASS; behavioral signal mixed/negative 7 imp / 8 reg; NO adoption; free OpenCode arm sanity-only) |
 | FORGE-02 | DSH version pin + upgrade/plugin-vetting runbook | pinned version, upgrade checklist, plugin allowlist/vetting, rollback | OPEN |
 | FORGE-03 | Adoption gate + supervision | effective-GREEN policy executed once under supervision; activation/rollback proven; auto-adoption still OFF | OPEN |
 | FORGE-04 | Backup/monitoring for Forge state | DB backups verified (Neon), Mac zip for docs/evidence, digest alerts | OPEN |

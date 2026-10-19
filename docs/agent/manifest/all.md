@@ -3,10 +3,10 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-18 21:35:05Z
-- commit: `62eacfba0` (working tree dirty) on `HEAD`
+- generated: 2026-10-19 03:55:26Z
+- commit: `3c27a2e01` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest all`
-- rows: 109 — packet, cited paths and story commits first, lexical matches after
+- rows: 111 — packet, cited paths and story commits first, lexical matches after
 
 Read top-down. A row is a file to open, and the why column says why it is here.
 
@@ -96,12 +96,14 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/PERIMETER.md` — index · top-level harness page · last touched untracked
 - `docs/agent/PERSON-PROPERTY-DESIGN.md` — index · top-level harness page · last touched untracked
 - `docs/agent/PRINCIPAL-DECISIONS.md` — index · top-level harness page · last touched 2026-10-18
+- `docs/agent/PRODUCTION-READINESS-PLAN.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/PROOF-2026-09-28-grok-100.md` — index · top-level harness page · last touched untracked
 - `docs/agent/PROOF-2026-09-28-review-gaps.md` — index · top-level harness page · last touched untracked
 - `docs/agent/PROPOSALS.md` — index · top-level harness page · last touched untracked
 - `docs/agent/QUEUE-2026-10-02.md` — index · top-level harness page · last touched untracked
 - `docs/agent/REVIEWER.md` — index · top-level harness page · last touched untracked
 - `docs/agent/ROLE-REGISTRY.md` — index · top-level harness page · last touched 2026-10-18
+- `docs/agent/RUN-BUDGET.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/RUNLOG.md` — index · top-level harness page · last touched 2026-10-12
 - `docs/agent/SECRET-ROTATION-CHECKLIST.md` — index · top-level harness page · last touched untracked
 - `docs/agent/SOP-DEV-REFRESH.md` — index · top-level harness page · last touched untracked

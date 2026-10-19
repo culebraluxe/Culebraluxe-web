@@ -73,3 +73,39 @@ turns (input 444,578 / output 207,644); cost 0 priced turns (NULL/unknown, never
 - No experience writeback: adoption was not attempted, so there is no adopted/rejected decision to
   write back. Recorded here for the next review.
 - Rows kept in DEV: 5 compared experiments (+1 failed pre-fix) with candidates/probes/contrasts.
+
+## Controlled cohort (pre-registered, interleaved) — 2026-10-18
+
+Pre-registered before data: fixed order, side order alternating (1/3/5 reference-first, 2/4
+candidate-first), 5 stories incl. the two prior regressions, pinned DSH model, 900s turns, cost
+rates exported. Mechanical criteria all PASS: 5/5 probes exit 0, 10/10 turns exit 0, usage 10/10
+measured, cost 10/10 priced (placeholder rates), identity correct, order matched, wall 25m44s,
+activation rows 0.
+
+| # | Story | Side order | Contrast | Elapsed | Tokens |
+|---|---|---|---|---|---|
+| 1 | AUTH-CAPABILITIES-01 | ref-first | 2 imp, 1 reg (cost) | 116.6→77.8s ✓ | 41.9k→41.3k ✓ |
+| 2 | CRM-14H | cand-first | 3 improved | 237.0→166.0s ✓ | 113.6k→95.3k ✓ |
+| 3 | CRM-14J | ref-first | 3 regressed | 147.4→200.5s ✗ | 72.8k→73.6k ✗ |
+| 4 | APP-WHATSAPP-ATTRIBUTION-01 | cand-first | 2 imp, 1 reg | 104.3→87.3s ✓ | 47.2k→48.0k ✗ |
+| 5 | CRM-14F | ref-first | 3 regressed | 88.1→293.2s ✗ | 48.3k→85.2k ✗ |
+
+**Aggregate: 7 improved, 8 regressed, 65 unchanged, 0 not captured.** Tokens 467,288 in / 199,776
+out; cost $0.595 at placeholder rates; 25m44s.
+
+**Observations:** the two previously-known regressions did **not** replicate (AUTH improved
+elapsed/tokens, CRM-14H improved all three); instead CRM-14J and CRM-14F (both reference-first)
+regressed on elapsed/tokens/cost. That pattern is consistent with run-order/session variance, and
+the exploratory cohort's positive signal is **not confirmed**. This is why the rule was mechanical
+only — the behavioral result is mixed/negative.
+
+**Decision: no adoption.** Keep base harness. The candidate is not supported by controlled
+evidence. Do not run a third cohort until the variance source is understood (order/warmth, session
+state, model non-determinism); the next experiment should isolate order, not add stories.
+
+### Free OpenCode arm (sanity, not decision evidence)
+
+Same stories/order on `opencode/deepseek-v4.1-flash-free`: 5/5 exit 0, 10/10 turns, identity
+executor=opencode; contrasts 5 improved (elapsed), 0 regressed, 65 unchanged, 10 not captured
+(usage export unwired); 37m33s. Candidate faster on elapsed in 5/5, but no token/cost comparison —
+not adoption evidence.

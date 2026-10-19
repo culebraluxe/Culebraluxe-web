@@ -40,6 +40,7 @@ use db::{
 use forge::engine::harness_evolution::calibration::{
     calibration_report, CalibrationReport, CalibrationSample,
 };
+use forge::engine::harness_evolution::contrast::contrast;
 use forge::engine::harness_evolution::feed::{
     correction_feed_rows, targets_from_hypotheses, targets_from_learning_sources,
     CorrectionFeedRow, FeedOptions, HoldFeedRow, HypothesisFeedRow, ScorecardFeedRow,
@@ -47,19 +48,16 @@ use forge::engine::harness_evolution::feed::{
 use forge::engine::harness_evolution::metrics::{
     role_model_metrics, RoleModelMetric, RoleModelObservation, RunOutcome,
 };
-use forge::engine::harness_evolution::contrast::contrast;
 use forge::engine::harness_evolution::model::{
     AdoptionVerdict, BehaviorDimension, ContrastDirection, ContrastReport, DimensionContrast,
-    EnvironmentClass, EvolutionBudget, EvolutionMode, HarnessDomain, ProbeSpec, ProposalKind,
+    EnvironmentClass, EvolutionBudget, EvolutionMode, HarnessDomain, ProposalKind,
 };
 use forge::engine::harness_evolution::model_turn_sandbox::USAGE_UNMEASURED_REF;
-use forge::engine::harness_evolution::probe::{
-    ProbeContract, ProbePairReading, ProbeReading, ProbeSide,
-};
 use forge::engine::harness_evolution::model_turn_sandbox::{
     ModelTurnAuthorization, ModelTurnBackend, ModelTurnSandbox,
 };
 use forge::engine::harness_evolution::probe::ProbePins;
+use forge::engine::harness_evolution::probe::{ProbeContract, ProbePairReading, ProbeReading};
 use forge::engine::harness_evolution::probe_replay::{
     environment_class_for, plan_recorded_replay, HistoricalTask, HistoricalTaskLoader,
     HistoricalTaskRequest, MapRevisionSource, RecordedReplayOutcome, RecordedReplayRequest,
@@ -1584,8 +1582,10 @@ fn run_recorded_replay_ordered(
         })?;
     let executor =
         ReplayProbeExecutor::new(loader, sandbox, revisions, request.task_request.clone());
-    let reference_request = contract.reference_request(format!("{}-reference", request.experiment_id));
-    let candidate_request = contract.candidate_request(format!("{}-candidate", request.experiment_id));
+    let reference_request =
+        contract.reference_request(format!("{}-reference", request.experiment_id));
+    let candidate_request =
+        contract.candidate_request(format!("{}-candidate", request.experiment_id));
     let (reference, candidate_reading) = if candidate_first {
         let candidate_reading = executor.execute_replay(&candidate_request)?;
         let reference = executor.execute_replay(&reference_request)?;
@@ -1646,7 +1646,9 @@ fn summarize_dimensions(dimensions: &[DimensionContrast]) -> String {
             ContrastDirection::Unknown => unknown += 1,
         }
     }
-    format!("{improved} improved, {regressed} regressed, {unchanged} unchanged, {unknown} not captured")
+    format!(
+        "{improved} improved, {regressed} regressed, {unchanged} unchanged, {unknown} not captured"
+    )
 }
 
 fn normalize_unmeasured_usage(
@@ -2549,7 +2551,11 @@ mod probe_tests {
         }
         // DSH still accepts its pinned model and is not subject to the free suffix rule.
         assert!(probe_identity(
-            &args(&["--authorize-model-run", "--model", "deepseek-official/deepseek-v4-flash"]),
+            &args(&[
+                "--authorize-model-run",
+                "--model",
+                "deepseek-official/deepseek-v4-flash"
+            ]),
             ProbeSandboxChoice::ModelTurn,
             Some(&dsh),
         )
@@ -2590,16 +2596,21 @@ mod probe_tests {
 
     #[test]
     fn the_pre_registered_interleaving_alternates_which_side_runs_first() {
-        use std::cell::RefCell;
         use forge::engine::harness_evolution::model::{
             BehaviorEvidence, Component, ComponentKind, EvolutionBudget, EvolutionMode,
             HarnessDomain, HarnessManifest, HarnessRevision, QaVerdict,
         };
         use forge::engine::harness_evolution::probe_replay::SandboxReading;
+        use std::cell::RefCell;
+
+        use forge::engine::harness_evolution::probe::ProbeSide;
 
         struct OneTask(HistoricalTask);
         impl HistoricalTaskLoader for OneTask {
-            fn load(&self, _request: &HistoricalTaskRequest) -> Result<HistoricalTask, ReplayError> {
+            fn load(
+                &self,
+                _request: &HistoricalTaskRequest,
+            ) -> Result<HistoricalTask, ReplayError> {
                 Ok(self.0.clone())
             }
         }
