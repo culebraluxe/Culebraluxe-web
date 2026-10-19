@@ -31,7 +31,7 @@ access, or use a review tarball. No source is exposed publicly.
 | WO | Scope | Owner | Status |
 |---|---|---|---|
 | R1 | ForgeVCS facade decomposition + typed error enum + single admin-permission source; clippy large-err review | ForgeVCS engineer | DONE (facade/ dir, ApiError, AdminCapability; 56 service tests + full gate) |
-| R2 | Conflict `resolve`/`continue` endpoints + paused state | Smith | DONE (paused conflicts API+CLI, workspace 137 tests, QA live pending) |
+| R2 | Conflict `resolve`/`continue` endpoints + paused state | Smith | **REOPENED** — QA live FAIL (UUID 500, with_extra drops extras, resolve_parent makes continue 409, delete residue, CLI drops 409 body); fix task-38 in progress; R5 held |
 | R3 | `acl.toml` lane-prefix rollout + live ACL proof in pilot | Operator/DevOps | DONE (18-check live PASS: path scopes + repo ACL layers) |
 | R4 | Workspace write lock/lease design + tests | Architect | DONE (DB lease + fencing/audit, real-Postgres test) |
 | R5 | Real-work merge pilot (mirror real repo, 3–5 agent branches, compare to jj) | Lead | NEXT |
