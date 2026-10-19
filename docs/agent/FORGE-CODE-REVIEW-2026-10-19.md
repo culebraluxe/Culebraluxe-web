@@ -79,7 +79,7 @@ only after ForgeVCS hosted path/human path and the import converter are proven. 
 
 | WO | Scope | First acceptance |
 |---|---|---|
-| **WIRE-1** | Read-only mirror: published `main` tree → ForgeVCS repo changesets | mirror of one published commit matches tree hashes; no authority change |
+| **WIRE-1** | Read-only mirror: published `main` tree → ForgeVCS repo changesets | **DONE** (2026-10-19): `scripts/forge-mirror.py` + harness; 6-path fixture, add/noop/mutate/noop; sha256 + exact tree id match; commit identity needs scion-import route |
 | **WIRE-2** | Divergence check + alarm between git main and ForgeVCS mirror | drift detected with actionable evidence |
 | **WIRE-3** | Candidate identity bridge: git candidate → Scion changeset (import converter) | QA-frozen SHA imports byte-identically |
 | **WIRE-4** | Dual-write publish preserving `git_publish` proofs | publish fails closed if either target fails/drifts |
