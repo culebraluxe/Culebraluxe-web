@@ -30,7 +30,7 @@ access, or use a review tarball. No source is exposed publicly.
 
 | WO | Scope | Owner | Status |
 |---|---|---|---|
-| R1 | ForgeVCS facade decomposition + typed error enum + single admin-permission source; clippy large-err review | fresh ForgeVCS engineer | OPEN (started) |
+| R1 | ForgeVCS facade decomposition + typed error enum + single admin-permission source; clippy large-err review | ForgeVCS engineer | DONE (facade/ dir, ApiError, AdminCapability; 56 service tests + full gate) |
 | R2 | Conflict `resolve`/`continue` endpoints + paused state | Smith | OPEN |
 | R3 | `acl.toml` lane-prefix rollout + live ACL proof in pilot | Operator/DevOps | OPEN |
 | R4 | Workspace write lock/lease design + tests | Architect | OPEN |
