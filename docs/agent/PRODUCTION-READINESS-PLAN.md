@@ -15,7 +15,8 @@ and a named sign-off. Green unit tests alone do not count.
 | FVCS-01 | Repository-scoped ACL/isolation | agent-a cannot read/write repo-b; owner/ACL on init; tests; existing path/ref rules intact | DONE (ffbe5dd; 52 service tests; residual: live DB round-trip in soak, legacy repos backfill) |
 | FVCS-02 | Path-prefix write scopes on push | write on `lane/a/**` allows only those paths; outside refused; ref scopes intact | DONE (ffbe5dd; path-prefix push tests; acl.toml must be narrowed per lane for enforcement) |
 | FVCS-03 | Rate limits + per-agent quotas | **moved to tech debt** — free models/no spend; not a production gate now | TD (forgevcs/docs/TECH_DEBT.md) |
-| FVCS-04 | 10-agent soak | 10 agents, independent repos, concurrent pushes, rename/conflict; 0 lost refs; latency/error report | OPEN (next; 01–02 closed) |
+| FVCS-04 | **Real-work merge pilot** (replaces synthetic soak) | mirror one real repo into ForgeVCS; 3–5 agents do actual small tasks on branches; land/merge through the API; compare resulting tree/content against the jj/git result; record merge correctness, conflicts, failures. No synthetic hammering, minimal Neon load. | OPEN (next; 01–02 closed) |
+| FVCS-04b | Synthetic load/soak | deferred to TD — trusts Neon; only run if a real concurrency incident appears | TD (TECH_DEBT) |
 | FVCS-05 | Backup: Mac zip + restore drill + alert | scheduled zip, restore drill passes, failure alert, retention; psql dependency documented | DONE (b937fa0; launchd 02:00 zip + weekly drill 11/11, failure alert proven, retention 7) |
 | FVCS-06 | Conflict resolution workflow | paused-conflict state + resolve/continue; tests | OPEN |
 | FVCS-07 | Staging + CI | second environment + checked pipeline (gate/smoke/deploy) | OPEN |
@@ -32,6 +33,19 @@ and a named sign-off. Green unit tests alone do not count.
 | FORGE-05 | Operator surface + SLO for harness | CLI/status/digest covered; failure alerts; runbook | OPEN |
 | FORGE-06 | CTO office scheduler + offsite zip | daily pulse (start-session alerts) + scheduled zip; cold-start acceptance | OPEN |
 | FORGE-07 | Readiness register + sign-off | written register for Forge delivery, harness, CTO staff; principal sign-off | OPEN |
+
+## SOPs (runbooks) to write alongside
+
+| SOP | When used |
+|---|---|
+| git → jj migration | moving a repo/worktree; the step that went wrong historically |
+| jj → ForgeVCS pilot | mirror/init, auth, push/pull, lane refs |
+| merge/land/conflict | merging agent branches; resolving 409s |
+| backup/restore | scheduled backup failure, restore drill, offsite zip |
+| DSH pin/upgrade | version pin, upgrade test, rollback, plugin vetting |
+| incident | service down, Neon issue, stuck queue |
+
+Each SOP: trigger, preconditions, steps, verification, rollback, owner. One page.
 
 ## Sequence
 
