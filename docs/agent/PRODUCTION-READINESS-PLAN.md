@@ -61,3 +61,13 @@ Each SOP: trigger, preconditions, steps, verification, rollback, owner. One page
 - Mac zip is the accepted offsite copy; Neon is the durable primary with its own backups.
 - Old ForgeVCS pilot repositories need the DevOps cleanup pass before the soak.
 - Every WO lands through its repo's gate; no work order closes on prose alone.
+
+## ForgeVCS hosted service (known orientation)
+
+- Hosted: `https://culebraluxe-forgevcs.vercel.app` — `/health`, `/ready`, `/version` all 200
+  (verified 2026-10-19).
+- Deploy: `bash scripts/deploy-forgevcs-prod.sh` from `main`; hosted smoke
+  `scripts/w8-hosted-smoke.sh`; human CLI `forgevcs --base-url <hosted URL>`.
+- Orientation now lives in `forgevcs/README.md` + `forgevcs/AGENTS.md`.
+- Remaining hosted gaps: persistent signing key, production human-principal env, and a post-deploy
+  hosted smoke record in this register.
