@@ -34,7 +34,7 @@ access, or use a review tarball. No source is exposed publicly.
 | R2 | Conflict `resolve`/`continue` endpoints + paused state | Smith | DONE — QA final live PASS 71/71 assertions (all five findings closed; rebase continues linearly); R5 unheld |
 | R3 | `acl.toml` lane-prefix rollout + live ACL proof in pilot | Operator/DevOps | DONE (18-check live PASS: path scopes + repo ACL layers) |
 | R4 | Workspace write lock/lease design + tests | Architect | DONE (DB lease + fencing/audit, real-Postgres test) |
-| R5 | Real-work merge pilot (mirror real repo, 3–5 agent branches, compare to jj) | Lead + QA | IN PROGRESS |
+| R5 | Real-work merge pilot (mirror real repo, 3–5 agent branches, compare to jj) | Lead + QA | DONE — 33/33 assertions, 5 real branches, deliberate conflict resolved via R2 workflow, final tree digest matches jj exactly, residue 0 |
 | R6 | Auth-decision retention + ordered migration runner | DevOps | DONE retention pruner (dry-run default); migration runner dropped (single-instance) |
 
 Sequence: R1/R2 in parallel; R3 before R5; R5 then R4 if locking is needed; R6 before production claim.
