@@ -29,10 +29,13 @@ printf '2/4 Compiling release binaries...\n'
 cargo build --release -p forge --bins
 
 printf '3/4 Staging the artifact...\n'
+# Lanes set a per-checkout target-dir in .cargo/config.toml; ask cargo where the release output is
+# instead of assuming target/release (the lane's target is outside the checkout).
+TARGET_DIR="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 rm -rf "$STAGE"
 mkdir -p "$STAGE/bin" "$STAGE/definitions" "$STAGE/scripts"
 for bin in forge forge-worker forge-task forge-assay-plan-hash; do
-  src="$ROOT/target/release/$bin"
+  src="$TARGET_DIR/release/$bin"
   [[ -x "$src" ]] || { echo "ERROR: missing release binary: $src" >&2; exit 1; }
   cp "$src" "$STAGE/bin/$bin"
 done
