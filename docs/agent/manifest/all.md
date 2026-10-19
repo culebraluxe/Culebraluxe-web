@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-19 05:44:06Z
-- commit: `ebb6e1ddf` (working tree dirty) on `HEAD`
+- generated: 2026-10-19 05:50:13Z
+- commit: `0f69171de` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest all`
 - rows: 113 — packet, cited paths and story commits first, lexical matches after
 
@@ -14,7 +14,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/ORIENTATION.md` — handbook · always-read handbook · last touched 2026-10-15
 - `docs/agent/MEMORY.md` — handbook · always-read handbook · last touched 2026-10-16
 - `docs/agent/CURRENT.md` — handbook · always-read handbook · last touched untracked
-- `docs/agent/ACTIVE-NOTECARD.md` — index · top-level harness page · last touched 2026-10-18
+- `docs/agent/ACTIVE-NOTECARD.md` — index · top-level harness page · last touched 2026-10-19
 - `docs/agent/AGENT-OS-PHASE-1.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/AGENT-OS-PHASE-2.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/AGENT_WORKER_SCHEDULER.md` — index · top-level harness page · last touched 2026-10-12
@@ -28,13 +28,13 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/CRM-06-PRELIMINARY.md` — index · top-level harness page · last touched untracked
 - `docs/agent/CRM-23-MAC-OBSERVER.md` — index · top-level harness page · last touched untracked
 - `docs/agent/CULEBRALUXE-LEAD-ROUTING-CODE.md` — index · top-level harness page · last touched untracked
-- `docs/agent/DEAD-COMMANDS.md` — index · top-level harness page · last touched untracked
+- `docs/agent/DEAD-COMMANDS.md` — index · top-level harness page · last touched 2026-10-19
 - `docs/agent/DEAD-TS-DOWNSIZE.md` — index · top-level harness page · last touched untracked
 - `docs/agent/DEEPSEEK_HARNESS_NOTES.md` — index · top-level harness page · last touched untracked
 - `docs/agent/DEPENDENCY-TRIAGE.md` — index · top-level harness page · last touched 2026-10-15
 - `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` — index · top-level harness page · last touched untracked
 - `docs/agent/DEV-OPS-RELEASE.md` — index · top-level harness page · last touched 2026-10-12
-- `docs/agent/DOGFOOD-2026-10-18-DSH.md` — index · top-level harness page · last touched 2026-10-18
+- `docs/agent/DOGFOOD-2026-10-18-DSH.md` — index · top-level harness page · last touched 2026-10-19
 - `docs/agent/DOGFOOD-2026-10-18.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/ESCALATION-QUEUES.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/FAILFAST_ESCALATION_POLICY.md` — index · top-level harness page · last touched untracked
@@ -77,7 +77,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/HANDOFF-main-site-2026-09-24.md` — index · top-level harness page · last touched untracked
 - `docs/agent/HANDOFF-ts-guards-to-rust-2026-09-29.md` — index · top-level harness page · last touched untracked
 - `docs/agent/HANDOFF-work-queue-inlet-2026-10-05.md` — index · top-level harness page · last touched untracked
-- `docs/agent/HARNESS-EVOLUTION-ARCHITECTURE.md` — index · top-level harness page · last touched 2026-10-18
+- `docs/agent/HARNESS-EVOLUTION-ARCHITECTURE.md` — index · top-level harness page · last touched 2026-10-19
 - `docs/agent/JJ-FOR-AGENTS.md` — index · top-level harness page · last touched 2026-10-16
 - `docs/agent/JJ-INTERFACE.md` — index · top-level harness page · last touched 2026-10-16
 - `docs/agent/LAYOUT.md` — index · top-level harness page · last touched 2026-10-16
@@ -108,9 +108,9 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/RUNLOG.md` — index · top-level harness page · last touched 2026-10-12
 - `docs/agent/SECRET-ROTATION-CHECKLIST.md` — index · top-level harness page · last touched untracked
 - `docs/agent/SOP-DEV-REFRESH.md` — index · top-level harness page · last touched untracked
-- `docs/agent/SOP-DSH-UPGRADE.md` — index · top-level harness page · last touched untracked
+- `docs/agent/SOP-DSH-UPGRADE.md` — index · top-level harness page · last touched 2026-10-19
 - `docs/agent/STORY_EXECUTION_CONTRACT.md` — index · top-level harness page · last touched untracked
-- `docs/agent/TECH-DEBT.md` — index · top-level harness page · last touched 2026-10-18
+- `docs/agent/TECH-DEBT.md` — index · top-level harness page · last touched 2026-10-19
 - `docs/agent/TEST-BUDGET.md` — index · top-level harness page · last touched untracked
 - `docs/agent/TEST-SAFETY-SWEEP-2026-09-29.md` — index · top-level harness page · last touched untracked
 - `docs/agent/TEST_ISOLATION.md` — index · top-level harness page · last touched untracked

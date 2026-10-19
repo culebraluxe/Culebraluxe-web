@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-18 07:50:51Z
-- commit: `b7d8b9bb9` (working tree dirty) on `HEAD`
+- generated: 2026-10-19 05:50:08Z
+- commit: `0f69171de` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest FORGE-GATES-01`
 - rows: 34 — packet, cited paths and story commits first, lexical matches after
 
@@ -36,7 +36,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `agent-runtime/write-policy.test.ts` **MISSING** — cited · cited by FORGE-GATES-01 · last touched untracked
 - `docs/FORGE-V2.md` — cited · cited by FORGE-GATES-01 · last touched untracked
 - `docs/agent/harness-lint-baseline.json` — cited · cited by FORGE-GATES-01 · last touched untracked
-- `docs/agent/TECH-DEBT.md` — lexical · term match: 2026-09-15, 500, acceptance, against · last touched 2026-10-18
+- `docs/agent/TECH-DEBT.md` — lexical · term match: 2026-09-15, 500, acceptance, against · last touched 2026-10-19
 - `docs/agent/ARCH-HANDOFF.md` — lexical · term match: 500, acceptance, action, adapters · last touched 2026-10-12
 - `docs/agent/RUNLOG.md` — lexical · term match: acceptance, action, adapters, adding · last touched 2026-10-12
 - `docs/agent/HANDOFF-MERGE-QUEUE-2026-10-08.md` — lexical · term match: 500, adapters, adding, against · last touched 2026-10-12
