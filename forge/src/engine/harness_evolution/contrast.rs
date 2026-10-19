@@ -126,7 +126,7 @@ pub fn contrast(
         dimensions.push(dimension_contrast);
     }
 
-    let report = ContrastReport {
+    let mut report = ContrastReport {
         id,
         base_revision,
         candidate_revision,
@@ -136,6 +136,9 @@ pub fn contrast(
         evidence_refs,
         dimensions,
     };
+    // Generic honesty rule: an unmeasured execution is Unknown usage, not zero. Every caller of
+    // `contrast()` gets this, not only the CLI/recorded-replay wrappers.
+    normalize_unmeasured_usage(&mut report, reference, candidate);
     // Identity comparison is already made above, but the report's own contract is the single
     // source of truth for "is this comparable"; call it instead of duplicating the rule.
     report.validate()?;
@@ -171,6 +174,61 @@ pub fn verdict(report: &ContrastReport) -> ContrastVerdict {
     } else {
         ContrastVerdict::Insufficient
     }
+}
+
+/// Evidence-ref marker the sandbox emits when the harness reported NO usage. Token counts in
+/// [`BehaviorEvidence`] are plain `u64`, so zero is ambiguous: without this marker a "not measured"
+/// turn looks like a measured zero-token turn. The contrast path treats it as `Unknown`.
+pub const USAGE_UNMEASURED_REF: &str = "model-turn:usage:unmeasured";
+
+/// True when this execution's usage was not measured (as labelled by the sandbox).
+pub fn evidence_usage_unmeasured(evidence: &BehaviorEvidence) -> bool {
+    evidence
+        .evidence_refs
+        .iter()
+        .any(|reference| reference == USAGE_UNMEASURED_REF)
+}
+
+/// Rewrite the usage dimensions of a contrast that compares an unmeasured execution.
+///
+/// This is the generic path every caller goes through (`Contrastor` impls, the CLI, recorded
+/// replay). `BehaviorEvidence` stores tokens as `u64` and cost as `Option<u64>`, so an unmeasured
+/// turn otherwise produces a fabricated `0.0` token comparison. When either side is labelled
+/// unmeasured, `Tokens` and `Cost` become `Unknown` with `None` values and an explicit note. The
+/// function is idempotent; it returns true when it changed the report.
+pub fn normalize_unmeasured_usage(
+    report: &mut ContrastReport,
+    reference: &BehaviorEvidence,
+    candidate: &BehaviorEvidence,
+) -> bool {
+    if !evidence_usage_unmeasured(reference) && !evidence_usage_unmeasured(candidate) {
+        return false;
+    }
+    let mut changed = false;
+    for contrast in &mut report.dimensions {
+        let usage_dimension = matches!(
+            contrast.dimension,
+            BehaviorDimension::Tokens | BehaviorDimension::Cost
+        );
+        if !usage_dimension {
+            continue;
+        }
+        if contrast.direction != ContrastDirection::Unknown
+            || contrast.reference_value.is_some()
+            || contrast.candidate_value.is_some()
+        {
+            changed = true;
+        }
+        contrast.direction = ContrastDirection::Unknown;
+        contrast.reference_value = None;
+        contrast.candidate_value = None;
+        contrast.note =
+            "usage unmeasured by the sandbox; token/cost counts are not a reading".to_string();
+    }
+    if changed {
+        report.summary = summarize(&report.dimensions);
+    }
+    changed
 }
 
 /// True when the contrast actually differs on at least one captured dimension.
@@ -577,4 +635,113 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code(), "missing_evidence");
     }
+    // ---------------------------------------------------------------------------------------
+    // P1-C unmeasured usage honesty (generic contrast path)
+    // ---------------------------------------------------------------------------------------
+
+    fn unmeasured_evidence(id: &str) -> BehaviorEvidence {
+        let mut evidence = clean_reference();
+        evidence.evidence_id = format!("evidence-{id}");
+        evidence.probe_id = format!("probe-{id}");
+        // A sandbox that could not measure usage reports zero tokens AND the marker.
+        evidence.tokens_in = 0;
+        evidence.tokens_out = 0;
+        evidence.cost_micros = None;
+        evidence.evidence_refs = vec![
+            "storyboard_story_run:run-x".to_string(),
+            USAGE_UNMEASURED_REF.to_string(),
+        ];
+        evidence
+    }
+
+    fn report_for(reference: &BehaviorEvidence, candidate: &BehaviorEvidence) -> ContrastReport {
+        contrast(
+            "contrast-usage",
+            "base-1",
+            "candidate-1",
+            reference,
+            candidate,
+            &identity(),
+            &identity(),
+        )
+        .unwrap()
+    }
+
+    fn dimension(report: &ContrastReport, dimension: BehaviorDimension) -> &DimensionContrast {
+        report
+            .dimensions
+            .iter()
+            .find(|contrast| contrast.dimension == dimension)
+            .expect("dimension present")
+    }
+
+    #[test]
+    fn generic_contrast_treats_unmeasured_usage_as_unknown_not_zero() {
+        // Reference measured (10 tokens), candidate unmeasured (reported as 0 + marker): without
+        // the rule this would look like a giant improvement; it must be Unknown instead.
+        let report = report_for(&clean_reference(), &unmeasured_evidence("cand"));
+        let tokens = dimension(&report, BehaviorDimension::Tokens);
+        assert_eq!(tokens.direction, ContrastDirection::Unknown);
+        assert_eq!(tokens.reference_value, None);
+        assert_eq!(tokens.candidate_value, None);
+        assert!(tokens.note.contains("unmeasured"));
+        let cost = dimension(&report, BehaviorDimension::Cost);
+        assert_eq!(cost.direction, ContrastDirection::Unknown);
+        assert_eq!(cost.candidate_value, None);
+        assert!(report.summary.contains("not captured"));
+        report.validate().unwrap();
+    }
+
+    #[test]
+    fn unmeasured_on_the_reference_side_is_also_unknown() {
+        let report = report_for(&unmeasured_evidence("ref"), &improved_candidate());
+        assert_eq!(
+            dimension(&report, BehaviorDimension::Tokens).direction,
+            ContrastDirection::Unknown
+        );
+        assert_eq!(
+            dimension(&report, BehaviorDimension::Cost).direction,
+            ContrastDirection::Unknown
+        );
+    }
+
+    #[test]
+    fn measured_usage_still_produces_a_real_direction() {
+        let report = report_for(&clean_reference(), &improved_candidate());
+        assert_eq!(
+            dimension(&report, BehaviorDimension::Tokens).direction,
+            ContrastDirection::Improved
+        );
+        assert_eq!(
+            dimension(&report, BehaviorDimension::Cost).direction,
+            ContrastDirection::Improved
+        );
+        assert!(dimension(&report, BehaviorDimension::Tokens)
+            .reference_value
+            .is_some());
+    }
+
+    #[test]
+    fn an_unmeasured_turn_cannot_claim_a_measured_cost() {
+        // Defensive: even if a sandbox reported cost while saying usage was unmeasured, the
+        // contrast will not treat that cost as a reading.
+        let mut candidate = unmeasured_evidence("cand");
+        candidate.cost_micros = Some(999);
+        let report = report_for(&clean_reference(), &candidate);
+        let cost = dimension(&report, BehaviorDimension::Cost);
+        assert_eq!(cost.direction, ContrastDirection::Unknown);
+        assert_eq!(cost.candidate_value, None);
+        assert_eq!(cost.reference_value, None);
+    }
+
+    #[test]
+    fn normalize_unmeasured_usage_is_idempotent() {
+        let reference = unmeasured_evidence("ref");
+        let candidate = improved_candidate();
+        let mut report = report_for(&reference, &candidate);
+        let summary = report.summary.clone();
+        assert!(!normalize_unmeasured_usage(&mut report, &reference, &candidate));
+        assert_eq!(report.summary, summary);
+    }
+
 }

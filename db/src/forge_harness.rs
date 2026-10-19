@@ -204,6 +204,19 @@ pub fn manifest_hash(manifest: &Value) -> DbResult<String> {
 /// Mirrors `model.rs::RevisionStatus::can_transition_to`. The model remains the source of truth;
 /// the DAO keeps a copy so a writer that bypasses the model cannot walk a revision out of its
 /// lifecycle (e.g. `rejected -> adopted`).
+/// `adopted` is written ONLY by the activation transaction ([`ForgeHarnessDao::activate`] /
+/// [`ForgeHarnessDao::rollback`]). The plain revision writers cannot create or promote an adopted
+/// revision, so an adopted row always has the matching activation row that made it current.
+fn reject_manual_adoption_status(operation: &'static str, status: &str) -> DbResult<()> {
+    if status == "adopted" {
+        return Err(DbFailure::schema_mismatch(
+            operation,
+            "revision status 'adopted' is reserved for the activation transaction; use insert_revision with a pre-adoption status and let activate/rollback commit the pointer and lifecycle together",
+        ));
+    }
+    Ok(())
+}
+
 pub fn revision_status_transition_allowed(from: &str, to: &str) -> bool {
     match from {
         "draft" => matches!(to, "proposed" | "rejected" | "failed"),
@@ -559,6 +572,10 @@ impl ForgeHarnessDao {
                 format!("unknown revision status {}", new.status),
             ));
         }
+        reject_manual_adoption_status(
+            "forge_harness.insert_revision.status_adoption",
+            &new.status,
+        )?;
         if let Some(parent_id) = new.parent_revision_id.as_deref() {
             let parent_domain: Option<(String,)> =
                 sqlx::query_as("select domain from forge_harness_revision where revision_id=$1")
@@ -733,6 +750,7 @@ impl ForgeHarnessDao {
                 format!("unknown revision status {status}"),
             ));
         }
+        reject_manual_adoption_status("forge_harness.set_revision_status.adoption", status)?;
         let mut tx = self.db.pool().begin().await.map_err(|error| {
             DbFailure::from_sqlx("forge_harness.set_revision_status.begin", &error)
         })?;
@@ -1623,6 +1641,18 @@ mod tests {
         expected.extend_from_slice(MANIFEST_HASH_DOMAIN.as_bytes());
         expected.extend_from_slice(&0u64.to_le_bytes());
         assert_eq!(manifest_hash(&empty).unwrap(), sha256_hex(&expected));
+    }
+
+    #[test]
+    fn plain_writers_cannot_insert_or_autocommit_an_adopted_revision() {
+        reject_manual_adoption_status("test.insert", "draft").expect("non-adopted status is fine");
+        let error = reject_manual_adoption_status("test.insert", "adopted")
+            .expect_err("adopted is reserved for the activation transaction");
+        assert!(
+            error.to_string().contains("activation transaction"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("adopted"), "{error}");
     }
 
     #[test]

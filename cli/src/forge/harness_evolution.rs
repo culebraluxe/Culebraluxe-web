@@ -24,10 +24,11 @@
 //!       [--model M] [--model-policy P] [--executor E] [--tool T]... [--dataset D]
 //!       [--test-plan P] [--replay-id R] [--mode parallel|sequential] [--k N] [--seed N]
 //!       [--target dev|prod] [--dry-run] [--format json]
-//!   cargo run -p cli -- forge harness-evolution probe ... --authorize-model-run
+//!   cargo run -p cli -- forge harness-evolution probe ... --authorize-model-run --authorize-sandbox
 //!       [--model-backend dsh|opencode] [--model-turn-timeout-seconds N]
-//!       (model-turn sandbox instead of --command; mutually exclusive with --command, and a real
-//!        run spends a paid model turn — explicit authorization is required)
+//!       (model-turn sandbox instead of --command; mutually exclusive with --command. A real model
+//!        turn needs BOTH keys — --authorize-sandbox opens the sandbox boundary and
+//!        --authorize-model-run opens the paid turn — and spends one paid turn.)
 
 use std::path::PathBuf;
 
@@ -37,10 +38,12 @@ use db::{
     Database, DbTarget, ForgeCorrectionsDao, ForgeEngineDao, ForgeHarnessDao,
     ForgeHarnessRevisionRow, ForgeReadDao, TurnTrajectoryRow,
 };
+use forge::engine::dsh;
 use forge::engine::harness_evolution::calibration::{
     calibration_report, CalibrationReport, CalibrationSample,
 };
 use forge::engine::harness_evolution::contrast::contrast;
+use forge::engine::harness_evolution::dogfood::RealRunAuthorization;
 use forge::engine::harness_evolution::feed::{
     correction_feed_rows, targets_from_hypotheses, targets_from_learning_sources,
     CorrectionFeedRow, FeedOptions, HoldFeedRow, HypothesisFeedRow, ScorecardFeedRow,
@@ -54,7 +57,7 @@ use forge::engine::harness_evolution::model::{
 };
 use forge::engine::harness_evolution::model_turn_sandbox::USAGE_UNMEASURED_REF;
 use forge::engine::harness_evolution::model_turn_sandbox::{
-    ModelTurnAuthorization, ModelTurnBackend, ModelTurnSandbox,
+    ModelTurnAuthorization, ModelTurnBackend, ModelTurnBinding, ModelTurnSandbox,
 };
 use forge::engine::harness_evolution::probe::ProbePins;
 use forge::engine::harness_evolution::probe::{ProbeContract, ProbePairReading, ProbeReading};
@@ -65,7 +68,8 @@ use forge::engine::harness_evolution::probe_replay::{
 };
 use forge::engine::harness_evolution::sandbox_command::{CommandSandbox, SandboxCommand};
 use forge::engine::harness_evolution::store_db::{
-    plan_replay_persistence, stored_revision, ReplayPersistenceMeta,
+    plan_failed_probe_record, plan_replay_persistence, stored_revision, FailedProbeRecord,
+    ReplayPersistenceMeta,
 };
 use forge::scorecard::{summarize_scorecard, ScorecardHold, ScorecardRun};
 use serde::Deserialize;
@@ -100,8 +104,7 @@ pub async fn run(args: &[String]) -> Result<u8, Failure> {
                 .list_all_revisions()
                 .await
                 .map_err(|error| Failure::failed(format!("cannot list revisions: {error}")))?;
-            let mut domains: Vec<String> =
-                revisions.iter().map(|row| row.domain.clone()).collect();
+            let mut domains: Vec<String> = revisions.iter().map(|row| row.domain.clone()).collect();
             domains.sort();
             domains.dedup();
             let mut active = Vec::new();
@@ -162,7 +165,11 @@ pub async fn run(args: &[String]) -> Result<u8, Failure> {
                 for row in &rows {
                     println!(
                         "  {}  {}  {}  {}  {}",
-                        row.revision_id, row.domain, row.status, short(&row.manifest_hash, 12), row.created_by
+                        row.revision_id,
+                        row.domain,
+                        row.status,
+                        short(&row.manifest_hash, 12),
+                        row.created_by
                     );
                 }
                 if rows.is_empty() {
@@ -193,7 +200,9 @@ pub async fn run(args: &[String]) -> Result<u8, Failure> {
                     })).collect::<Vec<_>>(),
                 }))?;
             } else {
-                println!("forge harness-evolution experiments — domain={domain} target={target} (read-only)");
+                println!(
+                    "forge harness-evolution experiments — domain={domain} target={target} (read-only)"
+                );
                 for row in &rows {
                     println!(
                         "  {}  {}  k={}  base={}  successor={}",
@@ -266,13 +275,17 @@ pub async fn run(args: &[String]) -> Result<u8, Failure> {
 }
 
 pub fn usage() {
-    eprintln!("usage: cargo run -p cli -- forge harness-evolution <status|revisions|experiments|experience|feed|metrics|calibration|probe> [options]");
+    eprintln!(
+        "usage: cargo run -p cli -- forge harness-evolution <status|revisions|experiments|experience|feed|metrics|calibration|probe> [options]"
+    );
     eprintln!();
     eprintln!("  Read-only operator surface for Harness Evolution (migration 294 tables).");
     eprintln!("  status      active harness revision per domain + revision count");
     eprintln!("  revisions   [--domain D] immutable revisions");
     eprintln!("  experiments --domain D  propose/probe/compose experiments");
-    eprintln!("  experience  --domain D [--executor E] [--mode parallel|sequential] [--seed N] [--limit N]");
+    eprintln!(
+        "  experience  --domain D [--executor E] [--mode parallel|sequential] [--seed N] [--limit N]"
+    );
     eprintln!("  feed        [--days N] [--limit N] [--input FILE] [--target dev|prod]");
     eprintln!("              Phase 3 improvement feed: scorecard/HOLD observations, repeated");
     eprintln!("              corrections and learn hypotheses, plus the evidence-linked targets a");
@@ -294,12 +307,16 @@ pub fn usage() {
     eprintln!(
         "  probe       --domain D --story S [--run R] --base-revision ID --candidate-revision ID"
     );
-    eprintln!("              [--candidate-kind invariant|domain] [--environment development|sandbox|ci|staging]");
+    eprintln!(
+        "              [--candidate-kind invariant|domain] [--environment development|sandbox|ci|staging]"
+    );
     eprintln!(
         "              [--command ABS] [--arg A]... [--model M] [--model-policy P] [--executor E]"
     );
     eprintln!("              [--tool T]... [--dataset D] [--test-plan P] [--replay-id R]");
     eprintln!("              [--mode parallel|sequential] [--k N] [--seed N] [--target dev|prod]");
+    eprintln!("              a real model turn ALSO requires --authorize-sandbox (two-key rule);");
+    eprintln!("              --authorize-sandbox alone opens the boundary but mints no paid turn.");
     eprintln!("              --target names the DATABASE the probe WRITES to; v1 refuses prod.");
     eprintln!("              --environment names the sandbox EXECUTION class (never production).");
     eprintln!("              [--dry-run]");
@@ -1421,6 +1438,44 @@ fn probe_sandbox_choice(args: &[String]) -> Result<ProbeSandboxChoice, Failure> 
     })
 }
 
+/// Two-key rule for a real model turn (P1-A): `--authorize-sandbox` opens the sandbox boundary and
+/// `--authorize-model-run` opens the paid turn. Both are required for a real run; either alone mints
+/// nothing. Pure, so the flag matrix is tested without a model or a database.
+fn require_two_key_model_run(
+    args: &[String],
+    sandbox_choice: ProbeSandboxChoice,
+) -> Result<(), Failure> {
+    if sandbox_choice != ProbeSandboxChoice::ModelTurn {
+        return Ok(());
+    }
+    let has_model_key = args
+        .iter()
+        .any(|value| value == ModelTurnAuthorization::FLAG);
+    let has_sandbox_key = args.iter().any(|value| value == RealRunAuthorization::FLAG);
+    match (has_sandbox_key, has_model_key) {
+        (true, true) => Ok(()),
+        (false, true) => Err(Failure::failed(format!(
+            "a real model turn requires BOTH {} and {}; {} is missing. {} alone must not mint a paid turn.",
+            RealRunAuthorization::FLAG,
+            ModelTurnAuthorization::FLAG,
+            RealRunAuthorization::FLAG,
+            ModelTurnAuthorization::FLAG
+        ))),
+        (true, false) => Err(Failure::failed(format!(
+            "a real model turn requires BOTH {} and {}; {} is missing. {} alone opens a sandbox, not a paid turn.",
+            RealRunAuthorization::FLAG,
+            ModelTurnAuthorization::FLAG,
+            ModelTurnAuthorization::FLAG,
+            RealRunAuthorization::FLAG
+        ))),
+        (false, false) => Err(Failure::failed(format!(
+            "a real model turn requires BOTH {} and {}",
+            RealRunAuthorization::FLAG,
+            ModelTurnAuthorization::FLAG
+        ))),
+    }
+}
+
 /// `--model-backend dsh|opencode`, else the `FORGE_HARNESS` backend, else the dsh default. An unknown
 /// word is a typed refusal (the model-turn backend is never guessed).
 fn parse_model_backend(args: &[String]) -> Result<ModelTurnBackend, Failure> {
@@ -1462,10 +1517,18 @@ fn probe_identity(
                     )));
                 }
             }
-            Ok(ProbeIdentitySelection {
-                executor,
-                model: flag(args, "--model").unwrap_or_else(|| "deepseek-chat".to_string()),
-            })
+            // The command sandbox records a model only as probe identity (it does not interpolate
+            // it). An explicit --model is still validated so an injectable/misleading identity is
+            // refused; the historical default stays as the identity for command-sandbox probes.
+            let model = match flag(args, "--model") {
+                Some(explicit) => dsh::args::validate_model(&explicit).map_err(|error| {
+                    Failure::usage(format!(
+                        "--model {explicit:?} is refused before interpolation: {error}"
+                    ))
+                })?,
+                None => "deepseek-chat".to_string(),
+            };
+            Ok(ProbeIdentitySelection { executor, model })
         }
         ProbeSandboxChoice::ModelTurn => {
             let backend = model_backend.ok_or_else(|| {
@@ -1484,12 +1547,11 @@ fn probe_identity(
                     "--authorize-model-run requires --model provider/model: the probe identity must name the model the turn runs under",
                 )
             })?;
-            let parts: Vec<&str> = model.split('/').collect();
-            if parts.len() != 2 || parts[0].trim().is_empty() || parts[1].trim().is_empty() {
-                return Err(Failure::usage(format!(
-                    "--model {model:?} must be an exact provider/model id"
-                )));
-            }
+            let model = dsh::args::validate_model(&model).map_err(|error| {
+                Failure::usage(format!(
+                    "--model {model:?} is refused before interpolation: {error}"
+                ))
+            })?;
             // The OpenCode arm is free-model-only: the principal approved free ids, and a paid id
             // must be a deliberate decision, not a typo.
             if *backend == ModelTurnBackend::OpenCode && !model.trim().ends_with("-free") {
@@ -1560,6 +1622,50 @@ fn probe_command_sandbox(args: &[String]) -> Result<CommandSandbox, Failure> {
         .validate()
         .map_err(|error| Failure::failed(format!("sandbox refused the probe command: {error}")))?;
     Ok(sandbox)
+}
+
+/// Persist the FAILED experiment row when a probe errors/times out after execution began (a paid
+/// model turn may already have spent). This runs before the CLI returns its error, so the failure is
+/// reviewable instead of vanishing with the transient sandbox receipt. Best effort: if the insert
+/// also fails, the original probe error is still returned and the persistence failure is appended.
+struct FailedProbeContext {
+    domain: HarnessDomain,
+    mode: EvolutionMode,
+    budget: EvolutionBudget,
+    seed: u64,
+}
+
+async fn persist_failed_probe(
+    dao: &ForgeHarnessDao,
+    revisions: &MapRevisionSource,
+    request: &RecordedReplayRequest,
+    context: FailedProbeContext,
+    error: &ReplayError,
+) -> Result<(), String> {
+    let base = revisions
+        .revision(&request.base_revision)
+        .map_err(|error| format!("base revision unavailable: {error}"))?;
+    let meta = ReplayPersistenceMeta {
+        experiment_id: &request.experiment_id,
+        domain: context.domain,
+        candidate_kind: ProposalKind::Invariant,
+        mode: context.mode,
+        budget: context.budget,
+        seed: context.seed,
+    };
+    let record = plan_failed_probe_record(
+        &meta,
+        &base,
+        FailedProbeRecord {
+            stage: "probe_execution",
+            code: error.code(),
+            message: &error.to_string(),
+        },
+    );
+    dao.insert_experiment(&record)
+        .await
+        .map(|_| ())
+        .map_err(|error| format!("failed-experiment record was not persisted: {error}"))
 }
 
 /// Run the matched pair with a pre-registered side order.
@@ -1705,6 +1811,10 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
         ProbeSandboxChoice::Command => None,
     };
     let identity = probe_identity(args, sandbox_choice, model_backend.as_ref())?;
+    // A real (non-dry-run) model turn needs both keys. Dry-run still plans without spending.
+    if !dry_run {
+        require_two_key_model_run(args, sandbox_choice)?;
+    }
     let model_turn_timeout = parse_model_turn_timeout(args, sandbox_choice)?;
     let candidate_first = args.iter().any(|value| value == "--candidate-first");
 
@@ -1876,24 +1986,64 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
     let (sandbox_label, outcome) = match sandbox_choice {
         ProbeSandboxChoice::Command => {
             let sandbox = probe_command_sandbox(args)?;
-            let outcome = run_recorded_replay_ordered(
+            let outcome = match run_recorded_replay_ordered(
                 &loader,
                 &sandbox,
                 &revisions,
                 &request,
                 candidate_first,
-            )
-            .map_err(|error| Failure::failed(format!("probe refused or failed ({error})")))?;
+            ) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    let persisted = persist_failed_probe(
+                        &harness_dao,
+                        &revisions,
+                        &request,
+                        FailedProbeContext {
+                            domain,
+                            mode,
+                            budget,
+                            seed,
+                        },
+                        &error,
+                    )
+                    .await;
+                    let suffix = match persisted {
+                        Ok(()) => format!(
+                            "failed experiment {} persisted for review",
+                            request.experiment_id
+                        ),
+                        Err(record_error) => record_error,
+                    };
+                    return Err(Failure::failed(format!(
+                        "probe refused or failed ({error}); {suffix}"
+                    )));
+                }
+            };
             ("command".to_string(), outcome)
         }
         ProbeSandboxChoice::ModelTurn => {
             let backend = model_backend.clone().ok_or_else(|| {
                 Failure::usage("a model-turn probe needs a resolved --model-backend")
             })?;
-            let authorization =
-                ModelTurnAuthorization::authorize_model_run(backend.clone(), environment).map_err(
-                    |error| Failure::failed(format!("model-run authorization refused: {error}")),
-                )?;
+            // Bind the token to the exact backend/model/task/experiment and a short expiry; the
+            // sandbox refuses a request outside that binding. The two-key check above already ran.
+            let binding = ModelTurnBinding::new(
+                &backend,
+                &identity.model,
+                &story_id,
+                &experiment_id,
+                std::time::Duration::from_secs(900),
+            )
+            .map_err(|error| Failure::failed(format!("model-run binding refused: {error}")))?;
+            let authorization = ModelTurnAuthorization::authorize_model_run_bound(
+                backend.clone(),
+                environment,
+                binding,
+            )
+            .map_err(|error| {
+                Failure::failed(format!("model-run authorization refused: {error}"))
+            })?;
             let mut sandbox = ModelTurnSandbox::new(authorization);
             if let Some(timeout) = model_turn_timeout {
                 sandbox = sandbox.with_timeout(timeout);
@@ -1902,14 +2052,40 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
                 Failure::failed(format!("model-turn sandbox refused the probe: {error}"))
             })?;
             let label = format!("model-turn:{}", backend.id());
-            let outcome = run_recorded_replay_ordered(
+            let outcome = match run_recorded_replay_ordered(
                 &loader,
                 &sandbox,
                 &revisions,
                 &request,
                 candidate_first,
-            )
-            .map_err(|error| Failure::failed(format!("probe refused or failed ({error})")))?;
+            ) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    let persisted = persist_failed_probe(
+                        &harness_dao,
+                        &revisions,
+                        &request,
+                        FailedProbeContext {
+                            domain,
+                            mode,
+                            budget,
+                            seed,
+                        },
+                        &error,
+                    )
+                    .await;
+                    let suffix = match persisted {
+                        Ok(()) => format!(
+                            "failed experiment {} persisted for review",
+                            request.experiment_id
+                        ),
+                        Err(record_error) => record_error,
+                    };
+                    return Err(Failure::failed(format!(
+                        "probe refused or failed ({error}); {suffix}"
+                    )));
+                }
+            };
             (label, outcome)
         }
     };
@@ -2717,5 +2893,51 @@ mod probe_tests {
         );
         // The default allowlist contains /usr/bin/true with no arguments.
         probe_command_sandbox(&args(&["--command", "/usr/bin/true"])).expect("allowlisted");
+    }
+    #[test]
+    fn a_real_model_turn_requires_both_authorization_keys() {
+        let only_model = args(&["--authorize-model-run"]);
+        let only_sandbox = args(&["--authorize-sandbox"]);
+        let both = args(&["--authorize-model-run", "--authorize-sandbox"]);
+        let error = require_two_key_model_run(&only_model, ProbeSandboxChoice::ModelTurn)
+            .expect_err("model key alone must not mint");
+        assert!(error.to_string().contains("--authorize-sandbox"), "{error}");
+        let error = require_two_key_model_run(&only_sandbox, ProbeSandboxChoice::ModelTurn)
+            .expect_err("sandbox key alone must not mint");
+        assert!(
+            error.to_string().contains("--authorize-model-run"),
+            "{error}"
+        );
+        require_two_key_model_run(&both, ProbeSandboxChoice::ModelTurn).expect("both keys");
+        require_two_key_model_run(&only_model, ProbeSandboxChoice::Command)
+            .expect("command sandbox needs no model-run keys");
+    }
+
+    #[test]
+    fn model_flag_that_would_inject_yaml_or_control_bytes_is_refused() {
+        let injected = args(&["--model", "provider/model\n- id: other-plugin"]);
+        let error = probe_identity(
+            &injected,
+            ProbeSandboxChoice::ModelTurn,
+            Some(&ModelTurnBackend::Dsh),
+        )
+        .expect_err("a model-turn pin must be refused before interpolation");
+        assert!(
+            error.to_string().contains("refused before interpolation"),
+            "{error}"
+        );
+
+        let command_error = probe_identity(&injected, ProbeSandboxChoice::Command, None)
+            .expect_err("an explicit command-sandbox identity is validated too");
+        assert!(
+            command_error
+                .to_string()
+                .contains("refused before interpolation"),
+            "{command_error}"
+        );
+
+        let default_identity = probe_identity(&args(&[]), ProbeSandboxChoice::Command, None)
+            .expect("command default identity");
+        assert_eq!(default_identity.model, "deepseek-chat");
     }
 }

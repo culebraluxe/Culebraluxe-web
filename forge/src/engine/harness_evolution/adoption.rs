@@ -294,7 +294,7 @@ pub fn apply<S: RevisionStore>(
 
 /// Apply an adoption decision with an explicit gate value. Tests use this to exercise both sides
 /// without mutating the process environment; production passes the env-derived value above.
-pub fn apply_with_gate<S: RevisionStore>(
+pub(crate) fn apply_with_gate<S: RevisionStore>(
     decision: &AdoptionDecision,
     experiment: &mut HarnessExperiment,
     catalog: &mut HarnessCatalog<S>,

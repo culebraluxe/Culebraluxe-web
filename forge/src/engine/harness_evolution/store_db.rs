@@ -30,7 +30,9 @@ use db::{
 };
 use tokio::runtime::Runtime;
 
-use super::catalog::{ActivationKind, ActivationPlan, CatalogError, RevisionStore};
+use super::catalog::{
+    Activation, ActivationKind, ActivationPlan, CatalogError, HarnessCatalog, RevisionStore,
+};
 use super::model::{
     AuthorityClass, ComponentKind, EvolutionBudget, EvolutionMode, HarnessDomain, HarnessManifest,
     HarnessRevision, ProposalKind, RevisionStatus,
@@ -66,6 +68,27 @@ impl DbRevisionStore {
 
     pub fn dao(&self) -> &ForgeHarnessDao {
         &self.dao
+    }
+
+    /// Open the durable store AND restore every domain's active pointer, so a fresh process can
+    /// roll back and keep sequencing after a restart. [`DbRevisionStore::open`] alone only loads
+    /// the revisions; the catalog (which owns the pointer stack) must replay the activation
+    /// history, which this constructor does for each domain found in the store.
+    pub fn open_catalog(db: Database) -> Result<HarnessCatalog<Self>, CatalogError> {
+        let store = Self::open(db)?;
+        let mut catalog = HarnessCatalog::with_store(store);
+        let mut domains: Vec<HarnessDomain> = catalog
+            .store()
+            .all()
+            .into_iter()
+            .map(|revision| revision.domain)
+            .collect();
+        domains.sort_by_key(|domain| domain.id());
+        domains.dedup();
+        for domain in domains {
+            catalog.restore_active_pointer(domain)?;
+        }
+        Ok(catalog)
     }
 
     /// Re-read every revision row and verify each one before trusting it.
@@ -205,6 +228,33 @@ impl RevisionStore for DbRevisionStore {
         let sequence = self.block_on(self.dao.last_activation_sequence(domain.id()))?;
         Ok(u64::try_from(sequence).unwrap_or(0))
     }
+
+    fn activation_history(&self, domain: HarnessDomain) -> Result<Vec<Activation>, CatalogError> {
+        let rows = self.block_on(self.dao.activation_history(domain.id(), i64::MAX))?;
+        let mut history = Vec::with_capacity(rows.len());
+        for row in rows.into_iter().rev() {
+            let kind = match row.activation_kind.as_str() {
+                "adopt" => ActivationKind::Adopt,
+                "rollback" => ActivationKind::Rollback,
+                other => {
+                    return Err(CatalogError::Store(format!(
+                        "activation row {} for {domain:?} has unknown kind {other:?}",
+                        row.activation_id
+                    )))
+                }
+            };
+            history.push(Activation {
+                domain,
+                sequence: u64::try_from(row.sequence).unwrap_or(0),
+                kind,
+                from_revision: row.from_revision_id,
+                to_revision: row.to_revision_id,
+                decision_id: row.decision_id,
+                activated_by: row.activated_by,
+            });
+        }
+        Ok(history)
+    }
 }
 
 impl RevisionSource for DbRevisionStore {
@@ -226,6 +276,48 @@ pub struct ReplayPersistenceMeta<'a> {
     pub mode: EvolutionMode,
     pub budget: EvolutionBudget,
     pub seed: u64,
+}
+
+/// The stage/code/message of a probe that failed before producing a contrast. Persisted as a
+/// FAILED experiment row so a paid turn that timed out or errored is visible to review instead of
+/// disappearing with the process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FailedProbeRecord<'a> {
+    pub stage: &'a str,
+    pub code: &'a str,
+    pub message: &'a str,
+}
+
+/// Build the durable FAILED experiment row for a probe that errored/timed out after execution began.
+///
+/// Deliberately a single experiment row: no candidate/probe/contrast exists to be transactionally
+/// complete. `validation` carries the stage, the replay error code and the message, so an operator
+/// can see WHICH stage failed and WHY without the transient receipt directory. The state is
+/// `failed`, never `compared`, and no successor/adoption fields are set.
+pub fn plan_failed_probe_record(
+    meta: &ReplayPersistenceMeta<'_>,
+    base: &HarnessRevision,
+    failure: FailedProbeRecord<'_>,
+) -> db::NewForgeHarnessExperiment {
+    db::NewForgeHarnessExperiment {
+        experiment_id: meta.experiment_id.to_string(),
+        domain: meta.domain.id().to_string(),
+        base_revision_id: base.id.clone(),
+        base_manifest_hash: base.manifest_hash.clone(),
+        mode: meta.mode.id().to_string(),
+        k: i32::try_from(meta.budget.k).unwrap_or(i32::MAX),
+        max_steps: i32::try_from(meta.budget.max_steps).unwrap_or(i32::MAX),
+        max_probes: i32::try_from(meta.budget.max_probes).unwrap_or(i32::MAX),
+        seed: i64::try_from(meta.seed).unwrap_or(i64::MAX),
+        state: "failed".to_string(),
+        successor_revision_id: None,
+        validation: Some(serde_json::json!({
+            "probe_stage": failure.stage,
+            "error_code": failure.code,
+            "error": failure.message,
+            "recorded_as": "failed_experiment_for_review",
+        })),
+    }
 }
 
 /// The durable rows one completed replay writes. Built as pure values so the operator surface only
@@ -739,7 +831,6 @@ mod tests {
     #[test]
     fn model_turn_readings_persist_tokens_and_unmeasured_cost_as_option() {
         use crate::engine::harness_evolution::model::{BehaviorEvidence, ProbeSpec, QaVerdict};
-        use crate::engine::harness_evolution::model_turn_sandbox::USAGE_UNMEASURED_REF;
         use crate::engine::harness_evolution::probe::{ProbeOutcome, ProbeReading, ProbeSide};
         use crate::engine::harness_evolution::probe_replay::HistoricalTask;
 
@@ -774,10 +865,9 @@ mod tests {
             behavior.tokens_in = 120;
             behavior.tokens_out = 30;
             behavior.cost_micros = None;
-            behavior.evidence_refs = vec![
-                format!("model-turn:exec:{probe_id}"),
-                USAGE_UNMEASURED_REF.to_string(),
-            ];
+            // Tokens ARE measured here (cost is what is unpriced); contrast() now also owns the
+            // unmeasured-usage normalization, so the fixture must not claim usage was unmeasured.
+            behavior.evidence_refs = vec![format!("model-turn:exec:{probe_id}")];
             let outcome = ProbeOutcome {
                 probe_id: probe_id.into(),
                 side,
@@ -826,8 +916,10 @@ mod tests {
                 probe
                     .evidence_refs
                     .as_array()
-                    .is_some_and(|refs| refs.contains(&serde_json::json!(USAGE_UNMEASURED_REF))),
-                "the unmeasured-usage label is persisted: {:?}",
+                    .is_some_and(|refs| refs.iter().any(|reference| reference
+                        .as_str()
+                        .is_some_and(|value| { value.starts_with("model-turn:exec:") }))),
+                "the execution evidence is persisted: {:?}",
                 probe.evidence_refs
             );
             assert_eq!(probe.spec["model"], serde_json::json!("deepseek-chat"));
@@ -1198,5 +1290,102 @@ mod tests {
         let (id, hash) = outcome.expect("smoke roundtrip");
         assert_eq!(id, revision_id);
         assert_eq!(hash, revision.manifest_hash);
+    }
+
+    #[test]
+    fn a_failed_probe_is_recorded_as_a_failed_row_with_stage_and_code() {
+        let base = revision();
+        let meta = super::ReplayPersistenceMeta {
+            experiment_id: "exp-failed-turn",
+            domain: HarnessDomain::RustBackend,
+            candidate_kind: crate::engine::harness_evolution::model::ProposalKind::Invariant,
+            mode: EvolutionMode::Parallel,
+            budget: EvolutionBudget::k1(),
+            seed: 7,
+        };
+        let record = plan_failed_probe_record(
+            &meta,
+            &base,
+            FailedProbeRecord {
+                stage: "probe_execution",
+                code: "replay_sandbox_failed",
+                message: "model turn timed out after 900s (process group killed)",
+            },
+        );
+        assert_eq!(record.state, "failed", "never compared, never adopted");
+        assert_eq!(record.successor_revision_id, None);
+        assert_eq!(record.experiment_id, "exp-failed-turn");
+        assert_eq!(record.base_revision_id, "rev-1");
+        assert_eq!(record.base_manifest_hash, base.manifest_hash);
+        let validation = record.validation.expect("validation evidence");
+        assert_eq!(validation["probe_stage"], "probe_execution");
+        assert_eq!(validation["error_code"], "replay_sandbox_failed");
+        assert!(validation["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("timed out"));
+        assert_eq!(validation["recorded_as"], "failed_experiment_for_review");
+    }
+
+    #[test]
+    #[ignore = "needs DATABASE_URL_DEV; proves the failed turn is durable and cleanable"]
+    fn dev_smoke_failed_probe_row_is_visible_for_review() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let database = runtime
+            .block_on(db::Database::connect_target(db::DbTarget::Dev))
+            .expect("connect DEV");
+        let dao = db::ForgeHarnessDao::new(database.clone());
+        let base = revision();
+        runtime
+            .block_on(dao.insert_revision(&revision_to_new(&base).expect("base row")))
+            .expect("seed base revision");
+        let meta = super::ReplayPersistenceMeta {
+            experiment_id: "smoke-failed-turn",
+            domain: HarnessDomain::RustBackend,
+            candidate_kind: crate::engine::harness_evolution::model::ProposalKind::Invariant,
+            mode: EvolutionMode::Parallel,
+            budget: EvolutionBudget::k1(),
+            seed: 1,
+        };
+        let record = plan_failed_probe_record(
+            &meta,
+            &base,
+            FailedProbeRecord {
+                stage: "probe_execution",
+                code: "replay_sandbox_failed",
+                message: "fake failing sandbox: turn timed out",
+            },
+        );
+        runtime
+            .block_on(dao.insert_experiment(&record))
+            .expect("failed experiment row persists");
+        let row: (String, serde_json::Value) = runtime
+            .block_on(async {
+                sqlx::query_as(
+                    "select state, validation from forge_harness_experiment where experiment_id=$1",
+                )
+                .bind("smoke-failed-turn")
+                .fetch_one(database.pool())
+                .await
+            })
+            .expect("read failed row");
+        assert_eq!(row.0, "failed");
+        assert_eq!(row.1["probe_stage"], "probe_execution");
+        runtime
+            .block_on(async {
+                sqlx::query("delete from forge_harness_experiment where experiment_id=$1")
+                    .bind("smoke-failed-turn")
+                    .execute(database.pool())
+                    .await?;
+                sqlx::query("delete from forge_harness_component where revision_id=$1")
+                    .bind("rev-1")
+                    .execute(database.pool())
+                    .await?;
+                sqlx::query("delete from forge_harness_revision where revision_id=$1")
+                    .bind("rev-1")
+                    .execute(database.pool())
+                    .await
+            })
+            .expect("cleanup failed row and seeded revision");
     }
 }

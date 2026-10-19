@@ -20,17 +20,19 @@
 //! * token counts are `Option<u64>` in the receipt; DSH usage is read post-hoc from its own session
 //!   log, and an unmeasured turn is labelled `unmeasured` in the evidence refs rather than being
 //!   claimed as zero;
-//! * stdout/stderr are streamed through a fixed cap (reusing `sandbox_command::read_stream_bounded`)
-//!   and the receipt records truncation flags and true totals;
-//! * timeouts kill the whole process group and reap the child.
+//! * stdout/stderr are streamed through a fixed cap, the readers are awaited with a deadline, and
+//!   the receipt records truncation flags, true totals and whether secret-shaped text was redacted;
+//! * the process group is killed on timeout **and on normal exit**, so a helper holding the pipes
+//!   cannot hang the probe; the kill is setsid-safe (never pid 0/1 or our own group);
+//! * receipts live under a 0700 run root, are written 0600, hold no prompt content, and are pruned
+//!   by age/count. A DSH session transcript is **not** persisted: only the opaque session id plus a
+//!   [`SESSION_TRANSCRIPT_NOTE_REF`] note are recorded.
 //!
 //! The backend selector is `FORGE_HARNESS`: `dsh` (default) or `opencode`. An unknown value fails
 //! closed; a selected backend that is not installed fails closed before any spend.
 
-use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::thread;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
@@ -40,10 +42,14 @@ use crate::engine::opencode_client;
 
 use super::model::{BehaviorEvidence, EnvironmentClass, QaVerdict};
 use super::probe_replay::{
-    HistoricalTask, ReplayError, ReplayHarness, ReplaySandbox, SandboxReading, SandboxRequest,
-    assert_non_production_environment,
+    assert_non_production_environment, HistoricalTask, ReplayError, ReplayHarness, ReplaySandbox,
+    SandboxReading, SandboxRequest,
 };
-use super::sandbox_command::read_stream_bounded;
+use super::sandbox_command::{
+    await_stream_capture, cleanup_receipts, create_secure_dir, redact_secrets, spawn_stream_capture,
+    terminate_process_group, write_secure_file, CAPTURE_JOIN_GRACE, RECEIPT_MAX_FILES,
+    RECEIPT_RETENTION,
+};
 
 /// Environment variable selecting the headless backend (`dsh` or `opencode`).
 pub const FORGE_HARNESS_ENV: &str = "FORGE_HARNESS";
@@ -57,6 +63,113 @@ pub const DEFAULT_MODEL_TURN_TIMEOUT: Duration = Duration::from_secs(300);
 /// The longest timeout this sandbox accepts for one model turn.
 pub const MAX_MODEL_TURN_TIMEOUT: Duration = Duration::from_secs(1800);
 
+/// The longest lifetime a model-run authorization token may have.
+pub const MAX_MODEL_RUN_TTL: Duration = Duration::from_secs(3600);
+
+/// What a model-run authorization is bound to: the backend, the exact model pin, the historical
+/// task, the experiment (probe-id prefix) and an expiry. A token minted for one probe cannot be
+/// replayed against another model/task/experiment, and it cannot outlive its expiry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelTurnBinding {
+    /// Backend id (`dsh` or `opencode`).
+    pub backend: String,
+    /// The validated `provider/model` id the turn must run under.
+    pub model: String,
+    /// The historical task identity (`HistoricalTask.story_id`).
+    pub task: String,
+    /// The experiment id; probe ids must be `<experiment>-reference|candidate` or similar prefixed.
+    pub experiment_id: String,
+    /// Wall-clock instant after which the token is invalid.
+    pub expires_at: SystemTime,
+}
+
+impl ModelTurnBinding {
+    /// Bind a real model-run token. `ttl` must be positive and at most [`MAX_MODEL_RUN_TTL`].
+    pub fn new(
+        backend: &ModelTurnBackend,
+        model: &str,
+        task: &str,
+        experiment_id: &str,
+        ttl: Duration,
+    ) -> Result<Self, ReplayError> {
+        if ttl.is_zero() || ttl > MAX_MODEL_RUN_TTL {
+            return Err(refused(format!(
+                "model-run token lifetime {ttl:?} is outside (0, {MAX_MODEL_RUN_TTL:?}]"
+            )));
+        }
+        let model = dsh::args::validate_model(model)
+            .map_err(|error| refused(format!("model pin refused: {error}")))?;
+        let task = task.trim();
+        let experiment_id = experiment_id.trim();
+        if task.is_empty() || experiment_id.is_empty() {
+            return Err(refused(
+                "model-run token needs a non-empty task and experiment id",
+            ));
+        }
+        if task.chars().any(char::is_control) || experiment_id.chars().any(char::is_control) {
+            return Err(refused(
+                "task/experiment id contains control characters; refusing to bind them",
+            ));
+        }
+        Ok(Self {
+            backend: backend.id().to_string(),
+            model,
+            task: task.to_string(),
+            experiment_id: experiment_id.to_string(),
+            expires_at: SystemTime::now() + ttl,
+        })
+    }
+
+    pub fn is_expired_at(&self, now: SystemTime) -> bool {
+        now >= self.expires_at
+    }
+
+    /// Check a request against this binding. Every mismatch is a typed refusal, not a downgrade.
+    pub fn check(
+        &self,
+        backend: &ModelTurnBackend,
+        model: &str,
+        task: &str,
+        probe_id: &str,
+        now: SystemTime,
+    ) -> Result<(), ReplayError> {
+        if self.backend != backend.id() {
+            return Err(refused(format!(
+                "model-run token is bound to backend {}, but the sandbox is {}",
+                self.backend,
+                backend.id()
+            )));
+        }
+        if self.model != model.trim() {
+            return Err(refused(format!(
+                "model-run token is bound to model {:?}, but the probe requests {:?}",
+                self.model,
+                model.trim()
+            )));
+        }
+        if self.task != task.trim() {
+            return Err(refused(format!(
+                "model-run token is bound to task {:?}, but the probe runs {:?}",
+                self.task,
+                task.trim()
+            )));
+        }
+        let experiment_prefix = format!("{}-", self.experiment_id);
+        if !probe_id.starts_with(&experiment_prefix) {
+            return Err(refused(format!(
+                "model-run token is bound to experiment {:?}, but probe {:?} is outside it",
+                self.experiment_id, probe_id
+            )));
+        }
+        if self.is_expired_at(now) {
+            return Err(refused(
+                "model-run token has expired; mint a fresh authorization for this run",
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// How much of stdout/stderr is retained per stream in the receipt.
 pub const DEFAULT_MODEL_TURN_OUTPUT_CAP: usize = 64 * 1024;
 
@@ -66,6 +179,12 @@ pub const DEFAULT_PROMPT_CAP_BYTES: usize = 256 * 1024;
 
 /// Ref prefix for one model-turn execution.
 pub const EXEC_REF_PREFIX: &str = "model-turn:exec:";
+
+/// Evidence ref that states the DSH session transcript content/paths were not persisted.
+///
+/// The receipt keeps the opaque vendor session id (for correlation) but never the transcript body
+/// or its filesystem path: a transcript can contain prompts, tool output and secrets.
+pub const SESSION_TRANSCRIPT_NOTE_REF: &str = "model-turn:session:transcript-not-persisted";
 /// Ref prefix for the JSON receipt.
 pub const RECEIPT_REF_PREFIX: &str = "model-turn:receipt:";
 /// Ref prefix for the backend that ran.
@@ -171,12 +290,49 @@ pub struct ModelTurnAuthorization {
     /// Actual vendor version captured by the fail-closed preflight (`None` for backends without a
     /// versioned contract, e.g. the test command backend).
     vendor_version: Option<String>,
+    /// What the token is bound to. A real backend requires `Some`; only the test command backend
+    /// may mint an unbound token.
+    binding: Option<ModelTurnBinding>,
 }
 
 impl ModelTurnAuthorization {
     /// The script/CLI flag that expresses explicit model-run authorization.
     pub const FLAG: &'static str = "--authorize-model-run";
 
+    /// Mint a **bound** token for a real model turn. Callers must supply the exact model pin, task
+    /// identity, experiment id and a short lifetime; the sandbox refuses a request that does not
+    /// match every one of them.
+    pub fn authorize_model_run_bound(
+        backend: ModelTurnBackend,
+        environment_class: EnvironmentClass,
+        binding: ModelTurnBinding,
+    ) -> Result<Self, ReplayError> {
+        if environment_class.is_production() || !environment_class.allows_probe() {
+            return Err(ReplayError::ProductionRefused { environment_class });
+        }
+        if binding.backend != backend.id() {
+            return Err(refused(format!(
+                "model-run token is bound to backend {}, but this authorization is for {}",
+                binding.backend,
+                backend.id()
+            )));
+        }
+        if binding.is_expired_at(SystemTime::now()) {
+            return Err(refused(
+                "model-run token expired before it was minted; refusing",
+            ));
+        }
+        let vendor_version = backend.ensure_available()?;
+        Ok(Self {
+            backend,
+            environment_class,
+            vendor_version,
+            binding: Some(binding),
+        })
+    }
+
+    /// Unbound authorization for the deterministic test command backend only. A real backend is
+    /// refused here: an unbound token could be replayed against any model, task or experiment.
     pub fn authorize_model_run(
         backend: ModelTurnBackend,
         environment_class: EnvironmentClass,
@@ -184,12 +340,22 @@ impl ModelTurnAuthorization {
         if environment_class.is_production() || !environment_class.allows_probe() {
             return Err(ReplayError::ProductionRefused { environment_class });
         }
-        let vendor_version = backend.ensure_available()?;
-        Ok(Self {
-            backend,
-            environment_class,
-            vendor_version,
-        })
+        #[cfg(test)]
+        {
+            if matches!(backend, ModelTurnBackend::Command { .. }) {
+                let vendor_version = backend.ensure_available()?;
+                return Ok(Self {
+                    backend,
+                    environment_class,
+                    vendor_version,
+                    binding: None,
+                });
+            }
+        }
+        Err(refused(format!(
+            "backend {} requires a bound model-run token (model/task/experiment/expiry); use ModelTurnAuthorization::authorize_model_run_bound",
+            backend.id()
+        )))
     }
 
     /// Parse explicit authorization from script arguments; the flag must be present verbatim.
@@ -218,6 +384,40 @@ impl ModelTurnAuthorization {
     /// The vendor version the preflight verified, when the backend reports one.
     pub fn vendor_version(&self) -> Option<&str> {
         self.vendor_version.as_deref()
+    }
+
+    /// The token binding, when this is a real (bound) model-run authorization.
+    pub fn binding(&self) -> Option<&ModelTurnBinding> {
+        self.binding.as_ref()
+    }
+
+    /// Enforce the token binding against a request. A real backend with no binding is refused; only
+    /// the test command backend may run unbound.
+    fn check_binding(
+        &self,
+        request: &SandboxRequest<'_>,
+        now: SystemTime,
+    ) -> Result<(), ReplayError> {
+        match &self.binding {
+            Some(binding) => binding.check(
+                &self.backend,
+                request.model,
+                &request.task.story_id,
+                request.probe_id,
+                now,
+            ),
+            None => {
+                #[cfg(test)]
+                {
+                    if matches!(self.backend, ModelTurnBackend::Command { .. }) {
+                        return Ok(());
+                    }
+                }
+                Err(refused(
+                    "unbound model-run token: a real model turn requires model/task/experiment/expiry binding",
+                ))
+            }
+        }
     }
 }
 
@@ -274,6 +474,17 @@ pub struct ModelTurnReceipt {
     /// The vendor version the turn ran under, when the backend reports one (FORGE-02).
     #[serde(default)]
     pub vendor_version: Option<String>,
+    /// The ProbeSpec identity fields the sandbox saw, recorded honestly even when not enforceable.
+    #[serde(default)]
+    pub model_policy: String,
+    #[serde(default)]
+    pub executor: String,
+    #[serde(default)]
+    pub task_id: String,
+    #[serde(default)]
+    pub experiment_id: String,
+    #[serde(default)]
+    pub test_plan: String,
     pub authorized_via: String,
     pub environment_class: String,
     pub model: String,
@@ -286,6 +497,11 @@ pub struct ModelTurnReceipt {
     pub stderr_excerpt: String,
     pub stdout_truncated: bool,
     pub stderr_truncated: bool,
+    /// True when secret-shaped text was redacted before this receipt was written.
+    #[serde(default)]
+    pub stdout_redacted: bool,
+    #[serde(default)]
+    pub stderr_redacted: bool,
     pub stdout_bytes: u64,
     pub stderr_bytes: u64,
     /// `None` = the harness reported no usage (never zero).
@@ -295,6 +511,9 @@ pub struct ModelTurnReceipt {
     pub cost_micros: Option<u64>,
     pub usage_source: String,
     pub session_id: Option<String>,
+    /// Always explains the session evidence policy; the transcript is never persisted.
+    #[serde(default)]
+    pub session_note: String,
     pub prompt_sha256: String,
     pub prompt_bytes: u64,
     pub workspace: String,
@@ -336,6 +555,22 @@ impl ModelTurnSandbox {
     pub fn with_prompt_cap(mut self, prompt_cap: usize) -> Self {
         self.prompt_cap = prompt_cap;
         self
+    }
+
+    /// Refuse ProbeSpec controls this sandbox does not actually apply. Recording an unenforced pin
+    /// as if it were applied would make the probe evidence claim an identity the execution never had.
+    fn enforce_identity(&self, request: &SandboxRequest<'_>) -> Result<(), ReplayError> {
+        match &self.authorization.backend {
+            ModelTurnBackend::Dsh | ModelTurnBackend::OpenCode => validate_identity_fields(
+                self.authorization.backend.id(),
+                request.executor,
+                request.tools,
+                request.model_policy,
+                request.model,
+            ),
+            #[cfg(test)]
+            ModelTurnBackend::Command { .. } => Ok(()),
+        }
     }
 
     /// Where workspaces and receipts are written.
@@ -389,6 +624,11 @@ impl ReplaySandbox for ModelTurnSandbox {
                 request.environment_class.id()
             )));
         }
+        // The token is bound to backend+model+task+experiment+expiry, and ProbeSpec fields the
+        // model-turn sandbox cannot enforce are refused before a workspace or a spawn.
+        self.authorization
+            .check_binding(request, SystemTime::now())?;
+        self.enforce_identity(request)?;
 
         let prompt = materialize_prompt(request.harness, request.task);
         if prompt.len() > self.prompt_cap {
@@ -402,7 +642,7 @@ impl ReplaySandbox for ModelTurnSandbox {
         let prompt_sha256 = sha256_hex(prompt.as_bytes());
 
         let workspace = self.workspace_for(request.probe_id);
-        std::fs::create_dir_all(&workspace).map_err(|error| ReplayError::SandboxFailed {
+        create_secure_dir(&workspace).map_err(|error| ReplayError::SandboxFailed {
             probe_id: request.probe_id.to_string(),
             message: format!(
                 "cannot create model-turn workspace {}: {error}",
@@ -459,8 +699,8 @@ impl ReplaySandbox for ModelTurnSandbox {
                 message: "model-turn stderr pipe missing".into(),
             })?;
         let output_cap = self.output_cap;
-        let stdout_thread = thread::spawn(move || read_stream_bounded(stdout, output_cap));
-        let stderr_thread = thread::spawn(move || read_stream_bounded(stderr, output_cap));
+        let stdout_rx = spawn_stream_capture(stdout, output_cap);
+        let stderr_rx = spawn_stream_capture(stderr, output_cap);
 
         let mut timed_out = false;
         let exit_status = loop {
@@ -472,10 +712,23 @@ impl ReplaySandbox for ModelTurnSandbox {
                         timed_out = true;
                         break None;
                     }
-                    thread::sleep(Duration::from_millis(10));
+                    std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(error) => {
                     terminate_process_group(&mut child);
+                    let deadline = Instant::now() + CAPTURE_JOIN_GRACE;
+                    let _ = await_stream_capture(
+                        stdout_rx,
+                        deadline,
+                        request.probe_id,
+                        "model-turn stdout",
+                    );
+                    let _ = await_stream_capture(
+                        stderr_rx,
+                        deadline,
+                        request.probe_id,
+                        "model-turn stderr",
+                    );
                     return Err(ReplayError::SandboxFailed {
                         probe_id: request.probe_id.to_string(),
                         message: format!("cannot observe the model-turn process: {error}"),
@@ -484,8 +737,15 @@ impl ReplaySandbox for ModelTurnSandbox {
             }
         };
         let duration = started.elapsed();
-        let stdout_capture = join_capture(stdout_thread, request.probe_id, "model-turn stdout")?;
-        let stderr_capture = join_capture(stderr_thread, request.probe_id, "model-turn stderr")?;
+
+        // Kill the group even on a NORMAL exit: a vendor helper that inherited stdout can hold the
+        // pipes open and hang the join forever. The negative pid addresses remaining group members.
+        terminate_process_group(&mut child);
+        let deadline = Instant::now() + CAPTURE_JOIN_GRACE;
+        let stdout_capture =
+            await_stream_capture(stdout_rx, deadline, request.probe_id, "model-turn stdout")?;
+        let stderr_capture =
+            await_stream_capture(stderr_rx, deadline, request.probe_id, "model-turn stderr")?;
 
         // The model patch overlay is only needed while the child runs.
         drop(invocation.patch);
@@ -516,6 +776,16 @@ impl ReplaySandbox for ModelTurnSandbox {
             manifest_hash: request.harness.manifest_hash.clone(),
             backend: self.authorization.backend.id().to_string(),
             vendor_version: self.authorization.vendor_version.clone(),
+            model_policy: request.model_policy.to_string(),
+            executor: request.executor.to_string(),
+            task_id: request.task.story_id.clone(),
+            experiment_id: self
+                .authorization
+                .binding
+                .as_ref()
+                .map(|binding| binding.experiment_id.clone())
+                .unwrap_or_default(),
+            test_plan: request.test_plan.to_string(),
             authorized_via: ModelTurnAuthorization::FLAG.to_string(),
             environment_class: request.environment_class.id().to_string(),
             model: request.model.to_string(),
@@ -524,10 +794,12 @@ impl ReplaySandbox for ModelTurnSandbox {
             duration_ms: u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
             exit_code: exit_status.and_then(|status| status.code()),
             timed_out,
-            stdout_excerpt: stdout_capture.text.clone(),
-            stderr_excerpt: stderr_capture.text.clone(),
+            stdout_excerpt: redact_secrets(&stdout_capture.text),
+            stderr_excerpt: redact_secrets(&stderr_capture.text),
             stdout_truncated: stdout_capture.truncated,
             stderr_truncated: stderr_capture.truncated,
+            stdout_redacted: redact_secrets(&stdout_capture.text) != stdout_capture.text,
+            stderr_redacted: redact_secrets(&stderr_capture.text) != stderr_capture.text,
             stdout_bytes: stdout_capture.total_bytes,
             stderr_bytes: stderr_capture.total_bytes,
             input_tokens: usage.as_ref().map(|usage| usage.input_tokens),
@@ -538,6 +810,7 @@ impl ReplaySandbox for ModelTurnSandbox {
                 |usage| usage.source.to_string(),
             ),
             session_id: session,
+            session_note: SESSION_TRANSCRIPT_NOTE_REF.to_string(),
             prompt_sha256,
             prompt_bytes: u64::try_from(prompt.len()).unwrap_or(u64::MAX),
             workspace: workspace.display().to_string(),
@@ -585,6 +858,8 @@ impl ReplaySandbox for ModelTurnSandbox {
         if let Some(session) = &receipt.session_id {
             evidence_refs.push(format!("{SESSION_REF_PREFIX}{session}"));
         }
+        // The transcript itself is never persisted, so the note travels with the opaque id.
+        evidence_refs.push(SESSION_TRANSCRIPT_NOTE_REF.to_string());
         if let Some(version_ref) = vendor_version_ref(receipt.vendor_version.as_deref()) {
             evidence_refs.push(version_ref);
         }
@@ -619,13 +894,16 @@ impl ModelTurnSandbox {
                 let cli = dsh::default_cli()
                     .map_err(|error| refused(format!("DSH is unavailable: {error}")))?;
                 // The DSH headless path has no `--model` flag; the only pin seam is a patch overlay.
-                // A pin we cannot express is left to the profile and recorded as not applied.
-                let model_pin_applied = dsh::args::validate_model(request.model).is_ok();
-                let patch = if model_pin_applied {
-                    Some(SandboxPatchFile::create(workspace, request.model)?)
-                } else {
-                    None
-                };
+                // The ProbeSpec model is required and must be applicable — a pin the sandbox cannot
+                // apply is refused rather than silently falling back to the profile default.
+                let model = dsh::args::validate_model(request.model).map_err(|error| {
+                    refused(format!(
+                        "DSH model pin refused ({}): {error}",
+                        request.model
+                    ))
+                })?;
+                let patch = Some(SandboxPatchFile::create(workspace, &model)?);
+                let model_pin_applied = true;
                 let args = dsh::args::headless_args(
                     dsh::DSH_PROFILE,
                     patch.as_ref().map(SandboxPatchFile::path),
@@ -650,13 +928,14 @@ impl ModelTurnSandbox {
                 let bin = crate::engine::opencode::default_cli_bin();
                 // No `--auto`: the turn runs without auto-approval in a throwaway workspace. The
                 // vendor's own agent/permission config remains the read-only boundary here.
+                let model = dsh::args::validate_model(request.model).map_err(|error| {
+                    refused(format!(
+                        "OpenCode model pin refused ({}): {error}",
+                        request.model
+                    ))
+                })?;
                 let args = opencode_client::build_opencode_run_args(
-                    request.model,
-                    prompt,
-                    false,
-                    None,
-                    false,
-                    None,
+                    &model, prompt, false, None, false, None,
                 );
                 Ok(TurnInvocation {
                     program: bin,
@@ -721,7 +1000,8 @@ struct SandboxPatchFile {
 impl SandboxPatchFile {
     fn create(workspace: &Path, model: &str) -> Result<Self, ReplayError> {
         let path = workspace.join("harness-model-patch.yml");
-        std::fs::write(&path, dsh_patch_content(model)).map_err(|error| {
+        let content = dsh_patch_content(model)?;
+        std::fs::write(&path, content).map_err(|error| {
             refused(format!(
                 "cannot write DSH model overlay {}: {error}",
                 path.display()
@@ -743,8 +1023,41 @@ impl Drop for SandboxPatchFile {
 
 /// The exact overlay content: the model pin, using the vendor's `provider/model` ids. Pure, so the
 /// contract is tested without spawning a model turn.
-fn dsh_patch_content(model: &str) -> String {
+fn dsh_patch_content(model: &str) -> Result<String, ReplayError> {
     dsh::args::model_patch(model)
+        .map_err(|error| refused(format!("DSH model overlay refused: {error}")))
+}
+
+/// The ProbeSpec controls a real model turn cannot enforce. `tools` would claim a tool surface the
+/// sandbox did not grant, `executor` must name the backend that actually runs, and a non-default
+/// `model_policy` would claim a tier selection that is not applied; the model id must be the exact
+/// validated pin. `test_plan` is a Forge-validation plan, recorded but not executed here.
+fn validate_identity_fields(
+    expected_executor: &str,
+    executor: &str,
+    tools: &[String],
+    model_policy: &str,
+    model: &str,
+) -> Result<(), ReplayError> {
+    if executor != expected_executor {
+        return Err(refused(format!(
+            "model-turn sandbox executes as {expected_executor:?}, but the probe spec pins executor {executor:?}"
+        )));
+    }
+    if !tools.is_empty() {
+        return Err(refused(format!(
+            "model-turn sandbox does not enforce tools, but the probe spec pins {} tool(s); refusing an unenforceable pin",
+            tools.len()
+        )));
+    }
+    if !model_policy.is_empty() && model_policy != "default" {
+        return Err(refused(format!(
+            "model-turn sandbox does not resolve model_policy {model_policy:?}; use \"default\" or refuse the probe"
+        )));
+    }
+    dsh::args::validate_model(model)
+        .map_err(|error| refused(format!("model pin is not applicable: {error}")))?;
+    Ok(())
 }
 
 struct TurnInvocation {
@@ -821,48 +1134,6 @@ fn sha256_hex(bytes: &[u8]) -> String {
         let _ = write!(out, "{byte:02x}");
     }
     out
-}
-
-fn join_capture(
-    handle: thread::JoinHandle<io::Result<super::sandbox_command::StreamCapture>>,
-    probe_id: &str,
-    stream: &str,
-) -> Result<super::sandbox_command::StreamCapture, ReplayError> {
-    match handle.join() {
-        Ok(Ok(capture)) => Ok(capture),
-        Ok(Err(error)) => Err(ReplayError::SandboxFailed {
-            probe_id: probe_id.to_string(),
-            message: format!("cannot read {stream}: {error}"),
-        }),
-        Err(_) => Err(ReplayError::SandboxFailed {
-            probe_id: probe_id.to_string(),
-            message: format!("{stream} reader thread panicked"),
-        }),
-    }
-}
-
-/// Kill the child's whole process group, then reap it. (Same contract as the command sandbox.)
-#[cfg(unix)]
-fn terminate_process_group(child: &mut Child) {
-    use std::os::raw::c_int;
-    extern "C" {
-        fn kill(pid: c_int, sig: c_int) -> c_int;
-    }
-    const SIGKILL: c_int = 9;
-    let pid = child.id() as c_int;
-    if pid > 0 {
-        unsafe {
-            kill(-pid, SIGKILL);
-        }
-    }
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-#[cfg(not(unix))]
-fn terminate_process_group(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 /// Where this child would write DSH sessions: the explicit `DSH_HOME`, else `$HOME/.dsh` where
@@ -957,7 +1228,7 @@ fn discover_session_across(roots: &[PathBuf]) -> Option<(String, PathBuf)> {
 }
 
 fn write_receipt(run_root: &Path, receipt: &ModelTurnReceipt) -> Result<PathBuf, ReplayError> {
-    std::fs::create_dir_all(run_root).map_err(|error| ReplayError::SandboxFailed {
+    create_secure_dir(run_root).map_err(|error| ReplayError::SandboxFailed {
         probe_id: receipt.probe_id.clone(),
         message: format!(
             "cannot create model-turn run root {}: {error}",
@@ -972,13 +1243,14 @@ fn write_receipt(run_root: &Path, receipt: &ModelTurnReceipt) -> Result<PathBuf,
         probe_id: receipt.probe_id.clone(),
         message: format!("cannot encode model-turn receipt: {error}"),
     })?;
-    std::fs::write(&path, body).map_err(|error| ReplayError::SandboxFailed {
+    write_secure_file(&path, &body).map_err(|error| ReplayError::SandboxFailed {
         probe_id: receipt.probe_id.clone(),
         message: format!(
             "cannot write model-turn receipt {}: {error}",
             path.display()
         ),
     })?;
+    let _ = cleanup_receipts(run_root, RECEIPT_RETENTION, RECEIPT_MAX_FILES);
     Ok(path)
 }
 
@@ -1158,20 +1430,16 @@ mod tests {
         );
         assert_eq!(reading.behavior.tokens_out, 0);
         assert_eq!(reading.behavior.cost_micros, None, "unpriced is not zero");
-        assert!(
-            reading
-                .behavior
-                .evidence_refs
-                .iter()
-                .any(|reference| reference == USAGE_UNMEASURED_REF)
-        );
-        assert!(
-            reading
-                .behavior
-                .evidence_refs
-                .iter()
-                .any(|reference| reference.starts_with(BACKEND_REF_PREFIX))
-        );
+        assert!(reading
+            .behavior
+            .evidence_refs
+            .iter()
+            .any(|reference| reference == USAGE_UNMEASURED_REF));
+        assert!(reading
+            .behavior
+            .evidence_refs
+            .iter()
+            .any(|reference| reference.starts_with(BACKEND_REF_PREFIX)));
 
         let receipt = receipt_for(&reading);
         assert_eq!(receipt.backend, "command");
@@ -1185,11 +1453,9 @@ mod tests {
         assert_eq!(receipt.prompt_sha256.len(), 64);
         assert!(receipt.prompt_bytes > 0);
         // The materialized prompt reached the fake harness as argv, content only.
-        assert!(
-            receipt
-                .stdout_excerpt
-                .contains("HARNESS EVOLUTION REPLAY PROBE")
-        );
+        assert!(receipt
+            .stdout_excerpt
+            .contains("HARNESS EVOLUTION REPLAY PROBE"));
         assert!(receipt.stdout_excerpt.contains("GOAL:"));
         assert!(!receipt.stdout_excerpt.contains("authority"));
     }
@@ -1207,13 +1473,11 @@ mod tests {
         assert_eq!(reading.behavior.tokens_in, 11);
         assert_eq!(reading.behavior.tokens_out, 7);
         assert_eq!(reading.behavior.cost_micros, Some(123));
-        assert!(
-            reading
-                .behavior
-                .evidence_refs
-                .iter()
-                .any(|reference| reference == USAGE_MEASURED_REF)
-        );
+        assert!(reading
+            .behavior
+            .evidence_refs
+            .iter()
+            .any(|reference| reference == USAGE_MEASURED_REF));
         let receipt = receipt_for(&reading);
         assert_eq!(receipt.usage_source, "command_marker");
         assert_eq!(receipt.input_tokens, Some(11));
@@ -1346,11 +1610,9 @@ mod tests {
         let reading = run(&sandbox, &fixture, "probe-cap").expect("reading");
         let receipt = receipt_for(&reading);
         assert!(receipt.stdout_truncated);
-        assert!(
-            receipt
-                .stdout_excerpt
-                .contains("[truncated at 16 bytes of ")
-        );
+        assert!(receipt
+            .stdout_excerpt
+            .contains("[truncated at 16 bytes of "));
         assert!(receipt.stdout_bytes > 16);
     }
 
@@ -1370,7 +1632,7 @@ mod tests {
 
     #[test]
     fn the_dsh_overlay_pins_the_vendor_provider_and_never_reinstalls_the_adapter() {
-        let content = dsh_patch_content("deepseek-official/deepseek-v4-flash");
+        let content = dsh_patch_content("deepseek-official/deepseek-v4-flash").expect("overlay");
         assert!(content.contains("provider: deepseek-official"), "{content}");
         assert!(content.contains("model: deepseek-v4-flash"), "{content}");
         assert!(
@@ -1446,4 +1708,307 @@ mod tests {
         );
         assert_eq!(vendor_version_ref(None), None);
     }
+    #[test]
+    fn model_run_tokens_are_bound_to_backend_model_task_experiment_and_expiry() {
+        let backend = command_backend("/bin/echo", vec!["fake-turn"]);
+        let binding = ModelTurnBinding::new(
+            &backend,
+            "deepseek/deepseek-chat",
+            "story-1",
+            "exp-1",
+            Duration::from_secs(60),
+        )
+        .expect("binding");
+        let now = SystemTime::now();
+        binding
+            .check(
+                &backend,
+                "deepseek/deepseek-chat",
+                "story-1",
+                "exp-1-reference",
+                now,
+            )
+            .expect("matching request");
+
+        assert!(
+            binding
+                .check(
+                    &backend,
+                    "deepseek-chat",
+                    "story-1",
+                    "exp-1-reference",
+                    now + Duration::from_secs(61)
+                )
+                .is_err(),
+            "an expired token must be refused"
+        );
+        assert!(
+            binding.is_expired_at(now + Duration::from_secs(61)),
+            "expiry is a wall-clock comparison"
+        );
+        for probe in ["exp-2-reference", "exp-10-candidate", "probe-1"] {
+            assert!(
+                binding
+                    .check(&backend, "deepseek-chat", "story-1", probe, now)
+                    .is_err(),
+                "{probe} is outside the bound experiment"
+            );
+        }
+        assert!(
+            binding
+                .check(&backend, "other-model", "story-1", "exp-1-reference", now)
+                .is_err(),
+            "a different model must be refused"
+        );
+        assert!(
+            binding
+                .check(
+                    &backend,
+                    "deepseek/deepseek-chat",
+                    "story-2",
+                    "exp-1-reference",
+                    now
+                )
+                .is_err(),
+            "a different task must be refused"
+        );
+        assert!(
+            binding
+                .check(
+                    &ModelTurnBackend::OpenCode,
+                    "deepseek-chat",
+                    "story-1",
+                    "exp-1-reference",
+                    now
+                )
+                .is_err(),
+            "a different backend must be refused"
+        );
+    }
+
+    #[test]
+    fn model_run_binding_refuses_bad_ids_and_lifetimes_and_real_backends_need_a_binding() {
+        let backend = command_backend("/bin/echo", vec!["fake-turn"]);
+        assert!(
+            ModelTurnBinding::new(
+                &backend,
+                "provider/model\n- id: other",
+                "story",
+                "exp",
+                Duration::from_secs(60)
+            )
+            .is_err(),
+            "an injectable model id cannot be bound"
+        );
+        assert!(
+            ModelTurnBinding::new(
+                &backend,
+                "deepseek/deepseek-chat",
+                "story",
+                "exp",
+                Duration::ZERO
+            )
+            .is_err(),
+            "a zero lifetime is refused"
+        );
+        assert!(
+            ModelTurnBinding::new(
+                &backend,
+                "deepseek/deepseek-chat",
+                "story",
+                "exp",
+                MAX_MODEL_RUN_TTL + Duration::from_secs(1)
+            )
+            .is_err(),
+            "an over-long lifetime is refused"
+        );
+
+        let error = ModelTurnAuthorization::authorize_model_run(
+            ModelTurnBackend::Dsh,
+            EnvironmentClass::Development,
+        )
+        .expect_err("a real backend cannot mint an unbound token");
+        assert!(error.to_string().contains("bound"), "{error}");
+    }
+
+    #[test]
+    fn identity_fields_the_model_turn_cannot_enforce_are_refused() {
+        validate_identity_fields("dsh", "dsh", &[], "default", "deepseek/deepseek-chat")
+            .expect("the enforceable identity");
+        assert!(
+            validate_identity_fields("dsh", "opencode", &[], "default", "deepseek/deepseek-chat")
+                .is_err(),
+            "executor must name the actual backend"
+        );
+        assert!(
+            validate_identity_fields(
+                "dsh",
+                "dsh",
+                &["read".to_string()],
+                "default",
+                "deepseek-chat"
+            )
+            .is_err(),
+            "tools cannot be enforced by the model-turn sandbox"
+        );
+        assert!(
+            validate_identity_fields("dsh", "dsh", &[], "judgment", "deepseek/deepseek-chat")
+                .is_err(),
+            "a non-default model policy is not applied by this sandbox"
+        );
+        assert!(
+            validate_identity_fields("dsh", "dsh", &[], "default", "").is_err(),
+            "an empty model pin is refused"
+        );
+        assert!(
+            validate_identity_fields("dsh", "dsh", &[], "default", "provider/model\n- inject")
+                .is_err(),
+            "an injectable model id is refused"
+        );
+    }
+    #[test]
+    fn a_bound_token_refuses_a_request_outside_its_binding_and_records_identity_when_it_matches() {
+        let fixture = Fixture::new();
+        let backend = command_backend("/bin/echo", vec!["fake-turn"]);
+        let binding = ModelTurnBinding::new(
+            &backend,
+            "deepseek/deepseek-chat",
+            "story-1",
+            "exp-1",
+            Duration::from_secs(60),
+        )
+        .expect("binding");
+        let authorization = ModelTurnAuthorization::authorize_model_run_bound(
+            backend,
+            EnvironmentClass::Development,
+            binding,
+        )
+        .expect("bound authorization");
+        let sandbox = ModelTurnSandbox::new(authorization).with_run_root(fixture.run_root.path());
+
+        // The fixture request pins model "deepseek-chat"; the token is bound to the exact
+        // provider/model id, so the mismatch is refused before any spawn.
+        let mismatched = request(
+            "exp-1-candidate",
+            EnvironmentClass::Development,
+            &fixture.task,
+            &fixture.harness,
+        );
+        let error = sandbox
+            .run(&mismatched)
+            .expect_err("binding mismatch refused");
+        assert!(error.to_string().contains("bound to model"), "{error}");
+
+        // A matching request runs and the receipt records the bound identity.
+        let mut matching = request(
+            "exp-1-reference",
+            EnvironmentClass::Development,
+            &fixture.task,
+            &fixture.harness,
+        );
+        matching.model = "deepseek/deepseek-chat";
+        let reading = sandbox.run(&matching).expect("matching bound request");
+        let receipt = receipt_for(&reading);
+        assert_eq!(receipt.experiment_id, "exp-1");
+        assert_eq!(receipt.task_id, "story-1");
+        assert_eq!(receipt.model, "deepseek/deepseek-chat");
+    }
+    // ---------------------------------------------------------------------------------------
+    // P1-C: receipt secret hygiene, retention and capture bounds
+    // ---------------------------------------------------------------------------------------
+
+    #[test]
+    fn receipts_are_redacted_and_never_persist_the_prompt_or_transcript() {
+        let fixture = Fixture::new();
+        let script = "printf 'DATABASE_URL=postgres://u:topsecret@h/db token=abcdef123\\n'";
+        let args = vec!["-c", script];
+        let sandbox = fixture.sandbox(command_backend("/bin/sh", args));
+        let reading = run(&sandbox, &fixture, "probe-secret").expect("reading");
+        let receipt = receipt_for(&reading);
+
+        assert!(receipt.stdout_redacted, "receipt must record redaction");
+        assert!(!receipt.stdout_excerpt.contains("topsecret"));
+        assert!(!receipt.stdout_excerpt.contains("abcdef123"));
+        assert!(receipt.stdout_excerpt.contains("[REDACTED]"));
+        assert_eq!(receipt.session_note, SESSION_TRANSCRIPT_NOTE_REF);
+        assert!(reading
+            .behavior
+            .evidence_refs
+            .iter()
+            .any(|reference| reference == SESSION_TRANSCRIPT_NOTE_REF));
+
+        // The receipt is a durable artifact: it must not carry the prompt (the candidate harness
+        // content or the historical task) or a session transcript path.
+        let receipt_path = reading
+            .behavior
+            .evidence_refs
+            .iter()
+            .find_map(|reference| reference.strip_prefix(RECEIPT_REF_PREFIX))
+            .expect("receipt ref");
+        let durable = std::fs::read_to_string(receipt_path).expect("receipt file");
+        assert!(!durable.contains("HARNESS EVOLUTION REPLAY PROBE"));
+        assert!(!durable.contains("GOAL:"));
+        assert!(!durable.contains("base prompt"));
+        assert!(durable.contains(SESSION_TRANSCRIPT_NOTE_REF));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn receipt_and_run_root_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let fixture = Fixture::new();
+        let sandbox = fixture.sandbox(command_backend("/bin/echo", vec!["private"]));
+        let reading = run(&sandbox, &fixture, "probe-perms").expect("reading");
+        let receipt_path = reading
+            .behavior
+            .evidence_refs
+            .iter()
+            .find_map(|reference| reference.strip_prefix(RECEIPT_REF_PREFIX))
+            .expect("receipt ref")
+            .to_string();
+        let file_mode = std::fs::metadata(&receipt_path)
+            .expect("receipt metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(file_mode, 0o600, "model-turn receipt must be 0600");
+        let dir_mode = std::fs::metadata(fixture.run_root.path())
+            .expect("run root metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(dir_mode, 0o700, "model-turn run root must be 0700");
+    }
+
+    #[test]
+    fn model_turn_receipt_retention_is_bounded() {
+        let root = tempfile::tempdir().expect("temp dir");
+        for name in ["a", "b", "c"] {
+            std::fs::write(root.path().join(format!("{name}.json")), b"{}").expect("write");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let removed = cleanup_receipts(root.path(), Duration::from_secs(3600), 2).expect("cleanup");
+        assert_eq!(removed, 1);
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn a_normal_exit_with_a_lingering_descendant_does_not_hang_the_model_turn() {
+        // The fake vendor exits immediately but leaves a 30s helper holding stdout. The group kill
+        // on normal exit (plus the join deadline) must keep the probe bounded.
+        let fixture = Fixture::new();
+        let sandbox = fixture
+            .sandbox(command_backend("/bin/sh", vec!["-c", "(sleep 30) & exit 0"]))
+            .with_timeout(Duration::from_secs(5));
+        let started = Instant::now();
+        let reading = run(&sandbox, &fixture, "probe-descendant").expect("reading");
+        assert!(
+            started.elapsed() < CAPTURE_JOIN_GRACE + Duration::from_secs(2),
+            "normal exit with a lingering descendant must not hang the model turn"
+        );
+        let receipt = receipt_for(&reading);
+        assert_eq!(receipt.exit_code, Some(0));
+        assert!(!receipt.timed_out);
+    }
+
 }

@@ -39,11 +39,8 @@ pub trait RevisionStore {
 
     /// Write the lifecycle status of an already-stored revision. Only the catalog calls this,
     /// and only after [`RevisionStatus::can_transition_to`] has approved the move.
-    fn set_status(
-        &mut self,
-        revision_id: &str,
-        status: RevisionStatus,
-    ) -> Result<(), CatalogError>;
+    fn set_status(&mut self, revision_id: &str, status: RevisionStatus)
+        -> Result<(), CatalogError>;
 
     /// Persist one pointer move **atomically**: the activation rows and the lifecycle status
     /// writes the plan carries must commit together or not at all.
@@ -58,20 +55,23 @@ pub trait RevisionStore {
     /// The revision recorded as active in the durable store, if the store keeps one. The
     /// in-memory store starts empty; [`HarnessCatalog::restore_active_pointer`] uses this to
     /// rehydrate a catalog from a durable store.
-    fn current_activation(
-        &self,
-        _domain: HarnessDomain,
-    ) -> Result<Option<String>, CatalogError> {
+    fn current_activation(&self, _domain: HarnessDomain) -> Result<Option<String>, CatalogError> {
         Ok(None)
     }
 
     /// The highest activation sequence the store already holds for a domain. A rehydrated catalog
     /// resumes from here so the next activation keeps advancing; the in-memory store starts at 0.
-    fn last_activation_sequence(
-        &self,
-        _domain: HarnessDomain,
-    ) -> Result<u64, CatalogError> {
+    fn last_activation_sequence(&self, _domain: HarnessDomain) -> Result<u64, CatalogError> {
         Ok(0)
+    }
+
+    /// The domain's activation rows, OLDEST FIRST, for rebuilding the pointer stack after a restart.
+    ///
+    /// [`HarnessCatalog::restore_active_pointer`] replays this history to recover which revisions
+    /// were displaced, so `rollback` restores the exact prior revision even in a fresh process. A
+    /// store with no durable history returns the empty default.
+    fn activation_history(&self, _domain: HarnessDomain) -> Result<Vec<Activation>, CatalogError> {
+        Ok(Vec::new())
     }
 }
 
@@ -123,11 +123,12 @@ impl RevisionStore for InMemoryRevisionStore {
         revision_id: &str,
         status: RevisionStatus,
     ) -> Result<(), CatalogError> {
-        let revision = self.revisions.get_mut(revision_id).ok_or_else(|| {
-            CatalogError::UnknownRevision {
-                revision_id: revision_id.to_string(),
-            }
-        })?;
+        let revision =
+            self.revisions
+                .get_mut(revision_id)
+                .ok_or_else(|| CatalogError::UnknownRevision {
+                    revision_id: revision_id.to_string(),
+                })?;
         revision.status = status;
         Ok(())
     }
@@ -136,11 +137,12 @@ impl RevisionStore for InMemoryRevisionStore {
     /// transaction: a plan that names an unknown revision or an illegal transition writes nothing.
     fn apply_activation(&mut self, plan: &ActivationPlan) -> Result<(), CatalogError> {
         for (revision_id, next) in &plan.status_writes {
-            let revision = self.revisions.get(revision_id).ok_or_else(|| {
-                CatalogError::UnknownRevision {
-                    revision_id: revision_id.clone(),
-                }
-            })?;
+            let revision =
+                self.revisions
+                    .get(revision_id)
+                    .ok_or_else(|| CatalogError::UnknownRevision {
+                        revision_id: revision_id.clone(),
+                    })?;
             if revision.status != *next && !revision.status.can_transition_to(*next) {
                 return Err(CatalogError::IllegalStatusTransition {
                     revision_id: revision_id.clone(),
@@ -157,10 +159,7 @@ impl RevisionStore for InMemoryRevisionStore {
         Ok(())
     }
 
-    fn current_activation(
-        &self,
-        _domain: HarnessDomain,
-    ) -> Result<Option<String>, CatalogError> {
+    fn current_activation(&self, _domain: HarnessDomain) -> Result<Option<String>, CatalogError> {
         Ok(None)
     }
 }
@@ -274,10 +273,7 @@ impl fmt::Display for CatalogError {
                 revision_id,
                 from,
                 to,
-            } => write!(
-                f,
-                "revision {revision_id} may not move from {from} to {to}"
-            ),
+            } => write!(f, "revision {revision_id} may not move from {from} to {to}"),
             Self::Store(message) => write!(f, "revision store refused the write: {message}"),
         }
     }
@@ -374,7 +370,9 @@ pub struct HarnessCatalog<S = InMemoryRevisionStore> {
     store: S,
     active: BTreeMap<HarnessDomain, DomainPointer>,
     activations: Vec<Activation>,
-    sequence: u64,
+    /// One monotonic sequence per domain: activating another domain does not advance (or rewind)
+    /// this domain's sequence, and a restart resumes each domain independently.
+    sequences: BTreeMap<HarnessDomain, u64>,
 }
 
 impl Default for HarnessCatalog<InMemoryRevisionStore> {
@@ -395,7 +393,7 @@ impl<S: RevisionStore> HarnessCatalog<S> {
             store,
             active: BTreeMap::new(),
             activations: Vec::new(),
-            sequence: 0,
+            sequences: BTreeMap::new(),
         }
     }
 
@@ -418,15 +416,41 @@ impl<S: RevisionStore> HarnessCatalog<S> {
         &mut self,
         domain: HarnessDomain,
     ) -> Result<Option<String>, CatalogError> {
-        let Some(revision_id) = self.store.current_activation(domain)? else {
+        let current = self.store.current_activation(domain)?;
+        let history = self.store.activation_history(domain)?;
+        let mut sequence = self.store.last_activation_sequence(domain).unwrap_or(0);
+        // Replay the audit rows to rebuild the displaced stack: an adoption pushes the previous
+        // pointer onto the stack, a rollback pops it. Without this replay a restarted process
+        // would know the active revision but not the one a rollback must restore.
+        let mut prior: Vec<String> = Vec::new();
+        let mut active: Option<String> = None;
+        for activation in &history {
+            sequence = sequence.max(activation.sequence);
+            match activation.kind {
+                ActivationKind::Adopt => {
+                    if let Some(previous) = active.take() {
+                        if !prior.contains(&previous) {
+                            prior.push(previous);
+                        }
+                    }
+                    active = Some(activation.to_revision.clone());
+                }
+                ActivationKind::Rollback => {
+                    active = prior.pop().or_else(|| Some(activation.to_revision.clone()));
+                }
+            }
+        }
+        let Some(revision_id) = current else {
+            self.active.remove(&domain);
+            self.sequences.insert(domain, sequence);
             return Ok(None);
         };
-        let revision = self
-            .store
-            .get(&revision_id)
-            .ok_or_else(|| CatalogError::UnknownRevision {
-                revision_id: revision_id.clone(),
-            })?;
+        let revision =
+            self.store
+                .get(&revision_id)
+                .ok_or_else(|| CatalogError::UnknownRevision {
+                    revision_id: revision_id.clone(),
+                })?;
         if revision.domain != domain {
             return Err(CatalogError::DomainMismatch {
                 revision_id,
@@ -434,12 +458,21 @@ impl<S: RevisionStore> HarnessCatalog<S> {
                 actual: revision.domain,
             });
         }
-        self.sequence = self.store.last_activation_sequence(domain).unwrap_or(0);
+        // Trust the durable current pointer but require the replayed history to agree with it.
+        if !history.is_empty() && active.as_deref() != Some(revision_id.as_str()) {
+            return Err(CatalogError::Store(format!(
+                "activation history for {domain:?} replays to {active:?}, but the durable current pointer is {revision_id}; refusing to restore a divergent catalog"
+            )));
+        }
+        if active.is_none() {
+            prior.clear();
+        }
+        self.sequences.insert(domain, sequence);
         self.active.insert(
             domain,
             DomainPointer {
                 revision_id: revision_id.clone(),
-                prior: Vec::new(),
+                prior,
             },
         );
         Ok(Some(revision_id))
@@ -501,13 +534,13 @@ impl<S: RevisionStore> HarnessCatalog<S> {
         revision_id: &str,
         next: RevisionStatus,
     ) -> Result<(), CatalogError> {
-        let revision = self
-            .store
-            .get(revision_id)
-            .cloned()
-            .ok_or_else(|| CatalogError::UnknownRevision {
-                revision_id: revision_id.to_string(),
-            })?;
+        let revision =
+            self.store
+                .get(revision_id)
+                .cloned()
+                .ok_or_else(|| CatalogError::UnknownRevision {
+                    revision_id: revision_id.to_string(),
+                })?;
         if !revision.status.can_transition_to(next) {
             return Err(CatalogError::IllegalStatusTransition {
                 revision_id: revision_id.to_string(),
@@ -565,20 +598,20 @@ impl<S: RevisionStore> HarnessCatalog<S> {
     /// before the pointer, the audit log or any status is touched. A rejected revision can never
     /// be activated; `Adoptable`, `Adopted` (bootstrap/import) and `Superseded` (re-adoption after
     /// a rollback) are the only admissible states.
-    pub fn activate(
+    pub(crate) fn activate(
         &mut self,
         domain: HarnessDomain,
         revision_id: &str,
         decision_id: impl Into<String>,
         activated_by: impl Into<String>,
     ) -> Result<Activation, CatalogError> {
-        let revision = self
-            .store
-            .get(revision_id)
-            .cloned()
-            .ok_or_else(|| CatalogError::UnknownRevision {
-                revision_id: revision_id.to_string(),
-            })?;
+        let revision =
+            self.store
+                .get(revision_id)
+                .cloned()
+                .ok_or_else(|| CatalogError::UnknownRevision {
+                    revision_id: revision_id.to_string(),
+                })?;
         if revision.domain != domain {
             return Err(CatalogError::DomainMismatch {
                 revision_id: revision_id.to_string(),
@@ -650,10 +683,8 @@ impl<S: RevisionStore> HarnessCatalog<S> {
         // D4: persist the pointer move and its lifecycle writes FIRST, as one transaction. If the
         // store refuses (a failed commit, a stale pointer), nothing below runs and the in-memory
         // pointer, history and statuses stay exactly as they were.
-        let sequence = self.sequence + 1;
-        let from_revision = current
-            .as_ref()
-            .map(|pointer| pointer.revision_id.clone());
+        let sequence = self.sequences.get(&domain).copied().unwrap_or(0) + 1;
+        let from_revision = current.as_ref().map(|pointer| pointer.revision_id.clone());
         let mut status_writes: Vec<(String, RevisionStatus)> = Vec::new();
         if let (Some(status), Some(pointer)) = (current_status, current.as_ref()) {
             if status != RevisionStatus::Superseded {
@@ -690,7 +721,7 @@ impl<S: RevisionStore> HarnessCatalog<S> {
                 prior: displaced,
             },
         );
-        self.sequence = sequence;
+        self.sequences.insert(domain, sequence);
         self.activations.push(activation.clone());
         Ok(activation)
     }
@@ -700,7 +731,7 @@ impl<S: RevisionStore> HarnessCatalog<S> {
     /// The prior revision is read from the pointer stack and re-activated by id: its manifest,
     /// hash and parent are the ones that were stored when it was active, so the rollback restores
     /// a revision, it does not synthesize one. The displaced revision becomes `RolledBack`.
-    pub fn rollback(
+    pub(crate) fn rollback(
         &mut self,
         domain: HarnessDomain,
         decision_id: impl Into<String>,
@@ -716,13 +747,13 @@ impl<S: RevisionStore> HarnessCatalog<S> {
             .last()
             .cloned()
             .ok_or(CatalogError::NoPriorRevision { domain })?;
-        let prior = self
-            .store
-            .get(&prior_id)
-            .cloned()
-            .ok_or_else(|| CatalogError::UnknownRevision {
-                revision_id: prior_id.clone(),
-            })?;
+        let prior =
+            self.store
+                .get(&prior_id)
+                .cloned()
+                .ok_or_else(|| CatalogError::UnknownRevision {
+                    revision_id: prior_id.clone(),
+                })?;
         if prior.domain != domain {
             return Err(CatalogError::DomainMismatch {
                 revision_id: prior_id.clone(),
@@ -749,7 +780,10 @@ impl<S: RevisionStore> HarnessCatalog<S> {
             .ok_or_else(|| CatalogError::UnknownRevision {
                 revision_id: pointer.revision_id.clone(),
             })?;
-        if !displaced.status.can_transition_to(RevisionStatus::RolledBack) {
+        if !displaced
+            .status
+            .can_transition_to(RevisionStatus::RolledBack)
+        {
             return Err(CatalogError::IllegalStatusTransition {
                 revision_id: pointer.revision_id.clone(),
                 from: displaced.status,
@@ -758,7 +792,7 @@ impl<S: RevisionStore> HarnessCatalog<S> {
         }
 
         // D4: one transactional pointer move; a refused write leaves the pointer where it was.
-        let sequence = self.sequence + 1;
+        let sequence = self.sequences.get(&domain).copied().unwrap_or(0) + 1;
         let mut status_writes: Vec<(String, RevisionStatus)> = Vec::new();
         if displaced.status != RevisionStatus::RolledBack {
             status_writes.push((pointer.revision_id.clone(), RevisionStatus::RolledBack));
@@ -788,7 +822,7 @@ impl<S: RevisionStore> HarnessCatalog<S> {
                 prior: remaining,
             },
         );
-        self.sequence = sequence;
+        self.sequences.insert(domain, sequence);
         self.activations.push(activation.clone());
         Ok(activation)
     }
@@ -975,23 +1009,16 @@ mod tests {
         let activations_before = catalog.activations().len();
 
         assert!(matches!(
-            catalog.activate(
-                HarnessDomain::RustBackend,
-                "missing",
-                "adopt-x",
-                "policy"
-            ),
+            catalog.activate(HarnessDomain::RustBackend, "missing", "adopt-x", "policy"),
             Err(CatalogError::UnknownRevision { .. })
         ));
-        assert_eq!(catalog.activate(
-            HarnessDomain::RustBackend,
-            "rev-1",
-            "adopt-x",
-            "policy"
-        ), Err(CatalogError::AlreadyActive {
-            domain: HarnessDomain::RustBackend,
-            revision_id: "rev-1".to_string(),
-        }));
+        assert_eq!(
+            catalog.activate(HarnessDomain::RustBackend, "rev-1", "adopt-x", "policy"),
+            Err(CatalogError::AlreadyActive {
+                domain: HarnessDomain::RustBackend,
+                revision_id: "rev-1".to_string(),
+            })
+        );
         assert_eq!(before, catalog.pointer(HarnessDomain::RustBackend).cloned());
         assert_eq!(activations_before, catalog.activations().len());
     }
@@ -1200,8 +1227,14 @@ mod tests {
             ]
         );
         // The catalog's own view agrees with what it asked the store to write.
-        assert_eq!(catalog.revision("rev-1").unwrap().status, RevisionStatus::Superseded);
-        assert_eq!(catalog.revision("rev-2").unwrap().status, RevisionStatus::Adopted);
+        assert_eq!(
+            catalog.revision("rev-1").unwrap().status,
+            RevisionStatus::Superseded
+        );
+        assert_eq!(
+            catalog.revision("rev-2").unwrap().status,
+            RevisionStatus::Adopted
+        );
     }
 
     #[test]
@@ -1249,7 +1282,10 @@ mod tests {
         assert!(matches!(error, CatalogError::Store(_)), "{error}");
 
         // D4: the failed write moved nothing — pointer, history and both statuses are untouched.
-        assert_eq!(pointer_before, catalog.pointer(HarnessDomain::RustBackend).cloned());
+        assert_eq!(
+            pointer_before,
+            catalog.pointer(HarnessDomain::RustBackend).cloned()
+        );
         assert_eq!(activations_before, catalog.activations().len());
         assert_eq!(
             catalog.active_revision_id(HarnessDomain::RustBackend),
@@ -1288,14 +1324,15 @@ mod tests {
     #[test]
     fn the_in_memory_transactional_write_is_all_or_nothing() {
         let mut store = InMemoryRevisionStore::new();
-        store.insert(revision(
-            "rev-1",
-            None,
-            HarnessDomain::RustBackend,
-            "base",
-            RevisionStatus::Draft,
-        ))
-        .unwrap();
+        store
+            .insert(revision(
+                "rev-1",
+                None,
+                HarnessDomain::RustBackend,
+                "base",
+                RevisionStatus::Draft,
+            ))
+            .unwrap();
         let plan = ActivationPlan {
             domain: HarnessDomain::RustBackend,
             sequence: 1,
@@ -1310,7 +1347,10 @@ mod tests {
             ],
         };
         let error = store.apply_activation(&plan).expect_err("plan is invalid");
-        assert!(matches!(error, CatalogError::UnknownRevision { .. }), "{error}");
+        assert!(
+            matches!(error, CatalogError::UnknownRevision { .. }),
+            "{error}"
+        );
         assert_eq!(
             store.get("rev-1").unwrap().status,
             RevisionStatus::Draft,
@@ -1394,5 +1434,245 @@ mod tests {
             .unwrap();
         assert_eq!(catalog.revisions_in(HarnessDomain::RustBackend).len(), 2);
         assert_eq!(catalog.revisions_in(HarnessDomain::YewMvi).len(), 1);
+    }
+
+    /// A durable-ish fake: same in-memory revisions plus the activation rows a restart observes.
+    #[derive(Default, Clone)]
+    struct DurableFakeStore {
+        inner: InMemoryRevisionStore,
+        current: BTreeMap<HarnessDomain, String>,
+        history: BTreeMap<HarnessDomain, Vec<Activation>>,
+        sequences: BTreeMap<HarnessDomain, u64>,
+    }
+
+    impl RevisionStore for DurableFakeStore {
+        fn insert(&mut self, revision: HarnessRevision) -> Result<(), CatalogError> {
+            self.inner.insert(revision)
+        }
+        fn get(&self, revision_id: &str) -> Option<&HarnessRevision> {
+            self.inner.get(revision_id)
+        }
+        fn all(&self) -> Vec<&HarnessRevision> {
+            self.inner.all()
+        }
+        fn len(&self) -> usize {
+            self.inner.len()
+        }
+        fn set_status(
+            &mut self,
+            revision_id: &str,
+            status: RevisionStatus,
+        ) -> Result<(), CatalogError> {
+            self.inner.set_status(revision_id, status)
+        }
+        fn apply_activation(&mut self, plan: &ActivationPlan) -> Result<(), CatalogError> {
+            for (revision_id, status) in &plan.status_writes {
+                self.inner.set_status(revision_id, *status)?;
+            }
+            self.history
+                .entry(plan.domain)
+                .or_default()
+                .push(plan.activation());
+            self.current.insert(plan.domain, plan.to_revision.clone());
+            self.sequences.insert(plan.domain, plan.sequence);
+            Ok(())
+        }
+        fn current_activation(
+            &self,
+            domain: HarnessDomain,
+        ) -> Result<Option<String>, CatalogError> {
+            Ok(self.current.get(&domain).cloned())
+        }
+        fn last_activation_sequence(&self, domain: HarnessDomain) -> Result<u64, CatalogError> {
+            Ok(self.sequences.get(&domain).copied().unwrap_or(0))
+        }
+        fn activation_history(
+            &self,
+            domain: HarnessDomain,
+        ) -> Result<Vec<Activation>, CatalogError> {
+            Ok(self.history.get(&domain).cloned().unwrap_or_default())
+        }
+    }
+
+    fn rooted_revision(
+        id: &str,
+        parent: Option<&str>,
+        domain: HarnessDomain,
+        status: RevisionStatus,
+    ) -> HarnessRevision {
+        revision(id, parent, domain, &format!("prompt {id}"), status)
+    }
+
+    #[test]
+    fn a_restarted_catalog_restores_the_rollback_stack_from_activation_history() {
+        let mut store = DurableFakeStore::default();
+        store.insert(base()).unwrap();
+        store.insert(next("rev-2")).unwrap();
+        store
+            .current
+            .insert(HarnessDomain::RustBackend, "rev-1".into());
+        store
+            .history
+            .entry(HarnessDomain::RustBackend)
+            .or_default()
+            .push(Activation {
+                domain: HarnessDomain::RustBackend,
+                sequence: 1,
+                kind: ActivationKind::Adopt,
+                from_revision: None,
+                to_revision: "rev-1".into(),
+                decision_id: "bootstrap".into(),
+                activated_by: "owner".into(),
+            });
+        store.sequences.insert(HarnessDomain::RustBackend, 1);
+
+        let mut catalog = HarnessCatalog::with_store(store);
+        assert_eq!(
+            catalog
+                .restore_active_pointer(HarnessDomain::RustBackend)
+                .unwrap(),
+            Some("rev-1".to_string())
+        );
+        // Move to rev-2 in this process, then simulate a restart with the same durable store.
+        catalog
+            .activate(HarnessDomain::RustBackend, "rev-2", "adopt-1", "policy")
+            .unwrap();
+        let durable = catalog.into_store();
+        let mut restarted = HarnessCatalog::with_store(durable);
+        assert_eq!(
+            restarted
+                .restore_active_pointer(HarnessDomain::RustBackend)
+                .unwrap(),
+            Some("rev-2".to_string())
+        );
+        assert_eq!(
+            restarted.active_revision_id(HarnessDomain::RustBackend),
+            Some("rev-2")
+        );
+        assert_eq!(
+            restarted
+                .prior_revision(HarnessDomain::RustBackend)
+                .unwrap()
+                .id,
+            "rev-1"
+        );
+        // Rollback works after the restart: the exact prior revision, not a synthesized one.
+        let activation = restarted
+            .rollback(HarnessDomain::RustBackend, "rollback-1", "owner")
+            .expect("rollback after restart");
+        assert_eq!(activation.to_revision, "rev-1");
+        assert_eq!(
+            activation.sequence, 3,
+            "the restored sequence keeps advancing"
+        );
+        assert_eq!(activation.from_revision.as_deref(), Some("rev-2"));
+    }
+
+    #[test]
+    fn restores_each_domain_with_its_own_sequence_without_a_global_rewind() {
+        let rust_rev1 = rooted_revision(
+            "rust-1",
+            None,
+            HarnessDomain::RustBackend,
+            RevisionStatus::Adopted,
+        );
+        let rust_rev2 = rooted_revision(
+            "rust-2",
+            Some("rust-1"),
+            HarnessDomain::RustBackend,
+            RevisionStatus::Adopted,
+        );
+        let yew_rev1 = rooted_revision(
+            "yew-1",
+            None,
+            HarnessDomain::YewMvi,
+            RevisionStatus::Adopted,
+        );
+        let mut store = DurableFakeStore::default();
+        for revision in [rust_rev1, rust_rev2, yew_rev1] {
+            store.insert(revision).unwrap();
+        }
+        store
+            .current
+            .insert(HarnessDomain::RustBackend, "rust-2".into());
+        store
+            .history
+            .entry(HarnessDomain::RustBackend)
+            .or_default()
+            .extend([
+                Activation {
+                    domain: HarnessDomain::RustBackend,
+                    sequence: 1,
+                    kind: ActivationKind::Adopt,
+                    from_revision: None,
+                    to_revision: "rust-1".into(),
+                    decision_id: "bootstrap".into(),
+                    activated_by: "owner".into(),
+                },
+                Activation {
+                    domain: HarnessDomain::RustBackend,
+                    sequence: 2,
+                    kind: ActivationKind::Adopt,
+                    from_revision: Some("rust-1".into()),
+                    to_revision: "rust-2".into(),
+                    decision_id: "adopt-1".into(),
+                    activated_by: "policy".into(),
+                },
+            ]);
+        store.sequences.insert(HarnessDomain::RustBackend, 2);
+        store.current.insert(HarnessDomain::YewMvi, "yew-1".into());
+        store
+            .history
+            .entry(HarnessDomain::YewMvi)
+            .or_default()
+            .push(Activation {
+                domain: HarnessDomain::YewMvi,
+                sequence: 1,
+                kind: ActivationKind::Adopt,
+                from_revision: None,
+                to_revision: "yew-1".into(),
+                decision_id: "bootstrap".into(),
+                activated_by: "owner".into(),
+            });
+        store.sequences.insert(HarnessDomain::YewMvi, 1);
+
+        let mut catalog = HarnessCatalog::with_store(store);
+        catalog
+            .restore_active_pointer(HarnessDomain::RustBackend)
+            .unwrap();
+        catalog
+            .restore_active_pointer(HarnessDomain::YewMvi)
+            .unwrap();
+        // rust is at sequence 2, yew at sequence 1: each domain advances independently.
+        catalog
+            .insert(rooted_revision(
+                "yew-2",
+                Some("yew-1"),
+                HarnessDomain::YewMvi,
+                RevisionStatus::Adoptable,
+            ))
+            .unwrap();
+        let yew_activation = catalog
+            .activate(HarnessDomain::YewMvi, "yew-2", "adopt-yew", "policy")
+            .unwrap();
+        assert_eq!(yew_activation.sequence, 2, "yew resumes its own sequence");
+        assert_eq!(
+            catalog.active_revision_id(HarnessDomain::RustBackend),
+            Some("rust-2"),
+            "another domain's activation does not move or rewind this domain"
+        );
+        // rust's next activation is 3, not 2 (no global sequence rewind).
+        catalog
+            .insert(rooted_revision(
+                "rust-3",
+                Some("rust-2"),
+                HarnessDomain::RustBackend,
+                RevisionStatus::Adoptable,
+            ))
+            .unwrap();
+        let rust_activation = catalog
+            .activate(HarnessDomain::RustBackend, "rust-3", "adopt-rust", "policy")
+            .unwrap();
+        assert_eq!(rust_activation.sequence, 3);
     }
 }

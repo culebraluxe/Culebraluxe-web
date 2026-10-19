@@ -68,6 +68,65 @@ pub const REQUIRED_BOOT_MIGRATIONS: &[&str] = &[
     "295_forge_correction_ledger.sql",
 ];
 
+/// Migrations whose FILE was edited after the ledger recorded an apply, and how the boot gate
+/// reconciles them: the ledger checksum for these entries cannot equal the current file's hash, so
+/// the gate verifies the SCHEMA those files promise instead (never silently accepts a bare name).
+///
+/// 295 is frozen: it was applied on DEV/PROD (ledger sha256:36a53a77…), then the file was rewritten
+/// (now sha256:1ba60586…). Editing it again would rewrite history twice; migration
+/// 296_forge_correction_ledger_reconcile.sql is the additive reconciliation record and
+/// [`assert_reconciled_schemas`] is the check that a reconciled database really has the shape.
+pub const RECONCILED_AFTER_APPLY: &[&str] = &["295_forge_correction_ledger.sql"];
+
+/// The columns the reconciled correction-ledger schema must expose. Kept next to the exception so a
+/// schema drift in the one checksum-exempt table fails the boot instead of slipping through.
+pub const CORRECTION_LEDGER_REQUIRED_COLUMNS: &[&str] = &[
+    "lane",
+    "correction_key",
+    "correction",
+    "context",
+    "root_cause",
+    "spec_location",
+    "permanent_rule_created",
+    "evidence_refs",
+    "experiment_id",
+    "created_at",
+];
+
+/// Verify the SCHEMA promised by the checksum-exempt migrations in [`RECONCILED_AFTER_APPLY`].
+///
+/// This is the deliberate replacement for checksum verification on those entries: a ledger checksum
+/// cannot be compared to a rewritten file, but the columns the running code writes must exist. A
+/// missing column is a `SchemaMismatch` naming it and the boot refuses.
+pub async fn assert_reconciled_schemas(database: &Database) -> DbResult<()> {
+    let columns: Vec<(String,)> = sqlx::query_as(
+        "select column_name from information_schema.columns \
+         where table_schema = current_schema() and table_name = 'forge_correction_ledger'",
+    )
+    .fetch_all(database.pool())
+    .await
+    .map_err(|error| DbFailure::from_sqlx("db.boot_gate.reconciled_schema", &error))?;
+    let present: std::collections::BTreeSet<&str> =
+        columns.iter().map(|(name,)| name.as_str()).collect();
+    let missing: Vec<&str> = CORRECTION_LEDGER_REQUIRED_COLUMNS
+        .iter()
+        .copied()
+        .filter(|column| !present.contains(*column))
+        .collect();
+    if !missing.is_empty() {
+        return Err(DbFailure::schema_mismatch(
+            "db.boot_gate.reconciled_schema",
+            format!(
+                "{} is in RECONCILED_AFTER_APPLY, so its checksum is not verified; its schema must be, and                  forge_correction_ledger is missing column(s): {}. Apply 296_forge_correction_ledger_reconcile.sql                  on {} and start again.",
+                RECONCILED_AFTER_APPLY.join(", "),
+                missing.join(", "),
+                database.target().as_str()
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// The required migrations that hold no ledger row for this database's declared target, in list order.
 ///
 /// An absent ledger is reported as EVERY required migration being unapplied, because that is what it means:
@@ -99,20 +158,64 @@ pub async fn missing_required_migrations(database: &Database) -> DbResult<Vec<St
 pub async fn assert_boot_ready(database: &Database) -> DbResult<()> {
     let target = database.target();
     let missing = missing_required_migrations(database).await?;
-    if missing.is_empty() {
-        return Ok(());
+    if !missing.is_empty() {
+        return Err(DbFailure::schema_mismatch(
+            "db.boot_gate",
+            format!(
+                "{} of {} required migration(s) are unapplied on {}: {}. The application refuses to serve a \
+                 database that does not match it; apply them with \
+                 `cargo run -p cli -- db-tool apply <file> {}` and start again.",
+                missing.len(),
+                REQUIRED_BOOT_MIGRATIONS.len(),
+                target.as_str(),
+                missing.join(", "),
+                target.as_str()
+            ),
+        ));
     }
-    Err(DbFailure::schema_mismatch(
-        "db.boot_gate",
-        format!(
-            "{} of {} required migration(s) are unapplied on {}: {}. The application refuses to serve a \
-             database that does not match it; apply them with \
-             `cargo run -p cli -- db-tool apply <file> {}` and start again.",
-            missing.len(),
-            REQUIRED_BOOT_MIGRATIONS.len(),
-            target.as_str(),
-            missing.join(", "),
-            target.as_str()
-        ),
-    ))
+    // Checksum-exempt entries are verified by schema instead: 295 was rewritten after apply.
+    assert_reconciled_schemas(database).await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_rewritten_migration_is_a_documented_schema_exception_not_a_silent_skip() {
+        assert_eq!(
+            RECONCILED_AFTER_APPLY,
+            &["295_forge_correction_ledger.sql"],
+            "295 is the only post-apply rewrite; add an entry only with a schema check"
+        );
+        assert!(
+            REQUIRED_BOOT_MIGRATIONS.contains(&"295_forge_correction_ledger.sql"),
+            "295 is still required: the exception is checksum->schema, not presence"
+        );
+        assert!(
+            !REQUIRED_BOOT_MIGRATIONS.contains(&"296_forge_correction_ledger_reconcile.sql"),
+            "296 is an additive reconciliation record, not a boot dependency"
+        );
+        assert!(
+            CORRECTION_LEDGER_REQUIRED_COLUMNS.contains(&"correction_key")
+                && CORRECTION_LEDGER_REQUIRED_COLUMNS.contains(&"experiment_id"),
+            "the schema check covers the columns the ledger code reads and writes"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs DATABASE_URL_DEV; read-only boot-gate evidence"]
+    fn dev_smoke_reconciled_correction_ledger_schema_is_intact() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let database = runtime
+            .block_on(Database::connect_target(crate::DbTarget::Dev))
+            .expect("connect DEV");
+        runtime
+            .block_on(async {
+                missing_required_migrations(&database).await?;
+                assert_reconciled_schemas(&database).await
+            })
+            .expect("DEV boot gate accepts the reconciled ledger schema");
+    }
 }

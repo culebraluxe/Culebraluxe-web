@@ -73,34 +73,69 @@ pub fn resolve_cli(
     })
 }
 
+/// The longest accepted model id. A model id is a selector, not a payload.
+pub const MAX_MODEL_ID_LEN: usize = 128;
+
+/// The one way a provider/model segment may be written.
+///
+/// The id is interpolated into a YAML overlay (`provider: <value>`), so the allowed set is a plain
+/// YAML scalar: ASCII alphanumerics plus `.`, `-`, `_`, `+`. Whitespace, quotes, `#`, `:`, control
+/// characters and newlines are refused before interpolation — a newline there would let a `--model`
+/// argument add YAML keys (e.g. a different plugin config) to the patch file.
+fn valid_model_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b'+'))
+}
+
 /// Validate an exact `provider/model` id. DSH has no `--model` flag; the overlay below is the only
-/// explicit-selection seam, so an unpinned or half-parsed id is refused before a token is spent.
+/// explicit-selection seam, so an unpinned, half-parsed or injectable id is refused before a token is
+/// spent.
 pub fn validate_model(raw: &str) -> Result<String> {
+    if let Some(control) = raw.chars().find(|character| character.is_control()) {
+        return Err(WorkflowError::generic(format!(
+            "DSH model {raw:?} contains control character U+{:04X}; refusing (it would be interpolated into YAML)",
+            u32::from(control)
+        )));
+    }
     let value = raw.trim();
     if value.is_empty() {
         return Err(WorkflowError::generic(
             "DSH model is empty: expected an exact 'provider/model' id. Refusing to run unpinned.",
         ));
     }
+    if value.len() > MAX_MODEL_ID_LEN {
+        return Err(WorkflowError::generic(format!(
+            "DSH model id is {} bytes, over the {MAX_MODEL_ID_LEN} byte limit; refusing to interpolate it",
+            value.len()
+        )));
+    }
     let mut parts = value.split('/');
     let provider = parts.next().unwrap_or_default().trim();
     let name = parts.next().unwrap_or_default().trim();
-    if provider.is_empty() || name.is_empty() || parts.next().is_some() {
+    if !valid_model_segment(provider) || !valid_model_segment(name) || parts.next().is_some() {
         return Err(WorkflowError::generic(format!(
-            "DSH model {value:?} must be an exact 'provider/model' id. Refusing to run unpinned."
+            "DSH model {value:?} must be an exact 'provider/model' id of ASCII alphanumerics, '.', '-', '_' or '+'. Refusing to interpolate it."
         )));
     }
     Ok(value.to_string())
 }
 
 /// Render the `--patch` overlay that pins `dsh`'s `agent-default-model` plugin.
-pub fn model_patch(model: &str) -> String {
-    let model = validate_model(model).unwrap_or_else(|_| model.trim().to_string());
-    let (provider, name) = model
-        .split_once('/')
-        .map(|(provider, name)| (provider.trim(), name.trim()))
-        .unwrap_or(("", ""));
-    format!("- id: agent-default-model\n  config:\n    provider: {provider}\n    model: {name}\n")
+///
+/// Validation happens here as well as at the flag/CLI seam: the patch writer is the interpolation
+/// point, so it must never receive a value `validate_model` would refuse.
+pub fn model_patch(model: &str) -> Result<String> {
+    let model = validate_model(model)?;
+    let (provider, name) = model.split_once('/').ok_or_else(|| {
+        WorkflowError::generic(format!(
+            "DSH model {model:?} has no provider/model split; refusing to interpolate it"
+        ))
+    })?;
+    Ok(format!(
+        "- id: agent-default-model\n  config:\n    provider: {provider}\n    model: {name}\n"
+    ))
 }
 
 /// The `headless` argv: profile, optional model overlay, then the task text.
@@ -204,7 +239,8 @@ impl ModelPatchFile {
             ))
         })?;
         let path = dir.join("model-pin.patch.yml");
-        std::fs::write(&path, model_patch(model)).map_err(|error| {
+        let patch = model_patch(model)?;
+        std::fs::write(&path, patch).map_err(|error| {
             WorkflowError::generic(format!(
                 "DSH model overlay: could not write {path:?}: {error}"
             ))
@@ -241,8 +277,30 @@ mod tests {
     }
 
     #[test]
+    fn model_ids_that_would_inject_yaml_or_control_bytes_are_refused() {
+        for refused in [
+            "provider/model\n- id: other-plugin",
+            "provider/model\r",
+            "provider/model\u{7}",
+            "provider/model name",
+            "provider/\"model\"",
+            "provider/model#comment",
+            "provider/model: value",
+            "provider/@model",
+            "provider/model\\n",
+            &format!("provider/{}", "m".repeat(MAX_MODEL_ID_LEN)),
+        ] {
+            assert!(
+                validate_model(refused).is_err(),
+                "{refused:?} must be refused before interpolation"
+            );
+        }
+        assert!(validate_model("provider/model-with.dots_and+plus").is_ok());
+    }
+
+    #[test]
     fn model_patch_renders_the_agent_default_model_override() {
-        let patch = model_patch("deepseek-official/deepseek-v4-pro");
+        let patch = model_patch("deepseek-official/deepseek-v4-pro").expect("valid model");
         assert_eq!(
             patch,
             "- id: agent-default-model\n  config:\n    provider: deepseek-official\n    model: deepseek-v4-pro\n"

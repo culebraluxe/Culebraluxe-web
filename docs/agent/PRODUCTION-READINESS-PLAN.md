@@ -34,6 +34,7 @@ and a named sign-off. Green unit tests alone do not count.
 | FORGE-06 | CTO office scheduler + offsite zip | daily pulse (start-session alerts) + scheduled zip; cold-start acceptance | OPEN |
 | FORGE-07 | Readiness register + sign-off | written register for Forge delivery, harness, CTO staff; principal sign-off | OPEN |
 | FORGE-08 | Probe safety: pre-probe policy/lineage gate, prod-target refusal, transactional persistence, adoption kill switch | all four with tests + failure-injection evidence | DONE (2026-10-19; 337 harness / 63 db / 187 cli tests, gate PASS) |
+| FORGE-09 | QA P1 queue (probe safety, authority/lifecycle, sandbox/honesty) | A: API gate/injection/two-key/token binding/identity; B: pub(crate) activation, durable pointer+sequence, failed-turn rows, 295 reconciliation (296 unapplied); C: hard timeout/groups, unmeasured Unknown, receipt redaction/retention, content gate | DONE (2026-10-19; forge 1095/6 ignored, db 65, cli 189, gate PASS) |
 
 ## SOPs (runbooks) to write alongside
 

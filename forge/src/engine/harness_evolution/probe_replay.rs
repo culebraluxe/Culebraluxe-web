@@ -605,6 +605,13 @@ impl<'a> ReplayProbeExecutor<'a> {
     pub fn execute_replay(&self, request: &ProbeRequest) -> Result<ProbeReading, ReplayError> {
         assert_non_production_environment(request.spec.environment_class)?;
         check_request_belongs_to_pair(request)?;
+        // API-level gate: a caller that constructs a ProbeRequest directly (not through the CLI or
+        // the recorded-replay plan) must still pass policy+lineage before a loader or a sandbox.
+        // This is the same validator the dry-run planner and the CLI call, so the executor cannot
+        // become the bypass the public trait would otherwise offer.
+        let base = self.revisions.revision(&request.spec.base_revision)?;
+        let candidate = self.revisions.revision(&request.spec.candidate_revision)?;
+        validate_probe_candidate(&base, &candidate)?;
 
         let task = self.load_task()?;
         let revision = self.revisions.revision(&request.revision)?;
@@ -1893,5 +1900,84 @@ mod tests {
         let request = recorded_request(ProbePins::development("task-1"));
         let error = run_recorded_replay(&loader, &sandbox, &revisions, &request).unwrap_err();
         assert_eq!(error.code(), "replay_sandbox_failed");
+    }
+    #[test]
+    fn the_executor_refuses_a_red_candidate_before_the_loader_or_sandbox() {
+        let base = revision("base-1", "baseline prompt");
+        let red = gate_revision(
+            &base,
+            "gate-red",
+            &[ComponentChange::set(
+                Component::red(
+                    ComponentKind::SystemPrompt,
+                    "self-declared protected prompt",
+                    "red",
+                ),
+                "should never reach the sandbox",
+            )],
+        );
+        let mut revisions = revisions();
+        revisions.insert(red).expect("insert red candidate");
+        let spec = replay_spec_for(
+            "task-1",
+            "base-1",
+            "gate-red",
+            EnvironmentClass::Development,
+        );
+        let request = ProbeRequest {
+            probe_id: "exp-1-candidate".into(),
+            side: ProbeSide::Candidate,
+            revision: "gate-red".into(),
+            contract_digest: String::new(),
+            spec,
+        };
+        let loader = StubLoader::returning(task());
+        let sandbox = recorded_sandbox();
+        let executor = ReplayProbeExecutor::new(
+            &loader,
+            &sandbox,
+            &revisions,
+            HistoricalTaskRequest::for_story("story-1"),
+        );
+        let error = executor
+            .execute_replay(&request)
+            .expect_err("API-level caller cannot bypass the policy gate");
+        assert_eq!(error.code(), "replay_policy_refused");
+        assert_eq!(
+            sandbox.calls.borrow().len(),
+            0,
+            "the sandbox is never reached for a RED candidate"
+        );
+        assert_eq!(loader.loads(), 0, "the loader is never reached either");
+    }
+
+    #[test]
+    fn the_executor_refuses_a_candidate_with_an_unrelated_parent() {
+        let mut revisions = revisions();
+        revisions
+            .insert(candidate_revision().with_parent(Some("some-other-revision".into())))
+            .expect("insert unrelated candidate");
+        let spec = replay_spec_for("task-1", "base-1", "cand-1", EnvironmentClass::Development);
+        let request = ProbeRequest {
+            probe_id: "exp-1-candidate".into(),
+            side: ProbeSide::Candidate,
+            revision: "cand-1".into(),
+            contract_digest: String::new(),
+            spec,
+        };
+        let loader = StubLoader::returning(task());
+        let sandbox = recorded_sandbox();
+        let executor = ReplayProbeExecutor::new(
+            &loader,
+            &sandbox,
+            &revisions,
+            HistoricalTaskRequest::for_story("story-1"),
+        );
+        let error = executor
+            .execute_replay(&request)
+            .expect_err("lineage mismatch is refused at the API level");
+        assert_eq!(error.code(), "replay_policy_refused");
+        assert_eq!(sandbox.calls.borrow().len(), 0);
+        assert_eq!(loader.loads(), 0);
     }
 }

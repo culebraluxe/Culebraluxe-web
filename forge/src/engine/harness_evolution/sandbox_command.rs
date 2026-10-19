@@ -21,21 +21,26 @@
 //! * **Bounded streaming capture.** stdout/stderr are read on dedicated threads into fixed-size
 //!   buffers while the child runs: memory is capped by the output cap, the child is never blocked by
 //!   a full pipe, and read errors are propagated instead of swallowed.
-//! * **Process-group kill on timeout.** The child leads its own process group; on timeout the
-//!   *group* is killed and the child is reaped, so a command that spawned helpers cannot survive the
-//!   probe and no zombie is left behind.
-//! * **Durable local receipt.** Each execution writes a JSON receipt under the run root and returns
-//!   refs to it. This is a *file* receipt, not a `forge_harness_probe` row: the DB row is written by
-//!   the real executor wiring (out of scope here), so the ref is honest about what exists.
+//! * **Process-group kill on timeout AND on normal exit.** The child leads its own process group;
+//!   the *group* is killed whenever the direct child is done, so a helper that inherited stdout
+//!   cannot keep the pipes (or the probe) alive and no zombie is left behind. The kill is
+//!   setsid-safe: it never signals pid 0/1 or this process's own group.
+//! * **Capture deadline.** Reader threads are awaited with a deadline, so an escaped descendant
+//!   holding a pipe becomes a typed failure instead of an unbounded join.
+//! * **Secret-hygienic receipts.** Receipts live under a 0700 run root, are written 0600, hold no
+//!   prompt content (only excerpts), and redact URL userinfo, `Bearer` values, secret-key prefixes
+//!   and `token=`/`password=`-style assignments before serialization. Receipts older than
+//!   [`RECEIPT_RETENTION`] are pruned and the count is capped at [`RECEIPT_MAX_FILES`].
 //!
 //! The behavioral reading is coarse on purpose: exit status maps to success/tests and the QA proxy
 //! verdict, steps = 1, and cost stays `None` (unpriced, never zero). A command is not a model, and
 //! the plan/contrast stages treat it as behavioral evidence only.
 
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::thread::{self, JoinHandle};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::model::{BehaviorEvidence, QaVerdict};
@@ -61,6 +66,20 @@ pub const PROGRAM_REF_PREFIX: &str = "sandbox-command:program:";
 
 /// How much of one capture buffer is read from a pipe at a time.
 const STREAM_CHUNK_BYTES: usize = 8192;
+
+/// How long the capture readers may take after the process group has been killed. A descendant that
+/// escaped the group and still holds a pipe can keep EOF away forever; the deadline turns that into
+/// a typed failure instead of a hung probe.
+pub const CAPTURE_JOIN_GRACE: Duration = Duration::from_secs(5);
+
+/// Replacement text for redacted receipt content.
+pub const REDACTED: &str = "[REDACTED]";
+
+/// Receipts older than this are removed on the next run.
+pub const RECEIPT_RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// Hard cap on receipt files kept per run root (oldest removed first).
+pub const RECEIPT_MAX_FILES: usize = 200;
 
 /// One exact invocation the sandbox is allowed to run: an absolute program **and** its complete
 /// argument vector. This is the argument allowlist: matching a program is not enough.
@@ -179,6 +198,9 @@ pub struct SandboxExecutionReceipt {
     pub stderr_excerpt: String,
     pub stdout_truncated: bool,
     pub stderr_truncated: bool,
+    /// True when secret-shaped content was redacted before this receipt was written.
+    pub stdout_redacted: bool,
+    pub stderr_redacted: bool,
     /// Total bytes the child wrote, including the part that was not retained.
     pub stdout_bytes: u64,
     pub stderr_bytes: u64,
@@ -313,7 +335,7 @@ impl ReplaySandbox for CommandSandbox {
         self.validate()?;
 
         let workspace = self.workspace_for(request.probe_id);
-        std::fs::create_dir_all(&workspace).map_err(|error| ReplayError::SandboxFailed {
+        create_secure_dir(&workspace).map_err(|error| ReplayError::SandboxFailed {
             probe_id: request.probe_id.to_string(),
             message: format!(
                 "cannot create sandbox workspace {}: {error}",
@@ -357,8 +379,8 @@ impl ReplaySandbox for CommandSandbox {
             message: "stderr pipe missing".into(),
         })?;
         let output_cap = self.output_cap;
-        let stdout_thread = thread::spawn(move || read_stream_bounded(stdout, output_cap));
-        let stderr_thread = thread::spawn(move || read_stream_bounded(stderr, output_cap));
+        let stdout_rx = spawn_stream_capture(stdout, output_cap);
+        let stderr_rx = spawn_stream_capture(stderr, output_cap);
 
         let mut timed_out = false;
         let exit_status = loop {
@@ -366,14 +388,17 @@ impl ReplaySandbox for CommandSandbox {
                 Ok(Some(status)) => break Some(status),
                 Ok(None) => {
                     if started.elapsed() >= self.command.timeout {
-                        kill_process_group(&mut child);
+                        terminate_process_group(&mut child);
                         timed_out = true;
                         break None;
                     }
                     thread::sleep(Duration::from_millis(10));
                 }
                 Err(error) => {
-                    kill_process_group(&mut child);
+                    terminate_process_group(&mut child);
+                    let deadline = Instant::now() + CAPTURE_JOIN_GRACE;
+                    let _ = await_stream_capture(stdout_rx, deadline, request.probe_id, "stdout");
+                    let _ = await_stream_capture(stderr_rx, deadline, request.probe_id, "stderr");
                     return Err(ReplayError::SandboxFailed {
                         probe_id: request.probe_id.to_string(),
                         message: format!("cannot wait for command: {error}"),
@@ -383,9 +408,13 @@ impl ReplaySandbox for CommandSandbox {
         };
         let duration = started.elapsed();
 
-        // The pipes close when the child (and its group) exits, so the readers finish here.
-        let stdout_capture = join_capture(stdout_thread, request.probe_id, "stdout")?;
-        let stderr_capture = join_capture(stderr_thread, request.probe_id, "stderr")?;
+        // Kill the group even on a NORMAL exit: a helper that inherited stdout can otherwise hold
+        // the pipes open and hang the join forever. The direct child may already be reaped; the
+        // negative pid addresses the remaining group members.
+        terminate_process_group(&mut child);
+        let deadline = Instant::now() + CAPTURE_JOIN_GRACE;
+        let stdout_capture = await_stream_capture(stdout_rx, deadline, request.probe_id, "stdout")?;
+        let stderr_capture = await_stream_capture(stderr_rx, deadline, request.probe_id, "stderr")?;
 
         let execution_id = format!(
             "{EXEC_REF_PREFIX}{}:{}",
@@ -404,8 +433,10 @@ impl ReplaySandbox for CommandSandbox {
             exit_code: exit_status.and_then(|status| status.code()),
             timed_out,
             duration_ms: u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
-            stdout_excerpt: stdout_capture.text.clone(),
-            stderr_excerpt: stderr_capture.text.clone(),
+            stdout_excerpt: redact_secrets(&stdout_capture.text),
+            stderr_excerpt: redact_secrets(&stderr_capture.text),
+            stdout_redacted: redact_secrets(&stdout_capture.text) != stdout_capture.text,
+            stderr_redacted: redact_secrets(&stderr_capture.text) != stderr_capture.text,
             stdout_truncated: stdout_capture.truncated,
             stderr_truncated: stderr_capture.truncated,
             stdout_bytes: stdout_capture.total_bytes,
@@ -508,55 +539,268 @@ pub fn read_stream_bounded<R: Read>(mut reader: R, cap: usize) -> io::Result<Str
     })
 }
 
-fn join_capture(
-    handle: JoinHandle<io::Result<StreamCapture>>,
+/// Spawn a bounded reader for one pipe and hand its result back over a channel, so the waiter can
+/// apply a join deadline (`JoinHandle::join` has no timeout).
+pub fn spawn_stream_capture<R: Read + Send + 'static>(
+    reader: R,
+    cap: usize,
+) -> Receiver<io::Result<StreamCapture>> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = sender.send(read_stream_bounded(reader, cap));
+    });
+    receiver
+}
+
+/// Await one capture with a deadline. Timeout and disconnect are typed failures, never a hang and
+/// never an empty "successful" capture.
+pub fn await_stream_capture(
+    receiver: Receiver<io::Result<StreamCapture>>,
+    deadline: Instant,
     probe_id: &str,
     stream: &str,
 ) -> Result<StreamCapture, ReplayError> {
-    match handle.join() {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    match receiver.recv_timeout(remaining) {
         Ok(Ok(capture)) => Ok(capture),
         Ok(Err(error)) => Err(ReplayError::SandboxFailed {
             probe_id: probe_id.to_string(),
             message: format!("cannot read {stream}: {error}"),
         }),
-        Err(_) => Err(ReplayError::SandboxFailed {
+        Err(RecvTimeoutError::Timeout) => Err(ReplayError::SandboxFailed {
             probe_id: probe_id.to_string(),
-            message: format!("{stream} reader thread panicked"),
+            message: format!(
+                "{stream} capture did not finish before the join deadline (process group killed)"
+            ),
+        }),
+        Err(RecvTimeoutError::Disconnected) => Err(ReplayError::SandboxFailed {
+            probe_id: probe_id.to_string(),
+            message: format!("{stream} reader ended without reporting a capture"),
         }),
     }
 }
 
-/// Kill the child's whole process group, then reap the child.
-#[cfg(unix)]
-fn kill_process_group(child: &mut Child) {
-    use std::os::raw::c_int;
-    extern "C" {
-        fn kill(pid: c_int, sig: c_int) -> c_int;
-    }
-    const SIGKILL: c_int = 9;
-    let pid = child.id() as c_int;
-    if pid > 0 {
-        // A negative pid addresses the process group the child leads (`process_group(0)`), so any
-        // helpers the command spawned are killed with it.
-        unsafe {
-            kill(-pid, SIGKILL);
+/// Kill the child's whole process group (setsid-safe) and reap the child if it is still running.
+///
+/// The child leads its own group (`process_group(0)`), so a negative pid reaches helpers it spawned.
+/// The guards mean this can never signal pid 0/1 or this process's own group.
+pub fn terminate_process_group(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        use std::os::raw::c_int;
+        extern "C" {
+            fn kill(pid: c_int, sig: c_int) -> c_int;
+        }
+        const SIGKILL: c_int = 9;
+        let pid = child.id() as c_int;
+        let self_pid = std::process::id() as c_int;
+        if pid > 1 && pid != self_pid {
+            unsafe {
+                kill(-pid, SIGKILL);
+            }
         }
     }
     let _ = child.kill();
     let _ = child.wait();
 }
 
-#[cfg(not(unix))]
-fn kill_process_group(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
+/// Create a directory with owner-only permissions (0700 on unix).
+pub fn create_secure_dir(path: &Path) -> io::Result<()> {
+    std::fs::create_dir_all(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
+/// Write a file with owner-only permissions (0600 on unix).
+pub fn write_secure_file(path: &Path, body: &[u8]) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(body)?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, body)
+    }
+}
+
+/// Remove `[REDACTED]`-shaped secrets from captured output before it is persisted.
+///
+/// This is defense-in-depth for receipts, not a content firewall: it catches the common shapes a
+/// harness or tool prints on failure (URL userinfo, bearer tokens, key prefixes, env assignments).
+/// Anything else can still be in the excerpt, so receipts stay 0600 and are pruned.
+pub fn redact_secrets(text: &str) -> String {
+    let redacted = redact_url_credentials(text);
+    let redacted = redact_marker_value(&redacted, "bearer ");
+    let redacted = redact_assignments(&redacted);
+    redact_prefixed_tokens(&redacted)
+}
+
+fn redact_url_credentials(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index..].starts_with(b"://") {
+            out.push_str("://");
+            index += 3;
+            let start = index;
+            let mut end = index;
+            let mut at = None;
+            while end < bytes.len() && !bytes[end].is_ascii_whitespace() {
+                if bytes[end] == b'@' {
+                    at = Some(end);
+                    break;
+                }
+                end += 1;
+            }
+            if let Some(at) = at {
+                if at > start {
+                    out.push_str(REDACTED);
+                }
+                out.push_str(&text[at..end]);
+                index = end;
+                continue;
+            }
+            out.push_str(&text[start..end]);
+            index = end;
+            continue;
+        }
+        let character = text[index..].chars().next().expect("char boundary");
+        out.push(character);
+        index += character.len_utf8();
+    }
+    out
+}
+
+fn redact_marker_value(text: &str, marker: &str) -> String {
+    let lowered = text.to_ascii_lowercase();
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0;
+    while let Some(found) = lowered[cursor..].find(marker) {
+        let marker_start = cursor + found;
+        let value_start = marker_start + marker.len();
+        out.push_str(&text[cursor..value_start]);
+        let mut value_end = value_start;
+        while value_end < text.len() {
+            let character = text[value_end..].chars().next().expect("char boundary");
+            if character.is_whitespace() || matches!(character, '"' | '\'' | '&' | ',' | ')') {
+                break;
+            }
+            value_end += character.len_utf8();
+        }
+        if value_end > value_start {
+            out.push_str(REDACTED);
+        }
+        cursor = value_end;
+    }
+    out.push_str(&text[cursor..]);
+    out
+}
+
+const SECRET_ASSIGNMENTS: [&str; 8] = [
+    "token=",
+    "access_token=",
+    "api_key=",
+    "apikey=",
+    "secret=",
+    "password=",
+    "database_url=",
+    "authorization=",
+];
+
+fn redact_assignments(text: &str) -> String {
+    let mut out = text.to_string();
+    for assignment in SECRET_ASSIGNMENTS {
+        out = redact_marker_value(&out, assignment);
+        let upper = assignment.to_ascii_uppercase();
+        out = redact_marker_value(&out, &upper);
+    }
+    out
+}
+
+const SECRET_PREFIXES: [&str; 7] = ["sk-", "ghp_", "gho_", "xoxb-", "AKIA", "ASIA", "eyJ"];
+
+fn redact_prefixed_tokens(text: &str) -> String {
+    text.split_inclusive(char::is_whitespace)
+        .map(|chunk| {
+            let trimmed = chunk.trim_end_matches(char::is_whitespace);
+            let suffix = &chunk[trimmed.len()..];
+            if SECRET_PREFIXES
+                .iter()
+                .any(|prefix| trimmed.starts_with(prefix))
+            {
+                format!("{REDACTED}{suffix}")
+            } else {
+                chunk.to_string()
+            }
+        })
+        .collect()
+}
+
+/// Remove old receipts and cap the count. Best-effort: a failure to prune never fails a probe, but
+/// `Ok(removed)` is returned so a caller can log it.
+pub fn cleanup_receipts(
+    run_root: &Path,
+    retention: Duration,
+    max_entries: usize,
+) -> io::Result<usize> {
+    let entries = match std::fs::read_dir(run_root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error),
+    };
+    let now = SystemTime::now();
+    let cutoff = now.checked_sub(retention).unwrap_or(UNIX_EPOCH);
+    let mut receipts: Vec<(SystemTime, PathBuf)> = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let metadata = entry.metadata()?;
+        if !metadata.is_file() {
+            continue;
+        }
+        receipts.push((metadata.modified().unwrap_or(UNIX_EPOCH), path));
+    }
+    receipts.sort_by_key(|(modified, _)| *modified);
+    let mut removed = 0usize;
+    let mut kept: Vec<PathBuf> = Vec::new();
+    for (modified, path) in receipts {
+        if modified < cutoff {
+            std::fs::remove_file(&path)?;
+            removed += 1;
+        } else {
+            kept.push(path);
+        }
+    }
+    if kept.len() > max_entries {
+        for path in kept.drain(..kept.len() - max_entries) {
+            std::fs::remove_file(path)?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
 }
 
 fn write_receipt(
     run_root: &Path,
     receipt: &SandboxExecutionReceipt,
 ) -> Result<PathBuf, ReplayError> {
-    std::fs::create_dir_all(run_root).map_err(|error| ReplayError::SandboxFailed {
+    create_secure_dir(run_root).map_err(|error| ReplayError::SandboxFailed {
         probe_id: receipt.probe_id.clone(),
         message: format!(
             "cannot create sandbox run root {}: {error}",
@@ -571,10 +815,12 @@ fn write_receipt(
         probe_id: receipt.probe_id.clone(),
         message: format!("cannot encode sandbox receipt: {error}"),
     })?;
-    std::fs::write(&path, body).map_err(|error| ReplayError::SandboxFailed {
+    write_secure_file(&path, &body).map_err(|error| ReplayError::SandboxFailed {
         probe_id: receipt.probe_id.clone(),
         message: format!("cannot write sandbox receipt {}: {error}", path.display()),
     })?;
+    // Bounded retention: a probe never leaves an unbounded pile of /tmp receipts behind.
+    let _ = cleanup_receipts(run_root, RECEIPT_RETENTION, RECEIPT_MAX_FILES);
     Ok(path)
 }
 
@@ -1020,4 +1266,124 @@ mod tests {
         assert_eq!(receipt, decoded);
         assert_eq!(receipt.exit_code, Some(0));
     }
+    // ---------------------------------------------------------------------------------------
+    // P1-C: capture deadline, normal-exit group kill, receipt secret hygiene
+    // ---------------------------------------------------------------------------------------
+
+    #[test]
+    fn redaction_removes_common_secret_shapes_and_keeps_benign_text() {
+        let text = concat!(
+            "DATABASE_URL=postgres://user:supersecret@db.example/x\n",
+            "Authorization: Bearer abc.def.ghi\n",
+            "token=deadbeef access_token=feedface\n",
+            "key sk-live-123 ghp_456 AKIAABCDEF eyJhbGciOi\n",
+            "harmless: the test passed and files are unchanged\n"
+        );
+        let redacted = redact_secrets(text);
+        for secret in [
+            "supersecret",
+            "abc.def.ghi",
+            "deadbeef",
+            "feedface",
+            "sk-live-123",
+            "ghp_456",
+            "AKIAABCDEF",
+            "eyJhbGciOi",
+        ] {
+            assert!(!redacted.contains(secret), "secret {secret:?} survived: {redacted}");
+        }
+        assert!(redacted.contains(REDACTED));
+        assert!(redacted.contains("harmless: the test passed"));
+    }
+
+    #[test]
+    fn receipts_are_redacted_before_they_are_written() {
+        let fixture = Fixture::new();
+        let script = "printf 'DATABASE_URL=postgres://u:topsecret@h/db token=abcdef123\\n'";
+        let args = vec!["-c".to_string(), script.to_string()];
+        let sandbox = fixture.sandbox(
+            SandboxCommand::new("/bin/sh", args.clone()),
+            vec![AllowedInvocation::new("/bin/sh", args)],
+        );
+        let reading = run(&sandbox, &fixture, "probe-secret").expect("reading");
+        let receipt = receipt_for(&reading);
+        assert!(receipt.stdout_redacted, "receipt must record redaction");
+        assert!(!receipt.stdout_excerpt.contains("topsecret"));
+        assert!(!receipt.stdout_excerpt.contains("abcdef123"));
+        assert!(receipt.stdout_excerpt.contains(REDACTED));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn receipts_and_run_root_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let fixture = Fixture::new();
+        let (command, allowed) = echo("private");
+        let sandbox = fixture.sandbox(command, allowed);
+        let reading = run(&sandbox, &fixture, "probe-perms").expect("reading");
+        let receipt_path = reading
+            .behavior
+            .evidence_refs
+            .iter()
+            .find_map(|reference| reference.strip_prefix(RECEIPT_REF_PREFIX))
+            .expect("receipt ref")
+            .to_string();
+        let file_mode = std::fs::metadata(&receipt_path)
+            .expect("receipt metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(file_mode, 0o600, "receipt must be 0600");
+        let dir_mode = std::fs::metadata(fixture.run_root.path())
+            .expect("run root metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(dir_mode, 0o700, "run root must be 0700");
+        let workspace = receipt_for(&reading).workspace;
+        let workspace_mode = std::fs::metadata(workspace)
+            .expect("workspace metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(workspace_mode, 0o700, "workspace must be 0700");
+    }
+
+    #[test]
+    fn receipt_retention_prunes_by_age_and_count() {
+        let root = tempfile::tempdir().expect("temp dir");
+        for name in ["a", "b", "c"] {
+            std::fs::write(root.path().join(format!("{name}.json")), b"{}").expect("write");
+            thread::sleep(Duration::from_millis(10));
+        }
+        let removed = cleanup_receipts(root.path(), Duration::from_secs(3600), 2).expect("cleanup");
+        assert_eq!(removed, 1, "count cap removes the oldest receipt");
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 2);
+
+        thread::sleep(Duration::from_millis(10));
+        let removed_old = cleanup_receipts(root.path(), Duration::ZERO, 10).expect("cleanup age");
+        assert_eq!(removed_old, 2, "zero retention removes every existing receipt");
+    }
+
+    #[test]
+    fn a_normal_exit_with_a_lingering_descendant_does_not_hang() {
+        // The shell exits immediately but leaves a 30s helper holding stdout. The group kill on
+        // normal exit must close the pipes; the join deadline bounds it if it cannot.
+        let fixture = Fixture::new();
+        let args = vec!["-c".to_string(), "(sleep 30) & exit 0".to_string()];
+        let sandbox = fixture.sandbox(
+            SandboxCommand::new("/bin/sh", args.clone()).with_timeout(Duration::from_secs(5)),
+            vec![AllowedInvocation::new("/bin/sh", args)],
+        );
+        let started = Instant::now();
+        let reading = run(&sandbox, &fixture, "probe-descendant").expect("reading");
+        assert!(
+            started.elapsed() < CAPTURE_JOIN_GRACE + Duration::from_secs(2),
+            "normal exit with a lingering descendant must not hang the probe"
+        );
+        let receipt = receipt_for(&reading);
+        assert_eq!(receipt.exit_code, Some(0));
+        assert!(!receipt.timed_out);
+    }
+
 }
