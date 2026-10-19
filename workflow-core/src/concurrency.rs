@@ -112,8 +112,6 @@ mod tests {
         fn assert_shareable<T: Send + Sync>() {}
         assert_shareable::<MemoryStore>();
         assert_shareable::<WorkflowEngine<MemoryStore>>();
-        assert_shareable::<crate::NeonStore>();
-        assert_shareable::<WorkflowEngine<crate::NeonStore>>();
     }
 
     #[test]

@@ -1,28 +1,15 @@
-//! Shared workflow engine primitives and deterministic state transitions.
+//! Compatibility façade: the host-neutral `workflow-core` primitives plus the Neon adapter.
+//!
+//! Step 1-2 of W-1 moved the pure modules (types/value/status/ids/sha256/error/expr/json_codec/
+//! store/memory/concurrency and the engine) into `workflow-core`; this crate re-exports them under
+//! the historical `workflow::` paths so existing hosts compile unchanged. The Neon adapter
+//! (`neon`, `NeonStore`, `sql_contract`) stays here until W-1 step 4.
 
 pub use model;
 
-pub mod concurrency;
-pub mod engine;
-pub mod error;
-pub mod expr;
-pub mod ids;
-pub mod json_codec;
-pub use json_codec as json;
-pub mod memory;
-pub mod neon;
-pub mod sha256;
-pub mod sql_contract;
-pub mod status;
-pub mod store;
-pub mod types;
-pub mod value;
+pub use workflow_core::*;
 
-pub use engine::{command_id, wall_clock_ms, EngineOptions, WorkflowEngine};
-pub use error::{Result, WorkflowError};
-pub use expr::{evaluate_condition, is_supported_expression};
-pub use memory::MemoryStore;
+pub mod neon;
+pub mod sql_contract;
+
 pub use neon::NeonStore;
-pub use store::{Store, TxStore};
-pub use types::*;
-pub use value::Value;

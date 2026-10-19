@@ -3981,7 +3981,12 @@ dependencies = [
  "model",
  "sqlx",
  "tokio",
+ "workflow-core",
 ]
+
+[[package]]
+name = "workflow-core"
+version = "0.1.0"
 
 [[package]]
 name = "writeable"
