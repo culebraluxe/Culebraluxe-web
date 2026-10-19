@@ -45,7 +45,8 @@ Forge; business-domain crates should be split or versioned.
 | **C. Keep monorepo but modular** | Forge crate stays, app calls it in-process. | zero migration | does not achieve goal; VCS/factory lifecycle still coupled |
 
 **Recommendation: A.** The irreversible step (moving repo) comes *after* the network boundary and
-DB ownership are proven. Do not start with B.
+the DB cohabitation contract are proven. **No Neon split:** Forge and the app keep the same database
+and schema; only code, git home, deploy, and ownership boundaries move. Do not start with B.
 
 ## 3. Target shape
 
@@ -67,8 +68,10 @@ forgevcs (VCS repo)
 ```
 
 Shared boundary: a small `forge-contracts` crate (DTOs/types) consumed by app and Forge; app never
-links factory internals. DB: same Neon instance is acceptable, but **separate migration ledgers and
-schema ownership** (forge_* owned by Forge; app tables by app) — no shared `db` crate reads across.
+links factory internals. **One Neon database, one schema, one migration ledger** — Forge is NOT pulled
+out of Neon. The contract is table ownership: `forge_*`/`storyboard_*`/engine tables are Forge-owned,
+app tables are app-owned; migrations may move with Forge's new repo but still apply to the same
+database/ledger (no data migration, no second DB, no duplicate ledger).
 
 ## 4. Phased work orders
 
@@ -76,9 +79,9 @@ schema ownership** (forge_* owned by Forge; app tables by app) — no shared `db
 |---|---|---|
 | **X-1** | Coupling inventory + cut list (app↔forge imports, DB tables, CLI commands, scripts, docs) | machine-checked list; no app import of `forge::` remains after X-2 |
 | **X-2** | Forge HTTP control API (`forge-api`) with auth + cockpit read routes; app calls it; remove `forge` from `web` composition/boot | app compiles without `forge` crate; cockpit works via API; engine threads no longer in Vercel |
-| **X-3** | Split DB ownership: `forge-db`/migrations vs app; separate ledger; no cross-schema reads | `db` boundary review; boot gates pass |
+| **X-3** | DB cohabitation contract (no split): document table ownership, keep one Neon DB/schema/ledger; decide where the forge migrations live after the move and how the app boot gate sees them | ownership doc + one-ledger apply path; boot gates pass; no data copy |
 | **X-4** | Split CLI (`forge` binary vs app `cli`) and scripts/package targets | `forge` CLI standalone; app scripts unchanged |
-| **X-5** | New `forge` repo (own Cargo workspace, CI/gate, docs, secrets model); shared contracts versioned | fresh clone builds + tests + gate; app consumes contracts |
+| **X-5** | New `forge` git home (own Cargo workspace, CI/gate, docs, secrets model) pointed at the SAME Neon database; shared contracts versioned; no data migration | fresh clone builds + tests + gate against the existing DB; app consumes contracts |
 | **X-6** | ForgeVCS module inside Forge: publish adapter (WIRE-1..5) | WIRE-1 mirror + drift check; later dual-write |
 
 Sequence: X-1 → X-2 (boundary) → X-3/X-4 (ownership) → X-5 (move) → X-6 (ForgeVCS) in parallel
@@ -86,7 +89,7 @@ with WIRE-1 already proven.
 
 ## 5. Risks
 
-- **PROD work loss:** factory runs against PROD; extraction must not interrupt claims/jobs.
+- **PROD work loss:** factory runs against PROD; extraction must not interrupt claims/jobs or change the DB identity.
 - **Boot gate / migration ledger:** shared `db` and `schema_migration` must not be split mid-flight.
 - **Vercel bundling:** removing `forge` from `web` changes the deploy artefact; prove cockpit reads
   over HTTP before deploy.
