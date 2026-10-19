@@ -8,6 +8,7 @@ members = [
     "middle/services",
     "middle/workflow",
     "workflow-core",
+    "workflow-neon",
     "middle/apis",
     "db",
     "cli",

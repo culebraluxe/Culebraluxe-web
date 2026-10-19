@@ -1,0 +1,11 @@
+[package]
+name = "workflow-neon"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+workflow-core = { path = "../workflow-core" }
+db = { path = "../db" }
+sqlx.workspace = true
+tokio.workspace = true

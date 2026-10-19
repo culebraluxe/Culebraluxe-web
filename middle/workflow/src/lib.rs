@@ -1,15 +1,9 @@
-//! Compatibility façade: the host-neutral `workflow-core` primitives plus the Neon adapter.
+//! Compatibility façade: `workflow-core` plus the `workflow-neon` adapter under the historical
+//! `workflow::` paths.
 //!
-//! Step 1-2 of W-1 moved the pure modules (types/value/status/ids/sha256/error/expr/json_codec/
-//! store/memory/concurrency and the engine) into `workflow-core`; this crate re-exports them under
-//! the historical `workflow::` paths so existing hosts compile unchanged. The Neon adapter
-//! (`neon`, `NeonStore`, `sql_contract`) stays here until W-1 step 4.
-
-pub use model;
+//! W-1 steps 1-4 moved the pure kernel into `workflow-core` and the Postgres/Neon adapter into
+//! `workflow-neon`; this crate keeps `workflow::` stable for the Forge/app hosts until they consume
+//! the crates directly (W-1 steps 5+, then W-2 pinned versions).
 
 pub use workflow_core::*;
-
-pub mod neon;
-pub mod sql_contract;
-
-pub use neon::NeonStore;
+pub use workflow_neon::{neon, sql_contract, NeonStore};

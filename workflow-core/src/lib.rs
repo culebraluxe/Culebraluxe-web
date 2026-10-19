@@ -14,6 +14,7 @@ pub mod status;
 pub mod store;
 pub mod types;
 pub mod value;
+pub mod xml;
 
 pub use engine::{command_id, wall_clock_ms, EngineOptions, WorkflowEngine};
 pub use error::{Result, WorkflowError};
@@ -22,3 +23,4 @@ pub use memory::MemoryStore;
 pub use store::{Store, TxStore};
 pub use types::*;
 pub use value::Value;
+pub use xml::{definition_from_xml, parse_process_definition_xml, ParsedDefinition, XmlError};

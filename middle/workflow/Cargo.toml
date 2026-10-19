@@ -6,10 +6,7 @@ publish.workspace = true
 
 [dependencies]
 workflow-core = { path = "../../workflow-core" }
-model = { path = "../model" }
-db = { path = "../../db" }
-sqlx.workspace = true
-tokio.workspace = true
+workflow-neon = { path = "../../workflow-neon" }
 
 [[bin]]
 name = "workflow"

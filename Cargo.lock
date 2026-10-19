@@ -3977,16 +3977,23 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 name = "workflow"
 version = "0.1.0"
 dependencies = [
- "db",
- "model",
- "sqlx",
- "tokio",
  "workflow-core",
+ "workflow-neon",
 ]
 
 [[package]]
 name = "workflow-core"
 version = "0.1.0"
+
+[[package]]
+name = "workflow-neon"
+version = "0.1.0"
+dependencies = [
+ "db",
+ "sqlx",
+ "tokio",
+ "workflow-core",
+]
 
 [[package]]
 name = "writeable"
