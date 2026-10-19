@@ -38,3 +38,24 @@ access, or use a review tarball. No source is exposed publicly.
 | R6 | Auth-decision retention + ordered migration runner | DevOps | OPEN |
 
 Sequence: R1/R2 in parallel; R3 before R5; R5 then R4 if locking is needed; R6 before production claim.
+
+## External work order — Claude `forgevcs/WORK-ORDER-MULTIAGENT.md` (2026-10-19)
+
+Status: **QUEUED behind the P1 queue; evaluate after P1 streams close, do not start now.**
+File: `/Users/Shared/dev/src/forgevcs/WORK-ORDER-MULTIAGENT.md` (10 items, ~180–220h claimed).
+
+Preliminary triage (verify during evaluation):
+- **P0.2 idempotency for `claim()`** — ForgeVCS has **no claim operation**; claims belong to Forge
+  (`agent_work_item`). This item likely maps to Forge, not ForgeVCS, or is based on a wrong
+  assumption. Do not implement until the API surface is confirmed.
+- **P0.1 structured error codes** — partially satisfied by the just-landed `ApiError` (typed
+  enum + stable codes). Evaluate whether agents need finer retryable-vs-policy classification.
+- **P0.4 JSON logging** — likely genuine; assess against existing logs.
+- **P1.3 audit trail** — `forgevcs_auth_decisions` exists; gap is retention/query API, already WO-R6.
+- **P2.3 sequence ordering** — activation sequence exists; check whether it covers the claimed use.
+- **P1.1 backup idempotency** — backups/drills landed (FVCS-05); checkpoint recovery may still be real.
+- **P1.2 timeouts** — partially addressed in Forge probe sandbox (P1-C), not necessarily ForgeVCS ops.
+
+Evaluation criteria: keep only items that (a) target an API that exists, (b) aren't already closed,
+(c) have a testable acceptance criterion, (d) don't duplicate R2–R6 or the P1 queue. Re-estimate
+after dedupe; the 180–220h figure is not accepted yet.
