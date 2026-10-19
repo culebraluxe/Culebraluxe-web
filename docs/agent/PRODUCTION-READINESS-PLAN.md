@@ -16,7 +16,7 @@ and a named sign-off. Green unit tests alone do not count.
 | FVCS-02 | Path-prefix write scopes on push | write on `lane/a/**` allows only those paths; outside refused; ref scopes intact | DONE (ffbe5dd; path-prefix push tests; acl.toml must be narrowed per lane for enforcement) |
 | FVCS-03 | Rate limits + per-agent quotas | burst → 429 + Retry-After, no 5xx cascade, quotas observable | OPEN (next) |
 | FVCS-04 | 10-agent soak | 10 agents, independent repos, concurrent pushes, rename/conflict; 0 lost refs; latency/error report | OPEN (blocked by 01–03) |
-| FVCS-05 | Backup: Mac zip + restore drill + alert | scheduled zip, restore drill passes, failure alert, retention; psql dependency documented | OPEN (started) |
+| FVCS-05 | Backup: Mac zip + restore drill + alert | scheduled zip, restore drill passes, failure alert, retention; psql dependency documented | DONE (b937fa0; launchd 02:00 zip + weekly drill 11/11, failure alert proven, retention 7) |
 | FVCS-06 | Conflict resolution workflow | paused-conflict state + resolve/continue; tests | OPEN |
 | FVCS-07 | Staging + CI | second environment + checked pipeline (gate/smoke/deploy) | OPEN |
 | FVCS-08 | SLO/alerting + retention | readiness/error/latency/DB alerts; auth-decision retention | OPEN |
