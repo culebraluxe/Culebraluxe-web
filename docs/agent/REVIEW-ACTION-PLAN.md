@@ -31,11 +31,11 @@ access, or use a review tarball. No source is exposed publicly.
 | WO | Scope | Owner | Status |
 |---|---|---|---|
 | R1 | ForgeVCS facade decomposition + typed error enum + single admin-permission source; clippy large-err review | ForgeVCS engineer | DONE (facade/ dir, ApiError, AdminCapability; 56 service tests + full gate) |
-| R2 | Conflict `resolve`/`continue` endpoints + paused state | Smith | OPEN |
-| R3 | `acl.toml` lane-prefix rollout + live ACL proof in pilot | Operator/DevOps | OPEN |
-| R4 | Workspace write lock/lease design + tests | Architect | OPEN |
-| R5 | Real-work merge pilot (mirror real repo, 3–5 agent branches, compare to jj) | Lead | OPEN |
-| R6 | Auth-decision retention + ordered migration runner | DevOps | OPEN |
+| R2 | Conflict `resolve`/`continue` endpoints + paused state | Smith | DONE (paused conflicts API+CLI, workspace 137 tests, QA live pending) |
+| R3 | `acl.toml` lane-prefix rollout + live ACL proof in pilot | Operator/DevOps | DONE (18-check live PASS: path scopes + repo ACL layers) |
+| R4 | Workspace write lock/lease design + tests | Architect | DONE (DB lease + fencing/audit, real-Postgres test) |
+| R5 | Real-work merge pilot (mirror real repo, 3–5 agent branches, compare to jj) | Lead | NEXT |
+| R6 | Auth-decision retention + ordered migration runner | DevOps | DONE retention pruner (dry-run default); migration runner dropped (single-instance) |
 
 Sequence: R1/R2 in parallel; R3 before R5; R5 then R4 if locking is needed; R6 before production claim.
 
