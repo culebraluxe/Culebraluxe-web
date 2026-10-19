@@ -47,17 +47,23 @@ use forge::engine::harness_evolution::feed::{
 use forge::engine::harness_evolution::metrics::{
     role_model_metrics, RoleModelMetric, RoleModelObservation, RunOutcome,
 };
+use forge::engine::harness_evolution::contrast::contrast;
 use forge::engine::harness_evolution::model::{
-    AdoptionVerdict, EnvironmentClass, EvolutionBudget, EvolutionMode, HarnessDomain, ProposalKind,
+    AdoptionVerdict, BehaviorDimension, ContrastDirection, ContrastReport, DimensionContrast,
+    EnvironmentClass, EvolutionBudget, EvolutionMode, HarnessDomain, ProbeSpec, ProposalKind,
+};
+use forge::engine::harness_evolution::model_turn_sandbox::USAGE_UNMEASURED_REF;
+use forge::engine::harness_evolution::probe::{
+    ProbeContract, ProbePairReading, ProbeReading, ProbeSide,
 };
 use forge::engine::harness_evolution::model_turn_sandbox::{
     ModelTurnAuthorization, ModelTurnBackend, ModelTurnSandbox,
 };
 use forge::engine::harness_evolution::probe::ProbePins;
 use forge::engine::harness_evolution::probe_replay::{
-    environment_class_for, plan_recorded_replay, run_recorded_replay, HistoricalTask,
-    HistoricalTaskLoader, HistoricalTaskRequest, MapRevisionSource, RecordedReplayRequest,
-    ReplayError,
+    environment_class_for, plan_recorded_replay, HistoricalTask, HistoricalTaskLoader,
+    HistoricalTaskRequest, MapRevisionSource, RecordedReplayOutcome, RecordedReplayRequest,
+    ReplayError, ReplayProbeExecutor, ReplaySandbox, RevisionSource,
 };
 use forge::engine::harness_evolution::sandbox_command::{CommandSandbox, SandboxCommand};
 use forge::engine::harness_evolution::store_db::{
@@ -1465,11 +1471,6 @@ fn probe_identity(
             let backend = model_backend.ok_or_else(|| {
                 Failure::usage("a model-turn probe needs a resolved --model-backend")
             })?;
-            if *backend != ModelTurnBackend::Dsh {
-                return Err(Failure::usage(
-                    "OpenCode is deferred for probe dogfood; use --model-backend dsh",
-                ));
-            }
             let executor = backend.id().to_string();
             if let Some(explicit) = flag(args, "--executor") {
                 if explicit != executor {
@@ -1487,6 +1488,13 @@ fn probe_identity(
             if parts.len() != 2 || parts[0].trim().is_empty() || parts[1].trim().is_empty() {
                 return Err(Failure::usage(format!(
                     "--model {model:?} must be an exact provider/model id"
+                )));
+            }
+            // The OpenCode arm is free-model-only: the principal approved free ids, and a paid id
+            // must be a deliberate decision, not a typo.
+            if *backend == ModelTurnBackend::OpenCode && !model.trim().ends_with("-free") {
+                return Err(Failure::usage(format!(
+                    "--model-backend opencode accepts only free models (id must end in -free); {model:?} is refused"
                 )));
             }
             Ok(ProbeIdentitySelection {
@@ -1541,6 +1549,127 @@ fn probe_command_sandbox(args: &[String]) -> Result<CommandSandbox, Failure> {
     Ok(sandbox)
 }
 
+/// Run the matched pair with a pre-registered side order.
+///
+/// The executor's own `execute_pair` always runs reference first. The controlled cohort alternates
+/// which side runs first per story to keep ordering effects out of the comparison, so this helper
+/// executes the two pinned requests in the chosen order and assembles the same `ProbePairReading`
+/// the standard path produces. It is otherwise identical: contract validated first, evidence
+/// required by the sandbox, and unmeasured usage normalized to Unknown (never a zero comparison).
+fn run_recorded_replay_ordered(
+    loader: &dyn HistoricalTaskLoader,
+    sandbox: &dyn ReplaySandbox,
+    revisions: &dyn RevisionSource,
+    request: &RecordedReplayRequest,
+    candidate_first: bool,
+) -> Result<RecordedReplayOutcome, ReplayError> {
+    let base = revisions.revision(&request.base_revision)?;
+    let candidate = revisions.revision(&request.candidate_revision)?;
+    let contract = ProbeContract::new(
+        request.experiment_id.clone(),
+        &base,
+        &candidate,
+        request.pins.clone(),
+        request.mode,
+        request.budget,
+        request.seed,
+    )
+    .map_err(|error| ReplayError::UnmatchedPair {
+        message: error.to_string(),
+    })?;
+    contract
+        .validate()
+        .map_err(|error| ReplayError::UnmatchedPair {
+            message: error.to_string(),
+        })?;
+    let executor =
+        ReplayProbeExecutor::new(loader, sandbox, revisions, request.task_request.clone());
+    let reference_request = contract.reference_request(format!("{}-reference", request.experiment_id));
+    let candidate_request = contract.candidate_request(format!("{}-candidate", request.experiment_id));
+    let (reference, candidate_reading) = if candidate_first {
+        let candidate_reading = executor.execute_replay(&candidate_request)?;
+        let reference = executor.execute_replay(&reference_request)?;
+        (reference, candidate_reading)
+    } else {
+        let reference = executor.execute_replay(&reference_request)?;
+        let candidate_reading = executor.execute_replay(&candidate_request)?;
+        (reference, candidate_reading)
+    };
+    let pair = ProbePairReading {
+        contract_digest: contract.digest(),
+        reference,
+        candidate: candidate_reading,
+    };
+    let mut report = contrast(
+        format!("{}-contrast", request.experiment_id),
+        base.id.clone(),
+        candidate.id.clone(),
+        &pair.reference.behavior,
+        &pair.candidate.behavior,
+        &contract.reference_spec().identity(),
+        &contract.candidate_spec().identity(),
+    )
+    .map_err(|error| ReplayError::ContrastRefused {
+        message: error.to_string(),
+    })?;
+    normalize_unmeasured_usage(&mut report, &pair.reference, &pair.candidate);
+    Ok(RecordedReplayOutcome {
+        task: executor.load_task()?,
+        base,
+        candidate,
+        contract_digest: pair.contract_digest,
+        spec: contract.spec().clone(),
+        reference: pair.reference,
+        candidate_reading: pair.candidate,
+        contrast: report,
+    })
+}
+
+fn reading_usage_unmeasured(reading: &ProbeReading) -> bool {
+    reading
+        .outcome
+        .evidence_refs
+        .iter()
+        .any(|reference| reference == USAGE_UNMEASURED_REF)
+}
+
+fn summarize_dimensions(dimensions: &[DimensionContrast]) -> String {
+    let mut improved = 0;
+    let mut regressed = 0;
+    let mut unchanged = 0;
+    let mut unknown = 0;
+    for contrast in dimensions {
+        match contrast.direction {
+            ContrastDirection::Improved => improved += 1,
+            ContrastDirection::Regressed => regressed += 1,
+            ContrastDirection::Unchanged => unchanged += 1,
+            ContrastDirection::Unknown => unknown += 1,
+        }
+    }
+    format!("{improved} improved, {regressed} regressed, {unchanged} unchanged, {unknown} not captured")
+}
+
+fn normalize_unmeasured_usage(
+    report: &mut ContrastReport,
+    reference: &ProbeReading,
+    candidate: &ProbeReading,
+) {
+    if !reading_usage_unmeasured(reference) && !reading_usage_unmeasured(candidate) {
+        return;
+    }
+    for dimension in &mut report.dimensions {
+        if dimension.dimension != BehaviorDimension::Tokens {
+            continue;
+        }
+        dimension.direction = ContrastDirection::Unknown;
+        dimension.reference_value = None;
+        dimension.candidate_value = None;
+        dimension.note =
+            "usage unmeasured by the sandbox; token counts are not a reading".to_string();
+    }
+    report.summary = summarize_dimensions(&report.dimensions);
+}
+
 async fn run_probe(args: &[String]) -> Result<u8, Failure> {
     let format = parse_format(args)?;
     let database = database_for(args).await?;
@@ -1555,6 +1684,7 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
     };
     let identity = probe_identity(args, sandbox_choice, model_backend.as_ref())?;
     let model_turn_timeout = parse_model_turn_timeout(args, sandbox_choice)?;
+    let candidate_first = args.iter().any(|value| value == "--candidate-first");
 
     let domain_id = required_flag(args, "--domain")?;
     let domain = HarnessDomain::from_id(&domain_id).ok_or_else(|| {
@@ -1686,6 +1816,7 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
                 "candidate_revision": plan.candidate.id,
                 "contract_digest": plan.contract_digest(),
                 "sandbox": dry_run_sandbox,
+                "side_order": if candidate_first { "candidate-first" } else { "reference-first" },
                 "executor": identity.executor,
                 "model": identity.model,
                 "model_run_authorized": sandbox_choice == ProbeSandboxChoice::ModelTurn,
@@ -1723,8 +1854,14 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
     let (sandbox_label, outcome) = match sandbox_choice {
         ProbeSandboxChoice::Command => {
             let sandbox = probe_command_sandbox(args)?;
-            let outcome = run_recorded_replay(&loader, &sandbox, &revisions, &request)
-                .map_err(|error| Failure::failed(format!("probe refused or failed ({error})")))?;
+            let outcome = run_recorded_replay_ordered(
+                &loader,
+                &sandbox,
+                &revisions,
+                &request,
+                candidate_first,
+            )
+            .map_err(|error| Failure::failed(format!("probe refused or failed ({error})")))?;
             ("command".to_string(), outcome)
         }
         ProbeSandboxChoice::ModelTurn => {
@@ -1743,8 +1880,14 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
                 Failure::failed(format!("model-turn sandbox refused the probe: {error}"))
             })?;
             let label = format!("model-turn:{}", backend.id());
-            let outcome = run_recorded_replay(&loader, &sandbox, &revisions, &request)
-                .map_err(|error| Failure::failed(format!("probe refused or failed ({error})")))?;
+            let outcome = run_recorded_replay_ordered(
+                &loader,
+                &sandbox,
+                &revisions,
+                &request,
+                candidate_first,
+            )
+            .map_err(|error| Failure::failed(format!("probe refused or failed ({error})")))?;
             (label, outcome)
         }
     };
@@ -1820,6 +1963,7 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
             "candidate_revision": outcome.candidate.id,
             "contract_digest": outcome.contract_digest,
             "sandbox": sandbox_label,
+            "side_order": if candidate_first { "candidate-first" } else { "reference-first" },
             "model_turn_timeout_seconds": model_turn_timeout.map(|timeout| timeout.as_secs()),
             "executor": identity.executor,
             "model": identity.model,
@@ -2373,14 +2517,43 @@ mod probe_tests {
         )
         .is_err());
 
-        // OpenCode is deferred for the dogfood backend.
+        // OpenCode is allowed for free models only: free accepted (executor `opencode`), paid and
+        // unknown/other ids refused.
         let opencode = ModelTurnBackend::OpenCode;
-        assert!(probe_identity(
-            &args(&["--authorize-model-run", "--model", "x/y"]),
+        let free = probe_identity(
+            &args(&[
+                "--authorize-model-run",
+                "--model",
+                "opencode/deepseek-v4.1-flash-free",
+            ]),
             ProbeSandboxChoice::ModelTurn,
             Some(&opencode),
         )
-        .is_err());
+        .expect("free OpenCode model accepted");
+        assert_eq!(free.executor, "opencode");
+        for refused in [
+            "opencode/deepseek-v4-pro",
+            "opencode/deepseek-v4-flash",
+            "opencode/not-a-model",
+            "deepseek-official/deepseek-v4-flash",
+        ] {
+            assert!(
+                probe_identity(
+                    &args(&["--authorize-model-run", "--model", refused]),
+                    ProbeSandboxChoice::ModelTurn,
+                    Some(&opencode),
+                )
+                .is_err(),
+                "non-free OpenCode id {refused} must be refused"
+            );
+        }
+        // DSH still accepts its pinned model and is not subject to the free suffix rule.
+        assert!(probe_identity(
+            &args(&["--authorize-model-run", "--model", "deepseek-official/deepseek-v4-flash"]),
+            ProbeSandboxChoice::ModelTurn,
+            Some(&dsh),
+        )
+        .is_ok());
     }
 
     #[test]
@@ -2413,6 +2586,94 @@ mod probe_tests {
             ProbeSandboxChoice::Command
         )
         .is_err());
+    }
+
+    #[test]
+    fn the_pre_registered_interleaving_alternates_which_side_runs_first() {
+        use std::cell::RefCell;
+        use forge::engine::harness_evolution::model::{
+            BehaviorEvidence, Component, ComponentKind, EvolutionBudget, EvolutionMode,
+            HarnessDomain, HarnessManifest, HarnessRevision, QaVerdict,
+        };
+        use forge::engine::harness_evolution::probe_replay::SandboxReading;
+
+        struct OneTask(HistoricalTask);
+        impl HistoricalTaskLoader for OneTask {
+            fn load(&self, _request: &HistoricalTaskRequest) -> Result<HistoricalTask, ReplayError> {
+                Ok(self.0.clone())
+            }
+        }
+        struct RecordingSandbox {
+            sides: RefCell<Vec<ProbeSide>>,
+        }
+        impl ReplaySandbox for RecordingSandbox {
+            fn run(
+                &self,
+                request: &forge::engine::harness_evolution::probe_replay::SandboxRequest<'_>,
+            ) -> Result<SandboxReading, ReplayError> {
+                self.sides.borrow_mut().push(request.side);
+                let mut behavior = BehaviorEvidence::new(
+                    format!("evidence-{}", request.side.id()),
+                    request.probe_id.to_string(),
+                );
+                behavior.success = true;
+                behavior.qa = QaVerdict::Pass;
+                behavior.evidence_refs = vec![format!("sandbox:{}", request.probe_id)];
+                Ok(SandboxReading::new(behavior))
+            }
+        }
+        let base = HarnessRevision::draft(
+            "rev-1",
+            HarnessDomain::RustBackend,
+            HarnessManifest::from_components([Component::green(
+                ComponentKind::SystemPrompt,
+                "base",
+                "interleave test",
+            )]),
+            "owner",
+        );
+        let candidate = HarnessRevision::draft(
+            "rev-2",
+            HarnessDomain::RustBackend,
+            base.manifest.clone().with_component(Component::green(
+                ComponentKind::SystemPrompt,
+                "candidate",
+                "interleave test",
+            )),
+            "owner",
+        )
+        .with_parent(Some("rev-1".to_string()));
+        let revisions =
+            MapRevisionSource::from_revisions([base.clone(), candidate.clone()]).expect("source");
+        let request = RecordedReplayRequest {
+            experiment_id: "exp-order".into(),
+            pins: ProbePins::development("task-1"),
+            mode: EvolutionMode::Parallel,
+            budget: EvolutionBudget::k1(),
+            seed: 0,
+            base_revision: "rev-1".into(),
+            candidate_revision: "rev-2".into(),
+            task_request: HistoricalTaskRequest::for_story("story-1"),
+        };
+        let loader = OneTask(HistoricalTask::new("story-1", "run-1", "t", "packet"));
+        let sandbox = RecordingSandbox {
+            sides: RefCell::new(Vec::new()),
+        };
+        run_recorded_replay_ordered(&loader, &sandbox, &revisions, &request, false)
+            .expect("reference-first run");
+        assert_eq!(
+            *sandbox.sides.borrow(),
+            vec![ProbeSide::Reference, ProbeSide::Candidate],
+            "reference-first runs the reference side first"
+        );
+        sandbox.sides.borrow_mut().clear();
+        run_recorded_replay_ordered(&loader, &sandbox, &revisions, &request, true)
+            .expect("candidate-first run");
+        assert_eq!(
+            *sandbox.sides.borrow(),
+            vec![ProbeSide::Candidate, ProbeSide::Reference],
+            "candidate-first runs the candidate side first"
+        );
     }
 
     #[test]
