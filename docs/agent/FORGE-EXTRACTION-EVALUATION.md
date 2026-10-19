@@ -1,8 +1,11 @@
 # Forge extraction evaluation — 3 repos
 
 Target: **Culebraluxe-web** (app), **Forge** (software factory), **ForgeVCS** (VCS). Today Forge is a
-crate inside the app repo and is *served by the app process*; ForgeVCS is already a separate repo but
-is not wired to Forge.
+crate inside the app repo and is *served by the app process*. **ForgeVCS already has its own home**
+(`/Users/Shared/dev/src/forgevcs`, git `main`, remote `culebraluxe/forgevcs`, hosted
+`https://culebraluxe-forgevcs.vercel.app`, service + human CLI). Do not create another ForgeVCS repo:
+the only new thing is a **Forge-side ForgeVCS adapter/module** (publish/drift), while the VCS repo
+stays where it is.
 
 ## 1. Current coupling (measured, not guessed)
 
