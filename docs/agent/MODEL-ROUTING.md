@@ -117,3 +117,20 @@ If a model is not in this list and not a DSH-native model, it is **not available
 - **OpenCode:** `opencode run --model <exact id>`; Forge probes only `*-free`.
 - **Maestro:** routes through OpenCode, so use the OpenCode list.
 - **Claude/Codex/Grok:** own CLIs, T3 gate.
+
+## Enforcement (machine-readable)
+
+`config/model-roster.json` is the registry: provider paths, exact model lists, tier rankings, and
+gates. `scripts/model-route.py` validates and resolves:
+
+```
+python3 scripts/model-route.py list
+python3 scripts/model-route.py resolve --tier T2 --path opencode
+python3 scripts/model-route.py check --path opencode --model opencode/space-bunny-free
+python3 scripts/model-route.py check --path claude --model "Claude Opus 5.5"   # refuses: T3 needs approval
+python3 scripts/model-route.py gate --tier T3_ULTRA --approve-ultra --model "Claude Opus 5.5" --reason "..."
+```
+
+Rules enforced: model must belong to the named path; T3 Ultra refuses without `--approve-ultra`;
+unknown models are refused. No secrets/network are read. This is the resolver the orchestrator should
+call before spawning/pinning an agent.
