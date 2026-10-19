@@ -438,9 +438,10 @@ deferred; two read-only slices are worth doing now because the durable rows alre
    decisions one-pager over the read-only `forge sql` path; the 15-minute stuck window reuses the
    engine's `forge_reapable_claims` rule. Existing human/JSON modes unchanged.
 
-Remaining Phase 3 TD: DSH per-seat web presets, skill-invocation capture, model/role linkage,
-correction/hypothesis ledgers, routing metrics, earned autonomy (owner-approved only), drift report,
-freshness/audits, Council calibration, and self-modification rails.
+Remaining Phase 3 TD (updated 2026-10-19): DSH per-seat web presets, skill-invocation capture,
+model/role linkage, earned autonomy (owner-approved only), drift report, freshness/audits, and
+self-modification rails. The correction/hypothesis ledger, routing/model-role metrics and Council
+calibration landed on 2026-10-18 (see "Tech-debt closure" below), so they are no longer listed here.
 
 **Tech debt, with exits (the rest of Phase 3):**
 - **Correction → specification → rail (3.3).** High value, but it needs a durable correction→rule→
@@ -490,9 +491,11 @@ Compose → Forge Validate → Adopt/Reject → Reflect.
 - domain-scoped experience library requiring contrast + complete validation, capped retrieval,
   scope = domain+executor+mode+budget+seed;
 - additive migration `db/migrations/294_forge_harness_evolution.sql` (9 tables, FKs to existing
-  evidence, one-active-per-domain index) — **deliberately NOT applied** (migrations are human
-  holds per WO-07);
-- `docs/agent/HARNESS-EVOLUTION-ARCHITECTURE.md`; 162 module tests.
+  evidence, one-active-per-domain index) — **applied to DEV and PROD** and listed in
+  `db/src/boot_gate.rs`'s `REQUIRED_BOOT_MIGRATIONS`; migration 295 (correction ledger) likewise.
+  The ledger rows were re-verified read-only on both targets on 2026-10-19;
+- `docs/agent/HARNESS-EVOLUTION-ARCHITECTURE.md`; the module suite is 332 tests run / 329 passing /
+  3 database-backed ignored (2026-10-19; full `forge` lib is 1052 passing).
 
 **Completed 2026-10-18 (items 1–7):**
 1. Migration 294 applied to **DEV and PROD** (`pnpm db:migrate ... dev|prod`; parity 0/0/0/0) and a
@@ -502,35 +505,44 @@ Compose → Forge Validate → Adopt/Reject → Reflect.
 2. Replay probe infrastructure: `probe_replay.rs` loads a historical story/run from the control plane,
    materializes the candidate harness content, and runs reference+candidate through an injected
    `ReplaySandbox`; production is refused before loading/execution, evidence is linked by durable ids
-   only. The concrete sandbox runner (launching a model turn in a sandbox) remains the next wiring.
+   only. Both sandbox runners now exist: `sandbox_command.rs` (allowlisted command) and
+   `model_turn_sandbox.rs` (DSH/OpenCode model turn with explicit `--authorize-model-run`).
 3. LLM proposer: `proposer_llm.rs` implements `Proposer` over the existing read-only advisory
    `SeatRunner`, strict JSON with byte/shape limits, policy rejection of RED/authority changes before
    returning; fake-runner tests only (no live model calls in tests).
-4. Phase 3 feed: `feed.rs` converts read-only scorecard buckets and repeated HOLD groups into typed
-   `ImprovementTarget`s (conservative thresholds, evidence refs required, deterministic/capped), which
-   `propose.rs` consumes; the scorecard and daily digest also expose the optimizer surface (digest
-   `HARNESS` line).
+4. Phase 3 feed: `feed.rs` converts read-only scorecard buckets, repeated HOLD groups, repeated
+   corrections and learn hypotheses into typed targets (conservative thresholds, evidence refs
+   required, deterministic/capped), which `propose.rs` consumes; experiment outcomes write back to the
+   correction ledger/experience without a second store; the scorecard and daily digest expose the
+   optimizer surface (digest `HARNESS` line).
 5. k>1 recursion: `run_recursion` supports parallel (shared evidence, k compositions) and sequential
    (chained passes) modes under `EvolutionBudget`, ceilings enforced before any probe; k=1 unchanged.
 6. Operator surface: `forge harness-evolution status|revisions|experiments|experience` (read-only,
-   `--format json`) + `pnpm forge:harness-evolution`; daily digest shows active revisions per domain.
+   `--format json`), plus the O1 views `feed|metrics|calibration` and the O2 `probe` writer
+   (`--dry-run` for the read-only plan) in `cli/src/forge/harness_evolution.rs`; daily digest shows
+   active revisions per domain.
 7. Validator seam D3: `ValidationContext.changes` carries the exact composed changes into
    `ForgeValidationStage`; D4 transactional activation implemented and tested (failed store write
    leaves active pointer/status unchanged).
+8. DSH version pin (FORGE-02, 2026-10-19): `forge/src/engine/dsh/preflight.rs` enforces
+   `DSH_EXPECTED_VERSION` (default `0.1.1-rc.2`) and refuses a mismatch before a claim is spent;
+   `model_turn_sandbox.rs` records the verified vendor version in the receipt and probe evidence
+   (`model-turn:vendor-version:`), and `docs/agent/SOP-DSH-UPGRADE.md` is the upgrade/rollback/plugin
+   vetting runbook.
 
-**Remaining TD (production wiring, not prerequisites):**
-- A real `ReplaySandbox` implementation that launches Forge/OpenCode in a sandbox (the trait and
-  production refusal exist; `UnavailableSandbox` refuses rather than pretending).
-- Wire `ForgeHistoricalTaskLoader` + the sandbox into the dogfood experiment (3–5 historical Rust
-  stories, prompt/tool-guidance only, k=1) and record the first experiment rows.
-- Feed `learn.rs` correction/hypothesis findings (beyond scorecard buckets and HOLD groups) and write
-  experiment outcomes back without a second learning store.
-- Automatic adoption stays OFF (effective-GREEN policy only; no production evidence yet).
+**Remaining TD (2026-10-19):**
+- Automatic adoption stays OFF: the supervised effective-GREEN gate (FORGE-03) is still OPEN; the
+  policy path exists but no CLI/HTTP caller may activate a revision.
+- OpenCode remains deferred: DSH is the primary backend; revisit OpenCode per the upgrade SOP when
+  provider routing is stable.
+- Cost: DSH tokens are measured (8/10 cohort turns); dollars remain NOT CAPTURED until the operator
+  sets `DSH_PRICE_*` rates — unmeasured is `None`, never zero.
+- A wider cohort/compose/validate pass is blocked on FORGE-03, not on missing wiring.
 
 QA D1 (adoption re-check with an empty change list / kind-floor-only adoption) and D2 (probe-reading
 id mismatch) were fixed before landing: adoption re-runs `policy::validate_candidate` with the
 canonical `changes_between` diff, and adoption classifies the effective authority of changed
-surfaces; module tests are 170/170.
+surfaces. The module suite measured on 2026-10-19 is 332 run / 329 passing / 3 ignored.
 
 
 ## Tech-debt closure — 2026-10-18 (afternoon)
@@ -555,10 +567,11 @@ All remaining named items were built rather than deferred:
   outcome, unscored when data is missing, out-of-range probabilities are typed errors.
 - **Automatic adoption remains OFF** (effective-GREEN policy only; no production evidence yet).
 
-Remaining honest limits: the sandbox is a command runner (exit status stands in for a model turn,
-cost `None`, receipt is a local file not a probe DB row); the dogfood experiment is a dry-run plan
-until a real probe entrypoint records probe rows; `forge harness-evolution probe` is not a CLI
-command yet.
+Remaining honest limits (updated 2026-10-19): both sandbox runners exist (command and model-turn),
+and `forge harness-evolution probe` records real experiment/candidate/probe/contrast rows for a named
+target (with `--dry-run` for the read-only plan). The probe entrypoint still lacks the subsystem's
+pre-probe policy/lineage gate and writes rows without one transaction — tracked as an open P1 finding,
+not as missing wiring.
 
 
 ## Harness execution backends — 2026-10-18
@@ -571,5 +584,8 @@ command yet.
 - **DSH usage capture:** FIXED (canonical realpath session discovery, real DSH home, measured/unmeasured
   refs). Cohort measured 8/10 turns. Cost remains NOT CAPTURED until operator price rates exist.
 - **Probe identity executor:** FIXED (probe spec records `dsh`/`command` and the explicit model run).
+- **DSH version pin (FORGE-02):** ENFORCED 2026-10-19 — `DSH_EXPECTED_VERSION` (default
+  `0.1.1-rc.2`) is asserted before a claim is spent; the verified version is recorded in model-turn
+  receipts and probe evidence. Upgrade/rollback/plugin vetting: `docs/agent/SOP-DSH-UPGRADE.md`.
 - **Dogfood breadth:** cohort of 5 done (7 improved / 2 regressed / 65 unchanged); mixed signal, no
   adoption. Next: cost rates + another cohort before compose/validate.

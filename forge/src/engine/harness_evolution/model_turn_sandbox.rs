@@ -40,8 +40,8 @@ use crate::engine::opencode_client;
 
 use super::model::{BehaviorEvidence, EnvironmentClass, QaVerdict};
 use super::probe_replay::{
-    assert_non_production_environment, HistoricalTask, ReplayError, ReplayHarness, ReplaySandbox,
-    SandboxReading, SandboxRequest,
+    HistoricalTask, ReplayError, ReplayHarness, ReplaySandbox, SandboxReading, SandboxRequest,
+    assert_non_production_environment,
 };
 use super::sandbox_command::read_stream_bounded;
 
@@ -70,6 +70,9 @@ pub const EXEC_REF_PREFIX: &str = "model-turn:exec:";
 pub const RECEIPT_REF_PREFIX: &str = "model-turn:receipt:";
 /// Ref prefix for the backend that ran.
 pub const BACKEND_REF_PREFIX: &str = "model-turn:backend:";
+
+/// Ref prefix for the vendor version the turn ran under (FORGE-02 pin evidence).
+pub const VENDOR_VERSION_REF_PREFIX: &str = "model-turn:vendor-version:";
 /// Ref label for a measured usage turn.
 pub const USAGE_MEASURED_REF: &str = "model-turn:usage:measured";
 /// Ref label for an unmeasured usage turn. Never presented as zero usage.
@@ -121,24 +124,28 @@ impl ModelTurnBackend {
 
     /// Fail closed before a turn: the selected backend must exist and speak the contract the
     /// adapter is written against. No contract check is deferred to post-spend.
-    pub fn ensure_available(&self) -> Result<(), ReplayError> {
+    /// Fail closed before a turn and return the vendor version the backend reported, when the
+    /// backend has one. DSH is pinned (`DSH_EXPECTED_VERSION`) and the actual version travels with
+    /// it so the model-turn receipt and probe evidence can name the vendor build.
+    pub fn ensure_available(&self) -> Result<Option<String>, ReplayError> {
         match self {
             Self::Dsh => {
                 let cli = dsh::default_cli()
                     .map_err(|error| refused(format!("DSH is unavailable: {error}")))?;
-                dsh::preflight::preflight(&cli)
-                    .map_err(|error| refused(format!("DSH preflight failed: {error}")))
+                let version = dsh::preflight::preflight_with_version(&cli)
+                    .map_err(|error| refused(format!("DSH preflight failed: {error}")))?;
+                Ok(Some(version.actual))
             }
             Self::OpenCode => {
                 let bin = crate::engine::opencode::default_cli_bin();
                 opencode_client::verify_vendor_contract(&bin)
-                    .map(|_| ())
+                    .map(|_| None)
                     .map_err(|error| refused(format!("OpenCode is unavailable: {error}")))
             }
             #[cfg(test)]
             Self::Command { program, .. } => {
                 if program.is_absolute() {
-                    Ok(())
+                    Ok(None)
                 } else {
                     Err(refused(format!(
                         "fake command program {} is not an absolute path",
@@ -161,6 +168,9 @@ impl ModelTurnBackend {
 pub struct ModelTurnAuthorization {
     backend: ModelTurnBackend,
     environment_class: EnvironmentClass,
+    /// Actual vendor version captured by the fail-closed preflight (`None` for backends without a
+    /// versioned contract, e.g. the test command backend).
+    vendor_version: Option<String>,
 }
 
 impl ModelTurnAuthorization {
@@ -174,10 +184,11 @@ impl ModelTurnAuthorization {
         if environment_class.is_production() || !environment_class.allows_probe() {
             return Err(ReplayError::ProductionRefused { environment_class });
         }
-        backend.ensure_available()?;
+        let vendor_version = backend.ensure_available()?;
         Ok(Self {
             backend,
             environment_class,
+            vendor_version,
         })
     }
 
@@ -202,6 +213,11 @@ impl ModelTurnAuthorization {
 
     pub fn environment_class(&self) -> EnvironmentClass {
         self.environment_class
+    }
+
+    /// The vendor version the preflight verified, when the backend reports one.
+    pub fn vendor_version(&self) -> Option<&str> {
+        self.vendor_version.as_deref()
     }
 }
 
@@ -241,6 +257,12 @@ pub fn parse_usage_marker(stdout: &str) -> Option<CapturedUsage> {
     })
 }
 
+/// The evidence ref that records a vendor version, when one was reported. Kept as a pure helper so
+/// the receipt field and the probe evidence ref cannot disagree.
+fn vendor_version_ref(version: Option<&str>) -> Option<String> {
+    version.map(|version| format!("{VENDOR_VERSION_REF_PREFIX}{version}"))
+}
+
 /// One recorded model turn: the only durable artifact this sandbox writes.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ModelTurnReceipt {
@@ -249,6 +271,9 @@ pub struct ModelTurnReceipt {
     pub revision: String,
     pub manifest_hash: String,
     pub backend: String,
+    /// The vendor version the turn ran under, when the backend reports one (FORGE-02).
+    #[serde(default)]
+    pub vendor_version: Option<String>,
     pub authorized_via: String,
     pub environment_class: String,
     pub model: String,
@@ -490,6 +515,7 @@ impl ReplaySandbox for ModelTurnSandbox {
             revision: request.harness.revision.clone(),
             manifest_hash: request.harness.manifest_hash.clone(),
             backend: self.authorization.backend.id().to_string(),
+            vendor_version: self.authorization.vendor_version.clone(),
             authorized_via: ModelTurnAuthorization::FLAG.to_string(),
             environment_class: request.environment_class.id().to_string(),
             model: request.model.to_string(),
@@ -558,6 +584,9 @@ impl ReplaySandbox for ModelTurnSandbox {
         ];
         if let Some(session) = &receipt.session_id {
             evidence_refs.push(format!("{SESSION_REF_PREFIX}{session}"));
+        }
+        if let Some(version_ref) = vendor_version_ref(receipt.vendor_version.as_deref()) {
+            evidence_refs.push(version_ref);
         }
         behavior.evidence_refs = evidence_refs;
         Ok(SandboxReading::new(behavior))
@@ -1129,16 +1158,20 @@ mod tests {
         );
         assert_eq!(reading.behavior.tokens_out, 0);
         assert_eq!(reading.behavior.cost_micros, None, "unpriced is not zero");
-        assert!(reading
-            .behavior
-            .evidence_refs
-            .iter()
-            .any(|reference| reference == USAGE_UNMEASURED_REF));
-        assert!(reading
-            .behavior
-            .evidence_refs
-            .iter()
-            .any(|reference| reference.starts_with(BACKEND_REF_PREFIX)));
+        assert!(
+            reading
+                .behavior
+                .evidence_refs
+                .iter()
+                .any(|reference| reference == USAGE_UNMEASURED_REF)
+        );
+        assert!(
+            reading
+                .behavior
+                .evidence_refs
+                .iter()
+                .any(|reference| reference.starts_with(BACKEND_REF_PREFIX))
+        );
 
         let receipt = receipt_for(&reading);
         assert_eq!(receipt.backend, "command");
@@ -1152,9 +1185,11 @@ mod tests {
         assert_eq!(receipt.prompt_sha256.len(), 64);
         assert!(receipt.prompt_bytes > 0);
         // The materialized prompt reached the fake harness as argv, content only.
-        assert!(receipt
-            .stdout_excerpt
-            .contains("HARNESS EVOLUTION REPLAY PROBE"));
+        assert!(
+            receipt
+                .stdout_excerpt
+                .contains("HARNESS EVOLUTION REPLAY PROBE")
+        );
         assert!(receipt.stdout_excerpt.contains("GOAL:"));
         assert!(!receipt.stdout_excerpt.contains("authority"));
     }
@@ -1172,11 +1207,13 @@ mod tests {
         assert_eq!(reading.behavior.tokens_in, 11);
         assert_eq!(reading.behavior.tokens_out, 7);
         assert_eq!(reading.behavior.cost_micros, Some(123));
-        assert!(reading
-            .behavior
-            .evidence_refs
-            .iter()
-            .any(|reference| reference == USAGE_MEASURED_REF));
+        assert!(
+            reading
+                .behavior
+                .evidence_refs
+                .iter()
+                .any(|reference| reference == USAGE_MEASURED_REF)
+        );
         let receipt = receipt_for(&reading);
         assert_eq!(receipt.usage_source, "command_marker");
         assert_eq!(receipt.input_tokens, Some(11));
@@ -1309,9 +1346,11 @@ mod tests {
         let reading = run(&sandbox, &fixture, "probe-cap").expect("reading");
         let receipt = receipt_for(&reading);
         assert!(receipt.stdout_truncated);
-        assert!(receipt
-            .stdout_excerpt
-            .contains("[truncated at 16 bytes of "));
+        assert!(
+            receipt
+                .stdout_excerpt
+                .contains("[truncated at 16 bytes of ")
+        );
         assert!(receipt.stdout_bytes > 16);
     }
 
@@ -1398,5 +1437,13 @@ mod tests {
         // No sessions anywhere: UNMEASURED, never a fabricated id.
         assert_eq!(discover_session_across(&[root.join("empty")]), None);
         let _ = std::fs::remove_dir_all(&root);
+    }
+    #[test]
+    fn the_vendor_version_is_recorded_as_probe_evidence() {
+        assert_eq!(
+            vendor_version_ref(Some("0.1.1-rc.2")).as_deref(),
+            Some("model-turn:vendor-version:0.1.1-rc.2")
+        );
+        assert_eq!(vendor_version_ref(None), None);
     }
 }

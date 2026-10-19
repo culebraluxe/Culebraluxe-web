@@ -59,9 +59,9 @@ use forge::engine::harness_evolution::model_turn_sandbox::{
 use forge::engine::harness_evolution::probe::ProbePins;
 use forge::engine::harness_evolution::probe::{ProbeContract, ProbePairReading, ProbeReading};
 use forge::engine::harness_evolution::probe_replay::{
-    environment_class_for, plan_recorded_replay, HistoricalTask, HistoricalTaskLoader,
-    HistoricalTaskRequest, MapRevisionSource, RecordedReplayOutcome, RecordedReplayRequest,
-    ReplayError, ReplayProbeExecutor, ReplaySandbox, RevisionSource,
+    environment_class_for, plan_recorded_replay, validate_probe_candidate, HistoricalTask,
+    HistoricalTaskLoader, HistoricalTaskRequest, MapRevisionSource, RecordedReplayOutcome,
+    RecordedReplayRequest, ReplayError, ReplayProbeExecutor, ReplaySandbox, RevisionSource,
 };
 use forge::engine::harness_evolution::sandbox_command::{CommandSandbox, SandboxCommand};
 use forge::engine::harness_evolution::store_db::{
@@ -300,6 +300,8 @@ pub fn usage() {
     );
     eprintln!("              [--tool T]... [--dataset D] [--test-plan P] [--replay-id R]");
     eprintln!("              [--mode parallel|sequential] [--k N] [--seed N] [--target dev|prod]");
+    eprintln!("              --target names the DATABASE the probe WRITES to; v1 refuses prod.");
+    eprintln!("              --environment names the sandbox EXECUTION class (never production).");
     eprintln!("              [--dry-run]");
     eprintln!("              Records a real replay probe/contrast through the durable store:");
     eprintln!(
@@ -1503,6 +1505,19 @@ fn probe_identity(
     }
 }
 
+/// v1 refuses a probe against the production database. `--target` names the DATABASE the probe
+/// would WRITE to; `--environment` names the execution class the sandbox runs in. Both must be
+/// non-production, and the database check is the one that protects the control plane: no spend, no
+/// persistence, no pointer move against prod. An audited override is deliberately not implemented.
+fn probe_target_allowed(target: DbTarget) -> Result<(), Failure> {
+    if target == DbTarget::Prod {
+        return Err(Failure::failed(
+            "probe refuses --target prod in v1: a probe never writes experiments to the production control plane (use --target dev; --environment is the execution class, not the database)",
+        ));
+    }
+    Ok(())
+}
+
 /// `--model-turn-timeout-seconds` for one paid model turn: absent keeps the sandbox default (300),
 /// above the vendor maximum (1800) or zero is a usage error. Only meaningful with a model turn; a
 /// command-sandbox probe that also passes it is refused rather than silently ignoring the intent.
@@ -1563,6 +1578,9 @@ fn run_recorded_replay_ordered(
 ) -> Result<RecordedReplayOutcome, ReplayError> {
     let base = revisions.revision(&request.base_revision)?;
     let candidate = revisions.revision(&request.candidate_revision)?;
+    // The SAME pre-probe policy+lineage gate as the dry run: no probe (command or model turn) can
+    // run a candidate that is not the base's direct child or that policy refuses.
+    validate_probe_candidate(&base, &candidate)?;
     let contract = ProbeContract::new(
         request.experiment_id.clone(),
         &base,
@@ -1675,7 +1693,9 @@ fn normalize_unmeasured_usage(
 async fn run_probe(args: &[String]) -> Result<u8, Failure> {
     let format = parse_format(args)?;
     let database = database_for(args).await?;
-    let target = database.declared_target().as_str().to_string();
+    let declared_target = database.declared_target();
+    probe_target_allowed(declared_target)?;
+    let target = declared_target.as_str().to_string();
     let dry_run = args.iter().any(|value| value == "--dry-run");
     // Sandbox-flag contract first: a mutually exclusive combination is a usage error before any
     // database read, never a run that gets halfway.
@@ -1904,38 +1924,15 @@ async fn run_probe(args: &[String]) -> Result<u8, Failure> {
     let rows = plan_replay_persistence(&meta, &outcome)
         .map_err(|error| Failure::failed(format!("probe records are unbuildable: {error}")))?;
 
-    // Insert order follows the foreign keys: experiment -> candidate -> probes -> contrast.
+    // ONE transaction for the whole lineage: experiment, candidate, probes, contrast. A failure
+    // leaves no partial rows (the DAO rolls the transaction back), so a retry with a fresh
+    // experiment id is safe and a failed record cannot masquerade as a completed experiment.
     harness_dao
-        .insert_experiment(&rows.experiment)
+        .insert_probe_run(&rows.experiment, &rows.candidate, &rows.probes, &rows.contrast)
         .await
         .map_err(|error| {
             Failure::failed(format!(
-                "probe record failed at experiment {experiment_id}: {error}"
-            ))
-        })?;
-    harness_dao
-        .insert_candidate(&rows.candidate)
-        .await
-        .map_err(|error| {
-            Failure::failed(format!(
-                "probe record failed at candidate (experiment {experiment_id}): {error}"
-            ))
-        })?;
-    for probe in &rows.probes {
-        harness_dao.insert_probe(probe).await.map_err(|error| {
-            Failure::failed(format!(
-                "probe record failed at probe {}: {error}",
-                probe.probe_id
-            ))
-        })?;
-    }
-    harness_dao
-        .insert_contrast(&rows.contrast)
-        .await
-        .map_err(|error| {
-            Failure::failed(format!(
-                "probe record failed at contrast {} (experiment {experiment_id}): {error}",
-                rows.contrast.contrast_id
+                "probe record transaction failed for experiment {experiment_id} (no rows persisted): {error}"
             ))
         })?;
 
@@ -2560,6 +2557,18 @@ mod probe_tests {
             Some(&dsh),
         )
         .is_ok());
+    }
+
+    #[test]
+    fn probe_refuses_the_production_database_target() {
+        probe_target_allowed(DbTarget::Dev).expect("dev target is allowed");
+        let refused = probe_target_allowed(DbTarget::Prod).expect_err("prod must be refused");
+        let message = refused.to_string();
+        assert!(message.contains("--target prod"), "{message}");
+        assert!(
+            message.contains("no spend") || message.contains("never writes"),
+            "{message}"
+        );
     }
 
     #[test]

@@ -33,6 +33,7 @@ and a named sign-off. Green unit tests alone do not count.
 | FORGE-05 | Operator surface + SLO for harness | CLI/status/digest covered; failure alerts; runbook | OPEN |
 | FORGE-06 | CTO office scheduler + offsite zip | daily pulse (start-session alerts) + scheduled zip; cold-start acceptance | OPEN |
 | FORGE-07 | Readiness register + sign-off | written register for Forge delivery, harness, CTO staff; principal sign-off | OPEN |
+| FORGE-08 | Probe safety: pre-probe policy/lineage gate, prod-target refusal, transactional persistence, adoption kill switch | all four with tests + failure-injection evidence | DONE (2026-10-19; 337 harness / 63 db / 187 cli tests, gate PASS) |
 
 ## SOPs (runbooks) to write alongside
 

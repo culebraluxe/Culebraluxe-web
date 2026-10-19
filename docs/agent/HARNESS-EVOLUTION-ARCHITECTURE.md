@@ -1,8 +1,10 @@
 # Harness Evolution — Architecture (native Rust)
 
-**Status:** Batch A contracts landed 2026-10-18. Native Rust, no Python sidecar.
-**Code:** `forge/src/engine/harness_evolution/model.rs` (contracts) and
-`policy.rs` (protected surfaces + adoption policy).
+**Status:** v1 landed 2026-10-18; DSH version pin + version evidence added 2026-10-19.
+Native Rust, no Python sidecar.
+**Code:** `forge/src/engine/harness_evolution/` (model/policy/catalog/probe/experiment/adoption/
+propose/contrast/compose/validate/experience/feed/metrics/calibration/proposer_llm/probe_replay/
+model_turn_sandbox/store_db/dogfood/sandbox_command) and `cli/src/forge/harness_evolution.rs`.
 **Reference:** [google-research/harness2](https://github.com/google-research/harness2)
 (Apache-2.0). We adopt the *ideas* — the eight editable harness components, the
 Propose–Probe–Compose loop, parallel/sequential recursion, and per-scope experience
@@ -197,14 +199,15 @@ promotion.
 | Batch | Owner | Scope | State |
 | --- | --- | --- | --- |
 | A | Architect | `model.rs` contracts, `policy.rs` protected surfaces + adoption policy, this doc | landed |
-| A–B, E | Lead | `catalog.rs` (revision map, active pointer, atomic adopt/rollback), `probe.rs` (pinning/refusal/probe executor trait), `experiment.rs` (state machine, failure isolation), `adoption.rs`, migration 294 | next |
-| C | Smith | `propose.rs`, `contrast.rs`, `compose.rs`, `validate.rs`, `experience.rs` | next |
-| D | Lead + Architect | wire `mod.rs`, module exports, end-to-end test double (`RecordedProbe`) and one recorded experiment fixture | after B/C |
-| E | QA | safety-rail verification, clippy, `pnpm forge:harness` | last |
-| F (future) | — | routing metrics, correction rail | future |
+| A–B, E | Lead | `catalog.rs` (revision map, active pointer, atomic adopt/rollback), `probe.rs` (pinning/refusal/probe executor trait), `experiment.rs` (state machine, failure isolation), `adoption.rs`, migration 294 | landed |
+| C | Smith | `propose.rs`, `contrast.rs`, `compose.rs`, `validate.rs`, `experience.rs` | landed |
+| D | Lead + Architect | wire `mod.rs`, module exports, end-to-end test doubles (`RecordedProbe`, `CommandSandbox`, `ModelTurnSandbox`) and the O2 `probe` command | landed |
+| E | QA | safety-rail verification, clippy, `pnpm forge:harness` | landed (PASS WITH DEFECTS, 2026-10-18; hardening H1–H6 then fixed) |
+| F | — | FORGE-02 DSH pin/SOP, FORGE-03 supervised adoption gate, further cohorts | FORGE-02 landed 2026-10-19; FORGE-03 OPEN |
 
-Wiring: `mod.rs` (Lead) declares `pub mod model; pub mod policy;` and the rest as batches
-land; `engine/mod.rs` adds `pub mod harness_evolution;`.
+Wiring: `mod.rs` declares every module and `engine/mod.rs` re-exports `harness_evolution` (done);
+`cli/src/forge/harness_evolution.rs` is the operator surface (`status|revisions|experiments|
+experience|feed|metrics|calibration|probe`).
 
 ## 9. Non-goals
 
@@ -217,12 +220,13 @@ land; `engine/mod.rs` adds `pub mod harness_evolution;`.
 ## 10. Verification
 
 ```sh
-cargo test -p forge harness_evolution::model
-cargo test -p forge harness_evolution::policy
+cargo test -p forge --lib harness_evolution   # 332 run / 329 pass / 3 database-backed ignored (2026-10-19)
+cargo test -p forge --lib                     # 1052 passed / 5 ignored
 cargo check -p forge --all-targets
+pnpm forge:harness                            # packet/skill/manifest/opencode gates
 ```
 
-The contracts are covered by 46 unit tests: canonical hash stability and immutability,
+The subsystem is covered by 332 tests (329 passing, 3 ignored DB smokes): canonical hash stability and immutability,
 serialization roundtrip, closed lifecycle transitions, candidate/revision construction,
 budget/candidate-set k=1 defaults, probe identity matching plus production/same-revision
 refusals, honest "not captured" dimensions, identity-mismatch contrast refusal, composition
@@ -243,7 +247,12 @@ v1 landed on `main`; the remaining items 1–7 are implemented natively:
 - `proposer_llm.rs`: read-only advisory `SeatRunner` proposer with strict JSON and policy rejection.
 - `experiment.rs`: k>1 parallel/sequential recursion under `EvolutionBudget`.
 - `validate.rs`: `ForgeValidationStage` consumes the exact composed changes (D3 seam).
-- `cli/src/forge/harness_evolution.rs`: `forge harness-evolution status|revisions|experiments|experience`;
+- `cli/src/forge/harness_evolution.rs`: `forge harness-evolution status|revisions|experiments|experience`,
+  the O1 views `feed|metrics|calibration`, and the O2 `probe` writer (`--dry-run` for the plan);
   digest `HARNESS` line.
-- The concrete sandbox runner (model turn execution) and the Phase 3 signal adapter are the remaining
-  wiring, not prerequisites; automatic adoption stays OFF.
+- Both concrete sandbox runners exist: `sandbox_command.rs` (allowlisted command) and
+  `model_turn_sandbox.rs` (DSH/OpenCode turn behind `--authorize-model-run`).
+- FORGE-02 (2026-10-19): `dsh/preflight.rs` pins `DSH_EXPECTED_VERSION` (default `0.1.1-rc.2`) and
+  records the verified version in the model-turn receipt and probe evidence;
+  `docs/agent/SOP-DSH-UPGRADE.md` is the upgrade/rollback/plugin vetting runbook.
+- Automatic adoption stays OFF until the supervised FORGE-03 gate; no CLI/HTTP caller activates.

@@ -27,19 +27,27 @@ Backend switched from OpenCode (deferred — infrastructure incident 2026-10-18)
 
 - Candidate behavior was **not worse** on this task and completed faster. That is a weak, single-task
   signal, not evidence of a general improvement: one historical story, no independent QA, no
-  routing/usage/cost data, and the executor identity in the probe spec still says `opencode`
-  while the actual sandbox was `dsh` (known defect).
+  routing/usage/cost data. (The probe-spec executor identity defect noted at run time was fixed
+  afterwards: the spec now records the actual `dsh`/`command` backend; see
+  `probe_identity_names_the_actual_executor_and_model`. DSH version pinning landed 2026-10-19, see
+  `docs/agent/SOP-DSH-UPGRADE.md`.)
 - **Decision: no adoption, no experience writeback.** Automatic adoption stays OFF. Do not treat the
   elapsed delta as a harness win.
 - Rows kept in DEV for audit: experiment, candidate, 2 probes, contrast, 2 revisions.
 
-## Defects / follow-ups
+## Defects / follow-ups (status 2026-10-19)
 
-1. Probe identity executor is `opencode` even though the sandbox executed `dsh` — the identity must
-   name the actual executor (code fix).
-2. DSH usage not captured (`session_id=null`, tokens/cost None): session discovery under the
-   sandbox's sanitized `DSH_HOME` did not find the log; usage is honestly NOT CAPTURED, not zero.
-3. One story is insufficient for a verdict; the next run should cover 3–5 stories.
+1. Probe identity executor said `opencode` while the sandbox executed `dsh` — **FIXED**: the probe
+   spec now records the actual backend (`dsh`/`command`) and the explicit model run.
+2. DSH usage not captured at first (`session_id=null`, tokens/cost None) — **PARTIALLY FIXED**:
+   canonical session discovery now meters 8/10 turns in the 5-story cohort; cost stays
+   NOT CAPTURED until the operator sets `DSH_PRICE_*` rates (never zero).
+3. One story was insufficient — **RESOLVED** by the 5-story cohort (7 improved / 2 regressed /
+   65 unchanged; mixed signal; no adoption).
+4. This run predates the FORGE-02 version pin — future model-turn probes fail closed unless
+   `dsh --version` matches `DSH_EXPECTED_VERSION` (default 0.1.1-rc.2) and record the verified
+   version in the receipt and probe evidence (`model-turn:vendor-version:`); this run's vendor was
+   `dsh 0.1.1-rc.2`, which is now the pinned default.
 
 ## OpenCode deferral
 

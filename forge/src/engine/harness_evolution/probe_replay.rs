@@ -42,6 +42,7 @@ use super::model::{
     ProbeSpec,
 };
 use super::model_turn_sandbox::USAGE_UNMEASURED_REF;
+use super::policy;
 use super::probe::{
     validate_matched_pair, ProbeContract, ProbeError, ProbeExecutor, ProbeOutcome,
     ProbePairReading, ProbePins, ProbeReading, ProbeRequest, ProbeSide,
@@ -114,6 +115,10 @@ pub enum ReplayError {
     ContrastRefused {
         message: String,
     },
+    /// The pre-probe policy + lineage gate refused the candidate before any execution.
+    PolicyRefused {
+        message: String,
+    },
 }
 
 impl ReplayError {
@@ -132,6 +137,7 @@ impl ReplayError {
             Self::EvidenceMissing { .. } => "replay_evidence_missing",
             Self::SandboxReadingRejected { .. } => "replay_reading_rejected",
             Self::ContrastRefused { .. } => "replay_contrast_refused",
+            Self::PolicyRefused { .. } => "replay_policy_refused",
         }
     }
 }
@@ -188,6 +194,12 @@ impl fmt::Display for ReplayError {
             ),
             Self::ContrastRefused { message } => {
                 write!(f, "replay contrast was refused: {message}")
+            }
+            Self::PolicyRefused { message } => {
+                write!(
+                    f,
+                    "replay policy/lineage gate refused the candidate: {message}"
+                )
             }
         }
     }
@@ -816,6 +828,44 @@ pub struct RecordedReplayOutcome {
     pub contrast: ContrastReport,
 }
 
+/// The ONE pre-probe policy + lineage gate every probe path must pass before an execution.
+///
+/// Both the dry run (`plan_recorded_replay`) and the real run (CLI ordered runner) call this, so
+/// they cannot drift: the candidate must be a direct child of the base revision, in the same
+/// domain, and must pass `policy::validate_candidate` with the canonical base→candidate change
+/// list (RED/authority/QA/protected-content changes are refused HERE, before any probe exists).
+pub fn validate_probe_candidate(
+    base: &HarnessRevision,
+    candidate: &HarnessRevision,
+) -> Result<(), ReplayError> {
+    if candidate.parent_revision_id.as_deref() != Some(base.id.as_str()) {
+        return Err(ReplayError::PolicyRefused {
+            message: format!(
+                "candidate {} must be a direct child of base {}; parent is {:?}",
+                candidate.id, base.id, candidate.parent_revision_id
+            ),
+        });
+    }
+    if candidate.domain != base.domain {
+        return Err(ReplayError::PolicyRefused {
+            message: format!(
+                "candidate {} is {}, but base {} is {}",
+                candidate.id, candidate.domain, base.id, base.domain
+            ),
+        });
+    }
+    let changes = policy::changes_between(base, candidate);
+    policy::validate_candidate(base, candidate, &changes).map_err(|violations| {
+        ReplayError::PolicyRefused {
+            message: violations
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; "),
+        }
+    })
+}
+
 fn recorded_contract(
     request: &RecordedReplayRequest,
     revisions: &dyn RevisionSource,
@@ -824,6 +874,8 @@ fn recorded_contract(
     assert_non_production_environment(request.pins.environment_class)?;
     let base = revisions.revision(&request.base_revision)?;
     let candidate = revisions.revision(&request.candidate_revision)?;
+    // Shared pre-probe gate: policy + lineage BEFORE a contract or sandbox exists.
+    validate_probe_candidate(&base, &candidate)?;
     let contract = ProbeContract::new(
         request.experiment_id.clone(),
         &base,
@@ -969,7 +1021,8 @@ pub fn run_recorded_replay(
 mod tests {
     use super::*;
     use crate::engine::harness_evolution::model::{
-        Component, EvolutionBudget, EvolutionMode, HarnessDomain, HarnessManifest, QaVerdict,
+        Component, ComponentChange, EvolutionBudget, EvolutionMode, HarnessDomain, HarnessManifest,
+        QaVerdict,
     };
     use crate::engine::harness_evolution::probe::ProbePins;
     use std::cell::Cell;
@@ -988,7 +1041,25 @@ mod tests {
     }
 
     fn candidate_revision() -> HarnessRevision {
-        revision("cand-1", "candidate prompt")
+        // A prober-visible candidate must be the base's direct child (the lineage gate enforces
+        // this before any probe); keep the fixture honest about that.
+        revision("cand-1", "candidate prompt").with_parent(Some("base-1".into()))
+    }
+
+    fn gate_revision(
+        base: &HarnessRevision,
+        id: &str,
+        changes: &[ComponentChange],
+    ) -> HarnessRevision {
+        HarnessRevision::from_changes(base, id, changes, "owner")
+            .expect("test candidate change set is applicable to the base")
+    }
+
+    fn policy_refused(error: ReplayError) -> String {
+        match error {
+            ReplayError::PolicyRefused { message } => message,
+            other => panic!("expected PolicyRefused, got {other:?}"),
+        }
     }
 
     fn task() -> HistoricalTask {
@@ -1621,6 +1692,111 @@ mod tests {
         let error = plan_recorded_replay(&loader, &revisions, &request).unwrap_err();
         assert_eq!(error.code(), "replay_production_refused");
         assert_eq!(loader.loads(), 0, "production is refused before the loader");
+    }
+
+    #[test]
+    fn the_shared_gate_accepts_a_valid_direct_child_candidate() {
+        let base = revision("base-1", "baseline prompt");
+        let candidate = candidate_revision();
+        validate_probe_candidate(&base, &candidate).expect("valid child candidate passes");
+    }
+
+    #[test]
+    fn the_shared_gate_refuses_a_candidate_with_an_unrelated_parent() {
+        let base = revision("base-1", "baseline prompt");
+        let candidate = candidate_revision().with_parent(Some("some-other-revision".into()));
+        let error = validate_probe_candidate(&base, &candidate).expect_err("lineage must match");
+        let message = policy_refused(error);
+        assert!(message.contains("direct child"), "{message}");
+    }
+
+    #[test]
+    fn the_shared_gate_refuses_red_authority_qa_and_authority_expansion_candidates() {
+        // RED declared by the proposer: never composable/adoptable.
+        let base = revision("base-1", "baseline prompt");
+        let red = gate_revision(
+            &base,
+            "gate-red",
+            &[ComponentChange::set(
+                Component::red(
+                    ComponentKind::SystemPrompt,
+                    "self-declared protected prompt",
+                    "red",
+                ),
+                "should never pass",
+            )],
+        );
+        let message = policy_refused(
+            validate_probe_candidate(&base, &red).expect_err("RED candidate must be refused"),
+        );
+        assert!(
+            message.to_lowercase().contains("red") || message.to_lowercase().contains("protected"),
+            "{message}"
+        );
+
+        // QA boundary content change.
+        let qa = gate_revision(
+            &base,
+            "gate-qa",
+            &[ComponentChange::set(
+                Component::green(
+                    ComponentKind::SystemPrompt,
+                    "the QA boundary now allows git access",
+                    "qa",
+                ),
+                "attempt to move the QA boundary",
+            )],
+        );
+        let message = policy_refused(
+            validate_probe_candidate(&base, &qa).expect_err("QA boundary change must be refused"),
+        );
+        assert!(
+            message.to_lowercase().contains("qa") || message.to_lowercase().contains("boundary"),
+            "{message}"
+        );
+
+        // Authority expansion (GREEN -> YELLOW on the same kind).
+        let expansion = gate_revision(
+            &base,
+            "gate-authority",
+            &[ComponentChange::set(
+                Component::yellow(
+                    ComponentKind::SystemPrompt,
+                    "expanded authority",
+                    "authority",
+                ),
+                "authority expansion attempt",
+            )],
+        );
+        let message = policy_refused(
+            validate_probe_candidate(&base, &expansion)
+                .expect_err("authority expansion must be refused"),
+        );
+        assert!(message.to_lowercase().contains("authority"), "{message}");
+    }
+
+    #[test]
+    fn the_shared_gate_refuses_before_a_dry_run_plan_or_a_real_probe() {
+        // Dry-run path: plan_recorded_replay builds no contract/execution, but the gate still runs.
+        let loader = StubLoader::returning(task());
+        let mut revisions = revisions();
+        revisions
+            .insert(candidate_revision().with_parent(Some("unrelated".into())))
+            .expect("insert bad candidate");
+        let request = recorded_request(ProbePins::development("task-1"));
+        let error = plan_recorded_replay(&loader, &revisions, &request).unwrap_err();
+        assert!(matches!(error, ReplayError::PolicyRefused { .. }));
+
+        // Real-run path: no sandbox call is made when the gate refuses.
+        let sandbox = recorded_sandbox();
+        let error = run_recorded_replay(&loader, &sandbox, &revisions, &request).unwrap_err();
+        assert!(matches!(error, ReplayError::PolicyRefused { .. }));
+        assert!(sandbox.calls.borrow().is_empty(), "no probe may execute");
+        assert_eq!(
+            loader.loads(),
+            0,
+            "the gate runs before even the task loader"
+        );
     }
 
     #[test]

@@ -13,7 +13,8 @@
 //! can satisfy, and a gate built on it would refuse to boot a healthy system. The list below is the tail the
 //! running code actually depends on — Forge's work queue, worker heartbeat, runtime control, claim brake and
 //! the native luxesign surface and the storyboard trajectory table — and every name in it is recorded on
-//! both DEV and PROD (the 260-276 set as of 2026-10-08, 292 and 293 as of 2026-10-11), so a healthy deploy passes
+//! both DEV and PROD (the 260-276 set as of 2026-10-08, 292-293 as of 2026-10-11, and 294-295 as of
+//! 2026-10-19 read-only ledger checks), so a healthy deploy passes
 //! and an empty one is refused. A migration added later is not required until somebody adds it here,
 //! deliberately: this is a floor, not a ceiling.
 //!
@@ -31,6 +32,7 @@ use crate::{Database, DbFailure, DbResult, SchemaMigrationDao};
 ///
 /// Every name here is recorded on BOTH targets — measured 2026-10-12: `pnpm db:migrations` lists 292 and 293 for
 /// dev and prod (DEV 2026-10-11 09:40Z / 19:25Z, PROD 2026-10-11 11:57Z / 20:19Z) and `pnpm db:parity` is clean.
+/// 294 and 295 are present on both targets too (read-only `schema_migration` ledger query, 2026-10-19).
 /// 293 is listed because the code below it writes the columns it adds and no longer writes the key 292 defined:
 /// a binary carrying this list must not serve a database that still holds 292's shape, and the fix is the one the
 /// refusal message names — apply 293 to the target, then start. PROD met that requirement on 2026-10-11 20:19Z,

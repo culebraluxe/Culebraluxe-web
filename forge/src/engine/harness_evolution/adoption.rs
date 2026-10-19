@@ -77,12 +77,26 @@ pub struct RollbackOutcome {
 pub enum AdoptionError {
     Catalog(CatalogError),
     Experiment(ExperimentError),
-    WrongDomain { decision: HarnessDomain, experiment: HarnessDomain },
-    NoSuccessor { experiment_id: String },
-    RevisionMismatch { expected: String, actual: String },
-    UnknownRevision { revision_id: String },
-    RejectedRevisionCannotActivate { revision_id: String },
-    ExperimentNotAdoptable { state: RevisionStatus },
+    WrongDomain {
+        decision: HarnessDomain,
+        experiment: HarnessDomain,
+    },
+    NoSuccessor {
+        experiment_id: String,
+    },
+    RevisionMismatch {
+        expected: String,
+        actual: String,
+    },
+    UnknownRevision {
+        revision_id: String,
+    },
+    RejectedRevisionCannotActivate {
+        revision_id: String,
+    },
+    ExperimentNotAdoptable {
+        state: RevisionStatus,
+    },
     /// The policy's recommendation and the decision disagree — the policy is the authority.
     DecisionContradictsPolicy {
         recommended: AdoptionVerdict,
@@ -91,10 +105,19 @@ pub enum AdoptionError {
     /// The composed successor does not survive the pre-adoption policy gate
     /// (`policy::validate_candidate`): a protected surface, an authority expansion, a malformed
     /// change or a manifest that is not exactly base+changes. Refused before any pointer move.
-    CandidatePolicyViolations { violations: Vec<String> },
+    CandidatePolicyViolations {
+        violations: Vec<String>,
+    },
     /// The policy would allow adoption, but the decision was not made by the policy path, so it
     /// is not an automatic GREEN adoption.
-    AutomaticAdoptionRefused { reasons: Vec<String> },
+    AutomaticAdoptionRefused {
+        reasons: Vec<String>,
+    },
+    /// Automatic adoption is disabled by the process gate (`FORGE_ALLOW_AUTO_ADOPT` unset/false).
+    /// This is the default; an operator must opt in explicitly and audibly.
+    AutomaticAdoptionDisabled {
+        gate: &'static str,
+    },
 }
 
 impl fmt::Display for AdoptionError {
@@ -146,6 +169,10 @@ impl fmt::Display for AdoptionError {
                 "automatic adoption refused: {}",
                 reasons.join("; ")
             ),
+            Self::AutomaticAdoptionDisabled { gate } => write!(
+                f,
+                "automatic adoption is OFF: set {gate} to an explicit truthy value to enable it (failing closed)"
+            ),
         }
     }
 }
@@ -170,17 +197,18 @@ pub fn recommend<S: RevisionStore>(
     experiment: &HarnessExperiment,
     catalog: &HarnessCatalog<S>,
 ) -> Result<(AdoptionVerdict, Vec<ComponentKind>, Vec<String>), AdoptionError> {
-    let successor_id = experiment
-        .successor_revision
-        .clone()
-        .ok_or_else(|| AdoptionError::NoSuccessor {
-            experiment_id: experiment.id.clone(),
-        })?;
-    let base = catalog
-        .revision(&experiment.base_revision)
-        .ok_or_else(|| AdoptionError::UnknownRevision {
+    let successor_id =
+        experiment
+            .successor_revision
+            .clone()
+            .ok_or_else(|| AdoptionError::NoSuccessor {
+                experiment_id: experiment.id.clone(),
+            })?;
+    let base = catalog.revision(&experiment.base_revision).ok_or_else(|| {
+        AdoptionError::UnknownRevision {
             revision_id: experiment.base_revision.clone(),
-        })?;
+        }
+    })?;
     let successor = catalog
         .revision(&successor_id)
         .ok_or(AdoptionError::UnknownRevision {
@@ -225,10 +253,7 @@ fn policy_gate(
     // For an identity successor `adoption_recommendation` reports the (correct) Reject: there is
     // no changed surface to adopt.
     Ok(policy::adoption_recommendation(
-        base,
-        successor,
-        &changes,
-        validation,
+        base, successor, &changes, validation,
     ))
 }
 
@@ -237,10 +262,43 @@ fn policy_gate(
 /// This is the only function in the subsystem that calls [`HarnessCatalog::activate`]. It
 /// recomputes the policy recommendation first: a decision that contradicts policy is refused
 /// outright, so no caller can hand-craft an `Adopt` for a YELLOW or RED change.
+/// Process gate for automatic adoption. DEFAULT OFF: only an explicit truthy value enables the
+/// GREEN automatic path. Read at call time so a process cannot inherit an accidental enable from a
+/// forgotten environment entry.
+pub const ALLOW_AUTO_ADOPT_ENV: &str = "FORGE_ALLOW_AUTO_ADOPT";
+
+/// Pure parse of the gate value: `1`, `true` or `yes` (case-insensitive) enable; everything else
+/// (absent, empty, `0`, `false`, any typo) keeps it OFF.
+pub fn auto_adoption_enabled_from(value: Option<&str>) -> bool {
+    matches!(
+        value.map(str::trim).map(str::to_ascii_lowercase).as_deref(),
+        Some("1" | "true" | "yes")
+    )
+}
+
+/// The live process gate. Default OFF; fail closed on any read/parse problem.
+pub fn auto_adoption_enabled() -> bool {
+    auto_adoption_enabled_from(std::env::var(ALLOW_AUTO_ADOPT_ENV).ok().as_deref())
+}
+
+/// Apply an adoption decision through the process gate. This is the production entry point; with
+/// `FORGE_ALLOW_AUTO_ADOPT` unset (the default) an `Adopt` decision is refused here, before the
+/// catalog pointer can move.
 pub fn apply<S: RevisionStore>(
     decision: &AdoptionDecision,
     experiment: &mut HarnessExperiment,
     catalog: &mut HarnessCatalog<S>,
+) -> Result<AdoptionOutcome, AdoptionError> {
+    apply_with_gate(decision, experiment, catalog, auto_adoption_enabled())
+}
+
+/// Apply an adoption decision with an explicit gate value. Tests use this to exercise both sides
+/// without mutating the process environment; production passes the env-derived value above.
+pub fn apply_with_gate<S: RevisionStore>(
+    decision: &AdoptionDecision,
+    experiment: &mut HarnessExperiment,
+    catalog: &mut HarnessCatalog<S>,
+    allow_auto_adopt: bool,
 ) -> Result<AdoptionOutcome, AdoptionError> {
     if decision.domain != experiment.domain {
         return Err(AdoptionError::WrongDomain {
@@ -248,12 +306,13 @@ pub fn apply<S: RevisionStore>(
             experiment: experiment.domain,
         });
     }
-    let successor_id = experiment
-        .successor_revision
-        .clone()
-        .ok_or_else(|| AdoptionError::NoSuccessor {
-            experiment_id: experiment.id.clone(),
-        })?;
+    let successor_id =
+        experiment
+            .successor_revision
+            .clone()
+            .ok_or_else(|| AdoptionError::NoSuccessor {
+                experiment_id: experiment.id.clone(),
+            })?;
     if decision.revision_id != successor_id {
         return Err(AdoptionError::RevisionMismatch {
             expected: successor_id,
@@ -266,12 +325,13 @@ pub fn apply<S: RevisionStore>(
         .ok_or_else(|| AdoptionError::UnknownRevision {
             revision_id: experiment.base_revision.clone(),
         })?;
-    let successor = catalog
-        .revision(&successor_id)
-        .cloned()
-        .ok_or_else(|| AdoptionError::UnknownRevision {
-            revision_id: successor_id.clone(),
-        })?;
+    let successor =
+        catalog
+            .revision(&successor_id)
+            .cloned()
+            .ok_or_else(|| AdoptionError::UnknownRevision {
+                revision_id: successor_id.clone(),
+            })?;
     if successor.status == RevisionStatus::Rejected {
         return Err(AdoptionError::RejectedRevisionCannotActivate {
             revision_id: successor_id,
@@ -294,14 +354,19 @@ pub fn apply<S: RevisionStore>(
 
     match decision.verdict {
         AdoptionVerdict::Adopt => {
+            // KILL SWITCH FIRST: no pointer move, no lifecycle change, no exception for a
+            // hand-built experiment. Default OFF; fail closed.
+            if !allow_auto_adopt {
+                return Err(AdoptionError::AutomaticAdoptionDisabled {
+                    gate: ALLOW_AUTO_ADOPT_ENV,
+                });
+            }
             if experiment.state != RevisionStatus::Adoptable {
                 return Err(AdoptionError::ExperimentNotAdoptable {
                     state: experiment.state,
                 });
             }
-            if !decision.is_automatic()
-                || !policy::may_auto_adopt_recommendation(&policy_view)
-            {
+            if !decision.is_automatic() || !policy::may_auto_adopt_recommendation(&policy_view) {
                 let mut reasons = policy_view.reasons;
                 if !decision.is_automatic() {
                     reasons.push(format!(
@@ -404,10 +469,18 @@ pub fn changed_kinds(base: &HarnessRevision, successor: &HarnessRevision) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Existing behaviour tests exercise the policy/pointer rules; the process kill switch is
+    /// tested separately, so this helper states "gate explicitly allowed" at every call site.
+    fn apply_auto_allowed<S: RevisionStore>(
+        decision: &AdoptionDecision,
+        experiment: &mut HarnessExperiment,
+        catalog: &mut HarnessCatalog<S>,
+    ) -> Result<AdoptionOutcome, AdoptionError> {
+        apply_with_gate(decision, experiment, catalog, true)
+    }
     use crate::engine::harness_evolution::experiment::HarnessExperiment;
-    use crate::engine::harness_evolution::model::{
-        Component, HarnessManifest, RevisionStatus,
-    };
+    use crate::engine::harness_evolution::model::{Component, HarnessManifest, RevisionStatus};
     use crate::engine::harness_evolution::probe::ProbePins;
 
     fn prompt(content: &str) -> Component {
@@ -463,11 +536,7 @@ mod tests {
         experiment
     }
 
-    fn decision(
-        revision_id: &str,
-        verdict: AdoptionVerdict,
-        decided_by: &str,
-    ) -> AdoptionDecision {
+    fn decision(revision_id: &str, verdict: AdoptionVerdict, decided_by: &str) -> AdoptionDecision {
         AdoptionDecision::new(
             "decision-1",
             HarnessDomain::RustBackend,
@@ -481,18 +550,15 @@ mod tests {
     #[test]
     fn green_clean_adoption_is_the_only_automatic_path() {
         let base = base_revision();
-        let successor = successor_revision(
-            &base,
-            prompt("better prompt"),
-            RevisionStatus::Adoptable,
-        );
+        let successor =
+            successor_revision(&base, prompt("better prompt"), RevisionStatus::Adoptable);
         let mut catalog = catalog_with(&base, &successor);
         let mut experiment = adoptable_experiment(
             &base,
             &successor,
             ValidationEvidence::all_passed(vec!["validation-1".into()]),
         );
-        let outcome = apply(
+        let outcome = apply_auto_allowed(
             &decision("successor-1", AdoptionVerdict::Adopt, "policy"),
             &mut experiment,
             &mut catalog,
@@ -504,25 +570,25 @@ mod tests {
             catalog.active_revision_id(HarnessDomain::RustBackend),
             Some("successor-1")
         );
-        assert_eq!(catalog.revision("base-1").unwrap().status, RevisionStatus::Superseded);
+        assert_eq!(
+            catalog.revision("base-1").unwrap().status,
+            RevisionStatus::Superseded
+        );
         assert_eq!(experiment.state, RevisionStatus::Adopted);
     }
 
     #[test]
     fn a_green_adoption_made_by_a_human_is_refused() {
         let base = base_revision();
-        let successor = successor_revision(
-            &base,
-            prompt("better prompt"),
-            RevisionStatus::Adoptable,
-        );
+        let successor =
+            successor_revision(&base, prompt("better prompt"), RevisionStatus::Adoptable);
         let mut catalog = catalog_with(&base, &successor);
         let mut experiment = adoptable_experiment(
             &base,
             &successor,
             ValidationEvidence::all_passed(vec!["validation-1".into()]),
         );
-        let error = apply(
+        let error = apply_auto_allowed(
             &decision("successor-1", AdoptionVerdict::Adopt, "chris"),
             &mut experiment,
             &mut catalog,
@@ -552,7 +618,7 @@ mod tests {
             &successor,
             ValidationEvidence::all_passed(vec!["validation-1".into()]),
         );
-        let error = apply(
+        let error = apply_auto_allowed(
             &decision("successor-1", AdoptionVerdict::Adopt, "policy"),
             &mut experiment,
             &mut catalog,
@@ -565,7 +631,7 @@ mod tests {
                 ..
             }
         ));
-        let outcome = apply(
+        let outcome = apply_auto_allowed(
             &decision("successor-1", AdoptionVerdict::Council, "policy"),
             &mut experiment,
             &mut catalog,
@@ -593,7 +659,7 @@ mod tests {
             &successor,
             ValidationEvidence::all_passed(vec!["validation-1".into()]),
         );
-        let error = apply(
+        let error = apply_auto_allowed(
             &decision("successor-1", AdoptionVerdict::Chris, "policy"),
             &mut experiment,
             &mut catalog,
@@ -635,7 +701,7 @@ mod tests {
             experiment.composed_changes.is_empty(),
             "the successor was hand-built; only the canonical diff protects adoption"
         );
-        let error = apply(
+        let error = apply_auto_allowed(
             &decision("successor-1", AdoptionVerdict::Adopt, "policy"),
             &mut experiment,
             &mut catalog,
@@ -644,7 +710,9 @@ mod tests {
         match error {
             AdoptionError::CandidatePolicyViolations { violations } => {
                 assert!(
-                    violations.iter().any(|violation| violation.contains("production")),
+                    violations
+                        .iter()
+                        .any(|violation| violation.contains("production")),
                     "the production-permission violation must be named: {violations:?}"
                 );
             }
@@ -660,15 +728,11 @@ mod tests {
     #[test]
     fn incomplete_validation_is_more_evidence_not_adoption() {
         let base = base_revision();
-        let successor = successor_revision(
-            &base,
-            prompt("better prompt"),
-            RevisionStatus::Adoptable,
-        );
+        let successor =
+            successor_revision(&base, prompt("better prompt"), RevisionStatus::Adoptable);
         let mut catalog = catalog_with(&base, &successor);
-        let mut experiment =
-            adoptable_experiment(&base, &successor, ValidationEvidence::pending());
-        let outcome = apply(
+        let mut experiment = adoptable_experiment(&base, &successor, ValidationEvidence::pending());
+        let outcome = apply_auto_allowed(
             &decision("successor-1", AdoptionVerdict::MoreEvidence, "policy"),
             &mut experiment,
             &mut catalog,
@@ -685,11 +749,8 @@ mod tests {
     #[test]
     fn an_adopt_decision_on_a_non_adoptable_experiment_is_refused() {
         let base = base_revision();
-        let successor = successor_revision(
-            &base,
-            prompt("better prompt"),
-            RevisionStatus::Adoptable,
-        );
+        let successor =
+            successor_revision(&base, prompt("better prompt"), RevisionStatus::Adoptable);
         let mut catalog = catalog_with(&base, &successor);
         let mut experiment = adoptable_experiment(
             &base,
@@ -697,7 +758,7 @@ mod tests {
             ValidationEvidence::all_passed(vec!["validation-1".into()]),
         );
         experiment.state = RevisionStatus::Validating;
-        let error = apply(
+        let error = apply_auto_allowed(
             &decision("successor-1", AdoptionVerdict::Adopt, "policy"),
             &mut experiment,
             &mut catalog,
@@ -716,11 +777,8 @@ mod tests {
     #[test]
     fn a_rejected_revision_cannot_be_adopted() {
         let base = base_revision();
-        let successor = successor_revision(
-            &base,
-            prompt("better prompt"),
-            RevisionStatus::Rejected,
-        );
+        let successor =
+            successor_revision(&base, prompt("better prompt"), RevisionStatus::Rejected);
         let mut catalog = HarnessCatalog::new();
         catalog.insert(base.clone()).unwrap();
         catalog.insert(successor.clone()).unwrap();
@@ -732,7 +790,7 @@ mod tests {
             &successor,
             ValidationEvidence::all_passed(vec!["validation-1".into()]),
         );
-        let error = apply(
+        let error = apply_auto_allowed(
             &decision("successor-1", AdoptionVerdict::Adopt, "policy"),
             &mut experiment,
             &mut catalog,
@@ -751,11 +809,8 @@ mod tests {
     #[test]
     fn a_decision_for_another_domain_or_revision_is_refused() {
         let base = base_revision();
-        let successor = successor_revision(
-            &base,
-            prompt("better prompt"),
-            RevisionStatus::Adoptable,
-        );
+        let successor =
+            successor_revision(&base, prompt("better prompt"), RevisionStatus::Adoptable);
         let mut catalog = catalog_with(&base, &successor);
         let mut experiment = adoptable_experiment(
             &base,
@@ -765,13 +820,13 @@ mod tests {
         let mut other = decision("successor-1", AdoptionVerdict::Adopt, "policy");
         other.domain = HarnessDomain::YewMvi;
         assert!(matches!(
-            apply(&other, &mut experiment, &mut catalog),
+            apply_auto_allowed(&other, &mut experiment, &mut catalog),
             Err(AdoptionError::WrongDomain { .. })
         ));
         let mut wrong_revision = decision("other-1", AdoptionVerdict::Adopt, "policy");
         wrong_revision.revision_id = "other-1".into();
         assert!(matches!(
-            apply(&wrong_revision, &mut experiment, &mut catalog),
+            apply_auto_allowed(&wrong_revision, &mut experiment, &mut catalog),
             Err(AdoptionError::RevisionMismatch { .. })
         ));
     }
@@ -824,12 +879,10 @@ mod tests {
     #[test]
     fn a_failed_transactional_activation_does_not_adopt_or_move_the_pointer() {
         let base = base_revision();
-        let successor = successor_revision(
-            &base,
-            prompt("better prompt"),
-            RevisionStatus::Adoptable,
-        );
-        let mut catalog: HarnessCatalog<FlakyStore> = HarnessCatalog::with_store(FlakyStore::default());
+        let successor =
+            successor_revision(&base, prompt("better prompt"), RevisionStatus::Adoptable);
+        let mut catalog: HarnessCatalog<FlakyStore> =
+            HarnessCatalog::with_store(FlakyStore::default());
         catalog.insert(base.clone()).unwrap();
         catalog.insert(successor.clone()).unwrap();
         catalog
@@ -842,7 +895,7 @@ mod tests {
         );
         catalog.store_mut().fail_next = true;
 
-        let error = apply(
+        let error = apply_auto_allowed(
             &decision("successor-1", AdoptionVerdict::Adopt, "policy"),
             &mut experiment,
             &mut catalog,
@@ -871,18 +924,15 @@ mod tests {
     #[test]
     fn rollback_restores_the_exact_prior_revision() {
         let base = base_revision();
-        let successor = successor_revision(
-            &base,
-            prompt("better prompt"),
-            RevisionStatus::Adoptable,
-        );
+        let successor =
+            successor_revision(&base, prompt("better prompt"), RevisionStatus::Adoptable);
         let mut catalog = catalog_with(&base, &successor);
         let mut experiment = adoptable_experiment(
             &base,
             &successor,
             ValidationEvidence::all_passed(vec!["validation-1".into()]),
         );
-        apply(
+        apply_auto_allowed(
             &decision("successor-1", AdoptionVerdict::Adopt, "policy"),
             &mut experiment,
             &mut catalog,
@@ -896,7 +946,10 @@ mod tests {
             "owner",
         )
         .expect("rollback");
-        assert_eq!(outcome.activation.kind, super::super::catalog::ActivationKind::Rollback);
+        assert_eq!(
+            outcome.activation.kind,
+            super::super::catalog::ActivationKind::Rollback
+        );
         assert_eq!(outcome.restored.id, expected.id);
         assert_eq!(outcome.restored.manifest_hash, expected.manifest_hash);
         assert_eq!(outcome.restored.manifest, expected.manifest);
@@ -913,11 +966,8 @@ mod tests {
     #[test]
     fn a_reject_decision_rejects_the_experiment_without_activation() {
         let base = base_revision();
-        let successor = successor_revision(
-            &base,
-            prompt("better prompt"),
-            RevisionStatus::Adoptable,
-        );
+        let successor =
+            successor_revision(&base, prompt("better prompt"), RevisionStatus::Adoptable);
         let mut catalog = catalog_with(&base, &successor);
         let failed_validation = ValidationEvidence {
             static_policy: crate::engine::harness_evolution::model::GateStatus::Failed,
@@ -927,7 +977,7 @@ mod tests {
             evidence_refs: vec!["validation-1".into()],
         };
         let mut experiment = adoptable_experiment(&base, &successor, failed_validation);
-        let outcome = apply(
+        let outcome = apply_auto_allowed(
             &decision("successor-1", AdoptionVerdict::Reject, "policy"),
             &mut experiment,
             &mut catalog,
@@ -940,5 +990,100 @@ mod tests {
             catalog.active_revision_id(HarnessDomain::RustBackend),
             Some("base-1")
         );
+    }
+
+    #[test]
+    fn automatic_adoption_is_off_by_default_and_parses_only_explicit_truthy_values() {
+        assert!(!auto_adoption_enabled_from(None));
+        for off in ["", " ", "0", "false", "FALSE", "no", "off", "enabled?"] {
+            assert!(
+                !auto_adoption_enabled_from(Some(off)),
+                "{off:?} must not enable automatic adoption"
+            );
+        }
+        for on in ["1", "true", "TRUE", "True", "yes", "YES", " 1 "] {
+            assert!(
+                auto_adoption_enabled_from(Some(on)),
+                "{on:?} must enable automatic adoption"
+            );
+        }
+        // The live default is OFF unless this process explicitly exported a truthy gate.
+        if std::env::var(ALLOW_AUTO_ADOPT_ENV).is_err() {
+            assert!(!auto_adoption_enabled(), "the default must be OFF");
+        }
+    }
+
+    #[test]
+    fn the_disabled_gate_refuses_adoption_without_moving_the_pointer() {
+        let base = base_revision();
+        let successor =
+            successor_revision(&base, prompt("better prompt"), RevisionStatus::Adoptable);
+        let mut catalog = catalog_with(&base, &successor);
+        let mut experiment = adoptable_experiment(
+            &base,
+            &successor,
+            ValidationEvidence::all_passed(vec!["validation-1".into()]),
+        );
+        let error = apply_with_gate(
+            &decision("successor-1", AdoptionVerdict::Adopt, "policy"),
+            &mut experiment,
+            &mut catalog,
+            false,
+        )
+        .expect_err("gate is off");
+        assert!(
+            matches!(
+                error,
+                AdoptionError::AutomaticAdoptionDisabled {
+                    gate: "FORGE_ALLOW_AUTO_ADOPT"
+                }
+            ),
+            "{error}"
+        );
+        // No accidental activation path: pointer, statuses and experiment are untouched.
+        assert_eq!(
+            catalog.active_revision_id(HarnessDomain::RustBackend),
+            Some("base-1")
+        );
+        assert_eq!(
+            catalog.revision("base-1").unwrap().status,
+            RevisionStatus::Adopted
+        );
+        assert_eq!(
+            catalog.revision("successor-1").unwrap().status,
+            RevisionStatus::Adoptable
+        );
+        assert_eq!(experiment.state, RevisionStatus::Adoptable);
+        assert!(
+            experiment.mark_adopted().is_ok(),
+            "no lifecycle was advanced by the refusal"
+        );
+    }
+
+    #[test]
+    fn the_gate_is_checked_before_any_other_adoption_condition() {
+        // A malformed/blocked experiment still reports the gate first when it is off, so a
+        // misconfiguration cannot silently exercise the policy path.
+        let base = base_revision();
+        let successor =
+            successor_revision(&base, prompt("better prompt"), RevisionStatus::Adoptable);
+        let mut catalog = catalog_with(&base, &successor);
+        let mut experiment = adoptable_experiment(
+            &base,
+            &successor,
+            ValidationEvidence::all_passed(vec!["validation-1".into()]),
+        );
+        experiment.state = RevisionStatus::Validating;
+        let error = apply_with_gate(
+            &decision("successor-1", AdoptionVerdict::Adopt, "policy"),
+            &mut experiment,
+            &mut catalog,
+            false,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            AdoptionError::AutomaticAdoptionDisabled { .. }
+        ));
     }
 }

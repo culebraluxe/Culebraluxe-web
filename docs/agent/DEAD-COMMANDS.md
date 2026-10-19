@@ -11,8 +11,12 @@ three of them are named in runbooks as if they worked.
 
 ## The honest number
 
-121 `package.json` scripts. **25 name a banner file.** Zero name a file that is missing from disk: every
-reference resolves to a file that exists and is marked dead.
+**Current count (2026-10-19): 129 scripts, 0 dead commands.** The dead-command gate's `BASELINE`
+(`cli/src/forge/dead_commands.rs`) is 0 and is the authority for "is the menu clean"; the counts
+quoted below are the historical measurements they name, not a claim about today's menu.
+
+At the 2026-09-29 measurement: 121 `package.json` scripts. **25 name a banner file.** Zero name a file
+that is missing from disk: every reference resolves to a file that exists and is marked dead.
 
 **Later on 2026-09-29 the count was 116 scripts and 19 dead commands** (7 Forge + 1 agent runtime + 11 retired
 stack), measured after the second lane removed its own commands in the same sweep. Both lanes are deleting, so
@@ -28,7 +32,8 @@ the rows keep `package.json`'s own order instead of a map's sort. `BASELINE` was
 day while both lanes deleted — **19 → 10 → 0** — which is why the number lives in exactly one place and is read
 off the command rather than carried across a commit: the TypeScript gate was red on `The count FELL to 10,
 below the baseline of 19` while this port was being written, and the tree this port landed on measures **0 dead
-commands out of 97 scripts, all three blocks empty.** The menu names no file that cannot load.
+commands out of 129 scripts (2026-10-19; 97 was the 2026-09-29 measurement), all three blocks empty.**
+The menu names no file that cannot load.
 
 | Block | Commands | What it is |
 | --- | --- | --- |

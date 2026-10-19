@@ -236,9 +236,7 @@ pub fn activation_pair_allowed(
             matches!(target_status, "adoptable" | "adopted" | "superseded")
                 && displaced_status.is_none_or(|status| status == "adopted")
         }
-        "rollback" => {
-            target_status == "superseded" && displaced_status == Some("adopted")
-        }
+        "rollback" => target_status == "superseded" && displaced_status == Some("adopted"),
         _ => false,
     }
 }
@@ -590,9 +588,10 @@ impl ForgeHarnessDao {
             }
         }
 
-        let mut tx = self.db.pool().begin().await.map_err(|error| {
-            DbFailure::from_sqlx("forge_harness.insert_revision.begin", &error)
-        })?;
+        let mut tx =
+            self.db.pool().begin().await.map_err(|error| {
+                DbFailure::from_sqlx("forge_harness.insert_revision.begin", &error)
+            })?;
         let row = sqlx::query_as::<_, ForgeHarnessRevisionRow>(sqlx::AssertSqlSafe(format!(
             "insert into forge_harness_revision
                  (revision_id, parent_revision_id, domain, status, manifest, manifest_hash,
@@ -610,9 +609,7 @@ impl ForgeHarnessDao {
         .bind(&new.created_by)
         .fetch_one(&mut *tx)
         .await
-        .map_err(|error| {
-            DbFailure::from_sqlx("forge_harness.insert_revision.row", &error)
-        })?;
+        .map_err(|error| DbFailure::from_sqlx("forge_harness.insert_revision.row", &error))?;
 
         for component in &new.components {
             sqlx::query(
@@ -703,10 +700,7 @@ impl ForgeHarnessDao {
         if rows.is_empty() {
             return Ok(());
         }
-        let ids: Vec<String> = rows
-            .iter()
-            .map(|row| row.revision_id.clone())
-            .collect();
+        let ids: Vec<String> = rows.iter().map(|row| row.revision_id.clone()).collect();
         let components = sqlx::query_as::<_, ForgeHarnessComponentRow>(
             "select revision_id, kind, authority, content, description
              from forge_harness_component where revision_id = any($1) order by revision_id, kind",
@@ -739,21 +733,16 @@ impl ForgeHarnessDao {
                 format!("unknown revision status {status}"),
             ));
         }
-        let mut tx = self
-            .db
-            .pool()
-            .begin()
-            .await
-            .map_err(|error| DbFailure::from_sqlx("forge_harness.set_revision_status.begin", &error))?;
+        let mut tx = self.db.pool().begin().await.map_err(|error| {
+            DbFailure::from_sqlx("forge_harness.set_revision_status.begin", &error)
+        })?;
         let current: Option<(String,)> = sqlx::query_as(
             "select status from forge_harness_revision where revision_id=$1 for update",
         )
         .bind(revision_id)
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|error| {
-            DbFailure::from_sqlx("forge_harness.set_revision_status.lock", &error)
-        })?;
+        .map_err(|error| DbFailure::from_sqlx("forge_harness.set_revision_status.lock", &error))?;
         let Some((current,)) = current else {
             return Err(DbFailure::schema_mismatch(
                 "forge_harness.set_revision_status.missing",
@@ -1112,10 +1101,7 @@ impl ForgeHarnessDao {
         .map_err(|error| DbFailure::from_sqlx("forge_harness.get_experiment", &error))
     }
 
-    pub async fn list_experiments(
-        &self,
-        domain: &str,
-    ) -> DbResult<Vec<ForgeHarnessExperimentRow>> {
+    pub async fn list_experiments(&self, domain: &str) -> DbResult<Vec<ForgeHarnessExperimentRow>> {
         sqlx::query_as::<_, ForgeHarnessExperimentRow>(
             "select experiment_id, domain, base_revision_id, base_manifest_hash, mode, k,
                     max_steps, max_probes, seed, state, failure_stage, failure_code,
@@ -1126,6 +1112,109 @@ impl ForgeHarnessDao {
         .fetch_all(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("forge_harness.list_experiments", &error))
+    }
+
+    /// Persist a COMPLETE probe run in one transaction: experiment, candidate, all probes, contrast.
+    ///
+    /// The four tables are a single reviewable unit. Any failure (duplicate id, FK, constraint,
+    /// connection loss) rolls the whole transaction back, so there is no half-recorded experiment
+    /// that looks complete. A retry after a failure is safe: nothing from the failed attempt exists.
+    pub async fn insert_probe_run(
+        &self,
+        experiment: &NewForgeHarnessExperiment,
+        candidate: &NewForgeHarnessCandidate,
+        probes: &[NewForgeHarnessProbe],
+        contrast: &NewForgeHarnessContrast,
+    ) -> DbResult<()> {
+        let mut tx = self.db.pool().begin().await.map_err(|error| {
+            DbFailure::from_sqlx("forge_harness.insert_probe_run.begin", &error)
+        })?;
+        sqlx::query(
+            "insert into forge_harness_experiment
+                 (experiment_id, domain, base_revision_id, base_manifest_hash, mode, k,
+                  max_steps, max_probes, seed, state, successor_revision_id, validation)
+             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+        )
+        .bind(&experiment.experiment_id)
+        .bind(&experiment.domain)
+        .bind(&experiment.base_revision_id)
+        .bind(&experiment.base_manifest_hash)
+        .bind(&experiment.mode)
+        .bind(experiment.k)
+        .bind(experiment.max_steps)
+        .bind(experiment.max_probes)
+        .bind(experiment.seed)
+        .bind(&experiment.state)
+        .bind(&experiment.successor_revision_id)
+        .bind(&experiment.validation)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| {
+            DbFailure::from_sqlx("forge_harness.insert_probe_run.experiment", &error)
+        })?;
+        sqlx::query(
+            "insert into forge_harness_candidate
+                 (candidate_id, experiment_id, base_revision_id, proposal_kind, changes,
+                  candidate_revision_id)
+             values ($1,$2,$3,$4,$5,$6)",
+        )
+        .bind(&candidate.candidate_id)
+        .bind(&candidate.experiment_id)
+        .bind(&candidate.base_revision_id)
+        .bind(&candidate.proposal_kind)
+        .bind(&candidate.changes)
+        .bind(&candidate.candidate_revision_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| {
+            DbFailure::from_sqlx("forge_harness.insert_probe_run.candidate", &error)
+        })?;
+        for probe in probes {
+            sqlx::query(
+                "insert into forge_harness_probe
+                     (probe_id, experiment_id, candidate_revision_id, side, revision_id,
+                      contract_digest, spec, evidence_id, evidence_refs, process_instance_id,
+                      story_run_id, engine_task_id)
+                 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::text::uuid,$11::text::uuid,$12::text::uuid)",
+            )
+            .bind(&probe.probe_id)
+            .bind(&probe.experiment_id)
+            .bind(&probe.candidate_revision_id)
+            .bind(&probe.side)
+            .bind(&probe.revision_id)
+            .bind(&probe.contract_digest)
+            .bind(&probe.spec)
+            .bind(&probe.evidence_id)
+            .bind(&probe.evidence_refs)
+            .bind(probe.process_instance_id.as_deref())
+            .bind(probe.story_run_id.as_deref())
+            .bind(probe.engine_task_id.as_deref())
+            .execute(&mut *tx)
+            .await
+            .map_err(|error| {
+                DbFailure::from_sqlx("forge_harness.insert_probe_run.probe", &error)
+            })?;
+        }
+        sqlx::query(
+            "insert into forge_harness_contrast
+                 (contrast_id, experiment_id, base_revision_id, candidate_revision_id,
+                  reference_probe_id, candidate_probe_id, report, evidence_refs)
+             values ($1,$2,$3,$4,$5,$6,$7,$8)",
+        )
+        .bind(&contrast.contrast_id)
+        .bind(&contrast.experiment_id)
+        .bind(&contrast.base_revision_id)
+        .bind(&contrast.candidate_revision_id)
+        .bind(&contrast.reference_probe_id)
+        .bind(&contrast.candidate_probe_id)
+        .bind(&contrast.report)
+        .bind(&contrast.evidence_refs)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("forge_harness.insert_probe_run.contrast", &error))?;
+        tx.commit()
+            .await
+            .map_err(|error| DbFailure::from_sqlx("forge_harness.insert_probe_run.commit", &error))
     }
 
     pub async fn insert_candidate(
@@ -1166,10 +1255,7 @@ impl ForgeHarnessDao {
         .map_err(|error| DbFailure::from_sqlx("forge_harness.list_candidates", &error))
     }
 
-    pub async fn insert_probe(
-        &self,
-        new: &NewForgeHarnessProbe,
-    ) -> DbResult<ForgeHarnessProbeRow> {
+    pub async fn insert_probe(&self, new: &NewForgeHarnessProbe) -> DbResult<ForgeHarnessProbeRow> {
         sqlx::query_as::<_, ForgeHarnessProbeRow>(
             "insert into forge_harness_probe
                  (probe_id, experiment_id, candidate_revision_id, side, revision_id,
@@ -1499,7 +1585,10 @@ mod tests {
             ("system_prompt", "green", "different prompt", "the prompt"),
             ("memory", "green", "notes", "the memory"),
         ]);
-        assert_ne!(manifest_hash(&one).unwrap(), manifest_hash(&changed).unwrap());
+        assert_ne!(
+            manifest_hash(&one).unwrap(),
+            manifest_hash(&changed).unwrap()
+        );
         let different_authority = manifest(&[
             ("system_prompt", "yellow", "base prompt", "the prompt"),
             ("memory", "green", "notes", "the memory"),
@@ -1514,8 +1603,10 @@ mod tests {
     fn an_ambiguous_manifest_is_a_schema_mismatch_not_a_hash() {
         assert!(manifest_hash(&json!({})).is_err());
         assert!(manifest_hash(&json!({"components": "nope"})).is_err());
-        assert!(manifest_hash(&json!({"components": [{"kind": "unknown", "authority": "green",
-            "content": "x", "description": "y"}]}))
+        assert!(manifest_hash(
+            &json!({"components": [{"kind": "unknown", "authority": "green",
+            "content": "x", "description": "y"}]})
+        )
         .is_err());
         assert!(manifest_hash(&json!({"components": [
             {"kind": "memory", "authority": "green", "content": "a", "description": "b"},
@@ -1545,7 +1636,10 @@ mod tests {
         // Terminal statuses cannot be walked out of, and aborted steps cannot skip the pipeline.
         assert!(!revision_status_transition_allowed("rejected", "adopted"));
         assert!(!revision_status_transition_allowed("failed", "adopted"));
-        assert!(!revision_status_transition_allowed("rolled_back", "adopted"));
+        assert!(!revision_status_transition_allowed(
+            "rolled_back",
+            "adopted"
+        ));
         assert!(!revision_status_transition_allowed("draft", "adopted"));
         assert!(!revision_status_transition_allowed("probing", "composed"));
         assert!(!revision_status_transition_allowed("unknown", "adopted"));
@@ -1554,18 +1648,258 @@ mod tests {
     #[test]
     fn an_activation_kind_is_tied_to_its_lifecycle_pair() {
         // Adoption: an adoptable/superseded/imported revision displaces an adopted one.
-        assert!(activation_pair_allowed("adopt", "adoptable", Some("adopted")));
+        assert!(activation_pair_allowed(
+            "adopt",
+            "adoptable",
+            Some("adopted")
+        ));
         assert!(activation_pair_allowed("adopt", "adopted", None));
-        assert!(activation_pair_allowed("adopt", "superseded", Some("adopted")));
+        assert!(activation_pair_allowed(
+            "adopt",
+            "superseded",
+            Some("adopted")
+        ));
         assert!(!activation_pair_allowed("adopt", "draft", None));
-        assert!(!activation_pair_allowed("adopt", "adoptable", Some("superseded")));
+        assert!(!activation_pair_allowed(
+            "adopt",
+            "adoptable",
+            Some("superseded")
+        ));
         // Rollback restores exactly a revision an adoption displaced, and displaces the adopter.
-        assert!(activation_pair_allowed("rollback", "superseded", Some("adopted")));
-        assert!(!activation_pair_allowed("rollback", "adoptable", Some("adopted")));
+        assert!(activation_pair_allowed(
+            "rollback",
+            "superseded",
+            Some("adopted")
+        ));
+        assert!(!activation_pair_allowed(
+            "rollback",
+            "adoptable",
+            Some("adopted")
+        ));
         assert!(!activation_pair_allowed("rollback", "adopted", None));
-        assert!(!activation_pair_allowed("rollback", "rejected", Some("adopted")));
+        assert!(!activation_pair_allowed(
+            "rollback",
+            "rejected",
+            Some("adopted")
+        ));
         // A made-up kind is never a pointer move.
         assert!(!activation_pair_allowed("switch", "adoption", None));
+    }
+
+    /// DEV smoke test for transactional probe persistence: a failed lineage write leaves ZERO
+    /// rows (failure injected by a duplicate probe id inside the transaction), and a retry with a
+    /// fixed lineage succeeds. Ignored by default (needs DATABASE_URL_DEV).
+    #[test]
+    #[ignore = "needs DATABASE_URL_DEV; keeps the unit suite database-free"]
+    fn dev_smoke_probe_run_transaction_rollback_and_retry() {
+        use serde_json::json;
+
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let database = runtime
+            .block_on(Database::connect_target(crate::DbTarget::Dev))
+            .expect("connect DEV");
+        let dao = ForgeHarnessDao::new(database.clone());
+        let suffix = uuid::Uuid::new_v4();
+        let base_id = format!("smoke-tx-base-{suffix}");
+        let candidate_id = format!("smoke-tx-cand-{suffix}");
+        let experiment_id = format!("smoke-tx-exp-{suffix}");
+        let base_manifest = json!({"components": [
+            {"kind": "system_prompt", "authority": "green", "content": "base", "description": "tx smoke"}
+        ]});
+        let candidate_manifest = json!({"components": [
+            {"kind": "system_prompt", "authority": "green", "content": "candidate", "description": "tx smoke"}
+        ]});
+        let base_hash = manifest_hash(&base_manifest).expect("base hash");
+        let candidate_hash = manifest_hash(&candidate_manifest).expect("candidate hash");
+
+        let outcome: Result<(), String> = (|| {
+            let component = |content: &str| NewForgeHarnessComponent {
+                kind: "system_prompt".into(),
+                authority: "green".into(),
+                content: content.into(),
+                description: "tx smoke".into(),
+            };
+            runtime
+                .block_on(dao.insert_revision(&NewForgeHarnessRevision {
+                    revision_id: base_id.clone(),
+                    parent_revision_id: None,
+                    domain: "rust-backend".into(),
+                    status: "draft".into(),
+                    manifest: base_manifest.clone(),
+                    manifest_hash: base_hash.clone(),
+                    created_at: None,
+                    created_by: "smoke-tx".into(),
+                    components: vec![component("base")],
+                }))
+                .map_err(|error| format!("insert base: {error}"))?;
+            runtime
+                .block_on(dao.insert_revision(&NewForgeHarnessRevision {
+                    revision_id: candidate_id.clone(),
+                    parent_revision_id: Some(base_id.clone()),
+                    domain: "rust-backend".into(),
+                    status: "draft".into(),
+                    manifest: candidate_manifest.clone(),
+                    manifest_hash: candidate_hash.clone(),
+                    created_at: None,
+                    created_by: "smoke-tx".into(),
+                    components: vec![component("candidate")],
+                }))
+                .map_err(|error| format!("insert candidate: {error}"))?;
+
+            let experiment = NewForgeHarnessExperiment {
+                experiment_id: experiment_id.clone(),
+                domain: "rust-backend".into(),
+                base_revision_id: base_id.clone(),
+                base_manifest_hash: base_hash.clone(),
+                mode: "parallel".into(),
+                k: 1,
+                max_steps: 1,
+                max_probes: 3,
+                seed: 0,
+                state: "compared".into(),
+                successor_revision_id: None,
+                validation: None,
+            };
+            let candidate = NewForgeHarnessCandidate {
+                candidate_id: format!("{candidate_id}-candidate"),
+                experiment_id: experiment_id.clone(),
+                base_revision_id: base_id.clone(),
+                proposal_kind: "invariant".into(),
+                changes: json!([]),
+                candidate_revision_id: Some(candidate_id.clone()),
+            };
+            let probe = |name: &str, side: &str, revision: &str| NewForgeHarnessProbe {
+                probe_id: format!("smoke-tx-{name}-{suffix}"),
+                experiment_id: experiment_id.clone(),
+                candidate_revision_id: Some(candidate_id.clone()),
+                side: side.into(),
+                revision_id: revision.into(),
+                contract_digest: "0".repeat(64),
+                spec: json!({"smoke": true}),
+                evidence_id: Some(format!("evidence-{name}")),
+                evidence_refs: json!([]),
+                process_instance_id: None,
+                story_run_id: None,
+                engine_task_id: None,
+            };
+            let contrast = NewForgeHarnessContrast {
+                contrast_id: format!("smoke-tx-contrast-{suffix}"),
+                experiment_id: experiment_id.clone(),
+                base_revision_id: base_id.clone(),
+                candidate_revision_id: candidate_id.clone(),
+                reference_probe_id: Some(format!("smoke-tx-reference-{suffix}")),
+                candidate_probe_id: Some(format!("smoke-tx-candidate-{suffix}")),
+                report: json!({"dimensions": []}),
+                evidence_refs: json!([]),
+            };
+            let counts =
+                |runtime: &tokio::runtime::Runtime| -> Result<(i64, i64, i64, i64), String> {
+                    runtime
+                        .block_on(async {
+                            let experiment: i64 = sqlx::query_scalar(
+                            "select count(*) from forge_harness_experiment where experiment_id=$1",
+                        )
+                        .bind(&experiment_id)
+                        .fetch_one(database.pool())
+                        .await?;
+                            let candidate: i64 = sqlx::query_scalar(
+                            "select count(*) from forge_harness_candidate where experiment_id=$1",
+                        )
+                        .bind(&experiment_id)
+                        .fetch_one(database.pool())
+                        .await?;
+                            let probes: i64 = sqlx::query_scalar(
+                                "select count(*) from forge_harness_probe where experiment_id=$1",
+                            )
+                            .bind(&experiment_id)
+                            .fetch_one(database.pool())
+                            .await?;
+                            let contrast: i64 = sqlx::query_scalar(
+                            "select count(*) from forge_harness_contrast where experiment_id=$1",
+                        )
+                        .bind(&experiment_id)
+                        .fetch_one(database.pool())
+                        .await?;
+                            Ok::<_, sqlx::Error>((experiment, candidate, probes, contrast))
+                        })
+                        .map_err(|error| format!("count rows: {error}"))
+                };
+
+            // FAILURE INJECTION: duplicate probe id inside the transaction (PK conflict).
+            let reference = probe("reference", "reference", &base_id);
+            let duplicate = reference.clone();
+            let error = runtime
+                .block_on(dao.insert_probe_run(
+                    &experiment,
+                    &candidate,
+                    &[reference, duplicate],
+                    &contrast,
+                ))
+                .expect_err("duplicate probe id must fail the transaction");
+            if !error.to_string().contains("forge_harness.insert_probe_run") {
+                return Err(format!("unexpected failure label: {error}"));
+            }
+            let after_failure = counts(&runtime)?;
+            if after_failure != (0, 0, 0, 0) {
+                return Err(format!(
+                    "partial rows survived a failed probe-run transaction: {after_failure:?}"
+                ));
+            }
+
+            // RETRY: a fixed lineage succeeds and is complete.
+            let reference = probe("reference", "reference", &base_id);
+            let candidate_probe = probe("candidate", "candidate", &candidate_id);
+            runtime
+                .block_on(dao.insert_probe_run(
+                    &experiment,
+                    &candidate,
+                    &[reference, candidate_probe],
+                    &contrast,
+                ))
+                .map_err(|error| format!("retry insert: {error}"))?;
+            let after_retry = counts(&runtime)?;
+            if after_retry != (1, 1, 2, 1) {
+                return Err(format!(
+                    "retry did not persist the full run: {after_retry:?}"
+                ));
+            }
+            Ok(())
+        })();
+
+        // Cleanup always runs, FK order.
+        let cleanup = runtime.block_on(async {
+            sqlx::query("delete from forge_harness_contrast where experiment_id=$1")
+                .bind(&experiment_id)
+                .execute(database.pool())
+                .await?;
+            sqlx::query("delete from forge_harness_probe where experiment_id=$1")
+                .bind(&experiment_id)
+                .execute(database.pool())
+                .await?;
+            sqlx::query("delete from forge_harness_candidate where experiment_id=$1")
+                .bind(&experiment_id)
+                .execute(database.pool())
+                .await?;
+            sqlx::query("delete from forge_harness_experiment where experiment_id=$1")
+                .bind(&experiment_id)
+                .execute(database.pool())
+                .await?;
+            for revision in [&candidate_id, &base_id] {
+                sqlx::query("delete from forge_harness_component where revision_id=$1")
+                    .bind(revision)
+                    .execute(database.pool())
+                    .await?;
+            }
+            for revision in [&candidate_id, &base_id] {
+                sqlx::query("delete from forge_harness_revision where revision_id=$1")
+                    .bind(revision)
+                    .execute(database.pool())
+                    .await?;
+            }
+            Ok::<(), sqlx::Error>(())
+        });
+        assert!(cleanup.is_ok(), "smoke cleanup must remove its rows");
+        outcome.expect("transactional probe-run smoke");
     }
 
     /// DEV smoke test for the experiment/probe lineage rows: proves the DAO insert/read SQL matches
@@ -1633,7 +1967,8 @@ mod tests {
                 .block_on(dao.get_experiment(&experiment_id))
                 .map_err(|error| format!("read experiment: {error}"))?
                 .ok_or_else(|| "experiment missing after insert".to_string())?;
-            if experiment.experiment_id != experiment_id || experiment.base_revision_id != revision_id
+            if experiment.experiment_id != experiment_id
+                || experiment.base_revision_id != revision_id
             {
                 return Err("experiment identity did not round-trip".into());
             }
@@ -1702,7 +2037,9 @@ mod tests {
         verify_components_match_manifest("rev-1", &manifest_components, &good).unwrap();
         let mut tampered = good.clone();
         tampered[0].content = "different".into();
-        assert!(verify_components_match_manifest("rev-1", &manifest_components, &tampered).is_err());
+        assert!(
+            verify_components_match_manifest("rev-1", &manifest_components, &tampered).is_err()
+        );
         assert!(verify_components_match_manifest("rev-1", &manifest_components, &[]).is_err());
     }
 }

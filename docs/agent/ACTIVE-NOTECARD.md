@@ -45,11 +45,11 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
 
 ## D. First real experiment
 
-| # | Item | status | scope |
-| --- | --- | --- | --- |
-| D1 | Run dogfood: 3–5 historical Rust stories, prompt/tool-guidance only, k=1, command sandbox first | DONE (DSH) | 5-story cohort: 7 improved / 2 regressed / 65 unchanged; tokens measured 8/10; cost NOT CAPTURED; 36.3 min. OpenCode deferred to TD. See docs/agent/DOGFOOD-2026-10-18-DSH.md | wiring + command-sandbox E2E on DEV verified (persisted experiment/candidate/2 probes/contrast, cleaned); paid model run needs principal approval: `--authorize-model-run --model-backend opencode` = 2 opencode turns | `scripts/harness-dogfood.sh` + probe entrypoint |
+| # | Item | status | notes | scope |
+| --- | --- | --- | --- | --- |
+| D1 | Run dogfood: 3–5 historical Rust stories, prompt/tool-guidance only, k=1 | DONE (DSH; 2026-10-18) | 5-story cohort: 7 improved / 2 regressed / 65 unchanged; tokens measured 8/10; cost NOT CAPTURED; 36.3 min; OpenCode deferred to TD. See docs/agent/DOGFOOD-2026-10-18-DSH.md | `scripts/harness-dogfood.sh` + `forge harness-evolution probe` |
 | D2 | Review evidence manually before any adoption; write first experience/correction rows | DONE | cohort reviewed: mixed signal, no adoption, no writeback (no adoption decision); adoption OFF. Needs cost rates + another cohort before compose/validate | DB + decision record |
-| D3 | Automatic adoption stays OFF until effective-GREEN has production evidence | BLOCKED | blocked by D1/D2 + principal approval |
+| D3 | Automatic adoption stays OFF until effective-GREEN has production evidence | BLOCKED | blocked by D1/D2 + principal approval | adoption decision record |
 
 ## E. Later (do not start until A–D empty)
 
@@ -78,3 +78,7 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
 - 2026-10-18: O1-O3 operator surface landed: CLI feed|metrics|calibration + probe entrypoint
   (persists experiment/candidate/probes/contrast on DEV, cleans up), digest corrections/experiment/
   calibration lines; CLI suite fixed (stale opencode config test) — 1030 forge, 63 db, 181 cli, gate PASS.
+- 2026-10-19: FORGE-02 DSH version pin + SOP + stale-doc fixes (task-28): `DSH_EXPECTED_VERSION`
+  asserted in preflight (default 0.1.1-rc.2), verified version recorded in model-turn receipts/probe
+  evidence; `docs/agent/SOP-DSH-UPGRADE.md` written; TECH-DEBT/HARNESS-EVOLUTION-ARCHITECTURE/
+  DEAD-COMMANDS/boot_gate/DOGFOOD docs reconciled with code (332 module tests, 329 passing/3 ignored).
