@@ -202,10 +202,10 @@ mod tests {
     fn the_finalizer_listens_for_the_event_the_signer_command_emits() {
         // The key is the event type `SignerCommandKind::Complete` pushes. A rename on one side only is a silent
         // production failure (no sealed document), so it is pinned here and read back from the producer's source.
-        let producer = include_str!("../command_runtime.rs");
+        let producer = include_str!("commands.rs");
         assert!(
             producer.contains(&format!("\"{READY_TO_FINALIZE_ROUTING_KEY}\"")),
-            "command_runtime must emit {READY_TO_FINALIZE_ROUTING_KEY}"
+            "luxesign::commands must emit {READY_TO_FINALIZE_ROUTING_KEY}"
         );
     }
 
