@@ -25,6 +25,8 @@ use services::{
     ServiceDispatchError, ServiceEnvelope, ServiceExecutionPolicy, ServiceInfrastructure,
     ServiceRuntime,
 };
+pub mod signer;
+pub mod signature;
 pub mod worker;
 
 use std::sync::Arc;
