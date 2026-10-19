@@ -70,3 +70,33 @@ into API reads; leave luxesign/signer/command_runtime untouched.
 - [x] partition verdict
 - [ ] principal approval of the X-2 boundary plan (next)
 - [ ] re-run baseline immediately before the first web edit and after every step
+
+## 6. Module classification — `command_runtime`, `signer`, `signature` (read 2026-10-19)
+
+### `web/src/command_runtime.rs` (1,765 lines) — **app, stays**
+Not a CLI to Forge. It is the app's **durable command dispatcher**: a registry of
+`DurableCommandHandler`s for contracts, email, Luxesign (`IssueLuxesign`, `SendLuxesign`,
+`PrepareLuxesign`), signer commands, receipts, domain-event outbox, security audit and scheduler
+service. It writes app tables through `db` DAOs, uses `services` runtime for scheduling, and is
+wired from `web/src/lib.rs` + `api/error.rs`. Zero Forge references.
+Recommendation: keep in app; optionally rename to `command_dispatch` later for clarity — not part of
+Forge extraction.
+
+### `web/src/signer/mod.rs` (1,431 lines) — **app (Luxesign/contract signing), stays**
+Contract-signing domain: signer consent/session/state, HMAC access tokens, signing-link origin
+selection, `LUXESIGN_EDGE_ACTOR`, signer edge verification, `SignerService` over `SignerDao`.
+It is consumed by `luxesign/mod.rs`, `command_runtime.rs`, `composition.rs` and
+`api/routes/signer_edge.rs`. Not Forge; not forms templates.
+Recommendation: keep in app; if grouping is wanted, it belongs with **Luxesign/contracts signing**
+(e.g. `luxesign/signing/`) rather than `forms` (forms is `middle/model/forms` templates). Rename/move
+is optional cleanup, not extraction.
+
+### `web/src/signature/mod.rs` (935 lines) — **app (e-signature provider), stays**
+`SignatureService`/`SignatureProvider` over `SignatureDao`, prepare/send/status/webhook and artifact
+download. Adjacent to signer/luxesign; keep with signing domain.
+
+### Corrected freeze list
+- `luxesign` — stays (core app functionality).
+- `command_runtime` — stays (app dispatcher; not Forge CLI).
+- `signer`/`signature` — stay (Luxesign/contract signing; optional grouping only).
+- Only the 6 Forge-boundary files in §2 are candidates for `re-host`/API replacement.
