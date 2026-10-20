@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use db::NewToolArtifact;
+use forge::forge_db::NewToolArtifact;
 use forge::engine::assay::CommandResult;
 use forge::engine::completion::MemoryLedger;
 use forge::engine::definition::forge_sdlc_definition;
@@ -54,7 +54,7 @@ pub struct SeamWriter {
     pub details: Mutex<Vec<(String, String)>>,
     pub opened_holds: Mutex<Vec<CapturedHold>>,
     pub artifacts: Mutex<Vec<NewToolArtifact>>,
-    pub assay_plan_snapshots: Mutex<BTreeMap<String, db::forge_assay::AssayPlanSnapshotRow>>,
+    pub assay_plan_snapshots: Mutex<BTreeMap<String, forge::forge_db::forge_assay::AssayPlanSnapshotRow>>,
 }
 
 impl ForgeStateWriter for SeamWriter {
@@ -123,7 +123,7 @@ impl ForgeStateWriter for SeamWriter {
     fn read_assay_plan_snapshot(
         &self,
         run_id: &str,
-    ) -> Result<Option<db::forge_assay::AssayPlanSnapshotRow>, String> {
+    ) -> Result<Option<forge::forge_db::forge_assay::AssayPlanSnapshotRow>, String> {
         Ok(self
             .assay_plan_snapshots
             .lock()
@@ -334,7 +334,7 @@ fn approved_seam_assay_snapshot(writer: &SeamWriter) {
         .expect("assay plan snapshots")
         .insert(
             STORY_RUN.into(),
-            db::forge_assay::AssayPlanSnapshotRow {
+            forge::forge_db::forge_assay::AssayPlanSnapshotRow {
                 story_run_id: STORY_RUN.into(),
                 story_id: STORY.into(),
                 assay_commands_snapshot: Some(SEAM_ASSAY_COMMAND.into()),
@@ -351,7 +351,7 @@ fn approved_seam_assay_snapshot(writer: &SeamWriter) {
 struct LedgerEvidence(Arc<MemoryLedger>);
 
 impl ForgeEvidenceReader for LedgerEvidence {
-    fn read(&self, story_id: &str) -> Result<ForgeGateEvidence, db::DbFailure> {
+    fn read(&self, story_id: &str) -> Result<ForgeGateEvidence, forge::forge_db::DbFailure> {
         Ok(self.0.evidence_for(story_id).unwrap_or_default())
     }
 }

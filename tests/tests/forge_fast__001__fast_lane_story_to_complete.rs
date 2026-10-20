@@ -169,7 +169,7 @@ struct Reader {
 }
 
 impl ForgeEvidenceReader for Reader {
-    fn read(&self, story_id: &str) -> Result<ForgeGateEvidence, db::DbFailure> {
+    fn read(&self, story_id: &str) -> Result<ForgeGateEvidence, forge::forge_db::DbFailure> {
         let mut roles = self.ledger.evidence_for(story_id).unwrap_or_default();
         // The story's repair counter, as production's reader now loads it from `storyboard_story`.
         roles.repair_attempts = Some(self.ledger.repairs(story_id));
@@ -216,7 +216,7 @@ fn approved_fast_assay_snapshot(writer: &RecordingWriter) {
     let identity = plan.identity().expect("plan hashes");
     writer.assay_plan_snapshots.lock().unwrap().insert(
         RUN.into(),
-        db::forge_assay::AssayPlanSnapshotRow {
+        forge::forge_db::forge_assay::AssayPlanSnapshotRow {
             story_run_id: RUN.into(),
             story_id: STORY.into(),
             assay_commands_snapshot: Some(command.into()),

@@ -244,7 +244,7 @@ fn frozen_plan_snapshot(writer: &RecordingWriter) {
     let identity = plan.identity().expect("the frozen plan hashes");
     writer.assay_plan_snapshots.lock().unwrap().insert(
         RUN.into(),
-        db::forge_assay::AssayPlanSnapshotRow {
+        forge::forge_db::forge_assay::AssayPlanSnapshotRow {
             story_run_id: RUN.into(),
             story_id: STORY_ID.into(),
             assay_commands_snapshot: Some(contract_commands().join("\n")),

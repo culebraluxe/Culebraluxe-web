@@ -269,7 +269,7 @@ impl EvidenceStore for Evidence {
     fn operation_receipt(
         &self,
         _: &str,
-    ) -> Result<Option<db::ForgeReleaseOperationReceipt>, String> {
+    ) -> Result<Option<forge::forge_db::ForgeReleaseOperationReceipt>, String> {
         Ok(None)
     }
     fn record_operation_receipt(

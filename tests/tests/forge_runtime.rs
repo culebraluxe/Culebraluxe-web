@@ -653,7 +653,7 @@ fn approved_assay_snapshot(writer: &RecordingWriter, story_id: &str, run_id: &st
     let identity = plan.identity().expect("plan hashes");
     writer.assay_plan_snapshots.lock().unwrap().insert(
         run_id.into(),
-        db::forge_assay::AssayPlanSnapshotRow {
+        forge::forge_db::forge_assay::AssayPlanSnapshotRow {
             story_run_id: run_id.into(),
             story_id: story_id.into(),
             assay_commands_snapshot: Some(command.into()),
@@ -849,7 +849,7 @@ fn a_hold_that_cannot_be_recorded_fails_the_lane() {
         fn open_hold(&self, _i: &forge::engine::hold::OpenHold) -> Result<String, String> {
             Err("no such story".into())
         }
-        fn record_tool_artifact(&self, _i: &db::NewToolArtifact) -> Result<Option<String>, String> {
+        fn record_tool_artifact(&self, _i: &forge::forge_db::NewToolArtifact) -> Result<Option<String>, String> {
             Ok(None)
         }
         fn record_run_usage(
@@ -1035,7 +1035,7 @@ fn an_artifact_that_cannot_be_recorded_fails_the_lane() {
         fn open_hold(&self, _i: &forge::engine::hold::OpenHold) -> Result<String, String> {
             Ok("hold-1".into())
         }
-        fn record_tool_artifact(&self, _i: &db::NewToolArtifact) -> Result<Option<String>, String> {
+        fn record_tool_artifact(&self, _i: &forge::forge_db::NewToolArtifact) -> Result<Option<String>, String> {
             Err("artifact table is unreachable".into())
         }
         fn record_run_usage(
@@ -1109,7 +1109,7 @@ fn publish_without_qa_pass_records_conflict() {
         fn operation_receipt(
             &self,
             _: &str,
-        ) -> Result<Option<db::ForgeReleaseOperationReceipt>, String> {
+        ) -> Result<Option<forge::forge_db::ForgeReleaseOperationReceipt>, String> {
             Ok(None)
         }
         fn record_operation_receipt(
@@ -1233,7 +1233,7 @@ fn a_publish_refused_by_the_switch_is_not_filed_as_a_git_conflict() {
         fn operation_receipt(
             &self,
             _: &str,
-        ) -> Result<Option<db::ForgeReleaseOperationReceipt>, String> {
+        ) -> Result<Option<forge::forge_db::ForgeReleaseOperationReceipt>, String> {
             Ok(None)
         }
         fn record_operation_receipt(

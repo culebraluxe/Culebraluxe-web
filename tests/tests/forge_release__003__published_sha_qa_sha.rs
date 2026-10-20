@@ -166,7 +166,7 @@ impl EvidenceStore for RecordingStore {
     fn operation_receipt(
         &self,
         _operation_command_id: &str,
-    ) -> std::result::Result<Option<db::ForgeReleaseOperationReceipt>, String> {
+    ) -> std::result::Result<Option<forge::forge_db::ForgeReleaseOperationReceipt>, String> {
         Ok(None)
     }
     fn record_operation_receipt(

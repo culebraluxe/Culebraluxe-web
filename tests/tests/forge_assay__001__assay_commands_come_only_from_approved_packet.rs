@@ -13,7 +13,7 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test forge_assay__001__assay_commands_come_only_from_approved_packet
 
-use db::StoryPacketRow;
+use forge::forge_db::StoryPacketRow;
 use forge::engine::assay::CommandResult;
 use forge::engine::packet::StoryPacket;
 use forge::engine::qa_adjudicate::{adjudicate_qa, AssayPlan};

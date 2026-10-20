@@ -4,7 +4,7 @@
 //! the error propagates as `DbFailure` (which becomes an engine fault) rather than
 //! returning default evidence. Genuine no-evidence-yet still returns empty evidence.
 
-use db::{DbFailure, DbFailureKind};
+use forge::forge_db::{DbFailure, DbFailureKind};
 use forge::engine::writer::ForgeEvidenceReader;
 use std::collections::BTreeMap;
 use std::sync::Mutex;

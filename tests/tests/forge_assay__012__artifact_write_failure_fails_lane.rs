@@ -85,7 +85,7 @@ impl ForgeStateWriter for BrokenArtifactWriter {
     fn open_hold(&self, i: &forge::engine::hold::OpenHold) -> Result<String, String> {
         self.recorded.open_hold(i)
     }
-    fn record_tool_artifact(&self, _: &db::NewToolArtifact) -> Result<Option<String>, String> {
+    fn record_tool_artifact(&self, _: &forge::forge_db::NewToolArtifact) -> Result<Option<String>, String> {
         Err("connection reset by peer".into())
     }
     fn record_run_usage(
@@ -122,7 +122,7 @@ impl ForgeStateWriter for BrokenStampWriter {
     fn open_hold(&self, i: &forge::engine::hold::OpenHold) -> Result<String, String> {
         self.recorded.open_hold(i)
     }
-    fn record_tool_artifact(&self, i: &db::NewToolArtifact) -> Result<Option<String>, String> {
+    fn record_tool_artifact(&self, i: &forge::forge_db::NewToolArtifact) -> Result<Option<String>, String> {
         self.recorded.record_tool_artifact(i)
     }
     fn record_run_usage(

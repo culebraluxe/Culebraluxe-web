@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use db::ForgeStoryReceiptRow;
+use forge::forge_db::ForgeStoryReceiptRow;
 use forge::pianola::status::{
     commit_diff_non_empty, commit_resolves_in_lane, verify_receipt_for_closure, ClosureEvidence,
     ClosureVerdict,

@@ -39,7 +39,7 @@
 #[path = "support/forge_seam.rs"]
 mod support;
 
-use db::NewToolArtifact;
+use forge::forge_db::NewToolArtifact;
 use support::*;
 
 /// Drive a story through the Forge runtime and verify artifact correlation through the writer.

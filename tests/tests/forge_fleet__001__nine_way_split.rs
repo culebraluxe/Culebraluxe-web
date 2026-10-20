@@ -15,7 +15,7 @@
 //! No database is involved: discovery and validation are pure functions over
 //! fixture story/packet rows.
 
-use db::StoryPacketRow;
+use forge::forge_db::StoryPacketRow;
 use forge::pianola::batch::{
     discover_worker_batches, require_hitl_to_continue, validate_fleet_batch,
     validate_fleet_batch_with_targets, PIANOLA_EXPERIMENT_CAP, PIANOLA_WORKER_COUNT,

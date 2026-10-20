@@ -800,8 +800,8 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "forge"
-version = "0.2.0"
-source = "git+https://github.com/culebraluxe/forge?tag=v0.2.0#b20b0b0bf500c5751c2810355973e550b66dda4f"
+version = "0.2.2"
+source = "git+https://github.com/culebraluxe/forge?tag=v0.2.2#b7a743bd2939dee40ce49b1eee69ba2ff9d69c85"
 dependencies = [
  "async-trait",
  "chrono",
@@ -826,8 +826,8 @@ dependencies = [
 
 [[package]]
 name = "forge-db"
-version = "0.2.0"
-source = "git+https://github.com/culebraluxe/forge?tag=v0.2.0#b20b0b0bf500c5751c2810355973e550b66dda4f"
+version = "0.2.2"
+source = "git+https://github.com/culebraluxe/forge?tag=v0.2.2#b7a743bd2939dee40ce49b1eee69ba2ff9d69c85"
 dependencies = [
  "chrono",
  "futures-util",
