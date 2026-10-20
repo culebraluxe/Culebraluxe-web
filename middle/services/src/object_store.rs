@@ -22,6 +22,15 @@ pub enum ObjectBucket {
 }
 
 impl ObjectBucket {
+    pub fn from_db(value: &str) -> Option<Self> {
+        match value {
+            "property_media_public" => Some(Self::PropertyMediaPublic),
+            "property_media_private" => Some(Self::PropertyMediaPrivate),
+            "vault" => Some(Self::Vault),
+            _ => None,
+        }
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::PropertyMediaPublic => "property_media_public",
@@ -173,6 +182,14 @@ pub trait AbstractObjectStoreService: Send + Sync {
             Err(error) => Err(error),
         }
     }
+
+    /// The stable, unsigned URL for a public object. Only valid for `PropertyMediaPublic`;
+    /// providers must reject every other bucket so a configuration mistake cannot publish Vault.
+    async fn public_read_url(
+        &self,
+        bucket: ObjectBucket,
+        key: &str,
+    ) -> Result<String, ObjectStoreError>;
 
     async fn signed_read_url(
         &self,

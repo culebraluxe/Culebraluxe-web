@@ -7,10 +7,14 @@ use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{DbResult, PublicListingDao};
 use model::{PublicListing, PublicListingCopy, PublicProperty};
-use services::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
+use services::{
+    AbstractObjectStoreService, ObjectBucket, OperationKind, ServiceContext,
+    ServiceInfrastructure, ServiceRuntime,
+};
+use std::sync::Arc;
 
 #[async_trait]
-pub trait PublicListingRepository: Send {
+pub trait PublicListingRepository: Send + Sync {
     async fn listings(&self) -> DbResult<Vec<PublicListing>>;
     /// `None` means no such Property — a genuine not-found, not a failure.
     async fn property(&self, key: &str) -> DbResult<Option<PublicProperty>>;
@@ -21,6 +25,15 @@ pub trait PublicListingRepository: Send {
     /// Every slug the site can serve, for the sitemap.
     async fn slugs(&self) -> DbResult<Vec<String>>;
     async fn listing_copy(&self) -> DbResult<Vec<PublicListingCopy>>;
+
+    /// Storage pointer for the same asset `media_bytes` serves. Test repositories return None.
+    async fn media_object_location(
+        &self,
+        _id: &str,
+        _size: &str,
+    ) -> DbResult<Option<db::MediaObjectLocation>> {
+        Ok(None)
+    }
 }
 
 #[async_trait]
@@ -51,11 +64,22 @@ impl PublicListingRepository for PublicListingDao {
     async fn listing_copy(&self) -> DbResult<Vec<PublicListingCopy>> {
         db::retrying_read!(PublicListingDao::listing_copy(self))
     }
+
+    async fn media_object_location(
+        &self,
+        id: &str,
+        size: &str,
+    ) -> DbResult<Option<db::MediaObjectLocation>> {
+        let (id, size) = (id.to_owned(), size.to_owned());
+        db::retrying_read!(PublicListingDao::media_object_location(self, &id, &size))
+    }
 }
 
 pub struct PublicListingService<R> {
     repository: R,
     runtime: ServiceRuntime,
+    object_store: Option<Arc<dyn AbstractObjectStoreService>>,
+    object_reads: bool,
 }
 
 impl<R: PublicListingRepository> PublicListingService<R> {
@@ -63,7 +87,19 @@ impl<R: PublicListingRepository> PublicListingService<R> {
         Self {
             repository,
             runtime: ServiceRuntime::new(infrastructure),
+            object_store: None,
+            object_reads: false,
         }
+    }
+
+    pub fn with_object_store(mut self, store: Arc<dyn AbstractObjectStoreService>) -> Self {
+        self.object_store = Some(store);
+        self
+    }
+
+    pub fn with_object_reads(mut self, enabled: bool) -> Self {
+        self.object_reads = enabled;
+        self
     }
 
     pub async fn listings(
@@ -128,6 +164,59 @@ impl<R: PublicListingRepository> PublicListingService<R> {
             .media_bytes(id, size)
             .await
             .map_err(Into::into);
+        audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Phase 4 public resolver. Only a VERIFIED, public-visibility object in the public bucket gets
+    /// a direct URL; every other asset keeps the legacy byte path.
+    pub async fn media_read(
+        &self,
+        id: &str,
+        size: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<crate::media::MediaRead>, CoreServiceError> {
+        const OP: &str = "property.publicMediaRead";
+        let decision = authorize(
+            &self.runtime,
+            "property",
+            "property.public.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            if self.object_reads {
+                if let Some(store) = self.object_store.as_ref() {
+                    if let Some(location) = self.repository.media_object_location(id, size).await? {
+                        if location.status == "VERIFIED" && location.visibility == "public" {
+                            if let Some(bucket) = ObjectBucket::from_db(&location.bucket) {
+                                if bucket == ObjectBucket::PropertyMediaPublic {
+                                    match store.public_read_url(bucket, &location.key).await {
+                                        Ok(url) => {
+                                            return Ok(Some(crate::media::MediaRead::Redirect {
+                                                url,
+                                            }))
+                                        }
+                                        Err(error) => tracing::warn!(
+                                            media_id = id,
+                                            %error,
+                                            "public media object URL failed; legacy blob fallback"
+                                        ),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let bytes = self.repository.media_bytes(id, size).await?;
+            Ok(bytes.map(|(mime_type, bytes)| crate::media::MediaRead::Bytes { mime_type, bytes }))
+        }
+        .await;
+
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
     }

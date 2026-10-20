@@ -166,27 +166,46 @@ pub(super) async fn public_media(
     let found = state
         .services()
         .public_listings()
-        .media_bytes(&id, "web", &context)
+        .media_read(&id, "web", &context)
         .await
         .map_err(ApiError::from)?;
 
-    let Some((mime_type, bytes)) = found else {
+    let Some(found) = found else {
         return Err(ApiError::not_found("MEDIA_NOT_FOUND", "Not found."));
     };
 
-    axum::response::Response::builder()
-        .header(axum::http::header::CONTENT_TYPE, mime_type)
-        // Photograph bytes do not change under an id: a replacement upload is a new row.
-        .header(axum::http::header::CACHE_CONTROL, "public, max-age=3600")
-        .body(axum::body::Body::from(bytes))
-        .map_err(|error| {
-            ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "MEDIA_RESPONSE_FAILED",
-                error.to_string(),
-                false,
-            )
-        })
+    match found {
+        crate::media::MediaRead::Bytes { mime_type, bytes } => {
+            axum::response::Response::builder()
+                .header(axum::http::header::CONTENT_TYPE, mime_type)
+                // Photograph bytes do not change under an id: a replacement upload is a new row.
+                .header(axum::http::header::CACHE_CONTROL, "public, max-age=3600")
+                .body(axum::body::Body::from(bytes))
+                .map_err(|error| {
+                    ApiError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "MEDIA_RESPONSE_FAILED",
+                        error.to_string(),
+                        false,
+                    )
+                })
+        }
+        crate::media::MediaRead::Redirect { url } => axum::response::Response::builder()
+            .status(StatusCode::FOUND)
+            .header(axum::http::header::LOCATION, url)
+            // The object URL is stable for a given media id; a short redirect cache keeps a
+            // replacement upload (a new row) from being conflated with this one.
+            .header(axum::http::header::CACHE_CONTROL, "public, max-age=300")
+            .body(axum::body::Body::empty())
+            .map_err(|error| {
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "MEDIA_RESPONSE_FAILED",
+                    error.to_string(),
+                    false,
+                )
+            }),
+    }
 }
 
 /// One Property, for the public page. Anonymous, the same guest door as the inventory, the same published action.

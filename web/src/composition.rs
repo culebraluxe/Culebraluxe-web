@@ -50,8 +50,8 @@ use db::{
     WebsiteLeadDao, WhatsAppDao, WorkflowPortalDao,
 };
 use services::{
-    AbstractService, ServiceDescriptor, ServiceDispatchError, ServiceInfrastructure,
-    SignatureProvider,
+    AbstractObjectStoreService, AbstractService, ServiceDescriptor, ServiceDispatchError,
+    ServiceInfrastructure, SignatureProvider,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -267,18 +267,33 @@ impl ServiceCatalog {
             firm.clone(),
             property.clone(),
         ));
-        let media_service = MediaService::new(
-            MediaDao::new(db.clone()),
+        let object_reads = crate::media::object_reads_from_env();
+        let media_store: Option<Arc<dyn AbstractObjectStoreService>> =
+            match crate::media::object_store_from_env() {
+                Ok(Some(store)) => Some(Arc::new(store)),
+                Ok(None) => None,
+                Err(error) => {
+                    tracing::error!(
+                        %error,
+                        "media object store is misconfigured; shadow writes and object reads are off"
+                    );
+                    None
+                }
+            };
+        let mut media_service =
+            MediaService::new(MediaDao::new(db.clone()), infrastructure.clone());
+        if let Some(store) = media_store.clone() {
+            media_service = media_service.with_object_store(store);
+        }
+        media_service = media_service.with_object_reads(object_reads);
+        let mut public_listing_service = PublicListingService::new(
+            PublicListingDao::new(db.clone()),
             infrastructure.clone(),
         );
-        let media_service = match crate::media::object_store_from_env() {
-            Ok(Some(store)) => media_service.with_object_store(Arc::new(store)),
-            Ok(None) => media_service,
-            Err(error) => {
-                tracing::error!(%error, "media object store is misconfigured; shadow writes are off");
-                media_service
-            }
-        };
+        if let Some(store) = media_store.clone() {
+            public_listing_service = public_listing_service.with_object_store(store);
+        }
+        public_listing_service = public_listing_service.with_object_reads(object_reads);
 
         let signature_provider: Option<Arc<dyn SignatureProvider>> =
             match BoldSignConfig::from_env()
@@ -410,10 +425,7 @@ impl ServiceCatalog {
                 FormDao::new(db.clone()),
                 infrastructure.clone(),
             )),
-            public_listings: Arc::new(PublicListingService::new(
-                PublicListingDao::new(db.clone()),
-                infrastructure.clone(),
-            )),
+            public_listings: Arc::new(public_listing_service),
             publishing: Arc::new(PublishingService::new(
                 PublishingDao::new(db.clone()),
                 infrastructure.clone(),

@@ -84,6 +84,49 @@ pub struct MediaDao {
 }
 
 impl MediaDao {
+    /// Read only the storage pointer, never `file_data`.
+    pub async fn media_object_location(
+        &self,
+        media_id: &str,
+    ) -> DbResult<Option<MediaObjectLocation>> {
+        let row = sqlx::query_as::<_, (Option<String>, Option<String>, String, String)>(
+            "select object_bucket, object_key, storage_status, visibility
+               from media where id = $1::uuid",
+        )
+        .bind(media_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.media_object_location", &error))?;
+        Ok(row.and_then(|(bucket, key, status, visibility)| {
+            Some(MediaObjectLocation {
+                bucket: bucket?,
+                key: key?,
+                status,
+                visibility,
+            })
+        }))
+    }
+
+    /// The same publication rule the public listing uses. New uploads on a published property may
+    /// go to the public bucket; everything else shadow-writes to the private bucket.
+    pub async fn property_is_public(&self, property_id: &str) -> DbResult<bool> {
+        let row = sqlx::query_as::<_, (bool,)>(
+            "select exists (
+                select 1 from property
+                 where id = $1::uuid
+                   and archived_at is null
+                   and is_published
+                   and slug is not null
+                   and status in ('active', 'under_contract', 'sold')
+            )",
+        )
+        .bind(property_id)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.property_is_public", &error))?;
+        Ok(row.0)
+    }
+
     /// Persist the outcome of a shadow object write. The legacy `file_data` blob is never touched here;
     /// the object is only an additional copy until a later, verified cutover.
     pub async fn set_media_object(
@@ -99,6 +142,7 @@ impl MediaDao {
                     object_sha256 = $5,
                     object_size = $6,
                     storage_status = $7,
+                    visibility = coalesce($8, visibility),
                     object_migrated_at = case when $7 = 'VERIFIED' then now() else object_migrated_at end,
                     updated_at = now()
               where id = $1::uuid",
@@ -110,6 +154,7 @@ impl MediaDao {
         .bind(metadata.sha256.as_deref())
         .bind(metadata.size)
         .bind(&metadata.status)
+        .bind(metadata.visibility.as_deref())
         .execute(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("media.set_media_object", &error))?;

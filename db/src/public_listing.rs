@@ -650,6 +650,68 @@ impl PublicListingDao {
         Ok(row)
     }
 
+    /// The storage pointer for the same asset `media_bytes` would serve, without reading `file_data`.
+    pub async fn media_object_location(
+        &self,
+        id: &str,
+        size: &str,
+    ) -> DbResult<Option<crate::MediaObjectLocation>> {
+        let size = if matches!(size, "card" | "thumb") { size } else { "web" };
+        let row = sqlx::query_as::<
+            _,
+            (
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ),
+        >(
+            r#"
+            select
+                copy.id::text,
+                case when copy.id is not null then copy.object_bucket else m.object_bucket end,
+                case when copy.id is not null then copy.object_key else m.object_key end,
+                case when copy.id is not null then copy.storage_status else m.storage_status end,
+                case when copy.id is not null then copy.visibility else m.visibility end
+            from media m
+            join media root on root.id = coalesce(m.derivative_of, m.id)
+            left join lateral (
+                select d.id, d.object_bucket, d.object_key, d.storage_status, d.visibility
+                  from media d
+                 where d.derivative_of = root.id and d.derivative_kind in ($2, 'web')
+                 order by (d.derivative_kind = $2) desc
+                 limit 1
+            ) as copy on true
+            where m.id = $1::uuid
+              and not exists (
+                    select 1
+                      from property_media pm
+                      join property p on p.id = pm.property_id
+                     where pm.media_id = root.id
+                       and not (
+                             p.archived_at is null
+                             and p.status in ('active', 'under_contract', 'sold')
+                           )
+                  )
+            limit 1
+            "#,
+        )
+        .bind(id)
+        .bind(size)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("public_listing.media_object_location", &error))?;
+        Ok(row.and_then(|(_copy_id, bucket, key, status, visibility)| {
+            Some(crate::MediaObjectLocation {
+                bucket: bucket?,
+                key: key?,
+                status: status.unwrap_or_else(|| "LEGACY_BLOB".to_owned()),
+                visibility: visibility.unwrap_or_else(|| "private".to_owned()),
+            })
+        }))
+    }
+
     /// Taglines for every published listing that has one. A listing with none is simply absent.
     pub async fn listing_copy(&self) -> DbResult<Vec<PublicListingCopy>> {
         let rows = sqlx::query_as::<_, (String, String)>(

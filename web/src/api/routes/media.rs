@@ -12,33 +12,52 @@ pub(super) async fn private_media(
     let found = state
         .services()
         .media()
-        .media_bytes(&id, &resolved.service)
+        .media_read(&id, &resolved.service)
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;
 
-    let Some((mime_type, bytes)) = found else {
+    let Some(found) = found else {
         return Err(correlate(
             ApiError::not_found("MEDIA_NOT_FOUND", "Not found."),
             &resolved,
         ));
     };
 
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, mime_type)
-        .header(header::CACHE_CONTROL, "private, no-store")
-        .body(Body::from(bytes))
-        .map_err(|error| {
-            correlate(
-                ApiError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "MEDIA_RESPONSE_FAILED",
-                    error.to_string(),
-                    false,
-                ),
-                &resolved,
-            )
-        })
+    match found {
+        crate::media::MediaRead::Bytes { mime_type, bytes } => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, mime_type)
+            .header(header::CACHE_CONTROL, "private, no-store")
+            .body(Body::from(bytes))
+            .map_err(|error| {
+                correlate(
+                    ApiError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "MEDIA_RESPONSE_FAILED",
+                        error.to_string(),
+                        false,
+                    ),
+                    &resolved,
+                )
+            }),
+        crate::media::MediaRead::Redirect { url } => Response::builder()
+            .status(StatusCode::FOUND)
+            .header(header::LOCATION, url)
+            // A signed URL is short-lived; do not let a browser cache the redirect as the bytes.
+            .header(header::CACHE_CONTROL, "private, no-store")
+            .body(Body::empty())
+            .map_err(|error| {
+                correlate(
+                    ApiError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "MEDIA_RESPONSE_FAILED",
+                        error.to_string(),
+                        false,
+                    ),
+                    &resolved,
+                )
+            }),
+    }
 }
 
 pub(super) async fn upload_standalone_media(

@@ -274,6 +274,25 @@ impl AbstractObjectStoreService for NeonObjectStore {
         }
     }
 
+    async fn public_read_url(
+        &self,
+        bucket: ObjectBucket,
+        key: &str,
+    ) -> Result<String, ObjectStoreError> {
+        if bucket != ObjectBucket::PropertyMediaPublic {
+            return Err(ObjectStoreError::configuration(
+                "public_read_url is only valid for the public property-media bucket",
+            ));
+        }
+        validate_object_key(key)?;
+        Ok(format!(
+            "{}/{}/{}",
+            self.config.endpoint.trim_end_matches('/'),
+            self.config.property_public_bucket,
+            key
+        ))
+    }
+
     async fn signed_read_url(
         &self,
         bucket: ObjectBucket,

@@ -66,6 +66,20 @@ pub trait MediaRepository: Send + Sync {
     ) -> DbResult<bool> {
         Ok(false)
     }
+
+    /// The storage pointer for a row, without loading `file_data`. Test repositories return None.
+    async fn media_object_location(
+        &self,
+        _media_id: &str,
+    ) -> DbResult<Option<db::MediaObjectLocation>> {
+        Ok(None)
+    }
+
+    /// Whether the owning property is publicly visible under the listing rule. Test repositories
+    /// default to private so a shadow write can never publish an unpublished fixture.
+    async fn property_is_public(&self, _property_id: &str) -> DbResult<bool> {
+        Ok(false)
+    }
 }
 
 #[async_trait]
@@ -183,6 +197,17 @@ impl MediaRepository for MediaDao {
     ) -> DbResult<bool> {
         MediaDao::set_media_object(self, media_id, metadata).await
     }
+
+    async fn media_object_location(
+        &self,
+        media_id: &str,
+    ) -> DbResult<Option<db::MediaObjectLocation>> {
+        MediaDao::media_object_location(self, media_id).await
+    }
+
+    async fn property_is_public(&self, property_id: &str) -> DbResult<bool> {
+        MediaDao::property_is_public(self, property_id).await
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -232,6 +257,12 @@ pub enum UploadLookup {
     New,
 }
 
+/// What a read route should return for one media id: legacy bytes, or a redirect to the object store.
+pub enum MediaRead {
+    Bytes { mime_type: String, bytes: Vec<u8> },
+    Redirect { url: String },
+}
+
 pub struct MediaService<R> {
     pub(super) repository: R,
     pub(super) runtime: ServiceRuntime,
@@ -239,6 +270,7 @@ pub struct MediaService<R> {
     /// Postgres blob is still canonical until the Phase 6 read switch, so a store error never fails
     /// an upload.
     pub(super) object_store: Option<Arc<dyn AbstractObjectStoreService>>,
+    pub(super) object_reads: bool,
 }
 
 /// Object keys are opaque and UUID-oriented. The extension is for operator readability only; the
@@ -262,9 +294,75 @@ impl<R> MediaService<R> {
         self.object_store = Some(store);
         self
     }
+
+    /// Phase 4 switch. Default false; even when true, a row must be VERIFIED and the object URL
+    /// must be generated successfully, otherwise the legacy blob is served.
+    pub fn with_object_reads(mut self, enabled: bool) -> Self {
+        self.object_reads = enabled;
+        self
+    }
 }
 
 impl<R: MediaRepository> MediaService<R> {
+    /// Phase 4 resolver: verified object first, legacy bytes as the always-available fallback.
+    pub async fn media_read(
+        &self,
+        id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<MediaRead>, CoreServiceError> {
+        const OP: &str = "media.read";
+        let decision = authorize(
+            &self.runtime,
+            "media",
+            "property.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            if self.object_reads {
+                if let Some(store) = self.object_store.as_ref() {
+                    if let Some(location) = self.repository.media_object_location(id).await? {
+                        if location.status == "VERIFIED" && location.visibility != "vault" {
+                            let bucket = ObjectBucket::from_db(&location.bucket);
+                            if let Some(bucket) = bucket.filter(|bucket| *bucket != ObjectBucket::Vault) {
+                                let url = if bucket == ObjectBucket::PropertyMediaPublic
+                                    && location.visibility == "public"
+                                {
+                                    store.public_read_url(bucket, &location.key).await
+                                } else {
+                                    store
+                                        .signed_read_url(
+                                            bucket,
+                                            &location.key,
+                                            Duration::from_secs(300),
+                                        )
+                                        .await
+                                };
+                                match url {
+                                    Ok(url) => return Ok(Some(MediaRead::Redirect { url })),
+                                    Err(error) => tracing::warn!(
+                                        media_id = id,
+                                        %error,
+                                        "media object read URL failed; falling back to legacy blob"
+                                    ),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let bytes = self.repository.media_bytes(id).await?;
+            Ok(bytes.map(|(mime_type, bytes)| MediaRead::Bytes { mime_type, bytes }))
+        }
+        .await;
+
+        audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
+        result
+    }
+
     /// Best-effort shadow write: the Postgres blob was just committed and remains canonical. Success
     /// records VERIFIED object metadata; any failure records MIGRATION_FAILED and leaves the upload
     /// successful. This is deliberately not in the error path of the caller.
@@ -278,7 +376,17 @@ impl<R: MediaRepository> MediaService<R> {
         let Some(store) = self.object_store.as_ref() else {
             return;
         };
-        let bucket = ObjectBucket::PropertyMediaPrivate;
+        let public = self
+            .repository
+            .property_is_public(property_id)
+            .await
+            .unwrap_or(false);
+        let bucket = if public {
+            ObjectBucket::PropertyMediaPublic
+        } else {
+            ObjectBucket::PropertyMediaPrivate
+        };
+        let visibility = if public { "public" } else { "private" };
         let key = media_object_key(property_id, media_id, mime_type);
         let pending = db::MediaObjectMetadata {
             bucket: bucket.as_str().to_owned(),
@@ -287,6 +395,7 @@ impl<R: MediaRepository> MediaService<R> {
             sha256: None,
             size: bytes.len() as i64,
             status: "MIRROR_PENDING".to_owned(),
+            visibility: Some(visibility.to_owned()),
         };
         if let Err(error) = self.repository.set_media_object(media_id, &pending).await {
             tracing::warn!(
@@ -323,6 +432,7 @@ impl<R: MediaRepository> MediaService<R> {
                     sha256: Some(sha),
                     size: stored.size,
                     status: "VERIFIED".to_owned(),
+                    visibility: Some(visibility.to_owned()),
                 };
                 if let Err(error) = self.repository.set_media_object(media_id, &verified).await {
                     tracing::warn!(media_id, error = %error, "media object shadow: could not record VERIFIED");
@@ -337,6 +447,7 @@ impl<R: MediaRepository> MediaService<R> {
                     sha256: None,
                     size: bytes.len() as i64,
                     status: "MIGRATION_FAILED".to_owned(),
+                    visibility: Some(visibility.to_owned()),
                 };
                 let _ = self.repository.set_media_object(media_id, &failed).await;
                 let _ = store.delete_object(bucket, &key).await;

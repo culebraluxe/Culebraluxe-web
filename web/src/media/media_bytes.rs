@@ -78,6 +78,7 @@ impl<R: MediaRepository> MediaService<R> {
             repository,
             runtime: ServiceRuntime::new(infrastructure),
             object_store: None,
+            object_reads: false,
         }
     }
 

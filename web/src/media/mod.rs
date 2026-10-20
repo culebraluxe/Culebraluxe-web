@@ -26,3 +26,15 @@ pub use media_bytes::*;
 #[allow(unused_imports)]
 pub use media_repository::*;
 pub use neon_object_store::{from_env as object_store_from_env, NeonObjectStore, NeonObjectStoreConfig};
+
+/// Phase 4 read switch. Default off; only the exact enabling spellings turn it on.
+pub fn object_reads_from_env() -> bool {
+    matches!(
+        std::env::var("MEDIA_OBJECT_STORAGE_READS")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
