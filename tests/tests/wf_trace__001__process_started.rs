@@ -108,8 +108,7 @@ fn start_params() -> StartProcessParams {
 fn connect_dev_store() -> Result<NeonStore, HarnessDbError> {
     let rt = tokio::runtime::Runtime::new().expect("runtime");
     let db = rt.block_on(TestDatabase::connect_declared(Some("dev"), Some("dev")))?;
-    let store = NeonStore::from_database(db.database().clone())
-        .map_err(|e| HarnessDbError::Undeclared(e.to_string()))?;
+    let store = NeonStore::from_pool(db.database().pool().clone());
     Ok(store)
 }
 
@@ -144,8 +143,7 @@ fn wf_trace_001__process_started() -> Result<(), HarnessDbError> {
 
     // Create a NeonStore from the same database for assertions.
     let db = rt.block_on(TestDatabase::connect_declared(Some("dev"), Some("dev")))?;
-    let assert_store = NeonStore::from_database(db.database().clone())
-        .map_err(|e| HarnessDbError::Undeclared(e.to_string()))?;
+    let assert_store = NeonStore::from_pool(db.database().pool().clone());
 
     // ── ASSERT: process instance committed ─────────────────────────────────────────────────────
     let instance: ProcessInstance = assert_store

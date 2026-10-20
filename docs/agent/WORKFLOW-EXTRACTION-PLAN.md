@@ -89,3 +89,17 @@ Forge own theirs. One ledger; one migration applier through the transition.
   read token/deploy key.
 - Forge already consumes `workflow` through the facade, so it picks up the same core once its repo/crate
   split lands.
+
+## Status update 2026-10-19 — workflow-neon now lives in the workflow project
+
+- `workflow` repo tag **v0.2.0** (`4edc99f`) adds `crates/workflow-neon` with its own
+  `neon_db` layer (PgPool/transaction/retry/failure/connect options, local trace SQL).
+  It has **no app `db`/`model` dependency** (`cargo tree`: workflow-core/sqlx/tokio only).
+- App: `workflow-neon` member/directory removed; `middle/workflow` façade depends on
+  `workflow-core` + `workflow-neon` from the workflow repo at tag v0.2.0; `Cargo.lock` pins it.
+- App call sites now use `NeonStore::from_pool(db.pool().clone())` (host pool preserved);
+  standalone `workflow` bin keeps `connect_from_env()`.
+- Gates: workflow repo 31 tests; app workspace check, workflow test, forge lib 1095/6 ignored.
+- Known follow-ups: adapter failures no longer write app `app_error` rows (add a sink if needed);
+  trace-event table ownership stays shared for W-3; standalone pool config is simpler than app
+  `Database` (hosts pass their own pool, so production behavior is unchanged).

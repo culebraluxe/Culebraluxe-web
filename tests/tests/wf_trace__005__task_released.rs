@@ -115,8 +115,7 @@ fn start_params() -> StartProcessParams {
 fn connect_dev_store() -> Result<NeonStore, HarnessDbError> {
     let rt = tokio::runtime::Runtime::new().expect("runtime");
     let db = rt.block_on(TestDatabase::connect_declared(Some("dev"), Some("dev")))?;
-    let store = NeonStore::from_database(db.database().clone())
-        .map_err(|e| HarnessDbError::Undeclared(e.to_string()))?;
+    let store = NeonStore::from_pool(db.database().pool().clone());
     Ok(store)
 }
 
@@ -148,7 +147,7 @@ fn wf_trace_005__task_released() -> Result<(), HarnessDbError> {
     let root_token_id = started.root_token_id.clone();
 
     let db = rt.block_on(TestDatabase::connect_declared(Some("dev"), Some("dev")))?;
-    let assert_store = NeonStore::from_database(db.database().clone()).map_err(wf_err)?;
+    let assert_store = NeonStore::from_pool(db.database().pool().clone());
 
     // Get the task that was created.
     let tasks = assert_store
@@ -243,7 +242,7 @@ fn wf_trace_005__task_released() -> Result<(), HarnessDbError> {
     let token2_id = started2.root_token_id.clone();
 
     let db2 = rt.block_on(TestDatabase::connect_declared(Some("dev"), Some("dev")))?;
-    let assert_store2 = NeonStore::from_database(db2.database().clone()).map_err(wf_err)?;
+    let assert_store2 = NeonStore::from_pool(db2.database().pool().clone());
 
     let task2 = assert_store2
         .with_tx(|tx| tx.open_tasks_for_token(&token2_id))

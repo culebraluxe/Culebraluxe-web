@@ -60,7 +60,7 @@ pub fn assert_re_definition_ready() -> Result<()> {
 /// process that cached that failure would be wedged until someone restarted it. Successes are cached forever; failures
 /// are retried on the next call.
 ///
-/// The engine uses the shared process Database pool (`db::shared`) via `NeonStore::from_database`,
+/// The engine uses the shared process Database pool (`db::shared`) via `NeonStore::from_pool`,
 /// enforcing the one-pool-per-process rule. The engine is wrapped in an `Arc` so it can be shared
 /// across multiple `ForgeRuntime` instances.
 static ENGINE: std::sync::OnceLock<Arc<WorkflowEngine<NeonStore>>> = std::sync::OnceLock::new();
@@ -78,10 +78,8 @@ pub fn re_engine() -> Result<Arc<WorkflowEngine<NeonStore>>> {
 fn build_re_engine() -> Result<WorkflowEngine<NeonStore>> {
     assert_re_definition_ready()?;
     let store = {
-        let result = with_shared(|db, _rt| NeonStore::from_database(db.clone()));
-        result
-            .map_err(|e| WorkflowError::generic(e))?
-            .map_err(|e| WorkflowError::generic(e.to_string()))?
+        with_shared(|db, _rt| NeonStore::from_pool(db.pool().clone()))
+            .map_err(WorkflowError::generic)?
     };
     let engine = WorkflowEngine::new(
         store,

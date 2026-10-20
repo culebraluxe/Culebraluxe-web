@@ -118,8 +118,7 @@ fn start_params() -> StartProcessParams {
 fn connect_dev_store() -> Result<NeonStore, HarnessDbError> {
     let rt = tokio::runtime::Runtime::new().expect("runtime");
     let db = rt.block_on(TestDatabase::connect_declared(Some("dev"), Some("dev")))?;
-    let store = NeonStore::from_database(db.database().clone())
-        .map_err(|e| HarnessDbError::Undeclared(e.to_string()))?;
+    let store = NeonStore::from_pool(db.database().pool().clone());
     Ok(store)
 }
 
@@ -154,7 +153,7 @@ fn wf_trace_002__token_moved() -> Result<(), HarnessDbError> {
 
     // The engine has already moved the token: start -> work -> task (parked at task).
     let db = rt.block_on(TestDatabase::connect_declared(Some("dev"), Some("dev")))?;
-    let assert_store = NeonStore::from_database(db.database().clone()).map_err(wf_err)?;
+    let assert_store = NeonStore::from_pool(db.database().pool().clone());
 
     // Token should be parked at task node (version 3: start->work v2, work->task v3).
     let token = assert_store

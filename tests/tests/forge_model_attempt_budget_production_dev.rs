@@ -60,7 +60,7 @@ fn registered_durable_composition_enforces_the_shared_generation_cap() {
 
     let writer = Arc::new(DbForgeStateWriter);
     let runtime = ForgeRuntime::from_store(
-        NeonStore::from_database(database.clone()).expect("Neon workflow store"),
+        NeonStore::from_pool(database.pool().clone()),
         writer.clone(),
         None,
         Some(Arc::new(DbForgeEvidenceReader)),

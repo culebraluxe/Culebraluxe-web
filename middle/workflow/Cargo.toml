@@ -5,8 +5,10 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-workflow-core = { git = "https://github.com/culebraluxe/workflow", tag = "v0.1.0" }
-workflow-neon = { path = "../../workflow-neon" }
+# Shared infrastructure: the workflow project owns the engine kernel and the Neon adapter.
+# Both are pinned by tag; Cargo.lock pins the commits. Bump only with both hosts' gates run.
+workflow-core = { git = "https://github.com/culebraluxe/workflow", tag = "v0.2.0" }
+workflow-neon = { git = "https://github.com/culebraluxe/workflow", tag = "v0.2.0" }
 
 [[bin]]
 name = "workflow"

@@ -1,6 +1,7 @@
 //! Mutation door used by workflow_app/forge/forge-engine-runtime.ts.
 //! Replaces `new WorkflowEngine` for start/complete/claim/release/cancel.
 
+use db::Database;
 use forge::engine::db_writer::DbForgeStateWriter;
 use forge::engine::definition::forge_sdlc_definition;
 use forge::engine::port::ForgeApplicationPort;
@@ -25,7 +26,15 @@ fn now_millis() -> i64 {
 }
 
 fn engine() -> WorkflowEngine<NeonStore> {
-    let store = NeonStore::connect_from_env().expect("neon");
+    // The app owns the pool; the adapter borrows it so one process keeps one pool.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("database runtime");
+    let database = runtime
+        .block_on(Database::connect_from_env())
+        .expect("database");
+    let store = NeonStore::from_pool(database.pool().clone());
     // Fail closed like the store above: a mutation door with no production writer would silently drop every story
     // write, so writer-absent exits 2 rather than falling back to a writer that records nothing.
     let writer = DbForgeStateWriter::connect_env().unwrap_or_else(|e| {
