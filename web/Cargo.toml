@@ -8,6 +8,7 @@ publish.workspace = true
 base64.workspace = true
 flate2.workspace = true
 async-trait.workspace = true
+aws-sdk-s3.workspace = true
 axum.workspace = true
 tower-http.workspace = true
 tower.workspace = true

@@ -11,6 +11,7 @@ use model::{
 use serde::Serialize;
 use services::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
 mod attach_property_video;
+mod neon_object_store;
 mod media_bytes;
 mod media_repository;
 #[allow(unused_imports)]
@@ -19,3 +20,4 @@ pub use attach_property_video::*;
 pub use media_bytes::*;
 #[allow(unused_imports)]
 pub use media_repository::*;
+pub use neon_object_store::{NeonObjectStore, NeonObjectStoreConfig};

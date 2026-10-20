@@ -13,6 +13,7 @@ mod execution;
 mod lifecycle;
 mod mailbox;
 mod observability;
+mod object_store;
 mod router;
 mod runtime;
 mod signature_provider;
@@ -40,6 +41,10 @@ pub use lifecycle::{
     ServiceLifecycleError, ServiceStatus,
 };
 pub use mailbox::{ServiceMailbox, ServiceMailboxConfig};
+pub use object_store::{
+    validate_object_key, AbstractObjectStoreService, ObjectBucket, ObjectMetadata,
+    ObjectStoreError,
+};
 pub use observability::{
     CapturingServiceAlertPort, CapturingServiceErrorSink, ServiceAlert, ServiceAlertPort,
     ServiceErrorRecord, ServiceErrorSink, ServiceFailureSeverity, TracingServiceAlertPort,
