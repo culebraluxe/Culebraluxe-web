@@ -15,6 +15,15 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
     AR_x86_64_unknown_linux_gnu=x86_64-linux-gnu-ar
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
+# APP-ONLY WORKSPACE (X-5): `tests/` is a workspace member whose manifest depends on the private Forge git
+# repository (`git = https://github.com/culebraluxe/forge`). Cargo resolves every workspace member's manifest
+# before it builds any package, so leaving `tests` in the workspace — or copying the directory without editing
+# the member list — makes `cargo build -p web` need Forge access, credentials and network. The deploy artifact
+# ships no tests: drop the member here and never COPY `tests/`. Local dev keeps the member and its tests; the
+# suite is built by `cargo test -p test-harness` in a checkout that can reach Forge (or beside a Forge checkout).
+RUN sed -i '/^    "tests",$/d' Cargo.toml \
+    && ! grep -q '"tests"' Cargo.toml \
+    && grep -q '"web"' Cargo.toml
 # ONE COPY PER DIRECTORY. A multi-source COPY copies each source's CONTENTS into the destination and MERGES them:
 # `COPY web middle db cli tests ./` collapsed web/src, db/src and cli/src into a single /build/src,
 # put middle/{model,services,workflow,apis} at /build/*, and made the LAST source's manifest the workspace root —
@@ -28,14 +37,18 @@ COPY web ./web
 COPY middle ./middle
 COPY db ./db
 COPY cli ./cli
-COPY tests ./tests
+COPY re-host ./re-host
+COPY observability ./observability
 COPY scripts/rust-ui-build.sh ./scripts/rust-ui-build.sh
+# NOT `--locked`: dropping the `tests` member changes the lock file (it removes the test-only proptest
+# closure and the private Forge package), so Cargo must be allowed to write the app lock inside the image.
+# That write needs no network beyond crates.io and, crucially, touches no git dependency.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
     mkdir -p public/rust-ui /out \
     && RUST_UI_PROFILE=release bash scripts/rust-ui-build.sh \
     && cp public/rust-ui/ui.js public/rust-ui/ui_bg.wasm /out/ \
-    && cargo build --locked --release --manifest-path Cargo.toml -p web --bin web --target x86_64-unknown-linux-gnu \
+    && cargo build --release --manifest-path Cargo.toml -p web --bin web --target x86_64-unknown-linux-gnu \
     && cp target/x86_64-unknown-linux-gnu/release/web /out/culebraluxe \
     && x86_64-linux-gnu-strip /out/culebraluxe
 

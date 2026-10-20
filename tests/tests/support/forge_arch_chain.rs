@@ -308,12 +308,14 @@ pub fn production_code(path: &Path) -> String {
 }
 
 /// `(relative path, production code)` for every `.rs` under `dir` (relative to the repository root).
+///
+/// `dir` may be a `forge/…` path: X-5 moved Forge onto its own checkout, and [`source::sources_in`] resolves the
+/// Forge prefix there while keeping the old repository-relative spelling. Callers scanning Forge must skip first
+/// when [`source::forge_root_or_skip`] says there is no checkout.
 pub fn production_tree(dir: &str) -> Vec<(String, String)> {
-    let root = workspace_root().join(dir);
-    assert!(root.is_dir(), "{dir} must exist to be scanned");
-    let files: Vec<(String, String)> = source::sources_under(&root)
+    let files: Vec<(String, String)> = source::sources_in(dir)
         .into_iter()
-        .map(|path| (source::relative(&path), production_code(&path)))
+        .map(|(relative, path)| (relative, production_code(&path)))
         .collect();
     assert!(
         !files.is_empty(),

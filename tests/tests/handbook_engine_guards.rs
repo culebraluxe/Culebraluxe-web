@@ -10,12 +10,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("the suite sits one level below the repository root")
-        .to_path_buf()
-}
+use test_harness::source;
 
 /// Read CODE, never the prose that NAMES the rule: strip `//` line comments and `/* … */` blocks. The
 /// deleted TypeScript guard was comment-aware for the same reason — the modules say "no git, no sha" in
@@ -83,7 +78,12 @@ fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
 /// covered the day it exists.
 #[test]
 fn the_qa_release_path_runs_no_git_command_and_checks_no_lineage() {
-    let dir = repo_root().join("forge/src/engine");
+    // X-5: the QA family lives in the Forge checkout, not this app tree. No checkout here is a named skip,
+    // never an empty scan reported as a clean one.
+    let Some(forge) = source::forge_root_or_skip() else {
+        return;
+    };
+    let dir = forge.join("forge/src/engine");
     let mut files: Vec<PathBuf> = fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("read {}: {e}", dir.display()))
         .flatten()
@@ -134,8 +134,11 @@ fn the_qa_release_path_runs_no_git_command_and_checks_no_lineage() {
 /// forbidden. `merge-base` is a lineage read, not a merge, and is not matched.
 #[test]
 fn only_the_publish_path_may_push_merge_or_rebase() {
+    let Some(forge) = source::forge_root_or_skip() else {
+        return;
+    };
     let mut files: Vec<PathBuf> = Vec::new();
-    collect_rs(&repo_root().join("forge/src"), &mut files);
+    collect_rs(&forge.join("forge/src"), &mut files);
     files.sort();
     assert!(
         !files.is_empty(),
@@ -155,7 +158,17 @@ fn only_the_publish_path_may_push_merge_or_rebase() {
     let allowed = |path: &str, subcommand: &str| {
         (subcommand == "\"push\"" && path.ends_with("engine/git_publish.rs"))
             || (subcommand == "\"merge\"" && path.ends_with("engine/worktree.rs"))
+            // Harness Evolution's `ComponentDecision::Merge` is a manifest-composition label, not a git
+            // merge. The file runs no git command, asserted below rather than assumed.
+            || (subcommand == "\"merge\""
+                && path.ends_with("engine/harness_evolution/model.rs"))
     };
+    let decision_merge_file = forge.join("forge/src/engine/harness_evolution/model.rs");
+    assert!(
+        !source::read(&decision_merge_file).contains("Command::new"),
+        "{} may only be exempt from the `\"merge\"` scan while it runs no process at all",
+        decision_merge_file.display()
+    );
     assert!(
         findings.iter().any(|(_, sub)| *sub == "\"push\""),
         "the live scan must find the publish path's push, or it read nothing: {findings:#?}"
@@ -184,8 +197,11 @@ fn only_the_publish_path_may_push_merge_or_rebase() {
 /// the concept, so prose explaining the history — stripped with the comments — does not trip it.
 #[test]
 fn forge_never_reads_opencodes_private_session_store() {
+    let Some(forge) = source::forge_root_or_skip() else {
+        return;
+    };
     let mut files: Vec<PathBuf> = Vec::new();
-    collect_rs(&repo_root().join("forge/src"), &mut files);
+    collect_rs(&forge.join("forge/src"), &mut files);
     files.sort();
     assert!(
         !files.is_empty(),

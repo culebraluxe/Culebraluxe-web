@@ -2,7 +2,16 @@ FROM rust:1.90-bookworm AS builder
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
-COPY web middle db cli forge tests ./
+# App-only workspace (X-5): see devops/Dockerfile.build. `tests` is a member that depends on the private Forge
+# git repository, so it is dropped from the container's member list; `forge/` no longer exists in this repository.
+RUN sed -i '/^    "tests",$/d' Cargo.toml \
+    && ! grep -q '"tests"' Cargo.toml
+COPY web ./web
+COPY middle ./middle
+COPY db ./db
+COPY cli ./cli
+COPY re-host ./re-host
+COPY observability ./observability
 
 RUN cargo build --release -p web --bin web
 

@@ -60,7 +60,7 @@ apis = { path = "../middle/apis" }
 # root `[patch]` maps its pinned app crates back to the local paths so types unify.
 # `RecordingWriter`, the test-only `ForgeStateWriter` (WO-102), is linked rather than re-declared:
 # the harness records through the same type the engine's own tests do.
-forge = { git = "https://github.com/culebraluxe/forge", tag = "v0.1.1", features = ["test-support"] }
+forge = { git = "https://github.com/culebraluxe/forge", tag = "v0.1.3", features = ["test-support"] }
 re-host = { path = "../re-host" }
 # Property-based contract tests (PROP.PROPERTY_BASED, TST-PROP-PROPERTY-BASED-001..010): the ProptestHarness
 # strategy runner. Test-only; production crates never depend on it.

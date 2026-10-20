@@ -5,6 +5,10 @@
 //! and that TypeScript application was itself gone. The move put the workspace where the workspace is: `Cargo.toml` at
 //! the repository root, three tiers under it, and the entry points and the suite beside them.
 //!
+//! X-5 update: Forge is no longer in this workspace — it lives in `github.com/culebraluxe/forge`. The pins below
+//! describe the APP workspace, and `forge` is one of the paths that must NOT come back rather than a tier that
+//! must exist.
+//!
 //! What this test is for. Every one of those facts is invisible to the compiler. A crate could move back under a
 //! `rust/` directory, a crate could appear at the root outside every tier, the suite's cases could drift back to
 //! living beside the crates they exercise, and `cargo check --workspace` would stay green while the tree quietly
@@ -27,7 +31,7 @@ use std::collections::BTreeSet;
 use test_harness::source;
 
 /// The tiers, and the directory inside each that proves it is a crate tier rather than a folder.
-const TIER_ROOTS: [&str; 7] = [
+const TIER_ROOTS: [&str; 10] = [
     "web/src",
     "web/ui/src",
     "web/auth/src",
@@ -35,14 +39,17 @@ const TIER_ROOTS: [&str; 7] = [
     "middle/services/src",
     "middle/workflow/src",
     "middle/apis/src",
+    "db/src",
+    "re-host/src",
+    "observability/src",
 ];
 
-/// The entry points: code that exists to be run, not to be depended on.
-const ENTRY_POINTS: [&str; 2] = ["cli/src", "forge/src"];
+/// The entry points: code that exists to be run, not to be depended on. (Forge's `forge/src` left with X-5.)
+const ENTRY_POINTS: [&str; 1] = ["cli/src"];
 
 /// The crates the workspace declares, exactly. Adding a crate means adding it here — which is the point: the guard is
 /// where a new crate's tier gets decided on purpose rather than by wherever a `git mv` happened to put it.
-const WORKSPACE_MEMBERS: [&str; 11] = [
+const WORKSPACE_MEMBERS: [&str; 12] = [
     "web",
     "web/ui",
     "web/auth",
@@ -50,9 +57,10 @@ const WORKSPACE_MEMBERS: [&str; 11] = [
     "middle/services",
     "middle/workflow",
     "middle/apis",
+    "re-host",
+    "observability",
     "db",
     "cli",
-    "forge",
     "tests",
 ];
 
@@ -72,7 +80,8 @@ const GONE: [&str; 6] = [
     "deploy",
     "web/tests",
     "db/tests",
-    "forge/tests",
+    // X-5: Forge lives in github.com/culebraluxe/forge. Re-adding it here is the split coming undone.
+    "forge",
     "data/skills",
 ];
 
@@ -136,7 +145,7 @@ fn arch_boundary_013__the_tree_is_three_tiers_and_rust_is_gone() {
     assert_eq!(
         members, declared,
         "the workspace members changed. A new crate belongs in a tier (`web/`, `middle/`, `db/`), in the entry points \
-         (`cli/`, `forge/`) or in the suite (`tests/`) — and then in WORKSPACE_MEMBERS in this test, so the decision \
+         (`cli/`) or in the suite (`tests/`) — and then in WORKSPACE_MEMBERS in this test, so the decision \
          is made where a reader can see it"
     );
     for member in &declared {

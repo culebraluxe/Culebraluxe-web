@@ -40,7 +40,7 @@ use forge::engine::service_binding::{
     nodes_for_service, service_for_node,
 };
 use forge::engine::xml::{definition_from_xml, FORGE_SDLC_V6_XML};
-use test_harness::source::{read, workspace_root};
+use test_harness::source::{self, read};
 use workflow::ProcessDefinition;
 
 /// The definition the runtime executes: the shipped XML, parsed by the production parser.
@@ -300,7 +300,11 @@ fn the_walk_sees_qa_where_a_smith_completion_really_reaches_it() {
 /// The definition under test is the shipped file, and the file is what the runtime embeds.
 #[test]
 fn the_definition_under_test_is_the_shipped_file_the_runtime_embeds() {
-    let path = workspace_root().join("forge/definitions/FORGE_SDLC-v6.xml");
+    // X-5: the shipped definition lives in the Forge checkout. No checkout here is a named skip.
+    let Some(forge) = source::forge_root_or_skip() else {
+        return;
+    };
+    let path = forge.join("forge/definitions/FORGE_SDLC-v6.xml");
     let on_disk = read(&path);
     assert!(!on_disk.is_empty(), "{} must be readable", path.display());
     assert_eq!(

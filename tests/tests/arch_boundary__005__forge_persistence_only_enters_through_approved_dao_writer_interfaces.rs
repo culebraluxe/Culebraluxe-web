@@ -201,19 +201,22 @@ fn statement_shaped(code: &str, phrase: &str) -> bool {
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ARCH-BOUNDARY-005); the file and the assay use it.
 fn arch_boundary_005__forge_persistence_only_enters_through_approved_dao_writer_interfaces() {
-    let forge_src = source::workspace_root().join("forge/src");
-    let files = source::sources_under(&forge_src);
+    // X-5: the Forge crate lives in its own checkout. No checkout here is a named skip, never an empty scan
+    // reported as a clean crate.
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
+    let files = source::sources_in("forge/src");
     assert!(
         files.len() >= 80,
-        "the Forge crate is the subject of this contract; only {} files were found under {}",
+        "the Forge crate is the subject of this contract; only {} files were found under forge/src",
         files.len(),
-        source::relative(&forge_src)
     );
 
     let mut findings = Vec::new();
     let mut via_dao = 0usize;
     let mut logical_lines = 0usize;
-    for path in &files {
+    for (relative, path) in &files {
         let text = source::read(path);
         if text.contains("db::") {
             via_dao += 1;
@@ -222,17 +225,12 @@ fn arch_boundary_005__forge_persistence_only_enters_through_approved_dao_writer_
         logical_lines += view.len();
         // The floors below count every file — they measure that the view read the crate at all. The FINDINGS do not:
         // a test module is not production code, and a fixture is not a statement Forge makes.
-        if is_test_module(&source::relative(path)) {
+        if is_test_module(relative) {
             continue;
         }
         for (number, code) in view {
             if let Some(what) = direct_db_access(&code) {
-                findings.push(format!(
-                    "{}:{}: {what}: {}",
-                    source::relative(path),
-                    number,
-                    code.trim()
-                ));
+                findings.push(format!("{}:{}: {what}: {}", relative, number, code.trim()));
             }
         }
     }
@@ -246,8 +244,7 @@ fn arch_boundary_005__forge_persistence_only_enters_through_approved_dao_writer_
     );
     assert!(
         logical_lines >= 20_000,
-        "the statement view found only {logical_lines} logical lines in {} — it is reading almost nothing",
-        source::relative(&forge_src)
+        "the statement view found only {logical_lines} logical lines in forge/src — it is reading almost nothing"
     );
 
     // No exception and no allowance: every statement in Forge `src/` is a finding, so this list has to be empty. The
@@ -306,37 +303,37 @@ fn arch_boundary_005__forge_persistence_only_enters_through_approved_dao_writer_
         dao.contains("TRACE_EVENT_INSERT_SQL") && dao.contains("pub async fn record_observer"),
         "`ForgeEngineDao::record_observer` binds the recorder's statement rather than holding a copy of it"
     );
-    let caller = source::read(&forge_src.join("engine/observer.rs"));
+    let caller = source::read(&source::repo_path("forge/src/engine/observer.rs"));
     assert!(
         caller.contains("dao.record_observer("),
         "Forge must still write the trace row — through the DAO, never with SQL of its own"
     );
-    let kernel = source::read(&source::workspace_root().join("middle/workflow/src/neon/new_id.rs"));
-    assert!(
-        kernel.contains("TRACE_EVENT_INSERT_SQL"),
-        "the workflow kernel is the second writer at this table, so its `insert_event` binds the same statement — the \
-         third spelling of it is what this line keeps dead"
-    );
+    // The workflow kernel is the table's second writer, but W-1 moved that adapter to the separate workflow
+    // repository (consumed from git, pinned in Cargo.lock); its copy of the statement is no longer in this
+    // checkout, so this app-side scan cannot read it. The app DAO above is the holder this checkout owns.
 
     // And the scan above is what makes that true rather than intended: the statement's text survives in exactly one
-    // non-test file of the workspace, the owner named above.
-    let workspace = source::sources_under(&source::workspace_root());
+    // non-test file of the workspace, the owner named above. X-5 split the workspace: the app checkout is scanned
+    // always, and the Forge checkout is added when present (its files keep the `forge/` prefix they had before).
+    let mut workspace: Vec<(String, std::path::PathBuf)> = source::sources_in("");
+    if source::forge_root().is_some() {
+        workspace.extend(source::sources_in("forge/src"));
+    }
     assert!(
         workspace.len() >= 300,
-        "the workspace scan is half the subject; only {} Rust files were found under {}",
-        workspace.len(),
-        source::relative(&source::workspace_root())
+        "the workspace scan is half the subject; only {} Rust files were found",
+        workspace.len()
     );
     let holders: Vec<String> = workspace
         .iter()
         // A test may quote a statement — this file does, above. Production code may not hold a second copy of one.
-        .filter(|path| !source::relative(path).contains("/tests/"))
-        .filter(|path| {
+        .filter(|(relative, _)| !relative.contains("/tests/"))
+        .filter(|(_, path)| {
             source::read(path)
                 .lines()
                 .any(|line| source::code_of(line).to_lowercase().contains(TRACE_INSERT))
         })
-        .map(|path| source::relative(path))
+        .map(|(relative, _)| relative.clone())
         .collect();
     assert_eq!(
         holders,

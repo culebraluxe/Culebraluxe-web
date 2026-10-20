@@ -205,12 +205,19 @@ fn service_registry_001__every_production_service_registered_once() {
     let root = source::workspace_root();
     let mut consts = HashMap::new();
     let mut files = Vec::new();
-    for dir in ["web/src", "forge/src"] {
-        let dir_path = root.join(dir);
+    // The census is the app's production services. X-5 moved the Forge service into its own checkout, so it is
+    // added only when this machine has a Forge checkout; the app census must be complete without one (app CI has
+    // no Forge checkout and must not need it).
+    let mut dirs = vec![root.join("web/src")];
+    if let Some(forge) = source::forge_root() {
+        dirs.push(forge.join("forge/src"));
+    }
+    for dir_path in dirs {
         let sources = source::sources_under(&dir_path);
         assert!(
             !sources.is_empty(),
-            "{HARNESS}: {dir} must exist and hold sources, or the census is blind"
+            "{HARNESS}: {} must exist and hold sources, or the census is blind",
+            dir_path.display()
         );
         for path in sources {
             let text = source::read(&path);

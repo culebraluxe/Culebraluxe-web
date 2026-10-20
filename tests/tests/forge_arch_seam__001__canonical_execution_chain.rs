@@ -40,6 +40,7 @@ use forge::engine::job::{WorkflowJobService, FORGE_ROLE_JOB_TYPE};
 use forge::engine::runtime::ActiveForgeRoleTask;
 use forge::engine::service_binding::forge_service_bindings;
 use forge::roles::ForgeServiceRegistry;
+use test_harness::source;
 use workflow::{JobStatus, Value};
 
 #[test]
@@ -221,7 +222,11 @@ const COMPOSITION_ORDER: [&str; 6] = [
 
 #[test]
 fn the_composition_root_wires_the_chain_in_order_and_nothing_drives_around_it() {
-    let root = production_code(&workspace_root().join("forge/src/bin/forge/main.rs"));
+    // X-5: the composition root and the Forge trees are in the Forge checkout. No checkout is a named skip.
+    let Some(forge) = source::forge_root_or_skip() else {
+        return;
+    };
+    let root = production_code(&forge.join("forge/src/bin/forge/main.rs"));
     let mut last = 0;
     for link in COMPOSITION_ORDER {
         let at = root[last..]
@@ -255,6 +260,9 @@ fn the_composition_root_wires_the_chain_in_order_and_nothing_drives_around_it() 
 
 #[test]
 fn the_job_layer_and_registry_know_no_role_no_node_and_no_vendor() {
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     // `engine/job.rs` became `engine/job/mod.rs` + `engine/job/workflow_service.rs` on 2026-10-13 (WO-406). The
     // layer is BOTH files; `engine/job/tests.rs` is the module the crate declares under `#[cfg(test)]`, which is
     // the same cut this rail made when those tests were inline in `job.rs`.
@@ -265,7 +273,7 @@ fn the_job_layer_and_registry_know_no_role_no_node_and_no_vendor() {
     ];
     let mut hits = Vec::new();
     for file in files {
-        let code = production_code(&workspace_root().join(file));
+        let code = production_code(&source::repo_path(file));
         assert!(!code.trim().is_empty(), "{file} must be read");
         for needle in [
             "forge.scout",
@@ -294,6 +302,9 @@ fn the_job_layer_and_registry_know_no_role_no_node_and_no_vendor() {
 
 #[test]
 fn roles_own_no_durable_job_semantics() {
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     let hits = naming(
         &production_tree("forge/src/roles"),
         &[
@@ -317,6 +328,9 @@ fn roles_own_no_durable_job_semantics() {
 
 #[test]
 fn the_workflow_launches_no_vendor_and_the_vendor_harness_routes_nothing() {
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     let workflow = naming(
         &production_tree("middle/workflow/src"),
         &["opencode", "OpenCode", "RoleHarness", "forge::"],
@@ -333,12 +347,7 @@ fn the_workflow_launches_no_vendor_and_the_vendor_harness_routes_nothing() {
         "forge/src/engine/opencode_agents.rs",
     ]
     .iter()
-    .map(|file| {
-        (
-            file.to_string(),
-            production_code(&workspace_root().join(file)),
-        )
-    })
+    .map(|file| (file.to_string(), production_code(&source::repo_path(file))))
     .collect();
     let routing = naming(
         &harness,
@@ -392,11 +401,14 @@ const ROLE_MOVING_LAYERS: [&str; 14] = [
 
 #[test]
 fn no_layer_that_moves_work_between_roles_names_a_next_node() {
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     let bindings = forge_service_bindings().expect("the definition's service bindings parse");
     let nodes: BTreeSet<&str> = bindings.keys().map(String::as_str).collect();
     let mut found = BTreeSet::new();
     for file in ROLE_MOVING_LAYERS {
-        let code = production_code(&workspace_root().join(file));
+        let code = production_code(&source::repo_path(file));
         assert!(!code.trim().is_empty(), "{file} must be read, not skipped");
         for literal in code.split('"').skip(1).step_by(2) {
             if nodes.contains(literal) {

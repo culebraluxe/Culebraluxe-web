@@ -25,16 +25,232 @@ pub fn repo_root() -> PathBuf {
 ///
 /// This used to be `rust/`, the single directory the whole workspace lived in. The walkers below skip build output,
 /// VCS metadata and `node_modules`, and nothing else in the tree holds a `.rs` file, so the root is the honest bound.
+///
+/// X-5 removed Forge from this repository: a contract whose subject is Forge source reads the checkout
+/// [`forge_root`] resolves, never a path under this root.
 pub fn workspace_root() -> PathBuf {
     repo_root()
 }
 
+/// The Forge checkout, when the suite is running beside one.
+///
+/// X-5 moved Forge to its own repository (`github.com/culebraluxe/forge`), so Forge source no longer lives in
+/// this tree. Resolution order:
+///
+/// 1. `FORGE_HOME`, when set — an explicit checkout (a Forge worktree while changing Forge itself).
+/// 2. The cargo git checkout of the Forge revision this app's `Cargo.lock` pins. That is the Forge source the
+///    app is compiled against, so a contract about Forge code reads the same bytes the compiler does; a sibling
+///    checkout that has moved on cannot make the app suite assert a different Forge than the one it links.
+/// 3. The local cutover layout — a `forge/` directory beside this app checkout.
+///
+/// `None` means no Forge checkout is available (the app's GitHub CI clone and the Vercel build have none, and
+/// they do not build this crate); callers must use [`forge_root_or_skip`] rather than read a missing path, scan
+/// nothing, or pass on an empty scan.
+///
+/// The directory is validated as a Forge workspace (`forge/Cargo.toml`), not merely as an existing directory: a
+/// wrong path would make every Forge contract below read nothing and report a clean tree.
+pub fn forge_root() -> Option<PathBuf> {
+    if let Some(root) = std::env::var("FORGE_HOME")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+    {
+        return is_forge_checkout(&root).then_some(root);
+    }
+    if let Some(root) = pinned_git_rev("forge")
+        .and_then(|rev| cargo_git_checkout("forge-", &rev, is_forge_checkout))
+    {
+        return Some(root);
+    }
+    let sibling = repo_root().parent().map(|parent| parent.join("forge"))?;
+    is_forge_checkout(&sibling).then_some(sibling)
+}
+
+/// A Forge repository root carries both crates X-5 moved there (`forge/` and `forge-cli/`).
+fn is_forge_checkout(root: &Path) -> bool {
+    root.join("forge").join("Cargo.toml").is_file()
+}
+
+/// The git revision of `package` this workspace pins, read from `Cargo.lock`
+/// (`source = "git+<url>?tag=…#<rev>"`).
+fn pinned_git_rev(package: &str) -> Option<String> {
+    let lock = std::fs::read_to_string(repo_root().join("Cargo.lock")).ok()?;
+    let wanted = format!("name = \"{package}\"");
+    let mut in_package = false;
+    for line in lock.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("name = ") {
+            in_package = trimmed == wanted;
+            continue;
+        }
+        if !in_package || !trimmed.starts_with("source = ") {
+            continue;
+        }
+        let source = trimmed.trim_start_matches("source = ").trim_matches('"');
+        if !source.starts_with("git+") {
+            return None;
+        }
+        let rev = source.rsplit('#').next()?;
+        if rev.len() >= 7 && rev.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Some(rev.to_string());
+        }
+    }
+    None
+}
+
+/// Cargo's git checkout of `rev`, under `$CARGO_HOME/git/checkouts/<database-prefix>/<short-rev>/`, validated by
+/// `is_checkout_we_want`.
+fn cargo_git_checkout(
+    database_prefix: &str,
+    rev: &str,
+    is_checkout_we_want: impl Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    let cargo_home = std::env::var("CARGO_HOME")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .map(|home| PathBuf::from(home).join(".cargo"))
+        })?;
+    let checkouts = cargo_home.join("git").join("checkouts");
+    for database in std::fs::read_dir(&checkouts).ok()?.flatten() {
+        if !database
+            .file_name()
+            .to_string_lossy()
+            .starts_with(database_prefix)
+        {
+            continue;
+        }
+        for candidate in std::fs::read_dir(database.path()).ok()?.flatten() {
+            let short = candidate.file_name().to_string_lossy().to_string();
+            if !rev.starts_with(&short) {
+                continue;
+            }
+            if is_checkout_we_want(&candidate.path()) {
+                return Some(candidate.path());
+            }
+        }
+    }
+    None
+}
+
+/// The workflow-project checkout (W-1): `workflow-core` and `workflow-neon` live in
+/// `github.com/culebraluxe/workflow`, pinned by `Cargo.lock`. Unlike Forge there is no `FORGE_HOME`-style override
+/// convention: the pinned checkout is the only source.
+pub fn workflow_root() -> Option<PathBuf> {
+    let rev = pinned_git_rev("workflow-core")?;
+    cargo_git_checkout("workflow-", &rev, is_workflow_checkout)
+}
+
+/// A workflow-project root carries both crates W-1 moved there under `crates/`.
+fn is_workflow_checkout(root: &Path) -> bool {
+    root.join("crates")
+        .join("workflow-core")
+        .join("Cargo.toml")
+        .is_file()
+}
+
+/// [`workflow_root`], or an explicit, printed skip. The kernel no longer lives in this checkout, so a contract whose
+/// subject is the kernel cannot be silently green without the pinned workflow checkout.
+pub fn workflow_root_or_skip() -> Option<PathBuf> {
+    let root = workflow_root();
+    if root.is_none() {
+        let test = std::thread::current()
+            .name()
+            .unwrap_or("(unknown test)")
+            .to_string();
+        eprintln!(
+            "SKIP {test}: no workflow-project checkout in the cargo git cache for the pinned \
+             workflow-core revision. Run `cargo fetch`/a build so the pinned checkout exists; the kernel's subject \
+             lives in github.com/culebraluxe/workflow."
+        );
+    }
+    root
+}
+
+/// [`forge_root`], or an explicit, printed skip.
+///
+/// A Forge-source contract is not green without a Forge checkout, and it must not be a silent pass: this says
+/// which test did nothing and why. The Forge repository (and Forge CI, which checks out this app as
+/// `FORGE_TARGET_REPO`) runs the same contracts with a checkout present.
+pub fn forge_root_or_skip() -> Option<PathBuf> {
+    let root = forge_root();
+    if root.is_none() {
+        let test = std::thread::current()
+            .name()
+            .unwrap_or("(unknown test)")
+            .to_string();
+        eprintln!(
+            "SKIP {test}: no Forge checkout. Set FORGE_HOME (or keep a `forge` sibling of this checkout) to \
+             run this Forge-source contract; the subject lives in github.com/culebraluxe/forge."
+        );
+    }
+    root
+}
+
+/// Resolve a path this suite spells from the repository root: app paths from this checkout, `forge/…` and
+/// `forge-cli/…` paths from the Forge checkout (the two crates X-5 moved there). Panics when a Forge path is
+/// requested without a checkout — call [`forge_root_or_skip`] first, so the absence is a named skip rather than
+/// a false finding.
+pub fn repo_path(relative: &str) -> PathBuf {
+    if forges_path(relative) {
+        return forge_root()
+            .map(|root| root.join(relative))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{relative} resolves into the Forge checkout, and no Forge checkout is present: set \
+                     FORGE_HOME or keep a `forge` sibling. Call forge_root_or_skip first to make this a skip."
+                )
+            });
+    }
+    repo_root().join(relative)
+}
+
+/// Whether a repository-relative path names a crate in the Forge checkout (`forge/`, `forge-cli/`).
+fn forges_path(relative: &str) -> bool {
+    relative.starts_with("forge/") || relative.starts_with("forge-cli/")
+}
+
 /// A path as the repository writes it — relative to the root, for failure messages a reader can act on.
 pub fn relative(path: &Path) -> String {
-    path.strip_prefix(repo_root())
+    relative_to(&repo_root(), path)
+}
+
+/// [`relative`], against an explicit root: the app checkout or the Forge checkout, whichever owns `path`.
+pub fn relative_to(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
         .unwrap_or(path)
         .display()
         .to_string()
+}
+
+/// Every `.rs` file under a repository-relative directory, as (repository-relative path, path on disk).
+///
+/// The directory is resolved the way the contracts spell it: a plain path under this app checkout, or a
+/// `forge/…` path into the Forge checkout. A Forge file keeps the `forge/` prefix it had before X-5, so a pin or
+/// exemption written against the old one-checkout layout still names the same file. Callers that name a Forge
+/// directory must resolve [`forge_root_or_skip`] first; the panic here is the programming-error backstop.
+pub fn sources_in(relative_dir: &str) -> Vec<(String, PathBuf)> {
+    if forges_path(relative_dir) {
+        let root = forge_root().unwrap_or_else(|| {
+            panic!(
+                "{relative_dir} resolves into the Forge checkout, and no Forge checkout is present: set \
+                 FORGE_HOME or keep a `forge` sibling. Call forge_root_or_skip first to make this a skip."
+            )
+        });
+        let dir = root.join(relative_dir);
+        return sources_under(&dir)
+            .into_iter()
+            .map(|path| (relative_to(&root, &path), path))
+            .collect();
+    }
+    let dir = repo_root().join(relative_dir);
+    sources_under(&dir)
+        .into_iter()
+        .map(|path| (relative(&path), path))
+        .collect()
 }
 
 /// Every `.rs` file under `dir`, depth-first and **sorted**, skipping build output and VCS metadata.

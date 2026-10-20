@@ -26,6 +26,8 @@ mod arch;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use test_harness::source;
+
 use arch::*;
 use forge::engine::assay::CommandResult;
 use forge::engine::executor::{ForgeRoleOutcome, ForgeRoleRunner};
@@ -144,12 +146,16 @@ fn every_turn_after_smith_is_dispatched_under_smiths_candidate() {
 
 #[test]
 fn the_release_decision_publishes_the_stored_candidate_and_refuses_none() {
-    let release = production_code(&workspace_root().join("forge/src/engine/release.rs"));
+    // The release and publish paths are Forge source (X-5: github.com/culebraluxe/forge).
+    let Some(forge) = source::forge_root_or_skip() else {
+        return;
+    };
+    let release = production_code(&forge.join("forge/src/engine/release.rs"));
     assert!(
         release.contains(".publish(evidence.candidate_sha.as_deref()"),
         "the release publishes the candidate the evidence carries"
     );
-    let publish = production_code(&workspace_root().join("forge/src/engine/git_publish.rs"));
+    let publish = production_code(&forge.join("forge/src/engine/git_publish.rs"));
     assert!(
         publish.contains("let Some(sha) = candidate_sha else"),
         "the publish path refuses to publish without a candidate"

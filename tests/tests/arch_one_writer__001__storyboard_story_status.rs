@@ -74,7 +74,8 @@ const PRODUCTION_ROOTS: [&str; 5] = ["db", "web", "middle", "forge", "cli"];
 const OWNING_LAYER: &str = "db/";
 
 /// Where the frozen baseline lives — the production fence this test measures against.
-const BASELINE_FILE: &str = "cli/src/forge/repo_guards.rs";
+// X-5: the production guard (and its frozen writer baseline) moved to the Forge checkout's `forge-cli` crate.
+const BASELINE_FILE: &str = "forge-cli/src/forge/repo_guards.rs";
 
 /// These files are the read-proof that the sweep is not reading the wrong thing: without them a broken path or
 /// an empty file would let a vacuous pass through, which is the failure mode `test_harness::source` warns about.
@@ -165,6 +166,10 @@ fn baseline_writers(text: &str) -> Vec<String> {
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ARCH-ONE-WRITER-001); the file and the assay use it.
 fn arch_one_writer__001__storyboard_story_status() {
+    // X-5: the frozen baseline lives in the Forge checkout. No checkout here is a named skip.
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     let root = source::workspace_root();
 
     // A walker that silently found nothing would report a clean tree and pass, so the sweep is floored: the five
@@ -201,7 +206,7 @@ fn arch_one_writer__001__storyboard_story_status() {
     }
 
     // FACT 3 — the frozen baseline still describes the tree, in both directions.
-    let baseline_path = root.join(BASELINE_FILE);
+    let baseline_path = source::repo_path(BASELINE_FILE);
     assert!(
         baseline_path.is_file(),
         "{BASELINE_FILE} does not exist; the one-writer fence this test measures against is gone"

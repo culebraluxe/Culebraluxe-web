@@ -337,6 +337,20 @@ jobs:
           workspaces: .
           shared-key: gates-rust
 
+      # APP-ONLY WORKSPACE (X-5). `tests/` is a workspace member whose manifest depends on the private Forge git
+      # repository (github.com/culebraluxe/forge). Cargo resolves every workspace member's manifest before it
+      # builds any package, so `cargo check --workspace` / `cargo nextest run --workspace` would need Forge
+      # credentials in this app-only runner — and a private 404 here would redden every PR.
+      #
+      # The contract suite needs a Forge checkout by design. It runs on a developer machine (where the pinned
+      # Forge revision is in `~/.cargo/git/checkouts`, or `FORGE_HOME` names one) and in the Forge repository's
+      # own CI, which checks this app out as FORGE_TARGET_REPO and has the Forge sources beside it. This job
+      # rewrites only its checkout's Cargo.toml/Cargo.lock; nothing is committed.
+      - name: app-only workspace (tests/ needs the private Forge checkout)
+        run: |
+          sed -i '/^    "tests",$/d' Cargo.toml
+          ! grep -q '"tests"' Cargo.toml
+
       - name: rust compile
         run: cargo check --workspace --all-targets
 
@@ -363,14 +377,14 @@ jobs:
       - name: rust format
         run: |
           set -euo pipefail
-          deferred='^Diff in .*/(cli/src/(apple_mail|forge/lint)|middle/model/src/(applemail|apple_messages))(\.rs|/)'
+          deferred='^Diff in .*/(cli/src/apple_mail|middle/model/src/(applemail|apple_messages))(\.rs|/)'
           unformatted="$(cargo fmt --all -- --check 2>&1 | grep '^Diff in' | grep -Ev "$deferred" || true)"
           if [ -n "$unformatted" ]; then
             printf '%s\n' "$unformatted"
             echo "rustfmt: the files above are not formatted. Fix with: cargo fmt --all"
             exit 1
           fi
-          echo "rustfmt clean — four module trees deferred to their owner (cli/src/apple_mail, forge-cli/src/forge/lint, middle/model/src/applemail, middle/model/src/apple_messages)"
+          echo "rustfmt clean — three module trees deferred to their owner (cli/src/apple_mail, middle/model/src/applemail, middle/model/src/apple_messages)"
 
       - name: install cargo-nextest
         if: ${{ !cancelled() }}
@@ -445,13 +459,17 @@ jobs:
       - name: rust file boundedness (800-line rule)
         run: |
           set -euo pipefail
-          deferred='cli/src/apple_mail(\.rs|/)|forge-cli/src/forge/lint(\.rs|/)|middle/model/src/applemail(\.rs|/)|middle/model/src/apple_messages(\.rs|/)'
+          deferred='cli/src/apple_mail(\.rs|/)|middle/model/src/applemail(\.rs|/)|middle/model/src/apple_messages(\.rs|/)'
           test_estate='(^|/)tests/'
           # Files already over the ceiling when it first ran (2026-10-01), each with the line count it held then.
           # `forge/src/engine/opencode.rs` and `forge/src/engine/job.rs` LEFT this list on 2026-10-14: the engine
           # agent split both into directories, and the loop below — correctly — refuses to hold a line for a file
           # that no longer exists. An entry here is a debt with a name, not a licence for a name to linger.
-          baselined='middle/workflow/src/neon/new_id.rs|web/ui/src/flight_recorder.rs|web/ui/src/app/screens/flight_recorder.rs|web/src/command_runtime.rs|web/src/signer/mod.rs|web/src/signature/mod.rs|web/src/luxesign/mod.rs|forge/src/engine/opencode_agents.rs|forge/src/engine/opencode_client.rs|db/src/signature/database.rs|db/src/forge_engine.rs|db/src/pool.rs'
+          # X-5 removed the Forge-owned files, W-1 moved `middle/workflow/src/neon/` to the workflow repository, and
+          # the Luxesign shuffle removed `web/src/signer/mod.rs` and `web/src/signature/mod.rs`; a baseline entry for
+          # a file that no longer exists is itself a failure, so those lines are deleted. `web/src/luxesign/mod.rs`
+          # dropped below the ceiling and lost its line the same way.
+          baselined='web/ui/src/flight_recorder.rs|web/ui/src/app/screens/flight_recorder.rs|web/src/command_runtime.rs|db/src/signature/database.rs|db/src/forge_engine.rs|db/src/pool.rs'
           is_baselined() {
             case "|$baselined|" in *"|$1|"*) return 0 ;; esac
             return 1
@@ -500,9 +518,13 @@ jobs:
             echo "the production files above are over 800 lines: split them (move-only) or say why in the pull request"
             exit 1
           fi
-          echo "no NEW production .rs file over 800 lines; the 12 baselined files and the four deferred trees are the rest"
+          echo "no NEW production .rs file over 800 lines; the 6 baselined files and the three deferred trees are the rest"
 
   rust_database:
+    # PARKED, and if it is ever re-enabled it also needs a Forge checkout: the test-harness cases below resolve
+    # `tests/Cargo.toml`'s private Forge git dependency. The default rust job above drops the `tests` workspace
+    # member for exactly that reason; this job's own `cargo test -p test-harness` steps would need FORGE_HOME or a
+    # token-backed checkout added alongside them.
     name: rust DEV DB smoke
     # Read-only Rust -> SQLx -> Neon proof. Parked until DATABASE_URL_DEV exists
     # as a GitHub Actions secret and RUST_DB_CI is explicitly enabled.

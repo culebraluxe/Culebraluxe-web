@@ -137,7 +137,7 @@
         "/api/integrations/boldsign/webhook"
       ],
       "rustModules": [
-        "web/src/signature",
+        "web/src/luxesign/signature",
         "db/src/signature.rs",
         "middle/model/src/signature.rs"
       ],

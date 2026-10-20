@@ -24,8 +24,9 @@ mod arch;
 
 use std::path::{Path, PathBuf};
 
-use arch::{production_code, workspace_root};
+use arch::production_code;
 use forge::engine::opencode_client::verify_vendor_contract;
+use test_harness::source;
 
 /// The v2 build's help — every option Forge emits is named (`tests/tests/opencode_v2_contract.rs` holds the same).
 const V2_HELP: &str = "opencode v2.0.21
@@ -124,7 +125,11 @@ const PAID_AFTER_THE_GATE: [&str; 4] = [
 
 #[test]
 fn the_lane_verifies_its_vendor_before_it_opens_a_run_builds_a_harness_or_drives_a_turn() {
-    let main = production_code(&workspace_root().join("forge/src/bin/forge/main.rs"));
+    // The composition root and the vendor harness are Forge source (X-5: github.com/culebraluxe/forge).
+    let Some(forge) = source::forge_root_or_skip() else {
+        return;
+    };
+    let main = production_code(&forge.join("forge/src/bin/forge/main.rs"));
     let gate = main
         .find("verify_vendor_contract(")
         .expect("the lane verifies its vendor contract");
@@ -165,7 +170,7 @@ fn the_lane_verifies_its_vendor_before_it_opens_a_run_builds_a_harness_or_drives
             && main[gate..gate + 200].contains("default_cli_bin()"),
         "the gate probes `opencode::default_cli_bin()`"
     );
-    let harness = production_code(&workspace_root().join("forge/src/engine/opencode/mod.rs"));
+    let harness = production_code(&forge.join("forge/src/engine/opencode/mod.rs"));
     assert!(
         harness.contains("cli_bin: default_cli_bin()"),
         "the harness runs `default_cli_bin()` — the binary the gate verified"

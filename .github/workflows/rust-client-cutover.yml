@@ -22,6 +22,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # APP-ONLY WORKSPACE (X-5): see gates.yml. `tests/` depends on the private Forge git repository, so the
+      # member is dropped for this runner's builds; the suite runs where a Forge checkout is available (developer
+      # machine, or the Forge repository's CI with this app checked out as FORGE_TARGET_REPO).
+      - name: app-only workspace (tests/ needs the private Forge checkout)
+        run: |
+          sed -i '/^    "tests",$/d' Cargo.toml
+          ! grep -q '"tests"' Cargo.toml
+
       # THE WORKSPACE, NOT JUST `server`. Until 2026-09-20 this job compiled `domain`, `db` and `server` only, so
       # `workflow`, `integrations` and `forge` — the crates that produce the Forge engine and the `re-workflow`
       # binary — were never compiled by any gate. The workspace held 39 compile errors behind a green check,

@@ -21,7 +21,7 @@
 
 use std::path::Path;
 
-use test_harness::source::{code_of, contains_segment, read, workspace_root};
+use test_harness::source::{self, code_of, contains_segment, read};
 
 /// The production part of a Rust source file: everything above its first `#[cfg(test)]`, comments stripped.
 fn production_code(path: &Path) -> Vec<(usize, String)> {
@@ -82,7 +82,7 @@ fn job_layer_code() -> String {
     JOB_LAYER
         .iter()
         .map(|file| {
-            production_code(&workspace_root().join(file))
+            production_code(&source::repo_path(file))
                 .into_iter()
                 .map(|(_, code)| code)
                 .collect::<Vec<_>>()
@@ -94,14 +94,17 @@ fn job_layer_code() -> String {
 
 #[test]
 fn the_job_service_and_registry_name_no_role_lane_or_node() {
-    let root = workspace_root();
+    // X-5: the job layer and role registry are Forge source. No checkout here is a named skip.
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     let mut hits = Vec::new();
     for file in JOB_LAYER
         .iter()
         .copied()
         .chain(["forge/src/roles/registry.rs"])
     {
-        let path = root.join(file);
+        let path = source::repo_path(file);
         assert!(
             !production_code(&path).is_empty(),
             "{file} must be read, not skipped"
@@ -119,7 +122,10 @@ fn the_job_service_and_registry_name_no_role_lane_or_node() {
 /// that found nothing would mean the clean result above is vacuous.
 #[test]
 fn the_scan_detects_role_vocabulary_where_it_does_exist() {
-    let mapping = workspace_root().join("forge/src/engine/role_mapping.rs");
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
+    let mapping = source::repo_path("forge/src/engine/role_mapping.rs");
     let hits = offending(&mapping, ROLE_VOCABULARY);
     for word in ["smith", "architect", "scout", "assay", "laneid"] {
         assert!(
@@ -131,6 +137,9 @@ fn the_scan_detects_role_vocabulary_where_it_does_exist() {
 
 #[test]
 fn the_job_service_reaches_a_service_only_through_the_binding_and_the_registry() {
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     let code = job_layer_code();
     assert!(
         code.contains("service_key()"),
@@ -148,7 +157,9 @@ fn the_job_service_reaches_a_service_only_through_the_binding_and_the_registry()
 
 #[test]
 fn role_jobs_and_story_level_agent_work_never_cross() {
-    let root = workspace_root();
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     let agent_side = [
         "forge/src/engine/worker.rs",
         "forge/src/engine/agent_work.rs",
@@ -156,7 +167,7 @@ fn role_jobs_and_story_level_agent_work_never_cross() {
 
     let mut job_hits = Vec::new();
     for file in JOB_LAYER {
-        let path = root.join(file);
+        let path = source::repo_path(file);
         assert!(
             !production_code(&path).is_empty(),
             "{file} must be read, not skipped"
@@ -174,7 +185,7 @@ fn role_jobs_and_story_level_agent_work_never_cross() {
 
     let mut agent_hits = Vec::new();
     for file in agent_side {
-        let path = root.join(file);
+        let path = source::repo_path(file);
         assert!(
             !production_code(&path).is_empty(),
             "{file} must be read, not skipped"

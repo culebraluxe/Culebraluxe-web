@@ -63,6 +63,10 @@ fn instructs_git_mutation(reason: &str) -> bool {
 
 #[test]
 fn forge_assay_005__qa_cannot_modify_git() {
+    // X-5: the QA lane lives in the Forge checkout. No checkout here is a named skip.
+    let Some(_forge) = test_harness::source::forge_root_or_skip() else {
+        return;
+    };
     // ── 0. THE DETECTOR, AGAINST PLANTED SAMPLES. A scan that cannot fail is not a check. ──
     assert!(
         code_of("let args = [\"push\", \"origin\"];").contains("\"push\""),
@@ -82,7 +86,7 @@ fn forge_assay_005__qa_cannot_modify_git() {
     );
 
     // ── 1. THE QA LANE MODULE OWNS NO GIT DOOR. ─────────────────────────────────
-    let lane_path = source::repo_root().join(QA_LANE);
+    let lane_path = test_harness::source::repo_path(QA_LANE);
     assert!(lane_path.is_file(), "the QA lane module moved: {QA_LANE}");
     let lane_code = code_of(&source::read(&lane_path));
     assert!(

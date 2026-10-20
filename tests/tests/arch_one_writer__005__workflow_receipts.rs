@@ -30,6 +30,10 @@ fn evidence(sha: &str, id: &str, success: bool) -> ReleaseEvidence {
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ARCH-ONE-WRITER-005); the file and the assay use it.
 fn arch_one_writer_005__workflow_receipts() {
+    // X-5: the release-receipt assessor lives in the Forge checkout. No checkout here is a named skip.
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     // The placeholder detector refuses empties and stand-ins, and accepts a real receipt id.
     assert!(is_placeholder_receipt_id(None));
     assert!(is_placeholder_receipt_id(Some("")));
@@ -74,13 +78,15 @@ fn arch_one_writer_005__workflow_receipts() {
     );
     assert_eq!(clean, None);
 
-    // One judge, not two: no other non-test file in the workspace defines the assessment.
-    let workspace = source::sources_under(&source::workspace_root());
+    // One judge, not two: no other non-test file in the workspace defines the assessment. X-5 split the
+    // workspace: the app checkout is scanned always and the Forge checkout is added under its `forge/` prefix.
+    let mut workspace = source::sources_in("");
+    workspace.extend(source::sources_in("forge/src"));
     let definers: Vec<String> = workspace
         .iter()
-        .filter(|path| !source::relative(path).contains("/tests/"))
-        .filter(|path| source::read(path).contains("fn assess_release_receipt"))
-        .map(|path| source::relative(path))
+        .filter(|(relative, _)| !relative.contains("/tests/"))
+        .filter(|(_, path)| source::read(path).contains("fn assess_release_receipt"))
+        .map(|(relative, _)| relative.clone())
         .collect();
     assert_eq!(
         definers,

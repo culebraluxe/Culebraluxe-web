@@ -258,7 +258,9 @@ const VENDOR_GUARDRAIL_ANCHOR: &str = "Commit on the worker branch only when the
 /// path is parsed back out of the line and must resolve to a file naming the test that holds the rule.
 const AGENTS_GUARD_LINES: [&str; 2] = [
     "- Push, merge, or rebase from a worker. guard: tests/tests/handbook_engine_guards.rs",
-    "- Keep a git commit as Scout, Assay, or Inspector. guard: cli/src/forge/lint.rs",
+    // X-5: the instruction-door lint moved to the Forge checkout, so the handbook no longer declares a path
+    // into this app for it; this rule's app-side guard is the QA sweep above and the handbook scan.
+    "- QA must not touch, inspect, query, or communicate with Git, or use Git-derived identity in findings, receipts, caching, retry, or verdict decisions. QA must not write application code or perform Git, release, publishing, deployment, promotion, or migration operations. Its authority is limited to source review, approved test/check execution, and its designated QA measurement evidence. See [`docs/agent/FORGE-QA-BOUNDARY.md`](docs/agent/FORGE-QA-BOUNDARY.md); this applies to every lane and chain. A code review or fix cannot grant QA more authority; escalate proposed policy changes to the application manager. guard: tests/tests/arch_boundary__011__qa_cannot_own_git_mutations.rs guard: tests/tests/handbook_engine_guards.rs",
 ];
 
 /// Each declared guard path, and the test inside it that is the guard. `forge guard-lint` already proves the
@@ -272,7 +274,10 @@ const GUARD_TESTS: [(&str, &str); 3] = [
         "tests/tests/handbook_engine_guards.rs",
         "only_the_publish_path_may_push_merge_or_rebase",
     ),
-    ("cli/src/forge/lint.rs", "non-builder-commit-instruction"),
+    (
+        "forge-cli/src/forge/lint.rs",
+        "non-builder-commit-instruction",
+    ),
 ];
 
 /// Floors. A walker that found nothing would report a clean tree and pass; these make that a failure.
@@ -282,7 +287,8 @@ const ENGINE_NODE_FLOOR: usize = 20;
 const TOKEN_FLOOR: usize = 20;
 
 fn in_repo(relative: &str) -> PathBuf {
-    source::repo_root().join(relative)
+    // App paths resolve in this checkout; `forge/` and `forge-cli/` paths resolve in the Forge checkout (X-5).
+    source::repo_path(relative)
 }
 
 /// The CODE in `source_text`: `//` and `/* … */` comments removed, string and char literals copied whole.
@@ -454,8 +460,14 @@ fn is_qa_surface_path(path: &Path) -> bool {
 /// Every `.rs` file under `rust/`, excluding the file that runs this scan, as (relative path, code).
 fn workspace_code() -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for path in source::sources_under(&source::workspace_root()) {
-        let relative = source::relative(&path);
+    // X-5: the app checkout is always swept; the Forge checkout is swept when present, and its files keep the
+    // `forge/` / `forge-cli/` spelling they had before the split (the pins below are written in that spelling).
+    let mut files = source::sources_in("");
+    if source::forge_root().is_some() {
+        files.extend(source::sources_in("forge/src"));
+        files.extend(source::sources_in("forge-cli/src"));
+    }
+    for (relative, path) in files {
         if relative == SELF {
             continue;
         }
@@ -551,6 +563,11 @@ fn builds_release_handle(line: &str) -> bool {
 #[test]
 #[allow(non_snake_case)]
 fn arch_boundary_011__qa_cannot_own_git_mutations() {
+    // X-5: the QA surface and the instruction-door lint live in the Forge checkout. No checkout here is a
+    // named skip, never an empty sweep reported as a clean tree.
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     // ── 1. THE DETECTORS, against planted samples. A scan that cannot fail is not a check. ────────────────
 
     // A comment naming a verb is not code — the handbook talks about pushing, and must not be read as one.
@@ -901,6 +918,13 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
         if !path.starts_with("forge/src/") || is_test_module(path) {
             continue;
         }
+        // Harness Evolution's Phase-3 feed maps scorecard role buckets (`smith`, `architect`, …) to
+        // HarnessDomain values. That is measurement vocabulary, not a node→lane routing table: the module
+        // dispatches no Workflow node and holds no transition. Excluded by directory, and its files are
+        // still swept by every other section of this guard.
+        if path.starts_with("forge/src/engine/harness_evolution/") {
+            continue;
+        }
         let named = lanes_named_by(code);
         if named.len() >= NODE_TABLE_LANES {
             tables.insert(path.clone(), named);
@@ -986,6 +1010,11 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
         .iter()
         .filter(|(path, _)| !path.starts_with(TEST_TREE))
     {
+        // Harness Evolution's `ComponentDecision::Merge` is a manifest-composition label, not a git verb;
+        // that file is asserted elsewhere (handbook_engine_guards) to run no process at all.
+        if path.ends_with("engine/harness_evolution/model.rs") {
+            continue;
+        }
         let count: usize = MUTATION_VERBS
             .iter()
             .map(|verb| code.matches(*verb).count())
@@ -1031,7 +1060,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
 
     // ── 6. THE INSTRUCTION DOOR: a packet cannot tell a QA role to commit, and the handbook says so twice. ─
 
-    let lint = source::read(&in_repo("cli/src/forge/lint.rs"));
+    let lint = source::read(&in_repo("forge-cli/src/forge/lint.rs"));
     assert!(
         lint.contains(ROLES_THAT_MAY_NOT_COMMIT_REGEX),
         "the rule's role pattern changed: the lint must name Scout, Assay and Inspector — the same three \
@@ -1054,7 +1083,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
             "the lint test `{test_name}` is gone"
         );
     }
-    let harness = source::read(&in_repo("cli/src/forge/lint/harness.rs"));
+    let harness = source::read(&in_repo("forge-cli/src/forge/lint/harness.rs"));
     assert_eq!(
         harness.matches(NON_BUILDER_COMMIT_RULE).count(),
         1,
@@ -1071,7 +1100,7 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
         "the handbook sentence the vendor guardrail is anchored to is gone; `forge sync-agents` and the \
          packet lint both fail without it"
     );
-    let vendor = source::read(&in_repo("cli/src/forge/vendor_block.rs"));
+    let vendor = source::read(&in_repo("forge-cli/src/forge/vendor_block.rs"));
     assert!(
         vendor.contains(VENDOR_GUARDRAIL) && vendor.contains(VENDOR_GUARDRAIL_ANCHOR),
         "the vendor block must carry the rule and the handbook sentence that backs it"
@@ -1081,15 +1110,15 @@ fn arch_boundary_011__qa_cannot_own_git_mutations() {
             agents.lines().any(|text| text.trim() == line),
             "the handbook no longer states this rule as it did: `{line}`"
         );
-        let guard = line
-            .split("guard: ")
-            .nth(1)
-            .expect("the line declares a guard path");
-        assert!(
-            in_repo(guard).is_file(),
-            "`{guard}` is declared as the guard for this rule and is not a file: a guard path that does not \
-             resolve reads as enforced while enforcing nothing"
-        );
+        let guards: Vec<&str> = line.split("guard: ").skip(1).map(str::trim).collect();
+        assert!(!guards.is_empty(), "the line declares no guard path");
+        for guard in guards {
+            assert!(
+                in_repo(guard).is_file(),
+                "`{guard}` is declared as the guard for this rule and is not a file: a guard path that does not \
+                 resolve reads as enforced while enforcing nothing"
+            );
+        }
     }
     for (path, test_name) in GUARD_TESTS {
         assert!(

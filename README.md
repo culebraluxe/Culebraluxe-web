@@ -38,6 +38,16 @@ One Cargo workspace, three tiers and the entry points beside them:
 | `tests` | the contract suite: the arch-boundary cases, the seam cases and the harness behind them |
 | `experiments/` | comparison benches — **excluded from the workspace, not production code** |
 
+### The contract suite reads the Forge checkout (X-5)
+
+`tests/Cargo.toml` depends on the Forge crate from its own repository — `forge = { git = "https://github.com/culebraluxe/forge", tag = "v0.1.3", features = ["test-support"] }` — because the arch-boundary and seam cases assert against the Forge sources and types the app is compiled against. A few of those cases read Forge source files; since the sources no longer live in this tree, they resolve them in this order:
+
+1. `FORGE_HOME`, when set — an explicit checkout (e.g. a Forge worktree while changing Forge itself);
+2. cargo's git checkout of the revision `Cargo.lock` pins (the `tag = "v0.1.3"` commit) — so the suite reads the same Forge bytes the compiler links, not a sibling checkout that has moved on;
+3. a `forge/` directory beside this checkout (the local cutover layout).
+
+When none is available those cases print `SKIP <test>: no Forge checkout. …` rather than pass on an empty scan. That is deliberate: **the app's GitHub CI and the Vercel/Docker build do not include `tests/`** (they drop the workspace member, see `devops/Dockerfile.build`), so neither needs access to the private Forge repository. The suite runs on a developer machine and in the Forge repository's CI, which checks this app out as `FORGE_TARGET_REPO` (see `.github/workflows/forge.yml` there) and therefore has both trees side by side.
+
 ## Running it locally
 
 ```bash

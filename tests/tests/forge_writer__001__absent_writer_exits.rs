@@ -65,6 +65,11 @@ fn null_writer_construction_outside_named_context(text: &str) -> Vec<String> {
 #[allow(non_snake_case)] // The taxonomy fixes this exact name; the file and the assay use it.
 fn forge_writer_001__absent_writer_exits() {
     let api = "a Forge run with no story writer must fail closed before any story mutation";
+    // Layers one and two are the production writer types; layers three to five read the Forge binary,
+    // which X-5 moved to its own repository. Without that checkout the structural half is a named skip.
+    let Some(forge) = source::forge_root_or_skip() else {
+        return;
+    };
 
     // LAYER ONE, no I/O: with DATABASE_URL_PROD absent (and a decoy DEV URL present, so a fallback would
     // satisfy it) the production writer refuses to construct, naming the missing variable.
@@ -107,7 +112,7 @@ fn forge_writer_001__absent_writer_exits() {
 
     // LAYER THREE, the binary wiring: the writer is connected before the claim is opened, and writer-absent is
     // refused with exit 2 rather than falling back to NullWriter.
-    let forge_bin = source::read(&source::workspace_root().join("forge/src/bin/forge/main.rs"));
+    let forge_bin = source::read(&forge.join("forge/src/bin/forge/main.rs"));
     assert!(
         forge_bin.lines().count() >= 500,
         "forge.rs is the subject of this contract; the read found almost nothing",
@@ -157,7 +162,7 @@ fn forge_writer_001__absent_writer_exits() {
     );
 
     // LAYER FIVE: the mutation door holds no NullWriter construction at all — it fails closed like its store.
-    let task_bin = source::read(&source::workspace_root().join("forge/src/bin/forge_task.rs"));
+    let task_bin = source::read(&forge.join("forge/src/bin/forge_task.rs"));
     assert!(
         !task_bin.contains("NullWriter"),
         "forge_task.rs must fail closed on writer-absent rather than hold a silent-drop fallback",

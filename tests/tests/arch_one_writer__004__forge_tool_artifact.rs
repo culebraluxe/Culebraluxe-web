@@ -133,7 +133,10 @@ const SQL_ONE_OFFS: [&str; 0] = [];
 
 /// Floors. A walker that found nothing would report a clean tree and pass; these make that a failure.
 const RUST_SOURCE_FLOOR: usize = 700;
-const PRODUCTION_RUST_FLOOR: usize = 500;
+// X-5 moved the Forge crate to its own checkout, so the app-only production walk is ~490 files; with a sibling
+// Forge checkout the walk clears 690. The floor has to hold for the app checkout alone (app CI has no Forge
+// checkout) while still refusing a scan that read almost nothing.
+const PRODUCTION_RUST_FLOOR: usize = 450;
 
 fn in_repo(relative: &str) -> PathBuf {
     repo_root().join(relative)
@@ -334,8 +337,13 @@ fn invokes_door(code: &str, function: &str) -> bool {
 /// Every production `.rs` file, as (relative path, code with comments stripped). Deterministic order.
 fn production_files() -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for path in source::sources_under(&repo_root()) {
-        let relative = relative_to_root(&path);
+    let mut files = source::sources_in("");
+    // X-5: the Forge crate is scanned from its own checkout when one is present, under the same `forge/` prefix
+    // the pins below spell. Without a checkout the app side is still scanned (the DAO write lives in `db/`).
+    if source::forge_root().is_some() {
+        files.extend(source::sources_in("forge/src"));
+    }
+    for (relative, path) in files {
         if is_scanned_path(&relative) {
             out.push((relative, code_of_file(&source::read(&path))));
         }

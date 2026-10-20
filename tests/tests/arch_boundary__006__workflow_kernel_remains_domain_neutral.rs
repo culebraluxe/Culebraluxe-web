@@ -1,16 +1,18 @@
 //! ARCH.BOUNDARY — the workflow kernel remains domain-neutral (TST-ARCH-BOUNDARY-006).
 //!
-//! Contract: `middle/workflow` is an engine. It moves tokens, evaluates expressions, fires timers and joins
+//! Contract: the workflow kernel is an engine. It moves tokens, evaluates expressions, fires timers and joins
 //! branches, and it does so for *any* process definition — it does not know that CulebraLuxe has properties, people or
-//! contracts. The crate does depend on `domain` (`middle/workflow/Cargo.toml:1-4`) for shared ids and the typed
-//! context it carries, and that is deliberate; what must not happen is the kernel *naming* a business concept, because
-//! from the first `if property_id == ...` in a transition the engine can only be tested by seeding a property.
+//! contracts. What must not happen is the kernel *naming* a business concept, because from the first
+//! `if property_id == ...` in a transition the engine can only be tested by seeding a property.
 //!
-//! The kernel is `middle/workflow/src/engine.rs` and the four files beside it in `engine/` — 2029 lines that name
-//! none of the business nouns and never reach into `model::`. The one place a business id does appear is
-//! `middle/workflow/src/types.rs:392-393` (`property_id`, `person_id`), and it is a field of the *context struct*
-//! the caller fills in: the kernel reads it as text, never as a property. That file is outside this contract on
-//! purpose, and this header says so rather than leaving a reader to find it and assume the test is loose.
+//! W-1 moved the kernel out of this checkout: it is now `workflow-core` in `github.com/culebraluxe/workflow`, pinned
+//! by `Cargo.lock` at the `v0.2.0` tag, and `middle/workflow` is a façade that re-exports it. So this test pins BOTH
+//! directions: the old kernel path must not return to this app tree (a second kernel beside the pinned crate would be
+//! the split coming undone), and the kernel source it scans is the pinned `workflow-core/src/engine.rs` plus the files
+//! beside it in `engine/`. The one place a business id may appear is the shared context struct in
+//! `workflow-core/src/types.rs` (`property_id`, `person_id`): a field the *caller* fills in, which the kernel reads
+//! as text, never as a property. That file is outside this contract on purpose, and this header says so rather than
+//! leaving a reader to find it and assume the test is loose.
 //!
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
@@ -60,14 +62,25 @@ fn reaches_into_domain(line: &str) -> bool {
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-ARCH-BOUNDARY-006); the file and the assay use it.
 fn arch_boundary_006__workflow_kernel_remains_domain_neutral() {
-    let workflow_src = source::workspace_root().join("middle/workflow/src");
-    let engine_rs = workflow_src.join("engine.rs");
+    // W-1: the kernel lives in the pinned workflow-core crate, not in this checkout. The app façade must not hold a
+    // second copy of it.
+    let app_workflow = source::workspace_root().join("middle/workflow/src");
+    assert!(
+        !app_workflow.join("engine.rs").exists(),
+        "middle/workflow/src/engine.rs is back: the kernel must exist once, in the pinned workflow-core crate — a \
+         second copy in the app tree is the W-1 extraction coming undone"
+    );
+    let Some(workflow) = source::workflow_root_or_skip() else {
+        return;
+    };
+    let core_src = workflow.join("crates/workflow-core/src");
+    let engine_rs = core_src.join("engine.rs");
     assert!(
         engine_rs.is_file(),
-        "the kernel is middle/workflow/src/engine.rs; the scan cannot be vacuous"
+        "the kernel is workflow-core/src/engine.rs; the scan cannot be vacuous"
     );
 
-    let mut kernel = source::sources_under(&workflow_src.join("engine"));
+    let mut kernel = source::sources_under(&core_src.join("engine"));
     kernel.push(engine_rs);
     assert!(
         kernel.len() >= 5,
@@ -83,14 +96,14 @@ fn arch_boundary_006__workflow_kernel_remains_domain_neutral() {
             if let Some(noun) = business_noun_in(line) {
                 findings.push(format!(
                     "{}:{}: names `{noun}`: {}",
-                    source::relative(path),
+                    source::relative_to(&core_src, path),
                     number + 1,
                     line.trim()
                 ));
             } else if reaches_into_domain(line) {
                 findings.push(format!(
                     "{}:{}: reaches into `domain`: {}",
-                    source::relative(path),
+                    source::relative_to(&core_src, path),
                     number + 1,
                     line.trim()
                 ));

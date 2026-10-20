@@ -111,9 +111,13 @@ const ROLE_JOB_VOCABULARY: [&str; 9] = [
 
 #[test]
 fn the_story_queue_never_creates_reads_or_claims_a_role_job() {
+    // The queue's Rust side includes Forge's dispatcher modules (X-5: the Forge checkout).
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     let mut hits = Vec::new();
     for file in STORY_QUEUE_RUST {
-        let code = production_code(&workspace_root().join(file));
+        let code = production_code(&source::repo_path(file));
         assert!(!code.trim().is_empty(), "{file} must be read");
         for needle in ROLE_JOB_VOCABULARY {
             if code.contains(needle) {
@@ -155,6 +159,9 @@ const STORY_QUEUE_VOCABULARY: [&str; 8] = [
 
 #[test]
 fn the_role_job_stack_never_touches_the_story_queue() {
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     let mut tree: Vec<(String, String)> = [
         // `executor.rs` became these five files on 2026-10-04; the role-job stack is all five.
         "forge/src/engine/executor/completion.rs",
@@ -168,12 +175,7 @@ fn the_role_job_stack_never_touches_the_story_queue() {
         "forge/src/engine/runtime.rs",
     ]
     .iter()
-    .map(|file| {
-        (
-            file.to_string(),
-            production_code(&workspace_root().join(file)),
-        )
-    })
+    .map(|file| (file.to_string(), production_code(&source::repo_path(file))))
     .collect();
     tree.extend(production_tree("forge/src/roles"));
     tree.extend(production_tree("middle/workflow/src"));

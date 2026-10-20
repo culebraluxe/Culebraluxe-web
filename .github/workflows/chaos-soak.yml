@@ -18,7 +18,14 @@ name: chaos soak
 # goes red on a coin toss teaches people to scroll past red. Nothing here is a release step and nothing here is
 # required by branch protection.
 #
-# WHAT IT NEEDS: `DATABASE_URL_DEV` and `APP_ENV=dev`. It is destructive-by-design against DEV only: the
+# WHAT IT NEEDS: `DATABASE_URL_DEV`, `APP_ENV=dev`, and a FORGE CHECKOUT. `cargo test -p test-harness` resolves
+# `tests/Cargo.toml`'s private Forge git dependency before it compiles anything, and this runner checks out only
+# the app. Run it with a `FORGE_HOME` checkout (or from a machine whose cargo git cache already holds the pinned
+# Forge revision, e.g. the operator's Mac) — the default push/PR gates deliberately drop the `tests` workspace
+# member so they never need Forge. A run without a checkout refuses at compile time; that is a missing
+# prerequisite, not a failing chaos proof.
+#
+# WHAT IT NEEDS (database): `DATABASE_URL_DEV` and `APP_ENV=dev`. It is destructive-by-design against DEV only: the
 # harness's `TestDatabase` refuses PROD before opening a socket, and each proof rolls back or sweeps its own
 # rows. Read the names before adding one here — `chaos_*` is an allowlist by glob, on purpose: a new soak file
 # must be a deliberate act, not a file someone happened to name.

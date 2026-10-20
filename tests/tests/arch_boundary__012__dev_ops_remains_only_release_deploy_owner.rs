@@ -419,8 +419,13 @@ fn copy_char_literal(characters: &mut std::iter::Peekable<std::str::Chars<'_>>, 
 /// findings on every machine.
 fn production_code() -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for path in source::sources_under(&repo_root()) {
-        let relative = relative_to_root(&path);
+    // X-5 split the tree: the app checkout is swept always, and the Forge checkout is added under the `forge/`
+    // prefix its files had before the split (so every pin below still names the same file).
+    let mut files = source::sources_in("");
+    if source::forge_root().is_some() {
+        files.extend(source::sources_in("forge/src"));
+    }
+    for (relative, path) in files {
         if SWEEP_EXCLUSIONS
             .iter()
             .any(|excluded| relative.starts_with(*excluded))
@@ -584,6 +589,11 @@ fn class_names(classes: &[ForgeFailureClass]) -> BTreeSet<&'static str> {
 #[test]
 #[allow(non_snake_case)]
 fn arch_boundary_012__dev_ops_remains_only_release_deploy_owner() {
+    // X-5: the release lanes, the door and the role modules live in the Forge checkout. No checkout here is a
+    // named skip, never an empty sweep reported as a clean tree.
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     // ── 1. THE DETECTORS, against planted samples. A scan that cannot fail is not a check. ────────────────
 
     // The stripper, against the traps it exists to avoid: a comment that names the door is not a call, and
@@ -1000,7 +1010,7 @@ fn arch_boundary_012__dev_ops_remains_only_release_deploy_owner() {
         .iter()
         .find(|(path, _)| path == "forge/src/engine/re_runtime.rs")
     {
-        let target = repo_root().join("forge/src/engine/re_runtime.rs");
+        let target = source::repo_path("forge/src/engine/re_runtime.rs");
         let on_disk = source::read(&target);
         eprintln!(
             "DEBUG cwd={:?}\nDEBUG repo_root={:?}\nDEBUG target={:?}\nDEBUG canonical={:?}\nDEBUG raw_len={} processed_len={} has_fn={}",

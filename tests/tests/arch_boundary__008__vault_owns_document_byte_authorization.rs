@@ -131,7 +131,9 @@ const VAULT_DAO_FILES: [&str; 3] = [
     // `VaultService::get_document` / `media_bytes` under the CALLER's authority (the Vault's own decision runs first), and
     // the signed artifact is stored through its own repository — so it is not a second path to the bytes. Pinned, not
     // waved through: if it ever calls a `VaultDao` method itself, the door scan above sees it.
-    "web/src/luxesign/mod.rs",
+    // Moved from `web/src/luxesign/mod.rs` to `web/src/luxesign/core/mod.rs` in the Luxesign module split; the
+    // file still only NAMES `VaultDao` as a generic argument and holds `Arc<VaultService<_>>`.
+    "web/src/luxesign/core/mod.rs",
     "web/src/vault/mod.rs",
 ];
 

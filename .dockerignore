@@ -1,6 +1,10 @@
-# Only what the application image needs: the Rust workspace (the tiers, the entry points and the suite, because the
-# workspace manifest names them all as members), the UI build script, the site's static files, the form templates.
-# The wasm is built inside the image, so any local build of it is left out.
+# Only what the application image needs: the app Rust workspace (the tiers, the entry points, and the two app
+# crates X-5/W-1 added), the UI build script, the site's static files, the form templates. The wasm is built inside
+# the image, so any local build of it is left out.
+#
+# `tests/` is NOT here: it is a workspace member whose manifest depends on the private Forge git repository, and
+# the image's workspace drops that member before Cargo resolves anything. `forge/` is not here either — X-5 moved
+# Forge to its own repository.
 *
 !Cargo.toml
 !Cargo.lock
@@ -8,8 +12,8 @@
 !middle
 !db
 !cli
-!forge
-!tests
+!re-host
+!observability
 target
 !scripts/rust-ui-build.sh
 !public

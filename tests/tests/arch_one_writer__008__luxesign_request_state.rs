@@ -72,7 +72,8 @@ fn arch_one_writer_008__signature_request_state() {
         database.contains("pub async fn set_status_tx") && database.contains("expected:"),
         "the status swap takes the expected status it guards on"
     );
-    let service = source::read(&root.join("web/src/signature/mod.rs"));
+    // The Luxesign shuffle moved the signature service under the domain module.
+    let service = source::read(&root.join("web/src/luxesign/signature/mod.rs"));
     assert!(
         service.contains("pub async fn transition_transactional"),
         "the service drives status through the canonical transition, not raw SQL"

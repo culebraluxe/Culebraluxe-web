@@ -1,8 +1,15 @@
 FROM rust:1.94-bookworm AS builder
 
 WORKDIR /build
+# The .dockerignore keeps the context to the app workspace. The workspace manifest still names `tests` as a
+# member, and that crate depends on the private Forge git repository; Cargo resolves every member before it
+# builds, so the member is removed here (no tests are copied, and none can be — the image ships none).
 COPY . .
-RUN cargo build --locked --release -p web --bin web
+# Dropping the member changes Cargo.lock (test-only crates and the private Forge package leave the graph), so
+# the build cannot use `--locked`; it may rewrite the lock, and it fetches no git dependency.
+RUN sed -i '/^    "tests",$/d' Cargo.toml \
+    && ! grep -q '"tests"' Cargo.toml \
+    && cargo build --release -p web --bin web
 
 FROM debian:bookworm-slim AS runtime
 

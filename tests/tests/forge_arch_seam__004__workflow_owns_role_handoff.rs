@@ -30,7 +30,7 @@ use forge::engine::writer::RecordingWriter;
 use forge::engine::xml::{definition_from_xml, FORGE_SDLC_V6_XML};
 use forge::roles::ForgeLaneServices;
 use support::*;
-use test_harness::source::{sources_under, workspace_root};
+use test_harness::source::{self, sources_under};
 use workflow::MemoryStore;
 
 const STORY: &str = "TST-ARCH-SEAM-004";
@@ -152,7 +152,11 @@ fn moving_an_edge_in_the_definition_moves_the_handoff_with_no_rust_change() {
 /// task itself, or drives the story is a role deciding who runs next.
 #[test]
 fn no_role_module_calls_another_role_or_advances_workflow() {
-    let roles_dir = workspace_root().join("forge/src/roles");
+    // X-5: the role modules live in the Forge checkout. No checkout here is a named skip.
+    let Some(forge) = source::forge_root_or_skip() else {
+        return;
+    };
+    let roles_dir = forge.join("forge/src/roles");
     let files = sources_under(&roles_dir);
     assert!(
         files.len() >= 10,
@@ -217,7 +221,10 @@ fn no_role_module_calls_another_role_or_advances_workflow() {
 /// The scan must be able to fail: the composition module names every lane service and calls `execute`.
 #[test]
 fn the_scan_detects_cross_role_naming_where_it_exists() {
-    let composition = workspace_root().join("forge/src/roles/service.rs");
+    let Some(forge) = source::forge_root_or_skip() else {
+        return;
+    };
+    let composition = forge.join("forge/src/roles/service.rs");
     let hits = lines_naming(&composition, &["SmithService", "LeadService", ".execute("]);
     assert!(hits.len() >= 3, "the scanner is blind: {hits:?}");
 }

@@ -31,6 +31,7 @@ use forge::engine::job::{execute_claimed_job, ForgeJobBridge, JobService};
 use forge::engine::role_mapping::LaneId;
 use forge::engine::service_binding::forge_service_bindings;
 use support::{harness, jobs, payload, raw_job, ready, WORKER_A};
+use test_harness::source;
 use workflow::{JobStatus, Value};
 
 #[test]
@@ -159,6 +160,10 @@ fn a_lease_that_disagrees_with_the_xml_is_refused_for_every_node_and_every_other
 
 #[test]
 fn only_the_bridge_reads_the_binding_and_the_post_persistence_path_reads_only_the_lease() {
+    // X-5: this half reads Forge source; without a Forge checkout it is a named skip.
+    let Some(_forge) = source::forge_root_or_skip() else {
+        return;
+    };
     // `engine/job.rs` became `engine/job/mod.rs` + `engine/job/workflow_service.rs` on 2026-10-13 (WO-406), so
     // "exactly once" is asserted over both files of the layer. `job/tests.rs` is `#[cfg(test)]` in the crate's own
     // declaration and is not read.
@@ -167,7 +172,7 @@ fn only_the_bridge_reads_the_binding_and_the_post_persistence_path_reads_only_th
         "forge/src/engine/job/workflow_service.rs",
     ]
     .iter()
-    .map(|file| production_code(&workspace_root().join(file)))
+    .map(|file| production_code(&source::repo_path(file)))
     .collect::<Vec<_>>()
     .join("\n");
     assert_eq!(
@@ -200,7 +205,7 @@ fn only_the_bridge_reads_the_binding_and_the_post_persistence_path_reads_only_th
         "forge/src/roles/lifecycle/mod.rs",
         "forge/src/bin/forge/main.rs",
     ] {
-        let code = production_code(&workspace_root().join(file));
+        let code = production_code(&source::repo_path(file));
         assert!(
             !code.contains("resolve_node("),
             "{file} re-derives a service from the node id after persistence"
