@@ -135,6 +135,7 @@ async fn media(
         )
             .into_response(),
         Some(crate::media::MediaRead::Redirect { url }) => (
+            StatusCode::FOUND,
             [
                 (header::LOCATION, url),
                 (header::CACHE_CONTROL, "public, max-age=300".to_owned()),
