@@ -76,3 +76,16 @@ Forge own theirs. One ledger; one migration applier through the transition.
 - Version drift: pin exact versions and gate host smoke tests on bumps.
 - ForgeVCS mirror needs the commit-identity extension (WIRE-1 findings) before it can be canonical.
 - Do not fork Neon; do not create a second migration runner.
+
+## Status update 2026-10-19 — workflow-core split out
+
+- New repo: `https://github.com/culebraluxe/workflow` (private), tag **v0.1.0**, commit `a0d72aa`.
+  `crates/workflow-core` (zero dependencies, 28 tests) is the host-neutral engine kernel.
+- App repo now consumes it as a **git dependency pinned to v0.1.0**; the in-repo `workflow-core`
+  workspace member/copy was removed. `Cargo.lock` pins the commit.
+- `workflow-neon` remains app-side for now (it still depends on the app `db` crate); hosts can share
+  the core independently while the adapter is decoupled.
+- Cargo auth: private git dependency uses the git CLI (`net.git-fetch-with-cli = true`); CI needs a
+  read token/deploy key.
+- Forge already consumes `workflow` through the facade, so it picks up the same core once its repo/crate
+  split lands.

@@ -5,7 +5,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-workflow-core = { path = "../workflow-core" }
+workflow-core = { git = "https://github.com/culebraluxe/workflow", tag = "v0.1.0" }
 db = { path = "../db" }
 sqlx.workspace = true
 tokio.workspace = true

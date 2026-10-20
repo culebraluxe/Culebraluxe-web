@@ -3984,6 +3984,7 @@ dependencies = [
 [[package]]
 name = "workflow-core"
 version = "0.1.0"
+source = "git+https://github.com/culebraluxe/workflow?tag=v0.1.0#a0d72aa713f2e530ee4b93f50b8f5e2c97b2fd62"
 
 [[package]]
 name = "workflow-neon"
