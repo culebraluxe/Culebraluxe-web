@@ -100,8 +100,12 @@ pub const CORRECTION_LEDGER_REQUIRED_COLUMNS: &[&str] = &[
 /// missing column is a `SchemaMismatch` naming it and the boot refuses.
 pub async fn assert_reconciled_schemas(database: &Database) -> DbResult<()> {
     let columns: Vec<(String,)> = sqlx::query_as(
+        // The app's tables live in `public` by contract. `current_schema()` is ROLE-dependent: a Neon
+        // login role carrying `search_path=neon_auth` (or a leaked empty search_path) would make the
+        // gate report every column missing even though the applied migration is present in `public`.
+        // The reconciliation check asks about the table's real schema, not the caller's first schema.
         "select column_name from information_schema.columns \
-         where table_schema = current_schema() and table_name = 'forge_correction_ledger'",
+         where table_schema = 'public' and table_name = 'forge_correction_ledger'",
     )
     .fetch_all(database.pool())
     .await
