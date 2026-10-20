@@ -58,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           violations="$(
-            grep -RInE 'sqlx::(query|query_as|query_scalar)|\.pool\(\)' web middle db cli forge tests --include='*.rs' \
+            grep -RInE 'sqlx::(query|query_as|query_scalar)|\.pool\(\)' web middle db cli tests --include='*.rs' \
               | grep -v '^db/' \
               | grep -v '^middle/workflow/src/neon.rs:' \
               | grep -v '^middle/workflow/src/neon/' \
@@ -87,8 +87,7 @@ jobs:
       # recorded in `docs/agent/DEAD-TS-DOWNSIZE.md` section 5, railed by `arch_boundary__012`), so the condition
       # this step used to CREATE by moving the directory aside is now the tree's permanent state. The assertion
       # stays: if `legacy/` comes back, this step fails here rather than in a review.
-      - name: Forge and workflow run with legacy physically unavailable
+      - name: App workflow runs with legacy physically unavailable
         run: |
           test ! -e legacy
           cargo test --manifest-path Cargo.toml -p workflow --all-targets
-          bash -n scripts/agent-worker-once.sh

@@ -2,8 +2,9 @@
 
 A residential real-estate transaction platform, and **one Rust application**: the website and the portal are a single
 Yew/WebAssembly app (`web/ui`) served by the Rust server (`web/src/site.rs`), and the domain, the database and
-the HTTP API are Rust crates in three tiers — `web/`, `middle/`, `db/` — with the entry points (`cli/`, `forge/`) and
-the contract suite (`tests/`) beside them. There is no Next.js application and no TypeScript in the product — even
+the HTTP API are Rust crates in three tiers — `web/`, `middle/`, `db/` — with the app entry point (`cli/`) and the
+contract suite (`tests/`) beside them. The Forge delivery engine now lives in its own repository
+(`https://github.com/culebraluxe/forge`). There is no Next.js application and no TypeScript in the product — even
 Google sign-in is Rust. This file is the map; the rules live in [AGENTS.md](AGENTS.md) and the start-here guide is
 [docs/agent/ORIENTATION.md](docs/agent/ORIENTATION.md).
 
@@ -31,8 +32,8 @@ One Cargo workspace, three tiers and the entry points beside them:
 | `web/ui` | the website and the portal: Yew screens on the `Screen` trait (MVI) |
 | `web/auth` | the server-side authorization/authentication boundary |
 | `middle/apis` | provider adapters: Mux, Google, Apple, BoldSign, WhatsApp, mail |
-| `forge` | the Forge delivery engine and the RE transaction runtime the API calls |
-| `cli` | operator commands: `db-tool`, the `forge` gates, Apple intake, media backfills |
+| `cli` | app operator commands: `db-tool`, Apple intake, media backfills |
+| `re-host` | the app RE host: workflow runtime + cockpit read |
 | `tests` | the contract suite: the arch-boundary cases, the seam cases and the harness behind them |
 | `experiments/` | comparison benches — **excluded from the workspace, not production code** |
 
@@ -49,9 +50,8 @@ Run the CLI from the repository root: it reads `.env.local` there.
 
 ```bash
 cargo check --workspace --all-targets                # every crate, the UI app included (from the repository root)
-cargo test -p ui -p db -p web -p forge -p workflow
+cargo test -p ui -p db -p web -p workflow
 pnpm ui:check                                        # the UI for the wasm target — what the deploy compiles
-pnpm forge:harness                                   # the harness gates
 ```
 
 Unit tests do not touch a real database; `web/tests/*_dev.rs` and `scripts/rust-live-check/` run against DEV.
@@ -70,6 +70,7 @@ have already cost time: [docs/rust-contributing.md](docs/rust-contributing.md).
 
 - [AGENTS.md](AGENTS.md) — the house rules, where code goes, the bugs not to reintroduce
 - [docs/agent/ORIENTATION.md](docs/agent/ORIENTATION.md) — the map, the commands, where to look for X
+- [Forge repo](https://github.com/culebraluxe/forge) — factory engine, `forge-cli`, release/deploy/scheduler scripts and Forge CI
 - [docs/ARCH-01-README-SUPPLEMENT.md](docs/ARCH-01-README-SUPPLEMENT.md) — the architecture in one page
 - **The layers** — [UI](docs/layers/UI.md) · [SERVICES](docs/layers/SERVICES.md) · [WORKFLOW](docs/layers/WORKFLOW.md) · [DB](docs/layers/DB.md) · [FORGE](docs/layers/FORGE.md)
 - [docs/agent/UI-SCREEN-ARCHITECTURE.md](docs/agent/UI-SCREEN-ARCHITECTURE.md) — the contract every screen implements

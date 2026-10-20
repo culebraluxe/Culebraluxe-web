@@ -93,24 +93,6 @@ jobs:
       #     `⚠ BROKEN ON PURPOSE` banner. The Rust-side static checks it stood for are `rust-client-cutover.yml`
       #     (workspace compile, persistence boundary, browser compile, workspace tests), which is their home.
       #
-      # The engine's harness gate that DOES exist is the next step, and it is the same command the engine and
-      # the captain run, so CI cannot drift from them.
-
-      - name: harness gates (packets, manifests, vendor blocks)
-        run: pnpm forge:packet-lint
-
-      # THE HANDBOOK'S GUARD PATHS ARE LINTED, NOT ASSUMED (ENG-GUARD-AGENTS-LINT-01).
-      #
-      # Every `guard:` line in AGENTS.md is a CLAIM that a test exists, and nothing read those claims: eight
-      # `guard: workflow_app/tests/*.test.ts` lines survived the deletion of the whole TypeScript application,
-      # so the handbook read as if nine rules were guarded and not one file was there. `forge guard-lint`
-      # (`forge-cli/src/forge/guard_paths.rs`) is the blocking half: a path that does not exist, or that exists
-      # but holds no test, FAILS with its line number and exits 1. `pnpm forge:packet-lint` above runs the same
-      # check but only WARNS, and the `cargo test` assertion in the rust job sits below the format step — so
-      # this explicit step is what makes a dead guard path actually stop the pipeline.
-      - name: guard paths (every `guard:` in AGENTS.md resolves to a test)
-        run: pnpm forge:guard-lint
-
       # EVERY TRACKED SHELL FILE IS PARSED, BECAUSE NOTHING PARSED ONE (2026-10-08).
       #
       # `scripts/release-ci-check.sh` — the file that decides whether a release may proceed — was found carrying a
@@ -520,20 +502,6 @@ jobs:
           fi
           echo "no NEW production .rs file over 800 lines; the 12 baselined files and the four deferred trees are the rest"
 
-      # THE DEAD-TYPESCRIPT LEDGER, RUST AND HERE (moved out of the `static` job, 2026-09-29).
-      #
-      # Both gates were Node scripts until the port deleted the last Node runtime in this repository:
-      # they are `forge` subcommands now (`forge-cli/src/forge/{ts_sweep,dead_commands}.rs`), so they
-      # run in the job that has cargo and a warm cache. `pnpm broken:ts:sweep` and
-      # `pnpm broken:ts:commands` still exist and call exactly these two commands. The menu gate is the
-      # one that can refuse: a new dead command is a finding, and the count may only fall.
-      - name: dead-TS ledger (which files cannot load)
-        run: cargo run --manifest-path ../forge/Cargo.toml -p forge-cli -- ts-sweep
-
-      - name: dead-TS ledger (the pnpm menu, baseline enforced)
-        run: cargo run --manifest-path ../forge/Cargo.toml -p forge-cli -- dead-commands --check
-
-
   rust_database:
     name: rust DEV DB smoke
     # Read-only Rust -> SQLx -> Neon proof. Parked until DATABASE_URL_DEV exists
@@ -576,9 +544,7 @@ jobs:
       # leftovers.
       - name: Rust DEV schema, transaction and claim contracts
         run: |
-          for file in tests/tests/db_schema__*.rs tests/tests/db_transaction__*.rs \
-                      tests/tests/forge_work_claim_dev.rs \
-                      tests/tests/forge_claim__003__pause_and_ceiling_close_the_door.rs; do
+          for file in tests/tests/db_schema__*.rs tests/tests/db_transaction__*.rs; do
             name="$(basename "$file" .rs)"
             cargo test -p test-harness --test "$name" -- --ignored --test-threads=1
           done
@@ -655,7 +621,7 @@ jobs:
       - name: schema parity (dev vs prod)
         run: pnpm db:parity
 
-      - name: application and forge-engine suites
+      - name: application suites
         run: pnpm test:app
 
       - name: rust database/service smoke

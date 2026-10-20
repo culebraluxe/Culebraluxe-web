@@ -75,6 +75,8 @@ jobs:
         run: |
           fail=0
           for file in tests/tests/chaos_*.rs; do
+            name="$(basename "$file" .rs)"
+            case "$name" in chaos_forge__*) continue;; esac
             tests="$(grep -c '#\[tokio::test\]' "$file")"
             ignored="$(grep -c '#\[ignore' "$file")"
             if [ "$tests" != "$ignored" ]; then
@@ -92,6 +94,8 @@ jobs:
           only="${{ inputs.only }}"
           for file in tests/tests/chaos_*.rs; do
             name="$(basename "$file" .rs)"
+            # Forge's crash/convergence proofs moved with the Forge repo (X-6a); app soak is app-only.
+            case "$name" in chaos_forge__*) continue;; esac
             if [ -n "$only" ] && [ "$name" != "$only" ]; then
               continue
             fi

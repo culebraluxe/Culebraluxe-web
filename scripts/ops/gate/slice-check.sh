@@ -15,8 +15,7 @@
 #
 # Why T1 and not "everything, to be safe": scope is the whole point of the tier. Widening it back to the workspace is
 # what burned the windows this script protects; narrowing it to the green files is fraud. Run what you touched — the
-# sections' crates, including the tests you broke. `forge test-section --changed` (forge-cli/src/forge/test_section.rs) is
-# the house's own logical domains and the only taxonomy this script trusts.
+# app crates and the test-harness. The Forge section runner moved to the Forge repo (X-6a).
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
@@ -225,7 +224,7 @@ if [ -z "$failed" ]; then
     failed="T1 — cli does not compile, so no section could be run"
     cat "$log" >&2
   else
-    runner=(cargo run --manifest-path Cargo.toml -p cli --quiet -- forge test-section --changed)
+    runner=(cargo test --manifest-path Cargo.toml -p test-harness --quiet)
     if [ -n "$since" ]; then
       runner+=(--since "$since")
     fi

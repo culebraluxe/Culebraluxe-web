@@ -57,32 +57,7 @@ vc env pull "$ENV_FILE" --environment=production
 printf '\nClearing previous prebuilt output...\n'
 rm -rf .vercel/output
 
-# THE HARNESS GATES THE RELEASE. This is the last automatic checkpoint before production, so it is where a
-# drifted manifest, a hand-edited vendor block, or a packet citing a path that no longer exists should stop
-# the build rather than ship. Deliberately not a commit hook: the repo has none, and this is the moment the
-# checks are worth the wait. `set -e` above means a harness failure aborts the release here.
-if [[ "${RELEASE_FORGE_HARNESS:-check}" == "skip" ]]; then
-  printf '\nFORGE HARNESS SKIPPED by RELEASE_FORGE_HARNESS=skip — this is an explicit release decision, not a pass.\n'
-else
-  printf '\nRunning the harness gates (packet lint, manifests, vendor blocks)...\n'
-  # REPORTED, NOT FATAL — and this is a deliberate change of policy.
-  #
-  # These gates read GENERATED manifest files and hand-written packet prose. A release was stopped twice by stale
-  # citations in documents that had nothing to do with the code being shipped, and once by a manifest that was simply
-  # one render behind — which is not a mistake anyone made, it is what a generated file looks like when the tree it
-  # was generated from has moved. A text file must not be able to hold a release hostage.
-  #
-  # What is still true: the gates run on every release, everything they find is printed, and `forge:manifest
-  # --check-all` now re-renders stale manifests in place instead of failing. What decides the release is the CODE:
-  # the TypeScript typecheck and the Rust/Yew build inside `vc build`, and the artifact safety scan below — all of
-  # which remain fatal under `set -e`. RELEASE_FORGE_HARNESS=strict restores the old blocking behaviour.
-  if [[ "${RELEASE_FORGE_HARNESS:-check}" == "strict" ]]; then
-    pnpm forge:harness
-  else
-    pnpm forge:harness ||
-      printf '\nHarness findings are reported above and did NOT stop this build (RELEASE_FORGE_HARNESS=strict to block).\n'
-  fi
-fi
+# Forge harness gates moved to the Forge repo (X-6a); app release runs app gates only.
 
 # START THE BUILD FROM A CLEAN .next. `vc build` builds ON TOP of whatever tree is already there, and
 # repeated release builds had left 2,035 duplicate generated files (`cache-life.d 3.ts` and friends - the
