@@ -11,8 +11,6 @@ members = [
     "re-host",
     "db",
     "cli",
-    "forge",
-    "forge-cli",
     "tests",
 ]
 # `experiments/` is deliberately OUTSIDE the workspace. The bench crate there exists to compare stacks we have not
@@ -79,3 +77,13 @@ libc = "0.2"
 incremental = false
 debug = "line-tables-only"
 
+
+# X-5: the Forge repo consumes Culebraluxe-web at a pinned revision. Patch those shared crates to the
+# local app paths so the app workspace and the Forge git dependency use ONE package instance (no duplicate
+# db/model/workflow/apis/services types). Remove when the shared crates are versioned and consumable.
+[patch."https://github.com/culebraluxe/Culebraluxe-web"]
+db = { path = "db" }
+model = { path = "middle/model" }
+workflow = { path = "middle/workflow" }
+apis = { path = "middle/apis" }
+services = { path = "middle/services" }

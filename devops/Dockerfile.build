@@ -16,7 +16,7 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 # ONE COPY PER DIRECTORY. A multi-source COPY copies each source's CONTENTS into the destination and MERGES them:
-# `COPY web middle db cli forge tests ./` collapsed web/src, db/src, cli/src and forge/src into a single /build/src,
+# `COPY web middle db cli tests ./` collapsed web/src, db/src and cli/src into a single /build/src,
 # put middle/{model,services,workflow,apis} at /build/*, and made the LAST source's manifest the workspace root —
 # /build/Cargo.toml was tests/Cargo.toml (`name = "test-harness"`), so `cargo metadata` answered "failed to find a
 # workspace root" and exited 101 before compiling a line. Verified with two directories: `COPY a b ./` gives /w/afile,
@@ -28,7 +28,6 @@ COPY web ./web
 COPY middle ./middle
 COPY db ./db
 COPY cli ./cli
-COPY forge ./forge
 COPY tests ./tests
 COPY scripts/rust-ui-build.sh ./scripts/rust-ui-build.sh
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

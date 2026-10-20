@@ -332,8 +332,15 @@ fn a_ledger_failure_reaches_the_caller_of_complete_role_task() {
 /// call site must name the durable ledger, never the fixture one.
 #[test]
 fn the_engine_binary_installs_the_durable_ledger() {
-    // The path is the forge crate's, spelled from this file rather than from the crate it used to live in.
-    let source = include_str!("../../forge/src/bin/forge/main.rs");
+    // The path is the Forge crate's. After X-5 it lives in the sibling Forge checkout, not this app tree:
+    // FORGE_HOME names that checkout; the sibling default is the local cutover layout.
+    let forge_root = std::env::var("FORGE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../forge")
+        });
+    let source = std::fs::read_to_string(forge_root.join("forge/src/bin/forge/main.rs"))
+        .expect("the Forge checkout must contain forge/src/bin/forge/main.rs");
     assert!(
         source.contains("durable_completion_ledger()"),
         "forge/src/bin/forge/main.rs must build its runtime with the receipt row; a process-local ledger there re-applies every completion in the instance history"

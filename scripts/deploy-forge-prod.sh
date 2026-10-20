@@ -12,6 +12,8 @@ set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: run inside the repository" >&2; exit 1; }
 cd "$ROOT"
+FORGE_ROOT="${FORGE_HOME:-$ROOT/../forge}"
+[[ -f "$FORGE_ROOT/Cargo.toml" ]] || { echo "ERROR: Forge checkout not found at $FORGE_ROOT (set FORGE_HOME)" >&2; exit 1; }
 SUPPORT="${FORGE_SUPPORT_DIR:-$HOME/Library/Application Support/CulebraLuxe}"
 VERSION=""; DRY_RUN=0; NO_BUILD=0; ROLLBACK=0
 while [[ $# -gt 0 ]]; do
@@ -80,16 +82,16 @@ fi
 
 printf '4/5 Refreshing the launchd wrapper/plist...\n'
 if [[ "$DRY_RUN" == 1 ]]; then
-  printf '  DRY-RUN: would run cargo run -p forge-cli -- launchd agent-worker install\n'
+  printf '  DRY-RUN: would run cargo run --manifest-path ../forge/Cargo.toml -p forge-cli -- launchd agent-worker install\n'
 else
-  cargo run -q -p forge-cli -- launchd agent-worker install
+  cargo run -q --manifest-path "$FORGE_ROOT/Cargo.toml" -p forge-cli -- launchd agent-worker install
 fi
 
 printf '5/5 Status...\n'
 if [[ "$DRY_RUN" == 1 ]]; then
   printf '  DRY-RUN: would run launchd agent-worker status\n'
 else
-  cargo run -q -p forge-cli -- launchd agent-worker status || true
+  cargo run -q --manifest-path "$FORGE_ROOT/Cargo.toml" -p forge-cli -- launchd agent-worker status || true
 fi
 
 printf '\nFORGE DEPLOY COMPLETE — %s\n' "$DEST"

@@ -150,7 +150,7 @@ if [ -z "${DATABASE_URL_PROD:-}" ]; then
 fi
 
 if [ "${AGENT_WORKER_DRY_RUN:-0}" = "1" ]; then
-  echo "[agent-worker] dry-run: cargo run --manifest-path Cargo.toml -p forge --bin forge-worker -- not invoked"
+  echo "[agent-worker] dry-run: cargo run --manifest-path "${FORGE_HOME:-$REPO_ROOT/../forge}/Cargo.toml" -p forge --bin forge-worker -- not invoked"
   inv_log "dry-run"
   exit 0
 fi
@@ -284,7 +284,7 @@ fi
 
 pass=1
 while [ "$pass" -le "$MAX_PASSES" ]; do
-  inv_log "pass=$pass start cmd=\"cargo run --manifest-path Cargo.toml -p forge --bin forge-worker --\""
+  inv_log "pass=$pass start cmd=\"cargo run --manifest-path "${FORGE_HOME:-$REPO_ROOT/../forge}/Cargo.toml" -p forge --bin forge-worker --\""
 
   output_file="$(mktemp -t culebraluxe-forge-worker.XXXXXX)"
   if [ -n "${AGENT_WORKER_BIN:-}" ]; then
@@ -297,7 +297,7 @@ while [ "$pass" -le "$MAX_PASSES" ]; do
     fi
     "$AGENT_WORKER_BIN" 2>&1 | tee "$output_file"
   else
-    cargo run --manifest-path Cargo.toml -p forge --bin forge-worker -- 2>&1 | tee "$output_file"
+    cargo run --manifest-path "${FORGE_HOME:-$REPO_ROOT/../forge}/Cargo.toml" -p forge --bin forge-worker -- 2>&1 | tee "$output_file"
   fi
   rc=${PIPESTATUS[0]}
 

@@ -10,23 +10,25 @@ set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: run inside the repository" >&2; exit 1; }
 cd "$ROOT"
+FORGE_ROOT="${FORGE_HOME:-$ROOT/../forge}"
+[[ -f "$FORGE_ROOT/Cargo.toml" ]] || { echo "ERROR: Forge checkout not found at $FORGE_ROOT (set FORGE_HOME)" >&2; exit 1; }
 SKIP_TESTS=0
 [[ "${1:-}" == "--skip-tests" ]] && SKIP_TESTS=1
 
-VERSION="${FORGE_BUILD_VERSION:-$(git rev-parse --short HEAD)}"
+VERSION="${FORGE_BUILD_VERSION:-$(git -C "$FORGE_ROOT" rev-parse --short HEAD)}"
 OUT="${FORGE_BUILD_DIR:-$ROOT/build/forge/$VERSION}"
 STAGE="$OUT"
 printf '\nForge release build\n  version: %s\n  output:  %s\n\n' "$VERSION" "$OUT"
 
 if [[ "$SKIP_TESTS" == 0 ]]; then
   printf '1/4 Testing the factory crate...\n'
-  cargo test -q -p forge --lib
+  cargo test -q --manifest-path "$FORGE_ROOT/Cargo.toml" -p forge --lib
 else
   printf '1/4 Tests skipped (--skip-tests)\n'
 fi
 
 printf '2/4 Compiling release binaries...\n'
-cargo build --release -p forge --bins
+cargo build --release --manifest-path "$FORGE_ROOT/Cargo.toml" -p forge --bins
 
 printf '3/4 Staging the artifact...\n'
 # Lanes set a per-checkout target-dir in .cargo/config.toml; ask cargo where the release output is
@@ -39,8 +41,8 @@ for bin in forge forge-worker forge-task forge-assay-plan-hash; do
   [[ -x "$src" ]] || { echo "ERROR: missing release binary: $src" >&2; exit 1; }
   cp "$src" "$STAGE/bin/$bin"
 done
-cp "$ROOT/forge/definitions/FORGE_SDLC-v6.xml" "$STAGE/definitions/"
-cp "$ROOT/scripts/agent-worker-once.sh" "$STAGE/scripts/"
+cp "$FORGE_ROOT/forge/definitions/FORGE_SDLC-v6.xml" "$STAGE/definitions/"
+cp "$FORGE_ROOT/agent-worker-once.sh" "$STAGE/scripts/"
 chmod -R a+rX "$STAGE"
 printf 'version=%s\ncommit=%s\nbuilt_at=%s\n' "$VERSION" "$(git rev-parse HEAD)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$STAGE/VERSION"
 (cd "$STAGE" && find bin definitions scripts VERSION -type f -print0 | sort -z | xargs -0 shasum -a 256) > "$STAGE/MANIFEST.sha256"

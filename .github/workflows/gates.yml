@@ -528,10 +528,10 @@ jobs:
       # `pnpm broken:ts:commands` still exist and call exactly these two commands. The menu gate is the
       # one that can refuse: a new dead command is a finding, and the count may only fall.
       - name: dead-TS ledger (which files cannot load)
-        run: cargo run -p forge-cli -- ts-sweep
+        run: cargo run --manifest-path ../forge/Cargo.toml -p forge-cli -- ts-sweep
 
       - name: dead-TS ledger (the pnpm menu, baseline enforced)
-        run: cargo run -p forge-cli -- dead-commands --check
+        run: cargo run --manifest-path ../forge/Cargo.toml -p forge-cli -- dead-commands --check
 
 
   rust_database:

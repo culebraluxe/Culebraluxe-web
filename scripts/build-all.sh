@@ -14,7 +14,7 @@ echo '==> rust server (release, exactly what the container builds)'
 cargo build --release -p web --bin web
 
 echo '==> rust tests'
-cargo test -p db -p web -p forge -p workflow
+cargo test -p db -p web -p workflow
 
 echo '==> rust ui (wasm) + stylesheet — the same two steps `pnpm build` runs'
 RUST_UI_PROFILE=release bash scripts/site-build.sh

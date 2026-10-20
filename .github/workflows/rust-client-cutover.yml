@@ -90,5 +90,5 @@ jobs:
       - name: Forge and workflow run with legacy physically unavailable
         run: |
           test ! -e legacy
-          cargo test --manifest-path Cargo.toml -p workflow -p forge --all-targets
+          cargo test --manifest-path Cargo.toml -p workflow --all-targets
           bash -n scripts/agent-worker-once.sh

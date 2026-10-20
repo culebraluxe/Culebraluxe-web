@@ -32,4 +32,4 @@ case "${1:-}" in
     exit 2
     ;;
 esac
-exec cargo test -q -p forge --lib "$filter" -- --nocapture
+exec cargo test -q --manifest-path "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/../forge/Cargo.toml" -p forge --lib "$filter" -- --nocapture

@@ -800,7 +800,8 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "forge"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/culebraluxe/forge?tag=v0.1.1#ed621a626fc00cf6d2fd0bc9fcf00413912045f8"
 dependencies = [
  "apis",
  "async-trait",
@@ -808,7 +809,6 @@ dependencies = [
  "db",
  "model",
  "proc-macro2",
- "proptest",
  "reqwest",
  "serde",
  "serde_json",
@@ -816,7 +816,6 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "syn 2.0.119",
- "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -824,22 +823,6 @@ dependencies = [
  "wait-timeout",
  "workflow",
  "zstd",
-]
-
-[[package]]
-name = "forge-cli"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "db",
- "dotenvy",
- "forge",
- "indexmap",
- "regex",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
 ]
 
 [[package]]
