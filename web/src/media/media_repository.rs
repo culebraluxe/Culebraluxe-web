@@ -4,7 +4,7 @@
 use super::*;
 
 #[async_trait]
-pub trait MediaRepository: Send {
+pub trait MediaRepository: Send + Sync {
     async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>>;
     async fn upload_standalone(
         &self,
@@ -56,6 +56,16 @@ pub trait MediaRepository: Send {
         assembly: &db::MediaUploadAssembly,
         derivatives: &[db::MediaDerivativeInput],
     ) -> DbResult<UploadPropertyMediaResult>;
+
+    /// Persist shadow-write metadata. The default keeps test repositories source-compatible; the
+    /// production DAO overrides it. A false result means the media row no longer exists.
+    async fn set_media_object(
+        &self,
+        _media_id: &str,
+        _metadata: &db::MediaObjectMetadata,
+    ) -> DbResult<bool> {
+        Ok(false)
+    }
 }
 
 #[async_trait]
@@ -165,6 +175,14 @@ impl MediaRepository for MediaDao {
     ) -> DbResult<UploadPropertyMediaResult> {
         MediaDao::commit_media_upload(self, upload_id, assembly, derivatives).await
     }
+
+    async fn set_media_object(
+        &self,
+        media_id: &str,
+        metadata: &db::MediaObjectMetadata,
+    ) -> DbResult<bool> {
+        MediaDao::set_media_object(self, media_id, metadata).await
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -217,4 +235,112 @@ pub enum UploadLookup {
 pub struct MediaService<R> {
     pub(super) repository: R,
     pub(super) runtime: ServiceRuntime,
+    /// Present only when the media object store is configured. Shadow writes are additive: the
+    /// Postgres blob is still canonical until the Phase 6 read switch, so a store error never fails
+    /// an upload.
+    pub(super) object_store: Option<Arc<dyn AbstractObjectStoreService>>,
+}
+
+/// Object keys are opaque and UUID-oriented. The extension is for operator readability only; the
+/// media row, not the key, remains the source of truth.
+fn media_object_key(property_id: &str, media_id: &str, mime_type: &str) -> String {
+    let extension = match mime_type.to_ascii_lowercase().as_str() {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        "image/avif" => "avif",
+        _ => "bin",
+    };
+    format!("properties/{property_id}/media/{media_id}/original.{extension}")
+}
+
+impl<R> MediaService<R> {
+    /// Attach the object store after construction. Tests and deployments without media object
+    /// storage keep the exact legacy behavior.
+    pub fn with_object_store(mut self, store: Arc<dyn AbstractObjectStoreService>) -> Self {
+        self.object_store = Some(store);
+        self
+    }
+}
+
+impl<R: MediaRepository> MediaService<R> {
+    /// Best-effort shadow write: the Postgres blob was just committed and remains canonical. Success
+    /// records VERIFIED object metadata; any failure records MIGRATION_FAILED and leaves the upload
+    /// successful. This is deliberately not in the error path of the caller.
+    pub(crate) async fn shadow_property_media(
+        &self,
+        media_id: &str,
+        property_id: &str,
+        bytes: &[u8],
+        mime_type: &str,
+    ) {
+        let Some(store) = self.object_store.as_ref() else {
+            return;
+        };
+        let bucket = ObjectBucket::PropertyMediaPrivate;
+        let key = media_object_key(property_id, media_id, mime_type);
+        let pending = db::MediaObjectMetadata {
+            bucket: bucket.as_str().to_owned(),
+            key: key.clone(),
+            etag: None,
+            sha256: None,
+            size: bytes.len() as i64,
+            status: "MIRROR_PENDING".to_owned(),
+        };
+        if let Err(error) = self.repository.set_media_object(media_id, &pending).await {
+            tracing::warn!(
+                media_id,
+                error = %error,
+                "media object shadow: could not record MIRROR_PENDING; keeping legacy blob"
+            );
+            return;
+        }
+
+        let result = async {
+            let stored = store
+                .put_object(bucket, &key, bytes, mime_type)
+                .await
+                .map_err(|error| error.to_string())?;
+            let sha = stored
+                .sha256
+                .clone()
+                .ok_or_else(|| "provider returned no SHA-256".to_owned())?;
+            store
+                .verify_object(bucket, &key, &sha, stored.size)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok::<_, String>((stored, sha))
+        }
+        .await;
+
+        match result {
+            Ok((stored, sha)) => {
+                let verified = db::MediaObjectMetadata {
+                    bucket: bucket.as_str().to_owned(),
+                    key: key.clone(),
+                    etag: stored.etag.clone(),
+                    sha256: Some(sha),
+                    size: stored.size,
+                    status: "VERIFIED".to_owned(),
+                };
+                if let Err(error) = self.repository.set_media_object(media_id, &verified).await {
+                    tracing::warn!(media_id, error = %error, "media object shadow: could not record VERIFIED");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(media_id, key, error, "media object shadow failed; legacy blob remains canonical");
+                let failed = db::MediaObjectMetadata {
+                    bucket: bucket.as_str().to_owned(),
+                    key: key.clone(),
+                    etag: None,
+                    sha256: None,
+                    size: bytes.len() as i64,
+                    status: "MIGRATION_FAILED".to_owned(),
+                };
+                let _ = self.repository.set_media_object(media_id, &failed).await;
+                let _ = store.delete_object(bucket, &key).await;
+            }
+        }
+    }
 }

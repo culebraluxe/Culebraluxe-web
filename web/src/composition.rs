@@ -267,6 +267,19 @@ impl ServiceCatalog {
             firm.clone(),
             property.clone(),
         ));
+        let media_service = MediaService::new(
+            MediaDao::new(db.clone()),
+            infrastructure.clone(),
+        );
+        let media_service = match crate::media::object_store_from_env() {
+            Ok(Some(store)) => media_service.with_object_store(Arc::new(store)),
+            Ok(None) => media_service,
+            Err(error) => {
+                tracing::error!(%error, "media object store is misconfigured; shadow writes are off");
+                media_service
+            }
+        };
+
         let signature_provider: Option<Arc<dyn SignatureProvider>> =
             match BoldSignConfig::from_env()
                 .and_then(|config| BoldSignSignatureProvider::new(db.clone(), config))
@@ -390,10 +403,7 @@ impl ServiceCatalog {
                 MarketingDao::new(db.clone()),
                 infrastructure.clone(),
             )),
-            media: Arc::new(MediaService::new(
-                MediaDao::new(db.clone()),
-                infrastructure.clone(),
-            )),
+            media: Arc::new(media_service),
             person,
             firm,
             forms: Arc::new(FormService::new(

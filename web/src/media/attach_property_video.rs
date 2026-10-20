@@ -133,6 +133,16 @@ impl<R: MediaRepository> MediaService<R> {
         }
         .await;
 
+        if let Ok(upload) = result.as_ref() {
+            self.shadow_property_media(
+                &upload.media_id,
+                &request.property_id,
+                &request.bytes,
+                &request.mime_type,
+            )
+            .await;
+        }
+
         audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
         result
     }

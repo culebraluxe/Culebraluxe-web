@@ -77,6 +77,7 @@ impl<R: MediaRepository> MediaService<R> {
         Self {
             repository,
             runtime: ServiceRuntime::new(infrastructure),
+            object_store: None,
         }
     }
 
@@ -575,10 +576,21 @@ impl<R: MediaRepository> MediaService<R> {
             })?
             .map_err(|message| CoreServiceError::business("MEDIA_DERIVATIVE_FAILED", message))?;
 
-            repository
+            let result = repository
                 .commit_media_upload(upload_id, &assembly, &derivatives)
                 .await
-                .map_err(CoreServiceError::from)
+                .map_err(CoreServiceError::from);
+
+            if let Ok(upload) = result.as_ref() {
+                self.shadow_property_media(
+                    &upload.media_id,
+                    &assembly.property_id,
+                    &assembly.bytes,
+                    &assembly.mime_type,
+                )
+                .await;
+            }
+            result
         }
         .await;
 

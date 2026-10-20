@@ -9,7 +9,12 @@ use model::{
     UploadPropertyMediaRequest, UploadPropertyMediaResult, MAX_MEDIA_UPLOAD_BYTES,
 };
 use serde::Serialize;
-use services::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
+use services::{
+    AbstractObjectStoreService, ObjectBucket, OperationKind, ServiceContext,
+    ServiceInfrastructure, ServiceRuntime,
+};
+use std::sync::Arc;
+use std::time::Duration;
 mod attach_property_video;
 mod neon_object_store;
 mod media_bytes;
@@ -20,4 +25,4 @@ pub use attach_property_video::*;
 pub use media_bytes::*;
 #[allow(unused_imports)]
 pub use media_repository::*;
-pub use neon_object_store::{NeonObjectStore, NeonObjectStoreConfig};
+pub use neon_object_store::{from_env as object_store_from_env, NeonObjectStore, NeonObjectStoreConfig};

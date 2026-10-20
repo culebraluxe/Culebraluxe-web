@@ -84,6 +84,38 @@ pub struct MediaDao {
 }
 
 impl MediaDao {
+    /// Persist the outcome of a shadow object write. The legacy `file_data` blob is never touched here;
+    /// the object is only an additional copy until a later, verified cutover.
+    pub async fn set_media_object(
+        &self,
+        media_id: &str,
+        metadata: &MediaObjectMetadata,
+    ) -> DbResult<bool> {
+        let result = sqlx::query(
+            "update media
+                set object_bucket = $2,
+                    object_key = $3,
+                    object_etag = $4,
+                    object_sha256 = $5,
+                    object_size = $6,
+                    storage_status = $7,
+                    object_migrated_at = case when $7 = 'VERIFIED' then now() else object_migrated_at end,
+                    updated_at = now()
+              where id = $1::uuid",
+        )
+        .bind(media_id)
+        .bind(&metadata.bucket)
+        .bind(&metadata.key)
+        .bind(metadata.etag.as_deref())
+        .bind(metadata.sha256.as_deref())
+        .bind(metadata.size)
+        .bind(&metadata.status)
+        .execute(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.set_media_object", &error))?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub fn new(db: Database) -> Self {
         Self { db }
     }
