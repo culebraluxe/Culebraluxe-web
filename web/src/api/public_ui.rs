@@ -102,7 +102,7 @@ async fn media(
         let found = state
             .services()
             .media()
-            .media_bytes(&id, &resolved.service)
+            .media_read(&id, &resolved.service)
             .await;
         (
             found.map_err(|error| {
@@ -115,22 +115,31 @@ async fn media(
         let found = state
             .services()
             .public_listings()
-            .media_bytes(&id, &size, &context)
+            .media_read(&id, &size, &context)
             .await;
         // A photograph's bytes never change for its id and size (a new photo is a new id), so a public copy is cached
-        // for a year and marked immutable: a repeat visitor does not ask again.
+        // for a year and marked immutable: a repeat visitor does not ask again. A redirect is short-lived because it
+        // is a pointer, not the bytes.
         (
             found.map_err(ApiError::from)?,
             "public, max-age=31536000, immutable",
         )
     };
     Ok(match found {
-        Some((mime_type, bytes)) => (
+        Some(crate::media::MediaRead::Bytes { mime_type, bytes }) => (
             [
                 (header::CONTENT_TYPE, mime_type),
                 (header::CACHE_CONTROL, cache.to_owned()),
             ],
             Body::from(bytes),
+        )
+            .into_response(),
+        Some(crate::media::MediaRead::Redirect { url }) => (
+            [
+                (header::LOCATION, url),
+                (header::CACHE_CONTROL, "public, max-age=300".to_owned()),
+            ],
+            Body::empty(),
         )
             .into_response(),
         None => (StatusCode::NOT_FOUND, "Not found").into_response(),
