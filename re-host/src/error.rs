@@ -100,4 +100,16 @@ mod tests {
         assert_eq!(failure.message(), "no workflow task correlates");
         assert!(failure.into_db_failure().is_none());
     }
+
+    #[test]
+    fn other_workflow_errors_also_stay_engine_failures() {
+        let conflict: EngineFailure =
+            WorkflowError::conflict("PROCESS_NOT_ACTIVE", "already finished").into();
+        assert_eq!(conflict.message(), "already finished");
+        assert!(conflict.into_db_failure().is_none());
+
+        let missing: EngineFailure = WorkflowError::NotFound("task".into()).into();
+        assert_eq!(missing.message(), "task");
+        assert!(missing.into_db_failure().is_none());
+    }
 }

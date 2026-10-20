@@ -30,7 +30,6 @@ pub mod luxesign;
 pub mod marketing;
 pub mod media;
 pub mod mq_runtime;
-pub mod observability;
 pub mod people;
 pub mod projects;
 pub mod properties;

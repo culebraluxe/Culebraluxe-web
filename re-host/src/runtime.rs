@@ -78,10 +78,7 @@ pub fn re_engine() -> Result<Arc<WorkflowEngine<NeonStore>>> {
 
 fn build_re_engine() -> Result<WorkflowEngine<NeonStore>> {
     assert_re_definition_ready()?;
-    let store = {
-        with_shared(|db, _rt| NeonStore::from_pool(db.pool().clone()))
-            .map_err(WorkflowError::generic)?
-    };
+    let store = { with_shared(|db, _rt| NeonStore::from_pool(db.pool().clone()))? };
     let engine = WorkflowEngine::new(
         store,
         EngineOptions {
@@ -102,8 +99,7 @@ pub fn find_active_instance(subject_type: &str, subject_id: &str) -> Result<Opti
                 .await
                 .map_err(|error| WorkflowError::generic(error.to_string()))
         })
-    })
-    .map_err(WorkflowError::generic)?
+    })?
 }
 pub struct StartResult {
     pub instance_id: String,
@@ -169,8 +165,7 @@ pub fn reconcile_deadline_timer(
                 .await
                 .map_err(|error| WorkflowError::generic(error.to_string()))
         })
-    })
-    .map_err(WorkflowError::generic)??;
+    })??;
 
     let Some(row) = row else {
         return Ok("unchanged");
@@ -204,8 +199,7 @@ pub fn complete_workflow_task(
                 .await
                 .map_err(|error| WorkflowError::generic(error.to_string()))
         })
-    })
-    .map_err(WorkflowError::generic)??;
+    })??;
 
     let Some(workflow_task_id) = workflow_task_id else {
         return Err(WorkflowError::generic(format!(
@@ -276,8 +270,7 @@ pub fn workflow_status() -> Result<WorkflowStatus> {
                 .await
                 .map_err(|error| WorkflowError::generic(error.to_string()))
         })
-    })
-    .map_err(WorkflowError::generic)??;
+    })??;
 
     Ok(WorkflowStatus {
         definition_count: row.definition_count,
@@ -305,8 +298,7 @@ pub fn materialize_open_workflow_tasks() -> Result<u64> {
                 .await
                 .map_err(|error| WorkflowError::generic(error.to_string()))
         })
-    })
-    .map_err(WorkflowError::generic)?
+    })?
 }
 pub fn reconcile_workflows() -> Result<ReconcileReport> {
     let started_instances = reconcile_residential_transactions()?;
@@ -325,8 +317,7 @@ pub fn reconcile_residential_transactions() -> Result<usize> {
                 .await
                 .map_err(|error| WorkflowError::generic(error.to_string()))
         })
-    })
-    .map_err(WorkflowError::generic)??;
+    })??;
 
     let mut started = 0usize;
     for deal_id in deal_ids {
@@ -356,8 +347,7 @@ pub fn reset_dev_workflows() -> Result<Vec<(String, u64)>> {
                 .await
                 .map_err(|error| WorkflowError::generic(error.to_string()))
         })
-    })
-    .map_err(WorkflowError::generic)?
+    })?
 }
 
 #[cfg(test)]

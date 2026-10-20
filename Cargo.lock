@@ -1959,6 +1959,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "observability"
+version = "0.1.0"
+dependencies = [
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2372,8 +2379,8 @@ name = "re-host"
 version = "0.1.0"
 dependencies = [
  "db",
+ "observability",
  "tokio",
- "tracing-subscriber",
  "workflow-core",
  "workflow-neon",
 ]
@@ -3758,6 +3765,7 @@ dependencies = [
  "image",
  "lopdf",
  "model",
+ "observability",
  "re-host",
  "reqwest",
  "serde",
@@ -3772,7 +3780,6 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
- "tracing-subscriber",
  "unicode-normalization",
  "uuid",
 ]

@@ -7,7 +7,7 @@ use tokio::time::{timeout, Duration};
 use tokio_util::sync::CancellationToken;
 
 pub async fn run_http_server() -> Result<(), Box<dyn Error>> {
-    crate::observability::init_tracing();
+    observability::init_stdout();
     let db = Database::connect_from_env().await?;
     let _ = db::shared::install(db.clone());
     let config = ApiConfig::from_env().map_err(std::io::Error::other)?;

@@ -50,7 +50,7 @@ pub fn culebra_class_b(facts: &mut Value) {
 }
 
 /// `with_shared` nests two Results: the shared-pool lookup and the repository call. Collapse both, or `None`.
-fn shared_ok<T>(result: Result<Result<T, String>, String>) -> Option<T> {
+fn shared_ok<T, E: std::fmt::Display>(result: Result<Result<T, String>, E>) -> Option<T> {
     result.ok().and_then(|inner| inner.ok())
 }
 

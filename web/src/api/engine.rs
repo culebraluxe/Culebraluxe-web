@@ -348,8 +348,15 @@ mod tests {
         )
         .await;
         let error = failed.expect_err("an error must propagate");
-        let body = error_body(error).await;
+        use axum::response::IntoResponse;
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body");
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("error body is JSON");
         assert_eq!(body["error"]["code"], "ENGINE_COMMAND_FAILED");
+        assert!(body["error"]["incidentId"].is_null());
         assert!(
             body["error"]["message"]
                 .as_str()

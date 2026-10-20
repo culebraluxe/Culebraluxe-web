@@ -34,6 +34,7 @@ One Cargo workspace, three tiers and the entry points beside them:
 | `middle/apis` | provider adapters: Mux, Google, Apple, BoldSign, WhatsApp, mail |
 | `cli` | app operator commands: `db-tool`, Apple intake, media backfills |
 | `re-host` | the app RE host: workflow runtime + cockpit read |
+| `observability` | the app-side tracing initializer shared by web (stdout) and re-host (stderr) |
 | `tests` | the contract suite: the arch-boundary cases, the seam cases and the harness behind them |
 | `experiments/` | comparison benches — **excluded from the workspace, not production code** |
 

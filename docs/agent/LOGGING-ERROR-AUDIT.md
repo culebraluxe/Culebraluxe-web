@@ -4,9 +4,35 @@ Read-only audit. No code, DB, deploy or VCS change.
 Repos inspected: app `/Users/Shared/dev/src/lane-deep`, Forge `/Users/Shared/dev/src/forge`,
 workflow project `/Users/Shared/dev/src/workflow`.
 
+## Status update — 2026-10-20 (fixes landed)
+
+Both defects below are **fixed**; the sections after this block are the pre-fix audit trail.
+
+- **P0 launchd:** `Machine` now separates the Forge checkout (`repo`, from `forge_home()`) from the
+  target app (`target_repo`, from `FORGE_TARGET_REPO`/`repo_root()`); wrapper/template/plist read from
+  Forge, `AGENT_WORKER_REPO`/`{{REPO_ROOT}}` stay the target app, and the plist also carries
+  `FORGE_HOME`. Tests cover `Machine::detect` with `FORGE_TARGET_REPO` set and a distinct-path render;
+  `forge-cli launchd agent-worker render` with the target exported now exits 0. See
+  `forge-cli/src/launchd/mod.rs:48,67-68`, `agent_worker.rs:73-74,360`, and the Forge runbooks.
+- **P1 engine errors:** `DbFailure::unavailable` announces through the app capture seam;
+  `re_host::EngineFailure` classifies `WorkflowError::Unavailable`; the HTTP engine route maps it to
+  503 + incident + retryable while preserving `ENGINE_COMMAND_FAILED`, and `with_shared` pool-connect
+  failures now convert to `WorkflowError::Unavailable` instead of generic. See
+  `db/src/error.rs` (`unavailable`), `re-host/src/error.rs`, `re-host/src/db.rs`,
+  `web/src/api/engine.rs` (`engine_failure_from`), and the engine-route tests.
+- **P2 app observability:** the app now has one `observability` crate: web calls
+  `observability::init_stdout()`, re-host's CLI calls `observability::init_stderr()`. The old
+  `web/src/observability.rs` and `re-host/src/observability.rs` copies are gone. Forge keeps its
+  separate stderr initializer aligned to the same filter/`RUST_LOG_FORMAT` contract.
+
+Remaining P2 (not fixed): Forge-side initializer remains a separate file by design; private git
+fetch diagnostics; installed-scheduler refresh note. The historical detail below is retained because
+it records why the fixes exist.
+
 ## Verdict first
 
-**Logging is not globally broken, and most error text is unchanged. Two real defects exist:**
+**Logging was not globally broken, and most error text is unchanged. Two real defects were found
+(now fixed — see the status update above):**
 
 1. **CONFIRMED BROKEN — launchd commands resolve the wrapper/template from `FORGE_TARGET_REPO`, not
    the Forge checkout.** With the documented Forge target exported (`FORGE_TARGET_REPO` = app),
@@ -29,8 +55,8 @@ stdout/stderr) or build-time/CI (private git fetch), not a runtime logging failu
 
 | process | initializer | writer / format | timing / callers | verdict |
 |---|---|---|---|---|
-| app HTTP (`web --bin web`) | `web/src/observability.rs:3-39` (`init_tracing`) | default `tracing_subscriber::fmt` writer (**stdout**), JSON switch via `RUST_LOG_FORMAT`, `EnvFilter` default `info` | called before DB connect (`web/src/http_runtime.rs:10`); `error_capture::install` at `:14`; boot gate at `:28` | unchanged by split; stdout is pre-existing (Vercel captures both) |
-| re-host CLI (`re-workflow`) | `re-host/src/observability.rs:16-51`; copy of Forge's init | explicit `stderr` (`:28,:41`), same `RUST_LOG_FORMAT`/filter | called in `re-host/src/bin/re_workflow.rs:17` | behavior same as the old Forge `re-workflow` (Forge init was stderr); duplicate source only |
+| app HTTP (`web --bin web`) | app crate `observability/src/lib.rs` (`init_stdout`) | explicit **stdout** via the crate writer, JSON switch via `RUST_LOG_FORMAT`, `EnvFilter` default `info` | called before DB connect (`web/src/http_runtime.rs:10`); `error_capture::install` at `:14`; boot gate at `:28` | **fixed in P2 cleanup** (was `web/src/observability.rs`) |
+| re-host CLI (`re-workflow`) | same app crate (`init_stderr`) | explicit stderr, same filter/JSON contract | called in `re-host/src/bin/re_workflow.rs:17` | **fixed in P2 cleanup** (old copy removed; web/CLI share one app crate) |
 | Forge binary (`forge`) | `forge/src/observability.rs:16-51` | explicit stderr; JSON switch; `EnvFilter` | `forge/src/bin/forge/cli.rs:361` before parsing | correct |
 | Forge worker (`forge-worker`) | same Forge init | stderr | `forge/src/bin/forge_worker.rs:11`, before target resolution | correct; launchd captures stderr into `agent-worker.err.log` |
 | Forge task (`forge-task`) | same Forge init | stderr | `forge/src/bin/forge_task.rs:61` | correct |
@@ -39,11 +65,10 @@ stdout/stderr) or build-time/CI (private git fetch), not a runtime logging failu
 | `forge-cli` | no tracing init | stdout/stderr direct prints | `forge-cli/src/main.rs:11-39`; `launchd` errors `eprintln!("launchd: …")` | pre-existing UX (old `cli forge` also had no subscriber); no lost events unless a Forge command emits `tracing` |
 | launchd wrapper | no Rust subscriber; shell log files | plist `StandardOutPath`/`StandardErrorPath`, wrapper invocation log | `scripts/agent-worker-once.sh` in Forge repo | stable |
 
-Duplication: `re-host/src/observability.rs` is a near-copy of `forge/src/observability.rs`; only the
-module doc and the fallback error text differ (`workflow tracing…` vs `forge tracing…`). App
-`web/src/observability.rs` is intentionally a sibling but writes stdout and omits the explicit
-`with_writer(stderr)` call; all three are installed at most once per process, so no duplicate-subscriber
-failure exists today. A shared logging crate would remove drift (e.g. level default/format changes).
+Historical duplication (now removed app-side): the old `re-host/src/observability.rs` copied Forge's
+initializer and app `web/src/observability.rs` was a stdout sibling. They are replaced by the
+`observability` crate used by both app processes; Forge keeps its own stderr copy by design. The
+filter/`RUST_LOG_FORMAT` contract is aligned across the app crate and Forge.
 `forge-cli/src/forge/mod.rs:194-204` defines `forge_home()` but production launchd code does not use it;
 the function is only referenced by tests and emits a dead-code warning.
 
@@ -163,7 +188,7 @@ Safe no-DB commands run for this audit: `cargo run -q -p forge-cli -- launchd ag
 
 ## 4. Prioritized fixes
 
-**P0 — launchd wrapper/template must resolve from the Forge checkout.**
+**P0 — launchd wrapper/template must resolve from the Forge checkout. [FIXED 2026-10-20]**
 - In `Machine::detect` (`forge-cli/src/launchd/mod.rs:64`) use `crate::forge::forge_home()` (already
   tested), not `repo_root()`. Keep `FORGE_TARGET_REPO` for target-repo commands.
 - Write `AGENT_WORKER_REPO`/`REPO_ROOT` as the Forge checkout so the deployed wrapper fast-forwards
@@ -175,7 +200,7 @@ Safe no-DB commands run for this audit: `cargo run -q -p forge-cli -- launchd ag
 - Until fixed: run launchd commands with `FORGE_TARGET_REPO` unset, or set `FORGE_HOME`, and note that
   in the runbook.
 
-**P1 — restore error capture/incident for engine store failures.**
+**P1 — restore error capture/incident for engine store failures. [FIXED 2026-10-20]**
 - Either make `workflow-neon` failures notify the app capture seam/emit an incident id, or wrap
   `re_host::runtime` DB errors in an app-owned `DbFailure`-like type and map `ENGINE_COMMAND_FAILED`
   to a 503 + incident when the kind is unavailable. At minimum call `db::capture::notify` or an
@@ -183,7 +208,7 @@ Safe no-DB commands run for this audit: `cargo run -q -p forge-cli -- launchd ag
 - Add an engine-route test with a store that returns `NeonFailure::DatabaseUnavailable`, asserting the
   app_error/incident behavior (or the deliberate no-capture decision).
 
-**P2 — one observability contract.**
+**P2 — one observability contract. [APP-SIDE FIXED 2026-10-20; Forge remains separate/aligned]**
 - Consolidate the three initializers (app `web/src/observability.rs`, `re-host/src/observability.rs`,
   `forge/src/observability.rs`) into a shared logging crate or at least one documented contract:
   writer (stdout vs stderr), default filter, `RUST_LOG_FORMAT`, and fallback message.

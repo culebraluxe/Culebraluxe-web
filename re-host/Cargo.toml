@@ -9,8 +9,8 @@ publish.workspace = true
 workflow-core = { git = "https://github.com/culebraluxe/workflow", tag = "v0.2.0" }
 workflow-neon = { git = "https://github.com/culebraluxe/workflow", tag = "v0.2.0" }
 db = { path = "../db" }
+observability = { path = "../observability" }
 tokio.workspace = true
-tracing-subscriber.workspace = true
 
 [[bin]]
 name = "re-workflow"

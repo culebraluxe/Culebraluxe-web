@@ -9,6 +9,7 @@ members = [
     "middle/workflow",
     "middle/apis",
     "re-host",
+    "observability",
     "db",
     "cli",
     "tests",

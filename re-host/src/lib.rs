@@ -8,7 +8,6 @@ pub mod commands;
 pub mod db;
 pub mod error;
 pub mod facts;
-pub mod observability;
 pub mod port;
 pub mod re_receipt;
 pub mod receipt;
