@@ -486,6 +486,31 @@ impl VaultDao {
         }))
     }
 
+    /// Storage pointer for a Vault document, read without loading the PDF bytes.
+    pub async fn media_object_location(
+        &self,
+        media_id: &str,
+    ) -> DbResult<Option<crate::MediaObjectLocation>> {
+        let row = sqlx::query_as::<_, (Option<String>, Option<String>, String, String)>(
+            "select object_bucket, object_key, storage_status, visibility
+               from media
+              where id = $1::uuid and media_type = 'document'
+              limit 1",
+        )
+        .bind(media_id)
+        .fetch_optional(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("vault.media_object_location", &error))?;
+        Ok(row.and_then(|(bucket, key, status, visibility)| {
+            Some(crate::MediaObjectLocation {
+                bucket: bucket?,
+                key: key?,
+                status,
+                visibility,
+            })
+        }))
+    }
+
     /// A guest may receive bytes only when every link is to a live public listing
     /// as a document and the asset has no transaction-document lineage.
     pub async fn public_listing_document_bytes(

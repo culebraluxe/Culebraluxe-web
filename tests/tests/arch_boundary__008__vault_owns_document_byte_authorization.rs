@@ -41,8 +41,9 @@ use test_harness::source;
 ///
 /// The set is pinned so a new byte reader is a deliberate entry here rather than a new way to reach a file, and so a
 /// reader that disappears is noticed.
-const MEDIA_BYTE_READERS: [&str; 9] = [
+const MEDIA_BYTE_READERS: [&str; 10] = [
     "db/src/broker_signature.rs load_protected_asset",
+    "db/src/media/media_row.rs list_media_for_migration",
     "db/src/media/media_row.rs media_bytes",
     "db/src/media/media_row.rs original_bytes",
     "db/src/public_listing.rs media_bytes",
@@ -138,8 +139,11 @@ const VAULT_DAO_FILES: [&str; 3] = [
 ];
 
 /// The only files allowed to name the media DAO, for the same reason.
-const MEDIA_DAO_FILES: [&str; 3] = [
+const MEDIA_DAO_FILES: [&str; 4] = [
     "web/src/composition.rs",
+    // The Phase 5 operator migration: a bounded, verified copy from blobs to object storage. It is the
+    // one deliberate non-HTTP consumer of MediaDao and never deletes file_data.
+    "web/src/bin/media_migrate.rs",
     "web/src/media/media_repository.rs",
     "web/src/media/mod.rs",
 ];

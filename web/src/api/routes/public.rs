@@ -287,10 +287,31 @@ pub(super) async fn vault_private_document_bytes(
     let id = uuid::Uuid::parse_str(&id)
         .map_err(|_| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
     let vault = state.services().vault();
-    let document = vault
-        .media_bytes(&id.to_string(), &resolved.service)
+    let read = vault
+        .media_read(&id.to_string(), &resolved.service)
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?
         .ok_or_else(|| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
-    vault_document_response(document, query.download.as_deref() == Some("1"))
+    match read {
+        crate::vault::VaultRead::Bytes(document) => {
+            vault_document_response(document, query.download.as_deref() == Some("1"))
+        }
+        crate::vault::VaultRead::Redirect(url) => Response::builder()
+            .status(StatusCode::FOUND)
+            .header(axum::http::header::LOCATION, url)
+            // The signed Vault URL is short-lived; never cache the redirect as document content.
+            .header(axum::http::header::CACHE_CONTROL, "private, no-store")
+            .body(Body::empty())
+            .map_err(|error| {
+                correlate(
+                    ApiError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "VAULT_RESPONSE_FAILED",
+                        error.to_string(),
+                        false,
+                    ),
+                    &resolved,
+                )
+            }),
+    }
 }

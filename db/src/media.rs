@@ -6,6 +6,22 @@ use model::{
 };
 use sqlx::FromRow;
 
+/// One legacy media row selected for object-store migration. `file_data` is loaded deliberately:
+/// the migration must hash the exact stored bytes before uploading them.
+#[derive(Debug, sqlx::FromRow)]
+pub struct MediaMigrationRow {
+    pub id: String,
+    pub media_type: String,
+    pub mime_type: String,
+    pub filename: String,
+    pub file_data: Vec<u8>,
+    pub derivative_of: Option<String>,
+    pub derivative_kind: Option<String>,
+    pub property_id: Option<String>,
+    pub is_public: bool,
+    pub storage_status: String,
+}
+
 /// Where a media row's bytes live, read without touching `file_data`.
 #[derive(Debug, Clone)]
 pub struct MediaObjectLocation {

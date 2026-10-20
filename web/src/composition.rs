@@ -339,11 +339,16 @@ impl ServiceCatalog {
                 serde_json::json!({"source": "rust"}),
             );
         }
-        let vault = Arc::new(VaultService::new(
+        let mut vault_service = VaultService::new(
             VaultDao::new(db.clone()),
             crate::vault::artifact::shared(),
             infrastructure.clone(),
-        ));
+        );
+        if let Some(store) = media_store.clone() {
+            vault_service = vault_service.with_object_store(store);
+        }
+        vault_service = vault_service.with_object_reads(object_reads);
+        let vault = Arc::new(vault_service);
         let email = Arc::new(
             EmailService::new(
                 EmailDao::new(db.clone()),

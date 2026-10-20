@@ -17,7 +17,11 @@ use model::{
     VaultRenderRequest, VaultRenderedArtifact,
 };
 use serde_json::json;
-use services::{OperationKind, ServiceContext, ServiceInfrastructure, ServiceRuntime};
+use services::{
+    AbstractObjectStoreService, ObjectBucket, OperationKind, ServiceContext,
+    ServiceInfrastructure, ServiceRuntime,
+};
+use std::time::Duration;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -54,6 +58,14 @@ pub trait VaultRepository: Send + Sync {
     ) -> DbResult<Option<IssuedDocumentForFormInstance>>;
     async fn next_issued_version(&self, request: &NextIssuedVersionRequest) -> DbResult<i32>;
     async fn media_bytes(&self, media_id: &str) -> DbResult<Option<VaultMediaBytes>>;
+
+    /// Storage pointer for the PDF, read without loading `file_data`. Test repositories return None.
+    async fn media_object_location(
+        &self,
+        _media_id: &str,
+    ) -> DbResult<Option<db::MediaObjectLocation>> {
+        Ok(None)
+    }
     async fn public_listing_document_bytes(
         &self,
         media_id: &str,
@@ -145,6 +157,13 @@ impl VaultRepository for VaultDao {
         VaultDao::media_bytes(self, media_id).await
     }
 
+    async fn media_object_location(
+        &self,
+        media_id: &str,
+    ) -> DbResult<Option<db::MediaObjectLocation>> {
+        VaultDao::media_object_location(self, media_id).await
+    }
+
     async fn public_listing_document_bytes(
         &self,
         media_id: &str,
@@ -215,10 +234,18 @@ impl VaultRepository for VaultDao {
     }
 }
 
+/// What a Vault byte route should return: the legacy PDF or a redirect to the object store.
+pub enum VaultRead {
+    Bytes(VaultMediaBytes),
+    Redirect(String),
+}
+
 pub struct VaultService<R> {
     repository: R,
     runtime: ServiceRuntime,
     artifacts: Arc<dyn VaultArtifactPort>,
+    object_store: Option<Arc<dyn AbstractObjectStoreService>>,
+    object_reads: bool,
 }
 
 impl<R: VaultRepository> VaultService<R> {
@@ -231,7 +258,19 @@ impl<R: VaultRepository> VaultService<R> {
             repository,
             runtime: ServiceRuntime::new(infrastructure),
             artifacts,
+            object_store: None,
+            object_reads: false,
         }
+    }
+
+    pub fn with_object_store(mut self, store: Arc<dyn AbstractObjectStoreService>) -> Self {
+        self.object_store = Some(store);
+        self
+    }
+
+    pub fn with_object_reads(mut self, enabled: bool) -> Self {
+        self.object_reads = enabled;
+        self
     }
 
     pub async fn list_issued_documents(
@@ -479,6 +518,60 @@ impl<R: VaultRepository> VaultService<R> {
             .media_bytes(media_id)
             .await
             .map_err(Into::into);
+        audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
+        result
+    }
+
+    /// Phase 4 Vault resolver: only a verified Vault object gets a short-lived signed URL; every
+    /// other document keeps the legacy PDF bytes. Authorization is the same `vault.read` check.
+    pub async fn media_read(
+        &self,
+        media_id: &str,
+        context: &ServiceContext,
+    ) -> Result<Option<VaultRead>, CoreServiceError> {
+        const OP: &str = "vault.mediaRead";
+        let decision = authorize(
+            &self.runtime,
+            "vault",
+            "vault.read",
+            OP,
+            OperationKind::Query,
+            context,
+        )
+        .await?;
+
+        let result = async {
+            if self.object_reads {
+                if let Some(store) = self.object_store.as_ref() {
+                    if let Some(location) = self.repository.media_object_location(media_id).await? {
+                        if location.status == "VERIFIED"
+                            && location.visibility == "vault"
+                            && ObjectBucket::from_db(&location.bucket) == Some(ObjectBucket::Vault)
+                        {
+                            match store
+                                .signed_read_url(
+                                    ObjectBucket::Vault,
+                                    &location.key,
+                                    Duration::from_secs(300),
+                                )
+                                .await
+                            {
+                                Ok(url) => return Ok(Some(VaultRead::Redirect(url))),
+                                Err(error) => tracing::warn!(
+                                    media_id,
+                                    %error,
+                                    "vault object URL failed; falling back to legacy PDF bytes"
+                                ),
+                            }
+                        }
+                    }
+                }
+            }
+            let bytes = self.repository.media_bytes(media_id).await?;
+            Ok(bytes.map(VaultRead::Bytes))
+        }
+        .await;
+
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result
     }

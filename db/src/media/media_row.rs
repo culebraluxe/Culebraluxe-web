@@ -84,6 +84,61 @@ pub struct MediaDao {
 }
 
 impl MediaDao {
+    /// Bounded, restartable selection of legacy media for object-store migration.
+    ///
+    /// The ordering is by id so an interrupted run can resume with `after_id`. `is_public` mirrors
+    /// the public listing predicate and applies to the root media, so an unpublished property's
+    /// derivative is private as well. Documents are never public here; Vault stays private.
+    pub async fn list_media_for_migration(
+        &self,
+        only_id: Option<&str>,
+        after_id: Option<&str>,
+        limit: i64,
+    ) -> DbResult<Vec<MediaMigrationRow>> {
+        let rows = sqlx::query_as::<_, MediaMigrationRow>(
+            r#"
+            select
+                m.id::text as id,
+                m.media_type,
+                m.mime_type,
+                m.filename,
+                m.file_data,
+                m.derivative_of::text as derivative_of,
+                m.derivative_kind,
+                (select pm.property_id::text
+                   from property_media pm
+                  where pm.media_id = coalesce(m.derivative_of, m.id)
+                  order by pm.property_id
+                  limit 1) as property_id,
+                (m.media_type = 'image' and exists (
+                    select 1
+                      from property_media pm
+                      join property p on p.id = pm.property_id
+                     where pm.media_id = coalesce(m.derivative_of, m.id)
+                       and p.archived_at is null
+                       and p.is_published
+                       and p.slug is not null
+                       and p.status in ('active', 'under_contract', 'sold')
+                )) as is_public,
+                m.storage_status
+            from media m
+            where m.file_data is not null
+              and m.media_type in ('image', 'document')
+              and ($1::text is null or m.id = $1::uuid)
+              and ($2::text is null or m.id > $2::uuid)
+            order by m.id
+            limit $3
+            "#,
+        )
+        .bind(only_id)
+        .bind(after_id)
+        .bind(limit)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.list_media_for_migration", &error))?;
+        Ok(rows)
+    }
+
     /// Read only the storage pointer, never `file_data`.
     pub async fn media_object_location(
         &self,
