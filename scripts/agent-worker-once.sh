@@ -122,8 +122,9 @@ fi
 trap release_lock EXIT
 
 # The worker's own pool needs the production connection string, and this is the one entry point in the
-# repository that could not find it. Every `forge`/`db-tool` command reaches `.env.local` through the CLI's
-# `load_env()` (`cli/src/apple_sync.rs:68`); `forge-worker` is its own binary in the `forge` crate and calls
+# repository that could not find it. Every Forge operator command reaches `.env.local` through
+# `forge-cli`'s `load_env()` (`forge-cli/src/env.rs`); app `db-tool` uses the app CLI's loader. `forge-worker`
+# is its own binary in the `forge` crate and calls
 # nothing, so from 2026-09-25 an unattended tick died with `DatabaseUnavailable … DATABASE_URL_PROD is not
 # configured` before claiming a single work item — and exited 1, which reads like a crashing run rather than an
 # unstarted one. Read narrowly, not by sourcing the whole file: every variable this process holds is inherited by

@@ -10,7 +10,6 @@ chrono.workspace = true
 dotenvy = "0.15"
 db = { path = "../db" }
 model = { path = "../middle/model" }
-forge = { path = "../forge" }
 indexmap = { version = "2", features = ["serde"] }
 apis = { path = "../middle/apis" }
 regex.workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "forge-cli"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+forge = { path = "../forge" }
+db = { path = "../db" }
+chrono.workspace = true
+dotenvy = "0.15"
+indexmap = { version = "2", features = ["serde"] }
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+
+[[bin]]
+name = "forge-cli"
+path = "src/main.rs"

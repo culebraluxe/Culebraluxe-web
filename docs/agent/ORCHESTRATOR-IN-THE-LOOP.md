@@ -100,7 +100,7 @@ report "idle"; this one reports the real bottleneck.
 The daily digest now includes a `HARNESS` line: one line per domain with an active harness revision
 (or an explicit "no active harness revision"). The read-only operator command is:
 
-    cargo run -q -p cli -- forge harness-evolution status|revisions|experiments|experience [--format json]
+    cargo run -q -p forge-cli -- harness-evolution status|revisions|experiments|experience [--format json]
 
 It reads the migration-294 tables (`forge_harness_revision`, `forge_harness_activation`, ...). It does
 not adopt, roll back, or probe; those are subsystem operations behind policy/adoption gates.

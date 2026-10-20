@@ -60,7 +60,7 @@ pub async fn dispatch(args: &[String]) -> Result<(), Box<dyn Error>> {
 pub(crate) fn repo_root() -> PathBuf {
     std::env::var("CULEBRALUXE_REPO")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| crate::forge::repo_root())
+        .unwrap_or_else(|_| crate::repo_root::repo_root())
 }
 
 /// `.env.local` carries DATABASE_URL_DEV / DATABASE_URL_PROD, and it is the repository's file: it is loaded by

@@ -80,7 +80,7 @@ and the SHA is a label — but it is a Captain's call, and no lane may commit an
 mechanisms were re-read on `origin/main` `d080c968` and are intact — the test itself was last *run* at
 `47fce4b50`, so treat this as a reading, not a fresh red:
 
-- line 910 — `cli/src/forge/lint.rs:105-108`, where `430a13761` ("rustfmt drift", 2026-10-07) wrapped the
+- line 910 — `forge-cli/src/forge/lint.rs:105-108`, where `430a13761` ("rustfmt drift", 2026-10-07) wrapped the
   one-line `pattern!` and the test asserts the one-line spelling. `lane/longcat` `3b32cc4ff` (batch 28)
   already fixes this **honestly** — it asserts the regex the lint must name, not its line breaks — but the
   commit is unlanded and its base predates the second break.

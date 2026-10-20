@@ -7,7 +7,7 @@ Re-run any line of it — the answer comes from the rows, never a log:
 
 ```sh
 export CARGO_TARGET_DIR=/Users/Shared/dev/build/rust
-cargo run --quiet -p cli -- forge sql --target prod --sql "<one of the two queries below>"
+cargo run --quiet -p forge-cli -- sql --target prod --sql "<one of the two queries below>"
 ```
 
 ```sql

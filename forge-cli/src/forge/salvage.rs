@@ -15,8 +15,8 @@
 //! quietly rewrites the repository is a second incident.
 //!
 //! stdout carries the patch and nothing else, so it composes:
-//!   cargo run -p cli -- forge salvage --story TST-RUNTIME-POOL-003 --target prod | git apply --check -
-//!   cargo run -p cli -- forge salvage --story TST-RUNTIME-POOL-003 --target prod --out /tmp/candidate.patch
+//!   cargo run -p forge-cli -- salvage --story TST-RUNTIME-POOL-003 --target prod | git apply --check -
+//!   cargo run -p forge-cli -- salvage --story TST-RUNTIME-POOL-003 --target prod --out /tmp/candidate.patch
 
 use super::Failure;
 use db::{Database, DbTarget, ForgeEngineDao};
@@ -24,7 +24,7 @@ use serde_json::json;
 
 pub async fn run(args: &[String]) -> Result<u8, Failure> {
     // `.env.local` carries DATABASE_URL_DEV / DATABASE_URL_PROD — the same loader every other read uses.
-    crate::apple_sync::load_env();
+    crate::env::load_env();
 
     let target = match super::sql::flag(args, "--target").as_deref() {
         Some("dev") | Some("development") => DbTarget::Dev,

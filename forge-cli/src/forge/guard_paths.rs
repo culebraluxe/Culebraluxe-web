@@ -25,7 +25,7 @@
 //! not landed says `guard: NONE — <why>` rather than pointing at a file that looks plausible.
 //!
 //! Usage:
-//!   cargo run -p cli -- forge guard-lint [--format json]
+//!   cargo run -p forge-cli -- guard-lint [--format json]
 
 use std::fs;
 use std::path::Path;

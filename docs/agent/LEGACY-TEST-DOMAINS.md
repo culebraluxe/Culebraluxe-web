@@ -30,7 +30,7 @@ ledger, and the two are joined in the queue table below.
 | `agent-runtime` | 54 | 408 | the lane harness: role runner, provider gateway, worker workspace, dispatch | `forge/src/{runtime,execution}, forge/src/engine` |
 | `workflow-engine` | 50 | 456 | the workflow engine proper: definitions, expressions, store, split/join | `middle/workflow/src, forge/src/engine` |
 | `core/clients` | 26 | 213 | clients and relationships: identity, evidence, promotion, client room | `middle/model/src/{client,client_room,relationship_evidence}, db/src/client` |
-| `platform` | 23 | 114 | repo and CI guards, worker workspace, the engine's own tooling | `cli/src/forge/{repo_guards,lint}, forge/src/sync_conflict.rs, .githooks/` |
+| `platform` | 23 | 114 | repo and CI guards, worker workspace, the engine's own tooling | `forge-cli/src/forge/{repo_guards,lint}, forge/src/sync_conflict.rs, .githooks/` |
 | `core/security` | 17 | 132 | auth, sessions, guest access, vault, security audit | `web/auth/src, middle/model/src/security.rs, db/src/security.rs` |
 | `services` | 16 | 112 | the service tier: BaseService, authorization, registry, projections | `middle/services/src` |
 | `core/calendar` | 13 | 108 | calendar, catch-up, reminders, closings, showings, offers | `middle/model/src/{calendar,catch_up,showing}.rs` |

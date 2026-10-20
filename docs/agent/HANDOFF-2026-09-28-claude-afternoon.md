@@ -65,7 +65,7 @@ Nothing blocking. Deploy when ready (`pnpm deploy:prod`) to ship today's UI work
 | Service doors | no HTTP handler touches a DAO (diagnostics via `SupportDiagnosticsService::db_counts` + one explicit System grant; app events via the capture seam); `clients`/`client` audit name recorded as decided | `0886b229` |
 | Docs match HEAD | `AGENTS.md` Rust First and `rust/README.md` describe the one Rust app | `1aa4170f` |
 | Shared policy | the root-only codes have one source (`model::security`), bound into the SQL guard; one test per reader | `a2c4c9bb` |
-| Boundedness | every `.rs` file under `rust/` is at most 800 lines except DeepSeek's four live files (`cli/src/forge/lint.rs`, `core/domain/src/apple_messages.rs`, `applemail.rs`, `cli/src/apple_mail.rs`) — split them on their next edit | `360daa13` … `41ca7658` |
+| Boundedness | every `.rs` file under `rust/` is at most 800 lines except DeepSeek's four live files (`forge-cli/src/forge/lint.rs`, `core/domain/src/apple_messages.rs`, `applemail.rs`, `cli/src/apple_mail.rs`) — split them on their next edit | `360daa13` … `41ca7658` |
 
 How the splits were made (move only): contiguous top-level ranges moved to child modules with `use super::*`; moved items
 widened to `pub(super)` (or kept `pub` with `pub use` re-exports where the old path is public); an oversized inherent `impl`

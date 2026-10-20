@@ -15,7 +15,7 @@
 #
 # Why T1 and not "everything, to be safe": scope is the whole point of the tier. Widening it back to the workspace is
 # what burned the windows this script protects; narrowing it to the green files is fraud. Run what you touched — the
-# sections' crates, including the tests you broke. `forge test-section --changed` (cli/src/forge/test_section.rs) is
+# sections' crates, including the tests you broke. `forge test-section --changed` (forge-cli/src/forge/test_section.rs) is
 # the house's own logical domains and the only taxonomy this script trusts.
 set -euo pipefail
 

@@ -44,7 +44,7 @@ window got long, so the next agent does not re-derive it.
 | `f22f976b` | `db/loads/rearm_eng_forge_c1_after_acceptance_map_fix_2026_10_03.sql`: board Hold→Ready so the poller arms a run on the fixed gate. Applied to PROD. | applied clean; the trigger minted exactly one item (`23:01:19Z`), claimed `23:03:18Z` |
 
 | Run 2 (`913000d4`, base `f22f976b`) — **not mine, the engine's** | Full chain: `architect` 23:04:34→23:08:49, `lead_pre` →23:10:22, `smith` →23:27:18 (`candidate-code`), `lead_post` →23:28:51, `qa_verify` →23:32:08 | `forge_tool_artifact`: `qa-assay-evidence` `verdict=PASS` 23:31:53, sha `38fcd3c5` |
-| **`38fcd3c5` on `origin/main`** | The delivered feature: `cli/src/forge/build_info.rs` (new, 112 lines), `cli/src/forge/mod.rs`, `cli/src/main.rs` — a compile-time `forge build-info` (`--format json`), no env/db/network | `git merge-base --is-ancestor 38fcd3c5 origin/main` → YES; `forge_workflow_evidence.publish_succeeded=true`, `published_sha=38fcd3c5`; story row `status=Complete`, `completion=100` at 23:32:10 |
+| **`38fcd3c5` on `origin/main`** | The delivered feature: `forge-cli/src/forge/build_info.rs` (new, 112 lines), `forge-cli/src/forge/mod.rs`, `cli/src/main.rs` — a compile-time `forge build-info` (`--format json`), no env/db/network | `git merge-base --is-ancestor 38fcd3c5 origin/main` → YES; `forge_workflow_evidence.publish_succeeded=true`, `published_sha=38fcd3c5`; story row `status=Complete`, `completion=100` at 23:32:10 |
 
 Run 1 of the night (`e868570c`, base `85833981`) is the receipt that the row fix works: nodes
 `architect+repair_smith` completed 22:49:54, `lead_post` 22:51:16, `qa_verify` 22:55:55; candidate
@@ -80,7 +80,7 @@ verdicts of 19:31/19:39/19:43 are the "before".
    **The story that started this session is delivered, published and closed as `Complete`.**
 3. Land this handoff and any remaining load files on `main` (deferred: see H4).
 4. Only then the 697-row sweep — one idempotent rule: drop `--manifest-path rust/Cargo.toml `, `rust/cli/`→`cli/`.
-5. Harden `cli launchd agent-worker install` (`cli/src/launchd/agent_worker.rs:240-262`) to refuse when the checkout
+5. Harden `cli launchd agent-worker install` (`forge-cli/src/launchd/agent_worker.rs:240-262`) to refuse when the checkout
    it is about to point at is not the control-plane checkout on `main`: the run-time guard already exists
    (`scripts/agent-worker-once.sh`), so this only moves the refusal to the moment of the mistake.
 

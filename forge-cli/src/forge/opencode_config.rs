@@ -1,7 +1,7 @@
 //! forge:opencode-config — generate the repo-root `opencode.json` from the Forge agent renderer.
 //!
-//!   cargo run -p cli -- forge opencode-config           # write the file (no-op if identical)
-//!   cargo run -p cli -- forge opencode-config --check   # exit 1 when the file is missing or has drifted
+//!   cargo run -p forge-cli -- opencode-config           # write the file (no-op if identical)
+//!   cargo run -p forge-cli -- opencode-config --check   # exit 1 when the file is missing or has drifted
 //!
 //! The file is generated, not authored. Its content is the ONE renderer the runtime also enforces
 //! (`forge::engine::opencode_agents`), so the artefact a human reads with `opencode` by hand and the

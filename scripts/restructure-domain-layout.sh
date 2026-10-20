@@ -281,17 +281,17 @@ fix web/tests/signature_routes.rs 's{\.join\("\.\./\.\."\)}{.join("..")}g'
 fix web/tests/release_gate_routes.rs 's{"\.\./\.\./scripts/deploy-prod\.sh"}{"../scripts/deploy-prod.sh"}g'
 fix db/tests/forge_seam_hold_dev.rs 's{join\("\.\./\.\./\.\."\)}{join("..")}g'
 fix db/tests/forge_work_claim_dev.rs 's{join\("\.\./\.\./\.\."\)}{join("..")}g'
-fix cli/src/launchd/agent_worker.rs 's{\.parent\(\)\n(\s*)\.and_then\(Path::parent\)}{.parent()}g'
-fix cli/src/launchd/agent_worker.rs 's{cli sits two levels below the repository root}{cli sits one level below the repository root}g'
-fix cli/src/forge/manifest.rs 's{\.parent\(\)\n(\s*)\.and_then\(\|path\| path\.parent\(\)\)}{.parent()}g'
+fix forge-cli/src/launchd/agent_worker.rs 's{\.parent\(\)\n(\s*)\.and_then\(Path::parent\)}{.parent()}g'
+fix forge-cli/src/launchd/agent_worker.rs 's{cli sits two levels below the repository root}{cli sits one level below the repository root}g'
+fix forge-cli/src/forge/manifest.rs 's{\.parent\(\)\n(\s*)\.and_then\(\|path\| path\.parent\(\)\)}{.parent()}g'
 fix forge/tests/handbook_engine_guards.rs 's{\.parent\(\)\n(\s*)\.and_then\(Path::parent\)}{.parent()}g'
 fix forge/tests/handbook_engine_guards.rs 's{forge sits under rust/ under the repository root}{forge sits at the repository root}g'
 fix forge/tests/opencode_v2_agents.rs 's{\.parent\(\)\n(\s*)\.and_then\(Path::parent\)}{.parent()}g'
 fix web/src/vault/forms_render.rs 's{\.\./\.\./public/brand/CLLOGO\.png}{../public/brand/CLLOGO.png}g'
-fix cli/src/forge/test_section.rs 's{"rust/Cargo\.lock"}{"Cargo.lock"}g'
-fix cli/src/forge/repo_guards.rs 's{const RESIDUE_ROOTS: \[&str; 4\] = \["rust", "scripts", "\.githooks", "package\.json"\];}{const RESIDUE_ROOTS: [&str; 9] = [\n    "web",\n    "middle",\n    "db",\n    "cli",\n    "forge",\n    "rust",\n    "scripts",\n    ".githooks",\n    "package.json",\n];}'
-fix cli/src/forge/repo_guards.rs 's{let files = tracked_files\(root, &\["rust"\]\);}{let files = tracked_files(root, &["web", "middle", "db", "cli", "forge", "rust"]);}'
-fix cli/src/forge/citations.rs 's{const SOURCE_ROOTS: \[&str; 12\] = \[[\s\S]*?\];}{const SOURCE_ROOTS: [&str; 8] = [\n    "web",\n    "middle",\n    "db",\n    "cli",\n    "forge",\n    "rust",\n    "scripts",\n    "lib",\n];}'
+fix forge-cli/src/forge/test_section.rs 's{"rust/Cargo\.lock"}{"Cargo.lock"}g'
+fix forge-cli/src/forge/repo_guards.rs 's{const RESIDUE_ROOTS: \[&str; 4\] = \["rust", "scripts", "\.githooks", "package\.json"\];}{const RESIDUE_ROOTS: [&str; 9] = [\n    "web",\n    "middle",\n    "db",\n    "cli",\n    "forge",\n    "rust",\n    "scripts",\n    ".githooks",\n    "package.json",\n];}'
+fix forge-cli/src/forge/repo_guards.rs 's{let files = tracked_files\(root, &\["rust"\]\);}{let files = tracked_files(root, &["web", "middle", "db", "cli", "forge", "rust"]);}'
+fix forge-cli/src/forge/citations.rs 's{const SOURCE_ROOTS: \[&str; 12\] = \[[\s\S]*?\];}{const SOURCE_ROOTS: [&str; 8] = [\n    "web",\n    "middle",\n    "db",\n    "cli",\n    "forge",\n    "rust",\n    "scripts",\n    "lib",\n];}'
 fix forge/src/engine/assay.rs 's{const PRODUCTION_ROOTS: \[&str; 6\] = \[[\s\S]*?\];}{const PRODUCTION_ROOTS: [&str; 5] = ["web/", "middle/", "db/", "cli/", "forge/"];}'
 # The harness resolves the tree from its own manifest, and it is the one crate that did NOT move: its walkers have to
 # start at the repository root, which is now where every crate lives. Two exact block replacements rather than one
@@ -304,7 +304,7 @@ fix rust/test-harness/tests/arch_boundary__002__no_mvi_screen_performs_direct_db
 # bare string literals naming a crate rather than a path into one.
 fix rust/test-harness/tests/arch_boundary__003__ui_cannot_import_db_crate.rs 's{"server",}{"web",}g; s{"service",}{"services",}g; s{"integrations",}{"apis",}g; s{key == "domain"}{key == "model"}; s{it lists domain}{it lists model}'
 fix rust/test-harness/tests/arch_boundary__004__domain_cannot_depend_on_server_ui_integrations.rs 's{"server",}{"web",}g; s{"service",}{"services",}g; s{"integrations",}{"apis",}g; s{Some\("server"\.to_string\(\)\)}{Some("web".to_string())}'
-fix cli/src/forge/test_section.rs 's{"domain"}{"model"}g; s{"server"}{"web"}g; s{"service"}{"services"}g; s{"integrations"}{"apis"}g'
+fix forge-cli/src/forge/test_section.rs 's{"domain"}{"model"}g; s{"server"}{"web"}g; s{"service"}{"services"}g; s{"integrations"}{"apis"}g'
 
 # ================================================================ PART 2: the suite at the root, the container files, the sweep
 #
@@ -409,10 +409,10 @@ fix scripts/vercel-provision-rust-project.sh 's{cd "\$ROOT_DIR/rust"}{cd "\$ROOT
 
 # The guards whose subject is the tree itself: the crate lists in citations and sections, the basename resolver's
 # source roots, and the two fences that read a file by a path spelled from the repository root.
-fix cli/src/forge/citations.rs 's{^    "rust",$}{    "tests",}m'
-fix cli/src/forge/test_section.rs 's{path\.starts_with\("rust/test-harness/"\)}{path.starts_with("tests/")}; s{"rust/test-harness/src/}{"tests/src/}g; s{"rust/test-harness/tests/}{"tests/tests/}g; s{^        "rust",$}{        "tests",}m'
-fix cli/src/forge/repo_guards.rs 's{"rust/test-harness/src/git\.rs"}{"tests/src/git.rs"}; s{^    "rust",$}{    "tests",}m; s{&\["web", "middle", "db", "cli", "forge", "rust"\]}{&["web", "middle", "db", "cli", "forge", "tests"]}g; s{tracked_files\(root, &\["rust"\]\)}{tracked_files(root, &["web", "middle", "db", "cli", "forge", "tests"])}; s{path\.starts_with\("rust/test-harness/"\)}{path.starts_with("tests/")}'
-fix cli/src/forge/lint.rs 's{"rust/a/thing\.rs"}{"web/a/thing.rs"}g; s{"rust/b/thing\.rs"}{"web/b/thing.rs"}; s{path_exists\("rust/a/\*\.rs"\)}{path_exists("web/a/*.rs")}; s{path_exists\("rust/a/\*\.ts"\)}{path_exists("web/a/*.ts")}'
+fix forge-cli/src/forge/citations.rs 's{^    "rust",$}{    "tests",}m'
+fix forge-cli/src/forge/test_section.rs 's{path\.starts_with\("rust/test-harness/"\)}{path.starts_with("tests/")}; s{"rust/test-harness/src/}{"tests/src/}g; s{"rust/test-harness/tests/}{"tests/tests/}g; s{^        "rust",$}{        "tests",}m'
+fix forge-cli/src/forge/repo_guards.rs 's{"rust/test-harness/src/git\.rs"}{"tests/src/git.rs"}; s{^    "rust",$}{    "tests",}m; s{&\["web", "middle", "db", "cli", "forge", "rust"\]}{&["web", "middle", "db", "cli", "forge", "tests"]}g; s{tracked_files\(root, &\["rust"\]\)}{tracked_files(root, &["web", "middle", "db", "cli", "forge", "tests"])}; s{path\.starts_with\("rust/test-harness/"\)}{path.starts_with("tests/")}'
+fix forge-cli/src/forge/lint.rs 's{"rust/a/thing\.rs"}{"web/a/thing.rs"}g; s{"rust/b/thing\.rs"}{"web/b/thing.rs"}; s{path_exists\("rust/a/\*\.rs"\)}{path_exists("web/a/*.rs")}; s{path_exists\("rust/a/\*\.ts"\)}{path_exists("web/a/*.ts")}'
 fix middle/model/src/forms_template.rs 's{the API with `rust/` as its working directory}{the API from the repository root}'
 fix web/src/site.rs 's{else `public/` from the repository root or from `rust/`\.}{else `public/` - looked for in the working directory and then one level above it.}'
 fix AGENTS.md 's{are Rust under `rust/`}{are Rust in the tiers (`web/`, `middle/`, `db/`) with the entry points (`cli/`, `forge/`) beside them}'

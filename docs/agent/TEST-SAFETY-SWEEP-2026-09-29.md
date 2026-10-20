@@ -72,7 +72,7 @@ manifest (`docs/agent/manifest/*.md`) — it reports those as warnings — but i
 the handbook, which is the one place a dead pointer means a rule is silently unenforced.
 
 The machinery that could catch this already exists and stops one step short:
-`cli/src/forge/vendor_block.rs:168` (`orphaned_guardrails`) checks that a guardrail's anchoring **sentence** is
+`forge-cli/src/forge/vendor_block.rs:168` (`orphaned_guardrails`) checks that a guardrail's anchoring **sentence** is
 still present in the handbook, but nothing anywhere checks that the guard **path** it names exists. A guard that
 cannot run is not a guard; the check belongs beside the one that already runs, and it is the cheapest fix in this
 document.
@@ -108,7 +108,7 @@ there was nothing to fix. Recorded so the next lane does not "repair" it again.
 1. `package.json:57` — make `pnpm test` run the workspace (WBS 1).
 2. **CLOSED 2026-09-29** (`01403e8a`, `07d1705a`, `3eee3e1d`, `a40368aa`, `dcb1583c`, `fb7a68be`,
    `2a9f2c16`, `61c83dd9`, `86cb77bb`) — the guard-path check is
-   `cli/src/forge/guard_paths.rs`, blocking as `forge guard-lint` and also wired into
+   `forge-cli/src/forge/guard_paths.rs`, blocking as `forge guard-lint` and also wired into
    `forge harness-lint`; see "Closed after this sweep" below.
 3. The parity-ledger decision — restore the Rust generator or re-label the file (WBS 6).
 4. **CLOSED 2026-09-29** (`01403e8a`) — `AGENTS.md`'s dead TypeScript paths and the retired Error Capture
@@ -121,7 +121,7 @@ there was nothing to fix. Recorded so the next lane does not "repair" it again.
 The two findings this document raised about `AGENTS.md` are enforced now, not noted. Both landed under
 `ENG-GUARD-AGENTS-LINT-01`.
 
-- **A — every guard path is linted.** `cli/src/forge/guard_paths.rs` reads every `guard:` clause in
+- **A — every guard path is linted.** `forge-cli/src/forge/guard_paths.rs` reads every `guard:` clause in
   `AGENTS.md` and fails when the path does not exist, when it exists but holds no test (an empty file is not a
   guard), when a `Never` rule declares no guard at all, or when a bare `guard: NONE` gives no reason. It is
   blocking as `forge guard-lint` (`.github/workflows/gates.yml`, static job), it runs inside `forge harness-lint`,

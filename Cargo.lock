@@ -403,7 +403,6 @@ dependencies = [
  "chrono",
  "db",
  "dotenvy",
- "forge",
  "indexmap",
  "model",
  "regex",
@@ -825,6 +824,22 @@ dependencies = [
  "wait-timeout",
  "workflow",
  "zstd",
+]
+
+[[package]]
+name = "forge-cli"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "db",
+ "dotenvy",
+ "forge",
+ "indexmap",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
 ]
 
 [[package]]

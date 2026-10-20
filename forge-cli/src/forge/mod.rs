@@ -13,8 +13,8 @@
 //! contract.
 //!
 //! Usage:
-//!   cargo run -p cli -- forge harness-lint [--strict] [--format json]
-//!   cargo run -p cli -- forge sync-agents [--check] [--format json]
+//!   cargo run -p forge-cli -- harness-lint [--strict] [--format json]
+//!   cargo run -p forge-cli -- sync-agents [--check] [--format json]
 
 pub mod build_info;
 pub mod citations;
@@ -22,6 +22,7 @@ pub mod dead_commands;
 pub mod decision;
 pub mod doctor;
 pub mod guard_paths;
+pub mod harness_evolution;
 pub mod lint;
 pub mod manifest;
 pub mod opencode_config;
@@ -33,7 +34,6 @@ pub mod repo_guards;
 pub mod reset;
 pub mod roi;
 pub mod salvage;
-pub mod harness_evolution;
 pub mod scorecard;
 pub mod secret_shapes;
 pub mod sql;
@@ -97,10 +97,14 @@ impl std::error::Error for Failure {}
 
 /// The command list the dispatcher prints when it is asked for something it does not know. Kept as one
 /// constant so the usage text a reader sees and the test that proves a command is advertised cannot drift.
-const FORGE_USAGE: &str = "forge <harness-lint|guard-lint|sync-agents|build-info|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|scorecard|harness-evolution|sql|salvage|reset|recover|clean> [options]";
+const FORGE_USAGE: &str = "forge-cli <harness-lint|guard-lint|sync-agents|build-info|manifest|protected-files|test-section|board|story-show|batch-status|doctor|roi|scorecard|harness-evolution|sql|salvage|reset|recover|clean> [options]";
 
 pub async fn dispatch(args: &[String]) -> Result<u8, Failure> {
     match args.first().map(String::as_str).unwrap_or_default() {
+        "help" | "--help" | "-h" => {
+            println!("usage: {FORGE_USAGE}");
+            Ok(0)
+        }
         "harness-lint" => lint::run(&args[1..]),
         // The handbook's `guard:` paths, checked against the tree they claim to describe. Separate from
         // `harness-lint` because it BLOCKS: a dead guard path is a rule with no enforcement, and that is

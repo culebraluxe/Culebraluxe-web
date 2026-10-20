@@ -59,7 +59,7 @@ async fn capture_fixtures(args: &[String]) -> Result<(), Box<dyn Error>> {
         .map(String::as_str)
         .unwrap_or("http://127.0.0.1:3000")
         .trim_end_matches('/');
-    let root = crate::forge::repo_root();
+    let root = crate::repo_root::repo_root();
     let out = root.join("web/ui/fixtures");
     fs::create_dir_all(&out)?;
 

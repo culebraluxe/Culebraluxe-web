@@ -45,7 +45,7 @@ Rules enforced here and by `pnpm agent:work` / the database:
 ## Cadence
 
 `StartInterval 180` in the LaunchAgent plist — one invocation every three
-minutes (`cli/src/launchd/agent_worker.rs`, `CADENCE_SECONDS`).
+minutes (`forge-cli/src/launchd/agent_worker.rs`, `CADENCE_SECONDS`).
 `RunAtLoad` runs once when the LaunchAgent loads (login or `install`).
 LaunchAgents run only while a user is logged in — the appropriate model for a
 development-host worker.

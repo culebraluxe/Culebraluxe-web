@@ -294,7 +294,7 @@ Not a rail: the removal of two dead second doors, so the one-writer rule (§6.6)
   read, story ledger, repair/replan increments, packet read). Every one was a never-executed copy of a statement
   `db::ForgeEngineDao` owns; `RECEIPT_PREFIX` stays. This also removed the file from the column-writer audit's writer
   set for `storyboard_story`, where it had been counted while the writer that runs is `forge_engine.rs`.
-- `cli/src/forge/repo_guards.rs` — `TABLE_WRITERS_BASELINE` narrowed deliberately, in this commit, with the reason
+- `forge-cli/src/forge/repo_guards.rs` — `TABLE_WRITERS_BASELINE` narrowed deliberately, in this commit, with the reason
   in the code: the fence must name the writer that serves.
 - `forge/src/engine/evidence_store.rs` — the unused `merge_forge_workflow_evidence` wrapper deleted; the merge has
   one door (`ForgeEngineDao::merge_workflow_evidence`, driven by the ledger) and one mapping (`evidence_patch`).
@@ -310,7 +310,7 @@ forge_runtime 34, self_heal 1), `cargo check --workspace --all-targets` clean.
 The Captain's word was "collapse it": the port stops writing the row the database's function writes. Closed with a
 refusal rail first, then the change, then the proof on DEV (§6.7 has the finding).
 
-- `cli/src/forge/repo_guards.rs` — a fourth repo guard,
+- `forge-cli/src/forge/repo_guards.rs` — a fourth repo guard,
   `the_database_owns_dispatch_no_production_rust_file_inserts_a_work_item`: no production Rust file may contain
   `insert into agent_work_item`, because that rule has one writer and it is `agent_work_item_dispatch()`. It scans
   582 tracked production Rust files and exempts `tests/` deliberately (a fixture may build a shape the database would
@@ -457,7 +457,7 @@ renders `docs/agent/LEGACY-TEST-PARITY.md` from `docs/agent/legacy-test-parity/s
 and its output is folded into the ledger by `bash scripts/legacy-test-parity.sh --scan`. It removes a file from the queue
 only on evidence, and two traps found while building it are why it is as narrow as it is:
 
-- **A citation is not coverage.** `cli/src/forge/test_section.rs` names legacy test files as arguments to
+- **A citation is not coverage.** `forge-cli/src/forge/test_section.rs` names legacy test files as arguments to
   `section_for_file(...)` — it is a routing table. Citing a file to classify it says nothing about its assertions, so a
   citation counts only from a comment (`//!`/`///`), which is where provenance actually gets written.
 - **A test count is not coverage.** `legacy/workflow_app/tests/accounting.test.ts` tests receivables and expenses;

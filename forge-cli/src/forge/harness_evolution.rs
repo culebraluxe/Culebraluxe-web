@@ -8,23 +8,23 @@
 //! never adopts, never rolls back, and never grants authority.
 //!
 //! Usage:
-//!   cargo run -p cli -- forge harness-evolution status [--format json]
-//!   cargo run -p cli -- forge harness-evolution revisions [--domain D] [--format json]
-//!   cargo run -p cli -- forge harness-evolution experiments --domain D [--format json]
-//!   cargo run -p cli -- forge harness-evolution experience --domain D [--executor E]
+//!   cargo run -p forge-cli -- harness-evolution status [--format json]
+//!   cargo run -p forge-cli -- harness-evolution revisions [--domain D] [--format json]
+//!   cargo run -p forge-cli -- harness-evolution experiments --domain D [--format json]
+//!   cargo run -p forge-cli -- harness-evolution experience --domain D [--executor E]
 //!       [--mode parallel|sequential] [--seed N] [--limit N] [--format json]
-//!   cargo run -p cli -- forge harness-evolution feed [--days N] [--limit N]
+//!   cargo run -p forge-cli -- harness-evolution feed [--days N] [--limit N]
 //!       [--input FILE] [--target dev|prod] [--format json]
-//!   cargo run -p cli -- forge harness-evolution metrics [--limit N]
+//!   cargo run -p forge-cli -- harness-evolution metrics [--limit N]
 //!       [--input FILE] [--target dev|prod] [--format json]
-//!   cargo run -p cli -- forge harness-evolution calibration [--input FILE] [--format json]
-//!   cargo run -p cli -- forge harness-evolution probe --domain D --story S [--run R]
+//!   cargo run -p forge-cli -- harness-evolution calibration [--input FILE] [--format json]
+//!   cargo run -p forge-cli -- harness-evolution probe --domain D --story S [--run R]
 //!       --base-revision ID --candidate-revision ID [--candidate-kind invariant|domain]
 //!       [--environment development|sandbox|ci|staging] [--command ABS] [--arg A]...
 //!       [--model M] [--model-policy P] [--executor E] [--tool T]... [--dataset D]
 //!       [--test-plan P] [--replay-id R] [--mode parallel|sequential] [--k N] [--seed N]
 //!       [--target dev|prod] [--dry-run] [--format json]
-//!   cargo run -p cli -- forge harness-evolution probe ... --authorize-model-run --authorize-sandbox
+//!   cargo run -p forge-cli -- harness-evolution probe ... --authorize-model-run --authorize-sandbox
 //!       [--model-backend dsh|opencode] [--model-turn-timeout-seconds N]
 //!       (model-turn sandbox instead of --command; mutually exclusive with --command. A real model
 //!        turn needs BOTH keys — --authorize-sandbox opens the sandbox boundary and
@@ -76,7 +76,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 pub async fn run(args: &[String]) -> Result<u8, Failure> {
-    crate::apple_sync::load_env();
+    crate::env::load_env();
     if args.iter().any(|value| value == "--help") {
         usage();
         return Ok(0);
@@ -276,7 +276,7 @@ pub async fn run(args: &[String]) -> Result<u8, Failure> {
 
 pub fn usage() {
     eprintln!(
-        "usage: cargo run -p cli -- forge harness-evolution <status|revisions|experiments|experience|feed|metrics|calibration|probe> [options]"
+        "usage: cargo run -p forge-cli -- harness-evolution <status|revisions|experiments|experience|feed|metrics|calibration|probe> [options]"
     );
     eprintln!();
     eprintln!("  Read-only operator surface for Harness Evolution (migration 294 tables).");

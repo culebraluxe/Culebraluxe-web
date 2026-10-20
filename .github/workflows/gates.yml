@@ -104,7 +104,7 @@ jobs:
       # Every `guard:` line in AGENTS.md is a CLAIM that a test exists, and nothing read those claims: eight
       # `guard: workflow_app/tests/*.test.ts` lines survived the deletion of the whole TypeScript application,
       # so the handbook read as if nine rules were guarded and not one file was there. `forge guard-lint`
-      # (`cli/src/forge/guard_paths.rs`) is the blocking half: a path that does not exist, or that exists
+      # (`forge-cli/src/forge/guard_paths.rs`) is the blocking half: a path that does not exist, or that exists
       # but holds no test, FAILS with its line number and exits 1. `pnpm forge:packet-lint` above runs the same
       # check but only WARNS, and the `cargo test` assertion in the rust job sits below the format step — so
       # this explicit step is what makes a dead guard path actually stop the pipeline.
@@ -329,7 +329,7 @@ jobs:
       checks: write
     steps:
       # FULL HISTORY, for the same reason the static job has it — and this one is not about the secret scan.
-      # `cli/src/forge/manifest.rs`'s `the_history_reader_answers_three_questions_in_one_pass` reads the real
+      # `forge-cli/src/forge/manifest.rs`'s `the_history_reader_answers_three_questions_in_one_pass` reads the real
       # `git log` for commits that touched a scope word and asserts it found at least one. On a shallow clone
       # (the default, one commit) that assertion fails, which is exactly what happened the first time this job
       # reached `cargo test` on 2026-09-28 — the step had been unreachable since the job was written. The reader
@@ -388,7 +388,7 @@ jobs:
             echo "rustfmt: the files above are not formatted. Fix with: cargo fmt --all"
             exit 1
           fi
-          echo "rustfmt clean — four module trees deferred to their owner (cli/src/apple_mail, cli/src/forge/lint, middle/model/src/applemail, middle/model/src/apple_messages)"
+          echo "rustfmt clean — four module trees deferred to their owner (cli/src/apple_mail, forge-cli/src/forge/lint, middle/model/src/applemail, middle/model/src/apple_messages)"
 
       - name: install cargo-nextest
         if: ${{ !cancelled() }}
@@ -463,7 +463,7 @@ jobs:
       - name: rust file boundedness (800-line rule)
         run: |
           set -euo pipefail
-          deferred='cli/src/apple_mail(\.rs|/)|cli/src/forge/lint(\.rs|/)|middle/model/src/applemail(\.rs|/)|middle/model/src/apple_messages(\.rs|/)'
+          deferred='cli/src/apple_mail(\.rs|/)|forge-cli/src/forge/lint(\.rs|/)|middle/model/src/applemail(\.rs|/)|middle/model/src/apple_messages(\.rs|/)'
           test_estate='(^|/)tests/'
           # Files already over the ceiling when it first ran (2026-10-01), each with the line count it held then.
           # `forge/src/engine/opencode.rs` and `forge/src/engine/job.rs` LEFT this list on 2026-10-14: the engine
@@ -523,15 +523,15 @@ jobs:
       # THE DEAD-TYPESCRIPT LEDGER, RUST AND HERE (moved out of the `static` job, 2026-09-29).
       #
       # Both gates were Node scripts until the port deleted the last Node runtime in this repository:
-      # they are `forge` subcommands now (`cli/src/forge/{ts_sweep,dead_commands}.rs`), so they
+      # they are `forge` subcommands now (`forge-cli/src/forge/{ts_sweep,dead_commands}.rs`), so they
       # run in the job that has cargo and a warm cache. `pnpm broken:ts:sweep` and
       # `pnpm broken:ts:commands` still exist and call exactly these two commands. The menu gate is the
       # one that can refuse: a new dead command is a finding, and the count may only fall.
       - name: dead-TS ledger (which files cannot load)
-        run: cargo run -p cli -- forge ts-sweep
+        run: cargo run -p forge-cli -- ts-sweep
 
       - name: dead-TS ledger (the pnpm menu, baseline enforced)
-        run: cargo run -p cli -- forge dead-commands --check
+        run: cargo run -p forge-cli -- dead-commands --check
 
 
   rust_database:

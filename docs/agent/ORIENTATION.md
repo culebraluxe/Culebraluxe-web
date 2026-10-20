@@ -37,7 +37,7 @@ place (`docs/agent/BROKEN-TS-INVENTORY.md`).
 | Database | `db/src/` | DAOs and the one pool per process (`pool.rs`, `shared.rs`); failures as `DbFailure` (`capture.rs`). Migrations in `db/migrations`. |
 | Integrations | `middle/apis/src/` | Mux, Google, Apple, BoldSign, Neon, mail, WhatsApp. |
 | Engine | `forge/src/` | Forge: the definition (`forge/definitions/FORGE_SDLC-v6.xml`), phases, gates, roles, executor. |
-| CLI | `cli/src/` | `forge` gates (`cli/src/forge/`: harness lint, vendor-block sync), `db-tool`, Apple intake. |
+| CLI | `cli/src/` | `forge` gates (`forge-cli/src/forge/`: harness lint, vendor-block sync), `db-tool`, Apple intake. |
 | Retired TypeScript | `legacy/`, dead files in `scripts/` and `agent-runtime/` | Read-only reference, out of scope, never imported. |
 | Build and ops | `scripts/`, `devops/` | `dev.sh`, `site-build.sh`, `deploy-prod.sh`, and the container files (`Dockerfile.build`, `Dockerfile.runtime`, the runtime `Dockerfile`). |
 | Version control | `docs/agent/JJ-FOR-AGENTS.md`, `docs/agent/JJ-INTERFACE.md` | Jujutsu is the interface: the translation from git, and the card saying what has not converted yet (the lanes, the hooks). |
@@ -63,7 +63,7 @@ cargo test -p ui                           # the UI's screen, registry and comma
 cargo build -p ui --target wasm32-unknown-unknown --features wasm   # proves the browser build, fast
 pnpm test                   # the engine suites + cargo test -p workflow -p forge
 pnpm forge:harness          # one gate: vendor blocks, manifests, harness lint, harness tests
-pnpm forge:packet-lint      # the harness lint alone (Rust: cli -- forge harness-lint)
+pnpm forge:packet-lint      # the harness lint alone (Rust: forge-cli -- harness-lint)
 pnpm forge:sync-agents      # write/verify the vendor pointer blocks
 pnpm forge:manifest <ID>    # the ranked file list for a story
 pnpm broken:ts:sweep        # dead-TypeScript counts; fails when the tree and the inventory disagree

@@ -1,7 +1,7 @@
 //! forge:opencode-skills — generate the vendor-loadable skill tree from the canonical skill library.
 //!
-//!   cargo run -p cli -- forge opencode-skills           # write the tree (untouched files are left alone)
-//!   cargo run -p cli -- forge opencode-skills --check   # exit 1 when a skill is missing, drifted or stale
+//!   cargo run -p forge-cli -- opencode-skills           # write the tree (untouched files are left alone)
+//!   cargo run -p forge-cli -- opencode-skills --check   # exit 1 when a skill is missing, drifted or stale
 //!
 //! The tree under `.opencode/skills/<id>/SKILL.md` is GENERATED, not authored. Its one source is the canonical
 //! library in `docs/agent/skills/<id>.md` — the copy AGENTS.md points at and a packet's `## Skills` list names —

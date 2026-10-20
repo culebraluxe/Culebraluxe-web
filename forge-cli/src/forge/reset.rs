@@ -14,9 +14,9 @@
 //!   must never cancel a running peer.
 //!
 //! Usage:
-//!   cargo run -p cli -- forge reset <story-id> [--force]
-//!   cargo run -p cli -- forge recover <story-id> [--force]
-//!   cargo run -p cli -- forge clean [--stale-minutes N] [--force]
+//!   cargo run -p forge-cli -- reset <story-id> [--force]
+//!   cargo run -p forge-cli -- recover <story-id> [--force]
+//!   cargo run -p forge-cli -- clean [--stale-minutes N] [--force]
 
 use super::{connect, Failure};
 use db::{resolve_declared_target, DbTarget, ForgeResetDao, ResetReport};
@@ -180,7 +180,7 @@ fn strip_valued_flags(args: &[String], flag: &str) -> Vec<String> {
 
 pub async fn run(args: &[String]) -> Result<u8, Failure> {
     // `.env.local` carries DATABASE_URL_DEV / DATABASE_URL_PROD.
-    crate::apple_sync::load_env();
+    crate::env::load_env();
 
     // The declaration is read from the environment exactly as the pool reads it, so this tool and the pool can
     // never disagree about which database a run would touch.

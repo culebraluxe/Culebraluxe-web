@@ -3,10 +3,10 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-10-19 05:50:04Z
-- commit: `0f69171de` (working tree dirty) on `HEAD`
+- generated: 2026-10-20 02:07:30Z
+- commit: `f2d5b8681` (working tree dirty) on `HEAD`
 - regenerate: `pnpm forge:manifest FORGE-B3`
-- rows: 113 — packet, cited paths and story commits first, lexical matches after
+- rows: 124 — packet, cited paths and story commits first, lexical matches after
 
 Read top-down. A row is a file to open, and the why column says why it is here.
 
@@ -18,6 +18,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/AGENT-OS-PHASE-1.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/AGENT-OS-PHASE-2.md` — index · top-level harness page · last touched 2026-10-18
 - `docs/agent/AGENT_WORKER_SCHEDULER.md` — index · top-level harness page · last touched 2026-10-12
+- `docs/agent/APP-CODE-REVIEW-2026-10-19.md` — index · top-level harness page · last touched 2026-10-19
 - `docs/agent/ARCH-HANDOFF.md` — index · top-level harness page · last touched 2026-10-12
 - `docs/agent/ARCHITECT.md` — index · top-level harness page · last touched untracked
 - `docs/agent/BROKEN-TS-INVENTORY.md` — index · top-level harness page · last touched untracked
@@ -42,9 +43,13 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/FORGE-BATCH-2-OPERATIONS.md` — index · top-level harness page · last touched 2026-10-12
 - `docs/agent/FORGE-BATCH-3-FIELD-AUTHORITY.md` — index · top-level harness page · last touched 2026-10-12
 - `docs/agent/FORGE-BATCH-4-BOUNDARIES.md` — index · top-level harness page · last touched 2026-10-12
+- `docs/agent/FORGE-CODE-REVIEW-2026-10-19.md` — index · top-level harness page · last touched 2026-10-19
+- `docs/agent/FORGE-CUT-LIST.md` — index · top-level harness page · last touched 2026-10-19
+- `docs/agent/FORGE-EXTRACTION-EVALUATION.md` — index · top-level harness page · last touched 2026-10-19
 - `docs/agent/FORGE-LEGACY-COMPLETION-RECONCILIATION.md` — index · top-level harness page · last touched 2026-10-12
 - `docs/agent/FORGE-MODEL-GENERATION-BUDGET.md` — index · top-level harness page · last touched 2026-10-12
 - `docs/agent/FORGE-QA-BOUNDARY.md` — index · top-level harness page · last touched 2026-10-12
+- `docs/agent/FORGE-RELEASE.md` — index · top-level harness page · last touched 2026-10-19
 - `docs/agent/FORGE-WORKSHOP.md` — index · top-level harness page · last touched 2026-10-12
 - `docs/agent/HANDOFF-2026-09-28-claude-afternoon.md` — index · top-level harness page · last touched untracked
 - `docs/agent/HANDOFF-2026-09-28-claude.md` — index · top-level harness page · last touched untracked
@@ -87,6 +92,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/LIVE-TS-PORT-QUEUE.md` — index · top-level harness page · last touched untracked
 - `docs/agent/MAP-engine.md` — index · top-level harness page · last touched untracked
 - `docs/agent/MAP-services.md` — index · top-level harness page · last touched untracked
+- `docs/agent/MODEL-ROUTING.md` — index · top-level harness page · last touched 2026-10-19
 - `docs/agent/NAMING-AND-PROTECTION.md` — index · top-level harness page · last touched untracked
 - `docs/agent/OLD-ENGINE-CONTRACT-RESTORATION.md` — index · top-level harness page · last touched 2026-10-12
 - `docs/agent/OPEN-QA-LIST.md` — index · top-level harness page · last touched 2026-10-14
@@ -117,8 +123,13 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/TS-TRIAGE.md` — index · top-level harness page · last touched untracked
 - `docs/agent/UI-SCREEN-ARCHITECTURE.md` — index · top-level harness page · last touched 2026-10-12
 - `docs/agent/VENDOR-ADAPTERS.md` — index · top-level harness page · last touched untracked
+- `docs/agent/W-1-DESIGN.md` — index · top-level harness page · last touched 2026-10-19
 - `docs/agent/WORKFLOW-ARCHITECTURE.md` — index · top-level harness page · last touched untracked
+- `docs/agent/WORKFLOW-EXTRACTION-PLAN.md` — index · top-level harness page · last touched 2026-10-19
+- `docs/agent/WORKFLOW-PROJECT-RESEARCH.md` — index · top-level harness page · last touched 2026-10-19
 - `docs/agent/WORKTREE_EXECUTION.md` — index · top-level harness page · last touched untracked
+- `docs/agent/X-2-DESIGN.md` — index · top-level harness page · last touched 2026-10-19
+- `docs/agent/X-3-DB-OWNERSHIP.md` — index · top-level harness page · last touched 2026-10-19
 - `docs/agent/knip-intent.md` — index · top-level harness page · last touched untracked
 - `docs/agent/releases.md` — index · top-level harness page · last touched 2026-10-12
 - `docs/agent/route-authority-manifest.md` — index · top-level harness page · last touched untracked

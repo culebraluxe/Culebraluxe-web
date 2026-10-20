@@ -4,7 +4,7 @@
 Native Rust, no Python sidecar.
 **Code:** `forge/src/engine/harness_evolution/` (model/policy/catalog/probe/experiment/adoption/
 propose/contrast/compose/validate/experience/feed/metrics/calibration/proposer_llm/probe_replay/
-model_turn_sandbox/store_db/dogfood/sandbox_command) and `cli/src/forge/harness_evolution.rs`.
+model_turn_sandbox/store_db/dogfood/sandbox_command) and `forge-cli/src/forge/harness_evolution.rs`.
 **Reference:** [google-research/harness2](https://github.com/google-research/harness2)
 (Apache-2.0). We adopt the *ideas* — the eight editable harness components, the
 Propose–Probe–Compose loop, parallel/sequential recursion, and per-scope experience
@@ -206,7 +206,7 @@ promotion.
 | F | — | FORGE-02 DSH pin/SOP, FORGE-03 supervised adoption gate, further cohorts | FORGE-02 landed 2026-10-19; FORGE-03 OPEN |
 
 Wiring: `mod.rs` declares every module and `engine/mod.rs` re-exports `harness_evolution` (done);
-`cli/src/forge/harness_evolution.rs` is the operator surface (`status|revisions|experiments|
+`forge-cli/src/forge/harness_evolution.rs` is the operator surface (`status|revisions|experiments|
 experience|feed|metrics|calibration|probe`).
 
 ## 9. Non-goals
@@ -247,7 +247,7 @@ v1 landed on `main`; the remaining items 1–7 are implemented natively:
 - `proposer_llm.rs`: read-only advisory `SeatRunner` proposer with strict JSON and policy rejection.
 - `experiment.rs`: k>1 parallel/sequential recursion under `EvolutionBudget`.
 - `validate.rs`: `ForgeValidationStage` consumes the exact composed changes (D3 seam).
-- `cli/src/forge/harness_evolution.rs`: `forge harness-evolution status|revisions|experiments|experience`,
+- `forge-cli/src/forge/harness_evolution.rs`: `forge harness-evolution status|revisions|experiments|experience`,
   the O1 views `feed|metrics|calibration`, and the O2 `probe` writer (`--dry-run` for the plan);
   digest `HARNESS` line.
 - Both concrete sandbox runners exist: `sandbox_command.rs` (allowlisted command) and

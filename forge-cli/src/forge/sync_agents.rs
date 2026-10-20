@@ -3,8 +3,8 @@
 //! Rust replacement for the retired `scripts/forge-sync-agents.ts`, which imported the deleted
 //! `lib/agent-vendor-block.ts` and therefore could not run at all.
 //!
-//!   cargo run -p cli -- forge sync-agents           # rewrite the block where it exists, no-op if identical
-//!   cargo run -p cli -- forge sync-agents --check   # exit 1 when a block is missing or has drifted
+//!   cargo run -p forge-cli -- sync-agents           # rewrite the block where it exists, no-op if identical
+//!   cargo run -p forge-cli -- sync-agents --check   # exit 1 when a block is missing or has drifted
 //!
 //! `docs/agent/VENDOR-ADAPTERS.md` says vendor files are one-line pointers and never a second source of
 //! truth. This is the tool that keeps them pointers: the content is generated from the constants in

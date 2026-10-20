@@ -31,7 +31,7 @@ apis 13; test-harness 741. Web has 122 route declarations. Largest web modules: 
   in the shared `db` crate), plus app files that reach Forge tables (`tech.rs` 555 lines / 34 refs,
   `boot_gate.rs` forge migration list, `pool.rs`/`schema_parity.rs`/`person.rs`/`error.rs`/
   `flight_recorder.rs` incidental).
-- CLI → Forge: 34 files (30 under `cli/src/forge/`, plus `main.rs` dispatch, `launchd/agent_worker.rs`,
+- CLI → Forge: 34 files (30 under `forge-cli/src/forge/`, plus `main.rs` dispatch, `launchd/agent_worker.rs`,
   `db_tool.rs`).
 - Tests → Forge: ~309 test-harness files reference Forge (of 741). Docs: 216 Forge-related files;
   scripts: 18.

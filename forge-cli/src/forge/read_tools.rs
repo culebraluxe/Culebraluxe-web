@@ -13,9 +13,9 @@
 //! guess about. `--format json` works on all three, so nothing needs re-parsing.
 //!
 //! Usage:
-//!   cargo run -p cli -- forge board [--format json]
-//!   cargo run -p cli -- forge story-show <story-id> [--format json]
-//!   cargo run -p cli -- forge batch-status [--format json]
+//!   cargo run -p forge-cli -- board [--format json]
+//!   cargo run -p forge-cli -- story-show <story-id> [--format json]
+//!   cargo run -p forge-cli -- batch-status [--format json]
 
 use super::{connect, Failure};
 use db::{ForgeBatchRow, ForgeReadDao, ForgeStoryShow};
@@ -23,7 +23,7 @@ use serde_json::{json, Value};
 
 pub async fn run(args: &[String]) -> Result<u8, Failure> {
     // `.env.local` carries DATABASE_URL_DEV / DATABASE_URL_PROD — the same loader the rest of the CLI uses.
-    crate::apple_sync::load_env();
+    crate::env::load_env();
     match args.first().map(String::as_str).unwrap_or_default() {
         "board" => board(args).await,
         "story-show" | "story:show" => story_show(args).await,

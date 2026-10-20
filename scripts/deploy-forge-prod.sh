@@ -80,16 +80,16 @@ fi
 
 printf '4/5 Refreshing the launchd wrapper/plist...\n'
 if [[ "$DRY_RUN" == 1 ]]; then
-  printf '  DRY-RUN: would run cargo run -p cli -- launchd agent-worker install\n'
+  printf '  DRY-RUN: would run cargo run -p forge-cli -- launchd agent-worker install\n'
 else
-  cargo run -q -p cli -- launchd agent-worker install
+  cargo run -q -p forge-cli -- launchd agent-worker install
 fi
 
 printf '5/5 Status...\n'
 if [[ "$DRY_RUN" == 1 ]]; then
   printf '  DRY-RUN: would run launchd agent-worker status\n'
 else
-  cargo run -q -p cli -- launchd agent-worker status || true
+  cargo run -q -p forge-cli -- launchd agent-worker status || true
 fi
 
 printf '\nFORGE DEPLOY COMPLETE — %s\n' "$DEST"

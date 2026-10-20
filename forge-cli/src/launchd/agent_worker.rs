@@ -7,7 +7,7 @@
 //! refuses outright when the deployed wrapper differs from the repository's.
 //!
 //! Usage:
-//!   cargo run -p cli -- launchd agent-worker <render|install|status|run|stop|uninstall>
+//!   cargo run -p forge-cli -- launchd agent-worker <render|install|status|run|stop|uninstall>
 
 use crate::forge::Failure;
 use crate::launchd::{

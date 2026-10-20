@@ -8,7 +8,7 @@ the doctor, and the writer. What is left is below with the exact files to open.
 
 | # | Fact | How to check it |
 | --- | --- | --- |
-| S1 | `forge board`, `forge story-show`, `forge batch-status`, `forge doctor`, `forge reset/recover/clean` all answer from the real control plane | `APP_ENV=dev cargo run --manifest-path Cargo.toml -p cli -- forge board` (DEV, read-only) |
+| S1 | `forge board`, `forge story-show`, `forge batch-status`, `forge doctor`, `forge reset/recover/clean` all answer from the real control plane | `APP_ENV=dev cargo run --manifest-path Cargo.toml -p forge-cli -- board` (DEV, read-only) |
 | S2 | The reset tool refuses DEV and any non-`--force` PROD invocation | `APP_ENV=dev … forge clean --force` → "refusing to run against DEV…" |
 | S3 | Rust workspace, except `web/ui`: `cargo check -p cli -p web -p db -p forge --all-targets` exits 0; `cargo test -p cli -p forge` 72 + 76 pass, `-p db` 40 pass, `-p web` 85 pass / **1 red** (`catch_up` authorization harness) | `cd rust && cargo test -p cli -p forge -p db` |
 | S4 | **53** of the 145 `package.json` scripts name a `⚠ BROKEN ON PURPOSE` file. The measured split and the keep-or-delete line for each is `docs/agent/DEAD-COMMANDS.md`; re-measure with `pnpm broken:ts:commands --check` | — |
@@ -34,9 +34,9 @@ the doctor, and the writer. What is left is below with the exact files to open.
 
 | Your task | Read | The files you touch |
 | --- | --- | --- |
-| Port another `forge:*` command | `docs/agent/BROKEN-TS-INVENTORY.md` §2 | `cli/src/forge/mod.rs` (dispatch) + a module beside `read_tools.rs` / `doctor.rs` / `reset.rs` |
-| Add a read | `db/src/forge_read.rs` (views + normalisation at the boundary) | that file, then `cli/src/forge/read_tools.rs` |
-| Add a write | `db/src/forge_reset.rs` (one writer, guards) | that file + `cli/src/forge/reset.rs` for the CLI guards |
+| Port another `forge:*` command | `docs/agent/BROKEN-TS-INVENTORY.md` §2 | `forge-cli/src/forge/mod.rs` (dispatch) + a module beside `read_tools.rs` / `doctor.rs` / `reset.rs` |
+| Add a read | `db/src/forge_read.rs` (views + normalisation at the boundary) | that file, then `forge-cli/src/forge/read_tools.rs` |
+| Add a write | `db/src/forge_reset.rs` (one writer, guards) | that file + `forge-cli/src/forge/reset.rs` for the CLI guards |
 | Make the CI gates honest | `.github/workflows/gates.yml` lines 87–100 | `package.json` (`test:harness`), `scripts/test-sections.ts`, `scripts/protected-files.ts` |
 | Know where SQL may live | `AGENTS.md` "Rust First" | SQL only in `db/**`; the CLI holds no query |
 
@@ -50,16 +50,16 @@ the doctor, and the writer. What is left is below with the exact files to open.
 | `4ab85424` | a manifest's header is a RUN stamp, not content (`generated:`, `(working tree dirty)`, the commit sha) — as ported, `--check-all` rewrote all eight committed manifests on every run, and the sha alone made them stale after every push | `cargo test -p cli` 69; three consecutive `--check-all` runs → 0 re-rendered, clean worktree |
 | `4d5bb707` | the four gates that checked a tree which no longer exists: the taxonomy (`test-sections.ts` — 168 test files by content, the CRATE as the section, legacy sections marked `historical` with their Rust home), the parity ledger (88 → 0 problems: `tsFiles` empty, `productionPath` true, 76 never-ported routes claimed by area in `nativeRoutes`), `test:harness` (derived from the `⚠ BROKEN ON PURPOSE` marker, 4 run / 6 skipped) and the CI job above | `pnpm test:harness` 22 passed; `--test` on protected-files 5 / test-sections 6 / parity 4; parity generator 0 problems; `pnpm lint` 0; `pnpm broken:ts:sweep` "tree and inventory agree"; `cargo check --workspace --all-targets` 0 errors |
 | `c9520336` | the ORIENTATION em dash the protected-file gate names (a commit on 2026-09-28 had replaced it with a hyphen) | `node --import tsx --test scripts/protected-files.test.ts` → 5 passed |
-| `d02bb9a2` | `forge manifest` in Rust — `forge/src/scope_manifest.rs` (lanes, TF-IDF, render, drift, the write refusal — pure) + `cli/src/forge/manifest.rs` (gather/print) + `forge/src/sync_conflict.rs` recovered from `lib/git/sync-conflict.ts` | `cargo test -p cli` 69, `-p forge --lib` 72; `forge manifest PIRATE-01` → 27 ranked rows; `--check-all` idempotent |
+| `d02bb9a2` | `forge manifest` in Rust — `forge/src/scope_manifest.rs` (lanes, TF-IDF, render, drift, the write refusal — pure) + `forge-cli/src/forge/manifest.rs` (gather/print) + `forge/src/sync_conflict.rs` recovered from `lib/git/sync-conflict.ts` | `cargo test -p cli` 69, `-p forge --lib` 72; `forge manifest PIRATE-01` → 27 ranked rows; `--check-all` idempotent |
 | `02145a8b` | (earlier session) the deploy doc rewritten to the real one-container flow | docs reviewed against `deploy/Dockerfile.build` + `scripts/deploy-prod.sh` |
 | `c6bfc6a6` | `main` green again for `server`: publishing's `PublishingDao` / `PublishingListing` / `PublishingSnapshot` re-exported from their crate roots and `PublishingService` registered in `ServiceCatalog` (field, construction, accessor) | `cargo check -p cli -p web -p db -p forge --all-targets` → exit 0 |
-| `be6df89d` | `forge:roi` ported: `parse_window_days` + `render_roi_report` in `forge::roi`, gather-and-print in `cli/src/forge/roi.rs`, `package.json` repointed | `cargo test -p forge --lib roi` 12, `-p cli` 72; live run 2026-09-28: 627 attempts over 14 days on DEV |
+| `be6df89d` | `forge:roi` ported: `parse_window_days` + `render_roi_report` in `forge::roi`, gather-and-print in `forge-cli/src/forge/roi.rs`, `package.json` repointed | `cargo test -p forge --lib roi` 12, `-p cli` 72; live run 2026-09-28: 627 attempts over 14 days on DEV |
 | `3f796705` | `docs/agent/DEAD-COMMANDS.md` + `scripts/dead-command-sweep.mjs` (`pnpm broken:ts:commands`): 53 dead commands, three blocks, a keep-or-delete line each, and a `--check` that fails when the count rises or falls without the baseline dropping | `pnpm broken:ts:commands --check` → 53 at baseline; `pnpm broken:ts:sweep` → "the tree and the inventory agree" |
 | `56fcab57` | **the false outage, fixed:** `apple_sync::repo_root()` is the git toplevel, not `current_dir()`, so `.env.local` is found from any directory; ONE `forge::connect()` replaces four copies and prints `DbFailure.detail` | `cargo test -p cli` 74 (2 new: the message names the reason; and names the file with no detail); `-p db` 40, `-p forge` 76; `forge roi` answers from the root **and** from `rust/`; a missing `.env.local` prints the variable and exits 2 |
 | `26005949` | `.env.example` names the Mux pairs the code reads (`_PROD`, `_DEV`) instead of only the unsuffixed fallback — the template was the reason "which names do I type?" had two answers; handoff + MEMORY record that the `.env.local` mtime of 2026-09-27 21:54 was the Captain's Mux token, not a database edit | `pnpm forge:packet-lint` → 0 failures / 132 warnings (126 baselined); `git log origin/main` shows the commit; working tree clean |
 | `305026d7` | **the wasm build green, and production on it:** `api.rs:682,693,724` spell `crate::model::PortalPage` like their neighbours; the offer-room `<textarea>` is in void-element form; the reducer and the Contracts screen both send the seven structured terms the model grew; `deals/mod.rs:416` reads the terms into locals so the `&mut` borrow ends before `command`; the duplicate `check-circle-2` arm is gone | `cargo check -p ui --features wasm --target wasm32-unknown-unknown` 0 errors; `cargo check --workspace --all-targets` 0 errors; `docker build -f deploy/Dockerfile.build --output type=local,dest=/tmp/…` → `culebraluxe` + `ui.js` + `ui_bg.wasm`; `pnpm deploy:prod` → 7/7 smoke checks 200, "DEPLOY COMPLETE" |
 
-| `e6879e60` | **the build can no longer break like glass**: `pnpm ui:check`; the pre-push build guard (wasm check for `web/ui`, workspace check for any other crate, `CULEBRALUXE_SKIP_BUILD_CHECK=1` to skip — and to say so); the rule in AGENTS.md "Build and QA" and in MEMORY; three stale doc claims corrected (the Forge gates **do** run — `cli/src/forge/`; DEAD-COMMANDS' `mailbox:promote` row contradicted its own findings page; Gmail is KEEP on the Captain's word) | the hook refused a push carrying an `E0308` in a wasm-gated file; passed on a docs-only range (exit 0, no compile) and on a fresh push; a non-main branch is still refused; `pnpm forge:packet-lint` 0 failures / 132 warnings (126 baselined); `pnpm broken:ts:sweep` → "the tree and the inventory agree"; pushed — `git log origin/main` shows it |
+| `e6879e60` | **the build can no longer break like glass**: `pnpm ui:check`; the pre-push build guard (wasm check for `web/ui`, workspace check for any other crate, `CULEBRALUXE_SKIP_BUILD_CHECK=1` to skip — and to say so); the rule in AGENTS.md "Build and QA" and in MEMORY; three stale doc claims corrected (the Forge gates **do** run — `forge-cli/src/forge/`; DEAD-COMMANDS' `mailbox:promote` row contradicted its own findings page; Gmail is KEEP on the Captain's word) | the hook refused a push carrying an `E0308` in a wasm-gated file; passed on a docs-only range (exit 0, no compile) and on a fresh push; a non-main branch is still refused; `pnpm forge:packet-lint` 0 failures / 132 warnings (126 baselined); `pnpm broken:ts:sweep` → "the tree and the inventory agree"; pushed — `git log origin/main` shows it |
 
 Mechanical note for the next agent: the guard edits were briefly lost to a `git add -A` inside a throwaway test
 commit (the one that carried the deliberate `shell.rs` break) and recovered with `git checkout <sha> -- <paths>`.
@@ -117,19 +117,19 @@ The bytes on `origin/main` are the ones the S12 proof above ran against. Nothing
 3. **The remaining dead Forge/story commands — the measured list is `docs/agent/DEAD-COMMANDS.md` Block A, and it
    is now 16 of 17, not 21.** `forge:roi` landed (`be6df89d`). Order: the board feeders first
    (`forge:test-stories` P1, `forge:record-stories` P1, `forge:ladder` P2 — the engine's own dispatch surface),
-   then the reports (`forge:decision` — half-built, `cli/src/forge/decision.rs` is only wired into the lint;
+   then the reports (`forge:decision` — half-built, `forge-cli/src/forge/decision.rs` is only wired into the lint;
    `forge:scorecard`, `forge:board-sync`, `forge:sync-history`, `forge:tools`), then the story lifecycle
    (`story:status`, `story:preflight`). `forge:triage` is *not* cheap despite being small: its DAO is deleted,
    the reference is `docs/agent/typesafe-failure-triage.md`, and no `triage` table exists in `db/migrations` —
    decide where an observation lands before writing it. Recipe unchanged: pure rules in `forge/src/`, DB in
-   `db/src/`, gather-and-print in `cli/src/forge/`, repoint `package.json`, verify against DEV,
+   `db/src/`, gather-and-print in `forge-cli/src/forge/`, repoint `package.json`, verify against DEV,
    commit. **"Verify against DEV" is unblocked (S9 was a false alarm) — and the CLI now answers from any
    directory, so those runs are cheap.**
 4. **`AGENTS.md` guard paths** (S8): repoint the `workflow_app/tests/*` citations at the Rust tests that now own
    those rules, or say where each is enforced instead. `pnpm forge:packet-lint` reports them as warnings until then.
 5. **The packets that cite deleted `lib/` files** — `PIRATE-01` cites three of them, which is why
    `pnpm forge:manifest PIRATE-01` exits 1 and why 20 citations are noted as stale by `--check-all`. The packets
-   now have Rust homes to point at (`forge/src/scope_manifest.rs`, `cli/src/forge/vendor_block.rs`).
+   now have Rust homes to point at (`forge/src/scope_manifest.rs`, `forge-cli/src/forge/vendor_block.rs`).
 6. **`pnpm typecheck` is not a gate any more** (removed from CI in `4d5bb707`): 679 errors, all in reference-only
    dead TypeScript. Restoring it as a real gate is a deletion policy decision for the Captain, not a code fix.
 

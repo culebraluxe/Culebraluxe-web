@@ -6,8 +6,8 @@
 //! and leaves no filesystem state behind — which is what makes it the safe question to ask any Forge
 //! host, even one with no `.env.local` and no credentials.
 //!
-//!   cargo run -p cli -- forge build-info
-//!   cargo run -p cli -- forge build-info --format json
+//!   cargo run -p forge-cli -- build-info
+//!   cargo run -p forge-cli -- build-info --format json
 
 use crate::forge::Failure;
 use serde::Serialize;

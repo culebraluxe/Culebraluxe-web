@@ -13,13 +13,13 @@
 //! THE ACCEPTANCE TEST IS A BYTE-DIFF, not an opinion. `render` prints exactly what `install` would write, so a
 //! port is proved by diffing it against the plist already installed by the TypeScript:
 //!
-//!   diff <(cargo run -p cli -- launchd agent-worker render) \
+//!   diff <(cargo run -p forge-cli -- launchd agent-worker render) \
 //!        ~/Library/LaunchAgents/com.culebraluxe.agent-worker.plist
 //!
 //! Nothing else counts as proof for this port: the plist IS the interface launchd reads.
 //!
 //! Usage:
-//!   cargo run -p cli -- launchd <agent> <render|install|status|run|stop|uninstall> [--verify-tcc]
+//!   cargo run -p forge-cli -- launchd <agent> <render|install|status|run|stop|uninstall> [--verify-tcc]
 
 pub mod agent_worker;
 

@@ -5,9 +5,9 @@
 //! COMMANDS cannot run", because the command menu is what an operator types, and a command naming a
 //! bannered file fails with ERR_MODULE_NOT_FOUND before it does anything. No database, no network.
 //!
-//!   cargo run -p cli -- forge dead-commands              # the three blocks, and the count
-//!   cargo run -p cli -- forge dead-commands --check      # fail when the count RISES
-//!   cargo run -p cli -- forge dead-commands --format json
+//!   cargo run -p forge-cli -- dead-commands              # the three blocks, and the count
+//!   cargo run -p forge-cli -- dead-commands --check      # fail when the count RISES
+//!   cargo run -p forge-cli -- dead-commands --format json
 //!
 //! The ledger those blocks feed is `docs/agent/DEAD-COMMANDS.md`. The count may only fall: porting a
 //! command removes its name from here, and a new dead command is a finding, not a budget.

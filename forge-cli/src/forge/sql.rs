@@ -14,8 +14,8 @@
 //!      JSON — no driver type mapping to get wrong and no cast the query author has to guess at.
 //!
 //! Usage:
-//!   cargo run -p cli -- forge sql --target dev --sql "select now()"
-//!   cargo run -p cli -- forge sql --target prod --file /tmp/q.sql [--limit 200] [--format json]
+//!   cargo run -p forge-cli -- sql --target dev --sql "select now()"
+//!   cargo run -p forge-cli -- sql --target prod --file /tmp/q.sql [--limit 200] [--format json]
 
 use super::Failure;
 use db::{Database, DbTarget, ForgeReadDao};
@@ -27,7 +27,7 @@ const DEFAULT_LIMIT: i64 = 200;
 
 pub async fn run(args: &[String]) -> Result<u8, Failure> {
     // `.env.local` carries DATABASE_URL_DEV / DATABASE_URL_PROD — the same loader every other read uses.
-    crate::apple_sync::load_env();
+    crate::env::load_env();
 
     let target = match flag(args, "--target").as_deref() {
         Some("dev") | Some("development") => DbTarget::Dev,

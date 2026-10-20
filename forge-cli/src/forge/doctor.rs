@@ -12,7 +12,7 @@
 //! `db::forge_doctor` / `db::forge_read`; this file only gathers them and prints.
 //!
 //! Usage:
-//!   cargo run -p cli -- forge doctor
+//!   cargo run -p forge-cli -- doctor
 
 use super::{connect, Failure};
 use db::{ForgeDoctorDao, ForgeEngineDao, ForgeReadDao};
@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 
 pub async fn run(args: &[String]) -> Result<u8, Failure> {
     // `.env.local` carries DATABASE_URL_DEV / DATABASE_URL_PROD — the same loader the rest of the CLI uses.
-    crate::apple_sync::load_env();
+    crate::env::load_env();
     if args.iter().any(|value| value == "--help") {
         usage();
         return Ok(0);
@@ -39,7 +39,7 @@ pub async fn run(args: &[String]) -> Result<u8, Failure> {
 }
 
 pub fn usage() {
-    eprintln!("usage: cargo run -p cli -- forge doctor");
+    eprintln!("usage: cargo run -p forge-cli -- doctor");
     eprintln!();
     eprintln!("  Read-only. Prints the control plane, the worker's liveness, the postcard");
     eprintln!("  and the QA run/verdict agreement. APP_ENV picks the database; the target");

@@ -21,7 +21,7 @@
 //! a silent refusal, which `docs/agent/decisions/silent-refusal-is-a-defect.md` calls a defect.
 //!
 //! Usage:
-//!   cargo run -p cli -- forge harness-lint [--strict] [--format json]
+//!   cargo run -p forge-cli -- harness-lint [--strict] [--format json]
 
 use crate::forge::citations::{
     cited_repo_paths, count_lines, line_citations, Resolution, Resolver,

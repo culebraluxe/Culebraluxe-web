@@ -22,7 +22,7 @@ Session of 2026-10-03, agent in `src/lane-deep`. Read with `AGENTS.md` rules 1â€
 | --- | --- | --- | --- |
 | H1 | The four `forge_seam__001..004` failures | the workflow-lane owner (`CURRENT.md` "Four tests fail") | Do not edit the seam expectations, and do not exclude them from the run to make CI green (`AGENTS.md` "you may not make it pass by narrowing it") |
 | H2 | The osv-scanner advisory failing static gates | the dependency/triage owner | A row that is dated and owned; never silence the ledger (`AGENTS.md` T2 rule) |
-| H3 | The four deferred module trees (`cli/src/apple_mail`, `cli/src/forge/lint`, `middle/model/src/applemail`, `middle/model/src/apple_messages`) | a live agent, by name in `gates.yml` | Never run `cargo fmt --all` over them |
+| H3 | The four deferred module trees (`cli/src/apple_mail`, `forge-cli/src/forge/lint`, `middle/model/src/applemail`, `middle/model/src/apple_messages`) | a live agent, by name in `gates.yml` | Never run `cargo fmt --all` over them |
 | H4 | `com.culebraluxe.agent-worker` â€” the engine | the captain | Do not bootstrap it; starting it resumes production work and spends tokens |
 | H5 | `whatsapp/whatsapp-webhook.zip` and `data/skills/svar-react`, deleted by `da16f5ea` | the captain | Unexplained, not assumed intended; recovery is `git show 97785410:<path> > <path>` |
 

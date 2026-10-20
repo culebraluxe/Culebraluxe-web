@@ -58,7 +58,7 @@ loader, dev fixtures, story scaffolding, the runtime dogfood harness. None of it
 
 **Two exceptions, and they matter — and both are already Rust (corrected 2026-09-28):**
 `forge-packet-lint.ts` (663) and `forge-sync-agents.ts` (172) are the gates that keep AGENTS.md and the
-vendor pointer files honest. They are no longer enforced by nothing: `cli/src/forge/{lint,sync_agents,vendor_block}.rs`
+vendor pointer files honest. They are no longer enforced by nothing: `forge-cli/src/forge/{lint,sync_agents,vendor_block}.rs`
 replace them, `package.json` runs the Rust binary (`forge:packet-lint` → `forge harness-lint`,
 `forge:sync-agents` → `forge sync-agents`), and both were run green on 2026-09-28. The earlier claim that they
 "cannot run at all" was true of the deleted TypeScript and is now stale. Nothing to port here.
@@ -139,7 +139,7 @@ and **no TypeScript at all**. Measured after the move, on the tree without it:
   §5.1 measured are gone, so §5.1's open question ("banner them or delete them?") is answered by the move. What
   remains of that finding: the sweep still does not look at this repository's remaining JavaScript, which is five
   files and would cost nothing to cover.
-- **`cli/src/forge/test_section.rs` was deliberately not touched.** The gate's section classifier still
+- **`forge-cli/src/forge/test_section.rs` was deliberately not touched.** The gate's section classifier still
   classifies `legacy/...` paths and still lists `legacy/workflow_app/tests` as a test root: `--since` diffs
   contain those paths now that the deletion itself is in history (`historical_fence_paths_keep_their_sections`),
   and the root is guarded by `if path.exists()`. Removing either would change what the gate reports, and a

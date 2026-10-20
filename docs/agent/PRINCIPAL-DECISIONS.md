@@ -17,7 +17,7 @@ Exact command after seeding two verified DEV revisions:
 ```sh
 cd /Users/Shared/dev/src/lane-deep
 set -a; . /Users/Shared/dev/.env.local; set +a
-cargo run -q -p cli -- forge harness-evolution probe \
+cargo run -q -p forge-cli -- harness-evolution probe \
   --domain rust-backend --story <REAL_STORY_ID> --run <REAL_RUN_ID> \
   --base-revision <DEV_BASE_REVISION_ID> --candidate-revision <DEV_CANDIDATE_REVISION_ID> \
   --authorize-model-run --model-backend opencode \

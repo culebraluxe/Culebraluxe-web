@@ -1,6 +1,6 @@
 # Dead commands — the `pnpm` menu, keep-or-delete
 
-Measured **2026-09-29** by `cargo run -p cli -- forge dead-commands` (`pnpm broken:ts:commands --check`).
+Measured **2026-09-29** by `cargo run -p forge-cli -- dead-commands` (`pnpm broken:ts:commands --check`).
 The gate is Rust now: it was `scripts/dead-command-sweep.mjs` until the port below.
 
 `docs/agent/BROKEN-TS-INVENTORY.md` is the file-by-file ledger: which FILES cannot load, and what each
@@ -12,7 +12,7 @@ three of them are named in runbooks as if they worked.
 ## The honest number
 
 **Current count (2026-10-19): 129 scripts, 0 dead commands.** The dead-command gate's `BASELINE`
-(`cli/src/forge/dead_commands.rs`) is 0 and is the authority for "is the menu clean"; the counts
+(`forge-cli/src/forge/dead_commands.rs`) is 0 and is the authority for "is the menu clean"; the counts
 quoted below are the historical measurements they name, not a claim about today's menu.
 
 At the 2026-09-29 measurement: 121 `package.json` scripts. **25 name a banner file.** Zero name a file
@@ -25,7 +25,7 @@ the sweep is the authority for the number and `BASELINE` in the sweep file is th
 up or down, on purpose.
 
 **Then the gate itself moved to Rust, 2026-09-29, and it arrived at zero.** `pnpm broken:ts:commands` is now
-`cargo run -p cli -- forge dead-commands` (`cli/src/forge/dead_commands.rs`); the TypeScript it replaced
+`cargo run -p forge-cli -- dead-commands` (`forge-cli/src/forge/dead_commands.rs`); the TypeScript it replaced
 printed the same report line for line — text, `--format json` and the `--check` refusal were diffed against it
 before the script was deleted — and there is one deliberate change: the menu is read through an `IndexMap`, so
 the rows keep `package.json`'s own order instead of a map's sort. `BASELINE` was re-measured three times in one
@@ -65,27 +65,27 @@ lowered, so this page and the tree cannot drift apart silently.
 ## Block A — Forge / story operator surface (17)
 
 The rules belong in `forge/src/`, the reads and writes in `db/src/`, the command in
-`cli/src/forge/`, and `package.json` is repointed in the same commit. That is how `forge:roi` landed
+`forge-cli/src/forge/`, and `package.json` is repointed in the same commit. That is how `forge:roi` landed
 and it is the shape every row below is meant to take.
 
 ### Done
 
-1. `forge:roi` (was `scripts/forge-roi.ts`) → `cli/src/forge/roi.rs`, rules in `forge::roi`
+1. `forge:roi` (was `scripts/forge-roi.ts`) → `forge-cli/src/forge/roi.rs`, rules in `forge::roi`
    (`parse_window_days`, `render_roi_report`), read in `ForgeDoctorDao::roi_attempts`. `be6df89d`.
 
 ### Next, in this order
 
 | # | command | script | verdict | Rust home, and what is missing |
 | --- | --- | --- | --- | --- |
-| 2 | `forge:triage` | `forge-triage.ts` (84) | PENDING (captain classifies) | rules → `forge/src/`, TypeSafe call → `middle/apis/`, command → `cli/src/forge/triage.rs`. **Nothing to copy from: `legacy/db/forge-typesafe-triage.ts` is deleted**, so the reference is `docs/agent/typesafe-failure-triage.md` plus the script's own help text. **No `triage` table exists in `db/migrations`** — where an observation lands has to be decided before this is written |
+| 2 | `forge:triage` | `forge-triage.ts` (84) | PENDING (captain classifies) | rules → `forge/src/`, TypeSafe call → `middle/apis/`, command → `forge-cli/src/forge/triage.rs`. **Nothing to copy from: `legacy/db/forge-typesafe-triage.ts` is deleted**, so the reference is `docs/agent/typesafe-failure-triage.md` plus the script's own help text. **No `triage` table exists in `db/migrations`** — where an observation lands has to be decided before this is written |
 | 3 | `forge:test-stories` | `forge-test-stories.ts` (3498) | PORT P1 | the biggest of the feeders; one `forge` subcommand, DEV/PROD explicit |
 | 4 | `forge:record-stories` | `forge-record-stories.ts` (234) | PORT P1 | same subcommand family as 3 |
 | 5 | `forge:ladder` | `forge-ladder.ts` (151) | PORT P2 (lowest of the feeders) | same |
 | 6 | `forge:story:run` | `exec-batch1-story.ts` (79) | PENDING (captain classifies) | the engine already dispatches; the live manual equivalents are `forge:clean` and `forge:story:reset`. Decide: repoint to a `forge` subcommand, or RETIRE the name |
-| 7 | `forge:decision` | `forge-decision.ts` (318) | PENDING | half is done: `cli/src/forge/decision.rs` (shape rules, used by the lint). Missing: `forge decision check` — mirror versus row, over `db::forge_engine::active_decisions` |
+| 7 | `forge:decision` | `forge-decision.ts` (318) | PENDING | half is done: `forge-cli/src/forge/decision.rs` (shape rules, used by the lint). Missing: `forge decision check` — mirror versus row, over `db::forge_engine::active_decisions` |
 | 8 | `forge:learn` | `forge-learn.ts` (88) | VERIFY | the loop it calls (`agent-runtime/learn-loop.ts`) is dead, so the Rust home is the engine's own learn pass in `forge/src/engine/`. `forge doctor` already reads the pass anchor (`.forge-context/learn-last-run.json`) |
-| 9 | `forge:scorecard` | `forge-scorecard.ts` (83) | PENDING | rules → `forge/src/scorecard.rs` (pure), read → `db::forge_read`/`forge_doctor`, command → `cli/src/forge/` |
-| 10 | `forge:board-sync` | `forge-board-sync.ts` (207) | PENDING | read/write → `db::forge_control`, command → `cli/src/forge/` |
+| 9 | `forge:scorecard` | `forge-scorecard.ts` (83) | PENDING | rules → `forge/src/scorecard.rs` (pure), read → `db::forge_read`/`forge_doctor`, command → `forge-cli/src/forge/` |
+| 10 | `forge:board-sync` | `forge-board-sync.ts` (207) | PENDING | read/write → `db::forge_control`, command → `forge-cli/src/forge/` |
 | 11 | `forge:sync-history` | `sync-forge-history.ts` (113) | PENDING | read/write → `db::forge_engine` |
 | 12 | `forge:tools` | `forge-tools.ts` (135) | PENDING | tool catalog → `forge/src/` (pure). VERIFY first: the static gate it runs may already be `forge harness-lint` |
 | 13 | `story:status` | `set-story-status.ts` (138) | PENDING | the read exists (`db::forge_read::story_statuses`); the write is the missing half — a Rust command, not a TS script |
@@ -159,7 +159,7 @@ pnpm broken:ts:commands --check   # fails if the count rose, or fell without the
 pnpm broken:ts:sweep              # the file-by-file counterpart, and the file count's own gate
 ```
 
-Lower `BASELINE` in `cli/src/forge/dead_commands.rs` and the number here when a command is ported or
+Lower `BASELINE` in `forge-cli/src/forge/dead_commands.rs` and the number here when a command is ported or
 removed — those two numbers are the whole metric, and they may only fall. The gate is `--check`: it fails
 when the count rises, and when it falls without the baseline being lowered.
 

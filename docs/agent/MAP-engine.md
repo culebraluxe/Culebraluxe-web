@@ -47,7 +47,7 @@ process instances). `forge` is the Forge SDLC on top of it.
 | `forge/src/roles/` | Seven concrete services: Scout, Architect, Lead, Smith, Inspector, Assay (`qa.rs`) and DevOps (`dev_ops.rs`). `roles/service.rs` defines `AbstractForgeService`; `roles/registry.rs` is the lookup; `roles/hooks.rs` is the role-intelligence contract (`ForgeRoleHooks`) used by the shared lifecycle. Inspector and Assay are deliberately distinct. |
 | `forge/src/bin/forge.rs`, `forge_worker.rs`, `forge_task.rs`, `re_workflow.rs` | The binaries: drive, worker, single task, RE workflow. |
 
-## The harness gates (`cli/src/forge` and `pnpm`)
+## The harness gates (`forge-cli/src/forge` and `pnpm`)
 
 | Command | Gate |
 | --- | --- |
@@ -58,7 +58,7 @@ process instances). `forge` is the Forge SDLC on top of it.
 | `pnpm forge:silent-failure-gate` | Fails a change that swallows a failure |
 | `pnpm broken:ts:sweep` | Dead-TypeScript counts; fails when the tree and the inventory disagree (`docs/agent/BROKEN-TS-INVENTORY.md`) |
 
-`cli/src/forge/` holds `lint.rs`, `citations.rs`, `vendor_block.rs`, `sync_agents.rs`, `decision.rs` and
+`forge-cli/src/forge/` holds `lint.rs`, `citations.rs`, `vendor_block.rs`, `sync_agents.rs`, `decision.rs` and
 `secret_shapes.rs`.
 
 ## The rows (Neon) the engine reads

@@ -39,7 +39,7 @@ pick this up: do the first OPEN item, update the row, run the gate, and move on.
 
 | # | Item | status | scope |
 | --- | --- | --- | --- |
-| O1 | CLI `forge harness-evolution feed|metrics|calibration` (read-only, `--format json`) | DONE (2026-10-18) | `cli/src/forge/harness_evolution.rs` |
+| O1 | CLI `forge harness-evolution feed|metrics|calibration` (read-only, `--format json`) | DONE (2026-10-18) | `forge-cli/src/forge/harness_evolution.rs` |
 | O2 | `forge harness-evolution probe` entrypoint that records probe/contrast rows through the durable store | DONE (2026-10-18) | CLI + `store_db.rs`/`probe_replay.rs` |
 | O3 | Digest lines: corrections awaiting root cause, calibration status, active experiment | DONE (2026-10-18) | `scripts/orchestrate-status.py` |
 

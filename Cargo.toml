@@ -12,6 +12,7 @@ members = [
     "db",
     "cli",
     "forge",
+    "forge-cli",
     "tests",
 ]
 # `experiments/` is deliberately OUTSIDE the workspace. The bench crate there exists to compare stacks we have not

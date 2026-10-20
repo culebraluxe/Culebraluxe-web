@@ -41,14 +41,14 @@ This lane is done. **139 entries in this half, 4 left**, in three sweep commits 
    `ui/projects/*`), with `check:widgets`; plus the dead-command `BASELINE` re-measured on the smaller menu
    (53 → 25 → 19).
 4. *(port, not sweep)* **the two ledger gates are Rust now**: `forge ts-sweep`
-   (`cli/src/forge/ts_sweep.rs`) and `forge dead-commands` (`cli/src/forge/dead_commands.rs`),
+   (`forge-cli/src/forge/ts_sweep.rs`) and `forge dead-commands` (`forge-cli/src/forge/dead_commands.rs`),
    with the `package.json` names kept (`pnpm broken:ts:sweep`, `pnpm broken:ts:commands`), both scripts
    deleted, the CI step moved into the `rust` job (it needs cargo, and the `static` job has none), and
    `BASELINE` re-measured on the tree this landed on: **19 → 10 → 0** — the menu names no bannered file at
    all, out of 97 scripts. Both gates were run against the TypeScript they replace and agree line for line,
    including the `--check` refusal and `--format json`.
-5. *(port, not sweep)* **`scripts/agent-scheduler.mjs` is Rust**: `cli/src/launchd/`
-   (`cargo run -p cli -- launchd agent-worker <render|install|status|run|stop|uninstall>`), the five
+5. *(port, not sweep)* **`scripts/agent-scheduler.mjs` is Rust**: `forge-cli/src/launchd/`
+   (`cargo run -p forge-cli -- launchd agent-worker <render|install|status|run|stop|uninstall>`), the five
    `pnpm agent:scheduler:*` names repointed, the script deleted, its `ts-allowlist.txt` row and its
    `eslint-suppressions.json` entry removed with it. Proven by **byte-diff, not by reading**: Rust `render`
    was identical to the TypeScript's render AND to the plist actually installed on this machine, and `status`
@@ -70,9 +70,9 @@ that cited deleted files had their citations **removed, not baselined**, because
 | File | Why it is still here | The port it needs |
 | --- | --- | --- |
 | `eslint.config.mjs` | `pnpm lint` is a CI gate and eslint is configured in JS; delete it and the lint stops | none exists — it goes when the last JS tool does |
-| ~~`scripts/broken-ts-sweep.mjs`~~ | **PORTED 2026-09-29** → `cli/src/forge/ts_sweep.rs` (`cargo run -p cli -- forge ts-sweep`); its output was verified byte-identical, and one thing changed on purpose: the drift lists print sorted, because the filesystem's `readdir` order is not stable enough to diff | — |
-| ~~`scripts/dead-command-sweep.mjs`~~ | **PORTED 2026-09-29** → `cli/src/forge/dead_commands.rs` (`forge dead-commands`); text, `--format json` and the `--check` refusal are byte-identical, `BASELINE` is re-measured — the menu is read through an `IndexMap` so the row order stays `package.json`'s | — |
-| `scripts/agent-scheduler.mjs` | **PORTED 2026-09-29** → `cli/src/launchd/` (`forge`'s sibling: `launchd agent-worker`), proven by byte-diff of `render` against the installed plist and line-for-line diffs of `status` and the `run` refusal | — (done) |
+| ~~`scripts/broken-ts-sweep.mjs`~~ | **PORTED 2026-09-29** → `forge-cli/src/forge/ts_sweep.rs` (`cargo run -p forge-cli -- ts-sweep`); its output was verified byte-identical, and one thing changed on purpose: the drift lists print sorted, because the filesystem's `readdir` order is not stable enough to diff | — |
+| ~~`scripts/dead-command-sweep.mjs`~~ | **PORTED 2026-09-29** → `forge-cli/src/forge/dead_commands.rs` (`forge dead-commands`); text, `--format json` and the `--check` refusal are byte-identical, `BASELINE` is re-measured — the menu is read through an `IndexMap` so the row order stays `package.json`'s | — |
+| `scripts/agent-scheduler.mjs` | **PORTED 2026-09-29** → `forge-cli/src/launchd/` (`forge`'s sibling: `launchd agent-worker`), proven by byte-diff of `render` against the installed plist and line-for-line diffs of `status` and the `run` refusal | — (done) |
 | `scripts/apple-sync-agent.mjs` | same, for the installed `com.culebraluxe.apple-sync` agent (6 `pnpm` commands) | as above |
 | `scripts/calendar-sync-agent.mjs` | same, for the installed `com.culebraluxe.calendar-sync` agent (5 `pnpm` commands) | as above |
 | `scripts/apple-local-listener.mjs` | the Apple intake listener, **loaded and running under launchd**; a long-lived process, not a utility | a Rust listener, or accept it as part of the macOS bridge beside `apple-messages-export/` |

@@ -15,7 +15,7 @@
 //! rows do not carry reads `NOT CAPTURED` — never zero, and never an invented number.
 //!
 //! Usage:
-//!   cargo run -p cli -- forge scorecard [--days N] [--format json] [--target dev|prod]
+//!   cargo run -p forge-cli -- scorecard [--days N] [--format json] [--target dev|prod]
 
 use super::sql::flag;
 use super::{connect, Failure};
@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 
 pub async fn run(args: &[String]) -> Result<u8, Failure> {
     // `.env.local` carries DATABASE_URL_DEV / DATABASE_URL_PROD — the same loader every read uses.
-    crate::apple_sync::load_env();
+    crate::env::load_env();
     if args.iter().any(|value| value == "--help" || value == "-h") {
         usage();
         return Ok(0);
@@ -78,7 +78,7 @@ pub async fn run(args: &[String]) -> Result<u8, Failure> {
 
 pub fn usage() {
     eprintln!(
-        "usage: cargo run -p cli -- forge scorecard [--days N] [--format json] [--target dev|prod]"
+        "usage: cargo run -p forge-cli -- scorecard [--days N] [--format json] [--target dev|prod]"
     );
     eprintln!();
     eprintln!(

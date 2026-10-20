@@ -14,9 +14,9 @@ keep the same database identity; only table/code ownership and deploy boundaries
 ## 1. Read-only live evidence: `jobs`
 
 `jobs` is the pre-ledger hand-built Forge workflow queue table. It was inspected **read-only** on
-both targets on 2026-10-19 with the app's read-only verb (`cargo run -q -p cli -- forge sql
+both targets on 2026-10-19 with the app's read-only verb (`cargo run -q -p forge-cli -- sql
 --target dev|prod …`; the verb refuses non-SELECT, runs `begin read only`, and wraps results as JSON
-— `cli/src/forge/sql.rs:1-25,28-75`). No write/DDL was executed against DEV or PROD.
+— `forge-cli/src/forge/sql.rs:1-25,28-75`). No write/DDL was executed against DEV or PROD.
 
 ### 1.1 DEV and PROD are identical
 
@@ -267,7 +267,7 @@ Rules:
 
 | concern | evidence |
 |---|---|
-| read-only SQL verb | `cli/src/forge/sql.rs:1-25,28-75` |
+| read-only SQL verb | `forge-cli/src/forge/sql.rs:1-25,28-75` |
 | live `jobs` shape | read-only DEV/PROD queries 2026-10-19; captured in §1 |
 | baseline file | `db/migrations/297_forge_jobs_baseline.sql` |
 | missing jobs in base | `db/migrations/000_forge_base_schema.sql:1-16,39,63`; no `create table jobs` in `db/migrations/` |

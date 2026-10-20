@@ -50,8 +50,8 @@ Reading one of these files for its intent is fine. Wiring live code to it is not
 when a broken file is unmarked or a marked file still loads — so the list and the tree cannot drift apart
 silently. It touches no database and no network.
 
-**It is Rust now, and it is the same gate.** Ported 2026-09-29 to `cli/src/forge/ts_sweep.rs`
-(`cargo run -p cli -- forge ts-sweep`), because the port that removed the last Node script in this repository
+**It is Rust now, and it is the same gate.** Ported 2026-09-29 to `forge-cli/src/forge/ts_sweep.rs`
+(`cargo run -p forge-cli -- ts-sweep`), because the port that removed the last Node script in this repository
 could not leave its own metric behind. The TypeScript it replaced printed the same four counts and the same
 drift sections, diffed line for line before the file was deleted; the one deliberate change is that the drift
 lists print **sorted**, since `readdir` order is the filesystem's and a gate whose output moves cannot be
@@ -106,7 +106,7 @@ re-instate it. Its siblings for the load and the projection got the same treatme
 **Operator commands that cannot run and are named in AGENTS.md or used daily** — corrected 2026-09-28, because
 the Forge half of this list was stale: `forge:doctor`, `forge:clean`, `forge:story:reset`, `forge:packet-lint`,
 `forge:manifest`, `forge:sync-agents` and `forge:harness` **all run**. `package.json` points them at the Rust CLI
-(`cli/src/forge/`), `pnpm broken:ts:commands` counts none of them among the 53 dead names, and both gates were
+(`forge-cli/src/forge/`), `pnpm broken:ts:commands` counts none of them among the 53 dead names, and both gates were
 run green on 2026-09-28. Still dead and used daily: `sprint`, `health`, `test:story`, `test:sprint-fences`,
 `story:status`, `story:preflight`, `db:pull:dev`, `probe:kind:dev`. A runbook step that
 cannot execute is a finding, not a footnote.
@@ -270,15 +270,15 @@ is not at risk here; this is the paperwork machine that reads packets and vendor
    Enforces the packet rules, evidence-as-path-and-line-range (rule 10), and the drift check between
    AGENTS.md and the vendor pointer files. The file imports deleted `lib/agent-vendor-block` +
    `lib/scope-manifest`, so **`pnpm forge:packet-lint` cannot run and the guarantee is unenforced.**
-   **PORTED 2026-09-27** — `cli` `forge harness-lint` (`cli/src/forge/lint.rs` and its
+   **PORTED 2026-09-27** — `cli` `forge harness-lint` (`forge-cli/src/forge/lint.rs` and its
    helpers), with 39 must-fail/must-pass fixtures — "a gate nobody has seen fail is indistinguishable
    from a gate that cannot fail" is written in the file itself, and it stays true. The four deleted
    `lib/` modules it depended on (`agent-vendor-block`, `scope-manifest`, `forge-decision`,
    `secret-shapes`) were recovered from `4cf98110^` and translated into
-   `cli/src/forge/{vendor_block,citations,decision,secret_shapes}.rs`.
+   `forge-cli/src/forge/{vendor_block,citations,decision,secret_shapes}.rs`.
 2. `scripts/forge-sync-agents.ts`, `scripts/forge-sync-agents.test.ts` — `forge:sync-agents`.
    Renders the managed guardrail block into vendor pointers. **PORTED 2026-09-27, in the same change
-   as 1** — `cli` `forge sync-agents` (`cli/src/forge/sync_agents.rs`); the four load-bearing
+   as 1** — `cli` `forge sync-agents` (`forge-cli/src/forge/sync_agents.rs`); the four load-bearing
    rules and the backing AGENTS.md sentences come from ONE Rust module (`forge::vendor_block`), so lint
    and sync cannot disagree. Proof of the translation: `forge sync-agents --check` reports the existing
    `CLAUDE.md` block `ok` — a byte-identical match with the block the TypeScript renderer wrote.
@@ -286,7 +286,7 @@ is not at risk here; this is the paperwork machine that reads packets and vendor
    `forge:manifest:check`. **PORTED 2026-09-28** — `cli` `forge manifest`, with the rules in
    `forge/src/scope_manifest.rs` (lanes, TF-IDF over the restricted corpus, rendering, drift,
    the write refusal — pure, no filesystem, no git, no clock) and the gather-and-print half in
-   `cli/src/forge/manifest.rs`. The two `lib/` modules it needed were recovered from `4cf98110^`
+   `forge-cli/src/forge/manifest.rs`. The two `lib/` modules it needed were recovered from `4cf98110^`
    and translated: `lib/scope-manifest.ts` → `forge::scope_manifest`, `lib/git/sync-conflict.ts` →
    `forge::sync_conflict`. It is the writer half of a pair — the packet lint's rule 8 parses these rows
    and fails on a row that resolves nowhere — and it was the second link of `pnpm forge:harness`, so the
@@ -422,7 +422,7 @@ The product is largely Rust already. What is stranded here is intake and proof t
    it is a **gate that is currently enforcing nothing**, and because the file that defines the
    guardrails is itself unreadable to the tool that replicates them. It does not touch the engine.
    **DONE 2026-09-27** — `cli` `forge harness-lint` + `forge sync-agents`, one rule source in
-   `cli/src/forge/vendor_block.rs`. What the first live run taught: the gate is green on HEAD
+   `forge-cli/src/forge/vendor_block.rs`. What the first live run taught: the gate is green on HEAD
    (0 failures) *because* it reports 175 baselined warnings — the 2026-09 port deleted the TypeScript
    tree and 22 packets/maps/manifests still cite it — and it also found that
    `docs/agent/harness-lint-baseline.json` had been CORRUPT JSON since it was written, which the
@@ -486,10 +486,10 @@ for a reason nobody could fix, which is how a gate gets switched off. The runner
 `scripts/test-harness.mjs`, which DERIVES its list instead of listing it: a suite carrying the
 `⚠ BROKEN ON PURPOSE` banner is skipped and named, an unmarked one runs. A repaired file rejoins the run
 automatically; a newly dead one is skipped the moment it is marked. Their Rust replacements are the fixtures
-in `forge/src/scope_manifest.rs` + `cli/src/forge/manifest.rs` and the sibling modules below.
+in `forge/src/scope_manifest.rs` + `forge-cli/src/forge/manifest.rs` and the sibling modules below.
 
     22 scripts/forge-packet-lint.ts                 FORGE P0    → PORTED 2026-09-27 (cli forge harness-lint)
-    23 scripts/forge-packet-lint.test.ts            FORGE P0    → PORTED 2026-09-27 (39 fixtures in cli/src/forge/*)
+    23 scripts/forge-packet-lint.test.ts            FORGE P0    → PORTED 2026-09-27 (39 fixtures in forge-cli/src/forge/*)
     24 scripts/forge-sync-agents.ts                 FORGE P0    → PORTED 2026-09-27 (cli forge sync-agents)
     25 scripts/forge-sync-agents.test.ts            FORGE P0    → PORTED 2026-09-27 (fixtures in forge/sync_agents.rs)
     26 scripts/forge-manifest.ts                    FORGE P1    → PORTED 2026-09-28 (cli forge manifest)

@@ -11,8 +11,8 @@
 //! in `forge::scope_manifest`; this file gathers from the tree and git, and prints. No rule is decided here.
 //!
 //! Usage:
-//!   cargo run -p cli -- forge manifest <scope> [--check] [--format json] [--lexical <n>]
-//!   cargo run -p cli -- forge manifest --check-all
+//!   cargo run -p forge-cli -- manifest <scope> [--check] [--format json] [--lexical <n>]
+//!   cargo run -p forge-cli -- manifest --check-all
 //!
 //! Exit codes: 0 fresh (or a `--check-all` self-heal), 1 drift or an unresolvable row, 2 usage.
 
@@ -289,7 +289,7 @@ pub fn build_manifest(root: &Path, scope: &str, lexical_limit: Option<usize>) ->
     let resolver = Resolver::new(root);
     let own_file = format!("{MANIFEST_DIR}/{}.md", manifest_file_name(scope));
 
-    // A cited line may be a COMMAND, not a path (`cargo test -p cli -- forge manifest`). The lint already
+    // A cited line may be a COMMAND, not a path (`cargo test -p forge-cli -- manifest`). The lint already
     // extracts the path out of it; if the generator does not, the two disagree about the same row — one says
     // MISSING, the other says fine (2026-09-15, on the Assay line of a new packet).
     let exists = |path: &str| -> bool {

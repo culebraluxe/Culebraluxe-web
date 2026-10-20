@@ -17,7 +17,7 @@
 //! in this repository parses them, and the terminal report does not depend on them.
 //!
 //! Usage:
-//!   cargo run -p cli -- forge roi [--days N] [--format json]
+//!   cargo run -p forge-cli -- roi [--days N] [--format json]
 
 use super::{connect, Failure};
 use db::{ForgeDoctorDao, RoiAttemptRow};
@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 
 pub async fn run(args: &[String]) -> Result<u8, Failure> {
     // `.env.local` carries DATABASE_URL_DEV / DATABASE_URL_PROD — the same loader the rest of the CLI uses.
-    crate::apple_sync::load_env();
+    crate::env::load_env();
     if args.iter().any(|value| value == "--help") {
         usage();
         return Ok(0);
@@ -61,7 +61,7 @@ pub async fn run(args: &[String]) -> Result<u8, Failure> {
 }
 
 pub fn usage() {
-    eprintln!("usage: cargo run -p cli -- forge roi [--days N] [--format json]");
+    eprintln!("usage: cargo run -p forge-cli -- roi [--days N] [--format json]");
     eprintln!();
     eprintln!("  Read-only. The last N days of finished attempts (default 7, cap 90), by kind and");
     eprintln!("  policy. Counts and COST IN WIDGETS — Forge consumption units, not currency:");

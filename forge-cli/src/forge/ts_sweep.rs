@@ -23,7 +23,7 @@
 //! diffed.
 //!
 //! Usage:
-//!   cargo run -p cli -- forge ts-sweep [roots...]     (default roots: scripts agent-runtime)
+//!   cargo run -p forge-cli -- ts-sweep [roots...]     (default roots: scripts agent-runtime)
 
 use crate::forge::{repo_root, Failure};
 use regex::Regex;

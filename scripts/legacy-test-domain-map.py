@@ -137,7 +137,7 @@ AREA_NOTES: dict[str, tuple[str, str]] = {
     "services": ("the service tier: BaseService, authorization, registry, projections",
                  "middle/services/src"),
     "platform": ("repo and CI guards, worker workspace, the engine's own tooling",
-                 "cli/src/forge/{repo_guards,lint}, forge/src/sync_conflict.rs, .githooks/"),
+                 "forge-cli/src/forge/{repo_guards,lint}, forge/src/sync_conflict.rs, .githooks/"),
     "core/forms": ("form documents: template registry, versioning, geometry, signatures, PDF",
                    "middle/model/src/{forms,forms_template,forms_geometry,forms_execution}"),
     "core/clients": ("clients and relationships: identity, evidence, promotion, client room",

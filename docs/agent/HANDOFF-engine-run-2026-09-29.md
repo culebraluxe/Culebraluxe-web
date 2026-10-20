@@ -32,7 +32,7 @@ is the owner's call to start (§7). This file is the state, not the story.
 | Your task | Read | The files you touch |
 | --- | --- | --- |
 | Run the engine once | `scripts/agent-worker-once.sh` (the pass loop) and `forge/src/bin/forge_worker.rs` | nothing |
-| Read what a run recorded | `cli/src/forge/sql.rs`, `db/src/forge_read.rs` | nothing |
+| Read what a run recorded | `forge-cli/src/forge/sql.rs`, `db/src/forge_read.rs` | nothing |
 | Change what a run snapshots | migration 024 §2, then the insert in `db/src/forge_engine.rs` | `db/src/forge_engine.rs`, `db/tests/forge_work_claim_dev.rs` |
 | Prove it without a model lane | `db/tests/forge_work_claim_dev.rs` (assertion 5c) | as above |
 
