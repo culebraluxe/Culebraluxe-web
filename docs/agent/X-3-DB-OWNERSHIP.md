@@ -89,7 +89,7 @@ base (see `workflow_engine/scripts/schema.sql:107-125,166-181` and
 
 ---
 
-## 2. The baseline file: `db/manual/297_forge_jobs_baseline.sql`
+## 2. The baseline file: `workflow repo migrations/manual/jobs_baseline.sql`
 
 Status: **written, NOT applied to DEV or PROD.** The ledger has no 296/297 row on either target
 (read-only query verified; latest recorded is 295 at 2026-10-18 17:40Z on DEV / 17:40Z on PROD).
@@ -269,7 +269,7 @@ Rules:
 |---|---|
 | read-only SQL verb | `forge-cli/src/forge/sql.rs:1-25,28-75` |
 | live `jobs` shape | read-only DEV/PROD queries 2026-10-19; captured in §1 |
-| baseline file | `db/manual/297_forge_jobs_baseline.sql` |
+| baseline file | `workflow repo migrations/manual/jobs_baseline.sql` |
 | missing jobs in base | `db/migrations/000_forge_base_schema.sql:1-16,39,63`; no `create table jobs` in `db/migrations/` |
 | legacy DDL evidence | `workflow_engine/scripts/schema.sql:107-125,166-181`; `db/manual/2026-08-20_v4_crm14_workflow_activation.sql:136-196` |
 | jobs readers | `db/src/workflow_ops.rs:82,121`; `db/src/support.rs:491,575,587,595,677`; `db/src/workflow_portal.rs:317,353` |
