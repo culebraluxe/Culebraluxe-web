@@ -47,10 +47,6 @@ proptest = { workspace = true }
 tempfile.workspace = true
 
 [[bin]]
-name = "re-workflow"
-path = "src/bin/re_workflow.rs"
-
-[[bin]]
 name = "forge-task"
 path = "src/bin/forge_task.rs"
 

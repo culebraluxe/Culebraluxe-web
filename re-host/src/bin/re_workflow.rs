@@ -1,6 +1,6 @@
 //! Residential transaction host. Replaces workflow_app/runtime.ts engine door.
 
-use forge::engine::re_runtime::{
+use re_host::runtime::{
     complete_engine_task, complete_workflow_task, reclaim_stale_jobs,
     reclaim_stale_jobs_for_instance, reconcile_closing_timer, reconcile_deadline_timer,
     reconcile_workflows, reset_dev_workflows, run_due_jobs, start_residential_transaction,
@@ -14,7 +14,7 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 
 fn main() {
     // The engine's events render on stderr from here on.
-    forge::observability::init();
+    re_host::observability::init();
     let args: Vec<String> = env::args().collect();
     let cmd = args.get(1).map(String::as_str).unwrap_or("help");
     let out = match cmd {
@@ -86,7 +86,7 @@ fn main() {
         }
         "reset-dev" | "reset:dev" => {
             if !args.iter().any(|a| a == "--yes") {
-                Err(workflow::WorkflowError::generic("reset-dev is destructive; pass --yes"))
+                Err(workflow_core::WorkflowError::generic("reset-dev is destructive; pass --yes"))
             } else {
                 reset_dev_workflows().map(|rows| {
                     let mut out = String::from("DEV workflow reset complete:");

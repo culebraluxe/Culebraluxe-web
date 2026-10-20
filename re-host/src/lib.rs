@@ -7,9 +7,11 @@
 pub mod commands;
 pub mod db;
 pub mod facts;
+pub mod observability;
 pub mod port;
 pub mod re_receipt;
 pub mod receipt;
+pub mod runtime;
 pub mod xml;
 
 pub use port::ReApplicationPort;

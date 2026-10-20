@@ -2376,6 +2376,7 @@ version = "0.1.0"
 dependencies = [
  "db",
  "tokio",
+ "tracing-subscriber",
  "workflow-core",
  "workflow-neon",
 ]
