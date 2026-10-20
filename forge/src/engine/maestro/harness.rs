@@ -193,7 +193,7 @@ impl MaestroHarness {
     /// Forge's role authority for this node, from the same V2 profile table the OpenCode renderer
     /// uses. Unknown nodes fail closed to read-only.
     fn read_only_for(&self, node_id: &str) -> bool {
-        use crate::engine::opencode_agents::{Authority, v2_agent_for_node, v2_profile};
+        use crate::engine::opencode_agents::{v2_agent_for_node, v2_profile, Authority};
         !matches!(
             v2_agent_for_node(node_id)
                 .ok()

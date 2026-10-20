@@ -14,8 +14,8 @@ use std::process::{Command, Stdio};
 
 use workflow::{Result, WorkflowError};
 
-use super::DSH_PROFILE;
 use super::args::DshCli;
+use super::DSH_PROFILE;
 
 /// The DSH version this adapter was written and measured against.
 pub const DEFAULT_DSH_VERSION: &str = "0.1.1-rc.2";

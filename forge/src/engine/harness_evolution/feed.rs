@@ -138,7 +138,10 @@ pub fn targets_from_scorecard(
     // Deduplicate identical targets (same domain+signal+refs) and cap deterministically.
     let mut seen = std::collections::BTreeSet::new();
     targets.retain(|target| {
-        let key = format!("{:?}|{:?}|{:?}", target.domain, target.signal, target.evidence_refs);
+        let key = format!(
+            "{:?}|{:?}|{:?}",
+            target.domain, target.signal, target.evidence_refs
+        );
         seen.insert(key)
     });
     targets.sort_by(|a, b| format!("{:?}", a.signal).cmp(&format!("{:?}", b.signal)));
@@ -168,7 +171,6 @@ pub fn targets_from_holds(rows: &[HoldFeedRow], options: FeedOptions) -> Vec<Imp
     targets.truncate(options.max_targets);
     targets
 }
-
 
 // ---------------------------------------------------------------------------------------------
 // Correction ledger → RepeatedCorrection targets (Phase 3 TD 3.3/3.4/3.5)
@@ -363,7 +365,10 @@ pub fn targets_from_learning_sources(
     ));
     let mut seen = std::collections::BTreeSet::new();
     targets.retain(|target| {
-        let key = format!("{:?}|{:?}|{:?}", target.domain, target.signal, target.evidence_refs);
+        let key = format!(
+            "{:?}|{:?}|{:?}",
+            target.domain, target.signal, target.evidence_refs
+        );
         seen.insert(key)
     });
     targets.sort_by(|a, b| format!("{:?}", a.signal).cmp(&format!("{:?}", b.signal)));
@@ -502,10 +507,7 @@ impl ExperimentWriteback {
     }
 }
 
-fn writeback_evidence(
-    decision: &AdoptionDecision,
-    experiment: &HarnessExperiment,
-) -> Vec<String> {
+fn writeback_evidence(decision: &AdoptionDecision, experiment: &HarnessExperiment) -> Vec<String> {
     let mut refs: Vec<String> = decision.evidence_refs.clone();
     for contrast in &experiment.contrasts {
         refs.extend(contrast.evidence_refs.iter().cloned());
@@ -565,7 +567,9 @@ pub fn writeback_from_experiment(
             } else if !composition.summary.trim().is_empty() {
                 composition.summary.trim().to_string()
             } else {
-                return Err("adopted experiment has neither rationale nor composition summary".into());
+                return Err(
+                    "adopted experiment has neither rationale nor composition summary".into(),
+                );
             };
             if composition.successor_manifest_hash.trim().is_empty() {
                 return Err("adopted experiment has no successor manifest hash".into());
@@ -607,7 +611,9 @@ pub fn writeback_from_experiment(
         AdoptionVerdict::Reject => {
             let correction = decision.rationale.trim();
             if correction.is_empty() {
-                return Err("rejected experiment has no rationale to record as a correction".into());
+                return Err(
+                    "rejected experiment has no rationale to record as a correction".into(),
+                );
             }
             Ok(Some(ExperimentWriteback::Correction(Box::new(
                 CorrectionWriteback {
@@ -627,7 +633,9 @@ pub fn writeback_from_experiment(
                 },
             ))))
         }
-        AdoptionVerdict::MoreEvidence | AdoptionVerdict::Council | AdoptionVerdict::Chris => Ok(None),
+        AdoptionVerdict::MoreEvidence | AdoptionVerdict::Council | AdoptionVerdict::Chris => {
+            Ok(None)
+        }
     }
 }
 
@@ -635,7 +643,14 @@ pub fn writeback_from_experiment(
 mod tests {
     use super::*;
 
-    fn row(role: &str, agent: &str, tasks: u64, completed: u64, failed: u64, rework: u64) -> ScorecardFeedRow {
+    fn row(
+        role: &str,
+        agent: &str,
+        tasks: u64,
+        completed: u64,
+        failed: u64,
+        rework: u64,
+    ) -> ScorecardFeedRow {
         ScorecardFeedRow {
             role: role.into(),
             agent: agent.into(),
@@ -651,22 +666,34 @@ mod tests {
 
     #[test]
     fn weak_completion_produces_a_target() {
-        let targets = targets_from_scorecard(&[row("smith", "opencode-harness", 10, 3, 1, 2)], FeedOptions::default());
+        let targets = targets_from_scorecard(
+            &[row("smith", "opencode-harness", 10, 3, 1, 2)],
+            FeedOptions::default(),
+        );
         assert_eq!(targets.len(), 1);
-        assert!(matches!(targets[0].signal, ImprovementSignal::ScorecardWeakness { .. }));
+        assert!(matches!(
+            targets[0].signal,
+            ImprovementSignal::ScorecardWeakness { .. }
+        ));
         assert_eq!(targets[0].domain, HarnessDomain::RustBackend);
         assert!(!targets[0].evidence_refs.is_empty());
     }
 
     #[test]
     fn healthy_bucket_produces_no_target() {
-        let targets = targets_from_scorecard(&[row("smith", "opencode-harness", 20, 20, 0, 1)], FeedOptions::default());
+        let targets = targets_from_scorecard(
+            &[row("smith", "opencode-harness", 20, 20, 0, 1)],
+            FeedOptions::default(),
+        );
         assert!(targets.is_empty());
     }
 
     #[test]
     fn small_buckets_are_ignored() {
-        let targets = targets_from_scorecard(&[row("smith", "opencode-harness", 2, 0, 2, 2)], FeedOptions::default());
+        let targets = targets_from_scorecard(
+            &[row("smith", "opencode-harness", 2, 0, 2, 2)],
+            FeedOptions::default(),
+        );
         assert!(targets.is_empty());
     }
 
@@ -695,7 +722,10 @@ mod tests {
         }];
         let targets = targets_from_holds(&rows, FeedOptions::default());
         assert_eq!(targets.len(), 1);
-        assert!(matches!(targets[0].signal, ImprovementSignal::HoldPattern { holds: 3, .. }));
+        assert!(matches!(
+            targets[0].signal,
+            ImprovementSignal::HoldPattern { holds: 3, .. }
+        ));
         assert_eq!(targets[0].domain, HarnessDomain::QaTesting);
     }
 
@@ -756,7 +786,9 @@ mod tests {
             occurrences: 4,
             evidence_refs: Vec::new(),
         }];
-        assert!(targets_from_corrections(&no_evidence, CorrectionFeedOptions::default()).is_empty());
+        assert!(
+            targets_from_corrections(&no_evidence, CorrectionFeedOptions::default()).is_empty()
+        );
     }
 
     #[test]
@@ -778,7 +810,10 @@ mod tests {
         let mut duplicate = rows.clone();
         duplicate.push(rows[0].clone());
         let again = targets_from_corrections(&duplicate, options);
-        assert_eq!(targets, again, "a duplicated row must not duplicate a target");
+        assert_eq!(
+            targets, again,
+            "a duplicated row must not duplicate a target"
+        );
     }
 
     #[test]
@@ -797,7 +832,10 @@ mod tests {
         assert!(targets[0]
             .evidence_refs
             .contains(&"storyboard_story:STORY-1".to_string()));
-        assert_eq!(targets[0].id(), "hypothesis:forge:silent-failure-pattern:src/x.rs");
+        assert_eq!(
+            targets[0].id(),
+            "hypothesis:forge:silent-failure-pattern:src/x.rs"
+        );
     }
 
     #[test]
@@ -887,8 +925,7 @@ mod tests {
         let targets = targets_from_corrections(&rows, CorrectionFeedOptions::default());
         assert_eq!(targets.len(), 1, "real ledger rows produce a target");
         assert_eq!(
-            targets[0].evidence_refs,
-            rows[0].evidence_refs,
+            targets[0].evidence_refs, rows[0].evidence_refs,
             "the target carries the ledger evidence"
         );
     }
@@ -915,7 +952,9 @@ mod tests {
         match writeback {
             ExperimentWriteback::Experience(experience) => {
                 assert_eq!(experience.confidence, None, "0 stated means 'none stated'");
-                let error = experience.to_new().expect_err("db row requires a confidence");
+                let error = experience
+                    .to_new()
+                    .expect_err("db row requires a confidence");
                 assert!(error.contains("no stated confidence"), "{error}");
             }
             other => panic!("expected an experience writeback, got {other:?}"),
@@ -966,7 +1005,8 @@ mod tests {
             model_policy: "default".into(),
             executor: "opencode".into(),
             tools: Vec::new(),
-            environment_class: crate::engine::harness_evolution::model::EnvironmentClass::Development,
+            environment_class:
+                crate::engine::harness_evolution::model::EnvironmentClass::Development,
             input_dataset: "forge-harness-evolution".into(),
         };
         let mut experiment = HarnessExperiment::new(
@@ -1066,10 +1106,7 @@ mod tests {
             "policy",
             "replay gate failed; the prompt change regressed the focused test",
         );
-        let experiment = experiment_for_writeback(
-            decision.clone(),
-            ValidationEvidence::pending(),
-        );
+        let experiment = experiment_for_writeback(decision.clone(), ValidationEvidence::pending());
         let writeback = writeback_from_experiment(&experiment, &decision)
             .expect("writeback")
             .expect("rejected outcome has a writeback");
@@ -1112,7 +1149,11 @@ mod tests {
 
     #[test]
     fn non_outcome_verdicts_write_nothing_back() {
-        for verdict in [AdoptionVerdict::MoreEvidence, AdoptionVerdict::Council, AdoptionVerdict::Chris] {
+        for verdict in [
+            AdoptionVerdict::MoreEvidence,
+            AdoptionVerdict::Council,
+            AdoptionVerdict::Chris,
+        ] {
             let decision = AdoptionDecision::new(
                 format!("decision-{verdict:?}"),
                 HarnessDomain::RustBackend,
@@ -1121,8 +1162,12 @@ mod tests {
                 "policy",
                 "not an outcome yet",
             );
-            let experiment = experiment_for_writeback(decision.clone(), ValidationEvidence::pending());
-            assert_eq!(writeback_from_experiment(&experiment, &decision).unwrap(), None);
+            let experiment =
+                experiment_for_writeback(decision.clone(), ValidationEvidence::pending());
+            assert_eq!(
+                writeback_from_experiment(&experiment, &decision).unwrap(),
+                None
+            );
         }
     }
 

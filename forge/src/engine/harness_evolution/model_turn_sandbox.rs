@@ -46,9 +46,9 @@ use super::probe_replay::{
     SandboxReading, SandboxRequest,
 };
 use super::sandbox_command::{
-    await_stream_capture, cleanup_receipts, create_secure_dir, redact_secrets, spawn_stream_capture,
-    terminate_process_group, write_secure_file, CAPTURE_JOIN_GRACE, RECEIPT_MAX_FILES,
-    RECEIPT_RETENTION,
+    await_stream_capture, cleanup_receipts, create_secure_dir, redact_secrets,
+    spawn_stream_capture, terminate_process_group, write_secure_file, CAPTURE_JOIN_GRACE,
+    RECEIPT_MAX_FILES, RECEIPT_RETENTION,
 };
 
 /// Environment variable selecting the headless backend (`dsh` or `opencode`).
@@ -1998,7 +1998,10 @@ mod tests {
         // on normal exit (plus the join deadline) must keep the probe bounded.
         let fixture = Fixture::new();
         let sandbox = fixture
-            .sandbox(command_backend("/bin/sh", vec!["-c", "(sleep 30) & exit 0"]))
+            .sandbox(command_backend(
+                "/bin/sh",
+                vec!["-c", "(sleep 30) & exit 0"],
+            ))
             .with_timeout(Duration::from_secs(5));
         let started = Instant::now();
         let reading = run(&sandbox, &fixture, "probe-descendant").expect("reading");
@@ -2010,5 +2013,4 @@ mod tests {
         assert_eq!(receipt.exit_code, Some(0));
         assert!(!receipt.timed_out);
     }
-
 }

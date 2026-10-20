@@ -365,19 +365,27 @@ impl ReplaySandbox for CommandSandbox {
         }
 
         let started = Instant::now();
-        let mut child = command.spawn().map_err(|error| ReplayError::SandboxFailed {
-            probe_id: request.probe_id.to_string(),
-            message: format!("cannot spawn {}: {error}", self.command.program.display()),
-        })?;
+        let mut child = command
+            .spawn()
+            .map_err(|error| ReplayError::SandboxFailed {
+                probe_id: request.probe_id.to_string(),
+                message: format!("cannot spawn {}: {error}", self.command.program.display()),
+            })?;
 
-        let stdout = child.stdout.take().ok_or_else(|| ReplayError::SandboxFailed {
-            probe_id: request.probe_id.to_string(),
-            message: "stdout pipe missing".into(),
-        })?;
-        let stderr = child.stderr.take().ok_or_else(|| ReplayError::SandboxFailed {
-            probe_id: request.probe_id.to_string(),
-            message: "stderr pipe missing".into(),
-        })?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ReplayError::SandboxFailed {
+                probe_id: request.probe_id.to_string(),
+                message: "stdout pipe missing".into(),
+            })?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| ReplayError::SandboxFailed {
+                probe_id: request.probe_id.to_string(),
+                message: "stderr pipe missing".into(),
+            })?;
         let output_cap = self.output_cap;
         let stdout_rx = spawn_stream_capture(stdout, output_cap);
         let stderr_rx = spawn_stream_capture(stderr, output_cap);
@@ -994,10 +1002,7 @@ mod tests {
         let sandbox = fixture.sandbox(
             SandboxCommand::new("/bin/sleep", vec!["5".to_string()])
                 .with_timeout(Duration::from_millis(100)),
-            vec![AllowedInvocation::new(
-                "/bin/sleep",
-                vec!["5".to_string()],
-            )],
+            vec![AllowedInvocation::new("/bin/sleep", vec!["5".to_string()])],
         );
         let error = run(&sandbox, &fixture, "probe-ref").unwrap_err();
         assert_eq!(error.code(), "replay_sandbox_failed");
@@ -1186,9 +1191,7 @@ mod tests {
         let receipt = receipt_for(&reading);
         assert!(receipt.stdout_truncated);
         assert!(
-            receipt
-                .stdout_excerpt
-                .contains("[truncated at 8 bytes of "),
+            receipt.stdout_excerpt.contains("[truncated at 8 bytes of "),
             "marker must state cap and true total, got {:?}",
             receipt.stdout_excerpt
         );
@@ -1235,10 +1238,16 @@ mod tests {
             "replay_sandbox_refused"
         );
         let zero = fixture.sandbox(command.with_timeout(Duration::ZERO), allowed);
-        assert_eq!(zero.validate().unwrap_err().code(), "replay_sandbox_refused");
+        assert_eq!(
+            zero.validate().unwrap_err().code(),
+            "replay_sandbox_refused"
+        );
         let (command, allowed) = echo("x");
         let no_cap = fixture.sandbox(command, allowed).with_output_cap(0);
-        assert_eq!(no_cap.validate().unwrap_err().code(), "replay_sandbox_refused");
+        assert_eq!(
+            no_cap.validate().unwrap_err().code(),
+            "replay_sandbox_refused"
+        );
     }
 
     #[test]
@@ -1249,7 +1258,10 @@ mod tests {
         let first = run(&sandbox, &fixture, "probe-ref").expect("first");
         let second = run(&sandbox, &fixture, "probe-ref").expect("second");
         assert_ne!(first.behavior.evidence_id, second.behavior.evidence_id);
-        assert_ne!(receipt_for(&first).workspace, receipt_for(&second).workspace);
+        assert_ne!(
+            receipt_for(&first).workspace,
+            receipt_for(&second).workspace
+        );
     }
 
     #[test]
@@ -1290,7 +1302,10 @@ mod tests {
             "AKIAABCDEF",
             "eyJhbGciOi",
         ] {
-            assert!(!redacted.contains(secret), "secret {secret:?} survived: {redacted}");
+            assert!(
+                !redacted.contains(secret),
+                "secret {secret:?} survived: {redacted}"
+            );
         }
         assert!(redacted.contains(REDACTED));
         assert!(redacted.contains("harmless: the test passed"));
@@ -1362,7 +1377,10 @@ mod tests {
 
         thread::sleep(Duration::from_millis(10));
         let removed_old = cleanup_receipts(root.path(), Duration::ZERO, 10).expect("cleanup age");
-        assert_eq!(removed_old, 2, "zero retention removes every existing receipt");
+        assert_eq!(
+            removed_old, 2,
+            "zero retention removes every existing receipt"
+        );
     }
 
     #[test]
@@ -1385,5 +1403,4 @@ mod tests {
         assert_eq!(receipt.exit_code, Some(0));
         assert!(!receipt.timed_out);
     }
-
 }

@@ -142,9 +142,10 @@ pub fn compose(request: &ComposeRequest<'_>) -> Result<ComposedHarness, Evolutio
         for entry in &request.evidence {
             for change in &entry.candidate.changes {
                 if change.kind == kind {
-                    if proposals.iter().any(|proposal| {
-                        std::ptr::eq(proposal.candidate, entry.candidate)
-                    }) {
+                    if proposals
+                        .iter()
+                        .any(|proposal| std::ptr::eq(proposal.candidate, entry.candidate))
+                    {
                         duplicate = true;
                     }
                     proposals.push(KindProposal {
@@ -166,10 +167,11 @@ pub fn compose(request: &ComposeRequest<'_>) -> Result<ComposedHarness, Evolutio
 
         let outcome = decide(request.base, kind, &proposals)?;
         let confidence = confidence_for(outcome.decision, &proposals);
-        let record = ComponentDecisionRecord::new(kind, outcome.decision, outcome.rationale.clone())
-            .with_evidence_for(outcome.evidence_for.clone())
-            .with_evidence_against(outcome.evidence_against.clone())
-            .with_confidence(confidence);
+        let record =
+            ComponentDecisionRecord::new(kind, outcome.decision, outcome.rationale.clone())
+                .with_evidence_for(outcome.evidence_for.clone())
+                .with_evidence_against(outcome.evidence_against.clone())
+                .with_confidence(confidence);
 
         match outcome.plan {
             KindPlan::None => {
@@ -427,16 +429,12 @@ fn merge_components(
     let components: Vec<Component> = chosen
         .iter()
         .map(|index| {
-            proposals[*index]
-                .change
-                .component
-                .clone()
-                .ok_or_else(|| {
-                    EvolutionError::InvalidComposition(format!(
-                        "SET {} carries no component",
-                        proposals[*index].change.kind
-                    ))
-                })
+            proposals[*index].change.component.clone().ok_or_else(|| {
+                EvolutionError::InvalidComposition(format!(
+                    "SET {} carries no component",
+                    proposals[*index].change.kind
+                ))
+            })
         })
         .collect::<Result<_, _>>()?;
 
@@ -555,7 +553,12 @@ mod tests {
                 "baseline memory",
                 "base memory",
             ));
-        HarnessRevision::draft("base-1", crate::engine::harness_evolution::model::HarnessDomain::RustBackend, manifest, "owner")
+        HarnessRevision::draft(
+            "base-1",
+            crate::engine::harness_evolution::model::HarnessDomain::RustBackend,
+            manifest,
+            "owner",
+        )
     }
 
     fn identity() -> ProbeIdentity {
@@ -875,10 +878,7 @@ mod tests {
             }],
             created_by: "smith".into(),
         };
-        assert_eq!(
-            compose(&request).unwrap_err().code(),
-            "invalid_composition"
-        );
+        assert_eq!(compose(&request).unwrap_err().code(), "invalid_composition");
     }
 
     #[test]
@@ -905,10 +905,7 @@ mod tests {
             }],
             created_by: "smith".into(),
         };
-        assert_eq!(
-            compose(&request).unwrap_err().code(),
-            "invalid_composition"
-        );
+        assert_eq!(compose(&request).unwrap_err().code(), "invalid_composition");
     }
 
     #[test]
@@ -934,10 +931,7 @@ mod tests {
             }],
             created_by: "smith".into(),
         };
-        assert_eq!(
-            compose(&request).unwrap_err().code(),
-            "invalid_composition"
-        );
+        assert_eq!(compose(&request).unwrap_err().code(), "invalid_composition");
     }
 
     #[test]
@@ -971,10 +965,7 @@ mod tests {
                 .content,
             original_prompt
         );
-        assert_eq!(
-            composed.successor.parent_revision_id,
-            Some(base.id.clone())
-        );
+        assert_eq!(composed.successor.parent_revision_id, Some(base.id.clone()));
         composed.successor.verify_integrity().unwrap();
     }
 
@@ -1018,10 +1009,7 @@ mod tests {
             evidence: vec![],
             created_by: "smith".into(),
         };
-        assert_eq!(
-            compose(&empty).unwrap_err().code(),
-            "invalid_composition"
-        );
+        assert_eq!(compose(&empty).unwrap_err().code(), "invalid_composition");
 
         let candidate = system_prompt_candidate("cand-1", "ADDED");
         let report = improved_contrast("contrast-1");

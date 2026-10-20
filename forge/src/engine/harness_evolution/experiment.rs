@@ -929,9 +929,7 @@ impl HarnessExperiment {
         runner: &ExperimentRunner<'_>,
     ) -> Result<(), ExperimentError> {
         if self.state != RevisionStatus::Draft {
-            return Err(ExperimentError::NotRunFromDraft {
-                state: self.state,
-            });
+            return Err(ExperimentError::NotRunFromDraft { state: self.state });
         }
         let base = self.require_base(catalog)?;
 
@@ -1030,11 +1028,12 @@ impl HarnessExperiment {
                 .as_deref()
                 .and_then(|revision_id| catalog.revision(revision_id))
                 .filter(|revision| revision.id != self.base_revision);
-            let composition = self.composition.as_ref().ok_or_else(|| {
-                ExperimentError::BaseMissing {
-                    revision_id: self.base_revision.clone(),
-                }
-            })?;
+            let composition =
+                self.composition
+                    .as_ref()
+                    .ok_or_else(|| ExperimentError::BaseMissing {
+                        revision_id: self.base_revision.clone(),
+                    })?;
             let context = ValidationContext {
                 experiment_id: &self.id,
                 domain: self.domain,
@@ -1131,10 +1130,12 @@ pub fn validate_recursion_budget(
 ) -> Result<(), ExperimentError> {
     budget.validate()?;
     if budget.k > RECURSION_K_CEILING {
-        return Err(ExperimentError::Evolution(EvolutionError::InvalidBudget(format!(
-            "k={} exceeds the recursion ceiling of {RECURSION_K_CEILING}",
-            budget.k
-        ))));
+        return Err(ExperimentError::Evolution(EvolutionError::InvalidBudget(
+            format!(
+                "k={} exceeds the recursion ceiling of {RECURSION_K_CEILING}",
+                budget.k
+            ),
+        )));
     }
     match mode {
         EvolutionMode::Parallel => {
@@ -1153,9 +1154,9 @@ pub fn validate_recursion_budget(
         }
         EvolutionMode::Sequential => {
             if budget.max_steps > RECURSION_STEP_CEILING {
-                return Err(ExperimentError::Evolution(EvolutionError::InvalidBudget(format!(
-                    "sequential recursion is capped at {RECURSION_STEP_CEILING} steps"
-                ))));
+                return Err(ExperimentError::Evolution(EvolutionError::InvalidBudget(
+                    format!("sequential recursion is capped at {RECURSION_STEP_CEILING} steps"),
+                )));
             }
             if budget.k != budget.max_steps {
                 return Err(ExperimentError::Evolution(EvolutionError::InvalidBudget(
@@ -1254,11 +1255,7 @@ impl RecursionRequest {
     }
 
     /// The v1 default: parallel k = 1, one step.
-    pub fn k1(
-        experiment_id: impl Into<String>,
-        base: &HarnessRevision,
-        pins: ProbePins,
-    ) -> Self {
+    pub fn k1(experiment_id: impl Into<String>, base: &HarnessRevision, pins: ProbePins) -> Self {
         Self::new(
             experiment_id,
             base,
@@ -1357,12 +1354,11 @@ fn run_sequential_recursion(
     let mut stopped_reason: Option<String> = None;
 
     for index in 1..=request.budget.max_steps {
-        let base = catalog
-            .revision(&current_base_id)
-            .cloned()
-            .ok_or_else(|| ExperimentError::BaseMissing {
+        let base = catalog.revision(&current_base_id).cloned().ok_or_else(|| {
+            ExperimentError::BaseMissing {
                 revision_id: current_base_id.clone(),
-            })?;
+            }
+        })?;
         let mut experiment = HarnessExperiment::new(
             format!("{}-step-{index}", request.experiment_id),
             request.domain,
@@ -2038,15 +2034,18 @@ mod tests {
         use crate::engine::harness_evolution::compose::ComposedHarness;
 
         let base = base_revision();
-        let changes = vec![ComponentChange::set(prompt("adapted prompt"), "compose rationale")];
-        let manifest = base.manifest.clone().apply_changes(&changes).expect("fixture");
-        let successor = HarnessRevision::draft(
-            "successor-adapted",
-            base.domain,
-            manifest.clone(),
-            "smith",
-        )
-        .with_parent(Some(base.id.clone()));
+        let changes = vec![ComponentChange::set(
+            prompt("adapted prompt"),
+            "compose rationale",
+        )];
+        let manifest = base
+            .manifest
+            .clone()
+            .apply_changes(&changes)
+            .expect("fixture");
+        let successor =
+            HarnessRevision::draft("successor-adapted", base.domain, manifest.clone(), "smith")
+                .with_parent(Some(base.id.clone()));
         let decision = CompositionDecision {
             id: "composition-adapted".into(),
             base_revision: base.id.clone(),
@@ -2275,14 +2274,8 @@ mod tests {
             max_steps: 1,
             max_probes: 5,
         };
-        let request = RecursionRequest::new(
-            "rec-1",
-            &base,
-            pins(),
-            EvolutionMode::Parallel,
-            budget,
-            0,
-        );
+        let request =
+            RecursionRequest::new("rec-1", &base, pins(), EvolutionMode::Parallel, budget, 0);
         let executor = RecordedProbe::new(vec![
             reading("rec-1-reference", ProbeSide::Reference, "base-1"),
             reading("rec-1-inv-1-candidate", ProbeSide::Candidate, "rec-1-inv-1"),
@@ -2299,10 +2292,21 @@ mod tests {
         };
         let outcome = run_recursion(&request, &mut catalog, &runner).expect("parallel k2");
 
-        let evidence = outcome.evidence_phase.as_ref().expect("shared evidence phase");
-        assert_eq!(evidence.candidate_revisions.len(), 4, "k invariant + k domain");
+        let evidence = outcome
+            .evidence_phase
+            .as_ref()
+            .expect("shared evidence phase");
+        assert_eq!(
+            evidence.candidate_revisions.len(),
+            4,
+            "k invariant + k domain"
+        );
         assert_eq!(evidence.contrasts.len(), 4);
-        assert_eq!(outcome.steps.len(), 2, "k compositions from the shared evidence");
+        assert_eq!(
+            outcome.steps.len(),
+            2,
+            "k compositions from the shared evidence"
+        );
         assert_eq!(outcome.adoptable_count(), 2);
         assert!(outcome.is_fully_adoptable());
         for step in &outcome.steps {
@@ -2318,7 +2322,10 @@ mod tests {
         }
         let first = outcome.steps[0].successor_revision.clone();
         let second = outcome.steps[1].successor_revision.clone();
-        assert_ne!(first, second, "each composition is its own successor revision");
+        assert_ne!(
+            first, second,
+            "each composition is its own successor revision"
+        );
         assert_eq!(outcome.final_successor, first);
         assert_eq!(
             catalog.active_revision_id(HarnessDomain::RustBackend),
@@ -2335,14 +2342,8 @@ mod tests {
             max_steps: 2,
             max_probes: 6,
         };
-        let request = RecursionRequest::new(
-            "seq-1",
-            &base,
-            pins(),
-            EvolutionMode::Sequential,
-            budget,
-            0,
-        );
+        let request =
+            RecursionRequest::new("seq-1", &base, pins(), EvolutionMode::Sequential, budget, 0);
         let executor = RecordedProbe::new(vec![
             reading("seq-1-step-1-reference", ProbeSide::Reference, "base-1"),
             reading(
@@ -2401,14 +2402,8 @@ mod tests {
             max_steps: 2,
             max_probes: 6,
         };
-        let request = RecursionRequest::new(
-            "seq-1",
-            &base,
-            pins(),
-            EvolutionMode::Sequential,
-            budget,
-            0,
-        );
+        let request =
+            RecursionRequest::new("seq-1", &base, pins(), EvolutionMode::Sequential, budget, 0);
         // Step 1 can run; step 2's reference probe is missing, so step 2 fails.
         let executor = RecordedProbe::new(vec![
             reading("seq-1-step-1-reference", ProbeSide::Reference, "base-1"),
@@ -2452,14 +2447,8 @@ mod tests {
             max_steps: 2,
             max_probes: 6,
         };
-        let request = RecursionRequest::new(
-            "seq-1",
-            &base,
-            pins(),
-            EvolutionMode::Sequential,
-            budget,
-            0,
-        );
+        let request =
+            RecursionRequest::new("seq-1", &base, pins(), EvolutionMode::Sequential, budget, 0);
         let executor = RecordedProbe::new(vec![
             reading("seq-1-step-1-reference", ProbeSide::Reference, "base-1"),
             reading(
@@ -2476,7 +2465,11 @@ mod tests {
             validator: &FixedValidator::incomplete(),
         };
         let outcome = run_recursion(&request, &mut catalog, &runner).expect("recursion completes");
-        assert_eq!(outcome.steps.len(), 1, "the chain stops after an unvalidated step");
+        assert_eq!(
+            outcome.steps.len(),
+            1,
+            "the chain stops after an unvalidated step"
+        );
         assert!(!outcome.steps[0].adoptable);
         assert!(outcome.stopped_reason.is_some());
         assert_eq!(outcome.final_successor, None);
@@ -2495,14 +2488,8 @@ mod tests {
             max_steps: 1,
             max_probes: 100,
         };
-        let request = RecursionRequest::new(
-            "rec-1",
-            &base,
-            pins(),
-            EvolutionMode::Parallel,
-            budget,
-            0,
-        );
+        let request =
+            RecursionRequest::new("rec-1", &base, pins(), EvolutionMode::Parallel, budget, 0);
         let executor = RecordedProbe::new(Vec::new());
         let validator = FixedValidator::clean();
         let runner = ExperimentRunner {
@@ -2514,7 +2501,10 @@ mod tests {
         };
         let error = run_recursion(&request, &mut catalog, &runner).unwrap_err();
         assert_eq!(error.code(), "invalid_budget");
-        assert!(!executor.was_called(), "an over-budget request costs no probe");
+        assert!(
+            !executor.was_called(),
+            "an over-budget request costs no probe"
+        );
         assert_eq!(
             catalog.active_revision_id(HarnessDomain::RustBackend),
             Some("base-1")
@@ -2545,7 +2535,10 @@ mod tests {
                     max_probes: 4,
                 },
             ),
-            Err(ExperimentError::ProbeBudgetExceeded { planned: 5, budget: 4 })
+            Err(ExperimentError::ProbeBudgetExceeded {
+                planned: 5,
+                budget: 4
+            })
         ));
         // Sequential: k is the step count.
         assert!(matches!(
@@ -2569,7 +2562,10 @@ mod tests {
                     max_probes: 5,
                 },
             ),
-            Err(ExperimentError::ProbeBudgetExceeded { planned: 6, budget: 5 })
+            Err(ExperimentError::ProbeBudgetExceeded {
+                planned: 6,
+                budget: 5
+            })
         ));
         // The ceilings themselves are accepted.
         assert!(validate_recursion_budget(
@@ -2582,5 +2578,4 @@ mod tests {
         )
         .is_ok());
     }
-
 }

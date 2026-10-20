@@ -157,8 +157,8 @@ fn metric_for(
     let completion_rate =
         (captured_outcomes > 0).then(|| completed as f64 / captured_outcomes as f64);
     let rework_rate = (attempts > 0).then(|| rework_attempts as f64 / attempts as f64);
-    let routing_accuracy =
-        (route_observed > 0).then(|| (route_observed - route_mismatches) as f64 / route_observed as f64);
+    let routing_accuracy = (route_observed > 0)
+        .then(|| (route_observed - route_mismatches) as f64 / route_observed as f64);
     let (total_cost_micros, mean_cost_micros) = if priced_attempts > 0 {
         (
             Some(total_cost_micros),
@@ -275,7 +275,11 @@ mod tests {
         assert_eq!(metric.unpriced_attempts, 1);
         assert_eq!(metric.total_cost_micros, None, "unpriced is not free");
         assert_eq!(metric.mean_cost_micros, None);
-        assert_eq!(metric.cost_coverage, Some(0.0), "coverage IS known: 0 priced");
+        assert_eq!(
+            metric.cost_coverage,
+            Some(0.0),
+            "coverage IS known: 0 priced"
+        );
         assert!(render_role_model_metrics(&metrics).contains("NOT CAPTURED"));
     }
 
@@ -283,19 +287,38 @@ mod tests {
     fn an_uncaptured_outcome_is_not_a_failure() {
         let metrics = role_model_metrics(&[
             observation("lead", "deepseek-chat", None, 1, None, Some(10)),
-            observation("lead", "deepseek-chat", Some(RunOutcome::Completed), 2, None, Some(20)),
+            observation(
+                "lead",
+                "deepseek-chat",
+                Some(RunOutcome::Completed),
+                2,
+                None,
+                Some(20),
+            ),
         ]);
         let metric = &metrics[0];
         assert_eq!(metric.attempts, 2);
         assert_eq!(metric.uncaptured_outcomes, 1);
         assert_eq!(metric.failed, 0, "a missing outcome is not a failure");
-        assert_eq!(metric.completion_rate, Some(1.0), "1 of 1 captured completed");
-        assert_eq!(metric.failed + metric.completed + metric.held + metric.interrupted + metric.uncaptured_outcomes, 2);
+        assert_eq!(
+            metric.completion_rate,
+            Some(1.0),
+            "1 of 1 captured completed"
+        );
+        assert_eq!(
+            metric.failed
+                + metric.completed
+                + metric.held
+                + metric.interrupted
+                + metric.uncaptured_outcomes,
+            2
+        );
     }
 
     #[test]
     fn a_bucket_with_no_captured_outcome_has_no_completion_rate() {
-        let metrics = role_model_metrics(&[observation("qa", "deepseek-chat", None, 1, None, None)]);
+        let metrics =
+            role_model_metrics(&[observation("qa", "deepseek-chat", None, 1, None, None)]);
         assert_eq!(metrics[0].completion_rate, None);
         assert_eq!(metrics[0].routing_accuracy, None);
     }
@@ -311,12 +334,29 @@ mod tests {
             None,
         )]);
         assert_eq!(unobserved[0].route_observed, 0);
-        assert_eq!(unobserved[0].routing_accuracy, None, "no route observed is not 100%");
+        assert_eq!(
+            unobserved[0].routing_accuracy, None,
+            "no route observed is not 100%"
+        );
 
         let observed = role_model_metrics(&[
-            observation("smith", "a", Some(RunOutcome::Completed), 1, Some(true), None),
+            observation(
+                "smith",
+                "a",
+                Some(RunOutcome::Completed),
+                1,
+                Some(true),
+                None,
+            ),
             observation("smith", "a", Some(RunOutcome::Failed), 2, Some(false), None),
-            observation("smith", "a", Some(RunOutcome::Completed), 3, Some(true), None),
+            observation(
+                "smith",
+                "a",
+                Some(RunOutcome::Completed),
+                3,
+                Some(true),
+                None,
+            ),
         ]);
         assert_eq!(observed[0].route_observed, 3);
         assert_eq!(observed[0].route_mismatches, 1);
@@ -337,7 +377,14 @@ mod tests {
     #[test]
     fn grouped_by_role_and_model_deterministically_and_cost_is_summed() {
         let metrics = role_model_metrics(&[
-            observation("smith", "b", Some(RunOutcome::Completed), 1, None, Some(1_500_000)),
+            observation(
+                "smith",
+                "b",
+                Some(RunOutcome::Completed),
+                1,
+                None,
+                Some(1_500_000),
+            ),
             observation("lead", "a", Some(RunOutcome::Held), 1, None, Some(500_000)),
             observation("smith", "b", Some(RunOutcome::Completed), 2, None, None),
         ]);
@@ -353,7 +400,14 @@ mod tests {
         assert_eq!(metrics[1].evidence_refs.len(), 2);
         let again = role_model_metrics(&[
             observation("lead", "a", Some(RunOutcome::Held), 1, None, Some(500_000)),
-            observation("smith", "b", Some(RunOutcome::Completed), 1, None, Some(1_500_000)),
+            observation(
+                "smith",
+                "b",
+                Some(RunOutcome::Completed),
+                1,
+                None,
+                Some(1_500_000),
+            ),
             observation("smith", "b", Some(RunOutcome::Completed), 2, None, None),
         ]);
         assert_eq!(metrics, again, "same rows in another order, same report");
@@ -361,17 +415,13 @@ mod tests {
 
     #[test]
     fn render_prints_not_captured_for_missing_fields() {
-        let metrics = role_model_metrics(&[observation(
-            "smith",
-            "a",
-            None,
-            1,
-            None,
-            None,
-        )]);
+        let metrics = role_model_metrics(&[observation("smith", "a", None, 1, None, None)]);
         let rendered = render_role_model_metrics(&metrics);
         assert!(rendered.contains("completion=NOT CAPTURED"), "{rendered}");
-        assert!(rendered.contains("route_accuracy=NOT CAPTURED"), "{rendered}");
+        assert!(
+            rendered.contains("route_accuracy=NOT CAPTURED"),
+            "{rendered}"
+        );
         assert!(rendered.contains("cost=NOT CAPTURED"), "{rendered}");
     }
 }

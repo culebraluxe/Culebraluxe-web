@@ -22,12 +22,12 @@ use super::model::{
     Candidate, Component, ComponentKind, EnvironmentClass, EvolutionBudget, EvolutionError,
     EvolutionMode, HarnessDomain, HarnessManifest, HarnessRevision,
 };
+use super::model_turn_sandbox::ModelTurnAuthorization;
 use super::policy;
 use super::probe::{ProbeContract, ProbeError, ProbePins};
 use super::probe_replay::{
     HistoricalTask, HistoricalTaskLoader, HistoricalTaskRequest, ReplayError,
 };
-use super::model_turn_sandbox::ModelTurnAuthorization;
 use super::propose::{propose, ImprovementSignal, ImprovementTarget, ProposalRequest};
 
 /// The dogfood experiment's domain: the Rust backend lane.
@@ -1010,7 +1010,9 @@ pub fn authorized_model_run_boundary(
         model_authorization.environment_class().id(),
         MODEL_RUN_AUTHORIZATION_FLAG
     ));
-    out.push_str("EXECUTION REFUSED: the probe entrypoint (O2) is not wired; no model turn was executed.\n");
+    out.push_str(
+        "EXECUTION REFUSED: the probe entrypoint (O2) is not wired; no model turn was executed.\n",
+    );
     out.push_str("This token only opens the boundary; the sandbox runner (ModelTurnSandbox) is the executor once wired.\n");
     out.push_str("----------------------------------------------------------------------\n");
     out.push_str(&real.render());
@@ -1438,7 +1440,10 @@ mod tests {
         )
         .expect("authorized");
         assert_eq!(authorized.sandbox(), "sandbox_command::CommandSandbox");
-        assert_eq!(authorized.environment_class(), EnvironmentClass::Development);
+        assert_eq!(
+            authorized.environment_class(),
+            EnvironmentClass::Development
+        );
     }
 
     #[test]
@@ -1483,10 +1488,7 @@ mod tests {
         // A silent partial/incorrect loader result must not degrade to a placeholder.
         struct WrongStoryLoader;
         impl HistoricalTaskLoader for WrongStoryLoader {
-            fn load(
-                &self,
-                request: &HistoricalTaskRequest,
-            ) -> Result<HistoricalTask, ReplayError> {
+            fn load(&self, request: &HistoricalTaskRequest) -> Result<HistoricalTask, ReplayError> {
                 Ok(HistoricalTask::new(
                     "someone-else",
                     request.run_id.clone().unwrap_or_else(|| "run-x".into()),
@@ -1507,10 +1509,7 @@ mod tests {
             loads: Cell<usize>,
         }
         impl HistoricalTaskLoader for PartialLoader {
-            fn load(
-                &self,
-                request: &HistoricalTaskRequest,
-            ) -> Result<HistoricalTask, ReplayError> {
+            fn load(&self, request: &HistoricalTaskRequest) -> Result<HistoricalTask, ReplayError> {
                 self.loads.set(self.loads.get() + 1);
                 if self.loads.get() > 2 {
                     return Err(ReplayError::TaskNotFound {
@@ -1595,8 +1594,8 @@ mod tests {
     #[test]
     fn the_model_run_boundary_requires_its_own_authorization_and_environment() {
         let real = real_run_plan();
-        let boundary = authorized_model_run_boundary(&real, &command_model_authorization())
-            .expect("boundary");
+        let boundary =
+            authorized_model_run_boundary(&real, &command_model_authorization()).expect("boundary");
         assert!(boundary.contains("MODEL RUN AUTHORIZED (D1 boundary)"));
         assert!(boundary.contains("backend=command"));
         assert!(boundary.contains("flag=--authorize-model-run"));
@@ -1615,8 +1614,8 @@ mod tests {
         .expect("authorized");
         let ci_real =
             build_real_run_plan(&request, &loader, &sandbox_authorization).expect("ci plan");
-        let error = authorized_model_run_boundary(&ci_real, &command_model_authorization())
-            .unwrap_err();
+        let error =
+            authorized_model_run_boundary(&ci_real, &command_model_authorization()).unwrap_err();
         assert_eq!(error.code(), "dogfood_real_run_not_authorized");
         assert!(error.to_string().contains("model-run authorization covers"));
     }
@@ -1652,11 +1651,10 @@ mod tests {
     #[test]
     fn print_authorized_model_run_boundary() {
         let real = real_run_plan();
-        let text = authorized_model_run_boundary(&real, &command_model_authorization())
-            .expect("boundary");
+        let text =
+            authorized_model_run_boundary(&real, &command_model_authorization()).expect("boundary");
         println!("{text}");
         assert!(text.contains("MODEL RUN AUTHORIZED (D1 boundary)"));
         assert!(text.contains("EXECUTION REFUSED"));
     }
-
 }

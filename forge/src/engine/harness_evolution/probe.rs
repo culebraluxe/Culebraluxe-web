@@ -430,8 +430,7 @@ pub fn verify_reading_matches_request(
     }
     // A reading is only usable for the probe it belongs to: neither the outcome nor its
     // behavior reading may name a different probe than the one that was requested.
-    if reading.outcome.probe_id != request.probe_id
-        || reading.behavior.probe_id != request.probe_id
+    if reading.outcome.probe_id != request.probe_id || reading.behavior.probe_id != request.probe_id
     {
         return Err(ProbeError::ReadingMismatch {
             probe_id: request.probe_id.clone(),
@@ -477,10 +476,12 @@ pub fn validate_matched_pair(
     candidate.validate_complete()?;
 
     if reference.task != candidate.task {
-        return Err(ProbeError::Evolution(EvolutionError::InvalidProbe(format!(
-            "reference probe task {} differs from candidate probe task {}",
-            reference.task, candidate.task
-        ))));
+        return Err(ProbeError::Evolution(EvolutionError::InvalidProbe(
+            format!(
+                "reference probe task {} differs from candidate probe task {}",
+                reference.task, candidate.task
+            ),
+        )));
     }
     if reference.test_plan != candidate.test_plan {
         return Err(ProbeError::Evolution(EvolutionError::InvalidProbe(
@@ -505,10 +506,12 @@ pub fn validate_matched_pair(
         }));
     }
     if !reference.identity().matches(&candidate.identity()) {
-        return Err(ProbeError::Evolution(EvolutionError::ProbeIdentityMismatch {
-            reference: reference.identity().summary(),
-            candidate: candidate.identity().summary(),
-        }));
+        return Err(ProbeError::Evolution(
+            EvolutionError::ProbeIdentityMismatch {
+                reference: reference.identity().summary(),
+                candidate: candidate.identity().summary(),
+            },
+        ));
     }
     Ok(())
 }
@@ -526,14 +529,8 @@ pub fn run_pair(
 
     let reference = executor.execute(&contract.reference_request(reference_probe_id))?;
     let candidate = executor.execute(&contract.candidate_request(candidate_probe_id))?;
-    verify_reading_matches_request(
-        &contract.reference_request(reference_probe_id),
-        &reference,
-    )?;
-    verify_reading_matches_request(
-        &contract.candidate_request(candidate_probe_id),
-        &candidate,
-    )?;
+    verify_reading_matches_request(&contract.reference_request(reference_probe_id), &reference)?;
+    verify_reading_matches_request(&contract.candidate_request(candidate_probe_id), &candidate)?;
     Ok(ProbePairReading {
         contract_digest: contract.digest(),
         reference,
@@ -697,7 +694,10 @@ mod tests {
         let reference = contract.reference_spec();
         type SpecMutation = Box<dyn Fn(&mut ProbeSpec)>;
         let mutations: Vec<(&str, SpecMutation)> = vec![
-            ("task", Box::new(|spec: &mut ProbeSpec| spec.task = "other".into())),
+            (
+                "task",
+                Box::new(|spec: &mut ProbeSpec| spec.task = "other".into()),
+            ),
             (
                 "model",
                 Box::new(|spec: &mut ProbeSpec| spec.model = "other-model".into()),
@@ -897,7 +897,10 @@ mod tests {
         let error = recorded
             .execute(&contract.reference_request("probe-1"))
             .expect_err("digest mismatch");
-        assert!(matches!(error, ProbeError::DigestMismatch { .. }), "{error}");
+        assert!(
+            matches!(error, ProbeError::DigestMismatch { .. }),
+            "{error}"
+        );
     }
 
     #[test]
@@ -909,7 +912,11 @@ mod tests {
             valid.outcome.evidence_refs, valid.behavior.evidence_refs,
             "the outcome links the reading's evidence; it does not copy telemetry"
         );
-        assert!(valid.outcome.evidence_refs.iter().all(|reference| !reference.is_empty()));
+        assert!(valid
+            .outcome
+            .evidence_refs
+            .iter()
+            .all(|reference| !reference.is_empty()));
 
         let mut empty = valid.behavior.clone();
         empty.probe_id = "probe-2".into();

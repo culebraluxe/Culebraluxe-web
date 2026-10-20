@@ -695,10 +695,7 @@ fn invariant_guidance(signal: &ImprovementSignal) -> (ComponentKind, &'static st
 }
 
 /// Domain guidance: knowledge, constraints and procedures that only belong to one domain.
-fn domain_guidance(
-    signal: &ImprovementSignal,
-    domain: HarnessDomain,
-) -> (ComponentKind, String) {
+fn domain_guidance(signal: &ImprovementSignal, domain: HarnessDomain) -> (ComponentKind, String) {
     let domain_id = domain.id();
     match signal {
         ImprovementSignal::ScorecardWeakness { role, .. } => (
@@ -931,14 +928,16 @@ mod tests {
         let change = &domain_batch.domain_scope[0].candidate.changes[0];
         let component = change.component.as_ref().unwrap();
         assert_eq!(component.kind, ComponentKind::Skills);
-        assert_eq!(component.authority, ComponentKind::Skills.minimum_authority());
+        assert_eq!(
+            component.authority,
+            ComponentKind::Skills.minimum_authority()
+        );
     }
 
     #[test]
     fn budget_caps_candidates_per_scope() {
         let base = base_revision();
-        let targets: Vec<ImprovementTarget> =
-            all_signals().into_iter().map(target).collect();
+        let targets: Vec<ImprovementTarget> = all_signals().into_iter().map(target).collect();
         let request = ProposalRequest {
             targets,
             budget: EvolutionBudget {
@@ -1028,8 +1027,16 @@ mod tests {
     #[test]
     fn proposal_is_deterministic() {
         let base = base_revision();
-        let first = propose(&base, &ProposalRequest::k1(vec![hold_target(), cost_target()])).unwrap();
-        let second = propose(&base, &ProposalRequest::k1(vec![hold_target(), cost_target()])).unwrap();
+        let first = propose(
+            &base,
+            &ProposalRequest::k1(vec![hold_target(), cost_target()]),
+        )
+        .unwrap();
+        let second = propose(
+            &base,
+            &ProposalRequest::k1(vec![hold_target(), cost_target()]),
+        )
+        .unwrap();
         assert_eq!(first, second);
         let set = first.candidate_set().unwrap();
         let again = second.candidate_set().unwrap();
@@ -1051,8 +1058,7 @@ mod tests {
     #[test]
     fn proposed_content_does_not_introduce_protected_topics() {
         let base = base_revision();
-        let targets: Vec<ImprovementTarget> =
-            all_signals().into_iter().map(target).collect();
+        let targets: Vec<ImprovementTarget> = all_signals().into_iter().map(target).collect();
         let batch = propose(&base, &ProposalRequest::k1(targets)).unwrap();
         for proposed in batch.all() {
             for change in &proposed.candidate.changes {
@@ -1075,17 +1081,13 @@ mod tests {
     #[test]
     fn invariant_candidates_name_their_guidance_family() {
         let base = base_revision();
-        let themes: Vec<&str> = vec![
-            "reasoning",
-            "planning",
-            "tool_use",
-            "context",
-            "delegation",
-        ];
+        let themes: Vec<&str> = vec!["reasoning", "planning", "tool_use", "context", "delegation"];
         let batch = propose(&base, &ProposalRequest::k1(vec![hold_target()])).unwrap();
         for proposed in &batch.invariant {
             assert!(
-                themes.iter().any(|theme| proposed.rationale.contains(theme)),
+                themes
+                    .iter()
+                    .any(|theme| proposed.rationale.contains(theme)),
                 "invariant rationale names no guidance family: {}",
                 proposed.rationale
             );

@@ -116,13 +116,9 @@ pub fn contrast(
     let mut dimensions = Vec::with_capacity(BehaviorDimension::ALL.len());
     for dimension in BehaviorDimension::ALL {
         let note = dimension_note(dimension, reference, candidate);
-        let dimension_contrast = DimensionContrast::from_evidence(
-            dimension,
-            reference,
-            candidate,
-            note,
-        )
-        .with_evidence_refs(evidence_refs.clone());
+        let dimension_contrast =
+            DimensionContrast::from_evidence(dimension, reference, candidate, note)
+                .with_evidence_refs(evidence_refs.clone());
         dimensions.push(dimension_contrast);
     }
 
@@ -248,10 +244,7 @@ pub fn regressed_dimensions(report: &ContrastReport) -> Vec<BehaviorDimension> {
 }
 
 /// Merge the two executions' evidence refs deterministically: trimmed, deduplicated, sorted.
-fn merged_evidence_refs(
-    reference: &BehaviorEvidence,
-    candidate: &BehaviorEvidence,
-) -> Vec<String> {
+fn merged_evidence_refs(reference: &BehaviorEvidence, candidate: &BehaviorEvidence) -> Vec<String> {
     let mut refs: Vec<String> = reference
         .evidence_refs
         .iter()
@@ -307,8 +300,8 @@ fn summarize(dimensions: &[DimensionContrast]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::model::{EnvironmentClass, QaVerdict};
+    use super::*;
 
     fn identity() -> ProbeIdentity {
         ProbeIdentity {
@@ -740,8 +733,11 @@ mod tests {
         let candidate = improved_candidate();
         let mut report = report_for(&reference, &candidate);
         let summary = report.summary.clone();
-        assert!(!normalize_unmeasured_usage(&mut report, &reference, &candidate));
+        assert!(!normalize_unmeasured_usage(
+            &mut report,
+            &reference,
+            &candidate
+        ));
         assert_eq!(report.summary, summary);
     }
-
 }

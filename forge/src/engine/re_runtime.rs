@@ -8,7 +8,6 @@ use workflow::{
 };
 
 use crate::engine::completion::CompletionLedger;
-use crate::engine::port::ForgeApplicationPort;
 use crate::engine::re_commands::{assert_command_nodes_routed, XML_COMMAND_NODE_TYPES};
 use crate::engine::re_facts::{contract_workflow_facts, deal_workflow_facts};
 use crate::engine::re_port::ReApplicationPort;
@@ -359,17 +358,41 @@ pub fn reset_dev_workflows() -> Result<Vec<(String, u64)>> {
     .map_err(WorkflowError::generic)?
 }
 
-/// Create a ForgeRuntime using the shared cached engine (production path).
-/// This enforces the one-pool-per-process rule by reusing the engine from `re_engine()`.
+/// Create the production factory runtime. The default path builds the factory's own
+/// FORGE_SDLC engine over the shared `db::shared` pool with `ForgeApplicationPort`; it never
+/// borrows or re-seeds the app RE engine. The old app-RE-backed bridge remains only behind the
+/// temporary `legacy-shared-re-engine` feature for one gate.
 pub fn shared_forge_runtime(
     writer: Arc<dyn ForgeStateWriter>,
     release: Option<Arc<dyn ForgeReleaseExecutor>>,
     evidence: Option<Arc<dyn ForgeEvidenceReader>>,
     ledger: Arc<dyn CompletionLedger>,
 ) -> Result<ForgeRuntime<NeonStore>> {
+    #[cfg(feature = "legacy-shared-re-engine")]
+    {
+        legacy_shared_forge_runtime(writer, release, evidence, ledger)
+    }
+    #[cfg(not(feature = "legacy-shared-re-engine"))]
+    {
+        crate::engine::factory_runtime::shared_factory_runtime(writer, release, evidence, ledger)
+    }
+}
+
+/// Old path: app RE engine + re-seeded RE definition. Kept behind the feature for one gate only.
+#[cfg(feature = "legacy-shared-re-engine")]
+fn legacy_shared_forge_runtime(
+    writer: Arc<dyn ForgeStateWriter>,
+    release: Option<Arc<dyn ForgeReleaseExecutor>>,
+    evidence: Option<Arc<dyn ForgeEvidenceReader>>,
+    ledger: Arc<dyn CompletionLedger>,
+) -> Result<ForgeRuntime<NeonStore>> {
     let engine = re_engine()?;
-    let port = Arc::new(ForgeApplicationPort::new(writer.clone(), release, evidence));
-    // Re-seed the definition in case the shared engine was built with a different port
+    let port = Arc::new(crate::engine::port::ForgeApplicationPort::new(
+        writer.clone(),
+        release,
+        evidence,
+    ));
+    // Re-seed the definition in case the shared engine was built with a different port.
     let def = parse_re_supermodel().map_err(|e| WorkflowError::generic(e.0))?;
     engine.seed_definition(def)?;
     Ok(ForgeRuntime {

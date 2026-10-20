@@ -49,6 +49,7 @@ pub mod profile_report;
 pub mod runaway;
 pub mod trajectory;
 pub use learn::run_learn_dry_run;
+pub mod factory_runtime;
 pub mod maestro;
 pub mod migration_guard;
 mod model_aliases;

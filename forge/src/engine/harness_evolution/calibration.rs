@@ -212,15 +212,11 @@ pub fn calibration_report(
                 .count(),
             missing_probabilities: in_bucket
                 .iter()
-                .filter(|sample| {
-                    sample.stated_probability.is_none() && sample.outcome.is_some()
-                })
+                .filter(|sample| sample.stated_probability.is_none() && sample.outcome.is_some())
                 .count(),
             missing_both: in_bucket
                 .iter()
-                .filter(|sample| {
-                    sample.stated_probability.is_none() && sample.outcome.is_none()
-                })
+                .filter(|sample| sample.stated_probability.is_none() && sample.outcome.is_none())
                 .count(),
             brier: brier_over(&in_bucket),
         });
@@ -274,7 +270,12 @@ impl CalibrationReport {
 mod tests {
     use super::*;
 
-    fn scored(decision: &str, verdict: AdoptionVerdict, probability: f64, right: bool) -> CalibrationSample {
+    fn scored(
+        decision: &str,
+        verdict: AdoptionVerdict,
+        probability: f64,
+        right: bool,
+    ) -> CalibrationSample {
         CalibrationSample::new(decision, verdict)
             .with_probability(probability)
             .with_outcome(right)
@@ -294,7 +295,7 @@ mod tests {
     #[test]
     fn a_wrong_verdict_contributes_its_squared_error() {
         let samples = vec![
-            scored("d1", AdoptionVerdict::Adopt, 0.9, true),   // 0.01
+            scored("d1", AdoptionVerdict::Adopt, 0.9, true), // 0.01
             scored("d2", AdoptionVerdict::Reject, 0.7, false), // 0.49
         ];
         let expected = (0.01 + 0.49) / 2.0;
@@ -317,7 +318,10 @@ mod tests {
             "only the observed outcome is scored: {:?}",
             report.brier
         );
-        assert_eq!(report.missing_probabilities, 0, "the outcome-only miss is not a probability miss");
+        assert_eq!(
+            report.missing_probabilities, 0,
+            "the outcome-only miss is not a probability miss"
+        );
         assert_eq!(report.missing_both, 0);
         let bucket = &report.buckets[0];
         assert_eq!(bucket.verdict, AdoptionVerdict::Council);
@@ -375,7 +379,10 @@ mod tests {
         ));
         assert!(brier_score(&samples).is_err());
         let nan = vec![scored("d2", AdoptionVerdict::Adopt, f64::NAN, true)];
-        assert!(calibration_report(&nan).is_err(), "NaN is not a probability");
+        assert!(
+            calibration_report(&nan).is_err(),
+            "NaN is not a probability"
+        );
     }
 
     #[test]
@@ -387,7 +394,11 @@ mod tests {
         ];
         let report = calibration_report(&samples).unwrap();
         assert_eq!(
-            report.buckets.iter().map(|bucket| bucket.verdict).collect::<Vec<_>>(),
+            report
+                .buckets
+                .iter()
+                .map(|bucket| bucket.verdict)
+                .collect::<Vec<_>>(),
             vec![AdoptionVerdict::Adopt, AdoptionVerdict::Reject],
             "bucket order follows AdoptionVerdict::ALL"
         );
@@ -404,21 +415,26 @@ mod tests {
 
     #[test]
     fn a_verdict_with_no_samples_has_no_bucket() {
-        let report = calibration_report(&[scored("d1", AdoptionVerdict::Council, 0.5, true)]).unwrap();
+        let report =
+            calibration_report(&[scored("d1", AdoptionVerdict::Council, 0.5, true)]).unwrap();
         assert_eq!(report.buckets.len(), 1);
         assert_eq!(report.buckets[0].verdict, AdoptionVerdict::Council);
     }
 
     #[test]
     fn the_report_is_labelled_blended_not_council_only() {
-        let report = calibration_report(&[scored("d1", AdoptionVerdict::Council, 0.8, true)]).unwrap();
+        let report =
+            calibration_report(&[scored("d1", AdoptionVerdict::Council, 0.8, true)]).unwrap();
         assert_eq!(
             CalibrationReport::LABEL,
             "decision calibration (blended across verdicts)"
         );
         let line = report.summary_line();
         assert!(line.starts_with(CalibrationReport::LABEL), "{line}");
-        assert!(!line.to_ascii_lowercase().contains("council calibration"), "{line}");
+        assert!(
+            !line.to_ascii_lowercase().contains("council calibration"),
+            "{line}"
+        );
         assert_eq!(
             report.buckets.len(),
             1,
@@ -442,7 +458,9 @@ mod tests {
         assert_eq!(bare.declared_by, None, "no owner is invented");
         assert_eq!(bare.probability_source, None, "no source is invented");
         // Provenance is metadata: it does not change the score.
-        assert!((brier_score(std::slice::from_ref(&sample)).unwrap().unwrap() - 0.0625).abs() < 1e-12);
+        assert!(
+            (brier_score(std::slice::from_ref(&sample)).unwrap().unwrap() - 0.0625).abs() < 1e-12
+        );
         assert!((brier_score(&[bare]).unwrap().unwrap() - 0.25).abs() < 1e-12);
     }
 

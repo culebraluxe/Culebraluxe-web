@@ -207,11 +207,7 @@ impl ExperienceLibrary {
             }
         }
 
-        if self
-            .entries
-            .iter()
-            .any(|existing| existing.id == record.id)
-        {
+        if self.entries.iter().any(|existing| existing.id == record.id) {
             return Ok(InsertOutcome::AlreadyPresent);
         }
         self.entries.push(record);
@@ -223,11 +219,7 @@ impl ExperienceLibrary {
     ///
     /// An empty term list means "everything in this scope" (still capped and visibility-filtered);
     /// a non-empty list keeps only lessons whose applicability contains at least one term.
-    pub fn retrieve(
-        &self,
-        query: &ExperienceQuery,
-        now: DateTime<Utc>,
-    ) -> Vec<&ExperienceRecord> {
+    pub fn retrieve(&self, query: &ExperienceQuery, now: DateTime<Utc>) -> Vec<&ExperienceRecord> {
         let terms = canonical_terms(&query.terms);
         let mut matches: Vec<(&ExperienceRecord, usize)> = self
             .entries
@@ -406,7 +398,11 @@ mod tests {
         let mut library = ExperienceLibrary::new();
         assert_eq!(
             library
-                .insert(record("lesson-1", scope.clone(), &contrast, &validation), &contrast, &validation)
+                .insert(
+                    record("lesson-1", scope.clone(), &contrast, &validation),
+                    &contrast,
+                    &validation
+                )
                 .unwrap(),
             InsertOutcome::Inserted
         );
@@ -418,7 +414,10 @@ mod tests {
         let (library, _) = library_with_one_lesson();
         assert_eq!(library.len(), 1);
         let stored = &library.records()[0];
-        assert_eq!(stored.counterevidence, vec!["one fixture was flaky".to_string()]);
+        assert_eq!(
+            stored.counterevidence,
+            vec!["one fixture was flaky".to_string()]
+        );
         assert_eq!(stored.confidence, 70);
     }
 
@@ -429,11 +428,19 @@ mod tests {
         let scope = scope(HarnessDomain::RustBackend);
         let mut library = ExperienceLibrary::new();
         library
-            .insert(record("lesson-1", scope.clone(), &contrast, &validation), &contrast, &validation)
+            .insert(
+                record("lesson-1", scope.clone(), &contrast, &validation),
+                &contrast,
+                &validation,
+            )
             .unwrap();
         assert_eq!(
             library
-                .insert(record("lesson-1", scope, &contrast, &validation), &contrast, &validation)
+                .insert(
+                    record("lesson-1", scope, &contrast, &validation),
+                    &contrast,
+                    &validation
+                )
                 .unwrap(),
             InsertOutcome::AlreadyPresent
         );
@@ -447,7 +454,11 @@ mod tests {
         let scope = scope(HarnessDomain::RustBackend);
         let mut library = ExperienceLibrary::new();
         let error = library
-            .insert(record("lesson-1", scope, &contrast, &pending), &contrast, &pending)
+            .insert(
+                record("lesson-1", scope, &contrast, &pending),
+                &contrast,
+                &pending,
+            )
             .unwrap_err();
         assert_eq!(error.code(), "invalid_experience");
         assert!(library.is_empty());
@@ -487,9 +498,7 @@ mod tests {
         let mut lesson = record("lesson-1", scope, &contrast, &validation);
         lesson.contrast_id = "some-other-contrast".into();
         let mut library = ExperienceLibrary::new();
-        let error = library
-            .insert(lesson, &contrast, &validation)
-            .unwrap_err();
+        let error = library.insert(lesson, &contrast, &validation).unwrap_err();
         assert!(error.to_string().contains("cites contrast"));
     }
 
@@ -501,9 +510,7 @@ mod tests {
         let mut lesson = record("lesson-1", scope, &contrast, &validation);
         lesson.evidence_refs = vec!["unrelated:1".into()];
         let mut library = ExperienceLibrary::new();
-        let error = library
-            .insert(lesson, &contrast, &validation)
-            .unwrap_err();
+        let error = library.insert(lesson, &contrast, &validation).unwrap_err();
         assert!(error.to_string().contains("evidence ref"));
     }
 
@@ -572,9 +579,7 @@ mod tests {
         let lesson = record("lesson-1", scope, &hand_built, &validation);
         let mut other = hand_built.clone();
         other.id = "contrast-2".into();
-        assert!(library
-            .insert(lesson, &other, &validation)
-            .is_err());
+        assert!(library.insert(lesson, &other, &validation).is_err());
     }
 
     #[test]
@@ -585,7 +590,8 @@ mod tests {
         assert_eq!(library.retrieve(&query, now).len(), 1);
 
         // A different domain never sees this lesson.
-        let other_domain = ExperienceQuery::new(scope(HarnessDomain::QaTesting), vec!["rework".into()]);
+        let other_domain =
+            ExperienceQuery::new(scope(HarnessDomain::QaTesting), vec!["rework".into()]);
         assert!(library.retrieve(&other_domain, now).is_empty());
 
         // Same domain, different mode/budget/seed: not the same conditions, not the same library.
@@ -635,14 +641,22 @@ mod tests {
         let scope = scope(HarnessDomain::RustBackend);
         let mut library = ExperienceLibrary::new();
         for index in 0..(EXPERIENCE_RETRIEVAL_CAP + 3) {
-            let mut lesson = record(&format!("lesson-{index}"), scope.clone(), &contrast, &validation);
+            let mut lesson = record(
+                &format!("lesson-{index}"),
+                scope.clone(),
+                &contrast,
+                &validation,
+            );
             lesson.applicability = vec!["rust-backend".into(), format!("topic-{index}")];
             library.insert(lesson, &contrast, &validation).unwrap();
         }
         let now = Utc::now();
         let capped = ExperienceQuery::new(scope.clone(), vec![]);
         assert_eq!(capped.capped_limit(), EXPERIENCE_RETRIEVAL_CAP);
-        assert_eq!(library.retrieve(&capped, now).len(), EXPERIENCE_RETRIEVAL_CAP);
+        assert_eq!(
+            library.retrieve(&capped, now).len(),
+            EXPERIENCE_RETRIEVAL_CAP
+        );
 
         let mut unlimited = capped.clone();
         unlimited.limit = 1_000;
@@ -739,7 +753,11 @@ mod tests {
         let scope = scope(HarnessDomain::RustBackend);
         let mut library = ExperienceLibrary::new();
         let error = library
-            .insert(record("lesson-1", scope, &neutral, &validation), &neutral, &validation)
+            .insert(
+                record("lesson-1", scope, &neutral, &validation),
+                &neutral,
+                &validation,
+            )
             .unwrap_err();
         assert_eq!(error.code(), "invalid_experience");
     }

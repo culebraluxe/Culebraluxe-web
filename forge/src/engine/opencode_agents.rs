@@ -151,7 +151,6 @@ pub struct V2AgentProfile {
     pub web: bool,
 }
 
-
 /// Phase 2 advisory profiles, rendered from `advisory_profiles.rs` (the one policy table). They are
 /// selectable execution profiles but never workflow nodes: `v2_agent_for_node` still binds only the
 /// seven Forge role lanes. All are read-only; `web` is the only per-seat tool difference.
@@ -559,9 +558,11 @@ pub fn v2_profile(agent_id: &str) -> Option<&'static V2AgentProfile> {
     ADVISORY_AGENT_PROFILES
         .iter()
         .find(|profile| profile.id == agent_id)
-        .or_else(|| V2_AGENT_PROFILES
-        .iter()
-        .find(|profile| profile.id == agent_id))
+        .or_else(|| {
+            V2_AGENT_PROFILES
+                .iter()
+                .find(|profile| profile.id == agent_id)
+        })
 }
 
 /// Every skill id Forge exposes to V2, in a stable order: canonical library first, then the added architecture
