@@ -9,10 +9,20 @@ RUN rustup target add wasm32-unknown-unknown \
     && cargo install wasm-bindgen-cli --version 0.2.128 --locked
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
-COPY web middle db cli forge tests ./
+# The image is the app, not the test workspace: `tests/` depends on the private Forge git repo, and
+# Cargo resolves every workspace member before building. Drop that member and never COPY tests/.
+RUN sed -i '/^    "tests",$/d' Cargo.toml \
+    && ! grep -q '"tests"' Cargo.toml
+COPY web ./web
+COPY middle ./middle
+COPY db ./db
+COPY cli ./cli
+COPY re-host ./re-host
+COPY observability ./observability
 COPY scripts/rust-ui-build.sh ./scripts/rust-ui-build.sh
 RUN mkdir -p public/rust-ui && RUST_UI_PROFILE=release bash scripts/rust-ui-build.sh
-RUN cargo build --locked --release --manifest-path Cargo.toml -p web --bin web
+# No --locked: dropping the test member rewrites the app lock and must not require Forge access.
+RUN cargo build --release --manifest-path Cargo.toml -p web --bin web
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
