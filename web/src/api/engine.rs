@@ -17,6 +17,8 @@ use serde::Deserialize;
 
 use super::ApiError;
 
+use re_host::EngineFailure;
+
 /// Engine operations return the workflow crate's error type, which is a `Display`. One conversion here rather than a
 /// `.to_string()` at every call site, and the message that reaches the client is the engine's own diagnosis.
 fn engine_failure(message: impl std::fmt::Display, correlation: String) -> ApiError {
@@ -27,6 +29,18 @@ fn engine_failure(message: impl std::fmt::Display, correlation: String) -> ApiEr
         false,
     )
     .with_correlation(correlation)
+}
+
+/// Convert an engine-thread failure at the HTTP boundary. A database-unavailable store failure
+/// keeps the app's standard 503 + incident mapping and is announced through `db::capture` when the
+/// `DbFailure` was constructed; an ordinary engine refusal stays `ENGINE_COMMAND_FAILED`.
+fn engine_failure_from(failure: EngineFailure, correlation: String) -> ApiError {
+    let message = failure.message().to_owned();
+    if let Some(db_failure) = failure.into_db_failure() {
+        return ApiError::from_db_with_code(db_failure, "ENGINE_COMMAND_FAILED")
+            .with_correlation(correlation);
+    }
+    engine_failure(message, correlation)
 }
 
 /// The engine's worker threads.
@@ -107,13 +121,13 @@ fn engine_pool() -> &'static EnginePool {
 async fn run_engine<T, E, F>(operation: F, correlation: String) -> Result<T, ApiError>
 where
     T: Send + 'static,
-    E: std::fmt::Display + Send + 'static,
+    E: Into<EngineFailure> + Send + 'static,
     F: FnOnce() -> Result<T, E> + Send + 'static,
 {
-    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<Result<T, String>>();
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<Result<T, EngineFailure>>();
     let job: Job = Box::new(move || {
-        // Stringified here, on the worker, because the reply channel cannot carry an unnameable error type.
-        let _ = reply_tx.send(operation().map_err(|error| error.to_string()));
+        // The classified failure crosses the thread boundary; the HTTP mapping happens on this side.
+        let _ = reply_tx.send(operation().map_err(Into::into));
     });
 
     if let Err(error) = engine_pool().jobs.try_send(job) {
@@ -133,7 +147,7 @@ where
 
     match reply_rx.await {
         Ok(Ok(value)) => Ok(value),
-        Ok(Err(message)) => Err(engine_failure(message, correlation)),
+        Ok(Err(failure)) => Err(engine_failure_from(failure, correlation)),
         Err(_) => Err(engine_failure(
             "The workflow engine dropped its reply.",
             correlation,
@@ -342,6 +356,32 @@ mod tests {
                 .unwrap_or_default()
                 .contains("no workflow task correlates"),
             "the engine's own message must reach the caller: {body}"
+        );
+    }
+    #[tokio::test]
+    async fn a_database_unavailable_engine_operation_is_retryable_503_with_an_incident() {
+        let failed: Result<i32, ApiError> = run_engine(
+            || -> Result<i32, EngineFailure> {
+                Err(EngineFailure::database_unavailable(
+                    "connection reset while stepping",
+                ))
+            },
+            "db-corr".into(),
+        )
+        .await;
+        let error = failed.expect_err("a database failure must not look like success");
+        use axum::response::IntoResponse;
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body");
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("error body is JSON");
+        assert_eq!(body["error"]["code"], "ENGINE_COMMAND_FAILED");
+        assert_eq!(body["error"]["retryable"], true);
+        assert!(
+            body["error"]["incidentId"].as_str().is_some(),
+            "a database-unavailable engine failure must carry an incident id: {body}"
         );
     }
 }

@@ -6,6 +6,7 @@
 
 pub mod commands;
 pub mod db;
+pub mod error;
 pub mod facts;
 pub mod observability;
 pub mod port;
@@ -14,4 +15,5 @@ pub mod receipt;
 pub mod runtime;
 pub mod xml;
 
+pub use error::EngineFailure;
 pub use port::ReApplicationPort;

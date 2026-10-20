@@ -68,6 +68,23 @@ impl DbFailure {
         .announced()
     }
 
+    /// A classified, already-announced database failure.
+    ///
+    /// Used by adapters that do not speak `sqlx::Error` (the workflow Neon store) but still have
+    /// enough classification to preserve `app_error` capture and an incident id. The constructor
+    /// announces through the same sink as `from_sqlx`, exactly once.
+    pub fn unavailable(operation: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            kind: DbFailureKind::DatabaseUnavailable,
+            operation,
+            incident_id: Uuid::new_v4(),
+            code: None,
+            detail: Some(detail.into()),
+            retryable: true,
+        }
+        .announced()
+    }
+
     pub fn schema_mismatch(operation: &'static str, detail: impl Into<String>) -> Self {
         Self {
             kind: DbFailureKind::SchemaMismatch,

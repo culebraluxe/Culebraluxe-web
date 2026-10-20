@@ -76,6 +76,14 @@ impl ApiError {
         self
     }
 
+    /// DB classification with the route's public code preserved (engine routes keep
+    /// `ENGINE_COMMAND_FAILED` while taking the database 503/incident/retryable mapping).
+    pub(crate) fn from_db_with_code(error: DbFailure, code: &'static str) -> Self {
+        let mut api = Self::from_db(error);
+        api.code = code.to_owned();
+        api
+    }
+
     pub(crate) fn from_db(error: DbFailure) -> Self {
         let status = match error.kind {
             DbFailureKind::DatabaseUnavailable | DbFailureKind::Timeout => {
