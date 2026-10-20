@@ -11,6 +11,7 @@ use crate::{
     email::{transport_from_env as email_transport_from_env, EmailService},
     firms::FirmService,
     flight_recorder::FlightRecorderService,
+    forge_cockpit::ForgeCockpitService,
     forms::FormService,
     guide::GuideService,
     intake::IntakeService,
@@ -48,7 +49,6 @@ use db::{
     SignatureDao, SignerDao, SupportDiagnosticsDao, TaskDao, TechCockpitDao, VaultDao, WbsDao,
     WebsiteLeadDao, WhatsAppDao, WorkflowPortalDao,
 };
-use forge::ForgeService;
 use services::{
     AbstractService, ServiceDescriptor, ServiceDispatchError, ServiceInfrastructure,
     SignatureProvider,
@@ -245,7 +245,7 @@ pub struct ServiceCatalog {
     tech: Arc<TechCockpitService<TechCockpitDao>>,
     whatsapp: Arc<WhatsAppService<WhatsAppDao>>,
     accounting: Arc<AccountingService<AccountingDao>>,
-    forge: Arc<ForgeService>,
+    forge_cockpit: Arc<ForgeCockpitService>,
 }
 
 impl ServiceCatalog {
@@ -356,10 +356,7 @@ impl ServiceCatalog {
             vault.clone(),
             infrastructure.clone(),
         ));
-        let forge = Arc::new(ForgeService::for_application(
-            db.clone(),
-            infrastructure.clone(),
-        ));
+        let forge_cockpit = Arc::new(ForgeCockpitService::new(db.clone(), infrastructure.clone()));
         Self {
             clients: Arc::new(ClientService::new(
                 ClientDao::new(db.clone()),
@@ -511,7 +508,7 @@ impl ServiceCatalog {
                 AccountingDao::new(db),
                 infrastructure,
             )),
-            forge,
+            forge_cockpit,
         }
     }
 
@@ -558,7 +555,6 @@ impl ServiceCatalog {
             self.tech.clone(),
             self.whatsapp.clone(),
             self.accounting.clone(),
-            self.forge.clone(),
         ];
         services
     }
@@ -593,7 +589,7 @@ impl ServiceCatalog {
 }
 
 impl ServiceCatalog {
-    pub fn forge(&self) -> Arc<ForgeService> {
-        self.forge.clone()
+    pub fn forge_cockpit(&self) -> Arc<ForgeCockpitService> {
+        self.forge_cockpit.clone()
     }
 }

@@ -19,6 +19,7 @@ pub mod deals;
 pub mod email;
 pub mod firms;
 pub mod flight_recorder;
+pub mod forge_cockpit;
 pub mod forms;
 pub mod guide;
 pub mod http_runtime;

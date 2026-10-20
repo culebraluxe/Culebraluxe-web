@@ -7,8 +7,8 @@
 //! - `worker`   — Luxesign background/finalize worker
 pub mod commands;
 pub mod core;
-pub mod signer;
 pub mod signature;
+pub mod signer;
 pub mod worker;
 
 pub use core::*;

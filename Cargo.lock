@@ -3756,7 +3756,6 @@ dependencies = [
  "chrono",
  "db",
  "flate2",
- "forge",
  "hmac 0.12.1",
  "image",
  "lopdf",

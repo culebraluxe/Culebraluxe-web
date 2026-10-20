@@ -27,7 +27,7 @@ pub(super) async fn tech(
         .await
         .map_err(failed(&resolved))?;
     let forge_live = services
-        .forge()
+        .forge_cockpit()
         .live_snapshot(selected, &resolved.service)
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?;

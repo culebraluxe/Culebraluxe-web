@@ -481,7 +481,9 @@ pub(crate) fn decode_command_input<T: DeserializeOwned>(
     })
 }
 
-pub(crate) fn serialize_value<T: serde::Serialize>(value: &T) -> Result<Value, CommandDispatchError> {
+pub(crate) fn serialize_value<T: serde::Serialize>(
+    value: &T,
+) -> Result<Value, CommandDispatchError> {
     serde_json::to_value(value)
         .map_err(|error| CommandDispatchError::Serialization(error.to_string()))
 }
