@@ -1,0 +1,12 @@
+[package]
+name = "re-host"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Workflow infrastructure is consumed from its own project, pinned by tag (Cargo.lock pins the commit).
+workflow-core = { git = "https://github.com/culebraluxe/workflow", tag = "v0.2.0" }
+workflow-neon = { git = "https://github.com/culebraluxe/workflow", tag = "v0.2.0" }
+db = { path = "../db" }
+tokio.workspace = true

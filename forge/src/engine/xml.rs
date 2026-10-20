@@ -70,13 +70,11 @@ pub fn human_task_nodes_from_xml(source: &str) -> Result<BTreeSet<String>, XmlEr
 
 pub const FORGE_SDLC_V6_XML: &str = include_str!("../../definitions/FORGE_SDLC-v6.xml");
 
-pub const RE_SUPERMODEL_KEY: &str = "RE_supermodel";
-pub const RE_SUPERMODEL_VERSION: i32 = 1;
-pub const RE_SUPERMODEL_V1_XML: &str = include_str!("../../definitions/RE_supermodel-v1.xml");
-
-pub fn parse_re_supermodel() -> Result<workflow::ProcessDefinition, XmlError> {
-    definition_from_xml(RE_SUPERMODEL_V1_XML)
-}
+// The RE definition and wrapper moved to the app `re-host` crate (W-1 step 5); keep the historical
+// forge path as a re-export until the RE runtime itself moves (step 8).
+pub use re_host::xml::{
+    parse_re_supermodel, RE_SUPERMODEL_KEY, RE_SUPERMODEL_V1_XML, RE_SUPERMODEL_VERSION,
+};
 
 #[cfg(test)]
 mod re_xml_tests {
