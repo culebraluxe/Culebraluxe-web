@@ -3,7 +3,7 @@
 //! Contract: the workflow never SETS the financing type. `deal.set_financing_type` is routed to the
 //! application (`db/deal-financing.ts`) but is deliberately absent from the RE_supermodel as a
 //! command-node; the workflow only READS the derived `financingApplicable` fact. Pinning this seam
-//! from the parsed production definition (`forge::engine::xml::parse_re_supermodel`):
+//! from the parsed production definition (`re_host::xml::parse_re_supermodel`):
 //!
 //!   * NO node carries `command_type == "deal.set_financing_type"` — a command-node here would be the
 //!     model mutating application-owned financing state.
@@ -18,7 +18,7 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test docs_deal_state__006__financing_type
 
-use forge::engine::xml::parse_re_supermodel;
+use re_host::xml::parse_re_supermodel;
 
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-DOCS-DEAL-STATE-006).

@@ -3,7 +3,7 @@
 //! Contract: the canonical target closing date is `deal.closing_date`, and the RE_supermodel only
 //! projects it into timer semantics — it never invents one. From the production definition
 //! (`middle/workflow/definitions/RE_supermodel-v1.xml`, parsed by
-//! `forge::engine::xml::parse_re_supermodel`):
+//! `re_host::xml::parse_re_supermodel`):
 //!
 //!   * The closing-date monitor activates ONLY when `closingDateScheduled == true`
 //!     (a canonical closing date exists): decision `closing_deadline_applicable`.
@@ -19,7 +19,7 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test docs_deal_state__003__closing_dates
 
-use forge::engine::xml::parse_re_supermodel;
+use re_host::xml::parse_re_supermodel;
 
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-DOCS-DEAL-STATE-003).

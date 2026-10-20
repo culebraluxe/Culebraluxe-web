@@ -2,7 +2,7 @@
 //!
 //! Contract: deal lifecycle stages move forward only. From the production RE_supermodel definition
 //! (`middle/workflow/definitions/RE_supermodel-v1.xml`, parsed by the production seam
-//! `forge::engine::xml::parse_re_supermodel`), a later stage may never transition back to an earlier
+//! `re_host::xml::parse_re_supermodel`), a later stage may never transition back to an earlier
 //! one: `under_contract` has no edge to `start`/`offer_accepted`/`pns_preparation`/`pns_executed`,
 //! `closing`/`closed_state`/`post_closing` never flow back into `under_contract`, and every edge
 //! INTO `start` is refused — `start` has no incoming edge at all. The only cycles the definition
@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use forge::engine::xml::parse_re_supermodel;
+use re_host::xml::parse_re_supermodel;
 
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-DOCS-DEAL-STATE-002).

@@ -58,7 +58,7 @@ pub async fn run_http_server() -> Result<(), Box<dyn Error>> {
 
     std::thread::Builder::new()
         .name("engine-warmup".into())
-        .spawn(|| match forge::engine::re_runtime::re_engine() {
+        .spawn(|| match re_host::runtime::re_engine() {
             Ok(_) => tracing::info!(target: "culebraluxe::engine", "engine warmed"),
             Err(error) => {
                 tracing::warn!(target: "culebraluxe::engine", %error, "engine warm-up deferred")

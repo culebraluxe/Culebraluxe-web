@@ -103,3 +103,15 @@ Forge own theirs. One ledger; one migration applier through the transition.
 - Known follow-ups: adapter failures no longer write app `app_error` rows (add a sink if needed);
   trace-event table ownership stays shared for W-3; standalone pool config is simpler than app
   `Database` (hosts pass their own pool, so production behavior is unchanged).
+
+## W-1 complete (2026-10-19)
+
+- `re-host` owns the app RE host: runtime/engine singleton, RE XML, parser, facts, commands, receipt,
+  port, re-workflow CLI (12 tests). `web` calls `re_host::runtime`; no `forge::engine::re_runtime`.
+- Forge keeps only the factory bridge (`shared_forge_runtime` -> `factory_runtime` with its own
+  FORGE_SDLC engine over `db::shared`); all RE shims / `CompositeApplicationPort` / legacy feature /
+  duplicate XML removed. Forge no longer depends on `re-host`.
+- Shared engine: workflow repo v0.2.0 (`workflow-core` + `workflow-neon`), consumed by both sides.
+- Gates: workspace check, web 162, forge 1088/6 ignored, re-host 12, workflow 1.
+- Remaining app->Forge surface: `web` still links `forge` for `ForgeService` (cockpit live snapshot /
+  tech docs) and the shared `db`/`cli`/tests. That is X-2/X-5, not W-1.

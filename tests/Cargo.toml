@@ -60,6 +60,7 @@ apis = { path = "../middle/apis" }
 # `RecordingWriter`, the test-only `ForgeStateWriter` (WO-102), is linked rather than re-declared:
 # the harness records through the same type the engine's own tests do.
 forge = { path = "../forge", features = ["test-support"] }
+re-host = { path = "../re-host" }
 # Property-based contract tests (PROP.PROPERTY_BASED, TST-PROP-PROPERTY-BASED-001..010): the ProptestHarness
 # strategy runner. Test-only; production crates never depend on it.
 proptest = { workspace = true }

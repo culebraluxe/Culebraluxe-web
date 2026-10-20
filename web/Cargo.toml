@@ -20,10 +20,12 @@ model = { path = "../middle/model" }
 # what made the BoldSign adapter attachable: without it the Signature service could not be constructed on this
 # transport, which is why the `signature` capability sat in the parity ledger as "built, 0 routes".
 apis = { path = "../middle/apis" }
-# The workflow engine's operations live in the forge crate. The composition root hosts them, the same way
-# `integrations` is what made the BoldSign adapter attachable: the engine stops being a process we spawn per call
-# and becomes a route that shares this server's pool, retry policy, error capture and identity resolution.
+# ForgeService/cockpit factory reads still come from the forge crate (X-2 moves them behind HTTP). The app RE
+# workflow engine's operations moved to `re-host` in W-1; this server still hosts them in-process, sharing its
+# pool, retry policy, error capture and identity resolution.
 forge = { path = "../forge" }
+# App RE host: the workflow runtime moved out of forge in W-1 steps 8-9.
+re-host = { path = "../re-host" }
 image.workspace = true
 lopdf.workspace = true
 serde.workspace = true

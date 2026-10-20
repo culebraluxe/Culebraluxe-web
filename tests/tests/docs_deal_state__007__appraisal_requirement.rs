@@ -16,7 +16,7 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test docs_deal_state__007__appraisal_requirement
 
-use forge::engine::xml::parse_re_supermodel;
+use re_host::xml::parse_re_supermodel;
 
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-DOCS-DEAL-STATE-007).

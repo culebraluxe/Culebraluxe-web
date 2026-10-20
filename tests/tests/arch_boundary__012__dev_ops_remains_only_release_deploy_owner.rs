@@ -251,11 +251,12 @@ const SWITCH_READERS: [&str; 3] = [
 /// 2026-10-14: it is a slice of `main.rs` (the over-800-line boundedness split) carrying the same
 /// `Arc<dyn ForgeReleaseExecutor>` field the composition root used to hold, so the pin names the moved
 /// handle rather than losing sight of it. A seventh holder still fails this pin.
-const RELEASE_PORT_HOLDERS: [&str; 6] = [
+const RELEASE_PORT_HOLDERS: [&str; 7] = [
     "forge/src/bin/forge/main.rs",
     "forge/src/bin/forge/drive_runtime.rs",
     "forge/src/engine/dispatch.rs",
     "forge/src/engine/port.rs",
+    "forge/src/engine/factory_runtime.rs",
     "forge/src/engine/re_runtime.rs",
     "forge/src/engine/runtime.rs",
 ];

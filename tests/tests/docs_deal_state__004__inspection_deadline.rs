@@ -3,7 +3,7 @@
 //! Contract: the inspection-period contingency date is `deal.inspection_deadline`, projected by
 //! RE_supermodel into an OPTIONAL fork branch. From the production definition
 //! (`middle/workflow/definitions/RE_supermodel-v1.xml`, parsed by
-//! `forge::engine::xml::parse_re_supermodel`):
+//! `re_host::xml::parse_re_supermodel`):
 //!
 //!   * The branch activates only when BOTH `inspectionApplicable == true` AND
 //!     `inspectionDeadlineScheduled == true` — a canonical deadline never appears without a canonical
@@ -19,7 +19,7 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test docs_deal_state__004__inspection_deadline
 
-use forge::engine::xml::parse_re_supermodel;
+use re_host::xml::parse_re_supermodel;
 
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-DOCS-DEAL-STATE-004).

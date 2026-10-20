@@ -9,9 +9,6 @@ publish.workspace = true
 # The `tests/` harness links the production type instead of re-declaring a copy of it, so it turns
 # this on; nothing else does.
 test-support = []
-# Temporary escape hatch (W-1 step 7): keep the old app-RE-engine-backed factory bridge for one
-# gate while the default path uses the factory's own FORGE_SDLC engine.
-legacy-shared-re-engine = []
 
 [[bin]]
 name = "forge"
@@ -27,7 +24,6 @@ db = { path = "../db" }
 workflow = { path = "../middle/workflow" }
 apis = { path = "../middle/apis" }
 services = { path = "../middle/services" }
-re-host = { path = "../re-host" }
 tokio.workspace = true
 serde_json.workspace = true
 serde.workspace = true

@@ -3,7 +3,7 @@
 //! Contract: a residential transaction moves offer-accepted → P&S prepared → P&S executed →
 //! under-contract, through the production RE_supermodel definition (`middle/workflow/definitions/
 //! RE_supermodel-v1.xml`), which is parsed by the SAME production seam the runtime uses —
-//! `forge::engine::xml::parse_re_supermodel` (`forge/src/engine/xml.rs:488`). The five ordered
+//! `re_host::xml::parse_re_supermodel` (`forge/src/engine/xml.rs:488`). The five ordered
 //! edges below are the lifecycle; no production edge may skip a segment (start cannot jump straight
 //! to `under_contract`), and an invented earlier-lifecycle entry cannot be added without this file
 //! failing.
@@ -15,7 +15,7 @@
 
 use std::collections::BTreeSet;
 
-use forge::engine::xml::parse_re_supermodel;
+use re_host::xml::parse_re_supermodel;
 use workflow::NodeDefinition;
 
 fn edge<'a>(node: &'a NodeDefinition, name: &str) -> Option<&'a str> {

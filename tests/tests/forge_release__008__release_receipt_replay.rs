@@ -36,8 +36,8 @@ use forge::engine::completion::{
     apply_completion_unit, CompletionLedger, CompletionRecord, MemoryLedger,
 };
 use forge::engine::facts::ForgeGateEvidence;
-use forge::engine::receipt::{replay_outcome, CommandReceipt, ReceiptOutcome};
 use forge::engine::runtime::completion_receipt_id;
+use re_host::receipt::{replay_outcome, CommandReceipt, ReceiptOutcome};
 
 /// The taxonomy name and level, carried in every assertion message so a failure names its boundary.
 const HARNESS: &str = "ForgeHarness/L3 Composition";

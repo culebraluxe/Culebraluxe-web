@@ -70,13 +70,8 @@ pub mod qa_assert;
 pub mod qa_classify;
 pub mod qa_plan;
 pub mod qa_repair;
-pub mod re_commands;
-pub mod re_facts;
-pub mod re_port;
-pub mod re_receipt;
 pub mod re_runtime;
 pub mod ready_gate;
-pub mod receipt;
 pub mod release;
 pub mod release_receipt;
 pub mod resident;
@@ -119,7 +114,6 @@ pub use graph::{fake_edge_candidates, plan_smith_layers, split_eligibility, Smit
 pub use harness::{create_harness, HarnessBackend, HarnessContext, HarnessUsage, TurnTermination};
 pub use port::ForgeApplicationPort;
 pub use process::WakeResult;
-pub use receipt::{replay_outcome, CommandReceipt, ReceiptOutcome, ReplayDecision};
 pub use runtime::{completion_receipt_id, ActiveForgeRoleTask, ForgeRuntime, OpenForgeTask};
 pub use topology::{ensure_topology, topology_from_graph, FORGE_SDLC_KEY, FORGE_SDLC_VERSION};
 pub use writer::{
@@ -150,18 +144,10 @@ pub use workspace_id::{forge_execution_generation_key, resolve_forge_execution_r
 pub use decisions::{lane_needs_decisions, list_active_decisions, with_decision_context};
 pub use scope::{candidate_own_changed_files, recorded_scope_base, story_scope_base};
 
-pub use xml::{parse_re_supermodel, RE_SUPERMODEL_KEY, RE_SUPERMODEL_V1_XML};
-
-pub use re_commands::{assert_command_nodes_routed, XML_COMMAND_NODE_TYPES};
-pub use re_port::{CompositeApplicationPort, ReApplicationPort};
-
 pub use constants::{
     FORGE_DEFAULT_HEARTBEAT_SECONDS, FORGE_DEFAULT_STALE_MINUTES, FORGE_DEFAULT_STALE_MS,
 };
-pub use re_runtime::{
-    complete_workflow_task, reconcile_closing_timer, shared_forge_runtime,
-    start_residential_transaction,
-};
+pub use re_runtime::shared_forge_runtime;
 
 // No `pub use executor::…` here. Re-exporting the role-job driver at this level put a role-queue name in the
 // same file as this module's story-queue re-exports, which `forge_arch_seam__003` refuses — it caught exactly

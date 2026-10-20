@@ -157,9 +157,7 @@ pub async fn start_transaction(
     let correlation = resolved.correlation_id.clone();
 
     let result = run_engine(
-        move || {
-            forge::engine::re_runtime::start_residential_transaction(&request.subject, &request.id)
-        },
+        move || re_host::runtime::start_residential_transaction(&request.subject, &request.id),
         correlation,
     )
     .await?;
@@ -196,13 +194,13 @@ pub async fn reconcile_timer(
     let applied = run_engine(
         move || {
             if node == "closing_date_timer" {
-                forge::engine::re_runtime::reconcile_closing_timer(
+                re_host::runtime::reconcile_closing_timer(
                     &request.instance,
                     request.date.as_deref(),
                 )
                 .map(|applied| applied.to_string())
             } else {
-                forge::engine::re_runtime::reconcile_deadline_timer(
+                re_host::runtime::reconcile_deadline_timer(
                     &request.instance,
                     &node,
                     request.date.as_deref(),
@@ -248,18 +246,12 @@ pub async fn complete_task(
         move || {
             let transition = request.transition.as_deref();
             match request.kind.as_deref().unwrap_or("application") {
-                "engine" => forge::engine::re_runtime::complete_engine_task(
-                    &request.task,
-                    &user,
-                    transition,
-                )
-                .map(|()| serde_json::json!({ "completed": request.task })),
-                _ => forge::engine::re_runtime::complete_workflow_task(
-                    &request.task,
-                    &user,
-                    transition,
-                )
-                .map(|outcome| serde_json::json!({ "result": outcome.to_string() })),
+                "engine" => {
+                    re_host::runtime::complete_engine_task(&request.task, &user, transition)
+                        .map(|()| serde_json::json!({ "completed": request.task }))
+                }
+                _ => re_host::runtime::complete_workflow_task(&request.task, &user, transition)
+                    .map(|outcome| serde_json::json!({ "result": outcome.to_string() })),
             }
         },
         correlation,
@@ -286,8 +278,8 @@ pub async fn reclaim(
 
     let reclaimed = run_engine(
         move || match request.instance.as_deref() {
-            Some(instance) => forge::engine::re_runtime::reclaim_stale_jobs_for_instance(instance),
-            None => forge::engine::re_runtime::reclaim_stale_jobs(request.batch.unwrap_or(50)),
+            Some(instance) => re_host::runtime::reclaim_stale_jobs_for_instance(instance),
+            None => re_host::runtime::reclaim_stale_jobs(request.batch.unwrap_or(50)),
         },
         correlation,
     )

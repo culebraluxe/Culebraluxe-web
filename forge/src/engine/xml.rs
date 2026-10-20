@@ -69,30 +69,3 @@ pub fn human_task_nodes_from_xml(source: &str) -> Result<BTreeSet<String>, XmlEr
 }
 
 pub const FORGE_SDLC_V6_XML: &str = include_str!("../../definitions/FORGE_SDLC-v6.xml");
-
-// The RE definition and wrapper moved to the app `re-host` crate (W-1 step 5); keep the historical
-// forge path as a re-export until the RE runtime itself moves (step 8).
-pub use re_host::xml::{
-    parse_re_supermodel, RE_SUPERMODEL_KEY, RE_SUPERMODEL_V1_XML, RE_SUPERMODEL_VERSION,
-};
-
-#[cfg(test)]
-mod re_xml_tests {
-    use super::*;
-
-    #[test]
-    fn re_supermodel_parses() {
-        let def = parse_re_supermodel().expect("RE_supermodel-v1.xml must parse");
-        assert_eq!(def.key, RE_SUPERMODEL_KEY);
-        assert_eq!(def.version, RE_SUPERMODEL_VERSION);
-        assert!(def
-            .definition
-            .nodes
-            .contains_key(&def.definition.start_node_id));
-        assert!(
-            def.definition.nodes.len() >= 50,
-            "got {}",
-            def.definition.nodes.len()
-        );
-    }
-}

@@ -220,7 +220,7 @@ impl Crm26Port for RustCrm26Port {
     async fn ensure_workflow(&self, contract_id: &str) -> Result<String, MqSubscriberError> {
         let contract_id = contract_id.to_owned();
         tokio::task::spawn_blocking(move || {
-            forge::engine::re_runtime::start_residential_transaction("contract", &contract_id)
+            re_host::runtime::start_residential_transaction("contract", &contract_id)
                 .map(|result| result.instance_id)
                 .map_err(|error| error.to_string())
         })
@@ -248,11 +248,7 @@ impl Crm26Port for RustCrm26Port {
         let task_id = task_id.to_owned();
         let transition = transition.to_owned();
         tokio::task::spawn_blocking(move || {
-            match forge::engine::re_runtime::complete_engine_task(
-                &task_id,
-                "system",
-                Some(&transition),
-            ) {
+            match re_host::runtime::complete_engine_task(&task_id, "system", Some(&transition)) {
                 Ok(()) => Ok(()),
                 Err(error) if error.code() == "TASK_ALREADY_COMPLETED" => Ok(()),
                 Err(error) => Err(error.to_string()),
