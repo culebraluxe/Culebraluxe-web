@@ -382,13 +382,6 @@ impl<R: VaultRepository> VaultService<R> {
         self
     }
 
-    /// Retained for the composition root's call site. Vault reads and writes are object-only now, so there is
-    /// no legacy-read switch left to enable: the flag is accepted and ignored, and a deployment without a store
-    /// refuses with a typed configuration error instead of silently serving blobs.
-    pub fn with_object_reads(self, _enabled: bool) -> Self {
-        self
-    }
-
     /// The configured object store, or the typed configuration error every Vault byte path answers without one.
     fn vault_store(&self) -> Result<&Arc<dyn AbstractObjectStoreService>, CoreServiceError> {
         self.object_store.as_ref().ok_or_else(|| {

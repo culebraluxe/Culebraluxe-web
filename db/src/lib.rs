@@ -169,7 +169,7 @@ pub use landing::{
 pub use luxesign::LuxesignDao;
 pub use marketing::MarketingDao;
 pub use media::{
-    MediaDao, MediaMigrationRow, MediaObjectLocation, MediaObjectMetadata, MediaObjectRow,
+    MediaDao, MediaObjectLocation, MediaObjectMetadata, MediaObjectRow,
 };
 pub use model;
 pub use outbox::{DomainEventOutboxDao, OutboxDelivery, OutboxEventInput};

@@ -266,7 +266,6 @@ impl ServiceCatalog {
             firm.clone(),
             property.clone(),
         ));
-        let object_reads = crate::media::object_reads_from_env();
         let media_store: Option<Arc<dyn AbstractObjectStoreService>> =
             match crate::media::object_store_from_env() {
                 Ok(Some(store)) => Some(Arc::new(store)),
@@ -284,7 +283,6 @@ impl ServiceCatalog {
         if let Some(store) = media_store.clone() {
             media_service = media_service.with_object_store(store);
         }
-        media_service = media_service.with_object_reads(object_reads);
         let mut public_listing_service = PublicListingService::new(
             PublicListingDao::new(db.clone()),
             infrastructure.clone(),
@@ -292,7 +290,6 @@ impl ServiceCatalog {
         if let Some(store) = media_store.clone() {
             public_listing_service = public_listing_service.with_object_store(store);
         }
-        public_listing_service = public_listing_service.with_object_reads(object_reads);
 
         // THE EXTERNAL SIGNING PROVIDER IS RETIRED (Lane L): Luxesign is the only signing product. The generic SignatureService
         // stays in the catalog because the read route and existing signature records still resolve through it;
@@ -332,7 +329,6 @@ impl ServiceCatalog {
         if let Some(store) = media_store.clone() {
             vault_service = vault_service.with_object_store(store);
         }
-        vault_service = vault_service.with_object_reads(object_reads);
         let vault = Arc::new(vault_service);
         let email = Arc::new(
             EmailService::new(

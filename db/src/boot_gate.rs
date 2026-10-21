@@ -69,6 +69,8 @@ pub const REQUIRED_BOOT_MIGRATIONS: &[&str] = &[
     // Object-first media: 298 adds the storage metadata and 299 makes file_data nullable.
     "298_media_object_storage_metadata.sql",
     "299_media_blob_nullable.sql",
+    // 301 drops the legacy blob column after the object-first cutover.
+    "301_drop_media_file_data.sql",
 ];
 
 /// Migrations whose FILE was edited after the ledger recorded an apply, and how the boot gate

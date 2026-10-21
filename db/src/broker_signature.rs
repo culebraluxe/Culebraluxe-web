@@ -96,16 +96,6 @@ pub struct SignatureIssuance<'a> {
 /// `authority` decides whether the actor named by the caller must be allowed to APPLY the signature: `ApplyingActor`
 /// for an issuance (a refusal fails the document), `OwnerByConstruction` for a preview that only shows what issuance
 /// would apply (`model::forms_broker_signature::SignatureAuthority`).
-pub async fn resolve_for_issuance(
-    connection: &mut PgConnection,
-    issuance: &SignatureIssuance<'_>,
-) -> Result<Vec<FormAppliedSignature>, VaultArtifactFailure> {
-    // The DB issuance path (`db/src/vault/bind_form_to_contract.rs`) has no object-store handle, so `None` keeps
-    // the legacy `media.file_data` read for it. The browser preview resolves through the object-first entry below;
-    // wiring issuance to the store is the one remaining step for dropping `media.file_data` (see Lane F report).
-    resolve_for_issuance_from(connection, issuance, None).await
-}
-
 /// The one implementation of the policy, the authority rule, the slot mapping and the asset load.
 ///
 /// `reader` is `Some` when the caller owns an object store: then the protected asset MUST be a verified object and
@@ -114,7 +104,7 @@ pub async fn resolve_for_issuance(
 async fn resolve_for_issuance_from(
     connection: &mut PgConnection,
     issuance: &SignatureIssuance<'_>,
-    reader: Option<&dyn ProtectedAssetReader>,
+    reader: &dyn ProtectedAssetReader,
 ) -> Result<Vec<FormAppliedSignature>, VaultArtifactFailure> {
     let config = BrokerSignatureConfig::from_env();
     if !config.enabled {
@@ -519,12 +509,9 @@ fn row_text(row: &sqlx::postgres::PgRow, column: &str) -> String {
 async fn load_protected_asset(
     connection: &mut PgConnection,
     media_id: &str,
-    reader: Option<&dyn ProtectedAssetReader>,
+    reader: &dyn ProtectedAssetReader,
 ) -> Result<ProtectedAsset, VaultArtifactFailure> {
-    match reader {
-        Some(reader) => load_protected_asset_object(connection, media_id, reader).await,
-        None => load_legacy_protected_asset(connection, media_id).await,
-    }
+    load_protected_asset_object(connection, media_id, reader).await
 }
 
 /// Object-first read: fetch the row's verified pointer (metadata only), then let the caller's store supply the
@@ -589,48 +576,6 @@ async fn load_protected_asset_object(
                 status: &status,
                 visibility: &visibility,
             }),
-        },
-        bytes,
-    )
-}
-
-/// LEGACY BLOB READ — the only `media.file_data` read left in this module, and the one the architecture pin names.
-///
-/// It runs only when the caller lent no store (`reader == None`): tests/dev composition, or the DB issuance path
-/// that has no store handle. A store-backed caller uses the object-first loader above.
-async fn load_legacy_protected_asset(
-    connection: &mut PgConnection,
-    media_id: &str,
-) -> Result<ProtectedAsset, VaultArtifactFailure> {
-    let row = sqlx::query(
-        r#"
-        select file_data, mime_type, alt_text, caption
-        from media
-        where id = $1::uuid
-          and media_type = 'image'
-        limit 1
-        "#,
-    )
-    .bind(media_id)
-    .fetch_optional(&mut *connection)
-    .await
-    .map_err(failed_read)?;
-    let Some(row) = row else {
-        return Err(invalid_configuration(
-            "asset is missing from the protected media store or is not an image.",
-        ));
-    };
-    let bytes: Vec<u8> = row
-        .try_get::<Option<Vec<u8>>, _>("file_data")
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-    verify_protected_asset(
-        &ProtectedAssetRecord {
-            mime_type: &row_text(&row, "mime_type"),
-            alt_text: &row_text(&row, "alt_text"),
-            caption: &row_text(&row, "caption"),
-            object: None,
         },
         bytes,
     )
@@ -713,7 +658,7 @@ impl VaultDao {
         };
         let reader = ClosureAssetReader { load: read_object };
         let mut connection = self.database().connection().await.map_err(precondition_failure)?;
-        resolve_for_issuance_from(&mut connection, &issuance, Some(&reader)).await
+        resolve_for_issuance_from(&mut connection, &issuance, &reader).await
     }
 
     /// Write the protected signature asset as an OBJECT ROW — no `media.file_data` column is named.

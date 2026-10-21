@@ -194,13 +194,6 @@ impl<R> MediaService<R> {
         self
     }
 
-    /// COMPATIBILITY NO-OP. Reads are object-only unconditionally now; `composition.rs` still passes the
-    /// retired `MEDIA_OBJECT_STORAGE_READS` value, so the builder method stays (and ignores it) rather than
-    /// forcing an out-of-scope change to the composition root. Do not add behavior back behind it.
-    pub fn with_object_reads(self, _enabled: bool) -> Self {
-        self
-    }
-
     /// Inject the key that signs direct-to-object upload tokens. Production leaves this unset and the
     /// key is read from the environment when a token is minted or checked; tests set it explicitly.
     pub fn with_direct_upload_secret(mut self, secret: impl Into<Vec<u8>>) -> Self {

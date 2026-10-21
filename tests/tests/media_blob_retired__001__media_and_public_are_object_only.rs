@@ -63,36 +63,13 @@ fn media_blob_retired_001__media_and_public_are_object_only() {
         found.join("\n  ")
     );
 
-    // 2. THE ONE ALLOWED REMAINDER: the migration tool. Pin the span, not a line count.
+    // 2. NO REMAINDER. The migration tool and its blob scan were deleted with the column.
     let media_db = source::read(&root.join("db/src/media/media_row.rs"));
-    let lines: Vec<&str> = media_db.lines().collect();
-    let start = lines
-        .iter()
-        .position(|line| line.contains("pub async fn list_media_for_migration("))
-        .expect("the blob→object migration scan must exist until the column is dropped");
-    // The function ends at the next method declaration (or EOF); both are `    pub `-indented in this file.
-    let end = lines
-        .iter()
-        .enumerate()
-        .skip(start + 1)
-        .find(|(_, line)| line.starts_with("    pub async fn ") || line.starts_with("    pub fn "))
-        .map(|(index, _)| index)
-        .unwrap_or(lines.len());
-    let found: Vec<String> = lines
-        .iter()
-        .enumerate()
-        .filter(|(index, line)| *index < start || *index >= end)
-        .filter(|(_, line)| source::code_of(line).contains("file_data"))
-        .map(|(index, _)| format!("db/src/media/media_row.rs:{}", index + 1))
-        .collect();
     assert!(
-        found.is_empty(),
-        "{HARNESS}: only the blob→object migration tool may name media.file_data under db/src/media; found:\n  {}",
-        found.join("\n  ")
-    );
-    assert!(
-        lines[start..end].iter().any(|line| line.contains("m.file_data")),
-        "{HARNESS}: the migration tool must still read the blob — it hashes the exact bytes before uploading them"
+        !media_db
+            .lines()
+            .any(|line| source::code_of(line).contains("file_data")),
+        "{HARNESS}: db/src/media must be object-only after the migration tool is retired"
     );
 
     // 3. UPLOADS ARE OBJECT-FIRST. The standalone door and the legacy property door name the object writer; no

@@ -39,19 +39,3 @@ pub use neon_object_store::{
 #[allow(unused_imports)]
 pub use property_upload::*;
 
-/// The retired read cutover switch (`MEDIA_OBJECT_STORAGE_READS`).
-///
-/// Media and public-listing reads are OBJECT-ONLY unconditionally and ignore this value; the flag and the builder
-/// methods that take it survive only because `composition.rs` (outside this lane's write scope) still passes the
-/// same boolean to the Vault, which is the last service with its own cutover switch. Do not reintroduce a blob
-/// fallback behind it.
-pub fn object_reads_from_env() -> bool {
-    matches!(
-        std::env::var("MEDIA_OBJECT_STORAGE_READS")
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase()
-            .as_str(),
-        "1" | "true" | "yes" | "on"
-    )
-}

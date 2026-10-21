@@ -67,19 +67,10 @@ fn media_object_cutover_001__lane_f_broker_signature_and_media_cards() {
     let object_start = broker
         .find("async fn load_protected_asset_object(")
         .expect("the object-first asset loader is the path a store-backed deployment takes");
-    let legacy_start = broker
-        .find("async fn load_legacy_protected_asset(")
-        .expect("the legacy fallback exists only for deployments with no store");
-    assert!(
-        object_start < legacy_start,
-        "the object-first loader is defined before the fallback it is preferred over"
-    );
-    // Stop before the legacy function's own doc comment: its prose names the blob column it explains.
-    let legacy_doc = broker
-        .find("/// LEGACY BLOB READ")
-        .expect("the legacy fallback carries its own doc comment");
-    assert!(object_start < legacy_doc);
-    let object_path: String = broker[object_start..legacy_doc]
+    let object_end = broker
+        .find("/// Validate an object-first protected-signature write")
+        .expect("the object-first loader is followed by the write validator");
+    let object_path: String = broker[object_start..object_end]
         .lines()
         .map(source::code_of)
         .collect::<Vec<_>>()
@@ -108,15 +99,9 @@ fn media_object_cutover_001__lane_f_broker_signature_and_media_cards() {
             "the object-first asset read must go through `{required}`"
         );
     }
-
-    let legacy = body_of(&broker, "async fn load_legacy_protected_asset(");
     assert!(
-        legacy.contains("file_data"),
-        "the legacy fallback is the ONE place the blob may still be read"
-    );
-    assert!(
-        legacy.contains("media_type = 'image'"),
-        "the fallback keeps the image-type restriction"
+        !broker.contains("load_legacy_protected_asset") && !broker.contains("select file_data"),
+        "the broker signature module must be object-only after the cutover"
     );
 
     // The verified-object contract: size AND recorded SHA-256, plus the vault/vault pointer.

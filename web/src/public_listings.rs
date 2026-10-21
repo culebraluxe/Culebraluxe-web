@@ -89,13 +89,6 @@ impl<R: PublicListingRepository> PublicListingService<R> {
         self
     }
 
-    /// COMPATIBILITY NO-OP. The public media door is object-only unconditionally; the composition root still
-    /// passes the retired `MEDIA_OBJECT_STORAGE_READS` value, so the builder stays (and ignores it). Do not add
-    /// behavior back behind it.
-    pub fn with_object_reads(self, _enabled: bool) -> Self {
-        self
-    }
-
     pub async fn listings(
         &self,
         context: &ServiceContext,

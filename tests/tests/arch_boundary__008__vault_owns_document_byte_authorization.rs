@@ -34,17 +34,7 @@ use test_harness::source;
 ///
 /// The set is pinned so a new byte reader is a deliberate entry here rather than a new way to reach a file, and so a
 /// reader that disappears is noticed.
-const MEDIA_BYTE_READERS: [&str; 2] = [
-    // Lane J: the Vault went OBJECT-ONLY. Its five blob readers (`media_bytes`, `public_listing_document_bytes`,
-    // `signing_document_bytes`, `signing_signed_bytes`, `completion_artifacts`) are gone; the entitlement SQL now
-    // runs over storage pointers (`*_object` readers) and never selects `media.file_data`.
-    // The media and public-listing byte doors went object-first too. What is left is legacy-only:
-    // the migration scan (it must hash the stored bytes before uploading them) and the broker-signature
-    // store-absent fallback.
-    "db/src/broker_signature.rs load_legacy_protected_asset",
-    "db/src/media/media_row.rs list_media_for_migration",
-];
-
+const MEDIA_BYTE_READERS: [&str; 0] = [];
 /// The byte readers that do **not** restrict `media_type`: the debt that lets a document's bytes out of a door that is
 /// not the Vault's. Pinned so it can only shrink — and so adding the missing filter to one of them fails the test until
 /// the pin is updated, which is the record that the hole was closed.
@@ -127,11 +117,8 @@ const VAULT_DAO_FILES: [&str; 4] = [
 ];
 
 /// The only files allowed to name the media DAO, for the same reason.
-const MEDIA_DAO_FILES: [&str; 4] = [
+const MEDIA_DAO_FILES: [&str; 3] = [
     "web/src/composition.rs",
-    // The Phase 5 operator migration: a bounded, verified copy from blobs to object storage. It is the
-    // one deliberate non-HTTP consumer of MediaDao and never deletes file_data.
-    "web/src/bin/media_migrate.rs",
     "web/src/media/media_repository.rs",
     "web/src/media/mod.rs",
 ];
@@ -445,11 +432,8 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
 
     let readers = scan_readers(&db_root);
     let doors = scan_doors(&server_root);
-    assert!(
-        readers.len() >= 2,
-        "the byte-reader detector must find the legacy readers this contract still pins; {} found",
-        readers.len()
-    );
+    // Zero readers is the paid-debt state: the column is about to be dropped. The detector must still find
+    // the object-pointer doors below, or this contract would pass by seeing nothing.
     assert!(
         doors.len() >= 3,
         "the byte-door detector must find the doors this contract is about; {} found",
