@@ -577,21 +577,23 @@ impl<R: MediaRepository> MediaService<R> {
             })?
             .map_err(|message| CoreServiceError::business("MEDIA_DERIVATIVE_FAILED", message))?;
 
-            let result = repository
+            if self.object_store.is_some() {
+                match self
+                    .object_first_chunk(upload_id, &assembly, &derivatives)
+                    .await
+                {
+                    Ok(upload) => return Ok(upload),
+                    Err(error) => tracing::warn!(
+                        upload_id,
+                        %error,
+                        "object-first chunked upload failed; falling back to legacy blob"
+                    ),
+                }
+            }
+            repository
                 .commit_media_upload(upload_id, &assembly, &derivatives)
                 .await
-                .map_err(CoreServiceError::from);
-
-            if let Ok(upload) = result.as_ref() {
-                self.shadow_property_media(
-                    &upload.media_id,
-                    &assembly.property_id,
-                    &assembly.bytes,
-                    &assembly.mime_type,
-                )
-                .await;
-            }
-            result
+                .map_err(CoreServiceError::from)
         }
         .await;
 

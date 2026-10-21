@@ -316,3 +316,97 @@ impl MediaDao {
         })
     }
 }
+
+impl MediaDao {
+    /// Object-first property image: insert the row and attach it. Lives here, with the assembler,
+    /// because the hero demotion/promotion is this file's single-owner responsibility.
+    pub async fn save_property_media_object(
+        &self,
+        property_id: &str,
+        role: &str,
+        row: &MediaObjectRow,
+    ) -> DbResult<UploadPropertyMediaResult> {
+        let mut tx = self.db.begin("media.save_property_media_object").await?;
+        MediaDao::insert_object_row(&mut tx, row).await?;
+        if role == "hero" {
+            sqlx::query(
+                "update property_media set role = 'gallery' where property_id = $1::uuid and role = 'hero'",
+            )
+            .bind(property_id)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("media.object.demote_hero", &error))?;
+        }
+        sqlx::query(
+            "insert into property_media (property_id, media_id, role, sort_order) values ($1::uuid, $2::uuid, $3, 0)",
+        )
+        .bind(property_id)
+        .bind(&row.id)
+        .bind(role)
+        .execute(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.object.attach_property", &error))?;
+        tx.commit().await?;
+        Ok(UploadPropertyMediaResult {
+            ok: true,
+            media_id: row.id.clone(),
+            property_id: property_id.to_owned(),
+            role: role.to_owned(),
+        })
+    }
+
+    /// Object-first chunked upload: original + derivatives + link + staging cleanup.
+    pub async fn commit_media_object_upload(
+        &self,
+        upload_id: &str,
+        property_id: &str,
+        role: &str,
+        rows: &[MediaObjectRow],
+    ) -> DbResult<UploadPropertyMediaResult> {
+        if rows.is_empty() {
+            return Err(DbFailure::configuration(
+                "media.commit_media_object_upload",
+                "at least the original row is required",
+            ));
+        }
+        let mut tx = self.db.begin("media.commit_media_object_upload").await?;
+        for row in rows {
+            MediaDao::insert_object_row(&mut tx, row).await?;
+        }
+        if role == "hero" {
+            sqlx::query(
+                "update property_media set role = 'gallery' where property_id = $1::uuid and role = 'hero'",
+            )
+            .bind(property_id)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("media.object.demote_hero", &error))?;
+        }
+        sqlx::query(
+            "insert into property_media (property_id, media_id, role, sort_order) values ($1::uuid, $2::uuid, $3, 0)",
+        )
+        .bind(property_id)
+        .bind(&rows[0].id)
+        .bind(role)
+        .execute(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.object.attach_property", &error))?;
+        sqlx::query("delete from media_upload_chunk where upload_id = $1::uuid")
+            .bind(upload_id)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("media.object.drop_chunks", &error))?;
+        sqlx::query("delete from media_upload where upload_id = $1::uuid")
+            .bind(upload_id)
+            .execute(tx.connection())
+            .await
+            .map_err(|error| DbFailure::from_sqlx("media.object.drop_manifest", &error))?;
+        tx.commit().await?;
+        Ok(UploadPropertyMediaResult {
+            ok: true,
+            media_id: rows[0].id.clone(),
+            property_id: property_id.to_owned(),
+            role: role.to_owned(),
+        })
+    }
+}

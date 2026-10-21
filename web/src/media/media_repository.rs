@@ -80,6 +80,38 @@ pub trait MediaRepository: Send + Sync {
     async fn property_is_public(&self, _property_id: &str) -> DbResult<bool> {
         Ok(false)
     }
+
+    async fn save_property_media_object(
+        &self,
+        _property_id: &str,
+        _role: &str,
+        _row: &db::MediaObjectRow,
+    ) -> DbResult<UploadPropertyMediaResult> {
+        Err(db::DbFailure::configuration(
+            "media.save_property_media_object",
+            "object-first uploads are not implemented by this repository",
+        ))
+    }
+
+    async fn commit_media_object_upload(
+        &self,
+        _upload_id: &str,
+        _property_id: &str,
+        _role: &str,
+        _rows: &[db::MediaObjectRow],
+    ) -> DbResult<UploadPropertyMediaResult> {
+        Err(db::DbFailure::configuration(
+            "media.commit_media_object_upload",
+            "object-first uploads are not implemented by this repository",
+        ))
+    }
+
+    async fn upload_standalone_object(&self, _row: &db::MediaObjectRow) -> DbResult<()> {
+        Err(db::DbFailure::configuration(
+            "media.upload_standalone_object",
+            "object-first uploads are not implemented by this repository",
+        ))
+    }
 }
 
 #[async_trait]
@@ -208,6 +240,29 @@ impl MediaRepository for MediaDao {
     async fn property_is_public(&self, property_id: &str) -> DbResult<bool> {
         MediaDao::property_is_public(self, property_id).await
     }
+
+    async fn save_property_media_object(
+        &self,
+        property_id: &str,
+        role: &str,
+        row: &db::MediaObjectRow,
+    ) -> DbResult<UploadPropertyMediaResult> {
+        MediaDao::save_property_media_object(self, property_id, role, row).await
+    }
+
+    async fn commit_media_object_upload(
+        &self,
+        upload_id: &str,
+        property_id: &str,
+        role: &str,
+        rows: &[db::MediaObjectRow],
+    ) -> DbResult<UploadPropertyMediaResult> {
+        MediaDao::commit_media_object_upload(self, upload_id, property_id, role, rows).await
+    }
+
+    async fn upload_standalone_object(&self, row: &db::MediaObjectRow) -> DbResult<()> {
+        MediaDao::upload_standalone_object(self, row).await
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -304,6 +359,191 @@ impl<R> MediaService<R> {
 }
 
 impl<R: MediaRepository> MediaService<R> {
+    async fn object_row(
+        &self,
+        store: &Arc<dyn AbstractObjectStoreService>,
+        bucket: ObjectBucket,
+        visibility: &str,
+        id: &str,
+        filename: &str,
+        mime_type: &str,
+        bytes: &[u8],
+        alt_text: Option<String>,
+        media_type: &str,
+        derivative_of: Option<String>,
+        derivative_kind: Option<String>,
+    ) -> Result<db::MediaObjectRow, String> {
+        let extension = match mime_type.to_ascii_lowercase().as_str() {
+            "image/jpeg" | "image/jpg" => "jpg",
+            "image/png" => "png",
+            "image/webp" => "webp",
+            "image/gif" => "gif",
+            "image/avif" => "avif",
+            "application/pdf" => "pdf",
+            _ => "bin",
+        };
+        let key = format!("media/{id}/original.{extension}");
+        let stored = store
+            .put_object(bucket, &key, bytes, mime_type)
+            .await
+            .map_err(|error| error.to_string())?;
+        let sha = stored
+            .sha256
+            .clone()
+            .ok_or_else(|| "provider returned no SHA-256".to_owned())?;
+        store
+            .verify_object(bucket, &key, &sha, stored.size)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(db::MediaObjectRow {
+            id: id.to_owned(),
+            filename: filename.to_owned(),
+            mime_type: mime_type.to_owned(),
+            alt_text,
+            media_type: media_type.to_owned(),
+            derivative_of,
+            derivative_kind,
+            object: db::MediaObjectMetadata {
+                bucket: bucket.as_str().to_owned(),
+                key,
+                etag: stored.etag,
+                sha256: Some(sha),
+                size: stored.size,
+                status: "VERIFIED".to_owned(),
+                visibility: Some(visibility.to_owned()),
+            },
+        })
+    }
+
+    pub(crate) async fn object_first_property_media(
+        &self,
+        property_id: &str,
+        role: &str,
+        filename: &str,
+        mime_type: &str,
+        alt_text: Option<String>,
+        bytes: &[u8],
+    ) -> Result<UploadPropertyMediaResult, String> {
+        let store = self
+            .object_store
+            .as_ref()
+            .ok_or_else(|| "object store is not configured".to_owned())?;
+        let public = self
+            .repository
+            .property_is_public(property_id)
+            .await
+            .unwrap_or(false);
+        let (bucket, visibility) = if public {
+            (ObjectBucket::PropertyMediaPublic, "public")
+        } else {
+            (ObjectBucket::PropertyMediaPrivate, "private")
+        };
+        let id = uuid::Uuid::new_v4().to_string();
+        let row = self
+            .object_row(
+                store,
+                bucket,
+                visibility,
+                &id,
+                filename,
+                mime_type,
+                bytes,
+                alt_text,
+                "image",
+                None,
+                None,
+            )
+            .await?;
+        match self
+            .repository
+            .save_property_media_object(property_id, role, &row)
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                let _ = store.delete_object(bucket, &row.object.key).await;
+                Err(error.to_string())
+            }
+        }
+    }
+
+    pub(crate) async fn object_first_chunk(
+        &self,
+        upload_id: &str,
+        assembly: &db::MediaUploadAssembly,
+        derivatives: &[db::MediaDerivativeInput],
+    ) -> Result<UploadPropertyMediaResult, String> {
+        let store = self
+            .object_store
+            .as_ref()
+            .ok_or_else(|| "object store is not configured".to_owned())?;
+        let public = self
+            .repository
+            .property_is_public(&assembly.property_id)
+            .await
+            .unwrap_or(false);
+        let (bucket, visibility) = if public {
+            (ObjectBucket::PropertyMediaPublic, "public")
+        } else {
+            (ObjectBucket::PropertyMediaPrivate, "private")
+        };
+        let original_id = uuid::Uuid::new_v4().to_string();
+        let original = self
+            .object_row(
+                store,
+                bucket,
+                visibility,
+                &original_id,
+                &assembly.filename,
+                &assembly.mime_type,
+                &assembly.bytes,
+                assembly.alt_text.clone(),
+                "image",
+                None,
+                None,
+            )
+            .await?;
+        let mut rows = vec![original];
+        for derivative in derivatives {
+            let id = uuid::Uuid::new_v4().to_string();
+            let row = self
+                .object_row(
+                    store,
+                    bucket,
+                    visibility,
+                    &id,
+                    &format!("{}-{}.jpg", assembly.filename.trim_end_matches(".jpg"), derivative.kind),
+                    "image/jpeg",
+                    &derivative.bytes,
+                    None,
+                    "image",
+                    Some(original_id.clone()),
+                    Some(derivative.kind.to_owned()),
+                )
+                .await?;
+            rows.push(row);
+        }
+        match self
+            .repository
+            .commit_media_object_upload(
+                upload_id,
+                &assembly.property_id,
+                &assembly.role,
+                &rows,
+            )
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                for row in &rows {
+                    let _ = store.delete_object(bucket, &row.object.key).await;
+                }
+                Err(error.to_string())
+            }
+        }
+    }
+
+    /// Phase 4 resolver:impl<R: MediaRepository> MediaService<R> {
     /// Phase 4 resolver: verified object first, legacy bytes as the always-available fallback.
     pub async fn media_read(
         &self,

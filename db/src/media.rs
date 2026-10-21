@@ -31,7 +31,20 @@ pub struct MediaObjectLocation {
     pub visibility: String,
 }
 
-/// Outcome of a shadow write for one media row. `bucket` is the logical storage domain
+/// One object-first media row: the DB metadata plus its verified object pointer. No bytes.
+#[derive(Debug, Clone)]
+pub struct MediaObjectRow {
+    pub id: String,
+    pub filename: String,
+    pub mime_type: String,
+    pub alt_text: Option<String>,
+    pub media_type: String,
+    pub derivative_of: Option<String>,
+    pub derivative_kind: Option<String>,
+    pub object: MediaObjectMetadata,
+}
+
+/// Outcome of a shadow/object write for one media row. `bucket` is the logical storage domain
 /// (`property_media_public`, `property_media_private`, `vault`), not a provider-specific name.
 #[derive(Debug, Clone)]
 pub struct MediaObjectMetadata {

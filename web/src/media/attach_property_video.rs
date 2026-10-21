@@ -126,22 +126,32 @@ impl<R: MediaRepository> MediaService<R> {
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty());
 
+            if self.object_store.is_some() {
+                match self
+                    .object_first_property_media(
+                        &request.property_id,
+                        &request.role,
+                        &request.filename,
+                        &request.mime_type,
+                        request.alt_text.clone(),
+                        &request.bytes,
+                    )
+                    .await
+                {
+                    Ok(upload) => return Ok(upload),
+                    Err(error) => tracing::warn!(
+                        property_id = request.property_id,
+                        %error,
+                        "object-first property upload failed; falling back to legacy blob"
+                    ),
+                }
+            }
             self.repository
                 .upload_property_media(&request)
                 .await
                 .map_err(Into::into)
         }
         .await;
-
-        if let Ok(upload) = result.as_ref() {
-            self.shadow_property_media(
-                &upload.media_id,
-                &request.property_id,
-                &request.bytes,
-                &request.mime_type,
-            )
-            .await;
-        }
 
         audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
         result

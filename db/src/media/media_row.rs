@@ -84,6 +84,52 @@ pub struct MediaDao {
 }
 
 impl MediaDao {
+    pub(super) async fn insert_object_row(
+        tx: &mut crate::DbTransaction,
+        row: &MediaObjectRow,
+    ) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            insert into media (
+                id, filename, mime_type, file_size, alt_text, media_type,
+                derivative_of, derivative_kind, object_bucket, object_key, object_etag,
+                object_sha256, object_size, object_migrated_at, storage_status, visibility
+            )
+            values (
+                $1::uuid, $2, $3, $4, $5, $6, $7::uuid, $8, $9, $10, $11,
+                $12, $13, now(), $14, $15
+            )
+            "#,
+        )
+        .bind(&row.id)
+        .bind(&row.filename)
+        .bind(&row.mime_type)
+        .bind(row.object.size)
+        .bind(row.alt_text.as_deref())
+        .bind(&row.media_type)
+        .bind(row.derivative_of.as_deref())
+        .bind(row.derivative_kind.as_deref())
+        .bind(&row.object.bucket)
+        .bind(&row.object.key)
+        .bind(row.object.etag.as_deref())
+        .bind(row.object.sha256.as_deref())
+        .bind(row.object.size)
+        .bind(&row.object.status)
+        .bind(row.object.visibility.as_deref())
+        .execute(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.insert_object_row", &error))?;
+        Ok(())
+    }
+
+    /// Object-first standalone image: one row, no property link.
+    pub async fn upload_standalone_object(&self, row: &MediaObjectRow) -> DbResult<()> {
+        let mut tx = self.db.begin("media.upload_standalone_object").await?;
+        Self::insert_object_row(&mut tx, row).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// Bounded, restartable selection of legacy media for object-store migration.
     ///
     /// The ordering is by id so an interrupted run can resume with `after_id`. `is_public` mirrors
