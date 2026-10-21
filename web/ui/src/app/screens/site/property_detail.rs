@@ -23,6 +23,88 @@ struct Photo {
     caption: Option<String>,
 }
 
+/// A derivative size the media route serves. The route maps `card` to the 1200px copy, `thumb` to the 400px copy
+/// and `web` to the 3600px copy; a request with no `size` gets the `web` copy — and, for a legacy photograph that
+/// has no derivatives at all, the ORIGINAL (up to 6.6MB), which is exactly what a gallery tile must not ask for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum MediaSize {
+    Card,
+    Thumb,
+    Web,
+}
+
+impl MediaSize {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Card => "card",
+            Self::Thumb => "thumb",
+            Self::Web => "web",
+        }
+    }
+}
+
+/// The URL of `src` at `size`, for a source served by this application's media route.
+///
+/// `/api/media/{id}` takes `?size=card|thumb|web`; without a `size` the backend serves the web copy (or the
+/// original for a legacy photograph), so the gallery names the derivative it actually displays. The parameter is
+/// appended, or an existing `size` is replaced, while every other query parameter and any fragment is preserved.
+/// A non-media URL (`/images/...`, an absolute asset URL, a data URI) is returned unchanged: only the media route
+/// understands the parameter, and rewriting somebody else's URL would be a bug, not an optimisation.
+pub(super) fn media_url(src: &str, size: MediaSize) -> String {
+    if !is_media_route(src) {
+        return src.to_string();
+    }
+    let (before_fragment, fragment) = match src.split_once('#') {
+        Some((before_fragment, fragment)) => (before_fragment, Some(fragment)),
+        None => (src, None),
+    };
+    let (base, query) = match before_fragment.split_once('?') {
+        Some((base, query)) => (base, query),
+        None => (before_fragment, ""),
+    };
+    let mut params: Vec<String> = query
+        .split('&')
+        .filter(|pair| {
+            !pair.is_empty() && pair.split_once('=').map_or(true, |(key, _)| key != "size")
+        })
+        .map(str::to_string)
+        .collect();
+    params.push(format!("size={}", size.as_str()));
+    let mut out = format!("{base}?{}", params.join("&"));
+    if let Some(fragment) = fragment {
+        out.push('#');
+        out.push_str(fragment);
+    }
+    out
+}
+
+/// Whether `src` is served by the `/api/media/{id}` route — relative (`/api/media/…`) or absolute
+/// (`https://host/api/media/…`). The check is on the PATH, so a `?size=` or `#` suffix cannot fake it.
+fn is_media_route(src: &str) -> bool {
+    let path = src.split(['?', '#']).next().unwrap_or(src);
+    let path = match path.split_once("://") {
+        Some((_, after_scheme)) => after_scheme
+            .split_once('/')
+            .map(|(_, path)| path)
+            .unwrap_or(""),
+        None => path,
+    };
+    path.starts_with("/api/media/") || path.starts_with("api/media/")
+}
+
+/// `sizes` for the full-screen lightbox image: it is laid out edge to edge.
+pub(super) const LIGHTBOX_SIZES: &str = "100vw";
+
+/// The lightbox `srcset`: the 1200px card copy for narrow screens and the 3600px web copy for large ones. A phone
+/// downloads the card; a wide or retina desktop still gets the full web derivative.
+pub(super) fn lightbox_srcset(src: &str) -> String {
+    format!(
+        "{} 1200w, {} 3600w",
+        media_url(src, MediaSize::Card),
+        media_url(src, MediaSize::Web)
+    )
+}
+
 pub struct PropertyDetail;
 
 impl PropertyDetail {
@@ -333,5 +415,132 @@ fn bathrooms_display(record: &PropertyRecord, total: f64) -> String {
         format_number(total, "")
     } else {
         format!("{} ({})", format_number(total, ""), parts.join(", "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn media_url_appends_the_size_to_a_bare_media_route() {
+        assert_eq!(
+            media_url("/api/media/abc", MediaSize::Card),
+            "/api/media/abc?size=card"
+        );
+        assert_eq!(
+            media_url("/api/media/abc", MediaSize::Thumb),
+            "/api/media/abc?size=thumb"
+        );
+        assert_eq!(
+            media_url("/api/media/abc", MediaSize::Web),
+            "/api/media/abc?size=web"
+        );
+    }
+
+    #[test]
+    fn media_url_replaces_only_an_existing_size() {
+        assert_eq!(
+            media_url("/api/media/abc?foo=1", MediaSize::Card),
+            "/api/media/abc?foo=1&size=card"
+        );
+        assert_eq!(
+            media_url("/api/media/abc?size=web&foo=1", MediaSize::Thumb),
+            "/api/media/abc?foo=1&size=thumb"
+        );
+        assert_eq!(
+            media_url("/api/media/abc?size=web&size=card", MediaSize::Web),
+            "/api/media/abc?size=web"
+        );
+    }
+
+    #[test]
+    fn media_url_leaves_non_media_sources_alone() {
+        for src in [
+            "/images/hero-villa.png",
+            "https://cdn.example.test/photos/a.jpg?size=web",
+            "data:image/png;base64,AAAA",
+            "/v1/media/abc",
+            "",
+        ] {
+            assert_eq!(media_url(src, MediaSize::Card), src);
+        }
+    }
+
+    #[test]
+    fn media_url_handles_absolute_media_routes_and_fragments() {
+        assert_eq!(
+            media_url("https://example.test/api/media/abc", MediaSize::Card),
+            "https://example.test/api/media/abc?size=card"
+        );
+        assert_eq!(
+            media_url("/api/media/abc#photo", MediaSize::Web),
+            "/api/media/abc?size=web#photo"
+        );
+        assert_eq!(
+            media_url("/api/media/abc?size=web#photo", MediaSize::Card),
+            "/api/media/abc?size=card#photo"
+        );
+        assert_eq!(
+            media_url("/api/media/abc?", MediaSize::Card),
+            "/api/media/abc?size=card"
+        );
+    }
+
+    #[test]
+    fn lightbox_srcset_offers_card_and_web_with_their_widths() {
+        assert_eq!(
+            lightbox_srcset("/api/media/abc"),
+            "/api/media/abc?size=card 1200w, /api/media/abc?size=web 3600w"
+        );
+        assert_eq!(LIGHTBOX_SIZES, "100vw");
+    }
+
+    #[test]
+    fn every_gallery_slot_asks_for_the_derivative_it_displays() {
+        // The UI crate has no SSR renderer (`yew` is compiled for CSR), so the rendered markup cannot be turned into
+        // a string here. The markup is asserted at its source instead: the panel asks for the 1200px card, both
+        // thumbnail strips ask for the 400px thumb and are lazy, and the lightbox keeps web quality through srcset.
+        let media = include_str!("property_detail/media.rs");
+        assert_eq!(
+            media
+                .matches("media_url(&active.src, MediaSize::Card)")
+                .count(),
+            1,
+            "the media panel's active photograph must request the card derivative"
+        );
+        assert_eq!(
+            media
+                .matches("media_url(&active.src, MediaSize::Web)")
+                .count(),
+            1,
+            "the lightbox's fallback src must be the web derivative"
+        );
+        assert_eq!(
+            media
+                .matches("media_url(&photo.src, MediaSize::Thumb)")
+                .count(),
+            2,
+            "both thumbnail strips (panel and lightbox) must request the thumb derivative"
+        );
+        assert_eq!(
+            media.matches("loading=\"lazy\"").count(),
+            2,
+            "both thumbnail strips must be lazy"
+        );
+        assert_eq!(
+            media.matches("loading=\"eager\"").count(),
+            1,
+            "the lightbox's active photograph is what the viewer opened the dialog for"
+        );
+        assert!(
+            media.contains("srcset={lightbox_srcset(&active.src)}")
+                && media.contains("sizes={LIGHTBOX_SIZES}"),
+            "the lightbox must offer the srcset and tell the browser the layout width"
+        );
+        assert!(
+            !media.contains("sizes=\"100vw\""),
+            "the dead `sizes` on the panel (no srcset beside it) is back"
+        );
     }
 }

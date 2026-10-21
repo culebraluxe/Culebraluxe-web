@@ -10,11 +10,12 @@
 //! a hostile or merely enormous file costs real memory in a container we do not control.
 
 use image::codecs::jpeg::JpegEncoder;
+use image::imageops::FilterType;
 use image::ImageReader;
 use std::io::Cursor;
 
 /// The long edge the web copy is tried at, largest first. A photograph wider than this loses detail the web copy
-/// does not need; a narrower one is left alone, because `thumbnail` never upscales.
+/// does not need; a narrower one is left alone, because `fit` never upscales.
 const WEB_EDGES: [u32; 4] = [3600, 3200, 2800, 2400];
 /// The ceiling the web copy must fit under, chosen to sit under the gateway's ~4.5 MB cap with room to spare.
 const WEB_MAX_BYTES: usize = 3_500_000;
@@ -128,11 +129,21 @@ fn decode(original: &[u8]) -> Result<image::DynamicImage, String> {
     Ok(decoded)
 }
 
+/// Downscale to fit `edge` on the long side with Lanczos3.
+///
+/// WHY LANCZOS3 AND NOT `thumbnail`: `thumbnail` is the fast path — it samples a fixed neighbourhood and is chosen for
+/// speed on big batches. The copies are made ONCE per photograph and then served to every visitor, so their quality is
+/// worth the extra CPU: Lanczos3 is the highest-quality resampler `image` ships (a windowed-sinc kernel), and it keeps
+/// the fine structure of a photograph — window frames, railings, roof tiles — instead of softening it. It is still
+/// pure Rust, so the container needs no new binary.
+///
+/// NEVER UPSCALES. A photograph already smaller than the target is returned unchanged (`resize` would invent detail).
+/// Aspect ratio is preserved: `resize` fits the image inside the `edge`×`edge` box.
 fn fit(image: &image::DynamicImage, edge: u32) -> image::DynamicImage {
     if image.width().max(image.height()) <= edge {
         return image.clone();
     }
-    image.thumbnail(edge, edge)
+    image.resize(edge, edge, FilterType::Lanczos3)
 }
 
 fn encode_jpeg(image: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
@@ -248,5 +259,62 @@ mod tests {
             web.width.max(web.height)
         );
         assert!(web.bytes.len() <= WEB_MAX_BYTES);
+    }
+    /// THE QUALITY PIN. A downscale must be Lanczos3, not the fast `thumbnail` path: the copies are made once and
+    /// then served to every visitor, so a filter change is a visible product change. This compares the resampled
+    /// pixels against `image`'s own Lanczos3 resize, so switching to `thumbnail`/`Triangle`/`Nearest` fails here.
+    #[test]
+    fn a_downscale_is_resampled_with_lanczos3() {
+        let decoded = image::DynamicImage::ImageRgb8({
+            let mut image = image::RgbImage::new(800, 600);
+            for (x, y, pixel) in image.enumerate_pixels_mut() {
+                *pixel = image::Rgb([
+                    ((x * 7 + y * 3) % 256) as u8,
+                    ((x * 5 + y * 11) % 256) as u8,
+                    ((x * 13 + y * 2) % 256) as u8,
+                ]);
+            }
+            image
+        });
+
+        let fitted = fit(&decoded, 400);
+        let expected = decoded.resize(400, 400, image::imageops::FilterType::Lanczos3);
+        assert_eq!((fitted.width(), fitted.height()), (400, 300));
+        assert_eq!(
+            fitted.to_rgb8().as_raw(),
+            expected.to_rgb8().as_raw(),
+            "fit must resample with Lanczos3; the fast thumbnail filter softens detail and would fail this pin"
+        );
+    }
+
+    /// Every derived copy keeps its long-edge ceiling and the original's aspect ratio (within rounding).
+    #[test]
+    fn every_copy_respects_its_edge_and_aspect_ratio() {
+        let original = jpeg(3200, 1600);
+        let copies = derive_web_and_thumb(&original).expect("the photograph derives");
+        let expected_ratio = 3200.0 / 1600.0;
+        for copy in &copies {
+            let edge = match copy.kind {
+                "web" => WEB_EDGES[0],
+                "card" => CARD_EDGE,
+                "thumb" => THUMB_EDGE,
+                other => panic!("unexpected derivative kind {other}"),
+            };
+            assert!(
+                copy.width.max(copy.height) <= edge,
+                "the {} copy is {}x{}, larger than its {edge}px edge",
+                copy.kind,
+                copy.width,
+                copy.height
+            );
+            let ratio = f64::from(copy.width) / f64::from(copy.height);
+            assert!(
+                (ratio - expected_ratio).abs() < 0.01,
+                "the {} copy is {}x{}; a stretched copy would serve a distorted photograph",
+                copy.kind,
+                copy.width,
+                copy.height
+            );
+        }
     }
 }

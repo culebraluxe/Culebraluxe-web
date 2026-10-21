@@ -630,8 +630,18 @@ impl PublicListingDao {
             left join lateral (
                 select d.id, d.object_bucket, d.object_key, d.storage_status, d.visibility
                   from media d
-                 where d.derivative_of = root.id and d.derivative_kind in ($2, 'web')
-                 order by (d.derivative_kind = $2) desc
+                 where d.derivative_of = root.id
+                   and d.derivative_kind in ('web', 'card', 'thumb')
+                 -- Never fall through to the original when a smaller servable copy exists. The requested
+                 -- size wins; then web, then card; thumbnails prefer card over the full web copy.
+                 order by case
+                     when d.derivative_kind = $2 then 0
+                     when $2 = 'thumb' and d.derivative_kind = 'card' then 1
+                     when $2 = 'thumb' and d.derivative_kind = 'web' then 2
+                     when d.derivative_kind = 'web' then 1
+                     when d.derivative_kind = 'card' then 2
+                     else 3
+                 end
                  limit 1
             ) as copy on true
             where m.id = $1::uuid

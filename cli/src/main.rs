@@ -74,6 +74,7 @@ async fn dispatch_cli(args: &[String]) -> Result<(), Box<dyn Error>> {
         "smoke" => smoke::dispatch(&args[1..]).await,
         "ui" => ui_tool::dispatch(&args[1..]).await,
         "media-cards" => media_cards(&args[1..]).await,
+        "media-variants" => media_variants(&args[1..]).await,
         _ => {
             print_usage();
             Err(io::Error::other("unknown or missing command").into())
@@ -156,7 +157,9 @@ async fn media_cards(args: &[String]) -> Result<(), Box<dyn Error>> {
                     continue;
                 }
             };
-            if let Some(problem) = verify_original_object(&*store, bucket, &location.key, &original).await {
+            if let Some(problem) =
+                verify_original_object(&*store, bucket, &location.key, &original).await
+            {
                 failed += 1;
                 eprintln!("skipped {label} — {problem}");
                 continue;
@@ -166,7 +169,10 @@ async fn media_cards(args: &[String]) -> Result<(), Box<dyn Error>> {
                     // Deterministic per original: a failed DB insert can be retried over the same object without
                     // orphaning a second copy, and the row's gate (`images_missing_copy`) prevents a duplicate row.
                     let key = format!("media/{id}/card.jpg");
-                    let stored = match store.put_object(bucket, &key, &card.bytes, "image/jpeg").await {
+                    let stored = match store
+                        .put_object(bucket, &key, &card.bytes, "image/jpeg")
+                        .await
+                    {
                         Ok(stored) => stored,
                         Err(error) => {
                             failed += 1;
@@ -177,7 +183,9 @@ async fn media_cards(args: &[String]) -> Result<(), Box<dyn Error>> {
                     let Some(sha256) = stored.sha256.clone() else {
                         let _ = store.delete_object(bucket, &key).await;
                         failed += 1;
-                        eprintln!("skipped {label} — provider returned no SHA-256 for the card object");
+                        eprintln!(
+                            "skipped {label} — provider returned no SHA-256 for the card object"
+                        );
                         continue;
                     };
                     if let Err(error) = store
@@ -238,6 +246,218 @@ async fn media_cards(args: &[String]) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Gives every stored photograph the servable copies it never got: `web` (the full-size copy, capped under the
+/// gateway's response limit) and `thumb` (the grid). One photograph at a time; safe to run again.
+///
+/// OBJECT-FIRST, like `media-cards`. The ORIGINAL is read from its object pointer and verified against the store's
+/// HEAD (size + SHA-256), derived once with the same `imaging` module the upload path uses, uploaded under a
+/// deterministic key (`media/{original_id}/{kind}.jpg`), verified, and recorded as a metadata-only `media` row
+/// (`insert_copy_object`). No `media.file_data` is written; without media object storage there is nothing to do.
+///
+/// IDEMPOTENT: the work list is `images_missing_copy(kind)`, the object key is deterministic (a retry overwrites the
+/// same object), and a row is only inserted for a kind the database says is missing. A failed DB insert deletes the
+/// object it just wrote, so a retry does not leave an orphan. Per-photograph failures are reported and skipped; a batch
+/// where nothing progressed stops the run rather than spinning.
+async fn media_variants(args: &[String]) -> Result<(), Box<dyn Error>> {
+    apple_sync::load_env();
+    let target = match args.first().map(String::as_str) {
+        Some("dev") => db::DbTarget::Dev,
+        Some("prod") => db::DbTarget::Prod,
+        _ => return Err(io::Error::other("usage: media-variants dev|prod [web|thumb]").into()),
+    };
+    let kinds = variant_kinds(&args[1..])?;
+    let database = db::Database::connect_target(target).await?;
+
+    let store: Arc<dyn AbstractObjectStoreService> = web::media::object_store_from_env()
+        .map_err(|error| {
+            io::Error::other(format!(
+                "media-variants: media object storage is misconfigured: {error}"
+            ))
+        })?
+        .map(|store| Arc::new(store) as Arc<dyn AbstractObjectStoreService>)
+        .ok_or_else(|| {
+            io::Error::other(
+                "media-variants: media object storage is not configured; set MEDIA_OBJECT_STORE_* \
+                 (this command reads originals from objects and never writes media.file_data)",
+            )
+        })?;
+
+    let media = db::MediaDao::new(database);
+    let mut made: std::collections::HashMap<&'static str, usize> =
+        kinds.iter().map(|kind| (*kind, 0usize)).collect();
+    let mut failed = 0usize;
+    let mut saved_bytes = 0i64;
+
+    loop {
+        // One work list: every ORIGINAL missing at least one requested kind, with the kinds it still needs. Reading
+        // both lists first is what lets a photograph missing web AND thumb be derived once, not twice.
+        let mut needed: std::collections::BTreeMap<String, (Option<String>, Vec<&'static str>)> =
+            std::collections::BTreeMap::new();
+        for kind in &kinds {
+            for (id, filename) in media.images_missing_copy(kind, 20).await? {
+                needed
+                    .entry(id)
+                    .or_insert_with(|| (filename, Vec::new()))
+                    .1
+                    .push(*kind);
+            }
+        }
+        if needed.is_empty() {
+            break;
+        }
+
+        let mut progressed = false;
+        for (id, (filename, missing_kinds)) in needed {
+            let label = filename.clone().unwrap_or_else(|| id.clone());
+            // The original's own record copy — never the servable copy — is what the derivatives are made from.
+            let Some(location) = media.original_object_location(&id).await? else {
+                failed += 1;
+                eprintln!(
+                    "skipped {label} — original has no object location; migrate it before variants"
+                );
+                continue;
+            };
+            let Some(bucket) = ObjectBucket::from_db(&location.bucket) else {
+                failed += 1;
+                eprintln!(
+                    "skipped {label} — unknown object bucket {}",
+                    location.bucket
+                );
+                continue;
+            };
+            if location.status != "VERIFIED" {
+                failed += 1;
+                eprintln!(
+                    "skipped {label} — original object is not VERIFIED ({})",
+                    location.status
+                );
+                continue;
+            }
+            let original = match store.get_object(bucket, &location.key).await {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    failed += 1;
+                    eprintln!("skipped {label} — original object could not be read: {error}");
+                    continue;
+                }
+            };
+            if let Some(problem) =
+                verify_original_object(&*store, bucket, &location.key, &original).await
+            {
+                failed += 1;
+                eprintln!("skipped {label} — {problem}");
+                continue;
+            }
+            // Decode once, derive once; pick the kinds this original is still missing.
+            let derivatives = match web::media::imaging::derive_web_and_thumb(&original) {
+                Ok(derivatives) => derivatives,
+                Err(reason) => {
+                    failed += 1;
+                    eprintln!("skipped {label} — {reason}");
+                    continue;
+                }
+            };
+            for kind in missing_kinds {
+                let Some(derivative) = derivatives
+                    .iter()
+                    .find(|derivative| derivative.kind == kind)
+                else {
+                    failed += 1;
+                    eprintln!("skipped {label} — imaging produced no {kind} copy");
+                    continue;
+                };
+                // Deterministic per original+kind: a retried upload overwrites the same object, so a failed row
+                // insert cannot leave a second copy behind.
+                let key = format!("media/{id}/{kind}.jpg");
+                let stored = match store
+                    .put_object(bucket, &key, &derivative.bytes, "image/jpeg")
+                    .await
+                {
+                    Ok(stored) => stored,
+                    Err(error) => {
+                        failed += 1;
+                        eprintln!("skipped {label} — {kind} object upload failed: {error}");
+                        continue;
+                    }
+                };
+                let Some(sha256) = stored.sha256.clone() else {
+                    let _ = store.delete_object(bucket, &key).await;
+                    failed += 1;
+                    eprintln!(
+                        "skipped {label} — provider returned no SHA-256 for the {kind} object"
+                    );
+                    continue;
+                };
+                if let Err(error) = store
+                    .verify_object(bucket, &key, &sha256, stored.size)
+                    .await
+                {
+                    let _ = store.delete_object(bucket, &key).await;
+                    failed += 1;
+                    eprintln!("skipped {label} — {kind} object failed verification: {error}");
+                    continue;
+                }
+                let object = db::MediaObjectMetadata {
+                    bucket: bucket.as_str().to_owned(),
+                    key: key.clone(),
+                    etag: stored.etag,
+                    sha256: Some(sha256),
+                    size: stored.size,
+                    status: "VERIFIED".to_owned(),
+                    visibility: Some(location.visibility.clone()),
+                };
+                match media
+                    .insert_copy_object(&id, kind, filename.as_deref(), &object)
+                    .await
+                {
+                    Ok(_) => {
+                        *made.get_mut(&kind).expect("requested kind") += 1;
+                        saved_bytes += derivative.bytes.len() as i64;
+                        progressed = true;
+                        println!(
+                            "{kind} {}: {label} ({}x{}, {} KB)",
+                            made[&kind],
+                            derivative.width,
+                            derivative.height,
+                            derivative.bytes.len() / 1024
+                        );
+                    }
+                    Err(error) => {
+                        // No row points at this object now; remove it so the retry does not leave an orphan.
+                        let _ = store.delete_object(bucket, &key).await;
+                        return Err(error.into());
+                    }
+                }
+            }
+        }
+        // A batch where every photograph failed would come back forever; stop rather than spin.
+        if !progressed {
+            break;
+        }
+    }
+
+    let summary = kinds
+        .iter()
+        .map(|kind| format!("{} {kind} copies", made[kind]))
+        .collect::<Vec<_>>()
+        .join(" + ");
+    println!(
+        "done: {summary} ({} MB), {failed} skipped",
+        saved_bytes / 1_048_576
+    );
+    Ok(())
+}
+
+/// The derivative kinds `media-variants` should backfill: the optional argument names one, omission means both.
+fn variant_kinds(args: &[String]) -> Result<Vec<&'static str>, io::Error> {
+    match args {
+        [] => Ok(vec!["web", "thumb"]),
+        [one] if one == "web" => Ok(vec!["web"]),
+        [one] if one == "thumb" => Ok(vec!["thumb"]),
+        _ => Err(io::Error::other("usage: media-variants dev|prod [web|thumb]").into()),
+    }
+}
+
 /// Prove the downloaded original is the object the row points at before deriving anything from it.
 ///
 /// The store's HEAD metadata is the reference when it reports a size/SHA-256; a provider that reports neither still
@@ -292,6 +512,8 @@ fn print_usage() {
         "  cargo run -p cli -- gmail-census [dev|prod] [--file <census.csv>] [--verify] [--refresh]"
     );
     eprintln!("  cargo run -p cli -- ui capture-fixtures [base-url]");
+    eprintln!("  cargo run -p cli -- media-cards <dev|prod>");
+    eprintln!("  cargo run -p cli -- media-variants <dev|prod> [web|thumb]");
     eprintln!();
     eprintln!("  cargo run -p cli -- service serve");
     eprintln!("  cargo run -p cli -- service catalog");
@@ -616,4 +838,18 @@ async fn tx_smoke() -> Result<(), Box<dyn Error>> {
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod media_variants_tests {
+    use super::variant_kinds;
+
+    #[test]
+    fn the_kind_argument_names_one_copy_or_both() {
+        assert_eq!(variant_kinds(&[]).unwrap(), vec!["web", "thumb"]);
+        assert_eq!(variant_kinds(&["web".to_owned()]).unwrap(), vec!["web"]);
+        assert_eq!(variant_kinds(&["thumb".to_owned()]).unwrap(), vec!["thumb"]);
+        assert!(variant_kinds(&["card".to_owned()]).is_err());
+        assert!(variant_kinds(&["web".to_owned(), "thumb".to_owned()]).is_err());
+    }
 }

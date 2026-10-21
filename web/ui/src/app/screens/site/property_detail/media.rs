@@ -62,7 +62,7 @@ pub(super) fn media_panel(record: &PropertyRecord, model: &Model, on_msg: &Callb
                 if visible.is_empty() { "h-[282px] sm:h-[362px] lg:h-[424px]" }
                 else { "h-[210px] sm:h-[280px] lg:h-[342px]" }
             )}>
-                <img src={active.src.clone()} alt={active.alt.clone()} sizes="100vw"
+                <img src={media_url(&active.src, MediaSize::Card)} alt={active.alt.clone()}
                     class="absolute inset-0 h-full w-full object-cover" />
 
                 if has_navigation {
@@ -121,7 +121,9 @@ pub(super) fn media_panel(record: &PropertyRecord, model: &Model, on_msg: &Callb
                                     "focus-visible:outline-none","focus-visible:ring-1","focus-visible:ring-inset","focus-visible:ring-brand-gold/70",
                                     if selected { "opacity-100 ring-2 ring-inset ring-brand-gold/70" } else { "opacity-85 hover:opacity-100" }
                                 )}>
-                                <img src={photo.src} alt="" class="absolute inset-0 h-full w-full object-cover" />
+                                <img src={media_url(&photo.src, MediaSize::Thumb)} alt=""
+                                    loading="lazy" decoding="async"
+                                    class="absolute inset-0 h-full w-full object-cover" />
                                 if show_remaining {
                                     <div class="pointer-events-none absolute inset-0 flex items-center justify-center bg-brand-navy/80 text-sm font-medium uppercase tracking-[0.16em] text-brand-ivory backdrop-blur-[1px]">
                                         { format!("+{remaining}") }
@@ -176,7 +178,8 @@ pub(super) fn lightbox(record: &PropertyRecord, model: &Model, on_msg: &Callback
             </header>
 
             <div class="relative min-h-0 flex-1">
-                <img src={active.src} alt={active.alt}
+                <img src={media_url(&active.src, MediaSize::Web)} alt={active.alt}
+                    srcset={lightbox_srcset(&active.src)} sizes={LIGHTBOX_SIZES} loading="eager"
                     class="absolute inset-0 h-full w-full object-contain" />
                 if total > 1 {
                     <button type="button" onclick={previous} aria-label="Previous photo"
@@ -206,7 +209,9 @@ pub(super) fn lightbox(record: &PropertyRecord, model: &Model, on_msg: &Callback
                                     "focus-visible:outline-none","focus-visible:ring-2","focus-visible:ring-inset","focus-visible:ring-brand-gold",
                                     if selected { "ring-2 ring-inset ring-brand-gold" } else { "opacity-70 hover:opacity-100" }
                                 )}>
-                                <img src={photo.src} alt="" class="absolute inset-0 h-full w-full object-cover" />
+                                <img src={media_url(&photo.src, MediaSize::Thumb)} alt=""
+                                    loading="lazy" decoding="async"
+                                    class="absolute inset-0 h-full w-full object-cover" />
                             </button>
                         }
                     }) }
