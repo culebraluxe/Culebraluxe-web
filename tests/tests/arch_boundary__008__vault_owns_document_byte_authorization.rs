@@ -15,13 +15,15 @@
 //!     `MediaDao::media_bytes`, whose SQL is `select ... from media where id = $1` with no type filter.
 //!   - `web/src/public_listings.rs` — service door `property.publicMediaBytes`, action `property.public.read`
 //!     (anonymous), over `PublicListingDao::media_bytes`, which gates on the Property link but never on `media_type`.
-//!   - `MediaDao::original_bytes` — a third reader with no type filter, reachable only from the CLI (`media-cards`).
+//!   - (`MediaDao::original_bytes` was a third unrestricted reader reachable only from the CLI; the CLI's
+//!     `media-cards` backfill went object-first, so that debt is PAID and its pin was removed here. `insert_copy`'s blob
+//!     writer went with it.)
 //!
 //! So a `document` row — including a signed contract carrying `transaction_document` lineage — is reachable through a
 //! door that asks for less than the Vault asks, and (through the public door) with no actor at all. Fixing that means
 //! giving each reader the `media_type` it is allowed to serve, or routing document bytes exclusively through the Vault;
-//! it does not mean widening this test. Both the door set and the reader set are pinned in **both directions**: a fifth
-//! door or a seventh reader fails (that is the new hole), and a pin that no longer matches fails too (so the debt may
+//! it does not mean widening this test. Both the door set and the reader set are pinned in **both directions**: a new
+//! door or a new reader fails (that is the new hole), and a pin that no longer matches fails too (so the debt may
 //! only shrink, and a fix cannot land without being recorded here).
 //!
 //! What this test does not cover, stated so nobody reads more into a green run: it reads sources, not behaviour — it
@@ -41,11 +43,13 @@ use test_harness::source;
 ///
 /// The set is pinned so a new byte reader is a deliberate entry here rather than a new way to reach a file, and so a
 /// reader that disappears is noticed.
-const MEDIA_BYTE_READERS: [&str; 10] = [
-    "db/src/broker_signature.rs load_protected_asset",
+const MEDIA_BYTE_READERS: [&str; 9] = [
+    // Lane F: the broker-signature asset went object-first; the blob read survives ONLY in the store-absent
+    // fallback, and it keeps its `media_type = 'image'` restriction. Renamed so the pin names the function that
+    // actually reads the blob rather than the dispatcher above it.
+    "db/src/broker_signature.rs load_legacy_protected_asset",
     "db/src/media/media_row.rs list_media_for_migration",
     "db/src/media/media_row.rs media_bytes",
-    "db/src/media/media_row.rs original_bytes",
     "db/src/public_listing.rs media_bytes",
     "db/src/vault/database.rs media_bytes",
     "db/src/vault/database.rs public_listing_document_bytes",
@@ -60,9 +64,8 @@ const MEDIA_BYTE_READERS: [&str; 10] = [
 /// The byte readers that do **not** restrict `media_type`: the debt that lets a document's bytes out of a door that is
 /// not the Vault's. Pinned so it can only shrink — and so adding the missing filter to one of them fails the test until
 /// the pin is updated, which is the record that the hole was closed.
-const TYPE_UNRESTRICTED_READERS: [&str; 3] = [
+const TYPE_UNRESTRICTED_READERS: [&str; 2] = [
     "db/src/media/media_row.rs media_bytes",
-    "db/src/media/media_row.rs original_bytes",
     "db/src/public_listing.rs media_bytes",
 ];
 
@@ -125,7 +128,7 @@ const GUEST_DOCUMENT_GUARDS: [&str; 7] = [
 /// The only files in `web/src` allowed to name the Vault's DAO: the adapter, the composition root, and the e-signature
 /// service's production type alias (below). A route or a service HOLDING `VaultDao` is a second path to the bytes, past
 /// the Vault's own decision.
-const VAULT_DAO_FILES: [&str; 3] = [
+const VAULT_DAO_FILES: [&str; 4] = [
     "web/src/composition.rs",
     // `ProductionLuxesignService` instantiates `LuxesignService<…, VaultDao>`: the e-signature service NAMES the
     // DAO as a generic argument and holds only `Arc<VaultService<_>>`. Every byte it reads goes through
@@ -136,6 +139,11 @@ const VAULT_DAO_FILES: [&str; 3] = [
     // file still only NAMES `VaultDao` as a generic argument and holds `Arc<VaultService<_>>`.
     "web/src/luxesign/core/mod.rs",
     "web/src/vault/mod.rs",
+    // Lane F: the broker-signature preview service. It names the DAO to call the OBJECT-FIRST resolver
+    // (`resolve_applied_signatures_object_first`), which runs the same policy/authority rules as issuance; the
+    // service still authorizes `vault.read` BEFORE it resolves, so this is the Vault's own door, not a second one.
+    // The resolver reads the protected asset only through the store handle the service already held.
+    "web/src/vault/applied_signatures.rs",
 ];
 
 /// The only files allowed to name the media DAO, for the same reason.

@@ -1,10 +1,8 @@
-//! Files in pieces: the chunked upload, the one multipart form, and a film straight to Mux — each with timeouts and retries.
+//! Uploads: a photograph whole or straight to object storage, and a film straight to Mux — each with a way out
+//! and retries. The staged chunk protocol is retired; there is no piecewise photograph path here any more.
 
 #[allow(unused_imports)]
 use super::*;
-
-/// 3 MB per request: comfortably under the gateway's ~4.5 MB cap, so a 13 MB photograph uploads.
-pub(super) const CHUNK_BYTES: f64 = 3.0 * 1024.0 * 1024.0;
 
 /// THE WAY OUT. No upload request may take longer than this: past it, the request is abandoned (aborted, so the
 /// browser lets go of it) and answers as a network failure, which is retried. A request that neither answers nor
@@ -53,14 +51,6 @@ pub(super) async fn post_once(
     post_once_within(path, form, REQUEST_SECONDS).await
 }
 
-/// One request, retried: a network failure or a server error is tried again; a refusal is final.
-pub(super) async fn post_form(
-    path: &str,
-    build: impl Fn() -> Result<web_sys::FormData, ApiError>,
-) -> Result<serde_json::Value, ApiError> {
-    post_form_within(path, build, REQUEST_SECONDS).await
-}
-
 /// The same retry rule with an explicit per-attempt ceiling: a WHOLE photograph is one long request, not a
 /// short chunk, so it needs more time than a piece does.
 pub(super) async fn post_form_within(
@@ -80,144 +70,6 @@ pub(super) async fn post_form_within(
             answer => return answer,
         }
     }
-}
-
-/// A photograph, sent the way a torrent is: in pieces, each its own short request, and only the pieces the server
-/// does not already have. Every request is safe to send again, so any of them can be retried, and choosing the same
-/// file again later resumes it (or skips it, when the property already shows it).
-pub(super) async fn upload_chunked(
-    file: web_sys::File,
-    path: &str,
-    fields: &[(String, String)],
-    init_fields: &[(String, String)],
-) -> Result<(), ApiError> {
-    let size = file.size();
-    let chunk_count = ((size / CHUNK_BYTES).ceil() as i32).max(1);
-    let form = |step: &str, extra: &[(&str, String)]| -> Result<web_sys::FormData, ApiError> {
-        let form = web_sys::FormData::new()
-            .map_err(|_| ApiError::network("The browser could not create the upload form."))?;
-        let append = |key: &str, value: &str| {
-            form.append_with_str(key, value)
-                .map_err(|_| ApiError::network("The browser could not prepare the upload."))
-        };
-        append("step", step)?;
-        for (key, value) in fields {
-            append(key, value)?;
-        }
-        for (key, value) in extra {
-            append(key, value)?;
-        }
-        Ok(form)
-    };
-
-    // One: declare the file. The server answers what it already has: `done` (the property shows this file already),
-    // `processing` (an earlier try is being finished), or an upload id with the pieces it holds.
-    let mut declared: Vec<(&str, String)> = vec![
-        ("filename", file.name()),
-        ("mimeType", file.type_()),
-        ("byteSize", format!("{size}")),
-        ("chunkCount", chunk_count.to_string()),
-        ("chunkSize", format!("{CHUNK_BYTES}")),
-    ];
-    declared.extend(
-        init_fields
-            .iter()
-            .map(|(key, value)| (key.as_str(), value.clone())),
-    );
-    let opened = post_form(path, || form("init", &declared)).await?;
-    let state = opened
-        .get("state")
-        .and_then(|state| state.as_str())
-        .unwrap_or("uploading");
-    if state == "done" {
-        return Ok(());
-    }
-    let upload_id = opened
-        .get("uploadId")
-        .and_then(|id| id.as_str())
-        .map(str::to_owned)
-        .ok_or_else(|| ApiError::decode("The upload was opened but no upload id came back."))?;
-
-    if state != "processing" {
-        let received: std::collections::HashSet<i64> = opened
-            .get("received")
-            .and_then(|received| received.as_array())
-            .map(|indexes| {
-                indexes
-                    .iter()
-                    .filter_map(serde_json::Value::as_i64)
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        // Two: the pieces the server lacks, in order — the receiver refuses an index beyond the declared count.
-        for index in 0..chunk_count {
-            if received.contains(&i64::from(index)) {
-                continue;
-            }
-            let start = f64::from(index) * CHUNK_BYTES;
-            let end = (start + CHUNK_BYTES).min(size);
-            let chunk = || -> Result<web_sys::FormData, ApiError> {
-                let piece = file
-                    .unchecked_ref::<web_sys::Blob>()
-                    .slice_with_f64_and_f64(start, end)
-                    .map_err(|_| {
-                        ApiError::network(format!(
-                            "Part {} of {chunk_count} could not be read.",
-                            index + 1
-                        ))
-                    })?;
-                let chunk = form(
-                    "chunk",
-                    &[
-                        ("uploadId", upload_id.clone()),
-                        ("chunkIndex", index.to_string()),
-                    ],
-                )?;
-                chunk
-                    .append_with_blob_and_filename("chunk", &piece, &file.name())
-                    .map_err(|_| ApiError::network("The browser could not prepare the upload."))?;
-                Ok(chunk)
-            };
-            post_form(path, chunk).await.map_err(|error| ApiError {
-                message: format!("Part {} of {chunk_count}: {}", index + 1, error.message),
-                ..error
-            })?;
-        }
-
-        // Three: finish. The server claims the upload and finishes it in the background (the image is re-encoded,
-        // which takes a while); this answers at once.
-        post_form(path, || {
-            form("complete", &[("uploadId", upload_id.clone())])
-        })
-        .await?;
-    }
-
-    // Four: ask, in short requests, until the photograph is stored — or has failed, and says why.
-    // Twenty minutes of asking: past that, something is wrong that waiting will not fix.
-    for _ in 0..400 {
-        yew::platform::time::sleep(std::time::Duration::from_secs(3)).await;
-        let answer = post_form(path, || form("status", &[("uploadId", upload_id.clone())])).await?;
-        match answer.get("state").and_then(|state| state.as_str()) {
-            Some("done") => return Ok(()),
-            Some("failed") => {
-                let message = answer
-                    .get("message")
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("The photo could not be saved.");
-                return Err(ApiError::network(message.to_owned()));
-            }
-            // Pieces all there but nobody finishing it (the server restarted mid-way): finish it again.
-            Some("uploading") => {
-                post_form(path, || {
-                    form("complete", &[("uploadId", upload_id.clone())])
-                })
-                .await?;
-            }
-            _ => {}
-        }
-    }
-    Err(ApiError::network("The photo is taking too long to finish."))
 }
 
 /// A whole photograph, in ONE request. The server derives the web/card/thumb copies, writes them and the
@@ -252,6 +104,234 @@ pub(super) async fn upload_whole_file(
 /// A whole photograph is one request, and may take far longer than a 3 MB chunk: five minutes is the way out.
 pub(super) const WHOLE_FILE_REQUEST_SECONDS: u64 = 300;
 
+/// A long-lived file PUT to object storage has the same ceiling as a whole-file request.
+pub(super) const DIRECT_PUT_SECONDS: u64 = WHOLE_FILE_REQUEST_SECONDS;
+
+fn field<'a>(fields: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    fields
+        .iter()
+        .find(|(key, _)| key == name)
+        .map(|(_, value)| value.as_str())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(64);
+    for byte in digest {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+/// Read a file's bytes in the browser. Needed only for the direct upload's SHA-256 declaration; the PUT itself
+/// sends the browser's own `File` handle, so the bytes are hashed once, not copied into a form.
+async fn file_bytes(file: &web_sys::File) -> Result<Vec<u8>, ApiError> {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::task::{Context, Poll, Waker};
+    let blob: &web_sys::Blob = file.unchecked_ref();
+    let promise = blob.array_buffer();
+    type Outcome = Rc<RefCell<Option<Result<Vec<u8>, ()>>>>;
+    let outcome: Outcome = Rc::new(RefCell::new(None));
+    let waker: Rc<RefCell<Option<Waker>>> = Rc::new(RefCell::new(None));
+    // The callbacks are owned by this future and live until the promise settles (or this function is
+    // dropped); JS holds a reference to them while the promise is pending.
+    let (fulfilled_outcome, fulfilled_waker) = (outcome.clone(), waker.clone());
+    let on_fulfilled: wasm_bindgen::closure::Closure<dyn FnMut(wasm_bindgen::JsValue)> =
+        wasm_bindgen::closure::Closure::new(move |value| {
+            let buffer = js_sys::ArrayBuffer::from(value);
+            *fulfilled_outcome.borrow_mut() = Some(Ok(js_sys::Uint8Array::new(&buffer).to_vec()));
+            if let Some(waker) = fulfilled_waker.borrow_mut().take() {
+                waker.wake();
+            }
+        });
+    let (rejected_outcome, rejected_waker) = (outcome.clone(), waker.clone());
+    let on_rejected: wasm_bindgen::closure::Closure<dyn FnMut(wasm_bindgen::JsValue)> =
+        wasm_bindgen::closure::Closure::new(move |_| {
+            *rejected_outcome.borrow_mut() = Some(Err(()));
+            if let Some(waker) = rejected_waker.borrow_mut().take() {
+                waker.wake();
+            }
+        });
+    let _ = promise.then2(&on_fulfilled, &on_rejected);
+    let bytes = std::future::poll_fn(move |context: &mut Context<'_>| {
+        if let Some(outcome) = outcome.borrow_mut().take() {
+            return Poll::Ready(
+                outcome.map_err(|_| ApiError::network("The file could not be read.")),
+            );
+        }
+        *waker.borrow_mut() = Some(context.waker().clone());
+        Poll::Pending
+    })
+    .await;
+    drop((on_fulfilled, on_rejected));
+    bytes
+}
+
+/// Tell the server an upload was abandoned, so it deletes the one object the browser stored. Best effort: a
+/// failed abort is reported nowhere and the bucket's lifecycle policy is the backstop.
+async fn abort_direct_upload(upload_id: &str) {
+    let body = serde_json::json!({ "uploadId": upload_id });
+    let _ = post_json_once(crate::app::api::direct_upload::ABORT, &body).await;
+}
+
+/// One JSON POST, no retries: used for a cleanup call where waiting is not worth it.
+async fn post_json_once(
+    path: &str,
+    body: &serde_json::Value,
+) -> Result<serde_json::Value, ApiError> {
+    let signal = way_out(REQUEST_SECONDS)?;
+    let response = HttpRequest::post(path)
+        .abort_signal(Some(&signal))
+        .json(body)
+        .map_err(|error| ApiError::network(error.to_string()))?
+        .send()
+        .await
+        .map_err(|error| ApiError::network(format!("the request did not complete ({error})")))?;
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|error| ApiError::network(format!("the answer did not arrive ({error})")))?;
+    interpret(status, response.ok(), &text)
+}
+
+/// A property photograph sent DIRECT TO OBJECT STORAGE: initiate, PUT, finalize.
+///
+/// The file never reaches this application: the server signs a short-lived PUT URL for the property-media
+/// bucket, the browser PUTs the bytes there, and the server then HEADs/SHA-256-verifies the object, derives the
+/// servable copies and records the rows in one transaction. Nothing is staged, so a large photograph no longer
+/// depends on the hosting edge's request-body cap — and no chunk row is written.
+///
+/// There is deliberately NO fallback: the staged chunk protocol is retired, so a deployment that cannot serve the
+/// direct flow reports the failure instead of silently restarting an unsafe path.
+pub(super) async fn upload_direct(
+    file: web_sys::File,
+    fields: &[(String, String)],
+    init_fields: &[(String, String)],
+) -> Result<(), ApiError> {
+    direct_upload_once(&file, fields, init_fields).await
+}
+
+async fn direct_upload_once(
+    file: &web_sys::File,
+    fields: &[(String, String)],
+    init_fields: &[(String, String)],
+) -> Result<(), ApiError> {
+    let property_id = field(fields, "propertyId")
+        .ok_or_else(|| ApiError::decode("The upload is missing its property."))?;
+    let role = field(init_fields, "role").unwrap_or("gallery");
+    let alt_text = field(init_fields, "altText").unwrap_or("");
+    let mime_type = file.type_();
+    let byte_size = file.size();
+    if byte_size <= 0.0 {
+        return Err(ApiError::network("That file is empty."));
+    }
+
+    // The declared SHA-256 is what finalize proves the stored object against; a transport error or a tampered
+    // object is refused there rather than recorded as a photograph.
+    let sha256 = sha256_hex(&file_bytes(file).await?);
+
+    let opened = post_json(
+        crate::app::api::direct_upload::INITIATE,
+        &serde_json::json!({
+            "propertyId": property_id,
+            "role": role,
+            "filename": file.name(),
+            "mimeType": mime_type,
+            "byteSize": byte_size as i64,
+            "sha256": sha256,
+            "altText": alt_text,
+        }),
+    )
+    .await?;
+    if opened.get("state").and_then(serde_json::Value::as_str) == Some("done") {
+        // The property already shows this file: nothing to send, exactly like the whole-file route's retry.
+        return Ok(());
+    }
+    let text = |key: &str| {
+        opened
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    };
+    let (Some(upload_id), Some(upload_url)) = (text("uploadId"), text("uploadUrl")) else {
+        return Err(ApiError::decode(
+            "The direct upload was opened but no upload address came back.",
+        ));
+    };
+    let content_type = text("contentType").unwrap_or_else(|| mime_type.clone());
+
+    // Two: the bytes, straight to object storage. A PUT is idempotent for this key, so a retry is safe.
+    let uploaded = put_file_once(&upload_url, &content_type, file).await;
+    if let Err(error) = uploaded {
+        abort_direct_upload(&upload_id).await;
+        return Err(error);
+    }
+
+    // Three: the server verifies the object, derives the copies, and records them and the property link.
+    match post_json_within(
+        crate::app::api::direct_upload::FINALIZE,
+        &serde_json::json!({ "uploadId": upload_id }),
+        WHOLE_FILE_REQUEST_SECONDS,
+    )
+    .await
+    {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            abort_direct_upload(&upload_id).await;
+            Err(error)
+        }
+    }
+}
+
+/// PUT one file to a signed object-storage URL, with the way out and the same retry rule as every other request.
+async fn put_file_once(
+    url: &str,
+    content_type: &str,
+    file: &web_sys::File,
+) -> Result<(), ApiError> {
+    let mut attempt = 1;
+    loop {
+        let sent = async {
+            let signal = way_out(DIRECT_PUT_SECONDS)?;
+            let response = HttpRequest::put(url)
+                .abort_signal(Some(&signal))
+                .header("Content-Type", content_type)
+                .body(file.clone())
+                .map_err(|error| ApiError::network(error.to_string()))?
+                .send()
+                .await
+                .map_err(|error| {
+                    ApiError::network(format!(
+                        "the photograph did not reach object storage ({error})"
+                    ))
+                })?;
+            let status = response.status();
+            if response.ok() {
+                Ok(())
+            } else {
+                Err(ApiError {
+                    status,
+                    code: "HTTP".into(),
+                    message: format!("Object storage answered {status}."),
+                })
+            }
+        }
+        .await;
+        match sent {
+            Err(error)
+                if attempt < ATTEMPTS && (error.code == "NETWORK" || error.status >= 500) =>
+            {
+                yew::platform::time::sleep(std::time::Duration::from_secs(2u64 << attempt)).await;
+                attempt += 1;
+            }
+            answer => return answer,
+        }
+    }
+}
+
 /// 8 MiB per request to Mux: a multiple of 256 KiB, as its upload store requires, and short enough on a slow line.
 pub(super) const VIDEO_CHUNK_BYTES: f64 = 8.0 * 1024.0 * 1024.0;
 
@@ -275,10 +355,20 @@ pub(super) async fn post_json(
     path: &str,
     body: &serde_json::Value,
 ) -> Result<serde_json::Value, ApiError> {
+    post_json_within(path, body, REQUEST_SECONDS).await
+}
+
+/// The same retry rule with an explicit per-attempt ceiling: finalizing a large photograph happens after the
+/// bytes are already stored, but it still downloads, decodes and re-encodes them, so it needs the long ceiling.
+pub(super) async fn post_json_within(
+    path: &str,
+    body: &serde_json::Value,
+    seconds: u64,
+) -> Result<serde_json::Value, ApiError> {
     let mut attempt = 1;
     loop {
         let answer = async {
-            let signal = way_out(REQUEST_SECONDS)?;
+            let signal = way_out(seconds)?;
             let response = HttpRequest::post(path)
                 .abort_signal(Some(&signal))
                 .json(body)

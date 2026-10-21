@@ -48,7 +48,7 @@ use services::{
     CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
     ServiceActorKind, ServiceContext, ServiceInfrastructure, ServicePrincipal,
 };
-use web::media::{BeginMediaUploadResult, MediaRepository, MediaService};
+use web::media::{MediaRepository, MediaService};
 use web::service_support::CoreServiceError;
 
 const HARNESS: &str = "PROPERTY.MEDIA/009";
@@ -161,68 +161,8 @@ impl MediaRepository for RecordingMediaRepository {
         })
     }
 
-    async fn begin_media_upload(
-        &self,
-        _request: &db::BeginMediaUpload,
-    ) -> DbResult<BeginMediaUploadResult> {
-        unreachable_here("begin_media_upload")
-    }
-
-    async fn stage_media_chunk(
-        &self,
-        _upload_id: &str,
-        _chunk_index: i32,
-        _bytes: &[u8],
-    ) -> DbResult<db::MediaUploadStatus> {
-        unreachable_here("stage_media_chunk")
-    }
-
     async fn remove_property_media(&self, _property_id: &str, _media_id: &str) -> DbResult<bool> {
         unreachable_here("remove_property_media")
-    }
-
-    async fn property_has_photo(
-        &self,
-        _property_id: &str,
-        _filename: &str,
-        _byte_size: i64,
-    ) -> DbResult<bool> {
-        unreachable_here("property_has_photo")
-    }
-
-    async fn resumable_media_upload(
-        &self,
-        _property_id: &str,
-        _filename: &str,
-        _byte_size: i64,
-        _chunk_size: i32,
-    ) -> DbResult<Option<(String, String, Vec<i32>)>> {
-        unreachable_here("resumable_media_upload")
-    }
-
-    async fn claim_media_upload(&self, _upload_id: &str) -> DbResult<bool> {
-        unreachable_here("claim_media_upload")
-    }
-
-    async fn fail_media_upload(&self, _upload_id: &str) -> DbResult<()> {
-        unreachable_here("fail_media_upload")
-    }
-
-    async fn media_upload_state(&self, _upload_id: &str) -> DbResult<Option<String>> {
-        unreachable_here("media_upload_state")
-    }
-
-    async fn assemble_media_upload(&self, _upload_id: &str) -> DbResult<db::MediaUploadAssembly> {
-        unreachable_here("assemble_media_upload")
-    }
-
-    async fn commit_media_upload(
-        &self,
-        _upload_id: &str,
-        _assembly: &db::MediaUploadAssembly,
-        _derivatives: &[db::MediaDerivativeInput],
-    ) -> DbResult<UploadPropertyMediaResult> {
-        unreachable_here("commit_media_upload")
     }
 }
 

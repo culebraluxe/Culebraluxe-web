@@ -1,4 +1,4 @@
-//! Photos and films: the media editor, the pickers, and the chunked and Mux uploaders.
+//! Photos and films: the media editor, the pickers, and the photo (whole/direct) and Mux uploaders.
 
 use super::*;
 

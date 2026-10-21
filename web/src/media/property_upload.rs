@@ -1,20 +1,19 @@
-//! The whole-file property photograph upload: ONE multipart request, no chunk staging.
+//! The whole-file property photograph upload: ONE multipart request, no staging.
 //!
 //! WHAT THIS REPLACES. The browser used to send a photograph as a manifest, N chunks and a completion call,
-//! staging every piece in `media_upload_chunk` so no single request had to survive a dropped connection. This
-//! path takes the file in one request, derives the servable copies, writes the original and the copies to
-//! object storage FIRST (each one verified), then records the metadata rows and the property link in ONE
-//! database transaction. Nothing is staged, so nothing in `media_upload` / `media_upload_chunk` is written —
-//! which is what lets those tables be dropped once the chunk routes are retired.
+//! staging every piece in `media_upload_chunk` so no single request had to survive a dropped connection. The
+//! staged chunk protocol is now RETIRED (`media_upload` / `media_upload_chunk` are dropped by
+//! `db/migrations/300`): photographs arrive either here (one request, whole file) or direct to object storage
+//! (`direct_upload.rs`, for files over the hosting edge's body cap). This path takes the file in one request,
+//! derives the servable copies, writes the original and the copies to object storage FIRST (each one verified),
+//! then records the metadata rows and the property link in ONE database transaction.
 //!
 //! FAILURE CLEANUP. Object storage cannot join a database transaction, so the order matters: upload and
 //! verify every object, then write the rows. If any upload fails, the objects already written are deleted
 //! before the error leaves. If the transaction fails, every object in the set is deleted. Either way a retry
 //! starts from no objects rather than accumulating orphans in the bucket.
 //!
-//! ROUTE. This module is NOT wired into the router: `web/src/api/routes.rs` is outside this lane's write scope.
-//! Register the handler in `web/src/api/portal_bridge.rs`'s `router()`, beside the existing
-//! `/api/property-media/chunked` route (the browser path the Yew catalogue names `PropertyMediaFullUpload`):
+//! ROUTE. Registered in `web/src/api/portal_bridge.rs`:
 //!
 //! ```ignore
 //! .route(
@@ -27,7 +26,7 @@
 //!
 //! The `DefaultBodyLimit` is REQUIRED: axum's default is 2 MiB, which is smaller than the photographs this
 //! path exists for. `property_media_full_upload` also has an `#[cfg(test)]` compile test that builds exactly
-//! this route against `ApiState`, so a mistyped registration is caught before it is wired.
+//! this route against `ApiState`.
 
 #[allow(unused_imports)]
 use super::*;
@@ -48,7 +47,7 @@ use services::{ServiceFailureClass, ServiceRuntimeError};
 ///
 /// The list is also a safety rule, not just a capability list: an `image/svg+xml` row would be served back
 /// to browsers under its own content type, so "any image/*" is not a safe admission rule for public media.
-const SUPPORTED_IMAGE_MIME_TYPES: [&str; 4] =
+pub(super) const SUPPORTED_IMAGE_MIME_TYPES: [&str; 4] =
     ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 
 /// One whole-file property photograph, exactly as the service needs it.
@@ -76,15 +75,15 @@ pub struct FullPropertyMediaUploadResult {
     pub derivative_kinds: Vec<&'static str>,
 }
 
-/// `ZoniBluff_1.jpg` + `web` -> `ZoniBluff_1-web.jpg`, the same naming the chunked writer uses.
-fn derivative_filename(original: &str, kind: &str) -> String {
+/// `ZoniBluff_1.jpg` + `web` -> `ZoniBluff_1-web.jpg`, the naming every object-first writer uses.
+pub(super) fn derivative_filename(original: &str, kind: &str) -> String {
     match original.rsplit_once('.') {
         Some((stem, _extension)) if !stem.is_empty() => format!("{stem}-{kind}.jpg"),
         _ => format!("{original}-{kind}.jpg"),
     }
 }
 
-fn object_store_not_configured() -> CoreServiceError {
+pub(super) fn object_store_not_configured() -> CoreServiceError {
     CoreServiceError::Runtime(ServiceRuntimeError::Router {
         code: "MEDIA_OBJECT_STORE_NOT_CONFIGURED".into(),
         message:
@@ -98,7 +97,7 @@ fn object_store_not_configured() -> CoreServiceError {
 /// Delete objects this request wrote but the database refused to record. Best effort: a delete that fails is
 /// logged and the whole set still fails, because a stray object is recoverable and a media row with no
 /// object is not.
-async fn discard_objects(
+pub(super) async fn discard_objects(
     store: &Arc<dyn AbstractObjectStoreService>,
     objects: &[(ObjectBucket, String)],
 ) {
@@ -115,7 +114,7 @@ async fn discard_objects(
 
 impl<R: MediaRepository> MediaService<R> {
     /// Store one whole property photograph: derive the copies, upload original and copies object-first, then
-    /// insert every metadata row and attach the property in one transaction. No chunk rows are touched.
+    /// insert every metadata row and attach the property in one transaction. Nothing is staged.
     pub async fn upload_property_media_full(
         &self,
         request: FullPropertyMediaUploadRequest,
@@ -206,7 +205,7 @@ impl<R: MediaRepository> MediaService<R> {
             .ok_or_else(object_store_not_configured)?;
 
         // Re-encoding a 13 MB photograph is hundreds of milliseconds of straight CPU; keep it off the async
-        // runtime, exactly as the chunked finisher does.
+        // runtime and on the blocking pool, as the direct-to-object finalize does.
         let original_bytes = std::mem::take(&mut request.bytes);
         let (original_bytes, derived) = tokio::task::spawn_blocking(move || {
             let derived = imaging::derive_web_and_thumb(&original_bytes);
@@ -429,421 +428,10 @@ pub async fn property_media_full_upload(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::security::CasbinAuthorizationPort;
-    use async_trait::async_trait;
-    use db::{
-        BeginMediaUpload, DbFailure, DbResult, MediaDerivativeInput, MediaObjectLocation,
-        MediaObjectRow, MediaUploadAssembly, MediaUploadStatus,
-    };
-    use model::{
-        AttachPropertyVideoRequest, AttachPropertyVideoResult, MediaAsset,
-        UploadPropertyMediaRequest, UploadPropertyMediaResult,
-    };
-    use services::{
-        CapturingAuditPort, CapturingDomainEventPort, ObjectMetadata, ObjectStoreError,
-        ServiceActor, ServiceActorKind, ServiceInfrastructure, ServicePrincipal,
-    };
-    use std::collections::BTreeMap;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex};
-
-    const PROPERTY: &str = "0b0e0f56-89a1-4c4f-9b2b-6a1f0a1e0001";
-
-    fn sha256_hex(bytes: &[u8]) -> String {
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(bytes);
-        hasher
-            .finalize()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect()
-    }
-
-    /// The one signed-in user these tests run as: ROOT, so the real Casbin policy admits `property.write`.
-    fn root_context() -> ServiceContext {
-        ServiceContext {
-            actor: ServiceActor {
-                id: Some("root-user".into()),
-                kind: ServiceActorKind::User,
-            },
-            correlation_id: "media-whole-file-test".into(),
-            causation_id: None,
-            principal: Some(ServicePrincipal {
-                app_user_id: "root-user".into(),
-                level: "ADMIN".into(),
-                role_codes: vec!["root".into()],
-                account_type: "internal".into(),
-                entitlement_codes: Vec::new(),
-            }),
-        }
-    }
-
-    #[derive(Default)]
-    struct FakeStore {
-        objects: Mutex<BTreeMap<(String, String), (String, i64)>>,
-        puts: Mutex<Vec<String>>,
-        deletes: Mutex<Vec<String>>,
-        verifies: AtomicUsize,
-        /// 1-based verify call that should fail (an integrity failure mid-set).
-        fail_verify_at: Mutex<Option<usize>>,
-        fail_urls: AtomicBool,
-    }
-
-    impl FakeStore {
-        fn put_count(&self) -> usize {
-            self.puts.lock().expect("puts poisoned").len()
-        }
-
-        fn delete_count(&self) -> usize {
-            self.deletes.lock().expect("deletes poisoned").len()
-        }
-    }
-
-    #[async_trait]
-    impl AbstractObjectStoreService for FakeStore {
-        async fn put_object(
-            &self,
-            bucket: ObjectBucket,
-            key: &str,
-            bytes: &[u8],
-            _content_type: &str,
-        ) -> Result<ObjectMetadata, ObjectStoreError> {
-            let sha = sha256_hex(bytes);
-            self.objects.lock().expect("objects poisoned").insert(
-                (bucket.as_str().to_owned(), key.to_owned()),
-                (sha.clone(), bytes.len() as i64),
-            );
-            self.puts
-                .lock()
-                .expect("puts poisoned")
-                .push(key.to_owned());
-            Ok(ObjectMetadata {
-                bucket,
-                key: key.to_owned(),
-                size: bytes.len() as i64,
-                content_type: None,
-                etag: Some("etag".into()),
-                sha256: Some(sha),
-            })
-        }
-
-        async fn head_object(
-            &self,
-            bucket: ObjectBucket,
-            key: &str,
-        ) -> Result<ObjectMetadata, ObjectStoreError> {
-            let objects = self.objects.lock().expect("objects poisoned");
-            let (sha, size) = objects
-                .get(&(bucket.as_str().to_owned(), key.to_owned()))
-                .ok_or_else(|| ObjectStoreError::not_found(key))?;
-            Ok(ObjectMetadata {
-                bucket,
-                key: key.to_owned(),
-                size: *size,
-                content_type: None,
-                etag: Some("etag".into()),
-                sha256: Some(sha.clone()),
-            })
-        }
-
-        async fn delete_object(
-            &self,
-            bucket: ObjectBucket,
-            key: &str,
-        ) -> Result<(), ObjectStoreError> {
-            self.objects
-                .lock()
-                .expect("objects poisoned")
-                .remove(&(bucket.as_str().to_owned(), key.to_owned()));
-            self.deletes
-                .lock()
-                .expect("deletes poisoned")
-                .push(key.to_owned());
-            Ok(())
-        }
-
-        async fn public_read_url(
-            &self,
-            _bucket: ObjectBucket,
-            key: &str,
-        ) -> Result<String, ObjectStoreError> {
-            if self.fail_urls.load(Ordering::SeqCst) {
-                return Err(ObjectStoreError::infrastructure("no URL", true));
-            }
-            Ok(format!("https://cdn.example/{key}"))
-        }
-
-        async fn signed_read_url(
-            &self,
-            _bucket: ObjectBucket,
-            key: &str,
-            _ttl: std::time::Duration,
-        ) -> Result<String, ObjectStoreError> {
-            if self.fail_urls.load(Ordering::SeqCst) {
-                return Err(ObjectStoreError::infrastructure("no URL", true));
-            }
-            Ok(format!("https://signed.example/{key}"))
-        }
-
-        async fn signed_write_url(
-            &self,
-            _bucket: ObjectBucket,
-            key: &str,
-            _content_type: &str,
-            _ttl: std::time::Duration,
-        ) -> Result<String, ObjectStoreError> {
-            Ok(format!("https://write.example/{key}"))
-        }
-
-        async fn verify_object(
-            &self,
-            bucket: ObjectBucket,
-            key: &str,
-            expected_sha256: &str,
-            expected_size: i64,
-        ) -> Result<ObjectMetadata, ObjectStoreError> {
-            let call = self.verifies.fetch_add(1, Ordering::SeqCst) + 1;
-            if *self.fail_verify_at.lock().expect("verify poisoned") == Some(call) {
-                return Err(ObjectStoreError::integrity(format!("verify {call} failed")));
-            }
-            let objects = self.objects.lock().expect("objects poisoned");
-            let (sha, size) = objects
-                .get(&(bucket.as_str().to_owned(), key.to_owned()))
-                .ok_or_else(|| ObjectStoreError::not_found(key))?;
-            if sha != expected_sha256 || *size != expected_size {
-                return Err(ObjectStoreError::integrity("stored bytes do not match"));
-            }
-            Ok(ObjectMetadata {
-                bucket,
-                key: key.to_owned(),
-                size: *size,
-                content_type: None,
-                etag: Some("etag".into()),
-                sha256: Some(sha.clone()),
-            })
-        }
-    }
-
-    /// A repository that records what the whole-file path did and counts every touch of the chunk protocol.
-    #[derive(Default)]
-    struct FakeRepository {
-        public: bool,
-        fail_save: bool,
-        existing_photo_id: Option<String>,
-        location: Option<MediaObjectLocation>,
-        blob: Option<(String, Vec<u8>)>,
-        saved_sets: Mutex<Vec<(String, String, Vec<MediaObjectRow>)>>,
-        chunk_calls: AtomicUsize,
-        blob_reads: AtomicUsize,
-        object_lookups: AtomicUsize,
-    }
-
-    impl FakeRepository {
-        fn saved_sets(&self) -> Vec<(String, String, Vec<MediaObjectRow>)> {
-            self.saved_sets.lock().expect("saved poisoned").clone()
-        }
-    }
-
-    #[async_trait]
-    impl MediaRepository for FakeRepository {
-        async fn media_bytes(&self, _id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-            self.blob_reads.fetch_add(1, Ordering::SeqCst);
-            Ok(self.blob.clone())
-        }
-
-        async fn upload_standalone(
-            &self,
-            _filename: &str,
-            _mime_type: &str,
-            _bytes: &[u8],
-        ) -> DbResult<(String, String, String, i64)> {
-            Err(unused())
-        }
-
-        async fn for_property(&self, _property_id: &str) -> DbResult<Vec<MediaAsset>> {
-            Err(unused())
-        }
-
-        async fn set_property_hero(&self, _property_id: &str, _media_id: &str) -> DbResult<bool> {
-            Err(unused())
-        }
-
-        async fn upload_property_media(
-            &self,
-            _request: &UploadPropertyMediaRequest,
-        ) -> DbResult<UploadPropertyMediaResult> {
-            Err(unused())
-        }
-
-        async fn attach_property_video(
-            &self,
-            _request: &AttachPropertyVideoRequest,
-        ) -> DbResult<AttachPropertyVideoResult> {
-            Err(unused())
-        }
-
-        async fn begin_media_upload(
-            &self,
-            _request: &BeginMediaUpload,
-        ) -> DbResult<BeginMediaUploadResult> {
-            self.chunk_calls.fetch_add(1, Ordering::SeqCst);
-            Err(unused())
-        }
-
-        async fn stage_media_chunk(
-            &self,
-            _upload_id: &str,
-            _chunk_index: i32,
-            _bytes: &[u8],
-        ) -> DbResult<MediaUploadStatus> {
-            self.chunk_calls.fetch_add(1, Ordering::SeqCst);
-            Err(unused())
-        }
-
-        async fn remove_property_media(
-            &self,
-            _property_id: &str,
-            _media_id: &str,
-        ) -> DbResult<bool> {
-            Err(unused())
-        }
-
-        async fn property_has_photo(
-            &self,
-            _property_id: &str,
-            _filename: &str,
-            _byte_size: i64,
-        ) -> DbResult<bool> {
-            Ok(false)
-        }
-
-        async fn resumable_media_upload(
-            &self,
-            _property_id: &str,
-            _filename: &str,
-            _byte_size: i64,
-            _chunk_size: i32,
-        ) -> DbResult<Option<(String, String, Vec<i32>)>> {
-            Ok(None)
-        }
-
-        async fn claim_media_upload(&self, _upload_id: &str) -> DbResult<bool> {
-            self.chunk_calls.fetch_add(1, Ordering::SeqCst);
-            Err(unused())
-        }
-
-        async fn fail_media_upload(&self, _upload_id: &str) -> DbResult<()> {
-            self.chunk_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        }
-
-        async fn media_upload_state(&self, _upload_id: &str) -> DbResult<Option<String>> {
-            Ok(None)
-        }
-
-        async fn assemble_media_upload(&self, _upload_id: &str) -> DbResult<MediaUploadAssembly> {
-            self.chunk_calls.fetch_add(1, Ordering::SeqCst);
-            Err(unused())
-        }
-
-        async fn commit_media_upload(
-            &self,
-            _upload_id: &str,
-            _assembly: &MediaUploadAssembly,
-            _derivatives: &[MediaDerivativeInput],
-        ) -> DbResult<UploadPropertyMediaResult> {
-            self.chunk_calls.fetch_add(1, Ordering::SeqCst);
-            Err(unused())
-        }
-
-        async fn media_object_location(
-            &self,
-            _media_id: &str,
-        ) -> DbResult<Option<MediaObjectLocation>> {
-            self.object_lookups.fetch_add(1, Ordering::SeqCst);
-            Ok(self.location.clone())
-        }
-
-        async fn property_photo_id(
-            &self,
-            _property_id: &str,
-            _filename: &str,
-            _byte_size: i64,
-        ) -> DbResult<Option<String>> {
-            Ok(self.existing_photo_id.clone())
-        }
-
-        async fn property_is_public(&self, _property_id: &str) -> DbResult<bool> {
-            Ok(self.public)
-        }
-
-        async fn save_property_media_object_set(
-            &self,
-            property_id: &str,
-            role: &str,
-            rows: &[MediaObjectRow],
-        ) -> DbResult<UploadPropertyMediaResult> {
-            if self.fail_save {
-                return Err(DbFailure::configuration(
-                    "test.save_property_media_object_set",
-                    "the transaction failed",
-                ));
-            }
-            self.saved_sets.lock().expect("saved poisoned").push((
-                property_id.to_owned(),
-                role.to_owned(),
-                rows.to_vec(),
-            ));
-            Ok(UploadPropertyMediaResult {
-                ok: true,
-                media_id: rows[0].id.clone(),
-                property_id: property_id.to_owned(),
-                role: role.to_owned(),
-            })
-        }
-    }
-
-    fn unused() -> DbFailure {
-        DbFailure::configuration(
-            "test.unused",
-            "this path is not part of the whole-file upload",
-        )
-    }
-
-    fn jpeg(width: u32, height: u32) -> Vec<u8> {
-        let mut image = image::RgbImage::new(width, height);
-        for (x, y, pixel) in image.enumerate_pixels_mut() {
-            *pixel = image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8]);
-        }
-        let mut out = Vec::new();
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 80)
-            .encode_image(&image::DynamicImage::ImageRgb8(image))
-            .expect("the fixture encodes");
-        out
-    }
-
-    async fn service(
-        repository: FakeRepository,
-        store: Option<Arc<FakeStore>>,
-        object_reads: bool,
-    ) -> MediaService<FakeRepository> {
-        let infrastructure = ServiceInfrastructure::new(
-            Arc::new(
-                CasbinAuthorizationPort::new()
-                    .await
-                    .expect("the policy loads"),
-            ),
-            Arc::new(CapturingAuditPort::default()),
-            Arc::new(CapturingDomainEventPort::default()),
-        );
-        let service = MediaService::new(repository, infrastructure);
-        let service = match store {
-            Some(store) => service.with_object_store(store),
-            None => service,
-        };
-        service.with_object_reads(object_reads)
-    }
+    use crate::media::test_support::*;
+    use db::MediaObjectLocation;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
 
     fn request(bytes: Vec<u8>) -> FullPropertyMediaUploadRequest {
         FullPropertyMediaUploadRequest {
@@ -869,8 +457,8 @@ mod tests {
         }
     }
 
-    /// The registration the Lead is asked to add must typecheck: this builds the exact route — handler plus the
-    /// body limit that makes a whole photograph fit — against the real router state. It does not serve anything.
+    /// The registration in `web/src/api/portal_bridge.rs` must typecheck: this builds the exact route — handler
+    /// plus the body limit that makes a whole photograph fit — against the real router state. It does not serve anything.
     #[test]
     fn the_handler_registers_on_the_api_router() {
         let _router: axum::Router<ApiState> = axum::Router::new().route(
@@ -882,7 +470,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_whole_photograph_is_stored_object_first_with_no_chunk_rows() {
+    async fn a_whole_photograph_is_stored_object_first_without_staging() {
         let repository = FakeRepository {
             public: true,
             ..Default::default()
@@ -928,12 +516,6 @@ mod tests {
         }
         assert_eq!(kinds, vec!["web", "card", "thumb"]);
 
-        // NO CHUNK STAGING: the whole-file path never opens a manifest, stages a piece or assembles one.
-        assert_eq!(
-            service.repository.chunk_calls.load(Ordering::SeqCst),
-            0,
-            "the whole-file path must not touch media_upload/media_upload_chunk"
-        );
         assert_eq!(service.repository.blob_reads.load(Ordering::SeqCst), 0);
     }
 
@@ -958,7 +540,6 @@ mod tests {
             "the object set must be deleted when no row points at it"
         );
         assert!(service.repository.saved_sets().is_empty());
-        assert_eq!(service.repository.chunk_calls.load(Ordering::SeqCst), 0);
         assert!(
             error.to_string().contains("transaction failed"),
             "unexpected error: {error}"
@@ -985,7 +566,6 @@ mod tests {
             "the unverified object and every earlier one are deleted"
         );
         assert!(service.repository.saved_sets().is_empty());
-        assert_eq!(service.repository.chunk_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -1060,7 +640,6 @@ mod tests {
         assert_eq!(stored.derivative_kinds, Vec::<&str>::new());
         assert_eq!(store.put_count(), 0);
         assert!(service.repository.saved_sets().is_empty());
-        assert_eq!(service.repository.chunk_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

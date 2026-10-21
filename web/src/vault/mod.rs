@@ -96,6 +96,51 @@ impl IssuedDocumentWriter for ObjectStoreDocumentWriter {
     }
 }
 
+/// The object reader issuance uses for the BROKER'S STANDING PRE-SIGNATURE image.
+///
+/// Issuance cannot read the store itself (the db transaction owns the rows, the process owns the store), so the
+/// store is lent in through this port. When it reports a configured store, the DAO resolves the protected asset
+/// object-first and never reads `media.file_data`; when it does not (tests/dev), the DAO keeps the legacy blob read.
+#[async_trait]
+pub trait IssuedSignatureAssetReader: Send + Sync {
+    /// Whether this deployment owns an object store: `true` means object-first with NO blob fallback.
+    fn object_store_configured(&self) -> bool;
+    /// The stored bytes for one `(bucket, key)` pointer read from the protected signature media row.
+    async fn read_object(&self, bucket: &str, key: &str) -> Result<Vec<u8>, String>;
+}
+
+/// The production reader: `AbstractObjectStoreService::get_object` over the configured store. With no store
+/// (tests/dev) issuance keeps the legacy blob read.
+pub struct ObjectStoreSignatureAssetReader {
+    store: Option<Arc<dyn AbstractObjectStoreService>>,
+}
+
+impl ObjectStoreSignatureAssetReader {
+    pub fn new(store: Option<Arc<dyn AbstractObjectStoreService>>) -> Self {
+        Self { store }
+    }
+}
+
+#[async_trait]
+impl IssuedSignatureAssetReader for ObjectStoreSignatureAssetReader {
+    fn object_store_configured(&self) -> bool {
+        self.store.is_some()
+    }
+
+    async fn read_object(&self, bucket: &str, key: &str) -> Result<Vec<u8>, String> {
+        let store = self
+            .store
+            .as_ref()
+            .ok_or_else(|| "object storage is not configured".to_owned())?;
+        let bucket = ObjectBucket::from_db(bucket)
+            .ok_or_else(|| format!("unknown object bucket: {bucket}"))?;
+        store
+            .get_object(bucket, key)
+            .await
+            .map_err(|error| error.to_string())
+    }
+}
+
 #[async_trait]
 pub trait VaultRepository: Send + Sync {
     fn database(&self) -> Option<Database> {
@@ -197,6 +242,7 @@ pub trait VaultRepository: Send + Sync {
         request: &IssueDocumentRequest,
         artifacts: Arc<dyn VaultArtifactPort>,
         writer: Arc<dyn IssuedDocumentWriter>,
+        asset_reader: Arc<dyn IssuedSignatureAssetReader>,
     ) -> DbResult<VaultCommandResult>;
 }
 
@@ -348,8 +394,17 @@ impl VaultRepository for VaultDao {
         request: &IssueDocumentRequest,
         artifacts: Arc<dyn VaultArtifactPort>,
         writer: Arc<dyn IssuedDocumentWriter>,
+        asset_reader: Arc<dyn IssuedSignatureAssetReader>,
     ) -> DbResult<VaultCommandResult> {
         let upload_writer = writer.clone();
+        // A configured store selects the OBJECT-FIRST signature resolution: the protected asset is fetched through
+        // the store and must match its media record, with no blob fallback. No store keeps the legacy read.
+        let read_protected_asset = asset_reader.object_store_configured().then_some({
+            move |bucket: String, key: String| {
+                let reader = asset_reader.clone();
+                async move { reader.read_object(&bucket, &key).await }
+            }
+        });
         VaultDao::issue_from_form_instance(
             self,
             request,
@@ -377,6 +432,7 @@ impl VaultRepository for VaultDao {
                 let key = key.to_owned();
                 async move { writer.discard_issued(&key).await }
             },
+            read_protected_asset,
         )
         .await
     }
@@ -1249,9 +1305,15 @@ impl<R: VaultRepository> VaultService<R> {
             // before its media row is written; absent (tests/dev) => issuance keeps the legacy blob path.
             let writer: Arc<dyn IssuedDocumentWriter> =
                 Arc::new(ObjectStoreDocumentWriter::new(self.object_store.clone()));
+            // The SAME store handle resolves the broker's standing pre-signature: with a store configured this
+            // makes issuance object-first for the protected asset too, and a missing/unverified object is a
+            // refusal rather than a silent blob (a no-store deployment keeps the legacy read).
+            let asset_reader: Arc<dyn IssuedSignatureAssetReader> = Arc::new(
+                ObjectStoreSignatureAssetReader::new(self.object_store.clone()),
+            );
             let command = self
                 .repository
-                .issue_from_form_instance(request, self.artifacts.clone(), writer)
+                .issue_from_form_instance(request, self.artifacts.clone(), writer, asset_reader)
                 .await?;
             if command.outcome == VaultCommandOutcome::Success && !command.replayed {
                 self.runtime
@@ -1422,6 +1484,7 @@ mod tests {
             _request: &IssueDocumentRequest,
             _artifacts: Arc<dyn VaultArtifactPort>,
             _writer: Arc<dyn IssuedDocumentWriter>,
+            _asset_reader: Arc<dyn IssuedSignatureAssetReader>,
         ) -> DbResult<VaultCommandResult> {
             unimplemented!("not exercised by the Vault read-door tests")
         }
@@ -1856,6 +1919,34 @@ mod tests {
                 .is_none(),
             "without a store the DAO must take the legacy blob branch"
         );
+    }
+
+    #[tokio::test]
+    async fn the_signature_asset_reader_is_object_first_only_when_a_store_exists() {
+        let no_store = ObjectStoreSignatureAssetReader::new(None);
+        assert!(
+            !no_store.object_store_configured(),
+            "without a store issuance must keep the legacy blob read"
+        );
+
+        let key = "media/protected/original.png";
+        let store = std::sync::Arc::new(FakeObjectStore::with_object(key, b"protected-png"));
+        let reader = ObjectStoreSignatureAssetReader::new(Some(
+            store as std::sync::Arc<dyn AbstractObjectStoreService>,
+        ));
+        assert!(
+            reader.object_store_configured(),
+            "a configured store selects the object-first resolver"
+        );
+        assert_eq!(
+            reader
+                .read_object("vault", key)
+                .await
+                .expect("the stored object is read"),
+            b"protected-png"
+        );
+        // The bucket comes from the media row: an unknown domain is a refusal, never a guess.
+        assert!(reader.read_object("not-a-domain", key).await.is_err());
     }
 
     #[tokio::test]

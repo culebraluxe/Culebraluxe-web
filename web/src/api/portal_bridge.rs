@@ -161,15 +161,25 @@ pub fn router() -> Router<ApiState> {
             axum::routing::post(property_video_finalize),
         )
         .route(
-            "/api/property-media/chunked",
-            axum::routing::post(property_media_chunked)
-                .layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024)),
+            "/api/property-media/full",
+            axum::routing::post(crate::media::property_media_full_upload).layer(
+                axum::extract::DefaultBodyLimit::max(model::MAX_MEDIA_UPLOAD_BYTES + 1024 * 1024),
+            ),
+        )
+        // DIRECT-TO-OBJECT: the bytes go straight from the browser to the media bucket, so no request
+        // to this app carries the photograph and the ~4.5 MB gateway body cap no longer applies. Initiate
+        // signs a PUT URL + pending token; finalize verifies and records; abort cleans up a gave-up
+        // upload. There is no staged piece anywhere: the retired chunk protocol has no route left.
+        .route(
+            "/api/property-media/direct/initiate",
+            axum::routing::post(crate::media::property_media_direct_initiate),
         )
         .route(
-            "/api/property-media/full",
-            axum::routing::post(crate::media::property_media_full_upload)
-                .layer(axum::extract::DefaultBodyLimit::max(
-                    model::MAX_MEDIA_UPLOAD_BYTES + 1024 * 1024,
-                )),
+            "/api/property-media/direct/finalize",
+            axum::routing::post(crate::media::property_media_direct_finalize),
+        )
+        .route(
+            "/api/property-media/direct/abort",
+            axum::routing::post(crate::media::property_media_direct_abort),
         )
 }

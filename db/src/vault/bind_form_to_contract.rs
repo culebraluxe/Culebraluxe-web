@@ -59,12 +59,18 @@ impl VaultDao {
     /// when the deployment has no object store (tests/dev); that is the one case the legacy blob branch
     /// runs. If the command fails after the upload, `discard` removes the orphan object before the error
     /// leaves the DAO — the receipt/finalize semantics and the single transaction are unchanged.
-    pub async fn issue_from_form_instance<F, Fut, U, UFut, D, DFut>(
+    ///
+    /// `read_protected_asset` is the store half of the BROKER PRE-SIGNATURE: `Some` when the deployment
+    /// owns an object store, and then Lisa's signature image is fetched through it and checked against the
+    /// media record (the object-first resolver below) — `media.file_data` is never read. `None` keeps the
+    /// legacy blob read, which is allowed only where no store exists.
+    pub async fn issue_from_form_instance<F, Fut, U, UFut, D, DFut, R, RFut>(
         &self,
         request: &IssueDocumentRequest,
         render: F,
         upload: U,
         discard: D,
+        read_protected_asset: Option<R>,
     ) -> DbResult<VaultCommandResult>
     where
         F: FnOnce(VaultRenderRequest) -> Fut + Send,
@@ -74,6 +80,8 @@ impl VaultDao {
             + Send,
         D: FnOnce(&str) -> DFut + Send,
         DFut: Future<Output = ()> + Send,
+        R: Fn(String, String) -> RFut + Send + Sync,
+        RFut: Future<Output = Result<Vec<u8>, String>> + Send + 'static,
     {
         let mut tx = self.db.begin("vault.issue_from_form_instance").await?;
         // The key of the object this command uploaded, if any: a rolled-back command must not leave it
@@ -213,14 +221,30 @@ impl VaultDao {
             // Resolved through the DAO's own method, which is the same one the browser preview calls: ONE
             // implementation of the policy, the declared-signer check, the slot mapping and the authority rule, so the
             // draft on screen and the document that is issued cannot disagree about her line.
-            let applied_signatures = match self
-                .resolve_applied_signatures_in(
-                    tx.connection(),
-                    &render_request,
-                    model::forms_broker_signature::SignatureAuthority::ApplyingActor,
-                )
-                .await
-            {
+            //
+            // OBJECT-FIRST WHEN THE CALLER OWNS A STORE. The protected signature image is fetched through the
+            // caller's store handle and verified against its media record; a store-backed deployment never reads
+            // `media.file_data`, so a missing/unverified object is a refusal rather than a silent blob. The
+            // legacy resolver (inside this transaction's own connection) runs only when no store exists.
+            let resolved = match read_protected_asset {
+                Some(read_object) => {
+                    self.resolve_applied_signatures_object_first(
+                        &render_request,
+                        model::forms_broker_signature::SignatureAuthority::ApplyingActor,
+                        read_object,
+                    )
+                    .await
+                }
+                None => {
+                    self.resolve_applied_signatures_in(
+                        tx.connection(),
+                        &render_request,
+                        model::forms_broker_signature::SignatureAuthority::ApplyingActor,
+                    )
+                    .await
+                }
+            };
+            let applied_signatures = match resolved {
                 Ok(applied) => applied,
                 Err(failure) => {
                     finalize_receipt(
@@ -473,11 +497,14 @@ impl VaultDao {
             }
         }
     }
-    /// THE BROKER'S PRE-SIGNATURE, resolved against a render request: the ONE implementation of the policy.
+    /// THE BROKER'S PRE-SIGNATURE, resolved against a render request on the transaction's own connection: the ONE
+    /// implementation of the policy, for the LEGACY (no-store) deployment.
     ///
-    /// Both halves of the feature call this — the issuance path above, inside its transaction and with the receipt it
-    /// has to finalize on refusal, and the browser preview. A preview can therefore only ever show what issuance would
-    /// apply: the same template policy, the same declared-signer check, the same slot mapping, the same authority rule.
+    /// Issuance calls this only when the caller lent no object store; a store-backed issuance resolves through
+    /// [`VaultDao::resolve_applied_signatures_object_first`] instead, so its protected asset never comes from
+    /// `media.file_data`. The browser preview with no store reaches this through `resolve_applied_signatures` below.
+    /// A preview can therefore only ever show what issuance would apply: the same template policy, the same
+    /// declared-signer check, the same slot mapping, the same authority rule — object-first or not.
     ///
     /// The slot is optional (`false` below): a participant row whose `slotId` is null is still matched at her own block
     /// by role rather than refused, which is the behaviour the issued record has always had.

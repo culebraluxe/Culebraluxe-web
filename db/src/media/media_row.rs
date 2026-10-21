@@ -1,4 +1,10 @@
-//! Moved from `media.rs` (move only): MediaRow, BeginMediaUpload, MediaUploadStatus, MediaUploadAssembly, MediaDerivativeInput, derivative_filename, MediaDao, new.
+//! Media rows: the DAO, its object-first writers and readers, and the property media link.
+//!
+//! The chunk-staging protocol (`media_upload` / `media_upload_chunk`) is retired: its manifest, status and
+//! assembly types and every DAO method that wrote a staged piece are gone. The two remaining legacy shapes are
+//! marked `LEGACY` below — the blob reader `media_bytes` (still reachable through `MEDIA_OBJECT_STORAGE_READS`)
+//! and the blob writer `upload_standalone` (the signed-PDF door) — and are the only reasons `media.file_data`
+//! still exists.
 
 #[allow(unused_imports)]
 use super::*;
@@ -21,62 +27,6 @@ pub(super) struct MediaRow {
     pub(super) duration_seconds: Option<String>,
     pub(super) aspect_ratio: Option<String>,
     pub(super) source_url: Option<String>,
-}
-
-#[derive(Clone)]
-/// One chunked upload, as declared by the client before any bytes arrive.
-///
-/// The declared size and count are a PROMISE, and storing them is only worth anything because completion checks
-/// them: a truncated photograph must not be storable as a photograph, and a client must not be able to send far more
-/// than it declared by understating the count.
-pub struct BeginMediaUpload {
-    pub upload_id: String,
-    pub property_id: String,
-    pub filename: String,
-    pub mime_type: String,
-    pub byte_size: i64,
-    pub chunk_count: i32,
-    pub chunk_size: i32,
-    pub sha256: Option<String>,
-    pub role: String,
-    pub alt_text: Option<String>,
-}
-
-/// How far along an upload is: what was declared, against what has actually landed.
-pub struct MediaUploadStatus {
-    pub upload_id: String,
-    pub byte_size: i64,
-    pub chunk_count: i32,
-    pub received_bytes: i64,
-    pub received_chunks: i32,
-    pub status: String,
-}
-
-/// An assembled upload: checked against what the client declared, and ready to be written.
-pub struct MediaUploadAssembly {
-    pub upload_id: String,
-    pub property_id: String,
-    pub filename: String,
-    pub mime_type: String,
-    pub role: String,
-    pub alt_text: Option<String>,
-    pub bytes: Vec<u8>,
-}
-
-/// One downscaled copy on its way into `media`. `kind` is `web` or `thumb` (migration 222's constraint is the check
-/// that keeps that honest).
-pub struct MediaDerivativeInput {
-    pub kind: &'static str,
-    pub bytes: Vec<u8>,
-}
-
-/// `ZoniBluff_1.jpg` + `web` -> `ZoniBluff_1-web.jpg`. Named so that a person looking at the storage can tell a copy
-/// from the original without joining a table.
-pub(super) fn derivative_filename(original: &str, kind: &str) -> String {
-    match original.rsplit_once('.') {
-        Some((stem, _extension)) if !stem.is_empty() => format!("{stem}-{kind}.jpg"),
-        _ => format!("{original}-{kind}.jpg"),
-    }
 }
 
 pub struct MediaDao {
@@ -330,6 +280,10 @@ impl MediaDao {
     }
 
     /// Photographs (originals, image type) that have no copy of this kind yet — the backfill's work list.
+    ///
+    /// An original counts when its bytes are readable from EITHER place they can live: the legacy `file_data`
+    /// blob or an OBJECT (`object_key`). The backfill used to require `file_data is not null`, which silently
+    /// skipped every object-first original — exactly the rows that need a card copy once the blob is gone.
     pub async fn images_missing_copy(
         &self,
         kind: &str,
@@ -339,7 +293,8 @@ impl MediaDao {
             r#"
             select m.id::text, m.filename
               from media m
-             where m.media_type = 'image' and m.derivative_of is null and m.file_data is not null
+             where m.media_type = 'image' and m.derivative_of is null
+               and (m.file_data is not null or m.object_key is not null)
                and not exists (select 1 from media d where d.derivative_of = m.id and d.derivative_kind = $1)
              order by m.created_at desc
              limit $2
@@ -350,21 +305,6 @@ impl MediaDao {
         .fetch_all(self.db.pool())
         .await
         .map_err(|error| DbFailure::from_sqlx("media.images_missing_copy", &error))
-    }
-
-    /// LEGACY BLOB PATH. An original photograph's own bytes, read from `file_data`.
-    ///
-    /// Only the `cli media-cards` backfill uses this now. The object-first replacement is
-    /// `original_object_location` + `AbstractObjectStoreService::get_object` + `insert_copy_object`; wiring the
-    /// CLI to those is the remaining step (the CLI is outside the media cutover's write scope).
-    pub async fn original_bytes(&self, id: &str) -> DbResult<Option<Vec<u8>>> {
-        sqlx::query_scalar::<_, Vec<u8>>(
-            "select file_data from media where id = $1::uuid and derivative_of is null",
-        )
-        .bind(id)
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.original_bytes", &error))
     }
 
     /// The object pointer of the ORIGINAL row (never a derivative): what an image-copy backfill must read.
@@ -434,33 +374,8 @@ impl MediaDao {
         .map_err(|error| DbFailure::from_sqlx("media.insert_copy_object", &error))
     }
 
-    /// LEGACY BLOB PATH. Attaches one derived copy (a JPEG) to its original, writing the bytes.
-    ///
-    /// The object-first replacement is `insert_copy_object` (see `original_bytes`).
-    pub async fn insert_copy(
-        &self,
-        original_id: &str,
-        kind: &str,
-        filename: Option<&str>,
-        bytes: &[u8],
-    ) -> DbResult<()> {
-        sqlx::query(
-            r#"
-            insert into media (file_data, filename, mime_type, file_size, media_type, derivative_of, derivative_kind)
-            values ($1, $2, 'image/jpeg', $3, 'image', $4::uuid, $5)
-            "#,
-        )
-        .bind(bytes)
-        .bind(filename)
-        .bind(bytes.len() as i64)
-        .bind(original_id)
-        .bind(kind)
-        .execute(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.insert_copy", &error))?;
-        Ok(())
-    }
-
+    /// LEGACY BLOB READ. Retained only for `MEDIA_OBJECT_STORAGE_READS`-off reads; removed with the
+    /// `media.file_data` drop. Every object-first reader goes through `media_object_location`.
     pub async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
         sqlx::query_as::<_, (String, Vec<u8>)>(
             r#"
@@ -485,6 +400,9 @@ impl MediaDao {
         .map_err(|error| DbFailure::from_sqlx("media.bytes", &error))
     }
 
+    /// LEGACY BLOB WRITE. The standalone media door (signed-contract PDFs) still stores bytes in
+    /// `media.file_data`; its object-first replacement is `upload_standalone_object`. It is the remaining
+    /// writer in this module blocking the blob-column drop.
     pub async fn upload_standalone(
         &self,
         filename: &str,
@@ -662,38 +580,6 @@ impl MediaDao {
         })
     }
 
-    /// Opens an upload. Idempotent: opening the same upload twice returns the manifest that already exists, so a
-    /// client that retried `init` — a dropped response, a refreshed tab — does not wipe bytes it already sent.
-    pub async fn begin_media_upload(
-        &self,
-        request: &BeginMediaUpload,
-    ) -> DbResult<MediaUploadStatus> {
-        sqlx::query(
-            r#"
-            insert into media_upload (
-                upload_id, property_id, filename, mime_type, byte_size, chunk_count, chunk_size, sha256, role, alt_text
-            )
-            values ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10)
-            on conflict (upload_id) do nothing
-            "#,
-        )
-        .bind(&request.upload_id)
-        .bind(&request.property_id)
-        .bind(&request.filename)
-        .bind(&request.mime_type)
-        .bind(request.byte_size)
-        .bind(request.chunk_count)
-        .bind(request.chunk_size)
-        .bind(request.sha256.as_deref())
-        .bind(&request.role)
-        .bind(request.alt_text.as_deref())
-        .execute(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.upload.begin", &error))?;
-
-        self.media_upload_status(&request.upload_id).await
-    }
-
     /// Takes a photograph off a property. The photograph itself (and, by cascade, its web and thumbnail copies) goes
     /// too unless another property still shows it. `false` when the photograph was not on this property.
     pub async fn remove_property_media(&self, property_id: &str, media_id: &str) -> DbResult<bool> {
@@ -719,208 +605,5 @@ impl MediaDao {
         .map_err(|error| DbFailure::from_sqlx("media.remove.delete", &error))?;
         tx.commit().await?;
         Ok(true)
-    }
-
-    /// Whether this property already shows this file (same name, same size): a folder chosen again skips it.
-    pub async fn property_has_photo(
-        &self,
-        property_id: &str,
-        filename: &str,
-        byte_size: i64,
-    ) -> DbResult<bool> {
-        sqlx::query_scalar::<_, bool>(
-            r#"
-            select exists (
-                select 1 from property_media pm join media m on m.id = pm.media_id
-                 where pm.property_id = $1::uuid and m.filename = $2 and m.file_size = $3 and m.derivative_of is null
-            )
-            "#,
-        )
-        .bind(property_id)
-        .bind(filename)
-        .bind(byte_size)
-        .fetch_one(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.upload.already_stored", &error))
-    }
-
-    /// An unfinished upload of this same file to this property, to resume: its id, status, and the chunks it has.
-    pub async fn resumable_media_upload(
-        &self,
-        property_id: &str,
-        filename: &str,
-        byte_size: i64,
-        chunk_size: i32,
-    ) -> DbResult<Option<(String, String, Vec<i32>)>> {
-        let found = sqlx::query_as::<_, (String, String)>(
-            r#"
-            select upload_id::text, status from media_upload
-             where property_id = $1::uuid and filename = $2 and byte_size = $3 and chunk_size = $4
-             order by created_at desc
-             limit 1
-            "#,
-        )
-        .bind(property_id)
-        .bind(filename)
-        .bind(byte_size)
-        .bind(chunk_size)
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.upload.resumable", &error))?;
-        let Some((upload_id, status)) = found else {
-            return Ok(None);
-        };
-        let received = sqlx::query_scalar::<_, i32>(
-            "select chunk_index from media_upload_chunk where upload_id = $1::uuid order by chunk_index",
-        )
-        .bind(&upload_id)
-        .fetch_all(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.upload.received", &error))?;
-        Ok(Some((upload_id, status, received)))
-    }
-
-    /// Claims an upload for finishing: `uploading` (or a `failed` one being retried) becomes `complete`, atomically, so
-    /// two requests can never both assemble and store the same photograph. `false` when nothing was claimable.
-    pub async fn claim_media_upload(&self, upload_id: &str) -> DbResult<bool> {
-        let claimed = sqlx::query_scalar::<_, String>(
-            "update media_upload set status = 'complete' where upload_id = $1::uuid and status in ('uploading', 'failed') returning status",
-        )
-        .bind(upload_id)
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.upload.claim", &error))?;
-        Ok(claimed.is_some())
-    }
-
-    /// Marks a claimed upload as failed; its chunks stay, so finishing can be tried again.
-    pub async fn fail_media_upload(&self, upload_id: &str) -> DbResult<()> {
-        sqlx::query("update media_upload set status = 'failed' where upload_id = $1::uuid and status = 'complete'")
-            .bind(upload_id)
-            .execute(self.db.pool())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("media.upload.fail", &error))?;
-        Ok(())
-    }
-
-    /// The upload's status, or `None` once it is gone (a finished upload's manifest is deleted with its chunks).
-    pub async fn media_upload_state(&self, upload_id: &str) -> DbResult<Option<String>> {
-        sqlx::query_scalar::<_, String>(
-            "select status from media_upload where upload_id = $1::uuid",
-        )
-        .bind(upload_id)
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.upload.state", &error))
-    }
-
-    /// Where an upload stands: bytes and chunks received, against what was declared.
-    pub async fn media_upload_status(&self, upload_id: &str) -> DbResult<MediaUploadStatus> {
-        let row = sqlx::query_as::<_, (String, i64, i32, i64, i32, String)>(
-            r#"
-            select m.upload_id::text,
-                   m.byte_size,
-                   m.chunk_count,
-                   coalesce(sum(length(c.bytes))::bigint, 0) as received_bytes,
-                   count(c.chunk_index)::int as received_chunks,
-                   m.status
-              from media_upload m
-              left join media_upload_chunk c on c.upload_id = m.upload_id
-             where m.upload_id = $1::uuid
-             group by m.upload_id, m.byte_size, m.chunk_count, m.status
-            "#,
-        )
-        .bind(upload_id)
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.upload.status", &error))?;
-
-        let Some((upload_id, byte_size, chunk_count, received_bytes, received_chunks, status)) =
-            row
-        else {
-            return Err(DbFailure::configuration(
-                "media.upload.status",
-                "the upload is unknown or has already been completed",
-            ));
-        };
-
-        Ok(MediaUploadStatus {
-            upload_id,
-            byte_size,
-            chunk_count,
-            received_bytes,
-            received_chunks,
-            status,
-        })
-    }
-
-    /// Stores one chunk. Idempotent by primary key: re-sending a chunk REPLACES it rather than duplicating it, which
-    /// is what makes a retry safe — a client that never saw a response can send the same index again.
-    ///
-    /// The guards live here rather than in the caller because every caller's mistake would otherwise become a stored
-    /// defect: a chunk for an unknown upload, an index outside the declared count, or bytes that would push the
-    /// upload past the size it declared are all refused before anything is written.
-    pub async fn stage_media_chunk(
-        &self,
-        upload_id: &str,
-        chunk_index: i32,
-        bytes: &[u8],
-    ) -> DbResult<MediaUploadStatus> {
-        let manifest = sqlx::query_as::<_, (String, i64, i32)>(
-            r#"
-            select status, byte_size, chunk_count
-              from media_upload
-             where upload_id = $1::uuid
-            "#,
-        )
-        .bind(upload_id)
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.upload.chunk_manifest", &error))?;
-
-        let Some((status, byte_size, chunk_count)) = manifest else {
-            return Err(DbFailure::configuration(
-                "media.upload.chunk",
-                "the upload is unknown or has already been completed",
-            ));
-        };
-        if status != "uploading" {
-            return Err(DbFailure::configuration(
-                "media.upload.chunk",
-                format!("this upload is {status} and no longer accepts chunks"),
-            ));
-        }
-        if chunk_index < 0 || chunk_index >= chunk_count {
-            return Err(DbFailure::configuration(
-                "media.upload.chunk",
-                format!("chunk {chunk_index} is outside the declared {chunk_count} chunks"),
-            ));
-        }
-
-        sqlx::query(
-            r#"
-            insert into media_upload_chunk (upload_id, chunk_index, bytes)
-            values ($1::uuid, $2, $3)
-            on conflict (upload_id, chunk_index) do update set bytes = excluded.bytes
-            "#,
-        )
-        .bind(upload_id)
-        .bind(chunk_index)
-        .bind(bytes)
-        .execute(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.upload.chunk", &error))?;
-
-        let progress = self.media_upload_status(upload_id).await?;
-        if progress.received_bytes > byte_size {
-            return Err(DbFailure::configuration(
-                "media.upload.chunk",
-                format!(
-                    "these chunks add up to {} bytes but the upload declared {byte_size}",
-                    progress.received_bytes
-                ),
-            ));
-        }
-        Ok(progress)
     }
 }

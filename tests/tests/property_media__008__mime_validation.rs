@@ -39,7 +39,7 @@ use services::{
     CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
     ServiceActorKind, ServiceContext, ServiceInfrastructure, ServicePrincipal,
 };
-use web::media::{BeginMediaUploadResult, MediaRepository, MediaService};
+use web::media::{MediaRepository, MediaService};
 use web::service_support::CoreServiceError;
 
 const HARNESS: &str = "PROPERTY.MEDIA/008";
@@ -84,7 +84,6 @@ fn infrastructure() -> ServiceInfrastructure {
 struct RecordingMediaRepository {
     property_media: Arc<Mutex<Vec<String>>>,
     standalone: Arc<Mutex<Vec<String>>>,
-    begin_upload: Arc<Mutex<Vec<String>>>,
 }
 
 impl RecordingMediaRepository {
@@ -101,13 +100,6 @@ impl RecordingMediaRepository {
 
     fn standalone_types(&self) -> Vec<String> {
         self.standalone
-            .lock()
-            .expect("the recording repository is never poisoned")
-            .clone()
-    }
-
-    fn begin_upload_types(&self) -> Vec<String> {
-        self.begin_upload
             .lock()
             .expect("the recording repository is never poisoned")
             .clone()
@@ -176,81 +168,12 @@ impl MediaRepository for RecordingMediaRepository {
         unreachable_here("attach_property_video")
     }
 
-    async fn begin_media_upload(
-        &self,
-        request: &db::BeginMediaUpload,
-    ) -> DbResult<BeginMediaUploadResult> {
-        self.begin_upload
-            .lock()
-            .expect("the recording repository is never poisoned")
-            .push(request.mime_type.clone());
-        Ok(BeginMediaUploadResult {
-            upload_id: request.upload_id.clone(),
-            chunk_size: request.chunk_size,
-            chunk_count: request.chunk_count,
-            byte_size: request.byte_size,
-        })
-    }
-
-    async fn stage_media_chunk(
-        &self,
-        _upload_id: &str,
-        _chunk_index: i32,
-        _bytes: &[u8],
-    ) -> DbResult<db::MediaUploadStatus> {
-        unreachable_here("stage_media_chunk")
-    }
-
     async fn remove_property_media(&self, _property_id: &str, _media_id: &str) -> DbResult<bool> {
         unreachable_here("remove_property_media")
     }
-
-    async fn property_has_photo(
-        &self,
-        _property_id: &str,
-        _filename: &str,
-        _byte_size: i64,
-    ) -> DbResult<bool> {
-        unreachable_here("property_has_photo")
-    }
-
-    async fn resumable_media_upload(
-        &self,
-        _property_id: &str,
-        _filename: &str,
-        _byte_size: i64,
-        _chunk_size: i32,
-    ) -> DbResult<Option<(String, String, Vec<i32>)>> {
-        unreachable_here("resumable_media_upload")
-    }
-
-    async fn claim_media_upload(&self, _upload_id: &str) -> DbResult<bool> {
-        unreachable_here("claim_media_upload")
-    }
-
-    async fn fail_media_upload(&self, _upload_id: &str) -> DbResult<()> {
-        unreachable_here("fail_media_upload")
-    }
-
-    async fn media_upload_state(&self, _upload_id: &str) -> DbResult<Option<String>> {
-        unreachable_here("media_upload_state")
-    }
-
-    async fn assemble_media_upload(&self, _upload_id: &str) -> DbResult<db::MediaUploadAssembly> {
-        unreachable_here("assemble_media_upload")
-    }
-
-    async fn commit_media_upload(
-        &self,
-        _upload_id: &str,
-        _assembly: &db::MediaUploadAssembly,
-        _derivatives: &[db::MediaDerivativeInput],
-    ) -> DbResult<UploadPropertyMediaResult> {
-        unreachable_here("commit_media_upload")
-    }
 }
 
-/// The request shape both the single-shot and the chunked entry point start from.
+/// The request shape the direct multipart entry point starts from.
 fn property_request(mime_type: &str) -> UploadPropertyMediaRequest {
     UploadPropertyMediaRequest {
         property_id: "property-1".into(),
@@ -360,43 +283,5 @@ async fn property_media_008__mime_validation() {
         repository.standalone_types(),
         vec!["image/webp".to_owned()],
         "{HARNESS}: only image types reach standalone persistence"
-    );
-
-    // ---- 6. NEGATIVE: the chunked upload protocol must not be a way around the rule. ---------------
-    // `begin_media_upload` is the other door into a `media` row, and it is the one the browser uses for a
-    // large photograph: `MediaService::begin_media_upload` (`web/src/media/media_bytes.rs:289-316`) forwards
-    // `db::BeginMediaUpload` straight to `repository.begin_media_upload` with no MIME check of its own, the
-    // route above it validates only filename and shape (`web/src/api/routes/media.rs:270-298`), and the
-    // declared type is then bound verbatim into `media_upload.mime_type`
-    // (`db/src/media/media_row.rs:369`) and copied onto the finished `media` row
-    // (`db/src/media/assemble_media_upload.rs:99-117`). The database has no backstop either: `media` carries
-    // `media_media_type_check` on `media_type in ('image','video','document')`
-    // (`db/migrations/004_document_media.sql:5-6`) but **no CHECK constraint on `mime_type` at all**.
-    let chunked = db::BeginMediaUpload {
-        upload_id: "11111111-1111-4111-8111-111111111111".into(),
-        property_id: "property-1".into(),
-        filename: "front.html".into(),
-        mime_type: "text/html".into(),
-        byte_size: 4,
-        chunk_count: 1,
-        chunk_size: 4,
-        sha256: None,
-        role: "gallery".into(),
-        alt_text: None,
-    };
-
-    let outcome = service.begin_media_upload(chunked, &ctx).await;
-    assert!(
-        outcome.is_err(),
-        "{HARNESS}: the chunked upload protocol must apply the same image-only rule as the single-shot one. \
-         `begin_media_upload` accepted a declared type of text/html, and that value is bound verbatim into \
-         `media_upload.mime_type` and copied onto the finished `media` row, so a non-image reaches the \
-         public site and is served back to browsers as its own `Content-Type`."
-    );
-    assert!(
-        repository.begin_upload_types().is_empty(),
-        "{HARNESS}: a refused MIME type must never reach `begin_media_upload`'s repository call; it \
-         persisted {:?}",
-        repository.begin_upload_types()
     );
 }

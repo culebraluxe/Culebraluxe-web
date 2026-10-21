@@ -2,7 +2,7 @@
 //!
 //! The list (search with a pause, paging, selection) and the upload are the screen's. The photograph is sent with the
 //! same upload command as the Workbench's: whole in one request when the edge can carry it (copies derived and stored
-//! object-first server-side, no staged chunks), in pieces only when it cannot.
+//! object-first server-side, no staged chunks), direct to object storage when the edge cannot carry it.
 
 use yew::prelude::*;
 

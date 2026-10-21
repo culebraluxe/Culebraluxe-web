@@ -1,7 +1,8 @@
 //! THE API CATALOGUE — every URL the app calls, and nowhere else.
 //!
 //! Screens name an endpoint (`Cmd::request(PortalScreenPage::of("db-test"), ...)`); they never write a path — including
-//! for files (`FileEndpoint`: chunked uploads and multipart forms). Every path here is answered by the Rust server.
+//! for files (`FileEndpoint`: whole-file and direct-to-object uploads, multipart forms). Every path here is answered
+//! by the Rust server.
 //!
 //! Answers are decoded from JSON TEXT with `from_str`, not from a `serde_json::Value`: decoding from a `Value` compiled a
 //! second full deserializer per payload type and doubled the wasm (see `cmd::Request`). Do not "simplify" it back.

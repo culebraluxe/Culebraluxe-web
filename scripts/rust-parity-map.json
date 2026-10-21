@@ -189,7 +189,7 @@
     { "area": "flight-recorder", "module": "web/src/api/routes.rs", "routes": ["/v1/flight-recorder/{id}"] },
     { "area": "issues", "module": "web/src/api/routes.rs", "routes": ["/v1/issues"] },
     { "area": "media", "module": "web/src/media/mod.rs", "routes": ["/v1/media/{id}","/v1/media/upload"] },
-    { "area": "properties", "module": "web/src/properties/mod.rs", "routes": ["/v1/properties/admin","/v1/properties/{id}/admin","/v1/properties/{id}/video","/v1/properties/{id}/media/uploads","/v1/properties/{id}/media/uploads/{upload_id}/chunks/{index}","/v1/properties/{id}/media/uploads/{upload_id}/complete","/v1/properties/{id}/video-uploads","/v1/properties/{id}/video-uploads/{upload_id}/finalize"] },
+    { "area": "properties", "module": "web/src/properties/mod.rs", "routes": ["/v1/properties/admin","/v1/properties/{id}/admin","/v1/properties/{id}/video","/v1/properties/{id}/video-uploads","/v1/properties/{id}/video-uploads/{upload_id}/finalize"] },
     { "area": "public", "module": "web/src/api/routes.rs", "routes": ["/v1/public/listing-copy","/v1/public/listings","/v1/public/property","/v1/public/media/{id}","/v1/public/similar","/v1/public/slugs","/v1/public/guide","/v1/public/marketing-content"] },
     { "area": "relationship-evidence", "module": "web/src/api/routes.rs", "routes": ["/v1/relationship-evidence/review","/v1/relationship-evidence/actions"] },
     { "area": "security", "module": "web/src/security/mod.rs", "routes": ["/v1/security/identity","/v1/security/guests","/v1/security/guest-code","/v1/security/guest-code/verify","/v1/security/authorize","/v1/security/authorize/public","/v1/security/role-entitlements","/v1/security/users"] },

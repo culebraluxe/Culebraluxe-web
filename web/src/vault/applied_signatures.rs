@@ -39,20 +39,44 @@ impl<R: VaultRepository> VaultService<R> {
         )
         .await?;
 
-        let result = self
-            .repository
-            .resolve_applied_signatures(request)
-            .await
-            .map_err(|failure| match failure.outcome {
-                // The rows were unreachable or the connection could not be acquired: infrastructure, and captured.
-                VaultCommandOutcome::PreconditionFailure => CoreServiceError::infrastructure(
-                    "VAULT_SIGNATURE_LOOKUP_FAILED",
-                    failure.message,
-                ),
-                // Policy refused it. The document cannot carry her signature as configured — a business refusal the
-                // caller must see, not error noise.
-                _ => CoreServiceError::business("VAULT_SIGNATURE_REFUSED", failure.message),
-            });
+        // OBJECT-FIRST WHEN THIS DEPLOYMENT OWNS A STORE. The protected signature image is fetched from object
+        // storage and checked against the row's recorded size and SHA-256, so the preview never reads
+        // `media.file_data` once the store is configured. `read_object` is only called for a row whose pointer is
+        // already VERIFIED (vault/vault); a legacy row is a refusal naming the backfill, not a silent blob — the
+        // same rule the media read cutover uses. With no store (tests/dev) the repository keeps the legacy read.
+        let result = match (self.object_store.as_ref(), self.repository.database()) {
+            (Some(store), Some(database)) => {
+                let store = Arc::clone(store);
+                db::VaultDao::new(database)
+                    .resolve_applied_signatures_object_first(
+                        request,
+                        model::forms_broker_signature::SignatureAuthority::OwnerByConstruction,
+                        move |bucket: String, key: String| {
+                            let store = Arc::clone(&store);
+                            async move {
+                                let bucket = ObjectBucket::from_db(&bucket)
+                                    .ok_or_else(|| format!("unknown object bucket: {bucket}"))?;
+                                store
+                                    .get_object(bucket, &key)
+                                    .await
+                                    .map_err(|error| error.to_string())
+                            }
+                        },
+                    )
+                    .await
+            }
+            _ => self.repository.resolve_applied_signatures(request).await,
+        }
+        .map_err(|failure| match failure.outcome {
+            // The rows were unreachable, the connection could not be acquired, or the verified object could not be
+            // read: infrastructure, and captured.
+            VaultCommandOutcome::PreconditionFailure => {
+                CoreServiceError::infrastructure("VAULT_SIGNATURE_LOOKUP_FAILED", failure.message)
+            }
+            // Policy refused it. The document cannot carry her signature as configured — a business refusal the
+            // caller must see, not error noise.
+            _ => CoreServiceError::business("VAULT_SIGNATURE_REFUSED", failure.message),
+        });
 
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result

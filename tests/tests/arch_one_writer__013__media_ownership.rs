@@ -2,7 +2,7 @@
 //!
 //! Contract: `media` is the reusable asset; `property_media` owns the
 //! property-specific role and ordering. Row creation has a closed holder set of
-//! two (`assemble_media_upload.rs`, `media_row.rs`), and the hero transition —
+//! two (`object_write.rs`, `media_row.rs`), and the hero transition —
 //! demote the old hero to gallery, promote the new one — lives only in the
 //! assembler. A property can therefore never end up with two heroes from two
 //! writers disagreeing about who promotes.
@@ -39,18 +39,15 @@ fn arch_one_writer_013__media_ownership() {
     holders.sort();
     assert_eq!(
         holders,
-        vec![
-            "db/src/media/assemble_media_upload.rs",
-            "db/src/media/media_row.rs",
-        ],
+        vec!["db/src/media/media_row.rs", "db/src/media/object_write.rs",],
         "property media links have two creators; a third is a second owner of role and order"
     );
 
     // The hero transition is one writer's job: demote-then-promote in the assembler only.
-    let assembler = source::read(&root.join("db/src/media/assemble_media_upload.rs"));
+    let writer = source::read(&root.join("db/src/media/object_write.rs"));
     assert!(
-        assembler.contains("set role = 'gallery'") && assembler.contains("set role = 'hero'"),
-        "the assembler demotes the old hero and promotes the new one together"
+        writer.contains("set role = 'gallery'") && writer.contains("set role = 'hero'"),
+        "the object writer demotes the old hero and promotes the new one together"
     );
     let row = source::read(&root.join("db/src/media/media_row.rs"));
     assert!(
@@ -74,6 +71,6 @@ fn arch_one_writer_013__media_ownership() {
     ));
     assert!(!inserts_link("update property_media set role = 'gallery'"));
     assert!(!inserts_link(
-        "// the assembler inserts into property_media for us"
+        "// the object writer inserts into property_media for us"
     ));
 }

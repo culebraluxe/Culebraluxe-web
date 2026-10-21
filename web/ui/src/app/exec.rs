@@ -135,16 +135,13 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
             let deliver = deliver.clone();
             spawn_local(async move {
                 let reply = upload.reply;
-                let result = if upload.whole_file {
-                    upload_whole_file(
-                        upload.file,
-                        &upload.path,
-                        &upload.fields,
-                        &upload.init_fields,
-                    )
-                    .await
+                let result = if upload.direct {
+                    // The bytes go straight to object storage; the application only signs, verifies and
+                    // records. The chunked protocol is retired, so there is no fallback path.
+                    upload_direct(upload.file, &upload.fields, &upload.init_fields).await
                 } else {
-                    upload_chunked(
+                    // Whole-file route: one request, copies derived and recorded server-side.
+                    upload_whole_file(
                         upload.file,
                         &upload.path,
                         &upload.fields,

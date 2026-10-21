@@ -121,7 +121,7 @@ pub enum Cmd<Msg> {
     StorageRead { key, reply },        // one value from the device (favorites, compare, saved searches)
     StorageWrite { key, value },       // write, or remove with `None`
     After { millis, msg },             // deliver `msg` later: how a search waits for typing to pause
-    Upload(Upload<Msg>),               // one file, chunked, so no request reaches the gateway's body limit
+    Upload(Upload<Msg>),               // one file: whole to the app, or direct to object storage above the cap
     VideoUpload(VideoUpload<Msg>),     // a property film, browser straight to Mux, with progress
 }
 ```
@@ -297,7 +297,7 @@ Each rule names the check that actually holds it today, so it can be enforced ra
 | No HTML strings, no `data-*` intents | `from_html_unchecked` has one use, `web/ui/src/icons.rs` (the scoped SVG table); the string renderer and the document listeners were deleted with the old loop |
 | No transport in a screen | no `gloo_net`, no `fetch`, no `spawn_local` anywhere in `app/screens/`: a screen returns a `Cmd` and `app/exec.rs` performs it. `web_sys` there is allowed only for reading an event's target (input, select, drag, file) |
 | One route table | `app/registry.rs` is the only mapping from path to screen; a second one is a review reject |
-| One URL catalogue | every URL a screen reaches — requests (`Endpoint`), files (`FileEndpoint`: chunked uploads, multipart forms) and the sign-in form actions (`api::auth`) — is in `app/api.rs`. A path literal in `app/screens/` outside a test is a review reject |
+| One URL catalogue | every URL a screen reaches — requests (`Endpoint`), files (`FileEndpoint`: whole-file, direct-to-object and multipart uploads) and the sign-in form actions (`api::auth`) — is in `app/api.rs`. A path literal in `app/screens/` outside a test is a review reject |
 | No god screens | a screen module over **800 lines** is split the next time it is edited — `view` vs `update` vs row widgets, lists on `list.rs`, reads on `page.rs` — rather than grown. Not a scheduled clean-up of every file: the rule bites on the edit. Projects is the worked example (`app/screens/projects/`: `mod.rs`, `selection.rs`, `edits.rs`, `view/navigator.rs`, `view/documents.rs`, `view/work_editor.rs`, `tests.rs`) |
 | Everything builds | `pnpm ui:check` (the wasm32 target, what the deploy compiles; the pre-push hook runs it); `cargo test -p ui` (every screen, registry and command test on the host — `wasm` is a default feature); `pnpm build` (wasm + tailwind + the server binary); `cargo check --workspace --all-targets`. There is no Next build |
 | Every screen is reachable | the registry's own tests, plus a headless walk of every registry path: `pnpm debug:portal-nav` |
@@ -339,7 +339,7 @@ not a screen.
 | CORE | Cockpit [all activity, needs attention], Clients [client record], Projects [7 panes as tabs: Workplan, Timeline, Calendar, Financials, Documents, Activity, Catch-up], Contracts [contract record], Cabinet, Workflows [workflow record], Forms [form record], Seller Strategy — **ported**, Forms and form records included (`registry.rs:161,197`); the panes, the timeline and the calendar are the screen's own (`app/screens/projects/`, `timeline.rs`, `calendar.rs`) |
 | ACCOUNTING | Dashboard, Receivables, Expenses, P&L Statement, Receipt Scanner — **ported** (`app/screens/accounting/`: one shared model and reducer, five thin screens) |
 | MARKETING | Publishing (`/portal/marketing`, and `/portal/marketing/syndication` as a drill-in) — the native Publishing Center |
-| OPPS | Records [property record], Listing Media — **ported**; the record route is the Workbench opened on that property; photos go through `Cmd::upload` (chunked) |
+| OPPS | Records [property record], Listing Media — **ported**; the record route is the Workbench opened on that property; photos go through `Cmd::upload` (whole file, or direct to object storage above the gateway cap) |
 | SUPPORT | System Health, DB Test, WhatsApp Diagnostic, WhatsApp Activation (a LIFELINE page — see below), WhatsApp Public Page (`/whatsapp`), Mux Video Test (`/video`), Security [users, roles, authorities]; plus the token review page (`/review/:token/:page`, public URL kept) |
 | TECH | Cockpit [Flight Recorder trace record], Story Board [story record], UI Lab — **ported**; the sorter is the screen's own (`Msg::SorterDropped`), and there is no island left on the Cockpit |
 
@@ -372,8 +372,8 @@ Projects calendar — and the framer-ui-lab page, merged into UI Lab.
   (`screens/workbench/mod.rs`).
 - **OPPS photo title** (`VillaDelMar_7`) was derived from the Listing Media payload, which the Workbench never loads,
   so it was always blank; it now comes from the Workbench's own property and photo count.
-- **Listing Media** uploaded in one request (refused above the gateway's ~4.5 MB); it now uses the same chunked
-  upload as the Workbench.
+- **Listing Media** uploaded in one request (refused above the gateway's ~4.5 MB); it now uses the same upload path
+  as the Workbench: whole file up to the cap, direct to object storage above it.
 
 - **`<select value>` lost its value in Yew**: Yew sets `value` before the options exist, so the browser showed the LAST
   option (Projects showed every project "Archived"). Fixed in every ported screen by marking the chosen

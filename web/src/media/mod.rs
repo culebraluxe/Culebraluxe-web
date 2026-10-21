@@ -16,13 +16,18 @@ use services::{
 use std::sync::Arc;
 use std::time::Duration;
 mod attach_property_video;
+mod direct_upload;
 mod document_store;
 mod media_bytes;
 mod media_repository;
 mod neon_object_store;
 mod property_upload;
+#[cfg(test)]
+mod test_support;
 #[allow(unused_imports)]
 pub use attach_property_video::*;
+#[allow(unused_imports)]
+pub use direct_upload::*;
 pub use document_store::{DocumentObjectWriter, StoredDocument};
 #[allow(unused_imports)]
 pub use media_bytes::*;

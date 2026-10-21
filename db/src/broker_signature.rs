@@ -6,6 +6,8 @@
 //! issuance, because a document about to be sent to a provider must not go out without the signature it promised.
 
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
 
 use model::forms_applied_signature::{
     AppliedSignatureImageMimeType, FormAppliedSignature, BROKER_SIGNATURE_CONSENT_BASIS,
@@ -17,11 +19,12 @@ use model::forms_broker_signature::{
 };
 use model::forms_execution::IssuedExecutionSlot;
 use model::security::{resolve_security_level, SecurityLevel};
-use model::vault::{VaultArtifactFailure, VaultCommandOutcome};
+use model::vault::{VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, Row as _};
 
 use crate::error::DbFailure;
+use crate::{DbResult, MediaObjectMetadata, VaultDao};
 
 const OPERATION: &str = "vault.issue.broker_signature";
 
@@ -96,6 +99,22 @@ pub struct SignatureIssuance<'a> {
 pub async fn resolve_for_issuance(
     connection: &mut PgConnection,
     issuance: &SignatureIssuance<'_>,
+) -> Result<Vec<FormAppliedSignature>, VaultArtifactFailure> {
+    // The DB issuance path (`db/src/vault/bind_form_to_contract.rs`) has no object-store handle, so `None` keeps
+    // the legacy `media.file_data` read for it. The browser preview resolves through the object-first entry below;
+    // wiring issuance to the store is the one remaining step for dropping `media.file_data` (see Lane F report).
+    resolve_for_issuance_from(connection, issuance, None).await
+}
+
+/// The one implementation of the policy, the authority rule, the slot mapping and the asset load.
+///
+/// `reader` is `Some` when the caller owns an object store: then the protected asset MUST be a verified object and
+/// `media.file_data` is never read. It is `None` only when a deployment has no store (tests/dev, legacy issuance),
+/// which is the one case the legacy blob fallback is allowed.
+async fn resolve_for_issuance_from(
+    connection: &mut PgConnection,
+    issuance: &SignatureIssuance<'_>,
+    reader: Option<&dyn ProtectedAssetReader>,
 ) -> Result<Vec<FormAppliedSignature>, VaultArtifactFailure> {
     let config = BrokerSignatureConfig::from_env();
     if !config.enabled {
@@ -184,7 +203,7 @@ pub async fn resolve_for_issuance(
         )));
     }
 
-    let asset = load_protected_asset(connection, &rows.media_id).await?;
+    let asset = load_protected_asset(connection, &rows.media_id, reader).await?;
     Ok(vec![FormAppliedSignature {
         role: policy.role.to_string(),
         slot_id: slot.map(|slot| slot.slot_id.clone()),
@@ -352,11 +371,234 @@ struct ProtectedAsset {
     checksum_sha256: String,
 }
 
-/// Load the protected signature image, and prove it is the asset it claims to be.
+/// One verified object pointer read from the `media` row. The bytes are NOT read here: db owns rows and the caller
+/// owns the store, so the store is lent in through [`ProtectedAssetReader`].
+struct ProtectedAssetPointer<'a> {
+    bucket: &'a str,
+    key: &'a str,
+    sha256: Option<&'a str>,
+    size: i64,
+    status: &'a str,
+    visibility: &'a str,
+}
+
+/// The non-byte half of a protected asset row: enough to validate whatever bytes are loaded against the record.
+struct ProtectedAssetRecord<'a> {
+    mime_type: &'a str,
+    alt_text: &'a str,
+    caption: &'a str,
+    /// `Some` on the object-first path, `None` on the legacy blob path.
+    object: Option<ProtectedAssetPointer<'a>>,
+}
+
+/// The object-store port this module needs, stated in the db crate so `db` keeps no storage dependency.
 ///
-/// The `caption` may carry `sha256:<hex>`; when it does, a mismatch REFUSES the signature rather than drawing an image
-/// whose integrity cannot be shown.
+/// The web composition's adapter (`web/src/vault/applied_signatures.rs`) implements it over the real store; the
+/// unit tests below implement it deterministically. db never names `services` or a provider SDK.
+trait ProtectedAssetReader: Send + Sync {
+    fn read<'a>(
+        &'a self,
+        bucket: &'a str,
+        key: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + Send + 'a>>;
+}
+
+/// Adapts a caller's closure to the port. The closure owns the store handle; db only asks it for bytes.
+struct ClosureAssetReader<F> {
+    load: F,
+}
+
+impl<F, Fut> ProtectedAssetReader for ClosureAssetReader<F>
+where
+    F: Fn(String, String) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<Vec<u8>, String>> + Send + 'static,
+{
+    fn read<'a>(
+        &'a self,
+        bucket: &'a str,
+        key: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + Send + 'a>> {
+        Box::pin((self.load)(bucket.to_owned(), key.to_owned()))
+    }
+}
+
+fn checksum_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn recorded_caption_checksum(caption: &str) -> Option<String> {
+    caption
+        .trim()
+        .strip_prefix("sha256:")
+        .map(|value| value.trim().to_lowercase())
+}
+
+/// Validate loaded bytes against the row that describes them.
+///
+/// Shared by both paths so the object path cannot quietly drop a check the legacy path made (or the other way
+/// round). On the object path the row's recorded SHA-256 and size are BOTH required to match; a null SHA-256 is a
+/// refusal, because a protected signature whose integrity cannot be shown must not be drawn.
+fn verify_protected_asset(
+    record: &ProtectedAssetRecord<'_>,
+    bytes: Vec<u8>,
+) -> Result<ProtectedAsset, VaultArtifactFailure> {
+    let Some(mime_type) = AppliedSignatureImageMimeType::parse(record.mime_type) else {
+        return Err(invalid_configuration(
+            "asset must be an image/png or image/jpeg file.",
+        ));
+    };
+    if record.alt_text != DEFAULT_BROKER_SIGNATURE_PURPOSE {
+        return Err(invalid_configuration(
+            "asset does not carry the canonical Lisa Penfield signature purpose.",
+        ));
+    }
+    if bytes.is_empty() {
+        return Err(invalid_configuration("asset contains no image bytes."));
+    }
+    let checksum_sha256 = checksum_hex(&bytes);
+    if let Some(object) = record.object.as_ref() {
+        if object.status != "VERIFIED" {
+            return Err(invalid_configuration(
+                "asset object is not marked VERIFIED in the protected store.",
+            ));
+        }
+        // A protected signature image lives in a PRIVATE storage domain. Both existing private semantics are
+        // accepted because the legacy backfill (`web/src/bin/media_migrate.rs`) maps an image with no property
+        // link to `property_media_private`/`private`, while a Vault-domain writer uses `vault`/`vault`; neither is
+        // public, and a public placement is refused outright.
+        let private_domain = matches!(
+            (object.bucket, object.visibility),
+            ("vault", "vault") | ("property_media_private", "private")
+        );
+        if !private_domain {
+            return Err(invalid_configuration(
+                "asset object must be in a private storage domain (vault/vault or property_media_private/private); a protected signature image must never be public.",
+            ));
+        }
+        if object.size <= 0 || bytes.len() as i64 != object.size {
+            return Err(invalid_configuration(
+                "asset object size does not match the protected media record.",
+            ));
+        }
+        let Some(recorded) = object.sha256.filter(|value| !value.trim().is_empty()) else {
+            return Err(invalid_configuration(
+                "asset object has no recorded SHA-256, so its integrity cannot be shown.",
+            ));
+        };
+        if !recorded.trim().eq_ignore_ascii_case(&checksum_sha256) {
+            return Err(invalid_configuration(
+                "asset object checksum does not match the protected media record.",
+            ));
+        }
+    }
+    if let Some(recorded) = recorded_caption_checksum(record.caption) {
+        if recorded != checksum_sha256 {
+            return Err(invalid_configuration(
+                "asset checksum does not match the protected media record.",
+            ));
+        }
+    }
+    Ok(ProtectedAsset {
+        bytes,
+        mime_type,
+        checksum_sha256,
+    })
+}
+
+fn row_text(row: &sqlx::postgres::PgRow, column: &str) -> String {
+    row.try_get::<Option<String>, _>(column)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+}
+
+/// Load the protected signature image: object-first when the caller owns a store, legacy blob only when it does not.
 async fn load_protected_asset(
+    connection: &mut PgConnection,
+    media_id: &str,
+    reader: Option<&dyn ProtectedAssetReader>,
+) -> Result<ProtectedAsset, VaultArtifactFailure> {
+    match reader {
+        Some(reader) => load_protected_asset_object(connection, media_id, reader).await,
+        None => load_legacy_protected_asset(connection, media_id).await,
+    }
+}
+
+/// Object-first read: fetch the row's verified pointer (metadata only), then let the caller's store supply the
+/// bytes, which are checked against the recorded size and SHA-256.
+///
+/// A store-backed deployment NEVER falls back to `media.file_data`: a row without a verified object is a refusal
+/// that names the cutover step, never a silent blob. The object must be in a private storage domain (see
+/// [`verify_protected_asset`]); a public placement is refused.
+async fn load_protected_asset_object(
+    connection: &mut PgConnection,
+    media_id: &str,
+    reader: &dyn ProtectedAssetReader,
+) -> Result<ProtectedAsset, VaultArtifactFailure> {
+    let row = sqlx::query(
+        r#"
+        select object_bucket, object_key, object_sha256, object_size, storage_status, visibility,
+               mime_type, alt_text, caption
+        from media
+        where id = $1::uuid
+          and media_type = 'image'
+        limit 1
+        "#,
+    )
+    .bind(media_id)
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(failed_read)?;
+    let Some(row) = row else {
+        return Err(invalid_configuration(
+            "asset is missing from the protected media store or is not an image.",
+        ));
+    };
+    let bucket = row_text(&row, "object_bucket");
+    let key = row_text(&row, "object_key");
+    if bucket.is_empty() || key.is_empty() {
+        return Err(invalid_configuration(
+            "asset has no verified object in the protected store; backfill the protected signature object before object reads are enabled.",
+        ));
+    }
+    let sha256: Option<String> = row.try_get("object_sha256").ok().flatten();
+    let size: i64 = row.try_get("object_size").unwrap_or(0);
+    let status = row_text(&row, "storage_status");
+    let visibility = row_text(&row, "visibility");
+    let bytes = reader.read(&bucket, &key).await.map_err(|detail| {
+        VaultArtifactFailure {
+            outcome: VaultCommandOutcome::PreconditionFailure,
+            message: format!(
+                "document.issue failed: the protected signature asset object could not be read: {detail}"
+            ),
+        }
+    })?;
+    verify_protected_asset(
+        &ProtectedAssetRecord {
+            mime_type: &row_text(&row, "mime_type"),
+            alt_text: &row_text(&row, "alt_text"),
+            caption: &row_text(&row, "caption"),
+            object: Some(ProtectedAssetPointer {
+                bucket: &bucket,
+                key: &key,
+                sha256: sha256.as_deref(),
+                size,
+                status: &status,
+                visibility: &visibility,
+            }),
+        },
+        bytes,
+    )
+}
+
+/// LEGACY BLOB READ — the only `media.file_data` read left in this module, and the one the architecture pin names.
+///
+/// It runs only when the caller lent no store (`reader == None`): tests/dev composition, or the DB issuance path
+/// that has no store handle. A store-backed caller uses the object-first loader above.
+async fn load_legacy_protected_asset(
     connection: &mut PgConnection,
     media_id: &str,
 ) -> Result<ProtectedAsset, VaultArtifactFailure> {
@@ -378,57 +620,422 @@ async fn load_protected_asset(
             "asset is missing from the protected media store or is not an image.",
         ));
     };
-    let mime: String = row
-        .try_get::<Option<String>, _>("mime_type")
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-    let Some(mime_type) = AppliedSignatureImageMimeType::parse(&mime) else {
-        return Err(invalid_configuration(
-            "asset must be an image/png or image/jpeg file.",
-        ));
-    };
-    let alt_text: String = row
-        .try_get::<Option<String>, _>("alt_text")
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-    if alt_text != DEFAULT_BROKER_SIGNATURE_PURPOSE {
-        return Err(invalid_configuration(
-            "asset does not carry the canonical Lisa Penfield signature purpose.",
-        ));
-    }
     let bytes: Vec<u8> = row
         .try_get::<Option<Vec<u8>>, _>("file_data")
         .ok()
         .flatten()
         .unwrap_or_default();
-    if bytes.is_empty() {
-        return Err(invalid_configuration("asset contains no image bytes."));
+    verify_protected_asset(
+        &ProtectedAssetRecord {
+            mime_type: &row_text(&row, "mime_type"),
+            alt_text: &row_text(&row, "alt_text"),
+            caption: &row_text(&row, "caption"),
+            object: None,
+        },
+        bytes,
+    )
+}
+
+/// Validate an object-first protected-signature write before it reaches SQL.
+fn validate_protected_signature_object(
+    mime_type: &str,
+    object: &MediaObjectMetadata,
+) -> DbResult<()> {
+    if AppliedSignatureImageMimeType::parse(mime_type).is_none() {
+        return Err(DbFailure::configuration(
+            "broker_signature.insert_protected_signature_object",
+            "the protected signature object must be an image/png or image/jpeg file",
+        ));
     }
-    let checksum_sha256 = Sha256::digest(&bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let caption: String = row
-        .try_get::<Option<String>, _>("caption")
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-    let recorded = caption
-        .trim()
-        .strip_prefix("sha256:")
-        .map(|value| value.trim().to_lowercase());
-    if let Some(recorded) = recorded {
-        if recorded != checksum_sha256 {
-            return Err(invalid_configuration(
-                "asset checksum does not match the protected media record.",
-            ));
+    if object.status != "VERIFIED" {
+        return Err(DbFailure::configuration(
+            "broker_signature.insert_protected_signature_object",
+            "the protected signature object must be VERIFIED before its row is written",
+        ));
+    }
+    let private_domain = matches!(
+        (object.bucket.as_str(), object.visibility.as_deref()),
+        ("vault", Some("vault")) | ("property_media_private", Some("private"))
+    );
+    if !private_domain {
+        return Err(DbFailure::configuration(
+            "broker_signature.insert_protected_signature_object",
+            "the protected signature object must live in a private storage domain (vault/vault or property_media_private/private) and never be public",
+        ));
+    }
+    if object.size <= 0 {
+        return Err(DbFailure::configuration(
+            "broker_signature.insert_protected_signature_object",
+            "the protected signature object must have a positive size",
+        ));
+    }
+    if object
+        .sha256
+        .as_deref()
+        .map_or(true, |value| value.trim().is_empty())
+    {
+        return Err(DbFailure::configuration(
+            "broker_signature.insert_protected_signature_object",
+            "the protected signature object must carry its SHA-256",
+        ));
+    }
+    Ok(())
+}
+
+impl VaultDao {
+    /// The OBJECT-FIRST resolution the browser preview uses.
+    ///
+    /// `read_object` receives the row's `(bucket, key)` and must return the stored bytes; any error is a
+    /// precondition failure (the rows were reachable, the bytes were not). The row must be a verified Vault object:
+    /// there is no blob fallback here, because a caller that has a store has already opted into object reads.
+    ///
+    /// Authorization is unchanged: the caller still resolves under `vault.read`, and `authority` is the same
+    /// `ApplyingActor`/`OwnerByConstruction` choice issuance uses.
+    pub async fn resolve_applied_signatures_object_first<F, Fut>(
+        &self,
+        request: &VaultRenderRequest,
+        authority: SignatureAuthority,
+        read_object: F,
+    ) -> Result<Vec<FormAppliedSignature>, VaultArtifactFailure>
+    where
+        F: Fn(String, String) -> Fut + Send + Sync,
+        Fut: Future<Output = Result<Vec<u8>, String>> + Send + 'static,
+    {
+        let slots = model::forms_execution::slots_from_signers(&request.participants);
+        let issuance = SignatureIssuance {
+            template_id: &request.template_id,
+            field_values: &request.field_values,
+            slots: &slots,
+            actor_app_user_id: request.actor_app_user_id.as_deref(),
+            authority,
+            issued_at: request.issued_at.as_deref(),
+            require_execution_slot: false,
+        };
+        let reader = ClosureAssetReader { load: read_object };
+        let mut connection = self.database().connection().await.map_err(precondition_failure)?;
+        resolve_for_issuance_from(&mut connection, &issuance, Some(&reader)).await
+    }
+
+    /// Write the protected signature asset as an OBJECT ROW — no `media.file_data` column is named.
+    ///
+    /// The caller has already uploaded and verified the object (the db crate owns no store); this records its
+    /// metadata under the caller-chosen media id, with the canonical purpose in `alt_text` and a PRIVATE storage
+    /// domain (`vault`/`vault` or `property_media_private`/`private`, never public). `caption` may carry
+    /// `sha256:<hex>` exactly as the reader checks it.
+    ///
+    /// A legacy row with the same `alt_text` should be retired as part of the backfill; this writer refuses to guess
+    /// (it never updates an existing row) so a duplicate purpose cannot silently become the resolved asset.
+    pub async fn insert_protected_signature_object(
+        &self,
+        id: &str,
+        filename: &str,
+        mime_type: &str,
+        caption: Option<&str>,
+        object: &MediaObjectMetadata,
+    ) -> DbResult<String> {
+        validate_protected_signature_object(mime_type, object)?;
+        let mut connection = self.database().connection().await?;
+        sqlx::query(
+            r#"
+            insert into media (
+                id, filename, mime_type, file_size, media_type, alt_text, caption,
+                object_bucket, object_key, object_etag, object_sha256, object_size,
+                object_migrated_at, storage_status, visibility
+            )
+            values (
+                $1::uuid, $2, $3, $4, 'image', $5, $6,
+                $7, $8, $9, $10, $11,
+                now(), 'VERIFIED', 'vault'
+            )
+            "#,
+        )
+        .bind(id)
+        .bind(filename)
+        .bind(mime_type)
+        .bind(object.size)
+        .bind(DEFAULT_BROKER_SIGNATURE_PURPOSE)
+        .bind(caption)
+        .bind(&object.bucket)
+        .bind(&object.key)
+        .bind(object.etag.as_deref())
+        .bind(object.sha256.as_deref())
+        .bind(object.size)
+        .execute(&mut *connection)
+        .await
+        .map_err(|error| {
+            DbFailure::from_sqlx("broker_signature.insert_protected_signature_object", &error)
+        })?;
+        Ok(id.to_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pointer<'a>(
+        bucket: &'a str,
+        key: &'a str,
+        sha256: Option<&'a str>,
+        size: i64,
+        status: &'a str,
+        visibility: &'a str,
+    ) -> ProtectedAssetPointer<'a> {
+        ProtectedAssetPointer {
+            bucket,
+            key,
+            sha256,
+            size,
+            status,
+            visibility,
         }
     }
-    Ok(ProtectedAsset {
-        bytes,
-        mime_type,
-        checksum_sha256,
-    })
+
+    fn record<'a>(
+        object: Option<ProtectedAssetPointer<'a>>,
+        mime_type: &'a str,
+        alt_text: &'a str,
+        caption: &'a str,
+    ) -> ProtectedAssetRecord<'a> {
+        ProtectedAssetRecord {
+            mime_type,
+            alt_text,
+            caption,
+            object,
+        }
+    }
+
+    const PIXEL: &[u8] = b"\x89PNG\r\n\x1a\nprotected-pixel";
+
+    fn object_metadata(sha256: &str) -> MediaObjectMetadata {
+        MediaObjectMetadata {
+            bucket: "vault".to_owned(),
+            key: "media/media-1/original.png".to_owned(),
+            etag: Some("\"etag\"".to_owned()),
+            sha256: Some(sha256.to_owned()),
+            size: PIXEL.len() as i64,
+            status: "VERIFIED".to_owned(),
+            visibility: Some("vault".to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_verified_vault_object_passes_and_reports_its_checksum() {
+        let sha = checksum_hex(PIXEL);
+        let asset = verify_protected_asset(
+            &record(
+                Some(pointer(
+                    "vault",
+                    "media/media-1/original.png",
+                    Some(&sha),
+                    PIXEL.len() as i64,
+                    "VERIFIED",
+                    "vault",
+                )),
+                "image/png",
+                DEFAULT_BROKER_SIGNATURE_PURPOSE,
+                "",
+            ),
+            PIXEL.to_vec(),
+        )
+        .expect("a verified object with matching bytes is the asset");
+        assert_eq!(asset.bytes, PIXEL);
+        assert_eq!(asset.checksum_sha256, sha);
+    }
+
+    #[test]
+    fn a_tampered_object_is_refused() {
+        let recorded = "0".repeat(64);
+        let refused = verify_protected_asset(
+            &record(
+                Some(pointer(
+                    "vault",
+                    "media/media-1/original.png",
+                    Some(&recorded),
+                    PIXEL.len() as i64,
+                    "VERIFIED",
+                    "vault",
+                )),
+                "image/png",
+                DEFAULT_BROKER_SIGNATURE_PURPOSE,
+                "",
+            ),
+            PIXEL.to_vec(),
+        );
+        assert!(refused.is_err(), "bytes that do not hash to the record are refused");
+    }
+
+    #[test]
+    fn an_object_without_a_recorded_sha256_is_refused() {
+        let refused = verify_protected_asset(
+            &record(
+                Some(pointer(
+                    "vault",
+                    "media/media-1/original.png",
+                    None,
+                    PIXEL.len() as i64,
+                    "VERIFIED",
+                    "vault",
+                )),
+                "image/png",
+                DEFAULT_BROKER_SIGNATURE_PURPOSE,
+                "",
+            ),
+            PIXEL.to_vec(),
+        );
+        assert!(refused.is_err(), "integrity that cannot be shown is not accepted");
+    }
+
+    #[test]
+    fn a_size_mismatch_is_refused() {
+        let sha = checksum_hex(PIXEL);
+        let refused = verify_protected_asset(
+            &record(
+                Some(pointer(
+                    "vault",
+                    "media/media-1/original.png",
+                    Some(&sha),
+                    PIXEL.len() as i64 + 1,
+                    "VERIFIED",
+                    "vault",
+                )),
+                "image/png",
+                DEFAULT_BROKER_SIGNATURE_PURPOSE,
+                "",
+            ),
+            PIXEL.to_vec(),
+        );
+        assert!(refused.is_err());
+    }
+
+    #[test]
+    fn the_private_property_media_domain_is_also_accepted() {
+        let sha = checksum_hex(PIXEL);
+        let asset = verify_protected_asset(
+            &record(
+                Some(pointer(
+                    "property_media_private",
+                    "media/media-1/original.png",
+                    Some(&sha),
+                    PIXEL.len() as i64,
+                    "VERIFIED",
+                    "private",
+                )),
+                "image/png",
+                DEFAULT_BROKER_SIGNATURE_PURPOSE,
+                "",
+            ),
+            PIXEL.to_vec(),
+        )
+        .expect("the legacy backfill's private image domain is a valid protected placement");
+        assert_eq!(asset.bytes, PIXEL);
+    }
+
+    #[test]
+    fn an_unverified_or_public_object_is_refused() {
+        let sha = checksum_hex(PIXEL);
+        for (status, visibility, bucket) in [
+            ("PENDING", "vault", "vault"),
+            ("VERIFIED", "public", "property_media_public"),
+            ("VERIFIED", "vault", "property_media_private"),
+            ("VERIFIED", "private", "vault"),
+        ] {
+            let refused = verify_protected_asset(
+                &record(
+                    Some(pointer(
+                        bucket,
+                        "media/media-1/original.png",
+                        Some(&sha),
+                        PIXEL.len() as i64,
+                        status,
+                        visibility,
+                    )),
+                    "image/png",
+                    DEFAULT_BROKER_SIGNATURE_PURPOSE,
+                    "",
+                ),
+                PIXEL.to_vec(),
+            );
+            assert!(refused.is_err(), "{status}/{visibility}/{bucket} must be refused");
+        }
+    }
+
+    #[test]
+    fn a_wrong_purpose_or_mime_is_refused() {
+        let sha = checksum_hex(PIXEL);
+        let wrong_alt = verify_protected_asset(
+            &record(None, "image/png", "some-other-purpose", ""),
+            PIXEL.to_vec(),
+        );
+        assert!(wrong_alt.is_err());
+        let wrong_mime =
+            verify_protected_asset(&record(None, "image/gif", DEFAULT_BROKER_SIGNATURE_PURPOSE, ""), PIXEL.to_vec());
+        assert!(wrong_mime.is_err());
+        let _ = sha;
+    }
+
+    #[test]
+    fn a_caption_checksum_must_match_on_both_paths() {
+        let wrong = format!("sha256:{}", "0".repeat(64));
+        let object_path = verify_protected_asset(
+            &record(
+                Some(pointer(
+                    "vault",
+                    "media/media-1/original.png",
+                    Some(&checksum_hex(PIXEL)),
+                    PIXEL.len() as i64,
+                    "VERIFIED",
+                    "vault",
+                )),
+                "image/png",
+                DEFAULT_BROKER_SIGNATURE_PURPOSE,
+                &wrong,
+            ),
+            PIXEL.to_vec(),
+        );
+        assert!(object_path.is_err(), "a caption mismatch is refused on the object path");
+        let legacy = verify_protected_asset(
+            &record(None, "image/png", DEFAULT_BROKER_SIGNATURE_PURPOSE, &wrong),
+            PIXEL.to_vec(),
+        );
+        assert!(legacy.is_err(), "a caption mismatch is refused on the legacy path");
+    }
+
+    #[test]
+    fn an_empty_asset_is_refused() {
+        let refused = verify_protected_asset(
+            &record(None, "image/png", DEFAULT_BROKER_SIGNATURE_PURPOSE, ""),
+            Vec::new(),
+        );
+        assert!(refused.is_err());
+    }
+
+    #[test]
+    fn the_object_write_refuses_a_public_or_unverified_object() {
+        let sha = checksum_hex(PIXEL);
+        assert!(validate_protected_signature_object("image/png", &object_metadata(&sha)).is_ok());
+
+        let mut private_image = object_metadata(&sha);
+        private_image.bucket = "property_media_private".to_owned();
+        private_image.visibility = Some("private".to_owned());
+        assert!(
+            validate_protected_signature_object("image/png", &private_image).is_ok(),
+            "the existing private image domain is a valid protected placement"
+        );
+
+        let mut public = object_metadata(&sha);
+        public.bucket = "property_media_public".to_owned();
+        public.visibility = Some("public".to_owned());
+        assert!(validate_protected_signature_object("image/png", &public).is_err());
+
+        let mut unverified = object_metadata(&sha);
+        unverified.status = "PENDING".to_owned();
+        assert!(validate_protected_signature_object("image/png", &unverified).is_err());
+
+        let mut no_sha = object_metadata(&sha);
+        no_sha.sha256 = None;
+        assert!(validate_protected_signature_object("image/png", &no_sha).is_err());
+
+        assert!(validate_protected_signature_object("application/pdf", &object_metadata(&sha)).is_err());
+    }
 }

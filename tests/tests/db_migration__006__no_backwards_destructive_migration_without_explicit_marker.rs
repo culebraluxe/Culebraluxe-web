@@ -132,6 +132,10 @@ const JUSTIFIED_DESTRUCTIVE: &[(&str, &str)] = &[
     ("153_drop_landing_child_tables.sql", "re-derivable"),
     ("160_l_applemail.sql", "never written to and is empty"),
     ("225_property_golden_from_regrid.sql", "snapshotted"),
+    // Lane H (chunk retirement): the staging tables are transient, and the blob column goes only after the preflight
+    // proves zero file_data rows remain. Both files are DRAFTS in the retirement lane until the lead applies them.
+    ("300_drop_media_chunk_staging.sql", "transient staging"),
+    ("301_drop_media_file_data.sql", "zero file_data rows"),
 ];
 
 /// Connect to the disposable DEV branch, tolerating a cold-pool timeout under concurrent test load.

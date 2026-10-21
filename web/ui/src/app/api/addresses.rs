@@ -58,20 +58,9 @@ pub mod links {
     pub const SELLER_STRATEGY_PDF: &str = "/api/portal/seller-strategy/pdf";
 }
 
-/// Where property photographs are sent, in pieces (`Cmd::upload`). Not named by a screen any more: it is the
-/// endpoint `PropertyMediaUpload` falls back to for a file one request cannot carry, and the rollback target for
-/// the whole-file switch. Its server route is untouched.
-pub struct PropertyMediaChunked;
-
-impl FileEndpoint for PropertyMediaChunked {
-    fn path(&self) -> String {
-        "/api/property-media/chunked".into()
-    }
-}
-
 /// Where a property photograph is sent WHOLE, in one request (`Cmd::upload`). The server derives the servable
 /// copies, stores the original and the copies object-first, and attaches the property in one transaction — no
-/// chunk manifest and no staged bytes, which is what retires `media_upload_chunk`.
+/// staging step and no staged rows.
 pub struct PropertyMediaFullUpload;
 
 impl FileEndpoint for PropertyMediaFullUpload {
@@ -84,18 +73,43 @@ impl FileEndpoint for PropertyMediaFullUpload {
     }
 }
 
-/// The hosting edge accepts about 4.5 MB in one request (`docs/agent/ORIENTATION.md`). A photograph above this
-/// stays on the chunked protocol until the edge limit is raised or the browser uploads straight to object
-/// storage; sending it whole would be refused before it ever reached this server.
+/// A property photograph sent DIRECT TO OBJECT STORAGE (`Cmd::upload`): the browser asks the server for a
+/// short-lived signed PUT URL, sends the bytes straight to the media bucket, then asks the server to verify and
+/// record them. No request to the application carries the photograph, so the hosting edge's ~4.5 MB body cap no
+/// longer decides what can be uploaded.
+pub struct PropertyMediaDirectUpload;
+
+impl FileEndpoint for PropertyMediaDirectUpload {
+    fn path(&self) -> String {
+        direct_upload::INITIATE.into()
+    }
+
+    fn direct_upload(&self) -> bool {
+        true
+    }
+}
+
+/// The three doorways of the direct-to-object upload. They live here with every other address; a screen or the
+/// executor names these and never writes a path. The server registers all three on the portal router.
+pub mod direct_upload {
+    /// Authenticated: validates property/role/MIME/size/publication and answers `{ uploadUrl, uploadId, ... }`.
+    pub const INITIATE: &str = "/api/property-media/direct/initiate";
+    /// Authenticated: HEADs and SHA-256-verifies the object, derives the copies, records everything in one tx.
+    pub const FINALIZE: &str = "/api/property-media/direct/finalize";
+    /// Authenticated: removes the object of an upload the browser gave up on.
+    pub const ABORT: &str = "/api/property-media/direct/abort";
+}
+
+/// The hosting edge accepts about 4.5 MB in one request (`docs/agent/ORIENTATION.md`). A photograph at or below
+/// this travels in one whole request to the application; anything larger goes direct to object storage.
 pub const WHOLE_FILE_LIMIT_BYTES: f64 = 4.0 * 1024.0 * 1024.0;
 
 /// THE endpoint a screen names for a property photograph (`Cmd::upload`). The screen reports the file's size and
-/// this decides how it travels: one whole request when the edge can carry it, in pieces when it cannot. Keeping
-/// the decision here means a screen never encodes a deployment limit, and when the limit goes away this one
-/// function starts answering `Whole` for every size — the chunk endpoint then has no caller left to delete.
+/// this decides how it travels: one whole request when the edge can carry it, direct to object storage otherwise.
+/// The chunked protocol is gone: there is no staging table and no third path.
 pub enum PropertyMediaUpload {
     Whole(PropertyMediaFullUpload),
-    Chunked(PropertyMediaChunked),
+    Direct(PropertyMediaDirectUpload),
 }
 
 impl PropertyMediaUpload {
@@ -103,7 +117,7 @@ impl PropertyMediaUpload {
         if byte_size <= WHOLE_FILE_LIMIT_BYTES {
             Self::Whole(PropertyMediaFullUpload)
         } else {
-            Self::Chunked(PropertyMediaChunked)
+            Self::Direct(PropertyMediaDirectUpload)
         }
     }
 }
@@ -112,14 +126,21 @@ impl FileEndpoint for PropertyMediaUpload {
     fn path(&self) -> String {
         match self {
             Self::Whole(endpoint) => endpoint.path(),
-            Self::Chunked(endpoint) => endpoint.path(),
+            Self::Direct(endpoint) => endpoint.path(),
         }
     }
 
     fn whole_file(&self) -> bool {
         match self {
             Self::Whole(endpoint) => endpoint.whole_file(),
-            Self::Chunked(endpoint) => endpoint.whole_file(),
+            Self::Direct(endpoint) => endpoint.whole_file(),
+        }
+    }
+
+    fn direct_upload(&self) -> bool {
+        match self {
+            Self::Whole(endpoint) => endpoint.direct_upload(),
+            Self::Direct(endpoint) => endpoint.direct_upload(),
         }
     }
 }
@@ -335,13 +356,13 @@ impl Endpoint for WebsiteIntake {
 mod tests {
     use super::*;
 
-    /// The switch: a photograph one request can carry goes WHOLE to the new endpoint; a larger one stays on the
-    /// chunked protocol until the edge limit is raised or direct-to-object upload lands. The boundary is
-    /// inclusive because a request of exactly the cap is still carried.
+    /// The switch: a photograph one request can carry goes WHOLE to the application; a larger one goes DIRECT to
+    /// object storage. The whole-file boundary is inclusive because a request of exactly the cap is still carried.
     #[test]
     fn a_photograph_travels_whole_until_the_edge_cannot_carry_it() {
         let small = PropertyMediaUpload::for_size(3.0 * 1024.0 * 1024.0);
         assert!(small.whole_file());
+        assert!(!small.direct_upload());
         assert_eq!(small.path(), "/api/property-media/full");
 
         let at_limit = PropertyMediaUpload::for_size(WHOLE_FILE_LIMIT_BYTES);
@@ -350,6 +371,22 @@ mod tests {
 
         let too_large = PropertyMediaUpload::for_size(13.0 * 1024.0 * 1024.0);
         assert!(!too_large.whole_file());
-        assert_eq!(too_large.path(), "/api/property-media/chunked");
+        assert!(too_large.direct_upload());
+        assert_eq!(too_large.path(), "/api/property-media/direct/initiate");
+    }
+
+    /// The three direct-to-object doorways are addresses like every other one, and are answered by the portal
+    /// router. Pinned here so a route rename cannot leave the executor calling a path nobody serves.
+    #[test]
+    fn the_direct_upload_endpoints_are_the_registered_paths() {
+        assert_eq!(
+            direct_upload::INITIATE,
+            "/api/property-media/direct/initiate"
+        );
+        assert_eq!(
+            direct_upload::FINALIZE,
+            "/api/property-media/direct/finalize"
+        );
+        assert_eq!(direct_upload::ABORT, "/api/property-media/direct/abort");
     }
 }

@@ -182,21 +182,9 @@ pub fn router(state: ApiState) -> Router {
                 .layer(DefaultBodyLimit::max(MAX_MEDIA_UPLOAD_BYTES + 1024 * 1024)),
         )
         .route("/v1/properties/{id}/video", post(attach_property_video))
-        // The chunked upload, for the photographs too large for one request. The per-chunk limit is deliberately a
-        // few megabytes rather than the whole-file limit: a chunk is a fragment by definition, and the gateway
-        // refuses anything past ~4.5 MB anyway.
-        .route(
-            "/v1/properties/{id}/media/uploads",
-            post(begin_media_upload),
-        )
-        .route(
-            "/v1/properties/{id}/media/uploads/{upload_id}/chunks/{index}",
-            post(stage_media_chunk).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
-        )
-        .route(
-            "/v1/properties/{id}/media/uploads/{upload_id}/complete",
-            post(complete_media_upload),
-        )
+        // NO STAGED UPLOAD ROUTES. `/v1/properties/{id}/media/uploads` (init, chunk, complete) is retired: large
+        // photographs go direct to object storage through the portal's `/api/property-media/direct/*` doorways,
+        // so no request to this API carries a photograph above the edge cap and nothing is staged in the database.
         .route(
             "/v1/properties/{id}/video-uploads",
             post(create_property_video_upload),
@@ -551,7 +539,7 @@ mod tests {
             ("/v1/people/search", "person"),
             ("/v1/people/x/properties", "property"),
             ("/v1/properties/admin", "property"),
-            ("/v1/properties/x/media/uploads", "media"),
+            ("/v1/properties/x/media", "media"),
             ("/v1/media/upload", "media"),
             ("/v1/deals", "deal"),
             ("/v1/contracts", "contract"),

@@ -55,7 +55,8 @@ pub trait Endpoint {
     }
 }
 
-/// An endpoint that takes a FILE: the chunked-upload protocol (`Cmd::upload`) or one multipart form (`Cmd::post_form`).
+/// An endpoint that takes a FILE: an upload (`Cmd::upload`: whole request, or direct to object storage) or one
+/// multipart form (`Cmd::post_form`).
 /// Like `Endpoint`, it lives in the catalogue (`app/api.rs`), so a screen names it and never writes a path.
 pub trait FileEndpoint {
     fn path(&self) -> String;
@@ -64,6 +65,13 @@ pub trait FileEndpoint {
     /// (`false`, the default: the chunk protocol). The server decides which; the screen only names the endpoint.
     /// Old chunk endpoints stay reachable by implementing this as the default, which is the rollback path.
     fn whole_file(&self) -> bool {
+        false
+    }
+
+    /// Whether this endpoint is a DIRECT-TO-OBJECT upload (`true`): the executor asks the server for a signed
+    /// PUT URL, sends the bytes straight to object storage, then finalizes. No request to the application carries
+    /// the file, so the gateway's body limit no longer decides what can be uploaded.
+    fn direct_upload(&self) -> bool {
         false
     }
 }
@@ -145,7 +153,7 @@ pub enum Cmd<Msg> {
         millis: u32,
         msg: Msg,
     },
-    /// Send one file with the chunked-upload protocol (see `Upload`).
+    /// Send one file with the upload protocol (see `Upload`).
     Upload(Upload<Msg>),
     /// A property film, sent from the browser straight to Mux (see `exec::upload_video`).
     VideoUpload(VideoUpload<Msg>),
@@ -189,17 +197,21 @@ pub struct SignatureArt {
 
 /// A file sent by `Cmd::upload`.
 ///
-/// In the default (chunked) mode it is sent in pieces, so no single request reaches the gateway's body limit:
-/// `init` declares it (the executor adds `filename`, `mimeType`, `byteSize`, `chunkCount`, `chunkSize`) and answers
-/// an `uploadId`; each `chunk` carries one piece in order; `complete` assembles and attaches it. `fields` go with
-/// every step, `init_fields` with the first only.
+/// In the whole-file mode the file travels in ONE multipart request (`fields` and `init_fields` together); the server
+/// derives the servable copies and records them object-first. In the direct mode the executor asks the server for a
+/// signed PUT URL, sends the bytes straight to object storage and finalizes — no request to this application carries
+/// the file.
 ///
 /// With `whole_file` (an endpoint that implements `FileEndpoint::whole_file`), the file, `fields` and `init_fields`
 /// go in ONE multipart request; the server derives the copies and stores them object-first, with no chunk staging.
+///
+/// With `direct` (an endpoint that implements `FileEndpoint::direct_upload`), the file never reaches the
+/// application: the executor asks for a signed PUT URL, PUTs the bytes straight to object storage, and finalizes.
 pub struct Upload<Msg> {
     pub file: web_sys::File,
     pub path: String,
     pub whole_file: bool,
+    pub direct: bool,
     pub fields: Vec<(String, String)>,
     pub init_fields: Vec<(String, String)>,
     pub reply: Box<dyn FnOnce(Result<(), ApiError>) -> Msg>,
@@ -368,6 +380,7 @@ impl<Msg: 'static> Cmd<Msg> {
             file,
             path: endpoint.path(),
             whole_file: endpoint.whole_file(),
+            direct: endpoint.direct_upload(),
             fields,
             init_fields,
             reply: Box::new(to_msg),
@@ -482,6 +495,7 @@ impl<Msg: 'static> Cmd<Msg> {
                 file: upload.file,
                 path: upload.path,
                 whole_file: upload.whole_file,
+                direct: upload.direct,
                 fields: upload.fields,
                 init_fields: upload.init_fields,
                 reply: {

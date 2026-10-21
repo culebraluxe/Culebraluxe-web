@@ -11,7 +11,9 @@
 //!
 //! PHOTOS are sent with the upload command (`Cmd::upload`): choosing a file IS the upload. The endpoint
 //! (`PropertyMediaUpload`) sends the whole file in one request when the edge can carry it — the server derives the
-//! servable copies and stores everything object-first — and the chunked protocol only when it cannot.
+//! servable copies and stores everything object-first. A larger file goes DIRECT to object storage (the server signs
+//! a PUT URL, the browser sends the bytes there, then the server verifies and records them), so no request body ever
+//! meets the edge's cap and direct to object storage when it does not.
 
 mod view;
 

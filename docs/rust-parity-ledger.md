@@ -92,9 +92,6 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - `/v1/media/upload` _(native: media)_
 - `/v1/properties/{id}/media`
 - `/v1/properties/{id}/video` _(native: properties)_
-- `/v1/properties/{id}/media/uploads` _(native: properties)_
-- `/v1/properties/{id}/media/uploads/{upload_id}/chunks/{index}` _(native: properties)_
-- `/v1/properties/{id}/media/uploads/{upload_id}/complete` _(native: properties)_
 - `/v1/properties/{id}/video-uploads` _(native: properties)_
 - `/v1/properties/{id}/video-uploads/{upload_id}/finalize` _(native: properties)_
 - `/v1/deals` _(native: deals)_

@@ -1,4 +1,10 @@
-//! Moved from `mod.rs` (move only): MediaRepository, media_bytes, BeginMediaUploadResult, MediaUploadProgress, PropertyVideoUploadSession, PropertyVideoFinalizeResult, UploadLookup, MediaService.
+//! The media repository port, the object-first service helpers, and the object-only read resolver.
+//!
+//! The chunk-staging protocol is retired: there is no manifest, no staged piece and no assembly method here any
+//! more. Uploads arrive whole (`/api/property-media/full`) or direct to object storage
+//! (`/api/property-media/direct/*`), and both record through `save_property_media_object_set`. The two remaining
+//! legacy shapes — the blob reader `media_bytes` and the blob writer `upload_standalone` — are marked and are
+//! the only `file_data` use left in this module.
 
 #[allow(unused_imports)]
 use super::*;
@@ -6,67 +12,31 @@ use services::{ServiceFailureClass, ServiceRuntimeError};
 
 #[async_trait]
 pub trait MediaRepository: Send + Sync {
+    /// LEGACY BLOB READ. Only the `MEDIA_OBJECT_STORAGE_READS`-off branch of `media_read` calls this; the
+    /// object-first path reads the pointer through `media_object_location`. It goes with `media.file_data`.
     async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>>;
+
+    /// LEGACY BLOB WRITE. The standalone media door (a signed-contract PDF) still stores bytes in
+    /// `media.file_data`; its object-first replacement is `MediaDao::upload_standalone_object`.
     async fn upload_standalone(
         &self,
         filename: &str,
         mime_type: &str,
         bytes: &[u8],
     ) -> DbResult<(String, String, String, i64)>;
+
     async fn for_property(&self, property_id: &str) -> DbResult<Vec<MediaAsset>>;
     async fn set_property_hero(&self, property_id: &str, media_id: &str) -> DbResult<bool>;
-    async fn upload_property_media(
-        &self,
-        request: &UploadPropertyMediaRequest,
-    ) -> DbResult<UploadPropertyMediaResult>;
     async fn attach_property_video(
         &self,
         request: &AttachPropertyVideoRequest,
     ) -> DbResult<AttachPropertyVideoResult>;
-    async fn begin_media_upload(
-        &self,
-        request: &db::BeginMediaUpload,
-    ) -> DbResult<BeginMediaUploadResult>;
-    async fn stage_media_chunk(
-        &self,
-        upload_id: &str,
-        chunk_index: i32,
-        bytes: &[u8],
-    ) -> DbResult<db::MediaUploadStatus>;
-    async fn remove_property_media(&self, property_id: &str, media_id: &str) -> DbResult<bool>;
-    async fn property_has_photo(
-        &self,
-        property_id: &str,
-        filename: &str,
-        byte_size: i64,
-    ) -> DbResult<bool>;
-    async fn resumable_media_upload(
-        &self,
-        property_id: &str,
-        filename: &str,
-        byte_size: i64,
-        chunk_size: i32,
-    ) -> DbResult<Option<(String, String, Vec<i32>)>>;
-    async fn claim_media_upload(&self, upload_id: &str) -> DbResult<bool>;
-    async fn fail_media_upload(&self, upload_id: &str) -> DbResult<()>;
-    async fn media_upload_state(&self, upload_id: &str) -> DbResult<Option<String>>;
-    async fn assemble_media_upload(&self, upload_id: &str) -> DbResult<db::MediaUploadAssembly>;
-    async fn commit_media_upload(
-        &self,
-        upload_id: &str,
-        assembly: &db::MediaUploadAssembly,
-        derivatives: &[db::MediaDerivativeInput],
-    ) -> DbResult<UploadPropertyMediaResult>;
 
-    /// Persist shadow-write metadata. The default keeps test repositories source-compatible; the
-    /// production DAO overrides it. A false result means the media row no longer exists.
-    async fn set_media_object(
+    async fn upload_property_media(
         &self,
-        _media_id: &str,
-        _metadata: &db::MediaObjectMetadata,
-    ) -> DbResult<bool> {
-        Ok(false)
-    }
+        request: &UploadPropertyMediaRequest,
+    ) -> DbResult<UploadPropertyMediaResult>;
+    async fn remove_property_media(&self, property_id: &str, media_id: &str) -> DbResult<bool>;
 
     /// The STORAGE POINTER of the copy a reader should be served (the `web` derivative when the row is an
     /// original), without loading `file_data`. Test repositories return None.
@@ -77,7 +47,7 @@ pub trait MediaRepository: Send + Sync {
         Ok(None)
     }
 
-    /// Photograph id already attached to this property under this name and size (the full-file retry guard).
+    /// Photograph id already attached to this property under this name and size (the upload retry guard).
     async fn property_photo_id(
         &self,
         _property_id: &str,
@@ -88,11 +58,13 @@ pub trait MediaRepository: Send + Sync {
     }
 
     /// Whether the owning property is publicly visible under the listing rule. Test repositories
-    /// default to private so a shadow write can never publish an unpublished fixture.
+    /// default to private so a write can never publish an unpublished fixture.
     async fn property_is_public(&self, _property_id: &str) -> DbResult<bool> {
         Ok(false)
     }
 
+    /// Object-first single-row upload (the legacy direct door): one media row plus the property link.
+    /// Test repositories that do not need it keep the default refusal.
     async fn save_property_media_object(
         &self,
         _property_id: &str,
@@ -105,8 +77,8 @@ pub trait MediaRepository: Send + Sync {
         ))
     }
 
-    /// Object-first full-file upload: every row plus the property link in one transaction. No
-    /// `media_upload`/`media_upload_chunk` rows are written on this path.
+    /// Object-first upload: every row plus the property link in one transaction. The only row-creating
+    /// writer for uploaded property media; no staging table is involved.
     async fn save_property_media_object_set(
         &self,
         _property_id: &str,
@@ -115,26 +87,6 @@ pub trait MediaRepository: Send + Sync {
     ) -> DbResult<UploadPropertyMediaResult> {
         Err(db::DbFailure::configuration(
             "media.save_property_media_object_set",
-            "object-first uploads are not implemented by this repository",
-        ))
-    }
-
-    async fn commit_media_object_upload(
-        &self,
-        _upload_id: &str,
-        _property_id: &str,
-        _role: &str,
-        _rows: &[db::MediaObjectRow],
-    ) -> DbResult<UploadPropertyMediaResult> {
-        Err(db::DbFailure::configuration(
-            "media.commit_media_object_upload",
-            "object-first uploads are not implemented by this repository",
-        ))
-    }
-
-    async fn upload_standalone_object(&self, _row: &db::MediaObjectRow) -> DbResult<()> {
-        Err(db::DbFailure::configuration(
-            "media.upload_standalone_object",
             "object-first uploads are not implemented by this repository",
         ))
     }
@@ -164,13 +116,6 @@ impl MediaRepository for MediaDao {
         MediaDao::set_property_hero(self, property_id, media_id).await
     }
 
-    async fn upload_property_media(
-        &self,
-        request: &UploadPropertyMediaRequest,
-    ) -> DbResult<UploadPropertyMediaResult> {
-        MediaDao::upload_property_media(self, request).await
-    }
-
     async fn attach_property_video(
         &self,
         request: &AttachPropertyVideoRequest,
@@ -178,82 +123,8 @@ impl MediaRepository for MediaDao {
         MediaDao::attach_property_video(self, request).await
     }
 
-    async fn begin_media_upload(
-        &self,
-        request: &db::BeginMediaUpload,
-    ) -> DbResult<BeginMediaUploadResult> {
-        let status = MediaDao::begin_media_upload(self, request).await?;
-        Ok(BeginMediaUploadResult {
-            upload_id: status.upload_id,
-            chunk_size: request.chunk_size,
-            chunk_count: status.chunk_count,
-            byte_size: status.byte_size,
-        })
-    }
-
-    async fn stage_media_chunk(
-        &self,
-        upload_id: &str,
-        chunk_index: i32,
-        bytes: &[u8],
-    ) -> DbResult<db::MediaUploadStatus> {
-        MediaDao::stage_media_chunk(self, upload_id, chunk_index, bytes).await
-    }
-
-    async fn assemble_media_upload(&self, upload_id: &str) -> DbResult<db::MediaUploadAssembly> {
-        MediaDao::assemble_media_upload(self, upload_id).await
-    }
-
     async fn remove_property_media(&self, property_id: &str, media_id: &str) -> DbResult<bool> {
         MediaDao::remove_property_media(self, property_id, media_id).await
-    }
-
-    async fn property_has_photo(
-        &self,
-        property_id: &str,
-        filename: &str,
-        byte_size: i64,
-    ) -> DbResult<bool> {
-        MediaDao::property_has_photo(self, property_id, filename, byte_size).await
-    }
-
-    async fn resumable_media_upload(
-        &self,
-        property_id: &str,
-        filename: &str,
-        byte_size: i64,
-        chunk_size: i32,
-    ) -> DbResult<Option<(String, String, Vec<i32>)>> {
-        MediaDao::resumable_media_upload(self, property_id, filename, byte_size, chunk_size).await
-    }
-
-    async fn claim_media_upload(&self, upload_id: &str) -> DbResult<bool> {
-        MediaDao::claim_media_upload(self, upload_id).await
-    }
-
-    async fn fail_media_upload(&self, upload_id: &str) -> DbResult<()> {
-        MediaDao::fail_media_upload(self, upload_id).await
-    }
-
-    async fn media_upload_state(&self, upload_id: &str) -> DbResult<Option<String>> {
-        MediaDao::media_upload_state(self, upload_id).await
-    }
-
-    async fn commit_media_upload(
-        &self,
-        upload_id: &str,
-        assembly: &db::MediaUploadAssembly,
-        derivatives: &[db::MediaDerivativeInput],
-    ) -> DbResult<UploadPropertyMediaResult> {
-        MediaDao::commit_media_upload(self, upload_id, assembly, derivatives).await
-    }
-
-    async fn set_media_object(
-        &self,
-        media_id: &str,
-        metadata: &db::MediaObjectMetadata,
-    ) -> DbResult<bool> {
-        MediaDao::set_media_object(self, media_id, metadata).await
     }
 
     async fn media_object_location(
@@ -276,6 +147,13 @@ impl MediaRepository for MediaDao {
         MediaDao::property_is_public(self, property_id).await
     }
 
+    async fn upload_property_media(
+        &self,
+        request: &UploadPropertyMediaRequest,
+    ) -> DbResult<UploadPropertyMediaResult> {
+        MediaDao::upload_property_media(self, request).await
+    }
+
     async fn save_property_media_object(
         &self,
         property_id: &str,
@@ -293,36 +171,6 @@ impl MediaRepository for MediaDao {
     ) -> DbResult<UploadPropertyMediaResult> {
         MediaDao::save_property_media_object_set(self, property_id, role, rows).await
     }
-
-    async fn commit_media_object_upload(
-        &self,
-        upload_id: &str,
-        property_id: &str,
-        role: &str,
-        rows: &[db::MediaObjectRow],
-    ) -> DbResult<UploadPropertyMediaResult> {
-        MediaDao::commit_media_object_upload(self, upload_id, property_id, role, rows).await
-    }
-
-    async fn upload_standalone_object(&self, row: &db::MediaObjectRow) -> DbResult<()> {
-        MediaDao::upload_standalone_object(self, row).await
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BeginMediaUploadResult {
-    pub upload_id: String,
-    pub chunk_size: i32,
-    pub chunk_count: i32,
-    pub byte_size: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MediaUploadProgress {
-    pub received_chunks: i32,
-    pub chunk_count: i32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -342,20 +190,6 @@ pub struct PropertyVideoFinalizeResult {
     pub mux_playback_id: Option<String>,
 }
 
-/// What the server already has of a file about to be uploaded.
-#[derive(Debug, Clone, Serialize)]
-pub enum UploadLookup {
-    /// The property already shows this file: nothing to send.
-    AlreadyStored,
-    /// An earlier try left this upload: send only the chunks it lacks (`status` `complete` means it is being finished).
-    Unfinished {
-        upload_id: String,
-        status: String,
-        received: Vec<i32>,
-    },
-    New,
-}
-
 /// What a read route should return for one media id: legacy bytes, or a redirect to the object store.
 /// The bytes variant is only reachable while `object_reads` is off; with the switch on, an
 /// unaddressable object is an error instead.
@@ -372,20 +206,10 @@ pub struct MediaService<R> {
     /// are additive and the Postgres blob stays canonical, so a store error never fails an upload.
     pub(super) object_store: Option<Arc<dyn AbstractObjectStoreService>>,
     pub(super) object_reads: bool,
-}
-
-/// Object keys are opaque and UUID-oriented. The extension is for operator readability only; the
-/// media row, not the key, remains the source of truth.
-fn media_object_key(property_id: &str, media_id: &str, mime_type: &str) -> String {
-    let extension = match mime_type.to_ascii_lowercase().as_str() {
-        "image/jpeg" | "image/jpg" => "jpg",
-        "image/png" => "png",
-        "image/webp" => "webp",
-        "image/gif" => "gif",
-        "image/avif" => "avif",
-        _ => "bin",
-    };
-    format!("properties/{property_id}/media/{media_id}/original.{extension}")
+    /// The key that signs a direct-to-object upload's pending token. `None` means read it at request
+    /// time from `MEDIA_DIRECT_UPLOAD_SECRET` (falling back to `AUTH_SECRET`); tests inject one so they
+    /// never depend on process environment.
+    pub(super) direct_upload_secret: Option<Vec<u8>>,
 }
 
 impl<R> MediaService<R> {
@@ -403,12 +227,19 @@ impl<R> MediaService<R> {
         self.object_reads = enabled;
         self
     }
+
+    /// Inject the key that signs direct-to-object upload tokens. Production leaves this unset and the
+    /// key is read from the environment when a token is minted or checked; tests set it explicitly.
+    pub fn with_direct_upload_secret(mut self, secret: impl Into<Vec<u8>>) -> Self {
+        self.direct_upload_secret = Some(secret.into());
+        self
+    }
 }
 
 impl<R: MediaRepository> MediaService<R> {
     /// Upload one object, prove it is the bytes we meant to store, and return its metadata row.
     ///
-    /// Shared by the direct, chunked and whole-file object-first paths. A put that cannot be verified is
+    /// Shared by the direct and whole-file object-first paths. A put that cannot be verified is
     /// deleted here rather than left in the bucket: an unverified object is not a copy of anything, and the
     /// caller's failure cleanup only knows about rows that came back.
     pub(super) async fn object_row(
@@ -510,81 +341,6 @@ impl<R: MediaRepository> MediaService<R> {
         }
     }
 
-    pub(crate) async fn object_first_chunk(
-        &self,
-        upload_id: &str,
-        assembly: &db::MediaUploadAssembly,
-        derivatives: &[db::MediaDerivativeInput],
-    ) -> Result<UploadPropertyMediaResult, String> {
-        let store = self
-            .object_store
-            .as_ref()
-            .ok_or_else(|| "object store is not configured".to_owned())?;
-        let public = self
-            .repository
-            .property_is_public(&assembly.property_id)
-            .await
-            .unwrap_or(false);
-        let (bucket, visibility) = if public {
-            (ObjectBucket::PropertyMediaPublic, "public")
-        } else {
-            (ObjectBucket::PropertyMediaPrivate, "private")
-        };
-        let original_id = uuid::Uuid::new_v4().to_string();
-        let original = self
-            .object_row(
-                store,
-                bucket,
-                visibility,
-                &original_id,
-                &assembly.filename,
-                &assembly.mime_type,
-                &assembly.bytes,
-                assembly.alt_text.clone(),
-                "image",
-                None,
-                None,
-            )
-            .await?;
-        let mut rows = vec![original];
-        for derivative in derivatives {
-            let id = uuid::Uuid::new_v4().to_string();
-            let row = self
-                .object_row(
-                    store,
-                    bucket,
-                    visibility,
-                    &id,
-                    &format!(
-                        "{}-{}.jpg",
-                        assembly.filename.trim_end_matches(".jpg"),
-                        derivative.kind
-                    ),
-                    "image/jpeg",
-                    &derivative.bytes,
-                    None,
-                    "image",
-                    Some(original_id.clone()),
-                    Some(derivative.kind.to_owned()),
-                )
-                .await?;
-            rows.push(row);
-        }
-        match self
-            .repository
-            .commit_media_object_upload(upload_id, &assembly.property_id, &assembly.role, &rows)
-            .await
-        {
-            Ok(result) => Ok(result),
-            Err(error) => {
-                for row in &rows {
-                    let _ = store.delete_object(bucket, &row.object.key).await;
-                }
-                Err(error.to_string())
-            }
-        }
-    }
-
     /// Resolve one media id to what a read route should send: a redirect to the object store, or the
     /// legacy blob.
     ///
@@ -674,102 +430,5 @@ impl<R: MediaRepository> MediaService<R> {
 
         audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
         result
-    }
-
-    /// Best-effort shadow write: the Postgres blob was just committed and remains canonical. Success
-    /// records VERIFIED object metadata; any failure records MIGRATION_FAILED and leaves the upload
-    /// successful. This is deliberately not in the error path of the caller.
-    pub(crate) async fn shadow_property_media(
-        &self,
-        media_id: &str,
-        property_id: &str,
-        bytes: &[u8],
-        mime_type: &str,
-    ) {
-        let Some(store) = self.object_store.as_ref() else {
-            return;
-        };
-        let public = self
-            .repository
-            .property_is_public(property_id)
-            .await
-            .unwrap_or(false);
-        let bucket = if public {
-            ObjectBucket::PropertyMediaPublic
-        } else {
-            ObjectBucket::PropertyMediaPrivate
-        };
-        let visibility = if public { "public" } else { "private" };
-        let key = media_object_key(property_id, media_id, mime_type);
-        let pending = db::MediaObjectMetadata {
-            bucket: bucket.as_str().to_owned(),
-            key: key.clone(),
-            etag: None,
-            sha256: None,
-            size: bytes.len() as i64,
-            status: "MIRROR_PENDING".to_owned(),
-            visibility: Some(visibility.to_owned()),
-        };
-        if let Err(error) = self.repository.set_media_object(media_id, &pending).await {
-            tracing::warn!(
-                media_id,
-                error = %error,
-                "media object shadow: could not record MIRROR_PENDING; keeping legacy blob"
-            );
-            return;
-        }
-
-        let result = async {
-            let stored = store
-                .put_object(bucket, &key, bytes, mime_type)
-                .await
-                .map_err(|error| error.to_string())?;
-            let sha = stored
-                .sha256
-                .clone()
-                .ok_or_else(|| "provider returned no SHA-256".to_owned())?;
-            store
-                .verify_object(bucket, &key, &sha, stored.size)
-                .await
-                .map_err(|error| error.to_string())?;
-            Ok::<_, String>((stored, sha))
-        }
-        .await;
-
-        match result {
-            Ok((stored, sha)) => {
-                let verified = db::MediaObjectMetadata {
-                    bucket: bucket.as_str().to_owned(),
-                    key: key.clone(),
-                    etag: stored.etag.clone(),
-                    sha256: Some(sha),
-                    size: stored.size,
-                    status: "VERIFIED".to_owned(),
-                    visibility: Some(visibility.to_owned()),
-                };
-                if let Err(error) = self.repository.set_media_object(media_id, &verified).await {
-                    tracing::warn!(media_id, error = %error, "media object shadow: could not record VERIFIED");
-                }
-            }
-            Err(error) => {
-                tracing::warn!(
-                    media_id,
-                    key,
-                    error,
-                    "media object shadow failed; legacy blob remains canonical"
-                );
-                let failed = db::MediaObjectMetadata {
-                    bucket: bucket.as_str().to_owned(),
-                    key: key.clone(),
-                    etag: None,
-                    sha256: None,
-                    size: bytes.len() as i64,
-                    status: "MIGRATION_FAILED".to_owned(),
-                    visibility: Some(visibility.to_owned()),
-                };
-                let _ = self.repository.set_media_object(media_id, &failed).await;
-                let _ = store.delete_object(bucket, &key).await;
-            }
-        }
     }
 }

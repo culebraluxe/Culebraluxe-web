@@ -94,10 +94,11 @@ pnpm smoke:prod    # ask production whether it works, from outside
   not reachable from a page; a portal screen that needs something new gets a `/api/portal` route that calls the same
   service.
 - **Every request in the browser has a way out.** One request may carry about 4.5 MB (the hosting gateway) and must
-  finish in well under a minute (Safari). Big things go in pieces: photos through `/api/property-media/chunked`
-  (resumable, skips what is already stored), films straight to Mux through a direct-upload URL, both in
-  `web/ui/src/app/exec.rs` with a timeout and retries on every piece. A slow server step runs in the background and
-  the page asks for its status.
+  finish in well under a minute (Safari). A photograph up to that cap goes whole through `/api/property-media/full`;
+  anything larger goes DIRECT to object storage (`/api/property-media/direct/initiate` → a signed PUT → `finalize`),
+  so the bytes never cross this gateway (the staged chunk protocol is retired). Films go straight to Mux through a
+  direct-upload URL. Both live in `web/ui/src/app/exec/uploads.rs` with a timeout and retries. A slow server step runs
+  in the background and the page asks for its status.
 - **Before a UI change, read the whole original screen.** The owner designed these screens; reproduce their structure,
   never a simplified version (`git show 4cf98110^:<path>` reads the deleted TypeScript original).
 

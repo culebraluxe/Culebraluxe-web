@@ -58,11 +58,11 @@ pub struct MediaObjectMetadata {
     pub visibility: Option<String>,
 }
 
-mod assemble_media_upload;
+mod object_write;
 mod media_row;
 mod object_media;
 #[allow(unused_imports)]
-pub use assemble_media_upload::*;
+pub use object_write::*;
 pub use object_media::{
     insert_media_object_conn, insert_media_object_tx, insert_media_object_with_id_conn,
     insert_media_object_with_id_tx,

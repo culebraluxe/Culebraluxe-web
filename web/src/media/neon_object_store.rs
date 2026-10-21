@@ -36,7 +36,11 @@ impl NeonObjectStoreConfig {
     /// Read the app's dedicated media credentials. A completely unset store is `None` so the app
     /// can boot before the media cutover; a half-configured store is a hard configuration error.
     pub fn from_env() -> Result<Option<Self>, ObjectStoreError> {
-        let read = |name: &str| std::env::var(name).ok().filter(|value| !value.trim().is_empty());
+        let read = |name: &str| {
+            std::env::var(name)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        };
         let endpoint = read(ENDPOINT);
         let region = read(REGION);
         let access = read(ACCESS_KEY);
@@ -250,7 +254,9 @@ impl AbstractObjectStoreService for NeonObjectStore {
             size: output.content_length.unwrap_or_default(),
             content_type: output.content_type,
             etag: output.e_tag,
-            sha256: output.metadata.and_then(|metadata| metadata.get("sha256").cloned()),
+            sha256: output
+                .metadata
+                .and_then(|metadata| metadata.get("sha256").cloned()),
         })
     }
 
@@ -268,21 +274,13 @@ impl AbstractObjectStoreService for NeonObjectStore {
             .send()
             .await
             .map_err(|error| map_sdk_error("get_object", error))?;
-        let body = output
-            .body
-            .collect()
-            .await
-            .map_err(|error| {
-                ObjectStoreError::infrastructure(format!("get_object body: {error}"), true)
-            })?;
+        let body = output.body.collect().await.map_err(|error| {
+            ObjectStoreError::infrastructure(format!("get_object body: {error}"), true)
+        })?;
         Ok(body.into_bytes().to_vec())
     }
 
-    async fn delete_object(
-        &self,
-        bucket: ObjectBucket,
-        key: &str,
-    ) -> Result<(), ObjectStoreError> {
+    async fn delete_object(&self, bucket: ObjectBucket, key: &str) -> Result<(), ObjectStoreError> {
         validate_object_key(key)?;
         let result = self
             .client
@@ -293,7 +291,9 @@ impl AbstractObjectStoreService for NeonObjectStore {
             .await;
         match result {
             Ok(_) => Ok(()),
-            Err(error) if matches!(&error, SdkError::ServiceError(context) if context.raw().status().as_u16() == 404) => Ok(()),
+            Err(error) if matches!(&error, SdkError::ServiceError(context) if context.raw().status().as_u16() == 404) => {
+                Ok(())
+            }
             Err(error) => Err(map_sdk_error("delete_object", error)),
         }
     }
@@ -324,8 +324,9 @@ impl AbstractObjectStoreService for NeonObjectStore {
         ttl: Duration,
     ) -> Result<String, ObjectStoreError> {
         validate_object_key(key)?;
-        let presigning = PresigningConfig::expires_in(ttl)
-            .map_err(|error| ObjectStoreError::configuration(format!("invalid URL expiry: {error}")))?;
+        let presigning = PresigningConfig::expires_in(ttl).map_err(|error| {
+            ObjectStoreError::configuration(format!("invalid URL expiry: {error}"))
+        })?;
         self.client
             .get_object()
             .bucket(self.bucket(bucket))
@@ -347,8 +348,9 @@ impl AbstractObjectStoreService for NeonObjectStore {
         if content_type.trim().is_empty() {
             return Err(ObjectStoreError::configuration("content type is required"));
         }
-        let presigning = PresigningConfig::expires_in(ttl)
-            .map_err(|error| ObjectStoreError::configuration(format!("invalid URL expiry: {error}")))?;
+        let presigning = PresigningConfig::expires_in(ttl).map_err(|error| {
+            ObjectStoreError::configuration(format!("invalid URL expiry: {error}"))
+        })?;
         self.client
             .put_object()
             .bucket(self.bucket(bucket))
@@ -382,13 +384,17 @@ impl AbstractObjectStoreService for NeonObjectStore {
             size: output.content_length.unwrap_or_default(),
             content_type: output.content_type,
             etag: output.e_tag,
-            sha256: output.metadata.and_then(|metadata| metadata.get("sha256").cloned()),
+            sha256: output
+                .metadata
+                .and_then(|metadata| metadata.get("sha256").cloned()),
         };
         let body = output
             .body
             .collect()
             .await
-            .map_err(|error| ObjectStoreError::infrastructure(format!("verify_object body: {error}"), true))?
+            .map_err(|error| {
+                ObjectStoreError::infrastructure(format!("verify_object body: {error}"), true)
+            })?
             .into_bytes();
         if metadata.size != expected_size || body.len() as i64 != expected_size {
             return Err(ObjectStoreError::integrity(format!(
@@ -436,8 +442,14 @@ mod tests {
     #[test]
     fn buckets_map_to_logical_domains() {
         let c = config();
-        assert_eq!(c.bucket_name(ObjectBucket::PropertyMediaPublic), "property-public");
-        assert_eq!(c.bucket_name(ObjectBucket::PropertyMediaPrivate), "property-private");
+        assert_eq!(
+            c.bucket_name(ObjectBucket::PropertyMediaPublic),
+            "property-public"
+        );
+        assert_eq!(
+            c.bucket_name(ObjectBucket::PropertyMediaPrivate),
+            "property-private"
+        );
         assert_eq!(c.bucket_name(ObjectBucket::Vault), "vault");
     }
 
@@ -468,7 +480,11 @@ mod tests {
             .expect("head");
         assert_eq!(head.content_type.as_deref(), Some("text/plain"));
         let url = store
-            .signed_read_url(ObjectBucket::PropertyMediaPublic, key, Duration::from_secs(60))
+            .signed_read_url(
+                ObjectBucket::PropertyMediaPublic,
+                key,
+                Duration::from_secs(60),
+            )
             .await
             .expect("signed read");
         assert!(url.starts_with("https://"));

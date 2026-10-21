@@ -14,9 +14,11 @@ use model::{CreateProjectRequest, ProjectStatus, UpdateProjectRequest, WbsCatego
 use reqwest::Method;
 use serde_json::{json, Value};
 use services::{
-    CapturingAuditPort, CapturingDomainEventPort, CommandRequest, DefaultAuthorizationPort,
-    ServiceActor, ServiceActorKind, ServiceContext, ServiceInfrastructure, ServicePrincipal,
+    AbstractObjectStoreService, CapturingAuditPort, CapturingDomainEventPort, CommandRequest,
+    DefaultAuthorizationPort, ObjectBucket, ServiceActor, ServiceActorKind, ServiceContext,
+    ServiceInfrastructure, ServicePrincipal,
 };
+use sha2::{Digest, Sha256};
 use std::error::Error;
 use std::io;
 use std::process::ExitCode;
@@ -82,6 +84,11 @@ async fn dispatch_cli(args: &[String]) -> Result<(), Box<dyn Error>> {
 /// Gives every stored photograph its CARD copy (1200px) — made for new uploads since 2026-09-28; this backfills the
 /// rest. Safe to run again: it only touches photographs without one. One photograph at a time; a failure is reported
 /// and skipped, never fatal to the others.
+///
+/// OBJECT-FIRST. The original is read from object storage (`original_object_location` + `get_object`, checked against
+/// its HEAD size and SHA-256), the derived card is uploaded and verified, and only its object metadata is recorded
+/// (`insert_copy_object`). This command no longer reads `media.file_data` and never writes a blob: without media
+/// object storage it has nothing to do, so a missing store is a configuration error rather than a silent fallback.
 async fn media_cards(args: &[String]) -> Result<(), Box<dyn Error>> {
     apple_sync::load_env();
     let target = match args.first().map(String::as_str) {
@@ -90,6 +97,23 @@ async fn media_cards(args: &[String]) -> Result<(), Box<dyn Error>> {
         _ => return Err(io::Error::other("usage: media-cards dev|prod").into()),
     };
     let database = db::Database::connect_target(target).await?;
+
+    // No legacy fallback: the whole point of this command after the cutover is to write object rows. A deployment
+    // without the store cannot create a card copy that the object-first read path can serve.
+    let store: Arc<dyn AbstractObjectStoreService> = web::media::object_store_from_env()
+        .map_err(|error| {
+            io::Error::other(format!(
+                "media-cards: media object storage is misconfigured: {error}"
+            ))
+        })?
+        .map(|store| Arc::new(store) as Arc<dyn AbstractObjectStoreService>)
+        .ok_or_else(|| {
+            io::Error::other(
+                "media-cards: media object storage is not configured; set MEDIA_OBJECT_STORE_* \
+                 (this command reads originals from objects and never writes media.file_data)",
+            )
+        })?;
+
     let media = db::MediaDao::new(database);
     let (mut made, mut failed, mut saved_bytes) = (0usize, 0usize, 0i64);
     loop {
@@ -99,28 +123,106 @@ async fn media_cards(args: &[String]) -> Result<(), Box<dyn Error>> {
         }
         let mut progressed = false;
         for (id, filename) in batch {
-            let Some(original) = media.original_bytes(&id).await? else {
+            let label = filename.as_deref().unwrap_or(&id).to_owned();
+            // The original's own record copy — never the servable copy — is what a derived card must be made from.
+            let Some(location) = media.original_object_location(&id).await? else {
+                failed += 1;
+                eprintln!(
+                    "skipped {label} — original has no object location; backfill it before card copies"
+                );
                 continue;
             };
+            let Some(bucket) = ObjectBucket::from_db(&location.bucket) else {
+                failed += 1;
+                eprintln!(
+                    "skipped {label} — unknown object bucket {}",
+                    location.bucket
+                );
+                continue;
+            };
+            if location.status != "VERIFIED" {
+                failed += 1;
+                eprintln!(
+                    "skipped {label} — original object is not VERIFIED ({})",
+                    location.status
+                );
+                continue;
+            }
+            let original = match store.get_object(bucket, &location.key).await {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    failed += 1;
+                    eprintln!("skipped {label} — original object could not be read: {error}");
+                    continue;
+                }
+            };
+            if let Some(problem) = verify_original_object(&*store, bucket, &location.key, &original).await {
+                failed += 1;
+                eprintln!("skipped {label} — {problem}");
+                continue;
+            }
             match web::media::imaging::derive_card(&original) {
                 Ok(card) => {
-                    media
-                        .insert_copy(&id, "card", filename.as_deref(), &card.bytes)
-                        .await?;
-                    made += 1;
-                    saved_bytes += card.bytes.len() as i64;
-                    progressed = true;
-                    println!(
-                        "card {made}: {} ({}x{}, {} KB)",
-                        filename.as_deref().unwrap_or(&id),
-                        card.width,
-                        card.height,
-                        card.bytes.len() / 1024
-                    );
+                    // Deterministic per original: a failed DB insert can be retried over the same object without
+                    // orphaning a second copy, and the row's gate (`images_missing_copy`) prevents a duplicate row.
+                    let key = format!("media/{id}/card.jpg");
+                    let stored = match store.put_object(bucket, &key, &card.bytes, "image/jpeg").await {
+                        Ok(stored) => stored,
+                        Err(error) => {
+                            failed += 1;
+                            eprintln!("skipped {label} — card object upload failed: {error}");
+                            continue;
+                        }
+                    };
+                    let Some(sha256) = stored.sha256.clone() else {
+                        let _ = store.delete_object(bucket, &key).await;
+                        failed += 1;
+                        eprintln!("skipped {label} — provider returned no SHA-256 for the card object");
+                        continue;
+                    };
+                    if let Err(error) = store
+                        .verify_object(bucket, &key, &sha256, stored.size)
+                        .await
+                    {
+                        let _ = store.delete_object(bucket, &key).await;
+                        failed += 1;
+                        eprintln!("skipped {label} — card object failed verification: {error}");
+                        continue;
+                    }
+                    let object = db::MediaObjectMetadata {
+                        bucket: bucket.as_str().to_owned(),
+                        key: key.clone(),
+                        etag: stored.etag,
+                        sha256: Some(sha256),
+                        size: stored.size,
+                        status: "VERIFIED".to_owned(),
+                        visibility: Some(location.visibility.clone()),
+                    };
+                    match media
+                        .insert_copy_object(&id, "card", filename.as_deref(), &object)
+                        .await
+                    {
+                        Ok(_) => {
+                            made += 1;
+                            saved_bytes += card.bytes.len() as i64;
+                            progressed = true;
+                            println!(
+                                "card {made}: {label} ({}x{}, {} KB)",
+                                card.width,
+                                card.height,
+                                card.bytes.len() / 1024
+                            );
+                        }
+                        Err(error) => {
+                            // No row points at this object now; remove it so the retry does not leave an orphan.
+                            let _ = store.delete_object(bucket, &key).await;
+                            return Err(error.into());
+                        }
+                    }
                 }
                 Err(reason) => {
                     failed += 1;
-                    eprintln!("skipped {} — {reason}", filename.as_deref().unwrap_or(&id));
+                    eprintln!("skipped {label} — {reason}");
                 }
             }
         }
@@ -134,6 +236,44 @@ async fn media_cards(args: &[String]) -> Result<(), Box<dyn Error>> {
         saved_bytes / 1_048_576
     );
     Ok(())
+}
+
+/// Prove the downloaded original is the object the row points at before deriving anything from it.
+///
+/// The store's HEAD metadata is the reference when it reports a size/SHA-256; a provider that reports neither still
+/// gets the read, but a reported mismatch is a refusal (a card made from swapped bytes would be served as the
+/// original's).
+async fn verify_original_object(
+    store: &dyn AbstractObjectStoreService,
+    bucket: ObjectBucket,
+    key: &str,
+    bytes: &[u8],
+) -> Option<String> {
+    let head = match store.head_object(bucket, key).await {
+        Ok(head) => head,
+        Err(error) => return Some(format!("original object HEAD failed: {error}")),
+    };
+    if head.size > 0 && head.size != bytes.len() as i64 {
+        return Some(format!(
+            "original object is {} bytes, expected {}",
+            bytes.len(),
+            head.size
+        ));
+    }
+    if let Some(expected) = head.sha256.as_deref() {
+        let actual = sha256_hex(bytes);
+        if !actual.eq_ignore_ascii_case(expected.trim()) {
+            return Some("original object SHA-256 does not match its record".to_owned());
+        }
+    }
+    None
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn print_usage() {

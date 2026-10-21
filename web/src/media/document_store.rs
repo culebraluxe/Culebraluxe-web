@@ -37,7 +37,10 @@ impl DocumentObjectWriter {
             "application/pdf" => "pdf",
             "image/jpeg" | "image/jpg" => "jpg",
             "image/png" => "png",
-            _ => filename.rsplit_once('.').map(|(_, ext)| ext).unwrap_or("bin"),
+            _ => filename
+                .rsplit_once('.')
+                .map(|(_, ext)| ext)
+                .unwrap_or("bin"),
         };
         let key = format!("documents/{media_id}/original.{extension}");
         let stored = self

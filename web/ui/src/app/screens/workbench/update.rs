@@ -124,7 +124,8 @@ pub(super) fn next_upload(model: &mut Model) -> Cmd<Msg> {
     // ONE request for the whole photograph when the edge can carry it: the server derives the copies and
     // stores everything object-first, so there is no chunk manifest to resume. A retried file the property
     // already shows is answered `skipped` by the server, which is what keeps the retry below safe. A file
-    // larger than one request can carry still goes in pieces (`PropertyMediaUpload` decides, not this screen).
+    // larger than one request can carry goes DIRECT to object storage instead (`PropertyMediaUpload` decides,
+    // not this screen). There is no chunked fallback any more.
     let endpoint = PropertyMediaUpload::for_size(file.size());
     Cmd::upload(
         file,
