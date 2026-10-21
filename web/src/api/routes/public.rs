@@ -195,7 +195,7 @@ pub(super) async fn public_media(
             .header(axum::http::header::LOCATION, url)
             // The object URL is stable for a given media id; a short redirect cache keeps a
             // replacement upload (a new row) from being conflated with this one.
-            .header(axum::http::header::CACHE_CONTROL, "public, max-age=300")
+            .header(axum::http::header::CACHE_CONTROL, "public, max-age=31536000, immutable")
             .body(axum::body::Body::empty())
             .map_err(|error| {
                 ApiError::new(

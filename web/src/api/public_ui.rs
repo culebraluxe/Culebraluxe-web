@@ -138,7 +138,7 @@ async fn media(
             StatusCode::FOUND,
             [
                 (header::LOCATION, url),
-                (header::CACHE_CONTROL, "public, max-age=300".to_owned()),
+                (header::CACHE_CONTROL, "public, max-age=31536000, immutable".to_owned()),
             ],
             Body::empty(),
         )

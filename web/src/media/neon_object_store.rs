@@ -196,6 +196,16 @@ fn map_sdk_error<E: std::fmt::Debug>(operation: &str, error: SdkError<E>) -> Obj
     }
 }
 
+/// Public property photography is immutable under its media id: a replacement upload is a new row.
+/// Private/Vault bytes are served through short-lived signed URLs and must not trade that for shared caching.
+fn cache_control(bucket: ObjectBucket) -> &'static str {
+    match bucket {
+        ObjectBucket::PropertyMediaPublic => "public, max-age=31536000, immutable",
+        ObjectBucket::PropertyMediaPrivate => "private, max-age=300",
+        ObjectBucket::Vault => "private, no-store",
+    }
+}
+
 #[async_trait]
 impl AbstractObjectStoreService for NeonObjectStore {
     async fn put_object(
@@ -216,6 +226,7 @@ impl AbstractObjectStoreService for NeonObjectStore {
             .key(key)
             .body(ByteStream::from(bytes.to_vec()))
             .content_type(content_type)
+            .cache_control(cache_control(bucket))
             .metadata("sha256", &sha256)
             .send()
             .await
