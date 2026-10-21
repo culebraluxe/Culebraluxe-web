@@ -221,18 +221,10 @@ impl<R: MediaRepository> MediaService<R> {
         let derived = derived
             .map_err(|message| CoreServiceError::business("MEDIA_DERIVATIVE_FAILED", message))?;
 
-        // The publication rule decides which bucket the whole set goes to; every row of one photograph shares
-        // the original's visibility, so a copy can never leak more than the photograph it copies.
-        let public = self
-            .repository
-            .property_is_public(&request.property_id)
-            .await
-            .unwrap_or(false);
-        let (bucket, visibility) = if public {
-            (ObjectBucket::PropertyMediaPublic, "public")
-        } else {
-            (ObjectBucket::PropertyMediaPrivate, "private")
-        };
+        // Property photography is public. There is no per-property private photo state: every copy of a
+        // photograph uses the public media bucket, whatever the listing's publication state. PDFs and Vault
+        // documents remain private through their own paths.
+        let (bucket, visibility) = (ObjectBucket::PropertyMediaPublic, "public");
 
         let mut rows: Vec<db::MediaObjectRow> = Vec::with_capacity(1 + derived.len());
         let mut uploaded: Vec<(ObjectBucket, String)> = Vec::with_capacity(1 + derived.len());

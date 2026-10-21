@@ -389,18 +389,9 @@ impl<R: MediaRepository> MediaService<R> {
             .object_store
             .as_ref()
             .ok_or_else(object_store_not_configured)?;
-        // The publication rule decides the bucket ONCE, here, and the choice is signed into the token:
-        // a copy can never leak more than the photograph it copies.
-        let public = self
-            .repository
-            .property_is_public(&request.property_id)
-            .await
-            .unwrap_or(false);
-        let bucket = if public {
-            ObjectBucket::PropertyMediaPublic
-        } else {
-            ObjectBucket::PropertyMediaPrivate
-        };
+        // Property photography is always public; only PDFs/Vault documents are private.
+        let public = true;
+        let bucket = ObjectBucket::PropertyMediaPublic;
         let media_id = uuid::Uuid::new_v4().to_string();
         let key = direct_object_key(&media_id, &request.mime_type);
         let upload_url = store
@@ -516,26 +507,9 @@ impl<R: MediaRepository> MediaService<R> {
             .object_store
             .as_ref()
             .ok_or_else(object_store_not_configured)?;
-        let bucket = if claims.public {
-            ObjectBucket::PropertyMediaPublic
-        } else {
-            ObjectBucket::PropertyMediaPrivate
-        };
-        let visibility = if claims.public { "public" } else { "private" };
+        let bucket = ObjectBucket::PropertyMediaPublic;
+        let visibility = "public";
         let key = direct_object_key(&claims.mid, &claims.mime);
-
-        // The publication rule is re-evaluated at finalize. If the listing's visibility changed while
-        // the photograph was in flight, the object sits in the wrong bucket and the upload is refused;
-        // the client gets a retryable sentence and initiates again. A database failure here propagates
-        // WITHOUT deleting the object, so the same token can be finalized after the read recovers.
-        let public_now = self.repository.property_is_public(&claims.pid).await?;
-        if public_now != claims.public {
-            discard_object(store, bucket, &key).await;
-            return Err(CoreServiceError::business(
-                "MEDIA_PUBLICATION_CHANGED",
-                "This listing's visibility changed while the photograph uploaded; try again.",
-            ));
-        }
 
         // A resend after an answer that never arrived answers with the row that already exists and
         // removes the now-orphaned object.
@@ -1494,8 +1468,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn finalize_refuses_when_the_publication_bucket_changed_in_flight() {
-        let repository = FakeRepository::default(); // private when the upload is initiated
+    async fn finalize_always_uses_the_public_bucket() {
+        // A listed property no longer changes the photo bucket: every property photograph is public.
+        let repository = FakeRepository::default();
         let store = Arc::new(FakeStore::default());
         let mut media = service(repository, Some(store.clone())).await;
         let bytes = jpeg(400, 300);
@@ -1505,27 +1480,26 @@ mod tests {
             .expect("initiate");
         let key = key_for(&session);
         store.direct_put(
-            ObjectBucket::PropertyMediaPrivate,
+            ObjectBucket::PropertyMediaPublic,
             &key,
             &bytes,
             "image/jpeg",
         );
-        // The listing was published between initiate and finalize: the object sits in the private bucket.
         media.repository.public = true;
 
-        let error = media
+        let result = media
             .finalize_property_media_direct_upload(
                 session.upload_id.as_deref().expect("the token"),
                 &root_context(),
             )
             .await
-            .expect_err("the wrong publication bucket must be refused");
-
-        assert_eq!(error.code(), "MEDIA_PUBLICATION_CHANGED");
-        assert!(store
-            .object(ObjectBucket::PropertyMediaPrivate, &key)
-            .is_none());
-        assert!(media.repository.saved_sets().is_empty());
+            .expect("a public photo finalizes");
+        assert!(!result.derivative_kinds.is_empty());
+        let saved = media.repository.saved_sets();
+        assert_eq!(saved.len(), 1);
+        let original = &saved[0].2[0];
+        assert_eq!(original.object.bucket, "property_media_public");
+        assert_eq!(original.object.visibility.as_deref(), Some("public"));
     }
 
     #[tokio::test]

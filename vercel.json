@@ -2,5 +2,19 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": false
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/media-cdn/:path*",
+      "destination": "https://br-snowy-fog-axg3jae2.storage.c-4.us-east-2.aws.neon.tech/culebraluxe-property-media-public/:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/media-cdn/:path*",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
+  ]
 }

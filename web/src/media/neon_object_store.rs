@@ -20,6 +20,9 @@ const SECRET_KEY: &str = "MEDIA_OBJECT_STORE_SECRET_ACCESS_KEY";
 const BUCKET_PROPERTY_PUBLIC: &str = "MEDIA_BUCKET_PROPERTY_PUBLIC";
 const BUCKET_PROPERTY_PRIVATE: &str = "MEDIA_BUCKET_PROPERTY_PRIVATE";
 const BUCKET_VAULT: &str = "MEDIA_BUCKET_VAULT";
+/// Optional same-origin edge base (for example `https://www.culebraluxe.com`). When set, public
+/// reads point at the app's `/media-cdn/` rewrite so Vercel caches the object at its edge PoPs.
+const PUBLIC_CDN_BASE: &str = "MEDIA_PUBLIC_CDN_BASE";
 
 #[derive(Debug, Clone)]
 pub struct NeonObjectStoreConfig {
@@ -30,6 +33,7 @@ pub struct NeonObjectStoreConfig {
     pub property_public_bucket: String,
     pub property_private_bucket: String,
     pub vault_bucket: String,
+    pub public_cdn_base: Option<String>,
 }
 
 impl NeonObjectStoreConfig {
@@ -48,6 +52,7 @@ impl NeonObjectStoreConfig {
         let public = read(BUCKET_PROPERTY_PUBLIC);
         let private = read(BUCKET_PROPERTY_PRIVATE);
         let vault = read(BUCKET_VAULT);
+        let public_cdn_base = read(PUBLIC_CDN_BASE);
 
         if endpoint.is_none()
             && region.is_none()
@@ -68,6 +73,7 @@ impl NeonObjectStoreConfig {
             property_public_bucket: public.ok_or_else(|| missing(BUCKET_PROPERTY_PUBLIC))?,
             property_private_bucket: private.ok_or_else(|| missing(BUCKET_PROPERTY_PRIVATE))?,
             vault_bucket: vault.ok_or_else(|| missing(BUCKET_VAULT))?,
+            public_cdn_base,
         };
         config.validate()?;
         Ok(Some(config))
@@ -77,6 +83,15 @@ impl NeonObjectStoreConfig {
         if !self.endpoint.starts_with("https://") {
             return Err(ObjectStoreError::configuration(
                 "MEDIA_OBJECT_STORE_ENDPOINT must be an https URL",
+            ));
+        }
+        if self
+            .public_cdn_base
+            .as_deref()
+            .is_some_and(|base| !base.starts_with("https://"))
+        {
+            return Err(ObjectStoreError::configuration(
+                "MEDIA_PUBLIC_CDN_BASE must be an https URL",
             ));
         }
         let names = [
@@ -320,6 +335,13 @@ impl AbstractObjectStoreService for NeonObjectStore {
             ));
         }
         validate_object_key(key)?;
+        if let Some(base) = self.config.public_cdn_base.as_deref() {
+            return Ok(format!(
+                "{}/media-cdn/{}",
+                base.trim_end_matches('/'),
+                key
+            ));
+        }
         Ok(format!(
             "{}/{}/{}",
             self.config.endpoint.trim_end_matches('/'),
@@ -440,6 +462,7 @@ mod tests {
             property_public_bucket: "property-public".into(),
             property_private_bucket: "property-private".into(),
             vault_bucket: "vault".into(),
+            public_cdn_base: None,
         }
     }
 

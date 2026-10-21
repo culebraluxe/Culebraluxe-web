@@ -47,7 +47,7 @@ impl<R: MediaRepository> MediaService<R> {
             let (bucket, visibility, media_type) = match mime.as_str() {
                 "application/pdf" => (ObjectBucket::Vault, "vault", "document"),
                 image if image.starts_with("image/") => {
-                    (ObjectBucket::PropertyMediaPrivate, "private", "image")
+                    (ObjectBucket::PropertyMediaPublic, "public", "image")
                 }
                 _ => {
                     return Err(CoreServiceError::business(
@@ -438,10 +438,10 @@ mod tests {
         assert_eq!(store.put_count(), 1);
     }
 
-    /// A standalone IMAGE is private property media, and a file that is neither an image nor a PDF is refused before
+    /// A standalone IMAGE is public property media, and a file that is neither an image nor a PDF is refused before
     /// anything is uploaded.
     #[tokio::test]
-    async fn a_standalone_image_is_private_and_a_non_media_file_is_refused() {
+    async fn a_standalone_image_is_public_and_a_non_media_file_is_refused() {
         let repository = FakeRepository::default();
         let store = Arc::new(FakeStore::default());
         let media = service(repository, Some(store.clone())).await;
@@ -451,8 +451,8 @@ mod tests {
             .await
             .expect("an image is accepted");
         let rows = media.repository.standalone_rows();
-        assert_eq!(rows[0].object.bucket, "property_media_private");
-        assert_eq!(rows[0].object.visibility.as_deref(), Some("private"));
+        assert_eq!(rows[0].object.bucket, "property_media_public");
+        assert_eq!(rows[0].object.visibility.as_deref(), Some("public"));
         assert_eq!(rows[0].media_type, "image");
 
         let error = media
