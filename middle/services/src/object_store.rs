@@ -165,6 +165,19 @@ pub trait AbstractObjectStoreService: Send + Sync {
         key: &str,
     ) -> Result<ObjectMetadata, ObjectStoreError>;
 
+    /// Read the bytes of a small internal artifact (completion email attachment, signer preview).
+    /// Normal browser delivery uses a signed/public URL and never calls this.
+    async fn get_object(
+        &self,
+        _bucket: ObjectBucket,
+        _key: &str,
+    ) -> Result<Vec<u8>, ObjectStoreError> {
+        Err(ObjectStoreError::infrastructure(
+            "provider does not implement get_object",
+            false,
+        ))
+    }
+
     async fn delete_object(
         &self,
         bucket: ObjectBucket,

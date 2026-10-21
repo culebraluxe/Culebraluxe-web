@@ -254,6 +254,30 @@ impl AbstractObjectStoreService for NeonObjectStore {
         })
     }
 
+    async fn get_object(
+        &self,
+        bucket: ObjectBucket,
+        key: &str,
+    ) -> Result<Vec<u8>, ObjectStoreError> {
+        validate_object_key(key)?;
+        let output = self
+            .client
+            .get_object()
+            .bucket(self.bucket(bucket))
+            .key(key)
+            .send()
+            .await
+            .map_err(|error| map_sdk_error("get_object", error))?;
+        let body = output
+            .body
+            .collect()
+            .await
+            .map_err(|error| {
+                ObjectStoreError::infrastructure(format!("get_object body: {error}"), true)
+            })?;
+        Ok(body.into_bytes().to_vec())
+    }
+
     async fn delete_object(
         &self,
         bucket: ObjectBucket,
