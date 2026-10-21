@@ -124,6 +124,8 @@ impl MediaDao {
             from media m
             where m.file_data is not null
               and m.media_type in ('image', 'document')
+              -- Bulk runs never re-read a VERIFIED row; --only still reports it as a skip.
+              and ($1::text is not null or m.storage_status not in ('VERIFIED', 'OBJECT_PRIMARY'))
               and ($1::text is null or m.id = $1::uuid)
               and ($2::text is null or m.id > $2::uuid)
             order by m.id
