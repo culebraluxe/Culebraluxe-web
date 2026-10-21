@@ -60,7 +60,9 @@ pub struct MediaObjectMetadata {
 
 mod assemble_media_upload;
 mod media_row;
+mod object_media;
 #[allow(unused_imports)]
 pub use assemble_media_upload::*;
+pub use object_media::{insert_media_object_conn, insert_media_object_tx};
 #[allow(unused_imports)]
 pub use media_row::*;

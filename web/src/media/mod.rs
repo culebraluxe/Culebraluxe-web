@@ -16,6 +16,7 @@ use services::{
 use std::sync::Arc;
 use std::time::Duration;
 mod attach_property_video;
+mod document_store;
 mod neon_object_store;
 mod media_bytes;
 mod media_repository;
@@ -25,6 +26,7 @@ pub use attach_property_video::*;
 pub use media_bytes::*;
 #[allow(unused_imports)]
 pub use media_repository::*;
+pub use document_store::{DocumentObjectWriter, StoredDocument};
 pub use neon_object_store::{from_env as object_store_from_env, NeonObjectStore, NeonObjectStoreConfig};
 
 /// Phase 4 read switch. Default off; only the exact enabling spellings turn it on.
