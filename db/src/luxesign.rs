@@ -577,9 +577,9 @@ impl LuxesignDao {
     /// document. The completion certificate PDF and any future signed-PDF
     /// renderer both land here; the bytes decide the mime type.
     ///
-    /// Object-first: the caller uploads the verified object BEFORE this transaction and supplies the
-    /// media id it used for `documents/{media_id}/...` plus the object metadata. Only metadata is
-    /// written here, so dropping `media.file_data` needs no change to this path.
+    /// Object-first only: the caller uploads the verified object BEFORE this transaction and supplies
+    /// the media id it used for `documents/{media_id}/...` plus the object metadata. No bytes are
+    /// written here; there is no store-absent byte fallback.
     pub async fn store_audit_artifact_tx(
         &self,
         tx: &mut DbTransaction,
@@ -606,46 +606,6 @@ impl LuxesignDao {
         Ok(media_id.to_owned())
     }
 
-    /// Byte-backed audit artifact storage. Kept ONLY for deployments without an object store
-    /// (tests/dev); production writes objects through [`Self::store_audit_artifact_tx`].
-    pub async fn store_audit_artifact_blob_tx(
-        &self,
-        tx: &mut DbTransaction,
-        transaction_document_id: &str,
-        filename: &str,
-        mime_type: &str,
-        bytes: &[u8],
-    ) -> DbResult<String> {
-        let media_id: String = sqlx::query_scalar::<_, String>(
-            r#"
-            insert into media (file_data, filename, mime_type, file_size, media_type)
-            values ($1, $2, $3, $4, 'document')
-            returning id::text
-            "#,
-        )
-        .bind(bytes)
-        .bind(filename)
-        .bind(mime_type)
-        .bind(bytes.len() as i64)
-        .fetch_one(tx.connection())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("luxesign.audit_media", &error))?;
-        sqlx::query(
-            r#"
-            update transaction_document
-               set signed_audit_media_id = $2::uuid,
-                   updated_at = now()
-             where id = $1::uuid
-            "#,
-        )
-        .bind(transaction_document_id)
-        .bind(&media_id)
-        .execute(tx.connection())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("luxesign.audit_link", &error))?;
-        Ok(media_id)
-    }
-
     /// Store the sealed signed PDF without touching the audit link.
     /// The caller links it via [`Self::link_signed_media_tx`]; reusing
     /// [`Self::store_audit_artifact_tx`] here would overwrite
@@ -663,31 +623,6 @@ impl LuxesignDao {
         object: &MediaObjectMetadata,
     ) -> DbResult<String> {
         insert_media_object_with_id_tx(tx, media_id, filename, mime_type, object).await
-    }
-
-    /// Byte-backed signed PDF storage. Kept ONLY for deployments without an object store
-    /// (tests/dev); production writes objects through [`Self::store_signed_artifact_tx`].
-    pub async fn store_signed_artifact_blob_tx(
-        &self,
-        tx: &mut DbTransaction,
-        filename: &str,
-        mime_type: &str,
-        bytes: &[u8],
-    ) -> DbResult<String> {
-        sqlx::query_scalar::<_, String>(
-            r#"
-            insert into media (file_data, filename, mime_type, file_size, media_type)
-            values ($1, $2, $3, $4, 'document')
-            returning id::text
-            "#,
-        )
-        .bind(bytes)
-        .bind(filename)
-        .bind(mime_type)
-        .bind(bytes.len() as i64)
-        .fetch_one(tx.connection())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("luxesign.signed_media", &error))
     }
 
     /// Link the sealed signed PDF. The renderer step owns the bytes;

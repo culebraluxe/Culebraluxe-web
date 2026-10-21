@@ -2,7 +2,7 @@
 //!
 //! Contract: a guest may receive a listing's document bytes ONLY when every link is to a live
 //! public listing as a document and the asset has no transaction-document lineage. The
-//! production boundary is `VaultDao::public_listing_document_bytes`
+//! production boundary is `VaultDao::public_listing_document_object`
 //! (`db/src/vault/database.rs`), whose SQL proves the entitlement clause by clause: the media is a
 //! `document` and a PDF; an EXISTS clause requires a `document`-role link to a live, unarchived
 //! listing; a NOT EXISTS clause rejects any other link that is not a published, active listing;
@@ -34,7 +34,7 @@ const GUEST_GUARDS: [&str; 8] = [
 fn docs_vault_006__public_listing_documents() {
     let root = source::workspace_root();
     let dao = source::read(&root.join("db/src/vault/database.rs"));
-    let dao_body = source::impl_body(&dao, "VaultDao", "public_listing_document_bytes");
+    let dao_body = source::impl_body(&dao, "VaultDao", "public_listing_document_object");
     let normalized = dao_body.to_lowercase();
 
     // 1. THE ASSET: a document, and a PDF — the two type clauses a guest-facing file must meet.
@@ -47,8 +47,13 @@ fn docs_vault_006__public_listing_documents() {
         "the asset must be a PDF"
     );
     assert!(
-        normalized.contains("file_data is not null"),
-        "an empty file is not a document"
+        !normalized.contains("file_data"),
+        "the guest door must not read the legacy blob column; the bytes live in the object store"
+    );
+    assert!(
+        normalized.contains("object_bucket is not null")
+            && normalized.contains("object_key is not null"),
+        "a row with no storage pointer is not a guest document"
     );
 
     // 2. THE EXISTS CLAUSE: at least one link is a document role on a live, unarchived listing.

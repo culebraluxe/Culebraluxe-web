@@ -9,67 +9,6 @@
 use super::*;
 
 impl MediaDao {
-    pub async fn upload_property_media(
-        &self,
-        request: &UploadPropertyMediaRequest,
-    ) -> DbResult<UploadPropertyMediaResult> {
-        let mut tx = self.db.begin("media.upload_property_media").await?;
-
-        let media_id = sqlx::query_scalar::<_, String>(
-            r#"
-            insert into media (
-                file_data, filename, mime_type, file_size, alt_text, media_type
-            )
-            values ($1, $2, $3, $4, $5, 'image')
-            returning id::text
-            "#,
-        )
-        .bind(&request.bytes)
-        .bind(&request.filename)
-        .bind(&request.mime_type)
-        .bind(request.bytes.len() as i64)
-        .bind(&request.alt_text)
-        .fetch_one(tx.connection())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.upload.insert_media", &error))?;
-
-        if request.role == "hero" {
-            sqlx::query(
-                r#"
-                update property_media
-                set role = 'gallery'
-                where property_id = $1::uuid and role = 'hero'
-                "#,
-            )
-            .bind(&request.property_id)
-            .execute(tx.connection())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("media.upload.demote_hero", &error))?;
-        }
-
-        sqlx::query(
-            r#"
-            insert into property_media (property_id, media_id, role, sort_order)
-            values ($1::uuid, $2::uuid, $3, 0)
-            "#,
-        )
-        .bind(&request.property_id)
-        .bind(&media_id)
-        .bind(&request.role)
-        .execute(tx.connection())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.upload.attach_property", &error))?;
-
-        tx.commit().await?;
-
-        Ok(UploadPropertyMediaResult {
-            ok: true,
-            media_id,
-            property_id: request.property_id.clone(),
-            role: request.role.clone(),
-        })
-    }
-
     /// Object-first property image: insert the row and attach it. Lives here, with the assembler,
     /// because the hero demotion/promotion is this file's single-owner responsibility.
     pub async fn save_property_media_object(

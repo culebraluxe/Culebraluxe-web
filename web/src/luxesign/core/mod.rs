@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 use services::{
     AbstractObjectStoreService, AbstractService, OperationKind, ServiceCapability, ServiceContext,
     ServiceDescriptor, ServiceDispatchError, ServiceEnvelope, ServiceExecutionPolicy,
-    ServiceInfrastructure, ServiceRuntime,
+    ServiceFailureClass, ServiceInfrastructure, ServiceRuntime, ServiceRuntimeError,
 };
 
 use std::sync::Arc;
@@ -124,15 +124,6 @@ pub trait LuxesignRepository: Send + Sync {
         mime_type: &str,
         object: &MediaObjectMetadata,
     ) -> DbResult<String>;
-    /// Legacy byte-backed audit artifact storage, used only when no object store is configured.
-    async fn store_audit_artifact_blob_tx(
-        &self,
-        tx: &mut DbTransaction,
-        transaction_document_id: &str,
-        filename: &str,
-        mime_type: &str,
-        bytes: &[u8],
-    ) -> DbResult<String>;
     async fn audit_media_for_request_tx(
         &self,
         tx: &mut DbTransaction,
@@ -152,14 +143,6 @@ pub trait LuxesignRepository: Send + Sync {
         filename: &str,
         mime_type: &str,
         object: &MediaObjectMetadata,
-    ) -> DbResult<String>;
-    /// Legacy byte-backed signed PDF storage, used only when no object store is configured.
-    async fn store_signed_artifact_blob_tx(
-        &self,
-        tx: &mut DbTransaction,
-        filename: &str,
-        mime_type: &str,
-        bytes: &[u8],
     ) -> DbResult<String>;
     async fn overdue_envelopes_tx(&self, tx: &mut DbTransaction) -> DbResult<Vec<String>>;
     /// The canonical status and owning document, read inside the caller's
@@ -330,24 +313,6 @@ impl LuxesignRepository for LuxesignDao {
         )
         .await
     }
-    async fn store_audit_artifact_blob_tx(
-        &self,
-        tx: &mut DbTransaction,
-        transaction_document_id: &str,
-        filename: &str,
-        mime_type: &str,
-        bytes: &[u8],
-    ) -> DbResult<String> {
-        LuxesignDao::store_audit_artifact_blob_tx(
-            self,
-            tx,
-            transaction_document_id,
-            filename,
-            mime_type,
-            bytes,
-        )
-        .await
-    }
     async fn audit_media_for_request_tx(
         &self,
         tx: &mut DbTransaction,
@@ -372,15 +337,6 @@ impl LuxesignRepository for LuxesignDao {
         object: &MediaObjectMetadata,
     ) -> DbResult<String> {
         LuxesignDao::store_signed_artifact_tx(self, tx, media_id, filename, mime_type, object).await
-    }
-    async fn store_signed_artifact_blob_tx(
-        &self,
-        tx: &mut DbTransaction,
-        filename: &str,
-        mime_type: &str,
-        bytes: &[u8],
-    ) -> DbResult<String> {
-        LuxesignDao::store_signed_artifact_blob_tx(self, tx, filename, mime_type, bytes).await
     }
     async fn overdue_envelopes_tx(&self, tx: &mut DbTransaction) -> DbResult<Vec<String>> {
         LuxesignDao::overdue_envelopes_tx(self, tx).await
@@ -500,6 +456,19 @@ async fn discard_uploaded(
     }
 }
 
+/// A deployment with no Vault object store cannot store completion artifacts at all: the bytes have
+/// nowhere to go and the database no longer has a byte column to fall back to. This is a
+/// configuration/infrastructure failure (503, not retried), never a silent blob write.
+pub(crate) fn artifact_store_not_configured() -> CoreServiceError {
+    CoreServiceError::Runtime(ServiceRuntimeError::Router {
+        code: "SIGNATURE_ARTIFACT_STORE_NOT_CONFIGURED".into(),
+        message: "the Vault object store is not configured; completion artifacts cannot be stored"
+            .into(),
+        retryable: false,
+        class: ServiceFailureClass::Infrastructure,
+    })
+}
+
 pub struct LuxesignService<R, SR, SGR, ER, VR> {
     repository: R,
     signature: Arc<SignatureService<SR>>,
@@ -507,9 +476,9 @@ pub struct LuxesignService<R, SR, SGR, ER, VR> {
     email: Arc<EmailService<ER>>,
     vault: Arc<VaultService<VR>>,
     runtime: ServiceRuntime,
-    /// Present only when the Vault object store is configured. With it, completion artifacts are
-    /// uploaded before their rows and the rows carry object metadata instead of `media.file_data`.
-    /// Without it (tests/dev), artifact writes stay byte-backed.
+    /// Present only when the Vault object store is configured. Completion artifacts are uploaded
+    /// through it before their metadata rows; without it, artifact work is refused as a
+    /// configuration error rather than written to the database.
     documents: Option<Arc<DocumentObjectWriter>>,
 }
 
@@ -540,8 +509,8 @@ where
         }
     }
 
-    /// Attach the shared Vault document writer. Composition calls this when the object store is
-    /// configured; without it this service keeps the legacy byte-backed artifact writes.
+    /// Attach the shared Vault document writer. Completion artifacts are object-first only, so a
+    /// service without it refuses artifact work with a configuration error.
     pub fn with_object_store(mut self, store: Arc<dyn AbstractObjectStoreService>) -> Self {
         self.documents = Some(Arc::new(DocumentObjectWriter::new(store)));
         self
@@ -1838,6 +1807,13 @@ where
                 "All required recipients must complete before finalize.",
             ));
         }
+        // Object-first only: without the Vault writer there is nowhere for the certificate and the
+        // sealed copy to go (the database no longer stores artifact bytes), so this is a deployment
+        // configuration failure, refused before any rendering work.
+        let writer = self
+            .documents
+            .as_deref()
+            .ok_or_else(artifact_store_not_configured)?;
         let inputs = self
             .signer
             .finalize_inputs_tx(tx, signature_request_id)
@@ -1902,49 +1878,30 @@ where
         let audit_filename = format!("signature-completion-{signature_request_id}.pdf");
         let signed_filename = format!("signature-signed-{signature_request_id}.pdf");
         // Object-first: the certificate and sealed copy go to the Vault BEFORE any artifact media row
-        // exists. Without an object store (tests/dev) the legacy byte-backed rows below remain.
-        let uploaded = match self.documents.as_deref() {
-            Some(writer) => Some(
-                upload_completion_artifacts(
-                    writer,
-                    &audit_filename,
-                    &certificate,
-                    sealed
-                        .as_deref()
-                        .map(|overlay| (signed_filename.as_str(), overlay)),
-                )
-                .await?,
-            ),
-            None => None,
-        };
+        // exists. There is no store-absent byte fallback: the writer was required above.
+        let (audit_upload, signed_upload) = upload_completion_artifacts(
+            writer,
+            &audit_filename,
+            &certificate,
+            sealed
+                .as_deref()
+                .map(|overlay| (signed_filename.as_str(), overlay)),
+        )
+        .await?;
         let result = async {
-            let audit_media_id = match &uploaded {
-                Some((audit, _)) => {
-                    self.repository
-                        .store_audit_artifact_tx(
-                            tx,
-                            &transaction_document_id,
-                            &audit.media_id,
-                            &audit.filename,
-                            "application/pdf",
-                            &audit.object(),
-                        )
-                        .await?
-                }
-                None => {
-                    self.repository
-                        .store_audit_artifact_blob_tx(
-                            tx,
-                            &transaction_document_id,
-                            &audit_filename,
-                            "application/pdf",
-                            &certificate,
-                        )
-                        .await?
-                }
-            };
-            let signed_media_id = match (sealed.as_deref(), &uploaded) {
-                (Some(_), Some((_, Some(signed)))) => {
+            let audit_media_id = self
+                .repository
+                .store_audit_artifact_tx(
+                    tx,
+                    &transaction_document_id,
+                    &audit_upload.media_id,
+                    &audit_upload.filename,
+                    "application/pdf",
+                    &audit_upload.object(),
+                )
+                .await?;
+            let signed_media_id = match &signed_upload {
+                Some(signed) => {
                     let media_id = self
                         .repository
                         .store_signed_artifact_tx(
@@ -1960,22 +1917,7 @@ where
                         .await?;
                     Some(media_id)
                 }
-                (Some(overlay), _) => {
-                    let media_id = self
-                        .repository
-                        .store_signed_artifact_blob_tx(
-                            tx,
-                            &signed_filename,
-                            "application/pdf",
-                            overlay,
-                        )
-                        .await?;
-                    self.repository
-                        .link_signed_media_tx(tx, &transaction_document_id, &media_id)
-                        .await?;
-                    Some(media_id)
-                }
-                (None, _) => None,
+                None => None,
             };
             self.signer
                 .append_finalize_evidence_tx(
@@ -2016,9 +1958,7 @@ where
         // The caller owns the transaction. If any later write failed it will roll back, so the objects
         // whose rows will never exist are removed instead of leaking.
         if result.is_err() {
-            if let (Some(writer), Some((audit, signed))) = (self.documents.as_deref(), &uploaded) {
-                discard_uploaded(writer, Some(audit), signed.as_ref()).await;
-            }
+            discard_uploaded(writer, Some(&audit_upload), signed_upload.as_ref()).await;
         }
         result
     }
@@ -2955,6 +2895,22 @@ mod tests {
         assert!(parse_future_expiry(Some("not-a-date")).is_err());
         assert!(parse_future_expiry(Some("2000-01-01T00:00:00Z")).is_err());
         assert!(parse_future_expiry(None).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_missing_object_store_is_a_typed_configuration_error() {
+        let error = artifact_store_not_configured();
+        assert_eq!(error.code(), "SIGNATURE_ARTIFACT_STORE_NOT_CONFIGURED");
+        assert!(
+            matches!(
+                error,
+                CoreServiceError::Runtime(ServiceRuntimeError::Router {
+                    retryable: false,
+                    ..
+                })
+            ),
+            "a misconfigured deployment is a non-retried infrastructure failure"
+        );
     }
 }
 

@@ -1,16 +1,17 @@
 //! The fence for the Signature HTTP attachment.
 //!
 //! `docs/rust-parity-ledger.md` reported the `signature` capability as "built, 0 routes": the service, the DAO and
-//! the BoldSign adapter all existed while nothing could call them, which is why the production webhook still ran
-//! through TypeScript. These assertions make that gap hard to reopen — the routes must be declared, the handlers
-//! must exist, the provider must be wired, and the parity map must agree with the router.
+//! the (now-retired) external provider adapter all existed while nothing could call them, which is why the legacy
+//! webhook still ran through TypeScript. These assertions make that gap hard to reopen — the read/operator routes
+//! must stay declared, the handlers must exist, the retired provider must stay out of the composition root, and the
+//! parity map must agree with the router. Luxesign is the signing product; these routes serve existing records.
 //!
 //! The checks are structural, not textual-on-formatting: paths and JSON, never indentation. An earlier version of
 //! this file matched exact `.route(...)` lines and broke the moment `cargo fmt` reflowed them, which is how a test
 //! gets deleted instead of fixed.
 //!
 //! Building the real router needs a `Database`, so this is a declaration fence rather than an end-to-end test. It
-//! catches the failure that actually happens: a route quietly disappearing, or a handler losing its provider.
+//! catches the failure that actually happens: a route quietly disappearing, or a retired provider reappearing.
 use std::fs;
 
 fn repo_root() -> std::path::PathBuf {
@@ -104,7 +105,7 @@ fn signature_routes_are_declared_and_mounted() {
 }
 
 #[test]
-fn every_signature_handler_exists_and_uses_the_provider() {
+fn every_signature_handler_exists_and_the_retired_provider_is_gone() {
     let source = api_sources();
     for handler in ["signature_send", "luxesign_request", "signature_refresh"] {
         assert!(
@@ -113,9 +114,15 @@ fn every_signature_handler_exists_and_uses_the_provider() {
         );
     }
     assert!(source.contains("signature_service(&state)"));
+    // Lane L: the provider adapter is deleted and no composition root may wire one back in. The generic
+    // SignatureService stays (the read route resolves existing records); it is constructed with `None`.
     assert!(
-        composition_source().contains("BoldSignSignatureProvider::new"),
-        "the long-lived service catalog no longer constructs the BoldSign adapter"
+        !composition_source().contains("BoldSign"),
+        "the composition root still names the retired signing provider"
+    );
+    assert!(
+        composition_source().contains("SignatureService::new_optional"),
+        "the generic signature service must stay in the catalog"
     );
 }
 
@@ -135,14 +142,19 @@ fn the_parity_map_claims_the_signature_routes() {
 }
 
 #[test]
-fn the_webhook_is_not_claimed_until_it_is_attached() {
+fn the_retired_signing_webhook_is_not_mounted_or_claimed() {
+    // Lane L deleted the provider. The router must not mount the old webhook path, and the parity map (a claim
+    // about reality) must not claim it either — the two move together or the ledger reports drift.
     let attached = routes_source().contains("\"/api/integrations/boldsign/webhook\"");
     let claimed = claimed_routes(&parity_map())
         .iter()
         .any(|route| route == "/api/integrations/boldsign/webhook");
-    assert_eq!(
-        attached, claimed,
-        "the webhook route and the parity map disagree (attached={attached}, claimed={claimed}). The map is a claim \
-         about reality, so it and the router have to move together."
+    assert!(
+        !attached,
+        "the retired signing webhook is still mounted in the router"
+    );
+    assert!(
+        !claimed,
+        "the parity map still claims the retired signing webhook"
     );
 }

@@ -39,7 +39,8 @@ pub trait VaultArtifactPort: Send + Sync {
 ///
 /// Uploading is a side effect the DB transaction cannot own, so it is a port: the DAO uploads through
 /// this BEFORE it writes the `media` row, and calls `discard_issued` when the command fails afterwards.
-/// `Ok(None)` means this deployment has no object store — the one case the legacy blob write still runs.
+/// The store is required: Vault issuance is object-only, and the service refuses before this port is used
+/// when no store is configured.
 #[async_trait]
 pub trait IssuedDocumentWriter: Send + Sync {
     async fn store_issued(
@@ -47,18 +48,17 @@ pub trait IssuedDocumentWriter: Send + Sync {
         media_id: &str,
         filename: &str,
         bytes: &[u8],
-    ) -> Result<Option<db::MediaObjectMetadata>, String>;
+    ) -> Result<db::MediaObjectMetadata, String>;
     async fn discard_issued(&self, key: &str);
 }
 
-/// The production writer: `DocumentObjectWriter` over the configured store. With no store (tests/dev)
-/// it answers `None`, which keeps local issuance on the legacy blob path.
+/// The production writer: `DocumentObjectWriter` over the configured store.
 pub struct ObjectStoreDocumentWriter {
-    store: Option<Arc<dyn AbstractObjectStoreService>>,
+    store: Arc<dyn AbstractObjectStoreService>,
 }
 
 impl ObjectStoreDocumentWriter {
-    pub fn new(store: Option<Arc<dyn AbstractObjectStoreService>>) -> Self {
+    pub fn new(store: Arc<dyn AbstractObjectStoreService>) -> Self {
         Self { store }
     }
 }
@@ -70,15 +70,12 @@ impl IssuedDocumentWriter for ObjectStoreDocumentWriter {
         media_id: &str,
         filename: &str,
         bytes: &[u8],
-    ) -> Result<Option<db::MediaObjectMetadata>, String> {
-        let Some(store) = self.store.as_ref() else {
-            return Ok(None);
-        };
-        let stored = DocumentObjectWriter::new(store.clone())
+    ) -> Result<db::MediaObjectMetadata, String> {
+        let stored = DocumentObjectWriter::new(self.store.clone())
             .put(media_id, filename, "application/pdf", bytes)
             .await
             .map_err(|error| error.to_string())?;
-        Ok(Some(db::MediaObjectMetadata {
+        Ok(db::MediaObjectMetadata {
             bucket: stored.metadata.bucket.as_str().to_owned(),
             key: stored.key,
             etag: stored.metadata.etag,
@@ -86,55 +83,43 @@ impl IssuedDocumentWriter for ObjectStoreDocumentWriter {
             size: stored.metadata.size,
             status: "VERIFIED".to_owned(),
             visibility: Some("vault".to_owned()),
-        }))
+        })
     }
 
     async fn discard_issued(&self, key: &str) {
-        if let Some(store) = self.store.as_ref() {
-            DocumentObjectWriter::new(store.clone()).discard(key).await;
-        }
+        DocumentObjectWriter::new(self.store.clone())
+            .discard(key)
+            .await;
     }
 }
 
 /// The object reader issuance uses for the BROKER'S STANDING PRE-SIGNATURE image.
 ///
 /// Issuance cannot read the store itself (the db transaction owns the rows, the process owns the store), so the
-/// store is lent in through this port. When it reports a configured store, the DAO resolves the protected asset
-/// object-first and never reads `media.file_data`; when it does not (tests/dev), the DAO keeps the legacy blob read.
+/// store is lent in through this port. The store is required: the DAO resolves the protected asset object-first.
 #[async_trait]
 pub trait IssuedSignatureAssetReader: Send + Sync {
-    /// Whether this deployment owns an object store: `true` means object-first with NO blob fallback.
-    fn object_store_configured(&self) -> bool;
     /// The stored bytes for one `(bucket, key)` pointer read from the protected signature media row.
     async fn read_object(&self, bucket: &str, key: &str) -> Result<Vec<u8>, String>;
 }
 
-/// The production reader: `AbstractObjectStoreService::get_object` over the configured store. With no store
-/// (tests/dev) issuance keeps the legacy blob read.
+/// The production reader: `AbstractObjectStoreService::get_object` over the configured store.
 pub struct ObjectStoreSignatureAssetReader {
-    store: Option<Arc<dyn AbstractObjectStoreService>>,
+    store: Arc<dyn AbstractObjectStoreService>,
 }
 
 impl ObjectStoreSignatureAssetReader {
-    pub fn new(store: Option<Arc<dyn AbstractObjectStoreService>>) -> Self {
+    pub fn new(store: Arc<dyn AbstractObjectStoreService>) -> Self {
         Self { store }
     }
 }
 
 #[async_trait]
 impl IssuedSignatureAssetReader for ObjectStoreSignatureAssetReader {
-    fn object_store_configured(&self) -> bool {
-        self.store.is_some()
-    }
-
     async fn read_object(&self, bucket: &str, key: &str) -> Result<Vec<u8>, String> {
-        let store = self
-            .store
-            .as_ref()
-            .ok_or_else(|| "object storage is not configured".to_owned())?;
         let bucket = ObjectBucket::from_db(bucket)
             .ok_or_else(|| format!("unknown object bucket: {bucket}"))?;
-        store
+        self.store
             .get_object(bucket, key)
             .await
             .map_err(|error| error.to_string())
@@ -165,13 +150,9 @@ pub trait VaultRepository: Send + Sync {
         form_instance_id: &str,
     ) -> DbResult<Option<IssuedDocumentForFormInstance>>;
     async fn next_issued_version(&self, request: &NextIssuedVersionRequest) -> DbResult<i32>;
-    async fn media_bytes(&self, media_id: &str) -> DbResult<Option<VaultMediaBytes>>;
-
-    /// Storage pointer for the PDF, read without loading `file_data`. Test repositories return None.
-    async fn media_object_location(
-        &self,
-        _media_id: &str,
-    ) -> DbResult<Option<db::MediaObjectLocation>> {
+    /// The private document's OBJECT pointer and metadata. Test repositories return None, which answers
+    /// "not found" instead of inventing bytes.
+    async fn media_document_object(&self, _media_id: &str) -> DbResult<Option<db::MediaObjectRow>> {
         Ok(None)
     }
     /// The guest listing document as a storage pointer (entitlement SQL unchanged). Test repositories
@@ -202,24 +183,6 @@ pub trait VaultRepository: Send + Sync {
     ) -> DbResult<Vec<db::MediaObjectRow>> {
         Ok(Vec::new())
     }
-    async fn public_listing_document_bytes(
-        &self,
-        media_id: &str,
-    ) -> DbResult<Option<VaultMediaBytes>>;
-    async fn signing_document_bytes(
-        &self,
-        signature_request_id: &str,
-        recipient_id: &str,
-    ) -> DbResult<Option<VaultMediaBytes>>;
-    async fn signing_signed_bytes(
-        &self,
-        signature_request_id: &str,
-        recipient_id: &str,
-    ) -> DbResult<Option<VaultMediaBytes>>;
-    async fn completion_artifacts(
-        &self,
-        signature_request_id: &str,
-    ) -> DbResult<Vec<VaultMediaBytes>>;
     async fn form_contract_id(&self, form_instance_id: &str) -> DbResult<Option<String>>;
     async fn bind_form_to_contract(
         &self,
@@ -231,12 +194,6 @@ pub trait VaultRepository: Send + Sync {
         contract_id: &str,
         template_id: &str,
     ) -> DbResult<Option<ContractIssuedLineage>>;
-    /// The brokerage's standing pre-signature as it will be APPLIED to this document, resolved by the same rules
-    /// issuance obeys. A refusal (`VaultArtifactFailure`) is that rule set saying the document cannot carry it.
-    async fn resolve_applied_signatures(
-        &self,
-        request: &VaultRenderRequest,
-    ) -> Result<Vec<FormAppliedSignature>, VaultArtifactFailure>;
     async fn issue_from_form_instance(
         &self,
         request: &IssueDocumentRequest,
@@ -291,15 +248,8 @@ impl VaultRepository for VaultDao {
         VaultDao::next_issued_version(self, request).await
     }
 
-    async fn media_bytes(&self, media_id: &str) -> DbResult<Option<VaultMediaBytes>> {
-        VaultDao::media_bytes(self, media_id).await
-    }
-
-    async fn media_object_location(
-        &self,
-        media_id: &str,
-    ) -> DbResult<Option<db::MediaObjectLocation>> {
-        VaultDao::media_object_location(self, media_id).await
+    async fn media_document_object(&self, media_id: &str) -> DbResult<Option<db::MediaObjectRow>> {
+        VaultDao::media_document_object(self, media_id).await
     }
 
     async fn public_listing_document_object(
@@ -332,36 +282,6 @@ impl VaultRepository for VaultDao {
         VaultDao::completion_artifact_objects(self, signature_request_id).await
     }
 
-    async fn public_listing_document_bytes(
-        &self,
-        media_id: &str,
-    ) -> DbResult<Option<VaultMediaBytes>> {
-        VaultDao::public_listing_document_bytes(self, media_id).await
-    }
-
-    async fn signing_document_bytes(
-        &self,
-        signature_request_id: &str,
-        recipient_id: &str,
-    ) -> DbResult<Option<VaultMediaBytes>> {
-        VaultDao::signing_document_bytes(self, signature_request_id, recipient_id).await
-    }
-
-    async fn signing_signed_bytes(
-        &self,
-        signature_request_id: &str,
-        recipient_id: &str,
-    ) -> DbResult<Option<VaultMediaBytes>> {
-        VaultDao::signing_signed_bytes(self, signature_request_id, recipient_id).await
-    }
-
-    async fn completion_artifacts(
-        &self,
-        signature_request_id: &str,
-    ) -> DbResult<Vec<VaultMediaBytes>> {
-        VaultDao::completion_artifacts(self, signature_request_id).await
-    }
-
     async fn form_contract_id(&self, form_instance_id: &str) -> DbResult<Option<String>> {
         VaultDao::form_contract_id(self, form_instance_id).await
     }
@@ -382,13 +302,6 @@ impl VaultRepository for VaultDao {
         VaultDao::prior_contract_document(self, contract_id, template_id).await
     }
 
-    async fn resolve_applied_signatures(
-        &self,
-        request: &VaultRenderRequest,
-    ) -> Result<Vec<FormAppliedSignature>, VaultArtifactFailure> {
-        VaultDao::resolve_applied_signatures(self, request).await
-    }
-
     async fn issue_from_form_instance(
         &self,
         request: &IssueDocumentRequest,
@@ -397,14 +310,12 @@ impl VaultRepository for VaultDao {
         asset_reader: Arc<dyn IssuedSignatureAssetReader>,
     ) -> DbResult<VaultCommandResult> {
         let upload_writer = writer.clone();
-        // A configured store selects the OBJECT-FIRST signature resolution: the protected asset is fetched through
-        // the store and must match its media record, with no blob fallback. No store keeps the legacy read.
-        let read_protected_asset = asset_reader.object_store_configured().then_some({
-            move |bucket: String, key: String| {
-                let reader = asset_reader.clone();
-                async move { reader.read_object(&bucket, &key).await }
-            }
-        });
+        // The protected asset is fetched through the store and must match its media record: object-only, with no
+        // blob fallback. The service has already refused if this deployment has no store.
+        let read_protected_asset = move |bucket: String, key: String| {
+            let reader = asset_reader.clone();
+            async move { reader.read_object(&bucket, &key).await }
+        };
         VaultDao::issue_from_form_instance(
             self,
             request,
@@ -438,7 +349,7 @@ impl VaultRepository for VaultDao {
     }
 }
 
-/// What a Vault byte route should return: the legacy PDF or a redirect to the object store.
+/// What a Vault byte route should return: the object's bytes or a redirect to the object store.
 #[derive(Debug)]
 pub enum VaultRead {
     Bytes(VaultMediaBytes),
@@ -450,7 +361,6 @@ pub struct VaultService<R> {
     runtime: ServiceRuntime,
     artifacts: Arc<dyn VaultArtifactPort>,
     object_store: Option<Arc<dyn AbstractObjectStoreService>>,
-    object_reads: bool,
 }
 
 impl<R: VaultRepository> VaultService<R> {
@@ -464,7 +374,6 @@ impl<R: VaultRepository> VaultService<R> {
             runtime: ServiceRuntime::new(infrastructure),
             artifacts,
             object_store: None,
-            object_reads: false,
         }
     }
 
@@ -473,9 +382,21 @@ impl<R: VaultRepository> VaultService<R> {
         self
     }
 
-    pub fn with_object_reads(mut self, enabled: bool) -> Self {
-        self.object_reads = enabled;
+    /// Retained for the composition root's call site. Vault reads and writes are object-only now, so there is
+    /// no legacy-read switch left to enable: the flag is accepted and ignored, and a deployment without a store
+    /// refuses with a typed configuration error instead of silently serving blobs.
+    pub fn with_object_reads(self, _enabled: bool) -> Self {
         self
+    }
+
+    /// The configured object store, or the typed configuration error every Vault byte path answers without one.
+    fn vault_store(&self) -> Result<&Arc<dyn AbstractObjectStoreService>, CoreServiceError> {
+        self.object_store.as_ref().ok_or_else(|| {
+            CoreServiceError::infrastructure(
+                "VAULT_OBJECT_STORE_UNAVAILABLE",
+                "Vault document access requires object storage, which is not configured for this deployment.",
+            )
+        })
     }
 
     pub async fn list_issued_documents(
@@ -703,6 +624,10 @@ impl<R: VaultRepository> VaultService<R> {
         result
     }
 
+    /// The private document's bytes, read from the object store under the caller's `vault.read`.
+    ///
+    /// Object-only: the database is asked for the pointer, never for bytes. A row without a verified Vault
+    /// object is not a readable document; a deployment without a store answers a typed configuration error.
     pub async fn media_bytes(
         &self,
         media_id: &str,
@@ -718,17 +643,20 @@ impl<R: VaultRepository> VaultService<R> {
             context,
         )
         .await?;
-        let result = self
-            .repository
-            .media_bytes(media_id)
-            .await
-            .map_err(Into::into);
+        let result = async {
+            self.vault_store()?;
+            let Some(row) = self.repository.media_document_object(media_id).await? else {
+                return Ok(None);
+            };
+            Ok(Some(self.object_bytes(&row).await?))
+        }
+        .await;
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result
     }
 
-    /// Phase 4 Vault resolver: only a verified Vault object gets a short-lived signed URL; every
-    /// other document keeps the legacy PDF bytes. Authorization is the same `vault.read` check.
+    /// The private document door: a short-lived signed URL for the VERIFIED Vault object. Authorization is the
+    /// same `vault.read` check; there is no legacy-byte branch.
     pub async fn media_read(
         &self,
         media_id: &str,
@@ -746,34 +674,11 @@ impl<R: VaultRepository> VaultService<R> {
         .await?;
 
         let result = async {
-            if self.object_reads {
-                if let Some(store) = self.object_store.as_ref() {
-                    if let Some(location) = self.repository.media_object_location(media_id).await? {
-                        if location.status == "VERIFIED"
-                            && location.visibility == "vault"
-                            && ObjectBucket::from_db(&location.bucket) == Some(ObjectBucket::Vault)
-                        {
-                            match store
-                                .signed_read_url(
-                                    ObjectBucket::Vault,
-                                    &location.key,
-                                    Duration::from_secs(300),
-                                )
-                                .await
-                            {
-                                Ok(url) => return Ok(Some(VaultRead::Redirect(url))),
-                                Err(error) => tracing::warn!(
-                                    media_id,
-                                    %error,
-                                    "vault object URL failed; falling back to legacy PDF bytes"
-                                ),
-                            }
-                        }
-                    }
-                }
-            }
-            let bytes = self.repository.media_bytes(media_id).await?;
-            Ok(bytes.map(VaultRead::Bytes))
+            self.vault_store()?;
+            let Some(row) = self.repository.media_document_object(media_id).await? else {
+                return Ok(None);
+            };
+            Ok(Some(self.object_redirect(&row).await?))
         }
         .await;
 
@@ -804,12 +709,7 @@ impl<R: VaultRepository> VaultService<R> {
                 format!("media {} has no verified Vault object", row.id),
             )
         })?;
-        let store = self.object_store.as_ref().ok_or_else(|| {
-            CoreServiceError::infrastructure(
-                "VAULT_OBJECT_STORE_UNAVAILABLE",
-                "object storage is not configured for Vault reads",
-            )
-        })?;
+        let store = self.vault_store()?;
         let url = store
             .signed_read_url(ObjectBucket::Vault, key, Duration::from_secs(300))
             .await
@@ -832,12 +732,7 @@ impl<R: VaultRepository> VaultService<R> {
                 format!("media {} has no verified Vault object", row.id),
             )
         })?;
-        let store = self.object_store.as_ref().ok_or_else(|| {
-            CoreServiceError::infrastructure(
-                "VAULT_OBJECT_STORE_UNAVAILABLE",
-                "object storage is not configured for Vault reads",
-            )
-        })?;
+        let store = self.vault_store()?;
         let bytes = store
             .get_object(ObjectBucket::Vault, key)
             .await
@@ -894,6 +789,11 @@ impl<R: VaultRepository> VaultService<R> {
             .and_then(|media| signing_overlay::page_count(&media.bytes)))
     }
 
+    /// The guest listing document's bytes, read from the object store after the guest entitlement is proven.
+    ///
+    /// Object-only: the database answers the pointer, never bytes. The authorization action and the operation
+    /// name are the ones the anonymous policy admits (`vault.publicListingDocument.read` under the exact
+    /// operation `vault.publicListingDocumentBytes`); nothing about the guest entitlement moves here.
     pub async fn public_listing_document_bytes(
         &self,
         media_id: &str,
@@ -909,19 +809,25 @@ impl<R: VaultRepository> VaultService<R> {
             context,
         )
         .await?;
-        let result = self
-            .repository
-            .public_listing_document_bytes(media_id)
-            .await
-            .map_err(Into::into);
+        let result = async {
+            self.vault_store()?;
+            let Some(row) = self
+                .repository
+                .public_listing_document_object(media_id)
+                .await?
+            else {
+                return Ok(None);
+            };
+            Ok(Some(self.object_bytes(&row).await?))
+        }
+        .await;
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result
     }
 
-    /// The guest's listing document as the browser route serves it: a short-lived signed Vault URL when this
-    /// deployment has object storage, the legacy blob only when it has none. The authorization action and the
-    /// operation name are the ones the anonymous policy admits (`vault.publicListingDocument.read` under the
-    /// exact operation `vault.publicListingDocumentBytes`); nothing about the guest entitlement moves here.
+    /// The guest's listing document as the browser route serves it: a short-lived signed Vault URL. The
+    /// authorization action and operation name are unchanged; a deployment without a store answers a typed
+    /// configuration error rather than falling back to a blob.
     pub async fn public_listing_document_read(
         &self,
         media_id: &str,
@@ -938,21 +844,15 @@ impl<R: VaultRepository> VaultService<R> {
         )
         .await?;
         let result = async {
-            if self.object_store.is_some() {
-                let Some(row) = self
-                    .repository
-                    .public_listing_document_object(media_id)
-                    .await?
-                else {
-                    return Ok(None);
-                };
-                return Ok(Some(self.object_redirect(&row).await?));
-            }
-            Ok(self
+            self.vault_store()?;
+            let Some(row) = self
                 .repository
-                .public_listing_document_bytes(media_id)
+                .public_listing_document_object(media_id)
                 .await?
-                .map(VaultRead::Bytes))
+            else {
+                return Ok(None);
+            };
+            Ok(Some(self.object_redirect(&row).await?))
         }
         .await;
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
@@ -989,20 +889,15 @@ impl<R: VaultRepository> VaultService<R> {
                     "The signing document may be read only by its own recipient.",
                 ));
             }
-            if self.object_store.is_some() {
-                let Some(row) = self
-                    .repository
-                    .signing_document_object(signature_request_id, recipient_id)
-                    .await?
-                else {
-                    return Ok(None);
-                };
-                return Ok(Some(self.object_bytes(&row).await?));
-            }
-            self.repository
-                .signing_document_bytes(signature_request_id, recipient_id)
-                .await
-                .map_err(Into::into)
+            self.vault_store()?;
+            let Some(row) = self
+                .repository
+                .signing_document_object(signature_request_id, recipient_id)
+                .await?
+            else {
+                return Ok(None);
+            };
+            Ok(Some(self.object_bytes(&row).await?))
         }
         .await;
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
@@ -1036,21 +931,15 @@ impl<R: VaultRepository> VaultService<R> {
                     "The signing document may be read only by its own recipient.",
                 ));
             }
-            if self.object_store.is_some() {
-                let Some(row) = self
-                    .repository
-                    .signing_document_object(signature_request_id, recipient_id)
-                    .await?
-                else {
-                    return Ok(None);
-                };
-                return Ok(Some(self.object_redirect(&row).await?));
-            }
-            Ok(self
+            self.vault_store()?;
+            let Some(row) = self
                 .repository
-                .signing_document_bytes(signature_request_id, recipient_id)
+                .signing_document_object(signature_request_id, recipient_id)
                 .await?
-                .map(VaultRead::Bytes))
+            else {
+                return Ok(None);
+            };
+            Ok(Some(self.object_redirect(&row).await?))
         }
         .await;
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
@@ -1084,20 +973,15 @@ impl<R: VaultRepository> VaultService<R> {
                     "The signed copy may be read only by its own recipient.",
                 ));
             }
-            if self.object_store.is_some() {
-                let Some(row) = self
-                    .repository
-                    .signing_signed_object(signature_request_id, recipient_id)
-                    .await?
-                else {
-                    return Ok(None);
-                };
-                return Ok(Some(self.object_bytes(&row).await?));
-            }
-            self.repository
-                .signing_signed_bytes(signature_request_id, recipient_id)
-                .await
-                .map_err(Into::into)
+            self.vault_store()?;
+            let Some(row) = self
+                .repository
+                .signing_signed_object(signature_request_id, recipient_id)
+                .await?
+            else {
+                return Ok(None);
+            };
+            Ok(Some(self.object_bytes(&row).await?))
         }
         .await;
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
@@ -1131,21 +1015,15 @@ impl<R: VaultRepository> VaultService<R> {
                     "The signed copy may be read only by its own recipient.",
                 ));
             }
-            if self.object_store.is_some() {
-                let Some(row) = self
-                    .repository
-                    .signing_signed_object(signature_request_id, recipient_id)
-                    .await?
-                else {
-                    return Ok(None);
-                };
-                return Ok(Some(self.object_redirect(&row).await?));
-            }
-            Ok(self
+            self.vault_store()?;
+            let Some(row) = self
                 .repository
-                .signing_signed_bytes(signature_request_id, recipient_id)
+                .signing_signed_object(signature_request_id, recipient_id)
                 .await?
-                .map(VaultRead::Bytes))
+            else {
+                return Ok(None);
+            };
+            Ok(Some(self.object_redirect(&row).await?))
         }
         .await;
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
@@ -1170,21 +1048,16 @@ impl<R: VaultRepository> VaultService<R> {
         )
         .await?;
         let result = async {
-            if self.object_store.is_some() {
-                let rows = self
-                    .repository
-                    .completion_artifact_objects(signature_request_id)
-                    .await?;
-                let mut artifacts = Vec::with_capacity(rows.len());
-                for row in rows {
-                    artifacts.push(self.object_bytes(&row).await?);
-                }
-                return Ok(artifacts);
+            self.vault_store()?;
+            let rows = self
+                .repository
+                .completion_artifact_objects(signature_request_id)
+                .await?;
+            let mut artifacts = Vec::with_capacity(rows.len());
+            for row in rows {
+                artifacts.push(self.object_bytes(&row).await?);
             }
-            self.repository
-                .completion_artifacts(signature_request_id)
-                .await
-                .map_err(Into::into)
+            Ok(artifacts)
         }
         .await;
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
@@ -1301,16 +1174,15 @@ impl<R: VaultRepository> VaultService<R> {
         )
         .await?;
         let result = db::service_mutation(self.repository.database(), async {
-            // The writer is bound to this deployment's store: present => the PDF is uploaded and verified
-            // before its media row is written; absent (tests/dev) => issuance keeps the legacy blob path.
+            // Object storage is REQUIRED to issue: the PDF and the broker's standing pre-signature are both
+            // object reads/writes now. Refuse before any receipt is claimed or document is written, with a
+            // typed configuration error rather than falling back to a legacy blob. (Inside the audited body, so
+            // the authorization decision is still closed over this refusal.)
+            let store = self.vault_store().map(Arc::clone)?;
             let writer: Arc<dyn IssuedDocumentWriter> =
-                Arc::new(ObjectStoreDocumentWriter::new(self.object_store.clone()));
-            // The SAME store handle resolves the broker's standing pre-signature: with a store configured this
-            // makes issuance object-first for the protected asset too, and a missing/unverified object is a
-            // refusal rather than a silent blob (a no-store deployment keeps the legacy read).
-            let asset_reader: Arc<dyn IssuedSignatureAssetReader> = Arc::new(
-                ObjectStoreSignatureAssetReader::new(self.object_store.clone()),
-            );
+                Arc::new(ObjectStoreDocumentWriter::new(store.clone()));
+            let asset_reader: Arc<dyn IssuedSignatureAssetReader> =
+                Arc::new(ObjectStoreSignatureAssetReader::new(store));
             let command = self
                 .repository
                 .issue_from_form_instance(request, self.artifacts.clone(), writer, asset_reader)
@@ -1357,13 +1229,11 @@ mod tests {
     /// unreachable in these tests and panics rather than inventing an answer.
     #[derive(Default)]
     struct FakeRepository {
+        media_document_object: Option<db::MediaObjectRow>,
         public_listing_object: Option<db::MediaObjectRow>,
-        public_listing_bytes: Option<VaultMediaBytes>,
         signing_object: Option<db::MediaObjectRow>,
         signing_signed_object: Option<db::MediaObjectRow>,
-        signing_bytes: Option<VaultMediaBytes>,
         completion_objects: Vec<db::MediaObjectRow>,
-        completion_bytes: Vec<VaultMediaBytes>,
     }
 
     #[async_trait]
@@ -1401,8 +1271,14 @@ mod tests {
         async fn next_issued_version(&self, _request: &NextIssuedVersionRequest) -> DbResult<i32> {
             Ok(1)
         }
-        async fn media_bytes(&self, _media_id: &str) -> DbResult<Option<VaultMediaBytes>> {
-            Ok(None)
+        async fn media_document_object(
+            &self,
+            media_id: &str,
+        ) -> DbResult<Option<db::MediaObjectRow>> {
+            Ok(self
+                .media_document_object
+                .clone()
+                .filter(|row| row.id == media_id))
         }
         async fn public_listing_document_object(
             &self,
@@ -1430,32 +1306,6 @@ mod tests {
         ) -> DbResult<Vec<db::MediaObjectRow>> {
             Ok(self.completion_objects.clone())
         }
-        async fn public_listing_document_bytes(
-            &self,
-            _media_id: &str,
-        ) -> DbResult<Option<VaultMediaBytes>> {
-            Ok(self.public_listing_bytes.clone())
-        }
-        async fn signing_document_bytes(
-            &self,
-            _signature_request_id: &str,
-            _recipient_id: &str,
-        ) -> DbResult<Option<VaultMediaBytes>> {
-            Ok(self.signing_bytes.clone())
-        }
-        async fn signing_signed_bytes(
-            &self,
-            _signature_request_id: &str,
-            _recipient_id: &str,
-        ) -> DbResult<Option<VaultMediaBytes>> {
-            Ok(self.signing_bytes.clone())
-        }
-        async fn completion_artifacts(
-            &self,
-            _signature_request_id: &str,
-        ) -> DbResult<Vec<VaultMediaBytes>> {
-            Ok(self.completion_bytes.clone())
-        }
         async fn form_contract_id(&self, _form_instance_id: &str) -> DbResult<Option<String>> {
             Ok(None)
         }
@@ -1472,12 +1322,6 @@ mod tests {
             _template_id: &str,
         ) -> DbResult<Option<ContractIssuedLineage>> {
             Ok(None)
-        }
-        async fn resolve_applied_signatures(
-            &self,
-            _request: &VaultRenderRequest,
-        ) -> Result<Vec<FormAppliedSignature>, VaultArtifactFailure> {
-            unimplemented!("not exercised by the Vault read-door tests")
         }
         async fn issue_from_form_instance(
             &self,
@@ -1651,14 +1495,6 @@ mod tests {
         }
     }
 
-    fn legacy_bytes(data: &[u8]) -> VaultMediaBytes {
-        VaultMediaBytes {
-            bytes: data.to_vec(),
-            filename: "legacy.pdf".to_owned(),
-            mime_type: "application/pdf".to_owned(),
-        }
-    }
-
     async fn test_service(
         repository: FakeRepository,
         store: Option<FakeObjectStore>,
@@ -1676,7 +1512,7 @@ mod tests {
         if let Some(store) = store {
             service = service.with_object_store(Arc::new(store));
         }
-        service.with_object_reads(true)
+        service
     }
 
     /// The anonymous public website, exactly as the guest door builds its actor.
@@ -1702,6 +1538,25 @@ mod tests {
             correlation_id: "vault-signing-test".into(),
             causation_id: None,
             principal: None,
+        }
+    }
+
+    /// An internal root principal: the actor that may issue and read a Vault document.
+    fn issuer_context() -> ServiceContext {
+        ServiceContext {
+            actor: ServiceActor {
+                id: Some("vault-issuer".into()),
+                kind: ServiceActorKind::User,
+            },
+            correlation_id: "vault-issuer-test".into(),
+            causation_id: None,
+            principal: Some(services::ServicePrincipal {
+                app_user_id: "app-user-1".into(),
+                level: "ROOT".into(),
+                role_codes: vec!["root".into()],
+                account_type: model::security::INTERNAL_ACCOUNT.into(),
+                entitlement_codes: Vec::new(),
+            }),
         }
     }
 
@@ -1747,30 +1602,65 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_guest_listing_door_uses_legacy_bytes_only_without_a_store() {
-        let repository = FakeRepository {
-            public_listing_bytes: Some(legacy_bytes(b"%PDF-1.4 legacy")),
-            ..Default::default()
-        };
-        let service = test_service(repository, None).await;
+    async fn a_deployment_without_a_store_answers_a_typed_configuration_error() {
+        let service = test_service(FakeRepository::default(), None).await;
 
-        let read = service
+        let error = service
             .public_listing_document_read("media-legacy", &guest_context())
             .await
-            .expect("the guest door authorizes")
-            .expect("a deployment without a store keeps the legacy blob");
-        assert!(matches!(read, VaultRead::Bytes(_)));
+            .expect_err("object storage is required; there is no legacy byte branch");
+        assert_eq!(error.code(), "VAULT_OBJECT_STORE_UNAVAILABLE");
     }
 
     #[tokio::test]
-    async fn a_configured_store_never_falls_back_to_the_legacy_blob() {
-        // The row has legacy bytes but no object pointer: with a store configured the door fails closed
-        // instead of quietly serving the blob the cutover is removing.
+    async fn the_private_door_returns_object_bytes_and_never_a_blob() {
+        let bytes = b"%PDF-1.4 private".to_vec();
         let repository = FakeRepository {
-            public_listing_bytes: Some(legacy_bytes(b"%PDF-1.4 legacy")),
+            media_document_object: Some(object_row("media-private", &bytes)),
             ..Default::default()
         };
-        let service = test_service(repository, Some(FakeObjectStore::default())).await;
+        let store = FakeObjectStore::with_object("documents/media-private/original.pdf", &bytes);
+        let service = test_service(repository, Some(store)).await;
+
+        let media = service
+            .media_bytes("media-private", &issuer_context())
+            .await
+            .expect("the private door authorizes")
+            .expect("the document is object-backed");
+        assert_eq!(media.bytes, bytes);
+        assert_eq!(media.mime_type, "application/pdf");
+
+        // The row is absent, not a blob: a missing pointer is "not found", never legacy bytes.
+        let missing = service
+            .media_read("media-missing", &issuer_context())
+            .await
+            .expect("the private door authorizes");
+        assert!(missing.is_none());
+    }
+
+    #[tokio::test]
+    async fn issuance_without_a_store_is_refused_before_any_write() {
+        let service = test_service(FakeRepository::default(), None).await;
+        let error = service
+            .issue_from_form_instance(
+                &model::IssueDocumentRequest {
+                    command_id: "cmd-1".into(),
+                    form_instance_id: "form-1".into(),
+                    actor_app_user_id: Some("app-user-1".into()),
+                    issued_at: Some("2026-10-21T00:00:00Z".into()),
+                },
+                &issuer_context(),
+            )
+            .await
+            .expect_err("Vault issuance is object-only and requires a store");
+        assert_eq!(error.code(), "VAULT_OBJECT_STORE_UNAVAILABLE");
+    }
+
+    #[tokio::test]
+    async fn a_store_backed_door_fails_closed_when_the_row_is_not_object_backed() {
+        // No object pointer means no document: the door answers "not found", never legacy bytes.
+        let service =
+            test_service(FakeRepository::default(), Some(FakeObjectStore::default())).await;
 
         let read = service
             .public_listing_document_read("media-missing-object", &guest_context())
@@ -1778,17 +1668,13 @@ mod tests {
             .expect("the guest door authorizes");
         assert!(
             read.is_none(),
-            "a store-backed deployment must not serve legacy bytes"
+            "a store-backed deployment serves objects only"
         );
     }
 
     #[tokio::test]
     async fn a_caller_the_policy_does_not_admit_is_refused_before_any_read() {
-        let repository = FakeRepository {
-            public_listing_bytes: Some(legacy_bytes(b"%PDF-1.4 legacy")),
-            ..Default::default()
-        };
-        let service = test_service(repository, None).await;
+        let service = test_service(FakeRepository::default(), None).await;
         // Not the public website actor: the anonymous door's action is reserved to it.
         let stranger = ServiceContext {
             actor: ServiceActor {
@@ -1889,16 +1775,15 @@ mod tests {
     #[tokio::test]
     async fn the_issued_pdf_writer_uploads_under_its_media_id_before_the_row_exists() {
         let store = std::sync::Arc::new(FakeObjectStore::default());
-        let writer = ObjectStoreDocumentWriter::new(Some(
+        let writer = ObjectStoreDocumentWriter::new(
             store.clone() as std::sync::Arc<dyn AbstractObjectStoreService>
-        ));
+        );
         let bytes = b"%PDF-1.4 issued";
 
         let object = writer
             .store_issued("media-issued", "Contract v1.pdf", bytes)
             .await
-            .expect("the store uploads")
-            .expect("a configured store answers an object");
+            .expect("the store uploads");
         // The key is the media id the DB row will carry, so the row and its object always agree.
         assert_eq!(object.key, "documents/media-issued/original.pdf");
         assert_eq!(object.bucket, "vault");
@@ -1909,34 +1794,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_issued_pdf_writer_keeps_the_legacy_path_only_without_a_store() {
-        let writer = ObjectStoreDocumentWriter::new(None);
-        assert!(
-            writer
-                .store_issued("media-issued", "Contract v1.pdf", b"%PDF-1.4 issued")
-                .await
-                .expect("no store is not an error")
-                .is_none(),
-            "without a store the DAO must take the legacy blob branch"
-        );
-    }
-
-    #[tokio::test]
-    async fn the_signature_asset_reader_is_object_first_only_when_a_store_exists() {
-        let no_store = ObjectStoreSignatureAssetReader::new(None);
-        assert!(
-            !no_store.object_store_configured(),
-            "without a store issuance must keep the legacy blob read"
-        );
-
+    async fn the_signature_asset_reader_reads_the_protected_object() {
         let key = "media/protected/original.png";
         let store = std::sync::Arc::new(FakeObjectStore::with_object(key, b"protected-png"));
-        let reader = ObjectStoreSignatureAssetReader::new(Some(
+        let reader = ObjectStoreSignatureAssetReader::new(
             store as std::sync::Arc<dyn AbstractObjectStoreService>,
-        ));
-        assert!(
-            reader.object_store_configured(),
-            "a configured store selects the object-first resolver"
         );
         assert_eq!(
             reader
@@ -1952,9 +1814,9 @@ mod tests {
     #[tokio::test]
     async fn a_failed_issuance_discards_the_object_it_uploaded() {
         let store = std::sync::Arc::new(FakeObjectStore::default());
-        let writer = ObjectStoreDocumentWriter::new(Some(
+        let writer = ObjectStoreDocumentWriter::new(
             store.clone() as std::sync::Arc<dyn AbstractObjectStoreService>
-        ));
+        );
         writer
             .store_issued("media-discard", "Contract v1.pdf", b"%PDF-1.4 issued")
             .await

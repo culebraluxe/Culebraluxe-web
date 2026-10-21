@@ -52,32 +52,31 @@ impl VaultDao {
         Ok(row.map(|(id, issued_version)| ContractIssuedLineage { id, issued_version }))
     }
 
-    /// Issue a form as an immutable Vault document — OBJECT-FIRST.
+    /// Issue a form as an immutable Vault document — OBJECT-ONLY.
     ///
     /// The rendered PDF is uploaded and verified under a media id BEFORE the `media` row that names it is
-    /// written, so a committed document can never point at a missing object. `upload` answers `None` only
-    /// when the deployment has no object store (tests/dev); that is the one case the legacy blob branch
-    /// runs. If the command fails after the upload, `discard` removes the orphan object before the error
-    /// leaves the DAO — the receipt/finalize semantics and the single transaction are unchanged.
+    /// written, so a committed document can never point at a missing object. There is no blob branch: a
+    /// deployment without an object store cannot issue (the service refuses before it reaches this seam), and
+    /// an upload error is a refused receipt. If the command fails after the upload, `discard` removes the
+    /// orphan object before the error leaves the DAO — the receipt/finalize semantics and the single
+    /// transaction are unchanged.
     ///
-    /// `read_protected_asset` is the store half of the BROKER PRE-SIGNATURE: `Some` when the deployment
-    /// owns an object store, and then Lisa's signature image is fetched through it and checked against the
-    /// media record (the object-first resolver below) — `media.file_data` is never read. `None` keeps the
-    /// legacy blob read, which is allowed only where no store exists.
+    /// `read_protected_asset` is the store half of the BROKER PRE-SIGNATURE: Lisa's signature image is fetched
+    /// through it and checked against the media record (the object-first resolver below). The database never
+    /// reads the legacy blob column.
     pub async fn issue_from_form_instance<F, Fut, U, UFut, D, DFut, R, RFut>(
         &self,
         request: &IssueDocumentRequest,
         render: F,
         upload: U,
         discard: D,
-        read_protected_asset: Option<R>,
+        read_protected_asset: R,
     ) -> DbResult<VaultCommandResult>
     where
         F: FnOnce(VaultRenderRequest) -> Fut + Send,
         Fut: Future<Output = Result<VaultRenderedArtifact, VaultArtifactFailure>> + Send,
         U: FnOnce(&str, &str, &[u8]) -> UFut + Send,
-        UFut: Future<Output = Result<Option<crate::MediaObjectMetadata>, VaultArtifactFailure>>
-            + Send,
+        UFut: Future<Output = Result<crate::MediaObjectMetadata, VaultArtifactFailure>> + Send,
         D: FnOnce(&str) -> DFut + Send,
         DFut: Future<Output = ()> + Send,
         R: Fn(String, String) -> RFut + Send + Sync,
@@ -222,29 +221,17 @@ impl VaultDao {
             // implementation of the policy, the declared-signer check, the slot mapping and the authority rule, so the
             // draft on screen and the document that is issued cannot disagree about her line.
             //
-            // OBJECT-FIRST WHEN THE CALLER OWNS A STORE. The protected signature image is fetched through the
-            // caller's store handle and verified against its media record; a store-backed deployment never reads
-            // `media.file_data`, so a missing/unverified object is a refusal rather than a silent blob. The
-            // legacy resolver (inside this transaction's own connection) runs only when no store exists.
-            let resolved = match read_protected_asset {
-                Some(read_object) => {
-                    self.resolve_applied_signatures_object_first(
-                        &render_request,
-                        model::forms_broker_signature::SignatureAuthority::ApplyingActor,
-                        read_object,
-                    )
-                    .await
-                }
-                None => {
-                    self.resolve_applied_signatures_in(
-                        tx.connection(),
-                        &render_request,
-                        model::forms_broker_signature::SignatureAuthority::ApplyingActor,
-                    )
-                    .await
-                }
-            };
-            let applied_signatures = match resolved {
+            // OBJECT-FIRST, ALWAYS. The protected signature image is fetched through the caller's store handle
+            // and verified against its media record; the legacy blob column is never read here. A missing/unverified
+            // object is a refusal rather than a silent blob.
+            let applied_signatures = match self
+                .resolve_applied_signatures_object_first(
+                    &render_request,
+                    model::forms_broker_signature::SignatureAuthority::ApplyingActor,
+                    read_protected_asset,
+                )
+                .await
+            {
                 Ok(applied) => applied,
                 Err(failure) => {
                     finalize_receipt(
@@ -296,10 +283,10 @@ impl VaultDao {
 
             // THE OBJECT COMES FIRST. The PDF is uploaded and verified under its media id before the
             // `media` row that names it exists, so a committed document can never point at a missing
-            // object. No store configured (tests/dev) answers `None` and takes the legacy blob branch.
+            // object. There is no blob write: the PDF's only home is the object store.
             let media_id = uuid::Uuid::new_v4().to_string();
-            let uploaded = match upload(&media_id, &artifact.filename, &artifact.bytes).await {
-                Ok(uploaded) => uploaded,
+            let object = match upload(&media_id, &artifact.filename, &artifact.bytes).await {
+                Ok(object) => object,
                 Err(failure) => {
                     finalize_receipt(
                         &mut tx,
@@ -319,33 +306,15 @@ impl VaultDao {
                     ));
                 }
             };
-            uploaded_object_key = uploaded.as_ref().map(|object| object.key.clone());
-
-            let media_id = match uploaded {
-                Some(object) => {
-                    crate::media::insert_media_object_with_id_tx(
-                        &mut tx,
-                        &media_id,
-                        &artifact.filename,
-                        "application/pdf",
-                        &object,
-                    )
-                    .await?
-                }
-                None => sqlx::query_scalar::<_, String>(
-                    r#"
-                    insert into media (file_data, filename, mime_type, file_size, media_type)
-                    values ($1,$2,'application/pdf',$3,'document')
-                    returning id::text
-                    "#,
-                )
-                .bind(&artifact.bytes)
-                .bind(&artifact.filename)
-                .bind(artifact.bytes.len() as i64)
-                .fetch_one(tx.connection())
-                .await
-                .map_err(|error| DbFailure::from_sqlx("vault.issue.media", &error))?,
-            };
+            uploaded_object_key = Some(object.key.clone());
+            let media_id = crate::media::insert_media_object_with_id_tx(
+                &mut tx,
+                &media_id,
+                &artifact.filename,
+                "application/pdf",
+                &object,
+            )
+            .await?;
 
             if let Some(supersedes_id) = supersedes_id.as_deref() {
                 sqlx::query(
@@ -496,71 +465,6 @@ impl VaultDao {
                 Err(error)
             }
         }
-    }
-    /// THE BROKER'S PRE-SIGNATURE, resolved against a render request on the transaction's own connection: the ONE
-    /// implementation of the policy, for the LEGACY (no-store) deployment.
-    ///
-    /// Issuance calls this only when the caller lent no object store; a store-backed issuance resolves through
-    /// [`VaultDao::resolve_applied_signatures_object_first`] instead, so its protected asset never comes from
-    /// `media.file_data`. The browser preview with no store reaches this through `resolve_applied_signatures` below.
-    /// A preview can therefore only ever show what issuance would apply: the same template policy, the same
-    /// declared-signer check, the same slot mapping, the same authority rule — object-first or not.
-    ///
-    /// The slot is optional (`false` below): a participant row whose `slotId` is null is still matched at her own block
-    /// by role rather than refused, which is the behaviour the issued record has always had.
-    ///
-    /// An `Err` here is a REFUSAL, never an empty answer — policy refuses to issue unsigned, and a caller that drew
-    /// nothing would hide the defect that makes the document unissuable. What a refusal COSTS is the caller's decision
-    /// at its own seam: the issuance path finalizes a refused receipt (`PreconditionFailure` for rows it could not
-    /// reach, `ValidationFailure`/`Unauthorized` for policy), and the preview's service method maps the first to
-    /// infrastructure and the rest to a business refusal (`web/src/vault/mod.rs::resolve_applied_signatures`).
-    pub(crate) async fn resolve_applied_signatures_in(
-        &self,
-        connection: &mut PgConnection,
-        request: &VaultRenderRequest,
-        authority: model::forms_broker_signature::SignatureAuthority,
-    ) -> Result<Vec<model::forms_applied_signature::FormAppliedSignature>, VaultArtifactFailure>
-    {
-        let slots = model::forms_execution::slots_from_signers(&request.participants);
-        crate::broker_signature::resolve_for_issuance(
-            connection,
-            &crate::broker_signature::SignatureIssuance {
-                template_id: &request.template_id,
-                field_values: &request.field_values,
-                slots: &slots,
-                actor_app_user_id: request.actor_app_user_id.as_deref(),
-                authority,
-                issued_at: request.issued_at.as_deref(),
-                require_execution_slot: false,
-            },
-        )
-        .await
-    }
-
-    /// The same resolution for a caller that has no transaction to be part of: it takes its own connection.
-    ///
-    /// The preview is not an issuance, and it must not be handed a connection it never asked for, so it acquires one
-    /// here instead (`self.db`, the process's pool).
-    ///
-    /// It resolves under `OwnerByConstruction`: a preview applies nothing, so it is asked for no application authority,
-    /// while every other rule — the template policy, the declared-signer check, the slot mapping, the protected asset —
-    /// is the one issuance obeys.
-    pub async fn resolve_applied_signatures(
-        &self,
-        request: &VaultRenderRequest,
-    ) -> Result<Vec<model::forms_applied_signature::FormAppliedSignature>, VaultArtifactFailure>
-    {
-        let mut connection = self
-            .db
-            .connection()
-            .await
-            .map_err(crate::broker_signature::precondition_failure)?;
-        self.resolve_applied_signatures_in(
-            &mut connection,
-            request,
-            model::forms_broker_signature::SignatureAuthority::OwnerByConstruction,
-        )
-        .await
     }
 }
 

@@ -23,12 +23,14 @@
 --
 --   * db/src/vault/database.rs            — the Vault byte doors still select m.file_data
 --   * db/src/broker_signature.rs          — the store-absent fallback load_legacy_protected_asset
---   * db/src/media/media_row.rs           — upload_standalone (blob writer) and media_bytes (MEDIA_OBJECT_STORAGE_READS=off reader)
---   * db/src/public_listing.rs            — the public site's blob reader
---   * db/src/luxesign.rs, db/src/signature/reconcile_completed.rs, db/src/vault/bind_form_to_contract.rs
---                                         — store-absent fallback inserts
+--   * db/src/broker_signature.rs          — load_legacy_protected_asset (store-absent fallback reader)
+--   * db/src/media/media_row.rs           — list_media_for_migration + db/src/media.rs MediaMigrationRow
 --   * web/src/bin/media_migrate.rs        — the migration tool itself (delete it with this column)
 --   * test fixtures that INSERT file_data — they must build object-first rows
+--
+-- CLEARED in the object-only lane: web/src/media (all doors), web/src/public_listings.rs, db/src/media
+-- (except the migration tool), db/src/public_listing.rs, and the Vault/Luxesign/BoldSign blob doors. The schema
+-- object list above is the exact remainder.
 --
 -- AFTER the readers above are object-only, run the preflight, then apply. The column has no index or constraint of
 -- its own (002_media.sql, 299_media_blob_nullable.sql), so the drop is a catalog change; existing rows keep their

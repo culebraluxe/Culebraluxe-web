@@ -115,26 +115,30 @@ fn unreachable_here<T>(method: &'static str) -> DbResult<T> {
 
 #[async_trait::async_trait]
 impl MediaRepository for RecordingMediaRepository {
-    async fn media_bytes(&self, _id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        unreachable_here("media_bytes")
+    async fn save_property_media_object(
+        &self,
+        _property_id: &str,
+        _role: &str,
+        row: &db::MediaObjectRow,
+    ) -> DbResult<UploadPropertyMediaResult> {
+        self.property_media
+            .lock()
+            .expect("the recording repository is never poisoned")
+            .push(row.mime_type.clone());
+        Ok(UploadPropertyMediaResult {
+            ok: true,
+            media_id: row.id.clone(),
+            property_id: _property_id.to_owned(),
+            role: _role.to_owned(),
+        })
     }
 
-    async fn upload_standalone(
-        &self,
-        _filename: &str,
-        mime_type: &str,
-        _bytes: &[u8],
-    ) -> DbResult<(String, String, String, i64)> {
+    async fn save_standalone_object(&self, row: &db::MediaObjectRow) -> DbResult<()> {
         self.standalone
             .lock()
             .expect("the recording repository is never poisoned")
-            .push(mime_type.to_owned());
-        Ok((
-            "standalone-id".into(),
-            _filename.to_owned(),
-            mime_type.to_owned(),
-            _bytes.len() as i64,
-        ))
+            .push(row.mime_type.clone());
+        Ok(())
     }
 
     async fn for_property(&self, _property_id: &str) -> DbResult<Vec<MediaAsset>> {
@@ -143,22 +147,6 @@ impl MediaRepository for RecordingMediaRepository {
 
     async fn set_property_hero(&self, _property_id: &str, _media_id: &str) -> DbResult<bool> {
         unreachable_here("set_property_hero")
-    }
-
-    async fn upload_property_media(
-        &self,
-        request: &UploadPropertyMediaRequest,
-    ) -> DbResult<UploadPropertyMediaResult> {
-        self.property_media
-            .lock()
-            .expect("the recording repository is never poisoned")
-            .push(request.mime_type.clone());
-        Ok(UploadPropertyMediaResult {
-            ok: true,
-            media_id: "media-from-repository".into(),
-            property_id: request.property_id.clone(),
-            role: request.role.clone(),
-        })
     }
 
     async fn attach_property_video(
@@ -203,7 +191,8 @@ fn assert_refused(result: Result<UploadPropertyMediaResult, CoreServiceError>, w
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-PROPERTY-MEDIA-008); the file and the assay use it.
 async fn property_media_008__mime_validation() {
     let repository = RecordingMediaRepository::new();
-    let service = MediaService::new(repository.clone(), infrastructure());
+    let service = MediaService::new(repository.clone(), infrastructure())
+        .with_object_store(Arc::new(test_harness::media_store::FakeObjectStore::new()));
     let ctx = context();
 
     // ---- 1. An image is accepted, and reaches persistence with its type intact. -------------------

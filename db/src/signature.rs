@@ -3,8 +3,8 @@ use chrono::{DateTime, Utc};
 use model::{
     normalize_signature_email, validate_signature_recipients, ApplySignatureStatusRequest,
     PrepareSignatureRequest, PreparedSignatureRecipient, SendSignatureRequest,
-    SignatureArtifactDownload, SignatureCommandOutcome, SignatureCommandResult, SignatureRecipient,
-    SignatureRequest, SignatureRequestResult, SignatureRequestStatus, SignatureStatusResult,
+    SignatureCommandOutcome, SignatureCommandResult, SignatureRecipient, SignatureRequest,
+    SignatureRequestResult, SignatureRequestStatus, SignatureStatusResult,
 };
 use serde_json::{json, Value};
 use sqlx::FromRow;

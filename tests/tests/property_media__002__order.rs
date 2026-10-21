@@ -61,11 +61,17 @@ async fn property_media_002__order() {
     let mut ids: Vec<String> = Vec::new();
     for (label, sort_order) in [("first", 2), ("second", 0), ("third", 1)] {
         let media_id: String = sqlx::query_scalar::<_, String>(
-            "insert into media (file_data, filename, mime_type, file_size, media_type)
-             values ($1::bytea, $2, 'image/jpeg', 3, 'image') returning id::text",
+            "insert into media (
+                 filename, mime_type, file_size, media_type,
+                 object_bucket, object_key, object_size, object_migrated_at, storage_status, visibility
+             )
+             values (
+                 $1, 'image/jpeg', 3, 'image',
+                 'property_media_private', $2, 3, now(), 'VERIFIED', 'private'
+             ) returning id::text",
         )
-        .bind(format!("{label}-bytes-{ns}"))
         .bind(format!("{label}.jpg"))
+        .bind(format!("media/fixture/{label}.jpg"))
         .fetch_one(pool)
         .await
         .expect("media row seeds");
@@ -115,10 +121,15 @@ async fn property_media_002__order() {
     // 3. Positive: a high sort_order sorts after every lower one.
     // -----------------------------------------------------------------------------------------------------------
     let high_id: String = sqlx::query_scalar::<_, String>(
-        "insert into media (file_data, filename, mime_type, file_size, media_type)
-         values ($1::bytea, 'high-order.jpg', 'image/jpeg', 3, 'image') returning id::text",
+        "insert into media (
+             filename, mime_type, file_size, media_type,
+             object_bucket, object_key, object_size, object_migrated_at, storage_status, visibility
+         )
+         values (
+             'high-order.jpg', 'image/jpeg', 3, 'image',
+             'property_media_private', 'media/fixture/high-order.jpg', 3, now(), 'VERIFIED', 'private'
+         ) returning id::text",
     )
-    .bind(format!("high-order-bytes-{ns}"))
     .fetch_one(pool)
     .await
     .expect("high-order media seeds");
@@ -148,10 +159,15 @@ async fn property_media_002__order() {
     //    the order is still deterministic, never arbitrary.
     // -----------------------------------------------------------------------------------------------------------
     let tie_a: String = sqlx::query_scalar::<_, String>(
-        "insert into media (file_data, filename, mime_type, file_size, media_type)
-         values ($1::bytea, 'tie-a.jpg', 'image/jpeg', 3, 'image') returning id::text",
+        "insert into media (
+             filename, mime_type, file_size, media_type,
+             object_bucket, object_key, object_size, object_migrated_at, storage_status, visibility
+         )
+         values (
+             'tie-a.jpg', 'image/jpeg', 3, 'image',
+             'property_media_private', 'media/fixture/tie-a.jpg', 3, now(), 'VERIFIED', 'private'
+         ) returning id::text",
     )
-    .bind(format!("tie-a-bytes-{ns}"))
     .fetch_one(pool)
     .await
     .expect("tie-a media seeds");

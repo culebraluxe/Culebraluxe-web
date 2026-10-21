@@ -4,8 +4,9 @@
 //! route `GET /v1/vault/document-bytes/{id}` (`vault_private_document_bytes`,
 //! `web/src/api/routes/public.rs`) resolves a REQUEST context — internal key plus provider identity
 //! headers — and only then calls `VaultService::media_bytes`, which authorizes `vault.read` and
-//! audits the decision, over `VaultDao::media_bytes`, which serves `media_type = 'document'` rows
-//! with non-null `file_data` and takes the id as a bound parameter.
+//! audits the decision, over `VaultDao::media_document_object`, which serves `media_type = 'document'`
+//! rows with a VERIFIED storage pointer and takes the id as a bound parameter. The Vault is
+//! object-only: the database never returns document bytes.
 //!
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
@@ -67,15 +68,21 @@ fn docs_vault_001__authenticated_document_read() {
         "the authorization decision must be audited"
     );
 
-    // 4. THE DAO serves documents only, never an empty file as a document, and binds the id.
-    let dao_body = source::impl_body(&dao, "VaultDao", "media_bytes");
+    // 4. THE DAO serves documents only, as OBJECT POINTERS, and binds the id. It never selects bytes:
+    //    a document whose bytes the database held would be a second, un-stored copy of the file.
+    let dao_body = source::impl_body(&dao, "VaultDao", "media_document_object");
     assert!(
         dao_body.contains("media_type = 'document'"),
         "the authenticated read must serve documents only"
     );
     assert!(
-        dao_body.contains("file_data is not null"),
-        "the authenticated read must not return an empty file as a document"
+        !dao_body.contains("file_data"),
+        "the authenticated read must not select the legacy blob column"
+    );
+    assert!(
+        dao_body.contains("object_bucket is not null")
+            && dao_body.contains("object_key is not null"),
+        "the authenticated read must serve only object-backed documents"
     );
     assert!(
         dao_body.contains("$1"),

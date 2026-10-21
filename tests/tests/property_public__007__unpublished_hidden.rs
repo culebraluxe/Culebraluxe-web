@@ -8,12 +8,12 @@
 //! listing, not archived, with a slug — the predicate the public inventory and the public document route use. A
 //! draft's tagline is not public copy." The predicate the queries actually enforce is
 //! `p.archived_at is null and p.status in ('active', 'under_contract', 'sold')`, and it is applied by **all six**
-//! public reads — `listings`, `property`, `similar`, `slugs`, `media_bytes` and `listing_copy`. One read that
+//! public reads — `listings`, `property`, `similar`, `slugs`, `media_object_location` and `listing_copy`. One read that
 //! forgot it is a leak, and the reads were written at different times, so the invariant is worth pinning per read
 //! rather than per file.
 //!
 //! The behaviour this test pins at the service boundary is that a miss is a **miss**, not an error and not a
-//! partial answer, on every door: the page, the sitemap, the strip, the taglines and the media bytes. And — just as
+//! partial answer, on every door: the page, the sitemap, the strip, the taglines and the media object pointer. And — just as
 //! important — that a *published* Property in the same fixture is served, so the test cannot pass by denying
 //! everything.
 //!
@@ -46,7 +46,7 @@ const PUBLIC_READS: &[&str] = &[
     "property",
     "similar",
     "slugs",
-    "media_bytes",
+    "media_object_location",
     "listing_copy",
 ];
 
@@ -151,8 +151,17 @@ impl PublicListingRepository for FakePublicListingRepository {
         Ok(self.resolve_published(key))
     }
 
-    async fn media_bytes(&self, id: &str, _size: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        Ok((id == "media-published").then(|| ("image/jpeg".into(), vec![0xFF, 0xD8])))
+    async fn media_object_location(
+        &self,
+        id: &str,
+        _size: &str,
+    ) -> DbResult<Option<db::MediaObjectLocation>> {
+        Ok((id == "media-published").then(|| db::MediaObjectLocation {
+            bucket: "property_media_public".into(),
+            key: format!("media/{id}/original.jpg"),
+            status: "VERIFIED".into(),
+            visibility: "public".into(),
+        }))
     }
 
     async fn similar(&self, key: &str, _limit: i64) -> DbResult<Vec<PublicListing>> {
@@ -188,7 +197,8 @@ impl PublicListingRepository for FakePublicListingRepository {
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-PROPERTY-PUBLIC-007); the file and the assay use it.
 async fn property_public_007__unpublished_hidden() {
     let service =
-        PublicListingService::new(FakePublicListingRepository::new(), infrastructure().await);
+        PublicListingService::new(FakePublicListingRepository::new(), infrastructure().await)
+            .with_object_store(Arc::new(test_harness::media_store::FakeObjectStore::new()));
     let ctx = public_website();
 
     // ---- 1. The control: a PUBLISHED Property is served. Nothing below may pass by denying everything. ----
@@ -203,13 +213,11 @@ async fn property_public_007__unpublished_hidden() {
          test from passing by refusing everything"
     );
     assert!(
-        service
-            .media_bytes("media-published", "web", &ctx)
-            .await
-            .ok()
-            .flatten()
-            .is_some(),
-        "{HARNESS}: the published Property's photograph must be servable"
+        matches!(
+            service.media_read("media-published", "web", &ctx).await,
+            Ok(Some(web::media::MediaRead::Redirect { .. }))
+        ),
+        "{HARNESS}: the published Property's photograph must resolve to a public object URL"
     );
     assert_eq!(
         service.slugs(&ctx).await.expect("the sitemap is published"),
@@ -234,9 +242,9 @@ async fn property_public_007__unpublished_hidden() {
     }
 
     // ---- 3. NEGATIVE: the draft's photograph is not servable, and is indistinguishable from absent. ----
-    let draft_media = service.media_bytes("media-draft", "web", &ctx).await;
+    let draft_media = service.media_read("media-draft", "web", &ctx).await;
     let absent_media = service
-        .media_bytes("00000000-0000-4000-8000-000000000000", "web", &ctx)
+        .media_read("00000000-0000-4000-8000-000000000000", "web", &ctx)
         .await;
     match (&draft_media, &absent_media) {
         (Ok(None), Ok(None)) => {}
@@ -245,14 +253,11 @@ async fn property_public_007__unpublished_hidden() {
              anonymous visitor that the hidden listing exists. Got {draft_media:?} and {absent_media:?}"
         ),
     }
-    assert_ne!(
-        service
-            .media_bytes("media-published", "web", &ctx)
-            .await
-            .ok()
-            .flatten()
-            .map(|(_, b)| b.len()),
-        None,
+    assert!(
+        matches!(
+            service.media_read("media-published", "web", &ctx).await,
+            Ok(Some(web::media::MediaRead::Redirect { .. }))
+        ),
         "{HARNESS}: the draft's photograph must not be servable while the published one still is"
     );
 
@@ -294,7 +299,8 @@ async fn property_public_007__unpublished_hidden() {
 
     // ---- 5. EVERY public read is bounded by the visibility rule, not just the ones exercised above. ----
     // The reads were written at different times; one that forgot the predicate is the whole leak. This walks the
-    // DAO and checks each of the six public reads individually, so removing it from `media_bytes` alone fails.
+    // DAO and checks each of the six public reads individually, so removing it from the object-pointer gate alone
+    // fails.
     let dao = source::read(&source::workspace_root().join("db/src/public_listing.rs"));
     let mut bodies: Vec<(&str, &str)> = Vec::new();
     let mut current: Option<(&str, usize)> = None;

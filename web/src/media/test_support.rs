@@ -249,16 +249,16 @@ impl AbstractObjectStoreService for FakeStore {
     }
 }
 
-/// A repository that records what an upload path did, plus the reads the read switch makes.
+/// A repository that records what an upload path did, plus the object pointer a read resolves.
 #[derive(Default)]
 pub(crate) struct FakeRepository {
     pub(crate) public: bool,
     pub(crate) fail_save: bool,
     pub(crate) existing_photo_id: Option<String>,
     pub(crate) location: Option<MediaObjectLocation>,
-    pub(crate) blob: Option<(String, Vec<u8>)>,
     pub(crate) saved_sets: Mutex<Vec<(String, String, Vec<MediaObjectRow>)>>,
-    pub(crate) blob_reads: AtomicUsize,
+    pub(crate) single_rows: Mutex<Vec<(String, String, MediaObjectRow)>>,
+    pub(crate) standalone_rows: Mutex<Vec<MediaObjectRow>>,
     pub(crate) object_lookups: AtomicUsize,
 }
 
@@ -266,31 +266,21 @@ impl FakeRepository {
     pub(crate) fn saved_sets(&self) -> Vec<(String, String, Vec<MediaObjectRow>)> {
         self.saved_sets.lock().expect("saved poisoned").clone()
     }
+
+    pub(crate) fn single_rows(&self) -> Vec<(String, String, MediaObjectRow)> {
+        self.single_rows.lock().expect("single poisoned").clone()
+    }
+
+    pub(crate) fn standalone_rows(&self) -> Vec<MediaObjectRow> {
+        self.standalone_rows
+            .lock()
+            .expect("standalone poisoned")
+            .clone()
+    }
 }
 
 #[async_trait]
 impl MediaRepository for FakeRepository {
-    async fn media_bytes(&self, _id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        self.blob_reads.fetch_add(1, Ordering::SeqCst);
-        Ok(self.blob.clone())
-    }
-
-    async fn upload_standalone(
-        &self,
-        _filename: &str,
-        _mime_type: &str,
-        _bytes: &[u8],
-    ) -> DbResult<(String, String, String, i64)> {
-        Err(unused())
-    }
-
-    async fn upload_property_media(
-        &self,
-        _request: &UploadPropertyMediaRequest,
-    ) -> DbResult<UploadPropertyMediaResult> {
-        Err(unused())
-    }
-
     async fn for_property(&self, _property_id: &str) -> DbResult<Vec<MediaAsset>> {
         Err(unused())
     }
@@ -329,6 +319,33 @@ impl MediaRepository for FakeRepository {
 
     async fn property_is_public(&self, _property_id: &str) -> DbResult<bool> {
         Ok(self.public)
+    }
+
+    async fn save_property_media_object(
+        &self,
+        property_id: &str,
+        role: &str,
+        row: &MediaObjectRow,
+    ) -> DbResult<UploadPropertyMediaResult> {
+        self.single_rows.lock().expect("single poisoned").push((
+            property_id.to_owned(),
+            role.to_owned(),
+            row.clone(),
+        ));
+        Ok(UploadPropertyMediaResult {
+            ok: true,
+            media_id: row.id.clone(),
+            property_id: property_id.to_owned(),
+            role: role.to_owned(),
+        })
+    }
+
+    async fn save_standalone_object(&self, row: &MediaObjectRow) -> DbResult<()> {
+        self.standalone_rows
+            .lock()
+            .expect("standalone poisoned")
+            .push(row.clone());
+        Ok(())
     }
 
     async fn save_property_media_object_set(
@@ -379,7 +396,6 @@ pub(crate) fn jpeg(width: u32, height: u32) -> Vec<u8> {
 pub(crate) async fn service(
     repository: FakeRepository,
     store: Option<Arc<FakeStore>>,
-    object_reads: bool,
 ) -> MediaService<FakeRepository> {
     let infrastructure = ServiceInfrastructure::new(
         Arc::new(
@@ -395,7 +411,5 @@ pub(crate) async fn service(
         Some(store) => service.with_object_store(store),
         None => service,
     };
-    service
-        .with_object_reads(object_reads)
-        .with_direct_upload_secret(TEST_DIRECT_UPLOAD_SECRET.to_vec())
+    service.with_direct_upload_secret(TEST_DIRECT_UPLOAD_SECRET.to_vec())
 }

@@ -1,38 +1,38 @@
 //! PROPERTY.PUBLIC — media authorization (TST-PROPERTY-PUBLIC-005).
 //!
-//! Contract: **a photograph of a published Property is servable to an anonymous visitor, and the answer to "may
-//! this visitor have these bytes" is `None` — never an error, and never a distinction.** The gate is
-//! `PublicListingDao::media_bytes` (`db/src/public_listing.rs:610-651`) and it has two properties that are easy to
-//! get wrong and expensive to leak.
+//! Contract: **a photograph of a published Property is servable to an anonymous visitor, and "may this visitor have
+//! this media" is answered by `None` — never an error, and never a distinction.** The gate is
+//! `PublicListingDao::media_object_location` (`db/src/public_listing.rs`), the object-only resolver: it returns the
+//! storage pointer of the copy to serve, or nothing at all. `PublicListingService::media_read` turns a pointer into
+//! a short-lived public URL and turns every refusal into the same `None`.
 //!
-//! **The gate is evaluated on the ORIGINAL, not on the copy.** Every photograph gets derivatives — a `web` copy and
-//! a `thumb` — and a copy has no `property_media` link of its own. So the query walks
+//! **The gate is evaluated on the ORIGINAL, not on the copy.** Every photograph gets derivatives — a `web` copy, a
+//! `card`, a `thumb` — and a copy has no `property_media` link of its own. So the query walks
 //! `join media root on root.id = coalesce(m.derivative_of, m.id)` and asks whether the ROOT is linked to an
-//! unpublished Property. Asking about the copy would answer "no links, therefore fine" for every derivative of
-//! every unpublished Property, and the public site would serve all of them (:602-604). This is the single most
-//! important line in the batch.
+//! unpublished Property. Asking about the copy would answer "no links, therefore fine" for every derivative of every
+//! unpublished Property. This is the single most important line in the batch.
 //!
-//! **"No such media" and "not published" are the same answer.** Both return `None` (:608-609), because an
-//! anonymous visitor must not be able to tell them apart — a distinguishable "exists but is hidden" is an oracle
-//! for which listings exist. Media with no Property link at all stays reachable: it is not listing media (:605).
+//! **"No such media", "not published" and "no object pointer" are the same answer.** All three are `None`, because an
+//! anonymous visitor must not be able to tell them apart — a distinguishable "exists but is hidden" is an oracle for
+//! which listings exist. A blob-only row (no object) is deliberately NOT servable: the read path no longer has a
+//! `file_data` fallback, so it answers like an absent one.
 //!
-//! The size variant is a presentation choice, not a permission: `card` and `thumb` serve that derivative when the
-//! photograph has one, anything else serves the `web` copy and then the original (:610-615). Asking for an unknown
-//! size must widen to the full image, never fail.
+//! The size variant is a presentation choice, not a permission: `card` and `thumb` select that derivative, anything
+//! else widens to `web` and then the original.
 //!
-//! Level: L3 Composition — the real `PublicListingService` with the real `CasbinAuthorizationPort`, the database
-//! faked at the `PublicListingRepository` adapter boundary. The gate SQL is pinned structurally below.
+//! Level: L3 Composition — the real `PublicListingService` with the real `CasbinAuthorizationPort`, the database and
+//! object store faked at the `PublicListingRepository`/object-store boundary. The gate SQL is pinned structurally.
 //!
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test property_public__005__media_authorization
 
 use std::sync::{Arc, Mutex};
 
-use db::{DbFailure, DbResult};
+use db::{DbFailure, DbResult, MediaObjectLocation};
 use model::{PublicListing, PublicListingCopy, PublicProperty};
 use services::{
-    CapturingAuditPort, CapturingDomainEventPort, ServiceActor, ServiceActorKind, ServiceContext,
-    ServiceInfrastructure,
+    AbstractObjectStoreService, CapturingAuditPort, CapturingDomainEventPort, ObjectBucket,
+    ServiceActor, ServiceActorKind, ServiceContext, ServiceInfrastructure,
 };
 use test_harness::source;
 use web::public_listings::{PublicListingRepository, PublicListingService};
@@ -63,9 +63,9 @@ async fn infrastructure() -> ServiceInfrastructure {
     )
 }
 
-/// Serves bytes only for ids the fake was told are servable, records every `(id, size)` it was asked for, and can
-/// be told to fail. A refusal and a miss are both `Ok(None)` — exactly as production returns them — so the test can
-/// prove the two are indistinguishable to the caller.
+/// A public listing repository whose OBJECT-POINTER gate serves only ids the fake was told are servable, records
+/// every `(id, size)` it was asked for, and can be told to fail. A refusal is `None`, exactly as production returns
+/// it, so the test can prove a hidden photograph and an absent one are indistinguishable.
 #[derive(Clone, Default)]
 struct FakePublicListingRepository {
     servable: Arc<Mutex<Vec<String>>>,
@@ -115,22 +115,6 @@ impl PublicListingRepository for FakePublicListingRepository {
         unreachable_media("property")
     }
 
-    async fn media_bytes(&self, id: &str, size: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        self.asked
-            .lock()
-            .expect("the fake repository is never poisoned")
-            .push((id.to_owned(), size.to_owned()));
-        if self.fail {
-            return Err(DbFailure::configuration(
-                "test.property_public.005",
-                "the media read failed",
-            ));
-        }
-        Ok(self
-            .serves(id)
-            .then(|| ("image/jpeg".to_owned(), vec![0xFF, 0xD8, 0xFF, 0xE0])))
-    }
-
     async fn similar(&self, _key: &str, _limit: i64) -> DbResult<Vec<PublicListing>> {
         unreachable_media("similar")
     }
@@ -142,6 +126,29 @@ impl PublicListingRepository for FakePublicListingRepository {
     async fn listing_copy(&self) -> DbResult<Vec<PublicListingCopy>> {
         unreachable_media("listing_copy")
     }
+
+    async fn media_object_location(
+        &self,
+        id: &str,
+        size: &str,
+    ) -> DbResult<Option<MediaObjectLocation>> {
+        self.asked
+            .lock()
+            .expect("the fake repository is never poisoned")
+            .push((id.to_owned(), size.to_owned()));
+        if self.fail {
+            return Err(DbFailure::configuration(
+                "test.property_public.005",
+                "the media pointer read failed",
+            ));
+        }
+        Ok(self.serves(id).then(|| MediaObjectLocation {
+            bucket: "property_media_public".into(),
+            key: format!("media/{id}/original.jpg"),
+            status: "VERIFIED".into(),
+            visibility: "public".into(),
+        }))
+    }
 }
 
 fn unreachable_media<T>(method: &'static str) -> DbResult<T> {
@@ -151,43 +158,128 @@ fn unreachable_media<T>(method: &'static str) -> DbResult<T> {
     ))
 }
 
+/// A store that answers public read URLs, so the service can turn a VERIFIED public pointer into a redirect.
+struct FakeStore;
+
+#[async_trait::async_trait]
+impl AbstractObjectStoreService for FakeStore {
+    async fn put_object(
+        &self,
+        bucket: ObjectBucket,
+        key: &str,
+        bytes: &[u8],
+        content_type: &str,
+    ) -> Result<services::ObjectMetadata, services::ObjectStoreError> {
+        Ok(services::ObjectMetadata {
+            bucket,
+            key: key.to_owned(),
+            size: bytes.len() as i64,
+            content_type: Some(content_type.to_owned()),
+            etag: None,
+            sha256: None,
+        })
+    }
+
+    async fn head_object(
+        &self,
+        bucket: ObjectBucket,
+        key: &str,
+    ) -> Result<services::ObjectMetadata, services::ObjectStoreError> {
+        Ok(services::ObjectMetadata {
+            bucket,
+            key: key.to_owned(),
+            size: 1,
+            content_type: None,
+            etag: None,
+            sha256: None,
+        })
+    }
+
+    async fn delete_object(
+        &self,
+        _bucket: ObjectBucket,
+        _key: &str,
+    ) -> Result<(), services::ObjectStoreError> {
+        Ok(())
+    }
+
+    async fn public_read_url(
+        &self,
+        _bucket: ObjectBucket,
+        key: &str,
+    ) -> Result<String, services::ObjectStoreError> {
+        Ok(format!("https://cdn.example/{key}"))
+    }
+
+    async fn signed_read_url(
+        &self,
+        _bucket: ObjectBucket,
+        key: &str,
+        _ttl: std::time::Duration,
+    ) -> Result<String, services::ObjectStoreError> {
+        Ok(format!("https://signed.example/{key}"))
+    }
+
+    async fn signed_write_url(
+        &self,
+        _bucket: ObjectBucket,
+        key: &str,
+        _content_type: &str,
+        _ttl: std::time::Duration,
+    ) -> Result<String, services::ObjectStoreError> {
+        Ok(format!("https://write.example/{key}"))
+    }
+
+    async fn verify_object(
+        &self,
+        bucket: ObjectBucket,
+        key: &str,
+        _expected_sha256: &str,
+        _expected_size: i64,
+    ) -> Result<services::ObjectMetadata, services::ObjectStoreError> {
+        self.head_object(bucket, key).await
+    }
+}
+
 #[tokio::test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-PROPERTY-PUBLIC-005); the file and the assay use it.
 async fn property_public_005__media_authorization() {
     // `media-1` is a published Property's photograph. `media-hidden` stands for a photograph of an unpublished
-    // Property; `media-absent` for an id that does not exist. The fake refuses both of the latter the same way.
+    // Property; `media-absent` for an id that does not exist. The fake gate refuses both of the latter the same way.
     let repository = FakePublicListingRepository::default().serving("media-1");
-    let service = PublicListingService::new(repository.clone(), infrastructure().await);
+    let service = PublicListingService::new(repository.clone(), infrastructure().await)
+        .with_object_store(Arc::new(FakeStore));
     let ctx = public_website();
 
-    // ---- 1. A published Property's photograph is servable to an anonymous visitor. ----
-    let bytes = service
-        .media_bytes("media-1", "web", &ctx)
+    // ---- 1. A published Property's photograph is servable to an anonymous visitor, as a direct URL. ----
+    let served = service
+        .media_read("media-1", "web", &ctx)
         .await
-        .expect("a published photograph is a published read");
-    let (mime, payload) = bytes.expect("media-1 is a published Property's photograph");
-    assert_eq!(
-        mime, "image/jpeg",
-        "{HARNESS}: the servable bytes carry the media's own MIME, which is what the response Content-Type is"
-    );
-    assert!(
-        !payload.is_empty(),
-        "{HARNESS}: the servable bytes are the bytes, not a placeholder"
-    );
+        .expect("a published photograph is a published read")
+        .expect("media-1 is a published Property's photograph");
+    match served {
+        web::media::MediaRead::Redirect { url } => assert_eq!(
+            url, "https://cdn.example/media/media-1/original.jpg",
+            "{HARNESS}: a VERIFIED public object is served as its public URL"
+        ),
+        web::media::MediaRead::Bytes { .. } => panic!(
+            "{HARNESS}: the public media door is object-only; it must redirect, never stream a blob"
+        ),
+    }
 
     // ---- 2. NEGATIVE: a hidden photograph and an absent id are the SAME answer. ----
     // An anonymous visitor must not be able to tell "this listing exists but is not published" from "there is no
     // such media". A distinguishable answer is an oracle for which listings exist.
-    let hidden = service.media_bytes("media-hidden", "web", &ctx).await;
-    let absent = service.media_bytes("media-absent", "web", &ctx).await;
+    let hidden = service.media_read("media-hidden", "web", &ctx).await;
+    let absent = service.media_read("media-absent", "web", &ctx).await;
     match (&hidden, &absent) {
         (Ok(None), Ok(None)) => {}
         (Ok(None), Ok(Some(_))) | (Ok(Some(_)), Ok(None)) => panic!(
             "{HARNESS}: a hidden photograph and an absent id must be indistinguishable — one answering \
-             `None` and the other bytes tells an anonymous visitor that the hidden listing exists"
+             `None` and the other a pointer tells an anonymous visitor that the hidden listing exists"
         ),
         (Ok(Some(_)), Ok(Some(_))) => panic!(
-            "{HARNESS}: neither a hidden photograph nor an absent id may be servable, but both returned bytes"
+            "{HARNESS}: neither a hidden photograph nor an absent id may be servable, but both resolved"
         ),
         (Err(error), _) | (_, Err(error)) => panic!(
             "{HARNESS}: a refusal is `None`, not an error; an error would distinguish 'hidden' from 'absent' \
@@ -196,12 +288,9 @@ async fn property_public_005__media_authorization() {
     }
 
     // ---- 3. The size variant is a presentation choice and is forwarded verbatim. ----
-    // `card` and `thumb` serve that derivative; anything else serves the `web` copy and then the original. An
-    // unknown size must WIDEN to the full image, never fail — a card asking for an unknown size must still get a
-    // picture.
     for size in ["card", "thumb", "web", "original", "", "full"] {
         let before = repository.asked().len();
-        let answer = service.media_bytes("media-1", size, &ctx).await;
+        let answer = service.media_read("media-1", size, &ctx).await;
         assert_eq!(
             &repository.asked()[before],
             &("media-1".to_owned(), size.to_owned()),
@@ -209,28 +298,19 @@ async fn property_public_005__media_authorization() {
              which derivative that selects"
         );
         assert!(
-            answer
-                .expect("a published photograph is a published read")
-                .expect("a published photograph is served at every size")
-                .1
-                .len()
-                > 0,
-            "{HARNESS}: size {size:?} must still yield the photograph; an unknown variant widens rather than \
-             failing"
+            matches!(answer, Ok(Some(web::media::MediaRead::Redirect { .. }))),
+            "{HARNESS}: size {size:?} must still yield a pointer; an unknown variant widens rather than failing"
         );
     }
 
-    // ---- 4. NEGATIVE: a failed media read is an error, never bytes and never a silent refusal. ----
-    // Swallowing it would serve a broken image; answering `None` would make an outage look like a hidden
-    // listing. It has to be visible.
+    // ---- 4. NEGATIVE: a failed pointer read is an error, never a silent refusal. ----
     let failing = PublicListingService::new(
         FakePublicListingRepository::failing(),
         infrastructure().await,
-    );
-    match failing.media_bytes("media-1", "web", &ctx).await {
-        Ok(Some((_, leaked))) => panic!(
-            "{HARNESS}: a failed read must not serve bytes; it returned {leaked:?}"
-        ),
+    )
+    .with_object_store(Arc::new(FakeStore));
+    match failing.media_read("media-1", "web", &ctx).await {
+        Ok(Some(_)) => panic!("{HARNESS}: a failed read must not serve a photograph"),
         Ok(None) => panic!(
             "{HARNESS}: a failed read must surface as an error; answering `None` makes a database outage \
              indistinguishable from a hidden listing"
@@ -257,29 +337,21 @@ async fn property_public_005__media_authorization() {
     );
     assert!(
         code.contains("where pm.media_id = root.id"),
-        "{HARNESS}: the visibility subquery must join on `root.id`, not on `m.id` — this is what makes the \
-         root-based gate above actually bite"
+        "{HARNESS}: the visibility subquery must join on `root.id`, not on `m.id`"
     );
-    // And the root must be judged against the same visibility rule as the inventory.
     assert!(
         code.contains("p.archived_at is null")
             && code.contains("p.status in ('active', 'under_contract', 'sold')"),
         "{HARNESS}: the media gate must carry the same visibility rule as every other public read"
     );
-    // The derivative choice: the requested variant, then `web`, then the original.
+    // The resolver returns an OBJECT POINTER, never a blob: the public door has no `file_data` fallback.
     assert!(
-        code.contains("let size = if matches!(size, \"card\" | \"thumb\")"),
-        "{HARNESS}: `card` and `thumb` are the recognized variants"
+        code.contains("m.object_bucket") && code.contains("m.object_key"),
+        "{HARNESS}: the public media gate must resolve an object pointer"
     );
     assert!(
-        code.contains("coalesce(copy.file_data, m.file_data)") && code.contains("coalesce(copy.mime_type, m.mime_type)"),
-        "{HARNESS}: an absent derivative must fall back to the original's bytes and MIME, so an unknown or \
-         missing variant still serves the photograph"
-    );
-    // And the query returns ONE row, never an error, so the two refusals stay indistinguishable.
-    assert!(
-        code.contains("limit 1") && code.contains("fetch_optional"),
-        "{HARNESS}: the media read returns at most one row and no error — 'absent' and 'not published' must \
-         remain one answer"
+        !code.contains("file_data"),
+        "{HARNESS}: db/src/public_listing.rs must not mention media.file_data — the public door is object-only \
+         and the blob column is being dropped"
     );
 }

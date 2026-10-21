@@ -5,9 +5,9 @@
 //! the PUBLIC GUEST context — and refuses identity headers — then calls
 //! `VaultService::public_listing_document_bytes`, which authorizes its own action
 //! `vault.publicListingDocument.read` (never the member's `vault.read`), over
-//! `VaultDao::public_listing_document_bytes`, whose SQL proves the entitlement: the media must be
-//! a `document`, a PDF, linked to a live public listing exactly as a `document`, and have no
-//! `transaction_document` lineage.
+//! `VaultDao::public_listing_document_object`, whose SQL proves the entitlement: the media must be
+//! a `document`, a PDF, linked to a live public listing exactly as a `document`, have no
+//! `transaction_document` lineage, and carry a storage pointer. The Vault is object-only.
 //!
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
@@ -86,9 +86,13 @@ fn docs_vault_002__guest_authorized_document_read() {
         "the authorization decision must be audited"
     );
 
-    // 5. THE DAO proves the entitlement in SQL, clause by clause.
-    let dao_body = source::impl_body(&dao, "VaultDao", "public_listing_document_bytes");
+    // 5. THE DAO proves the entitlement in SQL, clause by clause — over the object pointer, never bytes.
+    let dao_body = source::impl_body(&dao, "VaultDao", "public_listing_document_object");
     let normalized = dao_body.to_lowercase();
+    assert!(
+        !normalized.contains("file_data"),
+        "the guest door must not read the legacy blob column"
+    );
     for guard in GUEST_GUARDS {
         assert!(
             normalized.contains(&guard.to_lowercase()),

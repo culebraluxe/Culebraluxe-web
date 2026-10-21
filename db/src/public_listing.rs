@@ -597,66 +597,17 @@ impl PublicListingDao {
         Ok(rows)
     }
 
-    /// The servable bytes for one photograph: the web copy when there is one, the original otherwise.
-    ///
-    /// THE GATE IS EVALUATED ON THE ORIGINAL. A copy has no `property_media` link of its own, so asking whether the
-    /// COPY is published would answer "no links, therefore fine" and expose every copy of every unpublished Property.
-    /// Media with no Property link at all stays reachable — it is not listing media.
-    ///
-    /// `None` covers both "no such media" and "not published": an anonymous visitor must not be able to tell those
-    /// apart, which is why this returns one thing rather than an error.
-    /// `size`: `card` or `thumb` serve that copy when the photograph has one; anything else, and a photograph without
-    /// it, serves the web copy (then the original).
-    pub async fn media_bytes(&self, id: &str, size: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        let size = if matches!(size, "card" | "thumb") {
-            size
-        } else {
-            "web"
-        };
-        let row = sqlx::query_as::<_, (String, Vec<u8>)>(
-            r#"
-            select
-                coalesce(copy.mime_type, m.mime_type),
-                coalesce(copy.file_data, m.file_data)
-            from media m
-            join media root on root.id = coalesce(m.derivative_of, m.id)
-            left join lateral (
-                select d.file_data, d.mime_type
-                  from media d
-                 where d.derivative_of = root.id and d.derivative_kind in ($2, 'web')
-                 order by (d.derivative_kind = $2) desc
-                 limit 1
-            ) as copy on true
-            where m.id = $1::uuid
-              and not exists (
-                    select 1
-                      from property_media pm
-                      join property p on p.id = pm.property_id
-                     where pm.media_id = root.id
-                       and not (
-                             p.archived_at is null
-                             and p.status in ('active', 'under_contract', 'sold')
-                           )
-                  )
-            limit 1
-            "#,
-        )
-        .bind(id)
-        .bind(size)
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("public_listing.media_bytes", &error))?;
-
-        Ok(row)
-    }
-
-    /// The storage pointer for the same asset `media_bytes` would serve, without reading `file_data`.
+    /// The storage pointer of the public copy to serve, selected by `size`. No bytes are read here.
     pub async fn media_object_location(
         &self,
         id: &str,
         size: &str,
     ) -> DbResult<Option<crate::MediaObjectLocation>> {
-        let size = if matches!(size, "card" | "thumb") { size } else { "web" };
+        let size = if matches!(size, "card" | "thumb") {
+            size
+        } else {
+            "web"
+        };
         let row = sqlx::query_as::<
             _,
             (

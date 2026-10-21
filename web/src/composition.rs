@@ -39,7 +39,6 @@ use crate::{
     whatsapp::WhatsAppService,
     workflow_portal::WorkflowPortalService,
 };
-use apis::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use async_trait::async_trait;
 use db::{
     AccountingDao, CalendarDao, CatchUpDao, ClientDao, ClientRoomDao, CockpitDao, CommsDao,
@@ -51,7 +50,7 @@ use db::{
 };
 use services::{
     AbstractObjectStoreService, AbstractService, ServiceDescriptor, ServiceDispatchError,
-    ServiceInfrastructure, SignatureProvider,
+    ServiceInfrastructure,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -295,31 +294,13 @@ impl ServiceCatalog {
         }
         public_listing_service = public_listing_service.with_object_reads(object_reads);
 
-        let signature_provider: Option<Arc<dyn SignatureProvider>> =
-            match BoldSignConfig::from_env()
-                .and_then(|config| BoldSignSignatureProvider::new(db.clone(), config))
-            {
-                Ok(provider) => Some(Arc::new(provider) as Arc<dyn SignatureProvider>),
-                Err(error) => {
-                    // LOUD DEGRADED BOOT, not a silent `None`: document signing will
-                    // refuse with SIGNATURE_PROVIDER_UNAVAILABLE until this is fixed.
-                    eprintln!(
-                        "composition: BoldSign provider unavailable, signing degraded: {error}"
-                    );
-                    crate::api::error_capture::record(
-                        "rust:boot",
-                        "composition.signature_provider",
-                        &format!("BoldSign provider unavailable, signing degraded: {error}"),
-                        "warn",
-                        None,
-                        serde_json::json!({"source": "rust"}),
-                    );
-                    None
-                }
-            };
+        // THE EXTERNAL SIGNING PROVIDER IS RETIRED (Lane L): Luxesign is the only signing product. The generic SignatureService
+        // stays in the catalog because the read route and existing signature records still resolve through it;
+        // with no provider wired, send/refresh refuse with SIGNATURE_PROVIDER_UNAVAILABLE instead of reaching a
+        // retired vendor, and nothing boots in a "degraded" state waiting for credentials nobody should set.
         let mut signature_service = SignatureService::new_optional(
             SignatureDao::new(db.clone()),
-            signature_provider,
+            None,
             infrastructure.clone(),
         );
         if let Some(store) = media_store.clone() {

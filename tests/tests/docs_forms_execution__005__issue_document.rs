@@ -59,15 +59,20 @@ fn docs_forms_execution_005__issue_document() {
         "the lineage resolves the LATEST prior issue"
     );
 
-    // 3. THE DOCUMENT ITSELF: the rendered bytes are stored as document media, checksumed, and the
-    //    transaction document is a generated agreement, ready, with its template identity and snapshot.
+    // 3. THE DOCUMENT ITSELF: the rendered bytes are uploaded and stored as an OBJECT-FIRST document
+    //    media row (no blob column), checksumed, and the transaction document is a generated agreement,
+    //    ready, with its template identity and snapshot.
     assert!(
-        lower.contains("insert into media (file_data, filename, mime_type, file_size, media_type)"),
-        "the bytes are stored as media"
+        lower.contains("insert_media_object_with_id_tx"),
+        "the bytes are stored through the object-first media insert"
     );
     assert!(
-        issue.contains("'application/pdf'") && issue.contains("'document'"),
-        "the artifact is a document PDF"
+        !issue.contains("file_data"),
+        "Vault issuance must not write the legacy media blob column"
+    );
+    assert!(
+        issue.contains("\"application/pdf\""),
+        "the artifact is uploaded as a PDF"
     );
     for fragment in [
         "insert into transaction_document (",

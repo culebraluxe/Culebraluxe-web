@@ -1,10 +1,10 @@
 //! The media repository port, the object-first service helpers, and the object-only read resolver.
 //!
 //! The chunk-staging protocol is retired: there is no manifest, no staged piece and no assembly method here any
-//! more. Uploads arrive whole (`/api/property-media/full`) or direct to object storage
-//! (`/api/property-media/direct/*`), and both record through `save_property_media_object_set`. The two remaining
-//! legacy shapes — the blob reader `media_bytes` and the blob writer `upload_standalone` — are marked and are
-//! the only `file_data` use left in this module.
+//! more. Uploads arrive whole (`/api/property-media/full`), direct to object storage
+//! (`/api/property-media/direct/*`), through the legacy direct door, or as a standalone document, and every one of
+//! them records OBJECT rows only. Reads are object-only unconditionally. This module no longer reads or writes
+//! `media.file_data` at all.
 
 #[allow(unused_imports)]
 use super::*;
@@ -12,19 +12,6 @@ use services::{ServiceFailureClass, ServiceRuntimeError};
 
 #[async_trait]
 pub trait MediaRepository: Send + Sync {
-    /// LEGACY BLOB READ. Only the `MEDIA_OBJECT_STORAGE_READS`-off branch of `media_read` calls this; the
-    /// object-first path reads the pointer through `media_object_location`. It goes with `media.file_data`.
-    async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>>;
-
-    /// LEGACY BLOB WRITE. The standalone media door (a signed-contract PDF) still stores bytes in
-    /// `media.file_data`; its object-first replacement is `MediaDao::upload_standalone_object`.
-    async fn upload_standalone(
-        &self,
-        filename: &str,
-        mime_type: &str,
-        bytes: &[u8],
-    ) -> DbResult<(String, String, String, i64)>;
-
     async fn for_property(&self, property_id: &str) -> DbResult<Vec<MediaAsset>>;
     async fn set_property_hero(&self, property_id: &str, media_id: &str) -> DbResult<bool>;
     async fn attach_property_video(
@@ -32,10 +19,6 @@ pub trait MediaRepository: Send + Sync {
         request: &AttachPropertyVideoRequest,
     ) -> DbResult<AttachPropertyVideoResult>;
 
-    async fn upload_property_media(
-        &self,
-        request: &UploadPropertyMediaRequest,
-    ) -> DbResult<UploadPropertyMediaResult>;
     async fn remove_property_media(&self, property_id: &str, media_id: &str) -> DbResult<bool>;
 
     /// The STORAGE POINTER of the copy a reader should be served (the `web` derivative when the row is an
@@ -77,6 +60,15 @@ pub trait MediaRepository: Send + Sync {
         ))
     }
 
+    /// Object-first standalone upload: one media row with an object pointer and no property link. The
+    /// standalone door used to write `file_data`; there is no blob variant any more.
+    async fn save_standalone_object(&self, _row: &db::MediaObjectRow) -> DbResult<()> {
+        Err(db::DbFailure::configuration(
+            "media.save_standalone_object",
+            "object-first standalone uploads are not implemented by this repository",
+        ))
+    }
+
     /// Object-first upload: every row plus the property link in one transaction. The only row-creating
     /// writer for uploaded property media; no staging table is involved.
     async fn save_property_media_object_set(
@@ -94,20 +86,6 @@ pub trait MediaRepository: Send + Sync {
 
 #[async_trait]
 impl MediaRepository for MediaDao {
-    async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        let id = id.to_owned();
-        db::retrying_read!(MediaDao::media_bytes(self, &id))
-    }
-
-    async fn upload_standalone(
-        &self,
-        filename: &str,
-        mime_type: &str,
-        bytes: &[u8],
-    ) -> DbResult<(String, String, String, i64)> {
-        MediaDao::upload_standalone(self, filename, mime_type, bytes).await
-    }
-
     async fn for_property(&self, property_id: &str) -> DbResult<Vec<MediaAsset>> {
         MediaDao::for_property(self, property_id).await
     }
@@ -147,13 +125,6 @@ impl MediaRepository for MediaDao {
         MediaDao::property_is_public(self, property_id).await
     }
 
-    async fn upload_property_media(
-        &self,
-        request: &UploadPropertyMediaRequest,
-    ) -> DbResult<UploadPropertyMediaResult> {
-        MediaDao::upload_property_media(self, request).await
-    }
-
     async fn save_property_media_object(
         &self,
         property_id: &str,
@@ -170,6 +141,10 @@ impl MediaRepository for MediaDao {
         rows: &[db::MediaObjectRow],
     ) -> DbResult<UploadPropertyMediaResult> {
         MediaDao::save_property_media_object_set(self, property_id, role, rows).await
+    }
+
+    async fn save_standalone_object(&self, row: &db::MediaObjectRow) -> DbResult<()> {
+        MediaDao::upload_standalone_object(self, row).await
     }
 }
 
@@ -190,9 +165,9 @@ pub struct PropertyVideoFinalizeResult {
     pub mux_playback_id: Option<String>,
 }
 
-/// What a read route should return for one media id: legacy bytes, or a redirect to the object store.
-/// The bytes variant is only reachable while `object_reads` is off; with the switch on, an
-/// unaddressable object is an error instead.
+/// What a read route should return for one media id. Property media reads are object-only and produce
+/// `Redirect`; `Bytes` is retained solely for the out-of-scope route arms that still match it and is never
+/// produced by this service any more.
 #[derive(Debug)]
 pub enum MediaRead {
     Bytes { mime_type: String, bytes: Vec<u8> },
@@ -202,10 +177,9 @@ pub enum MediaRead {
 pub struct MediaService<R> {
     pub(super) repository: R,
     pub(super) runtime: ServiceRuntime,
-    /// Present only when the media object store is configured. With `object_reads` off, shadow writes
-    /// are additive and the Postgres blob stays canonical, so a store error never fails an upload.
+    /// Present only when the media object store is configured. Property media reads are object-only: a
+    /// deployment without the store cannot serve media, and says so with a typed failure.
     pub(super) object_store: Option<Arc<dyn AbstractObjectStoreService>>,
-    pub(super) object_reads: bool,
     /// The key that signs a direct-to-object upload's pending token. `None` means read it at request
     /// time from `MEDIA_DIRECT_UPLOAD_SECRET` (falling back to `AUTH_SECRET`); tests inject one so they
     /// never depend on process environment.
@@ -213,18 +187,17 @@ pub struct MediaService<R> {
 }
 
 impl<R> MediaService<R> {
-    /// Attach the object store after construction. Tests and deployments without media object
-    /// storage keep the exact legacy behavior.
+    /// Attach the object store after construction. Media reads and uploads require one: without it they fail
+    /// with a typed configuration error rather than writing or serving a `file_data` blob.
     pub fn with_object_store(mut self, store: Arc<dyn AbstractObjectStoreService>) -> Self {
         self.object_store = Some(store);
         self
     }
 
-    /// The read cutover switch. Default false, which keeps the legacy blob canonical and the read
-    /// path exactly as it was. When true, object storage is the ONLY source: a missing, unverified or
-    /// unaddressable object is a typed failure, never a fallback to `file_data`.
-    pub fn with_object_reads(mut self, enabled: bool) -> Self {
-        self.object_reads = enabled;
+    /// COMPATIBILITY NO-OP. Reads are object-only unconditionally now; `composition.rs` still passes the
+    /// retired `MEDIA_OBJECT_STORAGE_READS` value, so the builder method stays (and ignores it) rather than
+    /// forcing an out-of-scope change to the composition root. Do not add behavior back behind it.
+    pub fn with_object_reads(self, _enabled: bool) -> Self {
         self
     }
 
@@ -341,15 +314,11 @@ impl<R: MediaRepository> MediaService<R> {
         }
     }
 
-    /// Resolve one media id to what a read route should send: a redirect to the object store, or the
-    /// legacy blob.
+    /// Resolve one media id to a redirect to the object store. OBJECT-ONLY, unconditionally.
     ///
-    /// TWO MODES, ONE RULE. With `object_reads` OFF (the default) the legacy blob is canonical and this
-    /// is unchanged. With it ON, the object store is the ONLY source: a row with no object, an object
-    /// that is not VERIFIED, or an object whose read URL cannot be generated is a TYPED FAILURE. It is
-    /// never a silent fall back to `file_data` — a fallback would hide a half-migrated row as a working
-    /// read and keep the blob columns load-bearing for every reader, which is exactly what this switch
-    /// exists to end.
+    /// There is no legacy path and no flag: a row with no object, an object that is not VERIFIED, or an object
+    /// whose read URL cannot be generated is a TYPED FAILURE. `media.file_data` is not read by this service at
+    /// all — the only reason it still exists is the migration tool and the non-media doors.
     pub async fn media_read(
         &self,
         id: &str,
@@ -367,15 +336,10 @@ impl<R: MediaRepository> MediaService<R> {
         .await?;
 
         let result = async {
-            if !self.object_reads {
-                let bytes = self.repository.media_bytes(id).await?;
-                return Ok(bytes.map(|(mime_type, bytes)| MediaRead::Bytes { mime_type, bytes }));
-            }
-
             let Some(store) = self.object_store.as_ref() else {
                 return Err(CoreServiceError::Runtime(ServiceRuntimeError::Router {
                     code: "MEDIA_OBJECT_STORE_NOT_CONFIGURED".into(),
-                    message: "media object reads are enabled but no object store is configured".into(),
+                    message: "media reads require object storage, which is not configured".into(),
                     retryable: false,
                     class: ServiceFailureClass::Infrastructure,
                 }));
@@ -383,7 +347,7 @@ impl<R: MediaRepository> MediaService<R> {
             let Some(location) = self.repository.media_object_location(id).await? else {
                 return Err(CoreServiceError::business(
                     "MEDIA_OBJECT_NOT_FOUND",
-                    "This media has no object-storage copy, and the legacy blob reader is disabled.",
+                    "This media has no object-storage copy.",
                 ));
             };
             if location.status != "VERIFIED" {
@@ -409,15 +373,14 @@ impl<R: MediaRepository> MediaService<R> {
                     "Not found.",
                 ));
             }
-            let url = if bucket == ObjectBucket::PropertyMediaPublic
-                && location.visibility == "public"
-            {
-                store.public_read_url(bucket, &location.key).await
-            } else {
-                store
-                    .signed_read_url(bucket, &location.key, Duration::from_secs(300))
-                    .await
-            };
+            let url =
+                if bucket == ObjectBucket::PropertyMediaPublic && location.visibility == "public" {
+                    store.public_read_url(bucket, &location.key).await
+                } else {
+                    store
+                        .signed_read_url(bucket, &location.key, Duration::from_secs(300))
+                        .await
+                };
             match url {
                 Ok(url) => Ok(Some(MediaRead::Redirect { url })),
                 Err(error) => Err(CoreServiceError::infrastructure(

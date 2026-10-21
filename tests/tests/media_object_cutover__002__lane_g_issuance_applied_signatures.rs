@@ -1,18 +1,16 @@
-//! MEDIA.OBJECT_CUTOVER — Lane G: Vault ISSUANCE resolves the broker pre-signature object-first
-//! (TST-MEDIA-OBJECT-CUTOVER-002).
+//! MEDIA.OBJECT_CUTOVER — Lane J: the Vault is OBJECT-ONLY (TST-MEDIA-OBJECT-CUTOVER-002).
 //!
-//! Contract: the last blob dependency in Vault issuance is gone. `VaultDao::issue_from_form_instance`
-//! (`db/src/vault/bind_form_to_contract.rs`) now receives the store through
-//! `IssuedSignatureAssetReader`. When the deployment owns an object store, issuance resolves Lisa's
-//! standing pre-signature through `VaultDao::resolve_applied_signatures_object_first` — the SAME
-//! policy, declared-signer check, slot mapping and `ApplyingActor` authority as before, but with the
-//! protected asset fetched from a VERIFIED object and checked against its media record; a
-//! missing/unverified object is a refusal, never a silent `media.file_data` read. The legacy resolver
-//! (`resolve_applied_signatures_in` → `broker_signature::resolve_for_issuance`) runs only in the
-//! store-absent (tests/dev) branch.
+//! Contract: the Vault has no legacy blob path left. `db/src/vault` never names `media.file_data`; the
+//! private, guest, signing, signed-copy and completion doors resolve the exact same entitlement SQL over
+//! storage pointers and fetch bytes from the object store; and Vault issuance requires a store — the
+//! rendered PDF is uploaded before its media row is written and the broker's standing pre-signature is
+//! read through the store, with no store-absent blob branch and no `MEDIA_OBJECT_STORAGE_READS` switch in
+//! the Vault.
 //!
-//! The only `media.file_data` write left in the issuance file is the legacy PDF blob insert for the
-//! store-absent branch; the applied-signature path never selects it.
+//! A deployment without a store answers the typed `VAULT_OBJECT_STORE_UNAVAILABLE` configuration error
+//! rather than serving a blob. (The composition root still calls `with_object_reads` for signature
+//! compatibility; the Vault service accepts and ignores it — every byte it serves already comes from the
+//! store.)
 //!
 //! Level: L0 Pure — filesystem reads only, no database, no network.
 //!
@@ -21,95 +19,193 @@
 
 use test_harness::source;
 
+/// The body of one method inside an `impl` block (the same smallest honest bound the other pins use).
+fn method_body<'a>(text: &'a str, signature: &str) -> &'a str {
+    let start = text
+        .find(signature)
+        .unwrap_or_else(|| panic!("`{signature}` must be present in the source"));
+    let tail = &text[start..];
+    let end = tail.find("\n    }\n").map_or(tail.len(), |index| index + 6);
+    &tail[..end]
+}
+
 #[test]
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-MEDIA-OBJECT-CUTOVER-002); the file and the assay use it.
 fn media_object_cutover_002__lane_g_issuance_applied_signatures() {
     let root = source::workspace_root();
     let issue = source::read(&root.join("db/src/vault/bind_form_to_contract.rs"));
+    let dao = source::read(&root.join("db/src/vault/database.rs"));
     let vault = source::read(&root.join("web/src/vault/mod.rs"));
+    let preview = source::read(&root.join("web/src/vault/applied_signatures.rs"));
 
-    // 1. THE SEAM: issuance takes the store-reader port, and the store-backed branch is the OBJECT-FIRST
-    //    resolver. Source order is the branch order: the object-first call must precede the legacy one.
-    assert!(
-        issue.contains("read_protected_asset: Option<R>"),
-        "issuance must accept the object reader, so a store-backed deployment never needs the blob"
-    );
-    let object_first = issue
-        .find("resolve_applied_signatures_object_first(")
-        .expect("issuance must call the object-first resolver");
-    let legacy = issue
-        .find(".resolve_applied_signatures_in(")
-        .expect("the legacy resolver must remain as the store-absent fallback");
-    assert!(
-        object_first < legacy,
-        "the store-backed branch must be resolved object-first"
-    );
-    assert!(
-        issue.contains("Some(read_object) =>"),
-        "a lent store selects the object-first branch"
-    );
-    let object_branch = &issue[object_first..object_first + 360];
-    assert!(
-        object_branch.contains("SignatureAuthority::ApplyingActor"),
-        "the object-first issuance keeps the ApplyingActor authority (a refusal fails the document)"
-    );
-    assert!(
-        object_branch.contains("read_object,"),
-        "the object-first branch hands its store reader to the resolver"
-    );
-    assert!(
-        issue.matches("SignatureAuthority::ApplyingActor").count() >= 2,
-        "BOTH branches resolve under the issuance authority, object-first or legacy"
-    );
-    // The legacy branch is the one that runs inside the transaction's own connection.
-    assert!(
-        issue.contains(".resolve_applied_signatures_in(\n                        tx.connection(),"),
-        "the legacy branch keeps the transaction connection (no store => legacy read)"
-    );
+    // 1. ZERO BLOB REFERENCES IN THE VAULT. The module owns entitlement SQL and storage pointers only.
+    for (name, text) in [
+        ("db/src/vault/database.rs", &dao),
+        ("db/src/vault/bind_form_to_contract.rs", &issue),
+        ("web/src/vault/mod.rs", &vault),
+    ] {
+        assert!(
+            !text.to_lowercase().contains("file_data"),
+            "{name} must not name the legacy media blob column, even in prose or a predicate"
+        );
+    }
 
-    // 2. NO SIGNATURE BLOB READ ON THE OBJECT PATH. The issuance file never names the blob loader and never
-    //    selects file_data; the ONE remaining file_data reference is the legacy PDF-write blob branch.
+    // 2. THE ISSUANCE SEAM REQUIRES THE STORE. The PDF is uploaded before its row, and the applied signature
+    //    is resolved object-first — no Option, no legacy resolver on the transaction connection.
     assert!(
-        !issue.contains("load_protected_asset("),
-        "issuance must resolve the asset through the resolver, not load the blob itself"
+        issue.contains("read_protected_asset: R,"),
+        "issuance requires the store reader; a deployment without a store is refused before this seam"
     );
     assert!(
-        !issue.contains("select file_data"),
-        "issuance must not select media.file_data for the signature asset"
+        issue.contains("resolve_applied_signatures_object_first("),
+        "issuance resolves the broker pre-signature through the object-first resolver"
     );
-    assert_eq!(
-        issue.matches("insert into media (file_data").count(),
-        1,
-        "the only blob write left is the legacy PDF insert for the store-absent branch"
+    assert!(
+        !issue.contains("resolve_applied_signatures_in(")
+            && !issue.contains("resolve_for_issuance"),
+        "issuance must not reach the legacy blob resolver"
+    );
+    assert!(
+        issue.contains("insert_media_object_with_id_tx"),
+        "the issued PDF is persisted as an object-first media row"
+    );
+    assert!(
+        !issue.contains("insert into media (file_data"),
+        "the issued PDF must never be written as a media blob"
+    );
+    let upload_at = issue
+        .find("upload(&media_id, &artifact.filename, &artifact.bytes)")
+        .expect("the PDF is uploaded");
+    let row_at = issue
+        .find("insert_media_object_with_id_tx")
+        .expect("the object row is written");
+    assert!(
+        upload_at < row_at,
+        "the object must be uploaded and verified BEFORE the media row that names it"
     );
 
-    // 3. THE WEB ADAPTER: the service lends ITS store, and only when one is configured does the DAO take the
-    //    object-first path. The reader is a verified-object `get_object` read, with no blob fallback.
+    // 3. THE DB READERS ARE OBJECT-ONLY. Every door's reader selects the pointer, and the SQL guards live on
+    //    the object methods — the byte twins are gone.
+    for method in [
+        "media_document_object",
+        "public_listing_document_object",
+        "signing_document_object",
+        "signing_signed_object",
+        "completion_artifact_objects",
+    ] {
+        let body = source::impl_body(&dao, "VaultDao", method);
+        assert!(
+            body.contains("object_bucket is not null") && body.contains("object_key is not null"),
+            "{method} must serve only object-backed rows"
+        );
+        assert!(
+            body.to_lowercase().contains("media_type = 'document'"),
+            "{method} must serve documents only"
+        );
+    }
+    for gone in [
+        "pub async fn media_bytes",
+        "pub async fn media_object_location",
+        "pub async fn public_listing_document_bytes",
+        "pub async fn signing_document_bytes",
+        "pub async fn signing_signed_bytes",
+        "pub async fn completion_artifacts",
+    ] {
+        assert!(
+            !dao.contains(gone),
+            "the legacy blob reader `{gone}` must be gone from the Vault DAO"
+        );
+    }
+
+    // 4. THE WEB DOORS ARE OBJECT-ONLY AND REQUIRE A STORE. The migration switch is gone from the Vault; a
+    //    deployment without a store gets the typed configuration error.
     assert!(
-        vault.contains("pub trait IssuedSignatureAssetReader"),
-        "the store port issuance needs is declared on the web side"
+        vault.contains("fn vault_store(&self)") && vault.contains("VAULT_OBJECT_STORE_UNAVAILABLE"),
+        "Vault byte paths require the store and answer a typed configuration error without one"
     );
     assert!(
-        vault.contains("ObjectStoreSignatureAssetReader::new(self.object_store.clone())"),
-        "issuance lends the SAME configured store that writes the PDF"
-    );
-    // `then_some` (not a bare `then`) keeps the selection eager and side-effect free: the closure only
-    // captures the store handle it would read through.
-    assert!(
-        vault.contains("object_store_configured()") && vault.contains(".then_some("),
-        "only a configured store selects object-first; no store keeps the legacy read"
+        !vault.contains("MEDIA_OBJECT_STORAGE_READS"),
+        "the Vault must not consult MEDIA_OBJECT_STORAGE_READS"
     );
     assert!(
-        vault.contains("async fn read_object(&self, bucket: &str, key: &str)"),
-        "the reader is the object-bytes read the resolver needs"
+        !vault.contains("object_reads:"),
+        "the Vault service has no legacy-read switch left; `with_object_reads` is a compatibility no-op"
+    );
+    let doors = [
+        (
+            "media_bytes",
+            method_body(&vault, "pub async fn media_bytes("),
+        ),
+        (
+            "media_read",
+            method_body(&vault, "pub async fn media_read("),
+        ),
+        (
+            "public_listing_document_bytes",
+            method_body(&vault, "pub async fn public_listing_document_bytes("),
+        ),
+        (
+            "public_listing_document_read",
+            method_body(&vault, "pub async fn public_listing_document_read("),
+        ),
+        (
+            "signing_document_bytes",
+            method_body(&vault, "pub async fn signing_document_bytes("),
+        ),
+        (
+            "signing_document_read",
+            method_body(&vault, "pub async fn signing_document_read("),
+        ),
+        (
+            "signing_signed_bytes",
+            method_body(&vault, "pub async fn signing_signed_bytes("),
+        ),
+        (
+            "signing_signed_read",
+            method_body(&vault, "pub async fn signing_signed_read("),
+        ),
+        (
+            "completion_artifacts",
+            method_body(&vault, "pub async fn completion_artifacts("),
+        ),
+    ];
+    for (name, body) in doors {
+        assert!(
+            body.contains("vault_store()"),
+            "`{name}` must require the object store (typed configuration error without one)"
+        );
+        assert!(
+            !body.contains("repository.media_bytes")
+                && !body.contains("repository.media_object_location"),
+            "`{name}` must not fall back to a repository blob reader"
+        );
+    }
+    // The writer and asset reader are bound to a required store, not an Option.
+    assert!(
+        vault.contains("pub fn new(store: Arc<dyn AbstractObjectStoreService>)"),
+        "both object ports are constructed from a required store"
     );
     assert!(
-        vault.contains(".get_object(bucket, key)"),
-        "the reader fetches the protected asset from object storage"
+        !vault.contains("object_store_configured"),
+        "there is no store-present/absent branch left in the Vault"
     );
-    // The adapter maps the DB bucket string to the logical bucket; an unknown domain is a refusal.
     assert!(
-        vault.contains("unknown object bucket: {bucket}"),
-        "a bucket the store does not know is refused, never guessed"
+        vault.contains("get_object(bucket, key)"),
+        "completion attachments and previews read the object through the store"
+    );
+
+    // 5. THE PREVIEW is object-only too: a configured store and database are required, and the legacy
+    //    repository resolver is not a fallback.
+    assert!(
+        preview.contains("VAULT_OBJECT_STORE_UNAVAILABLE"),
+        "the preview refuses with the typed configuration error without a store"
+    );
+    assert!(
+        preview.contains("resolve_applied_signatures_object_first"),
+        "the preview resolves the protected asset object-first"
+    );
+    assert!(
+        !preview.contains("self.repository.resolve_applied_signatures"),
+        "the preview must not fall back to the legacy repository resolver"
     );
 }

@@ -32,13 +32,15 @@ use std::path::Path;
 use test_harness::source;
 
 /// Provider and delivery-platform names that must not name a field or type of a canonical domain record.
-const PROVIDER_TOKENS: [&str; 28] = [
+///
+/// The retired signing provider was removed from this list in Lane L (the product is Luxesign); keeping it would
+/// leave a reference to a vendor the tree no longer has.
+const PROVIDER_TOKENS: [&str; 27] = [
     "mux",
     "apple",
     "gmail",
     "google",
     "whatsapp",
-    "boldsign",
     "docusign",
     "dropbox",
     "neon",

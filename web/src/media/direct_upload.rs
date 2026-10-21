@@ -1016,7 +1016,6 @@ mod tests {
                 ..Default::default()
             },
             Some(store.clone()),
-            false,
         )
         .await;
         let bytes = jpeg(800, 600);
@@ -1053,7 +1052,7 @@ mod tests {
     #[tokio::test]
     async fn initiate_refuses_a_caller_without_property_write() {
         let store = Arc::new(FakeStore::default());
-        let media = service(FakeRepository::default(), Some(store.clone()), false).await;
+        let media = service(FakeRepository::default(), Some(store.clone())).await;
 
         let error = media
             .initiate_property_media_direct_upload(
@@ -1071,7 +1070,7 @@ mod tests {
     #[tokio::test]
     async fn initiate_validates_the_declaration_before_anything_is_signed() {
         let store = Arc::new(FakeStore::default());
-        let media = service(FakeRepository::default(), Some(store.clone()), false).await;
+        let media = service(FakeRepository::default(), Some(store.clone())).await;
         let bytes = jpeg(100, 100);
 
         let mut bad_type = upload_request(&bytes);
@@ -1135,7 +1134,6 @@ mod tests {
                 ..Default::default()
             },
             Some(store.clone()),
-            false,
         )
         .await;
 
@@ -1154,7 +1152,7 @@ mod tests {
 
     #[tokio::test]
     async fn initiate_without_an_object_store_is_a_typed_failure() {
-        let media = service(FakeRepository::default(), None, false).await;
+        let media = service(FakeRepository::default(), None).await;
 
         let error = media
             .initiate_property_media_direct_upload(upload_request(&jpeg(100, 100)), &root_context())
@@ -1171,7 +1169,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let media = service(repository, Some(store.clone()), false).await;
+        let media = service(repository, Some(store.clone())).await;
         let bytes = jpeg(800, 600);
         let (session, key) = initiate_and_put(&media, &store, &bytes, true).await;
 
@@ -1222,9 +1220,6 @@ mod tests {
             assert_eq!(row.mime_type, "image/jpeg");
             assert_eq!(row.object.status, "VERIFIED");
         }
-
-        // NO CHUNK STAGING: the direct path never opens a manifest or stages a piece.
-        assert_eq!(media.repository.blob_reads.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -1234,7 +1229,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let media = service(repository, Some(store.clone()), false).await;
+        let media = service(repository, Some(store.clone())).await;
         let declared = jpeg(800, 600);
         let session = media
             .initiate_property_media_direct_upload(upload_request(&declared), &root_context())
@@ -1278,7 +1273,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let media = service(repository, Some(store.clone()), false).await;
+        let media = service(repository, Some(store.clone())).await;
         let declared = jpeg(400, 300);
         let session = media
             .initiate_property_media_direct_upload(upload_request(&declared), &root_context())
@@ -1317,7 +1312,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let media = service(repository, Some(store.clone()), false).await;
+        let media = service(repository, Some(store.clone())).await;
         let bytes = jpeg(400, 300);
         let session = media
             .initiate_property_media_direct_upload(upload_request(&bytes), &root_context())
@@ -1348,7 +1343,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let media = service(repository, Some(store.clone()), false).await;
+        let media = service(repository, Some(store.clone())).await;
         let session = media
             .initiate_property_media_direct_upload(upload_request(&jpeg(400, 300)), &root_context())
             .await
@@ -1374,7 +1369,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let media = service(repository, Some(store.clone()), false).await;
+        let media = service(repository, Some(store.clone())).await;
         let bytes = jpeg(200, 200);
         let session = media
             .initiate_property_media_direct_upload(upload_request(&bytes), &root_context())
@@ -1412,7 +1407,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let media = service(repository, Some(store.clone()), false).await;
+        let media = service(repository, Some(store.clone())).await;
         let bytes = jpeg(200, 200);
         let (session, _) = initiate_and_put(&media, &store, &bytes, true).await;
 
@@ -1439,7 +1434,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let mut media = service(repository, Some(store.clone()), false).await;
+        let mut media = service(repository, Some(store.clone())).await;
         let bytes = jpeg(300, 200);
         let (session, key) = initiate_and_put(&media, &store, &bytes, true).await;
         // The row was recorded by the first finalize whose answer never arrived.
@@ -1473,7 +1468,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let media = service(repository, Some(store.clone()), false).await;
+        let media = service(repository, Some(store.clone())).await;
         let bytes = jpeg(400, 300);
         let (session, _) = initiate_and_put(&media, &store, &bytes, true).await;
 
@@ -1502,7 +1497,7 @@ mod tests {
     async fn finalize_refuses_when_the_publication_bucket_changed_in_flight() {
         let repository = FakeRepository::default(); // private when the upload is initiated
         let store = Arc::new(FakeStore::default());
-        let mut media = service(repository, Some(store.clone()), false).await;
+        let mut media = service(repository, Some(store.clone())).await;
         let bytes = jpeg(400, 300);
         let session = media
             .initiate_property_media_direct_upload(upload_request(&bytes), &root_context())
@@ -1540,7 +1535,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let media = service(repository, Some(store.clone()), false).await;
+        let media = service(repository, Some(store.clone())).await;
         let bytes = jpeg(200, 200);
         let session = media
             .initiate_property_media_direct_upload(upload_request(&bytes), &root_context())
@@ -1579,7 +1574,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let mut media = service(repository, Some(store.clone()), false).await;
+        let mut media = service(repository, Some(store.clone())).await;
         let bytes = jpeg(300, 200);
         let (session, key) = initiate_and_put(&media, &store, &bytes, true).await;
         let token = session.upload_id.as_deref().expect("the token");

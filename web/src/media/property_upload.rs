@@ -476,7 +476,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let service = service(repository, Some(store.clone()), false).await;
+        let service = service(repository, Some(store.clone())).await;
 
         let stored = service
             .upload_property_media_full(request(jpeg(800, 600)), &root_context())
@@ -515,8 +515,6 @@ mod tests {
             kinds.push(row.derivative_kind.clone().unwrap_or_default());
         }
         assert_eq!(kinds, vec!["web", "card", "thumb"]);
-
-        assert_eq!(service.repository.blob_reads.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -526,7 +524,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let service = service(repository, Some(store.clone()), false).await;
+        let service = service(repository, Some(store.clone())).await;
 
         let error = service
             .upload_property_media_full(request(jpeg(400, 300)), &root_context())
@@ -551,7 +549,7 @@ mod tests {
         let repository = FakeRepository::default();
         let store = Arc::new(FakeStore::default());
         *store.fail_verify_at.lock().expect("verify poisoned") = Some(3);
-        let service = service(repository, Some(store.clone()), false).await;
+        let service = service(repository, Some(store.clone())).await;
 
         let error = service
             .upload_property_media_full(request(jpeg(400, 300)), &root_context())
@@ -572,7 +570,7 @@ mod tests {
     async fn a_file_that_is_not_an_image_uploads_nothing() {
         let repository = FakeRepository::default();
         let store = Arc::new(FakeStore::default());
-        let service = service(repository, Some(store.clone()), false).await;
+        let service = service(repository, Some(store.clone())).await;
 
         let error = service
             .upload_property_media_full(
@@ -593,7 +591,7 @@ mod tests {
 
         let mut bad_type = request(jpeg(100, 100));
         bad_type.mime_type = "text/html".into();
-        let media = service(FakeRepository::default(), Some(store.clone()), false).await;
+        let media = service(FakeRepository::default(), Some(store.clone())).await;
         let error = media
             .upload_property_media_full(bad_type, &root_context())
             .await
@@ -602,7 +600,7 @@ mod tests {
 
         let mut empty = request(Vec::new());
         empty.mime_type = "image/jpeg".into();
-        let media = service(FakeRepository::default(), Some(store.clone()), false).await;
+        let media = service(FakeRepository::default(), Some(store.clone())).await;
         let error = media
             .upload_property_media_full(empty, &root_context())
             .await
@@ -611,7 +609,7 @@ mod tests {
 
         let mut bad_role = request(jpeg(100, 100));
         bad_role.role = "video".into();
-        let media = service(FakeRepository::default(), Some(store.clone()), false).await;
+        let media = service(FakeRepository::default(), Some(store.clone())).await;
         let error = media
             .upload_property_media_full(bad_role, &root_context())
             .await
@@ -628,7 +626,7 @@ mod tests {
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let service = service(repository, Some(store.clone()), false).await;
+        let service = service(repository, Some(store.clone())).await;
 
         let stored = service
             .upload_property_media_full(request(jpeg(400, 300)), &root_context())
@@ -644,7 +642,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_upload_without_an_object_store_is_a_typed_failure() {
-        let service = service(FakeRepository::default(), None, false).await;
+        let service = service(FakeRepository::default(), None).await;
 
         let error = service
             .upload_property_media_full(request(jpeg(100, 100)), &root_context())
@@ -655,36 +653,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn object_reads_never_fall_back_to_the_legacy_blob() {
+    async fn a_row_with_no_object_is_a_typed_failure() {
         let repository = FakeRepository {
-            blob: Some(("image/jpeg".into(), vec![1, 2, 3])),
             location: None,
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
-        let service = service(repository, Some(store), true).await;
+        let service = service(repository, Some(store)).await;
 
         let error = service
             .media_read("missing-media", &root_context())
             .await
-            .expect_err("a row with no object must be a typed failure, not a blob read");
+            .expect_err("a row with no object must be a typed failure");
 
         assert_eq!(error.code(), "MEDIA_OBJECT_NOT_FOUND");
-        assert_eq!(
-            service.repository.blob_reads.load(Ordering::SeqCst),
-            0,
-            "the legacy blob must not be read while the object switch is on"
-        );
     }
 
     #[tokio::test]
     async fn an_unverified_object_is_refused_instead_of_served() {
         let repository = FakeRepository {
             location: Some(location("MIGRATION_PENDING", "private")),
-            blob: Some(("image/jpeg".into(), vec![1, 2, 3])),
             ..Default::default()
         };
-        let service = service(repository, Some(Arc::new(FakeStore::default())), true).await;
+        let service = service(repository, Some(Arc::new(FakeStore::default()))).await;
 
         let error = service
             .media_read("half-migrated", &root_context())
@@ -692,17 +683,15 @@ mod tests {
             .expect_err("an unverified object is not servable");
 
         assert_eq!(error.code(), "MEDIA_OBJECT_NOT_VERIFIED");
-        assert_eq!(service.repository.blob_reads.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
     async fn a_verified_public_object_redirects_to_its_public_url() {
         let repository = FakeRepository {
             location: Some(location("VERIFIED", "public")),
-            blob: Some(("image/jpeg".into(), vec![1, 2, 3])),
             ..Default::default()
         };
-        let service = service(repository, Some(Arc::new(FakeStore::default())), true).await;
+        let service = service(repository, Some(Arc::new(FakeStore::default()))).await;
 
         let found = service
             .media_read("public-photo", &root_context())
@@ -716,19 +705,17 @@ mod tests {
             }
             MediaRead::Bytes { .. } => panic!("a public object must redirect, not stream the blob"),
         }
-        assert_eq!(service.repository.blob_reads.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
     async fn a_url_failure_is_typed_not_a_blob_fallback() {
         let repository = FakeRepository {
             location: Some(location("VERIFIED", "private")),
-            blob: Some(("image/jpeg".into(), vec![1, 2, 3])),
             ..Default::default()
         };
         let store = Arc::new(FakeStore::default());
         store.fail_urls.store(true, Ordering::SeqCst);
-        let service = service(repository, Some(store), true).await;
+        let service = service(repository, Some(store)).await;
 
         let error = service
             .media_read("private-photo", &root_context())
@@ -736,31 +723,5 @@ mod tests {
             .expect_err("the URL could not be generated");
 
         assert_eq!(error.code(), "MEDIA_OBJECT_READ_URL_FAILED");
-        assert_eq!(service.repository.blob_reads.load(Ordering::SeqCst), 0);
-    }
-
-    #[tokio::test]
-    async fn the_legacy_blob_is_still_read_while_the_switch_is_off() {
-        let repository = FakeRepository {
-            blob: Some(("image/jpeg".into(), vec![1, 2, 3])),
-            ..Default::default()
-        };
-        let store = Arc::new(FakeStore::default());
-        let service = service(repository, Some(store), false).await;
-
-        let found = service
-            .media_read("legacy-photo", &root_context())
-            .await
-            .expect("the legacy read is unchanged")
-            .expect("the row exists");
-
-        match found {
-            MediaRead::Bytes { mime_type, bytes } => {
-                assert_eq!(mime_type, "image/jpeg");
-                assert_eq!(bytes, vec![1, 2, 3]);
-            }
-            MediaRead::Redirect { .. } => panic!("the switch is off; the blob is canonical"),
-        }
-        assert_eq!(service.repository.blob_reads.load(Ordering::SeqCst), 1);
     }
 }

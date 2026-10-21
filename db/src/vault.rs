@@ -6,8 +6,7 @@ use model::{
     IssuedDocumentListItem, NextIssuedVersionRequest, SignedArtifactRef, TransactionDocument,
     TransactionDocumentSource, TransactionDocumentState, TransactionDocumentType,
     TransitionTransactionDocumentRequest, VaultActorScope, VaultArtifactFailure,
-    VaultCommandOutcome, VaultCommandResult, VaultMediaBytes, VaultRenderRequest,
-    VaultRenderedArtifact,
+    VaultCommandOutcome, VaultCommandResult, VaultRenderRequest, VaultRenderedArtifact,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};

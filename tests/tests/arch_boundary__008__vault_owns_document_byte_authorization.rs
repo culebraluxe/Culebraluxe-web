@@ -7,24 +7,15 @@
 //! listing exactly as a `document`, and must have **no** `transaction_document` lineage. Those clauses are what stop an
 //! anonymous visitor receiving a signed contract, and they are asserted here clause by clause.
 //!
-//! The honest state of the tree today is that the ownership is **not exclusive**, and this test says so instead of
-//! passing quietly. Two further service doors hand out a `media` row's bytes under weaker actions, and the readers they
-//! — and the CLI — stand on carry **no `media_type` restriction at all**:
+//! The byte-ownership debt has been PAID down to zero service doors outside the Vault and zero readers with no
+//! `media_type` restriction: the media and public-listing byte doors were replaced by object-first reads, the CLI
+//! backfill went object-first, and the Vault itself is object-only (Lane J removed its five blob readers; its
+//! entitlement SQL now guards storage-pointer selects). What remains reading `media.file_data` is pinned below and is
+//! legacy-only: the migration scan and the broker-signature store-absent fallback.
 //!
-//!   - `web/src/media/media_bytes.rs` — service door `media.bytes`, action `property.read`, over
-//!     `MediaDao::media_bytes`, whose SQL is `select ... from media where id = $1` with no type filter.
-//!   - `web/src/public_listings.rs` — service door `property.publicMediaBytes`, action `property.public.read`
-//!     (anonymous), over `PublicListingDao::media_bytes`, which gates on the Property link but never on `media_type`.
-//!   - (`MediaDao::original_bytes` was a third unrestricted reader reachable only from the CLI; the CLI's
-//!     `media-cards` backfill went object-first, so that debt is PAID and its pin was removed here. `insert_copy`'s blob
-//!     writer went with it.)
-//!
-//! So a `document` row — including a signed contract carrying `transaction_document` lineage — is reachable through a
-//! door that asks for less than the Vault asks, and (through the public door) with no actor at all. Fixing that means
-//! giving each reader the `media_type` it is allowed to serve, or routing document bytes exclusively through the Vault;
-//! it does not mean widening this test. Both the door set and the reader set are pinned in **both directions**: a new
-//! door or a new reader fails (that is the new hole), and a pin that no longer matches fails too (so the debt may
-//! only shrink, and a fix cannot land without being recorded here).
+//! Both the door set and the reader set are pinned in **both directions**: a new byte reader or service door fails
+//! (that is the new hole), and a pin that no longer matches fails too (so the debt may only shrink, and a fix cannot
+//! land without being recorded here).
 //!
 //! What this test does not cover, stated so nobody reads more into a green run: it reads sources, not behaviour — it
 //! does not execute the SQL, and it does not prove the Vault's own entitlement decision (`vault.read`) is correct.
@@ -43,38 +34,26 @@ use test_harness::source;
 ///
 /// The set is pinned so a new byte reader is a deliberate entry here rather than a new way to reach a file, and so a
 /// reader that disappears is noticed.
-const MEDIA_BYTE_READERS: [&str; 9] = [
-    // Lane F: the broker-signature asset went object-first; the blob read survives ONLY in the store-absent
-    // fallback, and it keeps its `media_type = 'image'` restriction. Renamed so the pin names the function that
-    // actually reads the blob rather than the dispatcher above it.
+const MEDIA_BYTE_READERS: [&str; 2] = [
+    // Lane J: the Vault went OBJECT-ONLY. Its five blob readers (`media_bytes`, `public_listing_document_bytes`,
+    // `signing_document_bytes`, `signing_signed_bytes`, `completion_artifacts`) are gone; the entitlement SQL now
+    // runs over storage pointers (`*_object` readers) and never selects `media.file_data`.
+    // The media and public-listing byte doors went object-first too. What is left is legacy-only:
+    // the migration scan (it must hash the stored bytes before uploading them) and the broker-signature
+    // store-absent fallback.
     "db/src/broker_signature.rs load_legacy_protected_asset",
     "db/src/media/media_row.rs list_media_for_migration",
-    "db/src/media/media_row.rs media_bytes",
-    "db/src/public_listing.rs media_bytes",
-    "db/src/vault/database.rs media_bytes",
-    "db/src/vault/database.rs public_listing_document_bytes",
-    // The e-signature door (2026-10-06): a signer is shown the document they are asked to sign.
-    "db/src/vault/database.rs signing_document_bytes",
-    // The signed copy a recipient may keep once the envelope is completed, and the files a completion email attaches
-    // (2026-10-07). Each has its own SQL proof of `completed`; see SIGNED_COPY_GUARDS.
-    "db/src/vault/database.rs signing_signed_bytes",
-    "db/src/vault/database.rs completion_artifacts",
 ];
 
 /// The byte readers that do **not** restrict `media_type`: the debt that lets a document's bytes out of a door that is
 /// not the Vault's. Pinned so it can only shrink — and so adding the missing filter to one of them fails the test until
 /// the pin is updated, which is the record that the hole was closed.
-const TYPE_UNRESTRICTED_READERS: [&str; 2] = [
-    "db/src/media/media_row.rs media_bytes",
-    "db/src/public_listing.rs media_bytes",
-];
+const TYPE_UNRESTRICTED_READERS: [&str; 0] = [];
 
 /// Every service method in `web/src` whose return type is a file's bytes, as
 /// `path function resource action`. A door with no `authorize` call cannot appear here at all: the scanner reports an
 /// empty action, which fails the comparison.
-const BYTE_DOORS: [&str; 7] = [
-    "web/src/media/media_bytes.rs media_bytes media property.read",
-    "web/src/public_listings.rs media_bytes property property.public.read",
+const BYTE_DOORS: [&str; 5] = [
     "web/src/vault/mod.rs media_bytes vault vault.read",
     "web/src/vault/mod.rs public_listing_document_bytes vault vault.publicListingDocument.read",
     "web/src/vault/mod.rs signing_document_bytes vault vault.signingDocument.read",
@@ -85,10 +64,11 @@ const BYTE_DOORS: [&str; 7] = [
 /// The clauses the SIGNED-COPY door and the COMPLETION-ARTIFACTS reader must keep: only a `completed` envelope has a
 /// sealed copy, the sealed copy is the request's own document's `signed_media_id`, and (for the recipient's door) the
 /// recipient must belong to that envelope.
-const SIGNED_COPY_GUARDS: [&str; 5] = [
+const SIGNED_COPY_GUARDS: [&str; 6] = [
     "sr.status = 'completed'",
     "td.id = sr.transaction_document_id",
-    "m.file_data is not null",
+    "m.object_bucket is not null",
+    "m.object_key is not null",
     "sr.id = $1::uuid",
     "r.id = $2::uuid",
 ];
@@ -466,8 +446,8 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
     let readers = scan_readers(&db_root);
     let doors = scan_doors(&server_root);
     assert!(
-        readers.len() >= 5,
-        "the byte-reader detector must find the readers this contract is about; {} found",
+        readers.len() >= 2,
+        "the byte-reader detector must find the legacy readers this contract still pins; {} found",
         readers.len()
     );
     assert!(
@@ -499,72 +479,76 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
         );
     }
 
-    // 3. THE VAULT'S OWN READERS SERVE DOCUMENTS ONLY, and the guest reader proves the entitlement in SQL. This is the
-    //    authorization the contract names, so it is asserted clause by clause rather than as "the file mentions it".
+    // 3. THE VAULT IS OBJECT-ONLY. It has NO blob reader left: every entitlement decision that used to guard a
+    //    `file_data` select now guards a storage-pointer select, so the same clauses are asserted against the
+    //    object readers — and the column itself must not appear anywhere under db/src/vault.
     let vault_readers: Vec<&Reader> = readers
         .iter()
         .filter(|reader| reader.file == "db/src/vault/database.rs")
         .collect();
-    assert_eq!(
-        vault_readers.len(),
-        5,
-        "the Vault owns exactly five byte readers (the private, the anonymous, the signer's document, the signer's \
-         sealed copy and the completion email's files)"
-    );
-    for reader in &vault_readers {
-        assert!(
-            reader.restricted && reader.statement.contains("media_type = 'document'"),
-            "vault/{} must serve documents only",
-            reader.function
-        );
-    }
-    let private = vault_readers
-        .iter()
-        .find(|reader| reader.function == "media_bytes")
-        .expect("the private reader is pinned in MEDIA_BYTE_READERS");
     assert!(
-        private.statement.contains("file_data is not null"),
-        "the private reader must not return an empty file as a document"
+        vault_readers.is_empty(),
+        "the Vault must not read media.file_data at all; found {:?}",
+        vault_readers
+            .iter()
+            .map(|reader| reader.function.clone())
+            .collect::<Vec<_>>()
     );
-    let guest = vault_readers
-        .iter()
-        .find(|reader| reader.function == "public_listing_document_bytes")
-        .expect("the anonymous reader is pinned in MEDIA_BYTE_READERS");
+    let dao = source::read(&db_root.join("vault/database.rs"));
+    assert!(
+        !dao.to_lowercase().contains("file_data"),
+        "db/src/vault must not name the legacy blob column, even in a predicate"
+    );
+
+    let object_reader = |method: &str| {
+        let body = source::impl_body(&dao, "VaultDao", method);
+        assert!(
+            body.to_lowercase().contains("media_type = 'document'"),
+            "vault/{method} must serve documents only"
+        );
+        assert!(
+            !body.to_lowercase().contains("file_data"),
+            "vault/{method} must never select the legacy blob"
+        );
+        body
+    };
+    let private = object_reader("media_document_object");
+    assert!(
+        private.contains("object_bucket is not null") && private.contains("object_key is not null"),
+        "the private reader must serve only object-backed documents"
+    );
+    let guest = object_reader("public_listing_document_object");
     for guard in GUEST_DOCUMENT_GUARDS {
         assert!(
-            guest.statement.contains(&normalized(guard)),
+            guest.contains(&normalized(guard)),
             "the anonymous Vault door must keep its guard `{guard}`: without it a guest can receive a file the Vault \
              exists to withhold"
         );
     }
     assert!(
-        guest.statement.contains("'application/pdf'"),
+        guest.contains("'application/pdf'"),
         "the anonymous Vault door must serve PDFs only"
     );
-    let signing = vault_readers
-        .iter()
-        .find(|reader| reader.function == "signing_document_bytes")
-        .expect("the signer's reader is pinned in MEDIA_BYTE_READERS");
+    let signing = object_reader("signing_document_object");
     for guard in SIGNING_DOCUMENT_GUARDS {
         assert!(
-            signing.statement.contains(&normalized(guard)),
-            "the signing Vault door must keep its guard `{guard}`: without it an emailed link could open a document that is \
-             not the signer's to read"
+            signing.contains(&normalized(guard)),
+            "the signing Vault door must keep its guard `{guard}`: without it an emailed link could open a document \
+             that is not the signer's to read"
         );
     }
-
-    for (function, guards) in [
-        ("signing_signed_bytes", &SIGNED_COPY_GUARDS[..]),
-        ("completion_artifacts", &COMPLETION_ARTIFACT_GUARDS[..]),
+    for (method, guards) in [
+        ("signing_signed_object", &SIGNED_COPY_GUARDS[..]),
+        (
+            "completion_artifact_objects",
+            &COMPLETION_ARTIFACT_GUARDS[..],
+        ),
     ] {
-        let reader = vault_readers
-            .iter()
-            .find(|reader| reader.function == function)
-            .unwrap_or_else(|| panic!("{function} is pinned in MEDIA_BYTE_READERS"));
+        let body = object_reader(method);
         for guard in guards {
             assert!(
-                reader.statement.contains(&normalized(guard)),
-                "`{function}` must keep its guard `{guard}`: without it a document that is not finished could be \
+                body.contains(&normalized(guard)),
+                "`{method}` must keep its guard `{guard}`: without it a document that is not finished could be \
                  handed out as the signed one"
             );
         }
@@ -657,34 +641,23 @@ fn arch_boundary_008__vault_owns_document_byte_authorization() {
         "the completion email's door must ask for its own reserved action"
     );
 
-    // 7. THE DEBT, NAMED. The doors that are not the Vault's are the weaker ones, and the two `media` readers beneath
-    //    them do not restrict `media_type` — so a document's bytes are reachable without the Vault's decision. This
-    //    assertion exists to make that a fact the suite states, rather than a thing a reader has to notice.
-    let weak_doors = [
-        "web/src/media/media_bytes.rs media_bytes",
-        "web/src/public_listings.rs media_bytes",
-    ];
-    for door in doors.iter().filter(|door| door.resource != "vault") {
-        let key = format!("{} {}", door.file, door.function);
-        assert!(
-            weak_doors.contains(&key.as_str()),
-            "{} `{}` hands out bytes under `{}` and is not one of the two known weaker doors; a new way to a file is \
-             a new hole, not a convenience",
-            door.file,
-            door.function,
-            door.action
-        );
-    }
-    let weak_readers: Vec<String> = unrestricted
+    // 7. THE DEBT IS PAID. Every byte door left is a Vault door, and no reader is type-unrestricted: a document's
+    //    bytes cannot leave through a door that asks for less than the Vault asks.
+    let non_vault_doors: Vec<&Door> = doors
         .iter()
-        .filter(|key| key.ends_with(" media_bytes"))
-        .cloned()
+        .filter(|door| door.resource != "vault")
         .collect();
-    assert_eq!(
-        weak_readers.len(),
-        2,
-        "the two non-vault doors must sit on readers that serve any media type — that is the debt this test records; \
-         found {weak_readers:?}"
+    assert!(
+        non_vault_doors.is_empty(),
+        "the Vault is the only owner of document bytes; found non-Vault byte doors: {:?}",
+        non_vault_doors
+            .iter()
+            .map(|door| format!("{} {}", door.file, door.function))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        unrestricted.is_empty(),
+        "no remaining media byte reader may serve any media type; found {unrestricted:?}"
     );
 
     // 8. Only the adapter and the composition root may name the DAOs: a route or a screen holding one would reach the

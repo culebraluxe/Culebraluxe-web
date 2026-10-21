@@ -51,10 +51,11 @@ const RUST_MODULE_FLOOR: usize = 42;
 const NATIVE_AREA_FLOOR: usize = 23;
 
 /// Floors read from `docs/rust-parity-ledger.md` on the same day: 14 capability rows and 113 route bullets under
-/// `## The live Rust surface`. Lowered to 110 on 2026-10-21 when the three staged-upload routes were retired (the
+/// `## The live Rust surface`. Lowered to 109 on 2026-10-21 when the BoldSign webhook was retired, after
+/// the staged-upload routes took it to 110 (the
 /// chunk protocol is gone; a smaller live surface is the retirement, not a walk-back).
 const LEDGER_ROW_FLOOR: usize = 14;
-const LEDGER_ROUTE_FLOOR: usize = 110;
+const LEDGER_ROUTE_FLOOR: usize = 109;
 
 /// The repository root — resolved HERE, not through `test_harness::source::repo_root()`. The cargo target dir is
 /// shared across lanes and `tests/src/*.rs` is byte-identical in all of them, so the `test_harness` rlib may be a

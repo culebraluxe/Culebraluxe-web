@@ -26,6 +26,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 
 use crate::database::{HarnessDbError, TestDatabase};
+use crate::media_store::FakeObjectStore;
 
 /// The production property and media DAOs and services on an isolated, disposable DEV database.
 pub struct PropertyHarness {
@@ -34,6 +35,9 @@ pub struct PropertyHarness {
     media_dao: MediaDao,
     property_service: web::properties::PropertyService<PropertyDao>,
     media_service: web::media::MediaService<MediaDao>,
+    /// The object store the media service writes to. Property media is object-first now, so the harness supplies a
+    /// deterministic in-memory store rather than letting a DEV test depend on provider credentials.
+    media_object_store: FakeObjectStore,
 }
 
 impl PropertyHarness {
@@ -68,16 +72,19 @@ impl PropertyHarness {
         let property_service =
             web::properties::PropertyService::new(property_dao.clone(), infrastructure.clone());
         // MediaDao is not Clone; the service gets its own instance over the same pool.
+        let media_object_store = FakeObjectStore::new();
         let media_service = web::media::MediaService::new(
             MediaDao::new(database.database().clone()),
             infrastructure,
-        );
+        )
+        .with_object_store(Arc::new(media_object_store.clone()));
         Self {
             database,
             property_dao,
             media_dao,
             property_service,
             media_service,
+            media_object_store,
         }
     }
 
@@ -91,7 +98,7 @@ impl PropertyHarness {
         &self.property_dao
     }
 
-    /// The production media DAO under test. Attach, chunk staging and assembly live here.
+    /// The production media DAO under test. Object-first row writes and the property link live here.
     pub fn media_dao(&self) -> &MediaDao {
         &self.media_dao
     }
@@ -104,6 +111,11 @@ impl PropertyHarness {
     /// The production media service under test — the L3 composition boundary callers use.
     pub fn media_service(&self) -> &web::media::MediaService<MediaDao> {
         &self.media_service
+    }
+
+    /// The in-memory store the media service wrote objects to (object-first uploads).
+    pub fn media_object_store(&self) -> &FakeObjectStore {
+        &self.media_object_store
     }
 
     /// The pool the DAOs wrote to, for reading the committed truth back on a connection the DAO does not own.

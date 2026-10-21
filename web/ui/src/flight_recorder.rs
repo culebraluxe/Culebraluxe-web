@@ -117,7 +117,6 @@ pub enum SystemId {
     DomainModel,
     WorkflowEngine,
     TaskService,
-    BoldSign,
     PostgreSql,
     ForgeObserver,
     Unknown,
@@ -130,7 +129,6 @@ impl SystemId {
             SystemId::DomainModel => "Domain Model",
             SystemId::WorkflowEngine => "Workflow Engine",
             SystemId::TaskService => "Task Service",
-            SystemId::BoldSign => "BoldSign",
             SystemId::PostgreSql => "PostgreSQL",
             SystemId::ForgeObserver => "Forge Observer",
             SystemId::Unknown => "Unknown",
@@ -145,7 +143,6 @@ impl SystemId {
                 "bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/30"
             }
             SystemId::TaskService => "bg-amber-600/20 text-amber-200 ring-1 ring-amber-400/30",
-            SystemId::BoldSign => "bg-pink-500/20 text-pink-200 ring-1 ring-pink-400/30",
             SystemId::PostgreSql => "bg-cyan-500/20 text-cyan-200 ring-1 ring-cyan-400/30",
             SystemId::ForgeObserver => "bg-orange-500/20 text-orange-200 ring-1 ring-orange-400/30",
             SystemId::Unknown => "bg-slate-500/20 text-slate-200 ring-1 ring-slate-400/30",
@@ -153,12 +150,11 @@ impl SystemId {
     }
 
     /// Preferred swimlane order; `Unknown` is handled separately and always goes last.
-    pub const LANE_PREFERENCE: [SystemId; 6] = [
+    pub const LANE_PREFERENCE: [SystemId; 5] = [
         SystemId::ApiGateway,
         SystemId::DomainModel,
         SystemId::WorkflowEngine,
         SystemId::TaskService,
-        SystemId::BoldSign,
         SystemId::PostgreSql,
     ];
 }
@@ -246,9 +242,8 @@ pub fn system_to_system_id(system: &str) -> SystemId {
     if s.contains("task") {
         return SystemId::TaskService;
     }
-    if s.contains("boldsign") || s.contains("signature") {
-        return SystemId::BoldSign;
-    }
+    // The external signing-provider lane was retired with the vendor (Lane L). Luxesign's native signing is
+    // observed through the workflow/domain systems it runs on, so there is no separate signing lane to map to.
     if s.contains("postgres") || s.contains("sql") || s.contains("persist") {
         return SystemId::PostgreSql;
     }
@@ -2029,7 +2024,6 @@ mod tests {
         assert_eq!(system_to_system_id("api_gateway"), SystemId::ApiGateway);
         assert_eq!(system_to_system_id("workflow"), SystemId::WorkflowEngine);
         assert_eq!(system_to_system_id("task-service"), SystemId::TaskService);
-        assert_eq!(system_to_system_id("boldsign"), SystemId::BoldSign);
         assert_eq!(system_to_system_id("postgres"), SystemId::PostgreSql);
         // The engine's own observer: without this a whole Forge run reads Unknown.
         assert_eq!(

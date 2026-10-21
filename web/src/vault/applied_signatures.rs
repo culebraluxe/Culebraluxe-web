@@ -39,44 +39,56 @@ impl<R: VaultRepository> VaultService<R> {
         )
         .await?;
 
-        // OBJECT-FIRST WHEN THIS DEPLOYMENT OWNS A STORE. The protected signature image is fetched from object
-        // storage and checked against the row's recorded size and SHA-256, so the preview never reads
-        // `media.file_data` once the store is configured. `read_object` is only called for a row whose pointer is
-        // already VERIFIED (vault/vault); a legacy row is a refusal naming the backfill, not a silent blob — the
-        // same rule the media read cutover uses. With no store (tests/dev) the repository keeps the legacy read.
-        let result = match (self.object_store.as_ref(), self.repository.database()) {
-            (Some(store), Some(database)) => {
-                let store = Arc::clone(store);
-                db::VaultDao::new(database)
-                    .resolve_applied_signatures_object_first(
-                        request,
-                        model::forms_broker_signature::SignatureAuthority::OwnerByConstruction,
-                        move |bucket: String, key: String| {
-                            let store = Arc::clone(&store);
-                            async move {
-                                let bucket = ObjectBucket::from_db(&bucket)
-                                    .ok_or_else(|| format!("unknown object bucket: {bucket}"))?;
-                                store
-                                    .get_object(bucket, &key)
-                                    .await
-                                    .map_err(|error| error.to_string())
-                            }
-                        },
-                    )
-                    .await
-            }
-            _ => self.repository.resolve_applied_signatures(request).await,
+        // OBJECT-ONLY. The protected signature image is fetched from object storage and checked against the
+        // row's recorded size and SHA-256; `read_object` is only called for a row whose pointer is already
+        // VERIFIED (vault/vault), and a legacy row is a refusal naming the backfill, never a silent blob. A
+        // deployment without a store (or without a database to read the rows from) answers a typed configuration
+        // error instead of falling back. The checks live inside the audited body, so the decision is closed over
+        // them.
+        let result: Result<Vec<FormAppliedSignature>, CoreServiceError> = async {
+            let store = self.object_store.as_ref().ok_or_else(|| {
+                CoreServiceError::infrastructure(
+                    "VAULT_OBJECT_STORE_UNAVAILABLE",
+                    "Vault signature preview requires object storage, which is not configured for this deployment.",
+                )
+            })?;
+            let database = self.repository.database().ok_or_else(|| {
+                CoreServiceError::infrastructure(
+                    "VAULT_OBJECT_STORE_UNAVAILABLE",
+                    "Vault signature preview requires the database-backed repository.",
+                )
+            })?;
+            let store = Arc::clone(store);
+            db::VaultDao::new(database)
+                .resolve_applied_signatures_object_first(
+                    request,
+                    model::forms_broker_signature::SignatureAuthority::OwnerByConstruction,
+                    move |bucket: String, key: String| {
+                        let store = Arc::clone(&store);
+                        async move {
+                            let bucket = ObjectBucket::from_db(&bucket)
+                                .ok_or_else(|| format!("unknown object bucket: {bucket}"))?;
+                            store
+                                .get_object(bucket, &key)
+                                .await
+                                .map_err(|error| error.to_string())
+                        }
+                    },
+                )
+                .await
+                .map_err(|failure| match failure.outcome {
+                    // The rows were unreachable, the connection could not be acquired, or the verified object could
+                    // not be read: infrastructure, and captured.
+                    VaultCommandOutcome::PreconditionFailure => CoreServiceError::infrastructure(
+                        "VAULT_SIGNATURE_LOOKUP_FAILED",
+                        failure.message,
+                    ),
+                    // Policy refused it. The document cannot carry her signature as configured — a business refusal
+                    // the caller must see, not error noise.
+                    _ => CoreServiceError::business("VAULT_SIGNATURE_REFUSED", failure.message),
+                })
         }
-        .map_err(|failure| match failure.outcome {
-            // The rows were unreachable, the connection could not be acquired, or the verified object could not be
-            // read: infrastructure, and captured.
-            VaultCommandOutcome::PreconditionFailure => {
-                CoreServiceError::infrastructure("VAULT_SIGNATURE_LOOKUP_FAILED", failure.message)
-            }
-            // Policy refused it. The document cannot carry her signature as configured — a business refusal the
-            // caller must see, not error noise.
-            _ => CoreServiceError::business("VAULT_SIGNATURE_REFUSED", failure.message),
-        });
+        .await;
 
         audit_result(&self.runtime, "vault", OP, context, decision, &result).await?;
         result

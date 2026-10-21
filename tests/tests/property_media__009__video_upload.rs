@@ -115,32 +115,12 @@ fn unreachable_here<T>(method: &'static str) -> DbResult<T> {
 
 #[async_trait::async_trait]
 impl MediaRepository for RecordingMediaRepository {
-    async fn media_bytes(&self, _id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        unreachable_here("media_bytes")
-    }
-
-    async fn upload_standalone(
-        &self,
-        _filename: &str,
-        _mime_type: &str,
-        _bytes: &[u8],
-    ) -> DbResult<(String, String, String, i64)> {
-        unreachable_here("upload_standalone")
-    }
-
     async fn for_property(&self, _property_id: &str) -> DbResult<Vec<MediaAsset>> {
         unreachable_here("for_property")
     }
 
     async fn set_property_hero(&self, _property_id: &str, _media_id: &str) -> DbResult<bool> {
         unreachable_here("set_property_hero")
-    }
-
-    async fn upload_property_media(
-        &self,
-        _request: &UploadPropertyMediaRequest,
-    ) -> DbResult<UploadPropertyMediaResult> {
-        unreachable_here("upload_property_media")
     }
 
     async fn attach_property_video(

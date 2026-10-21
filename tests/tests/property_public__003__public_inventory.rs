@@ -112,10 +112,6 @@ impl PublicListingRepository for FakePublicListingRepository {
         unreachable_inventory("property")
     }
 
-    async fn media_bytes(&self, _id: &str, _size: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        unreachable_inventory("media_bytes")
-    }
-
     async fn similar(&self, _key: &str, _limit: i64) -> DbResult<Vec<PublicListing>> {
         unreachable_inventory("similar")
     }

@@ -8,8 +8,8 @@ use async_trait::async_trait;
 use db::{DbResult, PublicListingDao};
 use model::{PublicListing, PublicListingCopy, PublicProperty};
 use services::{
-    AbstractObjectStoreService, ObjectBucket, OperationKind, ServiceContext,
-    ServiceInfrastructure, ServiceRuntime,
+    AbstractObjectStoreService, ObjectBucket, OperationKind, ServiceContext, ServiceInfrastructure,
+    ServiceRuntime,
 };
 use std::sync::Arc;
 
@@ -18,15 +18,14 @@ pub trait PublicListingRepository: Send + Sync {
     async fn listings(&self) -> DbResult<Vec<PublicListing>>;
     /// `None` means no such Property — a genuine not-found, not a failure.
     async fn property(&self, key: &str) -> DbResult<Option<PublicProperty>>;
-    /// `None` means no such media, or media that is not published. The two are indistinguishable on purpose.
-    async fn media_bytes(&self, id: &str, size: &str) -> DbResult<Option<(String, Vec<u8>)>>;
     /// Listings like this one, by the same visibility rule as the inventory.
     async fn similar(&self, key: &str, limit: i64) -> DbResult<Vec<PublicListing>>;
     /// Every slug the site can serve, for the sitemap.
     async fn slugs(&self) -> DbResult<Vec<String>>;
     async fn listing_copy(&self) -> DbResult<Vec<PublicListingCopy>>;
 
-    /// Storage pointer for the same asset `media_bytes` serves. Test repositories return None.
+    /// The storage pointer of the copy to serve, selected by `size`. `None` means no such media, or media that is
+    /// not published — the two are indistinguishable on purpose. Test repositories return None.
     async fn media_object_location(
         &self,
         _id: &str,
@@ -45,11 +44,6 @@ impl PublicListingRepository for PublicListingDao {
     async fn property(&self, key: &str) -> DbResult<Option<PublicProperty>> {
         let key = key.to_owned();
         db::retrying_read!(PublicListingDao::property(self, &key))
-    }
-
-    async fn media_bytes(&self, id: &str, size: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        let (id, size) = (id.to_owned(), size.to_owned());
-        db::retrying_read!(PublicListingDao::media_bytes(self, &id, &size))
     }
 
     async fn similar(&self, key: &str, limit: i64) -> DbResult<Vec<PublicListing>> {
@@ -79,7 +73,6 @@ pub struct PublicListingService<R> {
     repository: R,
     runtime: ServiceRuntime,
     object_store: Option<Arc<dyn AbstractObjectStoreService>>,
-    object_reads: bool,
 }
 
 impl<R: PublicListingRepository> PublicListingService<R> {
@@ -88,7 +81,6 @@ impl<R: PublicListingRepository> PublicListingService<R> {
             repository,
             runtime: ServiceRuntime::new(infrastructure),
             object_store: None,
-            object_reads: false,
         }
     }
 
@@ -97,8 +89,10 @@ impl<R: PublicListingRepository> PublicListingService<R> {
         self
     }
 
-    pub fn with_object_reads(mut self, enabled: bool) -> Self {
-        self.object_reads = enabled;
+    /// COMPATIBILITY NO-OP. The public media door is object-only unconditionally; the composition root still
+    /// passes the retired `MEDIA_OBJECT_STORAGE_READS` value, so the builder stays (and ignores it). Do not add
+    /// behavior back behind it.
+    pub fn with_object_reads(self, _enabled: bool) -> Self {
         self
     }
 
@@ -142,34 +136,10 @@ impl<R: PublicListingRepository> PublicListingService<R> {
         result
     }
 
-    /// One media asset's servable bytes, for the anonymous public site.
-    pub async fn media_bytes(
-        &self,
-        id: &str,
-        size: &str,
-        context: &ServiceContext,
-    ) -> Result<Option<(String, Vec<u8>)>, CoreServiceError> {
-        const OP: &str = "property.publicMediaBytes";
-        let decision = authorize(
-            &self.runtime,
-            "property",
-            "property.public.read",
-            OP,
-            OperationKind::Query,
-            context,
-        )
-        .await?;
-        let result = self
-            .repository
-            .media_bytes(id, size)
-            .await
-            .map_err(Into::into);
-        audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
-        result
-    }
-
-    /// Phase 4 public resolver. Only a VERIFIED, public-visibility object in the public bucket gets
-    /// a direct URL; every other asset keeps the legacy byte path.
+    /// The public site's media resolver. OBJECT-ONLY, unconditionally: a VERIFIED, public-visibility object in the
+    /// public bucket becomes a direct URL; everything else is the SAME answer (`None`), so an anonymous visitor can
+    /// never tell "this listing exists but is not published" from "no such media". Infrastructure failures are
+    /// errors, never a silent refusal and never a `file_data` blob.
     pub async fn media_read(
         &self,
         id: &str,
@@ -188,46 +158,34 @@ impl<R: PublicListingRepository> PublicListingService<R> {
         .await?;
 
         let result = async {
-            if self.object_reads {
-                let Some(store) = self.object_store.as_ref() else {
-                    return Err(CoreServiceError::infrastructure(
-                        "MEDIA_OBJECT_STORE_NOT_CONFIGURED",
-                        "object storage is not configured for public media reads",
-                    ));
-                };
-                let Some(location) = self.repository.media_object_location(id, size).await? else {
-                    return Err(CoreServiceError::business(
-                        "MEDIA_OBJECT_NOT_FOUND",
-                        "Not found.",
-                    ));
-                };
-                if location.status != "VERIFIED" {
-                    return Err(CoreServiceError::business(
-                        "MEDIA_OBJECT_NOT_VERIFIED",
-                        "Not found.",
-                    ));
-                }
-                if ObjectBucket::from_db(&location.bucket) != Some(ObjectBucket::PropertyMediaPublic)
-                    || location.visibility != "public"
-                {
-                    return Err(CoreServiceError::business(
-                        "MEDIA_OBJECT_NOT_FOUND",
-                        "Not found.",
-                    ));
-                }
-                return match store
-                    .public_read_url(ObjectBucket::PropertyMediaPublic, &location.key)
-                    .await
-                {
-                    Ok(url) => Ok(Some(crate::media::MediaRead::Redirect { url })),
-                    Err(error) => Err(CoreServiceError::infrastructure(
-                        "MEDIA_OBJECT_READ_URL_FAILED",
-                        error.to_string(),
-                    )),
-                };
+            let store = self.object_store.as_ref().ok_or_else(|| {
+                CoreServiceError::infrastructure(
+                    "MEDIA_OBJECT_STORE_NOT_CONFIGURED",
+                    "the public media door requires media object storage",
+                )
+            })?;
+            let Some(location) = self.repository.media_object_location(id, size).await? else {
+                // No row, unpublished listing, legacy blob-only row: one indistinguishable answer.
+                return Ok(None);
+            };
+            if location.status != "VERIFIED" {
+                return Ok(None);
             }
-            let bytes = self.repository.media_bytes(id, size).await?;
-            Ok(bytes.map(|(mime_type, bytes)| crate::media::MediaRead::Bytes { mime_type, bytes }))
+            if ObjectBucket::from_db(&location.bucket) != Some(ObjectBucket::PropertyMediaPublic)
+                || location.visibility != "public"
+            {
+                return Ok(None);
+            }
+            match store
+                .public_read_url(ObjectBucket::PropertyMediaPublic, &location.key)
+                .await
+            {
+                Ok(url) => Ok(Some(crate::media::MediaRead::Redirect { url })),
+                Err(error) => Err(CoreServiceError::infrastructure(
+                    "MEDIA_OBJECT_READ_URL_FAILED",
+                    error.to_string(),
+                )),
+            }
         }
         .await;
 
@@ -342,14 +300,6 @@ mod tests {
                     }],
                     ..Default::default()
                 }))
-            } else {
-                Ok(None)
-            }
-        }
-
-        async fn media_bytes(&self, id: &str, _size: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-            if id == "media-1" {
-                Ok(Some(("image/jpeg".into(), vec![1, 2, 3])))
             } else {
                 Ok(None)
             }

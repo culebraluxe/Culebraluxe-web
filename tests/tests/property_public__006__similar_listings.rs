@@ -124,10 +124,6 @@ impl PublicListingRepository for FakePublicListingRepository {
         unreachable_strip("property")
     }
 
-    async fn media_bytes(&self, _id: &str, _size: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        unreachable_strip("media_bytes")
-    }
-
     async fn similar(&self, key: &str, limit: i64) -> DbResult<Vec<PublicListing>> {
         self.keys
             .lock()

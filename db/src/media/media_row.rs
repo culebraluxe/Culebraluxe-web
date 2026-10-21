@@ -3,8 +3,8 @@
 //! The chunk-staging protocol (`media_upload` / `media_upload_chunk`) is retired: its manifest, status and
 //! assembly types and every DAO method that wrote a staged piece are gone. The two remaining legacy shapes are
 //! marked `LEGACY` below — the blob reader `media_bytes` (still reachable through `MEDIA_OBJECT_STORAGE_READS`)
-//! and the blob writer `upload_standalone` (the signed-PDF door) — and are the only reasons `media.file_data`
-//! still exists.
+//! has no remaining blob shapes: the only `file_data` SQL left in this module is the blob→object MIGRATION TOOL
+//! (`list_media_for_migration`), which is deleted with the column.
 
 #[allow(unused_imports)]
 use super::*;
@@ -137,7 +137,7 @@ impl MediaDao {
         Ok(rows)
     }
 
-    /// Read only the storage pointer, never `file_data`.
+    /// Read only the storage pointer — no bytes cross this boundary.
     ///
     /// The SERVABLE copy is what a reader gets, not the record copy: for a photograph that is the `web`
     /// derivative when one exists (the same rule `media_bytes` applies to the legacy blob), otherwise the
@@ -241,8 +241,7 @@ impl MediaDao {
         Ok(row.0)
     }
 
-    /// Persist the outcome of a shadow object write. The legacy `file_data` blob is never touched here;
-    /// the object is only an additional copy until a later, verified cutover.
+    /// Persist object metadata (the migration tool records what it uploaded). No bytes are read or written here.
     pub async fn set_media_object(
         &self,
         media_id: &str,
@@ -281,9 +280,10 @@ impl MediaDao {
 
     /// Photographs (originals, image type) that have no copy of this kind yet — the backfill's work list.
     ///
-    /// An original counts when its bytes are readable from EITHER place they can live: the legacy `file_data`
-    /// blob or an OBJECT (`object_key`). The backfill used to require `file_data is not null`, which silently
-    /// skipped every object-first original — exactly the rows that need a card copy once the blob is gone.
+    /// An original counts when its bytes are readable from the OBJECT it points at. The backfill used to require
+    /// `file_data is not null`, which silently skipped every object-first original — exactly the rows that need a
+    /// card copy once the blob is gone. Blob-only rows are the migration tool's work first: they gain an object
+    /// pointer, and then this list picks them up.
     pub async fn images_missing_copy(
         &self,
         kind: &str,
@@ -294,7 +294,7 @@ impl MediaDao {
             select m.id::text, m.filename
               from media m
              where m.media_type = 'image' and m.derivative_of is null
-               and (m.file_data is not null or m.object_key is not null)
+               and m.object_key is not null
                and not exists (select 1 from media d where d.derivative_of = m.id and d.derivative_kind = $1)
              order by m.created_at desc
              limit $2
@@ -374,57 +374,6 @@ impl MediaDao {
         .map_err(|error| DbFailure::from_sqlx("media.insert_copy_object", &error))
     }
 
-    /// LEGACY BLOB READ. Retained only for `MEDIA_OBJECT_STORAGE_READS`-off reads; removed with the
-    /// `media.file_data` drop. Every object-first reader goes through `media_object_location`.
-    pub async fn media_bytes(&self, id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        sqlx::query_as::<_, (String, Vec<u8>)>(
-            r#"
-            select coalesce(copy.mime_type, m.mime_type),
-                   coalesce(copy.file_data, m.file_data)
-              from media m
-              join media root on root.id = coalesce(m.derivative_of, m.id)
-              left join lateral (
-                  select d.file_data, d.mime_type
-                    from media d
-                   where d.derivative_of = root.id
-                     and d.derivative_kind = 'web'
-                   limit 1
-              ) copy on true
-             where m.id = $1::uuid
-             limit 1
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.bytes", &error))
-    }
-
-    /// LEGACY BLOB WRITE. The standalone media door (signed-contract PDFs) still stores bytes in
-    /// `media.file_data`; its object-first replacement is `upload_standalone_object`. It is the remaining
-    /// writer in this module blocking the blob-column drop.
-    pub async fn upload_standalone(
-        &self,
-        filename: &str,
-        mime_type: &str,
-        bytes: &[u8],
-    ) -> DbResult<(String, String, String, i64)> {
-        sqlx::query_as::<_, (String, String, String, i64)>(
-            r#"
-            insert into media (file_data, filename, mime_type, file_size, media_type)
-            values ($1, $2, $3, $4, 'image')
-            returning id::text, filename, mime_type, file_size
-            "#,
-        )
-        .bind(bytes)
-        .bind(filename)
-        .bind(mime_type)
-        .bind(bytes.len() as i64)
-        .fetch_one(self.db.pool())
-        .await
-        .map_err(|error| DbFailure::from_sqlx("media.upload_standalone", &error))
-    }
-
     pub async fn for_property(&self, property_id: &str) -> DbResult<Vec<MediaAsset>> {
         let rows = sqlx::query_as::<_, MediaRow>(
             r#"
@@ -496,7 +445,6 @@ impl MediaDao {
             ),
             inserted as (
                 insert into media (
-                    file_data,
                     filename,
                     mime_type,
                     file_size,
@@ -510,7 +458,6 @@ impl MediaDao {
                     source_url
                 )
                 select
-                    null,
                     'mux-' || $2,
                     'application/vnd.apple.mpegurl',
                     null,

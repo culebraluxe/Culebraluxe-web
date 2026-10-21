@@ -295,17 +295,14 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/engine/timers/reconcile", post(engine::reconcile_timer))
         .route("/v1/engine/tasks/complete", post(engine::complete_task))
         .route("/v1/engine/reclaim", post(engine::reclaim))
-        // Signature (BoldSign). Mirrors the production endpoints the TypeScript path already serves, so the webhook
-        // and the operator actions can be pointed at Rust without changing a client contract.
+        // Signature records (provider-retired: Luxesign is the signing product). The read route still serves
+        // existing records through the generic SignatureService; send/refresh refuse because no provider is
+        // wired, and the retired signing-provider webhook is intentionally not mounted.
         .route("/v1/signature/requests", post(signature_send))
         .route("/v1/signature/requests/{id}", get(luxesign_request))
         .route(
             "/v1/signature/requests/{id}/refresh",
             post(signature_refresh),
-        )
-        .route(
-            "/api/integrations/boldsign/webhook",
-            post(signature_webhook),
         )
         // Native signing edge: signing-link credentialed, identity-free.
         // Session resolves the token; mutations run as durable commands
@@ -367,7 +364,7 @@ pub(super) fn http_service_domain(path: &str) -> Option<&'static str> {
     if path == "/api/integrations/whatsapp/webhook" {
         return Some("whatsapp");
     }
-    if path == "/api/integrations/boldsign/webhook" || path.starts_with("/v1/signature/") {
+    if path.starts_with("/v1/signature/") {
         return Some("signature");
     }
     if path.starts_with("/v1/security/") {
@@ -528,7 +525,6 @@ mod tests {
         for (path, domain) in [
             ("/api/portal/rust-ui/clients", "client"),
             ("/api/integrations/whatsapp/webhook", "whatsapp"),
-            ("/api/integrations/boldsign/webhook", "signature"),
             ("/v1/security/guest-code", "guest-sign-in"),
             ("/v1/security/users", "security"),
             ("/v1/support/system-health", "support"),

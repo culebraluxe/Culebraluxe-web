@@ -144,19 +144,6 @@ fn unreachable_here<T>(method: &'static str) -> DbResult<T> {
 
 #[async_trait::async_trait]
 impl MediaRepository for RecordingMediaRepository {
-    async fn media_bytes(&self, _id: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        unreachable_here("media_bytes")
-    }
-
-    async fn upload_standalone(
-        &self,
-        _filename: &str,
-        _mime_type: &str,
-        _bytes: &[u8],
-    ) -> DbResult<(String, String, String, i64)> {
-        unreachable_here("upload_standalone")
-    }
-
     async fn for_property(&self, _property_id: &str) -> DbResult<Vec<MediaAsset>> {
         unreachable_here("for_property")
     }
@@ -165,19 +152,21 @@ impl MediaRepository for RecordingMediaRepository {
         Ok(self.owns(property_id, media_id))
     }
 
-    async fn upload_property_media(
+    async fn save_property_media_object(
         &self,
-        request: &UploadPropertyMediaRequest,
+        _property_id: &str,
+        role: &str,
+        row: &db::MediaObjectRow,
     ) -> DbResult<UploadPropertyMediaResult> {
         self.photo_roles
             .lock()
             .expect("the recording repository is never poisoned")
-            .push(request.role.clone());
+            .push(role.to_owned());
         Ok(UploadPropertyMediaResult {
             ok: true,
-            media_id: "media-from-repository".into(),
-            property_id: request.property_id.clone(),
-            role: request.role.clone(),
+            media_id: row.id.clone(),
+            property_id: _property_id.to_owned(),
+            role: role.to_owned(),
         })
     }
 
@@ -231,7 +220,8 @@ fn video_request(role: &str) -> AttachPropertyVideoRequest {
 #[allow(non_snake_case)] // The taxonomy fixes this exact name (TST-PROPERTY-MEDIA-010); the file and the assay use it.
 async fn property_media_010__media_ownership() {
     let repository = RecordingMediaRepository::new();
-    let service = MediaService::new(repository.clone(), infrastructure());
+    let service = MediaService::new(repository.clone(), infrastructure())
+        .with_object_store(Arc::new(test_harness::media_store::FakeObjectStore::new()));
     let ctx = context();
 
     // ---- 1. Each door accepts exactly its own roles. ----

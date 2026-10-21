@@ -1,35 +1,17 @@
-//! Moved from `mod.rs` (move only): media_bytes.
+//! Media service doors: standalone uploads, property video session/finalize, and the hero/remove/read operations.
 
 #[allow(unused_imports)]
 use super::*;
+use services::{ServiceFailureClass, ServiceRuntimeError};
 
 impl<R: MediaRepository> MediaService<R> {
-    /// LEGACY BLOB READ. The servable bytes straight from `file_data`.
+    /// Upload one file with NO property link: an image for the internal media door, or a signed-contract PDF for
+    /// the Vault. OBJECT-FIRST, always: the bytes go to the media bucket and only metadata is recorded, so this
+    /// door never writes `media.file_data` and never needs a blob fallback. A deployment without the object store
+    /// is a typed configuration failure.
     ///
-    /// Nothing routes here any more (the private media door is `media_read`, which redirects to object storage
-    /// when the read switch is on, and the public door belongs to `PublicListingService`). It is kept because
-    /// service-level callers and the entitlement tests name `media.bytes`; the object-first replacement is
-    /// `media_read` or `media_object_location` + `AbstractObjectStoreService::get_object`.
-    pub async fn media_bytes(
-        &self,
-        id: &str,
-        context: &ServiceContext,
-    ) -> Result<Option<(String, Vec<u8>)>, CoreServiceError> {
-        const OP: &str = "media.bytes";
-        let decision = authorize(
-            &self.runtime,
-            "media",
-            "property.read",
-            OP,
-            OperationKind::Query,
-            context,
-        )
-        .await?;
-        let result = self.repository.media_bytes(id).await.map_err(Into::into);
-        audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
-        result
-    }
-
+    /// The bucket follows the artefact: a PDF is a Vault document (`Vault`/`vault`, `media_type = 'document'`, which
+    /// is what the Vault's byte doors resolve), an image is private property media (`PropertyMediaPrivate`/`private`).
     pub async fn upload_standalone(
         &self,
         filename: &str,
@@ -52,26 +34,56 @@ impl<R: MediaRepository> MediaService<R> {
             if bytes.is_empty() {
                 return Err(CoreServiceError::business(
                     "MEDIA_EMPTY",
-                    "Image file is required.",
+                    "A file is required.",
                 ));
             }
             if bytes.len() > MAX_MEDIA_UPLOAD_BYTES {
                 return Err(CoreServiceError::business(
                     "MEDIA_TOO_LARGE",
-                    "Image is too large (max 50 MB).",
+                    "File is too large (max 50 MB).",
                 ));
             }
-            if !mime_type.to_ascii_lowercase().starts_with("image/") {
-                return Err(CoreServiceError::business(
-                    "MEDIA_TYPE_INVALID",
-                    "Only image uploads are supported.",
-                ));
-            }
+            let mime = mime_type.trim().to_ascii_lowercase();
+            let (bucket, visibility, media_type) = match mime.as_str() {
+                "application/pdf" => (ObjectBucket::Vault, "vault", "document"),
+                image if image.starts_with("image/") => {
+                    (ObjectBucket::PropertyMediaPrivate, "private", "image")
+                }
+                _ => {
+                    return Err(CoreServiceError::business(
+                        "MEDIA_TYPE_INVALID",
+                        "Only images and PDFs can be uploaded standalone.",
+                    ))
+                }
+            };
+            let store = self.object_store.as_ref().ok_or_else(|| {
+                CoreServiceError::Runtime(ServiceRuntimeError::Router {
+                    code: "MEDIA_OBJECT_STORE_NOT_CONFIGURED".into(),
+                    message: "the standalone upload path requires media object storage".into(),
+                    retryable: false,
+                    class: ServiceFailureClass::Infrastructure,
+                })
+            })?;
             let filename = sanitize_media_filename(filename);
-            self.repository
-                .upload_standalone(&filename, mime_type, &bytes)
+            let id = uuid::Uuid::new_v4().to_string();
+            let row = self
+                .object_row(
+                    store, bucket, visibility, &id, &filename, &mime, &bytes, None, media_type,
+                    None, None,
+                )
                 .await
-                .map_err(Into::into)
+                .map_err(|message| {
+                    CoreServiceError::infrastructure("MEDIA_OBJECT_UPLOAD_FAILED", message)
+                })?;
+            let size = row.object.size;
+            match self.repository.save_standalone_object(&row).await {
+                Ok(()) => Ok((id, filename, mime, size)),
+                Err(error) => {
+                    // The object has no row to point at it; remove it rather than orphan it.
+                    let _ = store.delete_object(bucket, &row.object.key).await;
+                    Err(error.into())
+                }
+            }
         }
         .await;
 
@@ -84,7 +96,6 @@ impl<R: MediaRepository> MediaService<R> {
             repository,
             runtime: ServiceRuntime::new(infrastructure),
             object_store: None,
-            object_reads: false,
             direct_upload_secret: None,
         }
     }
@@ -381,5 +392,98 @@ impl<R: MediaRepository> MediaService<R> {
             .map_err(Into::into);
         audit_result(&self.runtime, "media", OP, context, decision, &result).await?;
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::media::test_support::{service, FakeRepository, FakeStore};
+    use std::sync::Arc;
+
+    fn root_context() -> ServiceContext {
+        crate::media::test_support::root_context()
+    }
+
+    /// A signed-contract PDF through the standalone door: object-first, in the VAULT bucket, recorded as a
+    /// `document` with `vault` visibility — exactly what the Vault's object byte doors resolve.
+    #[tokio::test]
+    async fn a_signed_pdf_is_stored_object_first_as_a_vault_document() {
+        let repository = FakeRepository::default();
+        let store = Arc::new(FakeStore::default());
+        let media = service(repository, Some(store.clone())).await;
+
+        let (id, filename, mime, size) = media
+            .upload_standalone(
+                "signed.pdf",
+                "application/pdf",
+                b"%PDF-1.7 signed".to_vec(),
+                &root_context(),
+            )
+            .await
+            .expect("the PDF is stored");
+
+        assert!(!id.is_empty());
+        assert_eq!(filename, "signed.pdf");
+        assert_eq!(mime, "application/pdf");
+        assert_eq!(size, b"%PDF-1.7 signed".len() as i64);
+        let rows = media.repository.standalone_rows();
+        assert_eq!(rows.len(), 1, "one object-first row, no blob");
+        let row = &rows[0];
+        assert_eq!(row.media_type, "document");
+        assert_eq!(row.mime_type, "application/pdf");
+        assert_eq!(row.object.bucket, "vault");
+        assert_eq!(row.object.visibility.as_deref(), Some("vault"));
+        assert_eq!(row.object.status, "VERIFIED");
+        assert_eq!(store.put_count(), 1);
+    }
+
+    /// A standalone IMAGE is private property media, and a file that is neither an image nor a PDF is refused before
+    /// anything is uploaded.
+    #[tokio::test]
+    async fn a_standalone_image_is_private_and_a_non_media_file_is_refused() {
+        let repository = FakeRepository::default();
+        let store = Arc::new(FakeStore::default());
+        let media = service(repository, Some(store.clone())).await;
+
+        media
+            .upload_standalone("front.webp", "image/webp", vec![1, 2, 3], &root_context())
+            .await
+            .expect("an image is accepted");
+        let rows = media.repository.standalone_rows();
+        assert_eq!(rows[0].object.bucket, "property_media_private");
+        assert_eq!(rows[0].object.visibility.as_deref(), Some("private"));
+        assert_eq!(rows[0].media_type, "image");
+
+        let error = media
+            .upload_standalone("payload.html", "text/html", vec![1, 2, 3], &root_context())
+            .await
+            .expect_err("an html file is not media");
+        assert_eq!(error.code(), "MEDIA_TYPE_INVALID");
+        assert_eq!(
+            media.repository.standalone_rows().len(),
+            1,
+            "the refusal happened before persistence"
+        );
+        assert_eq!(
+            store.put_count(),
+            1,
+            "the refusal happened before the upload"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_standalone_upload_without_an_object_store_is_a_typed_failure() {
+        let media = service(FakeRepository::default(), None).await;
+        let error = media
+            .upload_standalone(
+                "signed.pdf",
+                "application/pdf",
+                b"%PDF-".to_vec(),
+                &root_context(),
+            )
+            .await
+            .expect_err("no object store");
+        assert_eq!(error.code(), "MEDIA_OBJECT_STORE_NOT_CONFIGURED");
     }
 }

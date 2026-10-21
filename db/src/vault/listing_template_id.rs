@@ -69,13 +69,6 @@ pub(super) struct IssuedFormRow {
 }
 
 #[derive(Debug, FromRow)]
-pub(super) struct MediaRow {
-    pub(super) file_data: Option<Vec<u8>>,
-    pub(super) filename: String,
-    pub(super) mime_type: String,
-}
-
-#[derive(Debug, FromRow)]
 pub(super) struct ReceiptRow {
     pub(super) outcome: String,
     pub(super) aggregate_id: Option<String>,

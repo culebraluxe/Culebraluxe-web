@@ -1,14 +1,13 @@
-use crate::luxesign::core::{upload_document, UploadedDocument};
+use crate::luxesign::core::{artifact_store_not_configured, upload_document, UploadedDocument};
 use crate::media::DocumentObjectWriter;
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use async_trait::async_trait;
 use db::{Database, DbFailure, DbResult, DbTransaction, MediaObjectMetadata, SignatureDao};
 use model::{
     validate_signature_recipients, ApplySignatureStatusRequest, PrepareSignatureRequest,
-    PreparedSignatureRecipient, SendSignatureRequest, SignatureArtifactDownload,
-    SignatureCommandOutcome, SignatureCommandResult, SignatureProviderSendRequest,
-    SignatureRequest, SignatureRequestResult, SignatureRequestStatus, SignatureStatusResult,
-    SignatureWebhookVerification,
+    PreparedSignatureRecipient, SendSignatureRequest, SignatureCommandOutcome,
+    SignatureCommandResult, SignatureProviderSendRequest, SignatureRequest, SignatureRequestResult,
+    SignatureRequestStatus, SignatureStatusResult, SignatureWebhookVerification,
 };
 use serde_json::json;
 use services::{
@@ -104,30 +103,17 @@ pub trait SignatureRepository: Send + Sync {
         event_id: &str,
         signature_request_id: &str,
     ) -> DbResult<bool>;
-    async fn reconcile_completed(
+    /// Object-first completion: the service uploads the artifacts before this call and passes
+    /// `(media_id, filename, mime_type, object)` for each. `None` means no artifact is needed
+    /// (replay / guard path); there is no byte-carrying variant.
+    async fn reconcile_completed_with_objects(
         &self,
         event_id: &str,
         signature_request_id: &str,
-        signed_artifact: Option<&SignatureArtifactDownload>,
-        audit_artifact: Option<&SignatureArtifactDownload>,
+        signed_artifact: Option<(&str, &str, &str, &MediaObjectMetadata)>,
+        audit_artifact: Option<(&str, &str, &str, &MediaObjectMetadata)>,
         actor_app_user_id: Option<&str>,
     ) -> DbResult<SignatureCommandResult>;
-    /// Object-first completion: the service uploads the artifacts before this call and passes
-    /// `(media_id, filename, mime_type, object)` for each. The default refuses because a repository
-    /// that predates this seam cannot store object metadata.
-    async fn reconcile_completed_with_objects(
-        &self,
-        _event_id: &str,
-        _signature_request_id: &str,
-        _signed_artifact: Option<(&str, &str, &str, &MediaObjectMetadata)>,
-        _audit_artifact: Option<(&str, &str, &str, &MediaObjectMetadata)>,
-        _actor_app_user_id: Option<&str>,
-    ) -> DbResult<SignatureCommandResult> {
-        Err(DbFailure::configuration(
-            "signature.reconcile_completed_with_objects",
-            "Repository does not support object-first completion artifacts.",
-        ))
-    }
 }
 
 #[async_trait]
@@ -230,25 +216,6 @@ impl SignatureRepository for SignatureDao {
         SignatureDao::reconciliation_needs_artifact(self, event_id, signature_request_id).await
     }
 
-    async fn reconcile_completed(
-        &self,
-        event_id: &str,
-        signature_request_id: &str,
-        signed_artifact: Option<&SignatureArtifactDownload>,
-        audit_artifact: Option<&SignatureArtifactDownload>,
-        actor_app_user_id: Option<&str>,
-    ) -> DbResult<SignatureCommandResult> {
-        SignatureDao::reconcile_completed(
-            self,
-            event_id,
-            signature_request_id,
-            signed_artifact,
-            audit_artifact,
-            actor_app_user_id,
-        )
-        .await
-    }
-
     async fn reconcile_completed_with_objects(
         &self,
         event_id: &str,
@@ -273,8 +240,9 @@ pub struct SignatureService<R> {
     repository: R,
     provider: Option<Arc<dyn SignatureProvider>>,
     runtime: ServiceRuntime,
-    /// Present only when the Vault object store is configured; completion artifacts are then
-    /// uploaded before their rows. Without it (tests/dev) artifacts stay byte-backed.
+    /// Present only when the Vault object store is configured. Completion artifacts are uploaded
+    /// through it before their rows; a service without it refuses artifact work as a configuration
+    /// error instead of writing bytes to the database.
     documents: Option<Arc<DocumentObjectWriter>>,
 }
 
@@ -306,7 +274,8 @@ impl<R: SignatureRepository> SignatureService<R> {
     }
 
     /// Attach the shared Vault document writer. Composition calls this when the object store is
-    /// configured; without it this service keeps the legacy byte-backed artifact writes.
+    /// configured; completion artifacts are object-first only, so a service without it refuses
+    /// artifact work with a configuration error (no byte fallback).
     pub fn with_object_store(mut self, store: Arc<dyn AbstractObjectStoreService>) -> Self {
         self.documents = Some(Arc::new(DocumentObjectWriter::new(store)));
         self
@@ -806,111 +775,102 @@ impl<R: SignatureRepository> SignatureService<R> {
             .reconciliation_needs_artifact(event_id, signature_request_id)
             .await?;
 
-        let signed_artifact = if needs_artifact {
-            Some(
-                self.provider()?
-                    .download_signed_artifact(signature_request_id)
-                    .await
-                    .map_err(|message| {
-                        CoreServiceError::business("SIGNATURE_ARTIFACT_DOWNLOAD_FAILED", message)
-                    })?,
-            )
-        } else {
-            None
-        };
-        let audit_artifact = if needs_artifact {
-            self.provider()?
-                .download_audit_trail(signature_request_id)
-                .await
-                .map_err(|message| {
-                    CoreServiceError::business("SIGNATURE_AUDIT_DOWNLOAD_FAILED", message)
-                })?
-        } else {
-            None
-        };
-
-        // Object-first: upload and verify the artifacts BEFORE the DAO opens its transaction, so the
-        // rows it writes carry object metadata and never `media.file_data`. Without an object store
-        // (tests/dev) the legacy byte path below is used.
-        if let (Some(writer), Some(signed)) = (self.documents.as_deref(), signed_artifact.as_ref())
-        {
-            let signed_upload =
-                match upload_document(writer, &signed.filename, &signed.mime_type, &signed.bytes)
-                    .await
-                {
-                    Ok(document) => document,
-                    Err(error) => return Err(error),
-                };
-            let audit_upload = match audit_artifact.as_ref() {
-                Some(audit) => {
-                    match upload_document(writer, &audit.filename, &audit.mime_type, &audit.bytes)
-                        .await
-                    {
-                        Ok(document) => Some(document),
-                        Err(error) => {
-                            signed_upload.discard(writer).await;
-                            return Err(error);
-                        }
-                    }
-                }
-                None => None,
-            };
-            let signed_object = signed_upload.object();
-            let audit_object = audit_upload.as_ref().map(UploadedDocument::object);
-            let signed_args = Some((
-                signed_upload.media_id.as_str(),
-                signed_upload.filename.as_str(),
-                signed_upload.mime_type.as_str(),
-                &signed_object,
-            ));
-            let audit_args =
-                audit_upload
-                    .as_ref()
-                    .zip(audit_object.as_ref())
-                    .map(|(document, object)| {
-                        (
-                            document.media_id.as_str(),
-                            document.filename.as_str(),
-                            document.mime_type.as_str(),
-                            object,
-                        )
-                    });
-            let result = self
+        if !needs_artifact {
+            // The replay / guard path answers from durable state and stores nothing, so it needs no
+            // object store: the DAO sees `None` artifacts and returns its replay/refusal result.
+            return self
                 .repository
                 .reconcile_completed_with_objects(
                     event_id,
                     signature_request_id,
-                    signed_args,
-                    audit_args,
+                    None,
+                    None,
                     actor_app_user_id(context),
                 )
-                .await;
-            // Only a fresh success consumes the objects; a replay or a guard refusal writes no rows,
-            // so those uploads are removed instead of leaking.
-            let stored = matches!(
-                &result,
-                Ok(command)
-                    if command.outcome == SignatureCommandOutcome::Success && !command.replayed
-            );
-            if !stored {
-                signed_upload.discard(writer).await;
-                if let Some(document) = &audit_upload {
-                    document.discard(writer).await;
-                }
-            }
-            return result.map_err(Into::into);
+                .await
+                .map_err(Into::into);
         }
 
-        self.repository
-            .reconcile_completed(
+        // Provider faults keep their own codes: download first, exactly as before the cutover.
+        let signed = self
+            .provider()?
+            .download_signed_artifact(signature_request_id)
+            .await
+            .map_err(|message| {
+                CoreServiceError::business("SIGNATURE_ARTIFACT_DOWNLOAD_FAILED", message)
+            })?;
+        let audit = self
+            .provider()?
+            .download_audit_trail(signature_request_id)
+            .await
+            .map_err(|message| {
+                CoreServiceError::business("SIGNATURE_AUDIT_DOWNLOAD_FAILED", message)
+            })?;
+        // Object-first only: the artifacts were downloaded to be UPLOADED, so a deployment with no
+        // Vault writer is a configuration failure (503, not retried), never a byte write.
+        let writer = self
+            .documents
+            .as_deref()
+            .ok_or_else(artifact_store_not_configured)?;
+        let signed_upload =
+            upload_document(writer, &signed.filename, &signed.mime_type, &signed.bytes).await?;
+        let audit_upload = match audit.as_ref() {
+            Some(audit) => {
+                match upload_document(writer, &audit.filename, &audit.mime_type, &audit.bytes).await
+                {
+                    Ok(document) => Some(document),
+                    Err(error) => {
+                        signed_upload.discard(writer).await;
+                        return Err(error);
+                    }
+                }
+            }
+            None => None,
+        };
+        let signed_object = signed_upload.object();
+        let audit_object = audit_upload.as_ref().map(UploadedDocument::object);
+        let signed_args = Some((
+            signed_upload.media_id.as_str(),
+            signed_upload.filename.as_str(),
+            signed_upload.mime_type.as_str(),
+            &signed_object,
+        ));
+        let audit_args =
+            audit_upload
+                .as_ref()
+                .zip(audit_object.as_ref())
+                .map(|(document, object)| {
+                    (
+                        document.media_id.as_str(),
+                        document.filename.as_str(),
+                        document.mime_type.as_str(),
+                        object,
+                    )
+                });
+        let result = self
+            .repository
+            .reconcile_completed_with_objects(
                 event_id,
                 signature_request_id,
-                signed_artifact.as_ref(),
-                audit_artifact.as_ref(),
+                signed_args,
+                audit_args,
                 actor_app_user_id(context),
             )
-            .await
-            .map_err(Into::into)
+            .await;
+        // Only a fresh success consumes the objects; a replay or a guard refusal writes no rows, so
+        // those uploads are removed instead of leaking.
+        let stored = matches!(
+            &result,
+            Ok(command)
+                if command.outcome == SignatureCommandOutcome::Success && !command.replayed
+        );
+        if !stored {
+            signed_upload.discard(writer).await;
+            if let Some(document) = &audit_upload {
+                document.discard(writer).await;
+            }
+        }
+        result.map_err(Into::into)
     }
 
     pub async fn reconcile_completed(
@@ -1061,8 +1021,8 @@ mod object_first_reconcile_tests {
     use super::*;
     use crate::luxesign::core::fake_vault::FakeVault;
     use model::{
-        SignatureProviderActionResult, SignatureProviderSendRequest, SignatureProviderSendResult,
-        SignatureProviderStatusResult,
+        SignatureArtifactDownload, SignatureProviderActionResult, SignatureProviderSendRequest,
+        SignatureProviderSendResult, SignatureProviderStatusResult,
     };
     use services::{
         CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
@@ -1169,18 +1129,29 @@ mod object_first_reconcile_tests {
     #[derive(Default)]
     struct RepoState {
         object_calls: Vec<(ArtifactCall, ArtifactCall)>,
-        legacy_calls: usize,
     }
 
     struct FakeRepo {
+        needs_artifact: bool,
         replay: bool,
         state: Arc<Mutex<RepoState>>,
     }
 
     impl FakeRepo {
+        /// An unreconciled completion: the artifact is required and no replay is pending.
         fn new(replay: bool) -> Self {
             Self {
+                needs_artifact: true,
                 replay,
+                state: Arc::new(Mutex::new(RepoState::default())),
+            }
+        }
+
+        /// A redelivery/replay: the DAO answers from durable state and needs no artifact.
+        fn replay_only() -> Self {
+            Self {
+                needs_artifact: false,
+                replay: true,
                 state: Arc::new(Mutex::new(RepoState::default())),
             }
         }
@@ -1260,19 +1231,7 @@ mod object_first_reconcile_tests {
             _event_id: &str,
             _signature_request_id: &str,
         ) -> DbResult<bool> {
-            Ok(true)
-        }
-
-        async fn reconcile_completed(
-            &self,
-            _event_id: &str,
-            _signature_request_id: &str,
-            _signed_artifact: Option<&SignatureArtifactDownload>,
-            _audit_artifact: Option<&SignatureArtifactDownload>,
-            _actor_app_user_id: Option<&str>,
-        ) -> DbResult<SignatureCommandResult> {
-            self.state.lock().unwrap().legacy_calls += 1;
-            Ok(self.command())
+            Ok(self.needs_artifact)
         }
 
         async fn reconcile_completed_with_objects(
@@ -1322,10 +1281,6 @@ mod object_first_reconcile_tests {
         assert_eq!(command.outcome, SignatureCommandOutcome::Success);
         assert!(!command.replayed);
         let state = state.lock().unwrap();
-        assert_eq!(
-            state.legacy_calls, 0,
-            "the byte path is not used with a store"
-        );
         assert_eq!(state.object_calls.len(), 1);
         let (signed, audit) = &state.object_calls[0];
         let (signed_id, signed_key, signed_name) = signed.as_ref().expect("signed artifact");
@@ -1363,19 +1318,41 @@ mod object_first_reconcile_tests {
     }
 
     #[tokio::test]
-    async fn without_an_object_store_the_legacy_byte_path_is_used() {
+    async fn artifact_storage_without_an_object_store_is_a_configuration_error() {
         let repo = FakeRepo::new(false);
+        let state = repo.handle();
+        let service = SignatureService::new(repo, Arc::new(provider()), infrastructure());
+
+        let error = service
+            .reconcile_completed("evt-1", "req-1", &context())
+            .await
+            .expect_err("artifact storage requires the Vault writer");
+
+        assert_eq!(error.code(), "SIGNATURE_ARTIFACT_STORE_NOT_CONFIGURED");
+        assert!(
+            state.lock().unwrap().object_calls.is_empty(),
+            "the DAO is never asked to store metadata when there is no writer"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_replay_needs_no_object_store() {
+        let repo = FakeRepo::replay_only();
         let state = repo.handle();
         let service = SignatureService::new(repo, Arc::new(provider()), infrastructure());
 
         let command = service
             .reconcile_completed("evt-1", "req-1", &context())
             .await
-            .expect("legacy reconcile succeeds");
+            .expect("the replay path stores nothing and needs no writer");
 
-        assert_eq!(command.outcome, SignatureCommandOutcome::Success);
+        assert!(command.replayed);
         let state = state.lock().unwrap();
-        assert_eq!(state.legacy_calls, 1);
-        assert!(state.object_calls.is_empty());
+        assert_eq!(
+            state.object_calls.len(),
+            1,
+            "the DAO still answers the replay, with no artifacts"
+        );
+        assert_eq!(state.object_calls[0], (None, None));
     }
 }

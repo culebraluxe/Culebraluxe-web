@@ -28,8 +28,8 @@ pub(super) fn asset_date(value: Option<&str>) -> String {
 
 /// THE PROJECT'S FILE CABINET — its documents, photographs and films, in one read-only list. A view, not a store:
 /// Vault documents and the property's media stay where they live. What belongs here is what is linked to the
-/// project's property or person. A contract still to be signed can have its signed copy recorded here — the PDF
-/// signed by email, until BoldSign is on.
+/// project's property or person. A contract signed outside the system can have its signed copy recorded here — the
+/// PDF signed by email, with Luxesign as the in-system signing path.
 pub(super) fn documents_view(
     projects: &PortalProjectsPage,
     project: &PortalProject,

@@ -35,7 +35,7 @@ place (`docs/agent/BROKEN-TS-INVENTORY.md`).
 | Service kernel | `middle/services/src/` | `AbstractService`, `ServiceRuntime`, `ServiceContext`, authorization, audit, domain events, lifecycle, mailbox, error sink. |
 | Domain | `middle/model/src/` | Types and rules. No I/O, no SQL, no HTTP. |
 | Database | `db/src/` | DAOs and the one pool per process (`pool.rs`, `shared.rs`); failures as `DbFailure` (`capture.rs`). Migrations in `db/migrations`. |
-| Integrations | `middle/apis/src/` | Mux, Google, Apple, BoldSign, Neon, mail, WhatsApp. |
+| Integrations | `middle/apis/src/` | Mux, Google, Apple, Neon, mail, WhatsApp. (The external e-sign provider was retired in Lane L; signing is Luxesign-native.) |
 | Engine | `forge/src/` | Forge: the definition (`forge/definitions/FORGE_SDLC-v6.xml`), phases, gates, roles, executor. |
 | CLI | `cli/src/` | `forge` gates (`forge-cli/src/forge/`: harness lint, vendor-block sync), `db-tool`, Apple intake. |
 | Retired TypeScript | `legacy/`, dead files in `scripts/` and `agent-runtime/` | Read-only reference, out of scope, never imported. |

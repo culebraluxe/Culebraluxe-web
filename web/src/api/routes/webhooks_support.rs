@@ -1,4 +1,4 @@
-//! Webhooks (WhatsApp, BoldSign), signature requests, the client diagnostic event, and the Support reads.
+//! Webhooks (WhatsApp), signature requests, the client diagnostic event, and the Support reads.
 
 #[allow(unused_imports)]
 use super::*;
@@ -9,12 +9,7 @@ pub(super) fn signature_service(
     state.services().signature()
 }
 
-/// The provider's callback.
-///
-/// BoldSign authenticates by HMAC over the raw body, so this route deliberately does NOT require the internal API
-/// key: `resolve_request_context` demands an application principal that a webhook cannot have, and the signature
-/// check inside the service is the real gate. The context is a System actor with no principal — the same shape
-/// `context.rs` builds before it resolves an identity.
+/// Records a client diagnostic event through the error-capture sink.
 pub(super) async fn record_app_diagnostic(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -123,51 +118,6 @@ pub(super) async fn whatsapp_webhook(
         "relationshipProjected": result.relationship_projected,
         "outcomes": result.outcomes,
     })))
-}
-
-pub(super) async fn signature_webhook(
-    State(state): State<ApiState>,
-    headers: HeaderMap,
-    body: String,
-) -> Result<Json<ApiSuccess<model::SignatureCommandResult>>, ApiError> {
-    let correlation_id = headers
-        .get("x-culebra-correlation-id")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let signature = headers
-        .get("x-boldsign-signature")
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned)
-        .ok_or_else(|| {
-            ApiError::unauthorized(
-                "SIGNATURE_WEBHOOK_UNSIGNED",
-                "Missing x-boldsign-signature header.",
-            )
-            .with_correlation(correlation_id.clone())
-        })?;
-
-    let context = services::ServiceContext {
-        actor: services::ServiceActor {
-            id: Some("boldsign-webhook".into()),
-            kind: services::ServiceActorKind::System,
-        },
-        correlation_id: correlation_id.clone(),
-        causation_id: None,
-        principal: None,
-    };
-
-    let service = signature_service(&state);
-    let value = service
-        .handle_webhook(&body, &signature, &context)
-        .await
-        .map_err(|error| ApiError::from(error).with_correlation(correlation_id.clone()))?;
-    Ok(Json(ApiSuccess {
-        ok: true,
-        value,
-        correlation_id,
-    }))
 }
 
 pub(super) async fn signature_send(

@@ -6,9 +6,10 @@
 //!   - `db/src/broker_signature.rs` reads the protected signature image from a VERIFIED Vault object and
 //!     verifies its SHA-256 and size; the legacy `media.file_data` read survives only in the store-absent
 //!     fallback, and the object-first write helper records the asset without a blob column.
-//!   - `web/src/vault/applied_signatures.rs` resolves the preview through the object-first resolver whenever
-//!     an object store exists, keeps `authorize` first, and falls back to the repository (legacy) only when no
-//!     store is configured — a legacy row on a store-backed deployment is a refusal, not a silent blob.
+//!   - `web/src/vault/applied_signatures.rs` resolves the preview through the object-first resolver, keeps
+//!     `authorize` first, and requires a configured store — a deployment without one is a typed configuration
+//!     error, and a legacy row on a store-backed deployment is a refusal, not a silent blob. (Lane J removed
+//!     the last repository-blob fallback; this file pins the preview's object-first call, not a fallback.)
 //!   - `cli/src/main.rs media-cards` reads `original_object_location` + `get_object`, verifies the original,
 //!     uploads/verifies the card object, and records it through `insert_copy_object`; it never names the blob
 //!     readers/writers.
@@ -176,16 +177,16 @@ fn media_object_cutover_001__lane_f_broker_signature_and_media_cards() {
         "authorization must run before any asset resolution"
     );
     assert!(
-        preview.contains("(Some(store), Some(database))"),
-        "the object-first branch requires BOTH a store and the DAO's database"
+        preview.contains("requires object storage"),
+        "the preview requires a configured store (typed configuration error without one)"
     );
     assert!(
         preview.contains("OwnerByConstruction"),
         "a preview applies nothing, so it resolves under OwnerByConstruction"
     );
     assert!(
-        preview.contains("_ => self.repository.resolve_applied_signatures(request).await"),
-        "the repository (legacy) resolver is the only fallback, and only when no store is configured"
+        !preview.contains("self.repository.resolve_applied_signatures"),
+        "the repository (legacy) resolver is gone: the preview is object-only now"
     );
     assert!(
         preview.contains("get_object(bucket, &key)"),
@@ -214,7 +215,12 @@ fn media_object_cutover_001__lane_f_broker_signature_and_media_cards() {
         );
     }
     // Blob API *usage*, not the prose that explains its absence: a call or SQL reference, never a message string.
-    for forbidden in ["original_bytes(", "insert_copy(", "select file_data", "insert into media (file_data"] {
+    for forbidden in [
+        "original_bytes(",
+        "insert_copy(",
+        "select file_data",
+        "insert into media (file_data",
+    ] {
         assert!(
             !cli_object_path.contains(forbidden),
             "media-cards must not name the blob API `{forbidden}`"

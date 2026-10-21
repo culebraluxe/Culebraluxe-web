@@ -31,7 +31,7 @@ One Cargo workspace, three tiers and the entry points beside them:
 | `web` | HTTP (Axum), identity, the domain services and their composition root, the site itself |
 | `web/ui` | the website and the portal: Yew screens on the `Screen` trait (MVI) |
 | `web/auth` | the server-side authorization/authentication boundary |
-| `middle/apis` | provider adapters: Mux, Google, Apple, BoldSign, WhatsApp, mail |
+| `middle/apis` | provider adapters: Mux, Google, Apple, WhatsApp, mail (signing is Luxesign-native; no external e-sign vendor) |
 | `cli` | app operator commands: `db-tool`, Apple intake, media backfills |
 | `re-host` | the app RE host: workflow runtime + cockpit read |
 | `observability` | the app-side tracing initializer shared by web (stdout) and re-host (stderr) |

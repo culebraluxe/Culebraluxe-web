@@ -148,10 +148,6 @@ impl PublicListingRepository for FakePublicListingRepository {
         Ok(self.page.as_ref().clone())
     }
 
-    async fn media_bytes(&self, _id: &str, _size: &str) -> DbResult<Option<(String, Vec<u8>)>> {
-        unreachable_detail("media_bytes")
-    }
-
     async fn similar(&self, _key: &str, _limit: i64) -> DbResult<Vec<PublicListing>> {
         unreachable_detail("similar")
     }

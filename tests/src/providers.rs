@@ -6,8 +6,9 @@
 //! this module opens a socket, reads a credential, or names a provider endpoint, and each fake answers
 //! [`SignatureProvider::name`] with a `fake-` prefix so a log makes plain which side answered.
 //!
-//! The fakes implement `services::SignatureProvider`, the same trait the BoldSign adapter implements, so a service
-//! test is wired to the real boundary and substituted at the adapter seam production itself uses.
+//! The fakes implement `services::SignatureProvider` — the generic signature port the `SignatureService` is built
+//! over — so a service test is wired to the real boundary and substituted at the adapter seam. The external
+//! (vendor) adapter that used to implement this port was retired in Lane L; the port itself is the contract.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};

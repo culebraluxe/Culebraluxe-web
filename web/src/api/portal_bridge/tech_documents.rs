@@ -247,6 +247,9 @@ pub(super) async fn project_document_signed(
         ));
     }
 
+    // OBJECT-FIRST. The signed PDF is a Vault document now: `upload_standalone` writes it to the Vault bucket and
+    // records metadata only (media_type = 'document', bucket/visibility `vault`), so this route never writes
+    // `media.file_data`. The Vault's byte doors resolve that object pointer.
     let (media_id, ..) = services
         .media()
         .upload_standalone(&filename, "application/pdf", bytes, &resolved.service)

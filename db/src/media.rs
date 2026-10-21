@@ -1,8 +1,7 @@
 use crate::{Database, DbFailure, DbResult};
 use chrono::{DateTime, Utc};
 use model::{
-    AttachPropertyVideoRequest, AttachPropertyVideoResult, MediaAsset, UploadPropertyMediaRequest,
-    UploadPropertyMediaResult,
+    AttachPropertyVideoRequest, AttachPropertyVideoResult, MediaAsset, UploadPropertyMediaResult,
 };
 use sqlx::FromRow;
 

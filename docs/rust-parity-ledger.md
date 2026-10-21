@@ -29,7 +29,7 @@ questions on purpose: a port can be complete and still cut over to nothing.
 **12 of 14 capabilities** have Rust as the production path.
 
 - **firms** — Built in Rust with no route attached, so nothing can call it yet.
-- **signature** — All four endpoints are attached to Axum: send, get, refresh, and the provider webhook — the webhook at the PRODUCTION path /api/integrations/boldsign/webhook, so BoldSign's configured URL does not have to change to cut over. The webhook is deliberately unauthenticated by the internal API key: BoldSign signs the raw body and that HMAC is verified inside the service against a System actor with no principal, because a webhook cannot present an application identity. Constructing the BoldSign provider required adding `integrations` to the server crate; without it the adapter was unreachable from the composition root, which is how this capability sat as 'built, 0 routes'. KNOWN GAP, deliberately not guessed: the TypeScript webhook answered 200 {acknowledged:true} for events it will not act on so BoldSign stops retrying, and 401 for a missing/invalid signature. The Rust service's outcome enum has no no-op variant, so the 200-for-non-actionable half of that retry contract is NOT mirrored yet — mapping it blind could mask real errors. productionPath moved from 'typescript' to 'rust' on 2026-09-28 with the rest of this map: the TypeScript application was deleted in 4cf98110, so there is no TypeScript path left that could be serving. tests/tests/signature_routes.rs fails if the router and this map disagree.
+- **signature** — Lane L retired the external signing provider: its adapter, store, config and webhook route are deleted; Luxesign is the signing product. Three routes stay mounted on the generic SignatureService (`/v1/signature/requests`, `/{id}`, `/{id}/refresh`). Composition wires NO provider, so send and refresh refuse with SIGNATURE_PROVIDER_UNAVAILABLE rather than reaching a retired vendor; the read route still serves existing signature records. The old provider webhook is not mounted and is not claimed by the parity map. tests/tests/signature_routes.rs fails if the router and the map disagree.
 - **whatsapp-intake** — Rust verifies and normalises Meta payloads and the mounted webhook route is the Rust one. rustStatus stays 'partial' because durable inbox/ODS persistence is not finished — the old note said that half 'belongs to TypeScript', which stopped being true when the TypeScript application was deleted in 4cf98110. What is missing is Rust that has not been written yet, not TypeScript that still exists.
 
 ## The live Rust surface
@@ -145,7 +145,6 @@ questions on purpose: a port can be complete and still cut over to nothing.
 - `/v1/signature/requests`
 - `/v1/signature/requests/{id}`
 - `/v1/signature/requests/{id}/refresh`
-- `/api/integrations/boldsign/webhook`
 
 ### Native surface: mounted and never part of the port
 

@@ -6,8 +6,10 @@
 //! at the seams production itself defines:
 //!
 //! - the store is faked at [`web::signature::SignatureRepository`], the trait `SignatureDao` implements;
+//! - the Vault is faked with an in-memory [`HarnessObjectStore`], because completion artifacts are
+//!   object-first only and the service refuses artifact work without one;
 //! - the external provider is [`crate::providers::FakeSignatureProvider`], the fake for
-//!   `services::SignatureProvider` — the same trait the BoldSign adapter implements;
+//!   `services::SignatureProvider` — the generic port the retired vendor adapter used to implement;
 //! - infrastructure is the real service boundary (`ServiceInfrastructure`) with capturing, non-writing ports.
 //!
 //! Nothing here opens a socket, writes to a database, or reaches a live provider.
@@ -16,17 +18,19 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use db::{DbFailure, DbResult};
+use db::{DbFailure, DbResult, MediaObjectMetadata};
 use model::{
-    ApplySignatureStatusRequest, SendSignatureRequest, SignatureArtifactDownload,
-    SignatureCommandOutcome, SignatureCommandResult, SignatureRequest, SignatureRequestResult,
-    SignatureRequestStatus, SignatureStatusResult,
+    ApplySignatureStatusRequest, SendSignatureRequest, SignatureCommandOutcome,
+    SignatureCommandResult, SignatureRequest, SignatureRequestResult, SignatureRequestStatus,
+    SignatureStatusResult,
 };
 use serde_json::json;
 use services::{
-    CapturingAuditPort, CapturingDomainEventPort, DefaultAuthorizationPort, ServiceActor,
+    AbstractObjectStoreService, CapturingAuditPort, CapturingDomainEventPort,
+    DefaultAuthorizationPort, ObjectBucket, ObjectMetadata, ObjectStoreError, ServiceActor,
     ServiceActorKind, ServiceContext, ServiceInfrastructure, ServicePrincipal,
 };
+use std::time::Duration;
 use web::signature::{SignatureRepository, SignatureService};
 
 use crate::providers::FakeSignatureProvider;
@@ -65,6 +69,116 @@ struct StoredRequest {
     request: SignatureRequest,
 }
 
+/// In-memory Vault store for the reconcile contract: records what the service uploaded before the
+/// repository ever sees it. The service is object-first, so a test harness without this store would
+/// (correctly) refuse artifact work as a configuration error.
+#[derive(Default)]
+struct HarnessObjectStore {
+    objects: Mutex<Vec<(String, Vec<u8>)>>,
+    deletes: Mutex<Vec<String>>,
+}
+
+impl HarnessObjectStore {
+    fn uploaded_bytes(&self) -> Vec<Vec<u8>> {
+        self.objects
+            .lock()
+            .expect("the store is never poisoned")
+            .iter()
+            .map(|(_, bytes)| bytes.clone())
+            .collect()
+    }
+}
+
+#[async_trait]
+impl AbstractObjectStoreService for HarnessObjectStore {
+    async fn put_object(
+        &self,
+        bucket: ObjectBucket,
+        key: &str,
+        bytes: &[u8],
+        content_type: &str,
+    ) -> Result<ObjectMetadata, ObjectStoreError> {
+        self.objects
+            .lock()
+            .expect("the store is never poisoned")
+            .push((key.to_owned(), bytes.to_vec()));
+        Ok(ObjectMetadata {
+            bucket,
+            key: key.to_owned(),
+            size: bytes.len() as i64,
+            content_type: Some(content_type.to_owned()),
+            etag: Some("etag".to_owned()),
+            sha256: Some("0".repeat(64)),
+        })
+    }
+
+    async fn head_object(
+        &self,
+        _bucket: ObjectBucket,
+        _key: &str,
+    ) -> Result<ObjectMetadata, ObjectStoreError> {
+        Err(ObjectStoreError::not_found("missing"))
+    }
+
+    async fn delete_object(
+        &self,
+        _bucket: ObjectBucket,
+        key: &str,
+    ) -> Result<(), ObjectStoreError> {
+        self.deletes
+            .lock()
+            .expect("the store is never poisoned")
+            .push(key.to_owned());
+        Ok(())
+    }
+
+    async fn public_read_url(
+        &self,
+        _bucket: ObjectBucket,
+        _key: &str,
+    ) -> Result<String, ObjectStoreError> {
+        Err(ObjectStoreError::access_denied("the Vault is private"))
+    }
+
+    async fn signed_read_url(
+        &self,
+        _bucket: ObjectBucket,
+        key: &str,
+        _ttl: Duration,
+    ) -> Result<String, ObjectStoreError> {
+        Ok(format!("signed://{key}"))
+    }
+
+    async fn signed_write_url(
+        &self,
+        _bucket: ObjectBucket,
+        _key: &str,
+        _content_type: &str,
+        _ttl: Duration,
+    ) -> Result<String, ObjectStoreError> {
+        Err(ObjectStoreError::access_denied(
+            "direct writes are not allowed",
+        ))
+    }
+
+    async fn verify_object(
+        &self,
+        bucket: ObjectBucket,
+        key: &str,
+        expected_sha256: &str,
+        expected_size: i64,
+    ) -> Result<ObjectMetadata, ObjectStoreError> {
+        Ok(ObjectMetadata {
+            bucket,
+            key: key.to_owned(),
+            size: expected_size,
+            content_type: Some("application/pdf".to_owned()),
+            etag: Some("etag".to_owned()),
+            sha256: Some(expected_sha256.to_owned()),
+        })
+    }
+}
+
 /// The in-memory store standing in for `luxesign_request`, wired to the REAL `SignatureService`.
 ///
 /// The fake records every mutating call so a test can assert that an error from the provider short-circuits BEFORE
@@ -74,7 +188,7 @@ struct StoredRequest {
 pub struct SignatureHarness {
     requests: Arc<Mutex<HashMap<String, StoredRequest>>>,
     document_signed: Arc<Mutex<bool>>,
-    reconciled_bytes: Arc<Mutex<Vec<Vec<u8>>>>,
+    store: Arc<HarnessObjectStore>,
     calls: Arc<Mutex<Vec<String>>>,
     provider: Arc<FakeSignatureProvider>,
 }
@@ -90,7 +204,7 @@ impl SignatureHarness {
         Self {
             requests: Arc::new(Mutex::new(HashMap::new())),
             document_signed: Arc::new(Mutex::new(false)),
-            reconciled_bytes: Arc::new(Mutex::new(Vec::new())),
+            store: Arc::new(HarnessObjectStore::default()),
             calls: Arc::new(Mutex::new(Vec::new())),
             provider: Arc::new(provider),
         }
@@ -133,12 +247,9 @@ impl SignatureHarness {
             .clone()
     }
 
-    /// The signed-artifact payloads the store was asked to reconcile, in order.
+    /// The signed-artifact payloads the service uploaded to the Vault, in order.
     pub fn reconciled_bytes(&self) -> Vec<Vec<u8>> {
-        self.reconciled_bytes
-            .lock()
-            .expect("the store is never poisoned")
-            .clone()
+        self.store.uploaded_bytes()
     }
 
     /// Whether the store's reconcile marked the document signed.
@@ -165,9 +276,11 @@ impl SignatureHarness {
             .push(call.to_owned());
     }
 
-    /// The real service over this store, with the configured provider.
+    /// The real service over this store, with the configured provider and an in-memory Vault (the
+    /// service is object-first and refuses artifact work without one).
     pub fn service(&self) -> SignatureService<SignatureHarness> {
         SignatureService::new(self.clone(), self.provider.clone(), infrastructure())
+            .with_object_store(self.store.clone())
     }
 }
 
@@ -422,15 +535,15 @@ impl SignatureRepository for SignatureHarness {
         Ok(!self.document_signed())
     }
 
-    async fn reconcile_completed(
+    async fn reconcile_completed_with_objects(
         &self,
         _event_id: &str,
         signature_request_id: &str,
-        signed_artifact: Option<&SignatureArtifactDownload>,
-        _audit_artifact: Option<&SignatureArtifactDownload>,
+        signed_artifact: Option<(&str, &str, &str, &MediaObjectMetadata)>,
+        _audit_artifact: Option<(&str, &str, &str, &MediaObjectMetadata)>,
         _actor_app_user_id: Option<&str>,
     ) -> DbResult<SignatureCommandResult> {
-        self.record("reconcile_completed");
+        self.record("reconcile_completed_with_objects");
         if self.document_signed() {
             return Ok(SignatureCommandResult {
                 command_id: format!("signature.reconcile:{}", _event_id),
@@ -441,7 +554,7 @@ impl SignatureRepository for SignatureHarness {
                 value: Some(json!({ "replayed": true })),
             });
         }
-        let Some(artifact) = signed_artifact else {
+        let Some(_artifact) = signed_artifact else {
             return Ok(SignatureCommandResult {
                 command_id: format!("signature.reconcile:{}", _event_id),
                 outcome: SignatureCommandOutcome::Conflict,
@@ -453,10 +566,6 @@ impl SignatureRepository for SignatureHarness {
                 value: None,
             });
         };
-        self.reconciled_bytes
-            .lock()
-            .expect("the store is never poisoned")
-            .push(artifact.bytes.clone());
         *self
             .document_signed
             .lock()
