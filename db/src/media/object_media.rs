@@ -72,3 +72,27 @@ pub async fn insert_media_object_conn(
     insert(connection, &id, filename, mime_type, "document", object).await?;
     Ok(id)
 }
+
+/// Insert a document object row using a caller-supplied media id, so the object key and row id match.
+pub async fn insert_media_object_with_id_tx(
+    tx: &mut DbTransaction,
+    id: &str,
+    filename: &str,
+    mime_type: &str,
+    object: &MediaObjectMetadata,
+) -> DbResult<String> {
+    insert(tx.connection(), id, filename, mime_type, "document", object).await?;
+    Ok(id.to_owned())
+}
+
+/// Connection variant of [`insert_media_object_with_id_tx`].
+pub async fn insert_media_object_with_id_conn(
+    connection: &mut PgConnection,
+    id: &str,
+    filename: &str,
+    mime_type: &str,
+    object: &MediaObjectMetadata,
+) -> DbResult<String> {
+    insert(connection, id, filename, mime_type, "document", object).await?;
+    Ok(id.to_owned())
+}
