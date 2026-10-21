@@ -189,28 +189,42 @@ impl<R: PublicListingRepository> PublicListingService<R> {
 
         let result = async {
             if self.object_reads {
-                if let Some(store) = self.object_store.as_ref() {
-                    if let Some(location) = self.repository.media_object_location(id, size).await? {
-                        if location.status == "VERIFIED" && location.visibility == "public" {
-                            if let Some(bucket) = ObjectBucket::from_db(&location.bucket) {
-                                if bucket == ObjectBucket::PropertyMediaPublic {
-                                    match store.public_read_url(bucket, &location.key).await {
-                                        Ok(url) => {
-                                            return Ok(Some(crate::media::MediaRead::Redirect {
-                                                url,
-                                            }))
-                                        }
-                                        Err(error) => tracing::warn!(
-                                            media_id = id,
-                                            %error,
-                                            "public media object URL failed; legacy blob fallback"
-                                        ),
-                                    }
-                                }
-                            }
-                        }
-                    }
+                let Some(store) = self.object_store.as_ref() else {
+                    return Err(CoreServiceError::infrastructure(
+                        "MEDIA_OBJECT_STORE_NOT_CONFIGURED",
+                        "object storage is not configured for public media reads",
+                    ));
+                };
+                let Some(location) = self.repository.media_object_location(id, size).await? else {
+                    return Err(CoreServiceError::business(
+                        "MEDIA_OBJECT_NOT_FOUND",
+                        "Not found.",
+                    ));
+                };
+                if location.status != "VERIFIED" {
+                    return Err(CoreServiceError::business(
+                        "MEDIA_OBJECT_NOT_VERIFIED",
+                        "Not found.",
+                    ));
                 }
+                if ObjectBucket::from_db(&location.bucket) != Some(ObjectBucket::PropertyMediaPublic)
+                    || location.visibility != "public"
+                {
+                    return Err(CoreServiceError::business(
+                        "MEDIA_OBJECT_NOT_FOUND",
+                        "Not found.",
+                    ));
+                }
+                return match store
+                    .public_read_url(ObjectBucket::PropertyMediaPublic, &location.key)
+                    .await
+                {
+                    Ok(url) => Ok(Some(crate::media::MediaRead::Redirect { url })),
+                    Err(error) => Err(CoreServiceError::infrastructure(
+                        "MEDIA_OBJECT_READ_URL_FAILED",
+                        error.to_string(),
+                    )),
+                };
             }
             let bytes = self.repository.media_bytes(id, size).await?;
             Ok(bytes.map(|(mime_type, bytes)| crate::media::MediaRead::Bytes { mime_type, bytes }))

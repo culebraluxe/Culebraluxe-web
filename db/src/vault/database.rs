@@ -687,4 +687,248 @@ impl VaultDao {
         .map(|value| value.flatten())
         .map_err(|error| DbFailure::from_sqlx("vault.form_contract_id", &error))
     }
+
+    /// A guest's document, as its OBJECT POINTER rather than its bytes.
+    ///
+    /// The entitlement SQL is the one `public_listing_document_bytes` proves clause by clause — a document,
+    /// a PDF, every link a `document` role on a live published listing, and no transaction-document lineage —
+    /// with one difference: the row must carry an object. Nothing here reads `file_data`, so an object-first
+    /// PDF (no blob) is eligible and a blob-only row answers `None` for the caller to handle deliberately.
+    pub async fn public_listing_document_object(
+        &self,
+        media_id: &str,
+    ) -> DbResult<Option<crate::MediaObjectRow>> {
+        let row = sqlx::query_as::<_, DocumentObjectRow>(
+            r#"
+            select m.id::text as id,
+                   m.filename,
+                   m.mime_type,
+                   m.alt_text,
+                   m.media_type,
+                   m.derivative_of::text as derivative_of,
+                   m.derivative_kind,
+                   m.object_bucket,
+                   m.object_key,
+                   m.object_etag,
+                   m.object_sha256,
+                   m.object_size,
+                   m.storage_status,
+                   m.visibility
+            from media m
+            where m.id = $1::uuid
+              and m.media_type = 'document'
+              and lower(split_part(m.mime_type, ';', 1)) = 'application/pdf'
+              and m.object_bucket is not null
+              and m.object_key is not null
+              and exists (
+                  select 1 from property_media pm
+                  join property p on p.id = pm.property_id
+                  where pm.media_id = m.id
+                    and pm.role = 'document'
+                    and p.status in ('active', 'under_contract', 'sold')
+                    and p.archived_at is null
+              )
+              and not exists (
+                  select 1 from property_media pm
+                  left join property p on p.id = pm.property_id
+                  where pm.media_id = m.id
+                    and (pm.role <> 'document' or p.id is null
+                      or p.is_published is distinct from true
+                      or p.is_active_listing is distinct from true
+                      or p.archived_at is not null)
+              )
+              and not exists (
+                  select 1 from transaction_document td
+                  where td.media_id = m.id
+                     or td.signed_media_id = m.id
+                     or td.signed_audit_media_id = m.id
+              )
+            limit 1
+            "#,
+        )
+        .bind(media_id)
+        .fetch_optional(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("vault.public_listing_document_object", &error))?;
+        Ok(row.and_then(DocumentObjectRow::into_object))
+    }
+
+    /// The pointer for the document a signer is asked to sign. Same entitlement SQL as
+    /// `signing_document_bytes` (recipient bound to THIS issued, live envelope; that envelope's own PDF
+    /// document), read as a storage pointer so no bytes cross the database.
+    pub async fn signing_document_object(
+        &self,
+        signature_request_id: &str,
+        recipient_id: &str,
+    ) -> DbResult<Option<crate::MediaObjectRow>> {
+        let row = sqlx::query_as::<_, DocumentObjectRow>(
+            r#"
+            select m.id::text as id,
+                   m.filename,
+                   m.mime_type,
+                   m.alt_text,
+                   m.media_type,
+                   m.derivative_of::text as derivative_of,
+                   m.derivative_kind,
+                   m.object_bucket,
+                   m.object_key,
+                   m.object_etag,
+                   m.object_sha256,
+                   m.object_size,
+                   m.storage_status,
+                   m.visibility
+            from luxesign_envelope_recipient r
+            join luxesign_request sr on sr.id = r.signature_request_id
+            join luxesign_config dsr on dsr.signature_request_id = sr.id
+            join transaction_document td on td.id = sr.transaction_document_id
+            join media m on m.id = td.media_id
+            where r.id = $2::uuid
+              and sr.id = $1::uuid
+              and dsr.issued_at is not null
+              and sr.status not in ('declined', 'voided', 'expired', 'error')
+              and m.media_type = 'document'
+              and lower(split_part(m.mime_type, ';', 1)) = 'application/pdf'
+              and m.object_bucket is not null
+              and m.object_key is not null
+            limit 1
+            "#,
+        )
+        .bind(signature_request_id)
+        .bind(recipient_id)
+        .fetch_optional(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("vault.signing_document_object", &error))?;
+        Ok(row.and_then(DocumentObjectRow::into_object))
+    }
+
+    /// The pointer for the sealed copy a completed envelope's recipient may keep. Same proof as
+    /// `signing_signed_bytes`, read as a storage pointer.
+    pub async fn signing_signed_object(
+        &self,
+        signature_request_id: &str,
+        recipient_id: &str,
+    ) -> DbResult<Option<crate::MediaObjectRow>> {
+        let row = sqlx::query_as::<_, DocumentObjectRow>(
+            r#"
+            select m.id::text as id,
+                   m.filename,
+                   m.mime_type,
+                   m.alt_text,
+                   m.media_type,
+                   m.derivative_of::text as derivative_of,
+                   m.derivative_kind,
+                   m.object_bucket,
+                   m.object_key,
+                   m.object_etag,
+                   m.object_sha256,
+                   m.object_size,
+                   m.storage_status,
+                   m.visibility
+            from luxesign_envelope_recipient r
+            join luxesign_request sr on sr.id = r.signature_request_id
+            join transaction_document td on td.id = sr.transaction_document_id
+            join media m on m.id = td.signed_media_id
+            where r.id = $2::uuid
+              and sr.id = $1::uuid
+              and sr.status = 'completed'
+              and m.media_type = 'document'
+              and m.object_bucket is not null
+              and m.object_key is not null
+            limit 1
+            "#,
+        )
+        .bind(signature_request_id)
+        .bind(recipient_id)
+        .fetch_optional(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("vault.signing_signed_object", &error))?;
+        Ok(row.and_then(DocumentObjectRow::into_object))
+    }
+
+    /// The pointers for the files a completion email attaches (sealed document first, then its
+    /// certificate). Same proof as `completion_artifacts` — only a `completed` envelope, only the
+    /// artifacts finalize linked — read as storage pointers so the delivery worker fetches the bytes
+    /// from object storage at send time.
+    pub async fn completion_artifact_objects(
+        &self,
+        signature_request_id: &str,
+    ) -> DbResult<Vec<crate::MediaObjectRow>> {
+        let rows = sqlx::query_as::<_, DocumentObjectRow>(
+            r#"
+            select m.id::text as id,
+                   m.filename,
+                   m.mime_type,
+                   m.alt_text,
+                   m.media_type,
+                   m.derivative_of::text as derivative_of,
+                   m.derivative_kind,
+                   m.object_bucket,
+                   m.object_key,
+                   m.object_etag,
+                   m.object_sha256,
+                   m.object_size,
+                   m.storage_status,
+                   m.visibility
+            from luxesign_request sr
+            join transaction_document td on td.id = sr.transaction_document_id
+            join media m on m.id in (td.signed_media_id, td.signed_audit_media_id)
+            where sr.id = $1::uuid
+              and sr.status = 'completed'
+              and m.media_type = 'document'
+              and m.object_bucket is not null
+              and m.object_key is not null
+            order by (m.id = td.signed_media_id) desc
+            "#,
+        )
+        .bind(signature_request_id)
+        .fetch_all(&mut *self.db.connection().await?)
+        .await
+        .map_err(|error| DbFailure::from_sqlx("vault.completion_artifact_objects", &error))?;
+        Ok(rows
+            .into_iter()
+            .filter_map(DocumentObjectRow::into_object)
+            .collect())
+    }
+}
+
+/// One media row's storage pointer and document metadata, selected without `file_data`.
+#[derive(sqlx::FromRow)]
+struct DocumentObjectRow {
+    id: String,
+    filename: String,
+    mime_type: String,
+    alt_text: Option<String>,
+    media_type: String,
+    derivative_of: Option<String>,
+    derivative_kind: Option<String>,
+    object_bucket: Option<String>,
+    object_key: Option<String>,
+    object_etag: Option<String>,
+    object_sha256: Option<String>,
+    object_size: Option<i64>,
+    storage_status: String,
+    visibility: String,
+}
+
+impl DocumentObjectRow {
+    fn into_object(self) -> Option<crate::MediaObjectRow> {
+        Some(crate::MediaObjectRow {
+            id: self.id,
+            filename: self.filename,
+            mime_type: self.mime_type,
+            alt_text: self.alt_text,
+            media_type: self.media_type,
+            derivative_of: self.derivative_of,
+            derivative_kind: self.derivative_kind,
+            object: crate::MediaObjectMetadata {
+                bucket: self.object_bucket?,
+                key: self.object_key?,
+                etag: self.object_etag,
+                sha256: self.object_sha256,
+                size: self.object_size.unwrap_or_default(),
+                status: self.storage_status,
+                visibility: Some(self.visibility),
+            },
+        })
+    }
 }

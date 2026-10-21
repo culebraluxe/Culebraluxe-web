@@ -4,6 +4,12 @@
 use super::*;
 
 impl<R: MediaRepository> MediaService<R> {
+    /// LEGACY BLOB READ. The servable bytes straight from `file_data`.
+    ///
+    /// Nothing routes here any more (the private media door is `media_read`, which redirects to object storage
+    /// when the read switch is on, and the public door belongs to `PublicListingService`). It is kept because
+    /// service-level callers and the entitlement tests name `media.bytes`; the object-first replacement is
+    /// `media_read` or `media_object_location` + `AbstractObjectStoreService::get_object`.
     pub async fn media_bytes(
         &self,
         id: &str,

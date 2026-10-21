@@ -269,12 +269,18 @@ pub(super) async fn vault_public_listing_document_bytes(
     let id = uuid::Uuid::parse_str(&id)
         .map_err(|_| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
     let vault = state.services().vault();
-    let document = vault
-        .public_listing_document_bytes(&id.to_string(), &context)
+    // Authorization (and the SQL entitlement proof) happens in the service BEFORE this answer is chosen:
+    // only a guest whose document the Vault allowed can ever receive the redirect.
+    let read = vault
+        .public_listing_document_read(&id.to_string(), &context)
         .await
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
-    vault_document_response(document, query.download.as_deref() == Some("1"))
+    vault_read_response(
+        read,
+        query.download.as_deref() == Some("1"),
+        &context.correlation_id,
+    )
 }
 
 pub(super) async fn vault_private_document_bytes(
@@ -292,26 +298,37 @@ pub(super) async fn vault_private_document_bytes(
         .await
         .map_err(|error| correlate(ApiError::from(error), &resolved))?
         .ok_or_else(|| ApiError::not_found("VAULT_DOCUMENT_NOT_FOUND", "Document not found."))?;
+    vault_read_response(
+        read,
+        query.download.as_deref() == Some("1"),
+        &resolved.service.correlation_id,
+    )
+}
+
+/// A Vault document door's answer: the legacy PDF bytes when this deployment has no object store, else a
+/// 302 to the short-lived signed Vault URL. The caller has already authorized; this only shapes the
+/// response, and the redirect is never cacheable as document content.
+pub(in super::super) fn vault_read_response(
+    read: crate::vault::VaultRead,
+    download: bool,
+    correlation_id: &str,
+) -> Result<Response, ApiError> {
     match read {
-        crate::vault::VaultRead::Bytes(document) => {
-            vault_document_response(document, query.download.as_deref() == Some("1"))
-        }
+        crate::vault::VaultRead::Bytes(document) => vault_document_response(document, download)
+            .map_err(|error| error.with_correlation(correlation_id.to_owned())),
         crate::vault::VaultRead::Redirect(url) => Response::builder()
             .status(StatusCode::FOUND)
             .header(axum::http::header::LOCATION, url)
-            // The signed Vault URL is short-lived; never cache the redirect as document content.
             .header(axum::http::header::CACHE_CONTROL, "private, no-store")
             .body(Body::empty())
             .map_err(|error| {
-                correlate(
-                    ApiError::new(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "VAULT_RESPONSE_FAILED",
-                        error.to_string(),
-                        false,
-                    ),
-                    &resolved,
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "VAULT_RESPONSE_FAILED",
+                    error.to_string(),
+                    false,
                 )
+                .with_correlation(correlation_id.to_owned())
             }),
     }
 }

@@ -1,4 +1,5 @@
 use crate::email::{EmailRepository, EmailService, EMAIL_DELIVERY_ROUTING_KEY};
+use crate::media::{DocumentObjectWriter, StoredDocument};
 use crate::service_support::{audit_result, authorize, CoreServiceError};
 use crate::signature::{SignatureRepository, SignatureService};
 use crate::signer::{SignerRepository, SignerService};
@@ -6,8 +7,8 @@ use crate::vault::{VaultRepository, VaultService};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use db::{
-    DbResult, DbTransaction, EmailDao, FinalizeInputs, LuxesignDao, SignatureDao, SignerDao,
-    VaultDao,
+    DbResult, DbTransaction, EmailDao, FinalizeInputs, LuxesignDao, MediaObjectMetadata,
+    SignatureDao, SignerDao, VaultDao,
 };
 use model::{
     validate_luxesign_recipients, EmailMessageKind, ImportAnchorFieldsRequest,
@@ -21,15 +22,18 @@ use model::{
 };
 use serde_json::{json, Value};
 use services::{
-    AbstractService, OperationKind, ServiceCapability, ServiceContext, ServiceDescriptor,
-    ServiceDispatchError, ServiceEnvelope, ServiceExecutionPolicy, ServiceInfrastructure,
-    ServiceRuntime,
+    AbstractObjectStoreService, AbstractService, OperationKind, ServiceCapability, ServiceContext,
+    ServiceDescriptor, ServiceDispatchError, ServiceEnvelope, ServiceExecutionPolicy,
+    ServiceInfrastructure, ServiceRuntime,
 };
 
 use std::sync::Arc;
 
 pub const LUXESIGN_SERVICE_ACTOR: &str = "luxesign-service";
 const DEFAULT_EXPIRY_DAYS: i64 = 7;
+
+#[cfg(test)]
+pub(crate) mod fake_vault;
 
 #[async_trait]
 pub trait LuxesignRepository: Send + Sync {
@@ -109,7 +113,19 @@ pub trait LuxesignRepository: Send + Sync {
         tx: &mut DbTransaction,
         signature_request_id: &str,
     ) -> DbResult<Vec<String>>;
+    /// Record the already-uploaded audit artifact row and link it to the transaction document.
+    /// `media_id` must be the id the object was uploaded under (`documents/{media_id}/...`).
     async fn store_audit_artifact_tx(
+        &self,
+        tx: &mut DbTransaction,
+        transaction_document_id: &str,
+        media_id: &str,
+        filename: &str,
+        mime_type: &str,
+        object: &MediaObjectMetadata,
+    ) -> DbResult<String>;
+    /// Legacy byte-backed audit artifact storage, used only when no object store is configured.
+    async fn store_audit_artifact_blob_tx(
         &self,
         tx: &mut DbTransaction,
         transaction_document_id: &str,
@@ -128,7 +144,17 @@ pub trait LuxesignRepository: Send + Sync {
         transaction_document_id: &str,
         media_id: &str,
     ) -> DbResult<()>;
+    /// Record the already-uploaded sealed signed PDF row; the caller links it afterwards.
     async fn store_signed_artifact_tx(
+        &self,
+        tx: &mut DbTransaction,
+        media_id: &str,
+        filename: &str,
+        mime_type: &str,
+        object: &MediaObjectMetadata,
+    ) -> DbResult<String>;
+    /// Legacy byte-backed signed PDF storage, used only when no object store is configured.
+    async fn store_signed_artifact_blob_tx(
         &self,
         tx: &mut DbTransaction,
         filename: &str,
@@ -288,11 +314,31 @@ impl LuxesignRepository for LuxesignDao {
         &self,
         tx: &mut DbTransaction,
         transaction_document_id: &str,
+        media_id: &str,
+        filename: &str,
+        mime_type: &str,
+        object: &MediaObjectMetadata,
+    ) -> DbResult<String> {
+        LuxesignDao::store_audit_artifact_tx(
+            self,
+            tx,
+            transaction_document_id,
+            media_id,
+            filename,
+            mime_type,
+            object,
+        )
+        .await
+    }
+    async fn store_audit_artifact_blob_tx(
+        &self,
+        tx: &mut DbTransaction,
+        transaction_document_id: &str,
         filename: &str,
         mime_type: &str,
         bytes: &[u8],
     ) -> DbResult<String> {
-        LuxesignDao::store_audit_artifact_tx(
+        LuxesignDao::store_audit_artifact_blob_tx(
             self,
             tx,
             transaction_document_id,
@@ -320,11 +366,21 @@ impl LuxesignRepository for LuxesignDao {
     async fn store_signed_artifact_tx(
         &self,
         tx: &mut DbTransaction,
+        media_id: &str,
+        filename: &str,
+        mime_type: &str,
+        object: &MediaObjectMetadata,
+    ) -> DbResult<String> {
+        LuxesignDao::store_signed_artifact_tx(self, tx, media_id, filename, mime_type, object).await
+    }
+    async fn store_signed_artifact_blob_tx(
+        &self,
+        tx: &mut DbTransaction,
         filename: &str,
         mime_type: &str,
         bytes: &[u8],
     ) -> DbResult<String> {
-        LuxesignDao::store_signed_artifact_tx(self, tx, filename, mime_type, bytes).await
+        LuxesignDao::store_signed_artifact_blob_tx(self, tx, filename, mime_type, bytes).await
     }
     async fn overdue_envelopes_tx(&self, tx: &mut DbTransaction) -> DbResult<Vec<String>> {
         LuxesignDao::overdue_envelopes_tx(self, tx).await
@@ -352,6 +408,98 @@ impl LuxesignRepository for LuxesignDao {
     }
 }
 
+/// A completion artifact that has been uploaded to the Vault and is waiting for its media row.
+pub(crate) struct UploadedDocument {
+    pub(crate) media_id: String,
+    pub(crate) filename: String,
+    pub(crate) mime_type: String,
+    pub(crate) stored: StoredDocument,
+}
+
+impl UploadedDocument {
+    /// The metadata the media row records; the bytes stay in the Vault.
+    pub(crate) fn object(&self) -> MediaObjectMetadata {
+        MediaObjectMetadata {
+            bucket: self.stored.metadata.bucket.as_str().to_owned(),
+            key: self.stored.key.clone(),
+            etag: self.stored.metadata.etag.clone(),
+            sha256: self.stored.metadata.sha256.clone(),
+            size: self.stored.metadata.size,
+            status: "VERIFIED".to_owned(),
+            visibility: Some("vault".to_owned()),
+        }
+    }
+
+    /// Remove the uploaded object when its row will never exist.
+    pub(crate) async fn discard(&self, writer: &DocumentObjectWriter) {
+        writer.discard(&self.stored.key).await;
+    }
+}
+
+/// Upload one document under a fresh media id. The id is chosen BEFORE the row exists so the Vault
+/// key (`documents/{media_id}/original.*`) and the media row it links always agree.
+pub(crate) async fn upload_document(
+    writer: &DocumentObjectWriter,
+    filename: &str,
+    mime_type: &str,
+    bytes: &[u8],
+) -> Result<UploadedDocument, CoreServiceError> {
+    let media_id = uuid::Uuid::new_v4().to_string();
+    let stored = writer
+        .put(&media_id, filename, mime_type, bytes)
+        .await
+        .map_err(|error| {
+            CoreServiceError::infrastructure(
+                "LUXESIGN_ARTIFACT_UPLOAD_FAILED",
+                format!("{filename}: {error}"),
+            )
+        })?;
+    Ok(UploadedDocument {
+        media_id,
+        filename: filename.to_owned(),
+        mime_type: stored.mime_type.clone(),
+        stored,
+    })
+}
+
+/// Upload the certificate and (when sealed) the signed copy BEFORE any artifact row is written.
+/// If the second upload fails the first is discarded, so a failed finalize leaves no object behind.
+async fn upload_completion_artifacts(
+    writer: &DocumentObjectWriter,
+    audit_filename: &str,
+    audit_bytes: &[u8],
+    signed: Option<(&str, &[u8])>,
+) -> Result<(UploadedDocument, Option<UploadedDocument>), CoreServiceError> {
+    let audit = upload_document(writer, audit_filename, "application/pdf", audit_bytes).await?;
+    let signed = match signed {
+        None => None,
+        Some((filename, bytes)) => {
+            match upload_document(writer, filename, "application/pdf", bytes).await {
+                Ok(document) => Some(document),
+                Err(error) => {
+                    audit.discard(writer).await;
+                    return Err(error);
+                }
+            }
+        }
+    };
+    Ok((audit, signed))
+}
+
+/// A failed transaction rolled back the rows, so the objects they could not link are removed too.
+async fn discard_uploaded(
+    writer: &DocumentObjectWriter,
+    audit: Option<&UploadedDocument>,
+    signed: Option<&UploadedDocument>,
+) {
+    if let Some(document) = audit {
+        writer.discard(&document.stored.key).await;
+    }
+    if let Some(document) = signed {
+        writer.discard(&document.stored.key).await;
+    }
+}
+
 pub struct LuxesignService<R, SR, SGR, ER, VR> {
     repository: R,
     signature: Arc<SignatureService<SR>>,
@@ -359,6 +507,10 @@ pub struct LuxesignService<R, SR, SGR, ER, VR> {
     email: Arc<EmailService<ER>>,
     vault: Arc<VaultService<VR>>,
     runtime: ServiceRuntime,
+    /// Present only when the Vault object store is configured. With it, completion artifacts are
+    /// uploaded before their rows and the rows carry object metadata instead of `media.file_data`.
+    /// Without it (tests/dev), artifact writes stay byte-backed.
+    documents: Option<Arc<DocumentObjectWriter>>,
 }
 
 impl<R, SR, SGR, ER, VR> LuxesignService<R, SR, SGR, ER, VR>
@@ -384,7 +536,15 @@ where
             email,
             vault,
             runtime: ServiceRuntime::new(infrastructure),
+            documents: None,
         }
+    }
+
+    /// Attach the shared Vault document writer. Composition calls this when the object store is
+    /// configured; without it this service keeps the legacy byte-backed artifact writes.
+    pub fn with_object_store(mut self, store: Arc<dyn AbstractObjectStoreService>) -> Self {
+        self.documents = Some(Arc::new(DocumentObjectWriter::new(store)));
+        self
     }
 
     pub async fn get(
@@ -1739,63 +1899,128 @@ where
                 format!("Completion certificate could not be rendered: {error}"),
             )
         })?;
-        let audit_media_id = self
-            .repository
-            .store_audit_artifact_tx(
-                tx,
-                &transaction_document_id,
-                &format!("signature-completion-{signature_request_id}.pdf"),
-                "application/pdf",
-                &certificate,
-            )
-            .await?;
-        let signed_media_id = match sealed {
-            Some(overlay) => {
-                let media_id = self
-                    .repository
-                    .store_signed_artifact_tx(
-                        tx,
-                        &format!("signature-signed-{signature_request_id}.pdf"),
-                        "application/pdf",
-                        &overlay,
-                    )
-                    .await?;
-                self.repository
-                    .link_signed_media_tx(tx, &transaction_document_id, &media_id)
-                    .await?;
-                Some(media_id)
-            }
+        let audit_filename = format!("signature-completion-{signature_request_id}.pdf");
+        let signed_filename = format!("signature-signed-{signature_request_id}.pdf");
+        // Object-first: the certificate and sealed copy go to the Vault BEFORE any artifact media row
+        // exists. Without an object store (tests/dev) the legacy byte-backed rows below remain.
+        let uploaded = match self.documents.as_deref() {
+            Some(writer) => Some(
+                upload_completion_artifacts(
+                    writer,
+                    &audit_filename,
+                    &certificate,
+                    sealed
+                        .as_deref()
+                        .map(|overlay| (signed_filename.as_str(), overlay)),
+                )
+                .await?,
+            ),
             None => None,
         };
-        self.signer
-            .append_finalize_evidence_tx(
-                tx,
-                signature_request_id,
-                &audit_media_id,
-                signed_media_id.as_deref(),
-                &internal,
-            )
-            .await?;
-        self.signature
-            .transition_transactional(
-                tx,
-                signature_request_id,
-                SignatureRequestStatus::Completed,
-                &internal,
-            )
-            .await?;
-        // Everyone learns the outcome in the same transaction as the status flip: the signers, whoever the sender
-        // copied (a listing's broker), and the sender. Each gets the signed document and the certificate attached.
-        let notification_message_ids = self
-            .queue_outcome_emails_tx(tx, signature_request_id, &OutcomeNotice::Completed, context)
-            .await?;
-        Ok(LuxesignFinalizeResult {
-            signature_request_id: signature_request_id.to_owned(),
-            audit_media_id: Some(audit_media_id),
-            signed_media_id,
-            already_completed: false,
-            notification_message_ids,
-        })
+        let result = async {
+            let audit_media_id = match &uploaded {
+                Some((audit, _)) => {
+                    self.repository
+                        .store_audit_artifact_tx(
+                            tx,
+                            &transaction_document_id,
+                            &audit.media_id,
+                            &audit.filename,
+                            "application/pdf",
+                            &audit.object(),
+                        )
+                        .await?
+                }
+                None => {
+                    self.repository
+                        .store_audit_artifact_blob_tx(
+                            tx,
+                            &transaction_document_id,
+                            &audit_filename,
+                            "application/pdf",
+                            &certificate,
+                        )
+                        .await?
+                }
+            };
+            let signed_media_id = match (sealed.as_deref(), &uploaded) {
+                (Some(_), Some((_, Some(signed)))) => {
+                    let media_id = self
+                        .repository
+                        .store_signed_artifact_tx(
+                            tx,
+                            &signed.media_id,
+                            &signed.filename,
+                            "application/pdf",
+                            &signed.object(),
+                        )
+                        .await?;
+                    self.repository
+                        .link_signed_media_tx(tx, &transaction_document_id, &media_id)
+                        .await?;
+                    Some(media_id)
+                }
+                (Some(overlay), _) => {
+                    let media_id = self
+                        .repository
+                        .store_signed_artifact_blob_tx(
+                            tx,
+                            &signed_filename,
+                            "application/pdf",
+                            overlay,
+                        )
+                        .await?;
+                    self.repository
+                        .link_signed_media_tx(tx, &transaction_document_id, &media_id)
+                        .await?;
+                    Some(media_id)
+                }
+                (None, _) => None,
+            };
+            self.signer
+                .append_finalize_evidence_tx(
+                    tx,
+                    signature_request_id,
+                    &audit_media_id,
+                    signed_media_id.as_deref(),
+                    &internal,
+                )
+                .await?;
+            self.signature
+                .transition_transactional(
+                    tx,
+                    signature_request_id,
+                    SignatureRequestStatus::Completed,
+                    &internal,
+                )
+                .await?;
+            // Everyone learns the outcome in the same transaction as the status flip: the signers, whoever the sender
+            // copied (a listing's broker), and the sender. Each gets the signed document and the certificate attached.
+            let notification_message_ids = self
+                .queue_outcome_emails_tx(
+                    tx,
+                    signature_request_id,
+                    &OutcomeNotice::Completed,
+                    context,
+                )
+                .await?;
+            Ok::<_, CoreServiceError>(LuxesignFinalizeResult {
+                signature_request_id: signature_request_id.to_owned(),
+                audit_media_id: Some(audit_media_id),
+                signed_media_id,
+                already_completed: false,
+                notification_message_ids,
+            })
+        }
+        .await;
+        // The caller owns the transaction. If any later write failed it will roll back, so the objects
+        // whose rows will never exist are removed instead of leaking.
+        if result.is_err() {
+            if let (Some(writer), Some((audit, signed))) = (self.documents.as_deref(), &uploaded) {
+                discard_uploaded(writer, Some(audit), signed.as_ref()).await;
+            }
+        }
+        result
     }
 
     /// Expire what the clock has passed: overdue recipients first, then
@@ -2780,5 +3005,88 @@ mod anchor_import_tests {
         let mut off_page = anchor("seller", Some("s1"), "signature");
         off_page.rect.y = 780.0;
         assert!(group_anchor_sets(&[off_page]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod object_first_tests {
+    use super::*;
+    use crate::luxesign::core::fake_vault::FakeVault;
+
+    #[tokio::test]
+    async fn completion_artifacts_upload_before_their_rows_and_key_by_media_id() {
+        let store = Arc::new(FakeVault::default());
+        let writer = DocumentObjectWriter::new(store.clone());
+
+        let (audit, signed) = upload_completion_artifacts(
+            &writer,
+            "completion.pdf",
+            b"certificate",
+            Some(("signed.pdf", b"sealed".as_slice())),
+        )
+        .await
+        .expect("uploads succeed");
+
+        assert_eq!(
+            audit.stored.key,
+            format!("documents/{}/original.pdf", audit.media_id)
+        );
+        assert_eq!(audit.mime_type, "application/pdf");
+        let object = audit.object();
+        assert_eq!(object.bucket, "vault");
+        assert_eq!(object.status, "VERIFIED");
+        assert_eq!(object.visibility.as_deref(), Some("vault"));
+        assert_eq!(object.size, b"certificate".len() as i64);
+        assert!(object.sha256.is_some());
+
+        let signed = signed.expect("sealed copy uploaded");
+        assert_eq!(
+            signed.stored.key,
+            format!("documents/{}/original.pdf", signed.media_id)
+        );
+        assert_eq!(store.puts().len(), 2);
+        assert!(
+            store.deletes().is_empty(),
+            "successful uploads are not discarded"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_signed_upload_discards_the_certificate_object() {
+        let store = Arc::new(FakeVault::with_failure_on(2));
+        let writer = DocumentObjectWriter::new(store.clone());
+
+        let error = upload_completion_artifacts(
+            &writer,
+            "completion.pdf",
+            b"certificate",
+            Some(("signed.pdf", b"sealed".as_slice())),
+        )
+        .await
+        .err()
+        .expect("the second upload fails");
+
+        assert_eq!(error.code(), "LUXESIGN_ARTIFACT_UPLOAD_FAILED");
+        let puts = store.puts();
+        assert_eq!(puts.len(), 2);
+        assert_eq!(store.deletes(), vec![puts[0].clone()]);
+    }
+
+    #[tokio::test]
+    async fn discard_uploaded_removes_every_object() {
+        let store = Arc::new(FakeVault::default());
+        let writer = DocumentObjectWriter::new(store.clone());
+        let (audit, signed) = upload_completion_artifacts(
+            &writer,
+            "completion.pdf",
+            b"certificate",
+            Some(("signed.pdf", b"sealed".as_slice())),
+        )
+        .await
+        .expect("uploads succeed");
+
+        discard_uploaded(&writer, Some(&audit), signed.as_ref()).await;
+
+        assert_eq!(store.deletes(), store.puts());
     }
 }

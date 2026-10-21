@@ -58,12 +58,69 @@ pub mod links {
     pub const SELLER_STRATEGY_PDF: &str = "/api/portal/seller-strategy/pdf";
 }
 
-/// Where property photographs are sent, in pieces (`Cmd::upload`).
+/// Where property photographs are sent, in pieces (`Cmd::upload`). Not named by a screen any more: it is the
+/// endpoint `PropertyMediaUpload` falls back to for a file one request cannot carry, and the rollback target for
+/// the whole-file switch. Its server route is untouched.
 pub struct PropertyMediaChunked;
 
 impl FileEndpoint for PropertyMediaChunked {
     fn path(&self) -> String {
         "/api/property-media/chunked".into()
+    }
+}
+
+/// Where a property photograph is sent WHOLE, in one request (`Cmd::upload`). The server derives the servable
+/// copies, stores the original and the copies object-first, and attaches the property in one transaction — no
+/// chunk manifest and no staged bytes, which is what retires `media_upload_chunk`.
+pub struct PropertyMediaFullUpload;
+
+impl FileEndpoint for PropertyMediaFullUpload {
+    fn path(&self) -> String {
+        "/api/property-media/full".into()
+    }
+
+    fn whole_file(&self) -> bool {
+        true
+    }
+}
+
+/// The hosting edge accepts about 4.5 MB in one request (`docs/agent/ORIENTATION.md`). A photograph above this
+/// stays on the chunked protocol until the edge limit is raised or the browser uploads straight to object
+/// storage; sending it whole would be refused before it ever reached this server.
+pub const WHOLE_FILE_LIMIT_BYTES: f64 = 4.0 * 1024.0 * 1024.0;
+
+/// THE endpoint a screen names for a property photograph (`Cmd::upload`). The screen reports the file's size and
+/// this decides how it travels: one whole request when the edge can carry it, in pieces when it cannot. Keeping
+/// the decision here means a screen never encodes a deployment limit, and when the limit goes away this one
+/// function starts answering `Whole` for every size — the chunk endpoint then has no caller left to delete.
+pub enum PropertyMediaUpload {
+    Whole(PropertyMediaFullUpload),
+    Chunked(PropertyMediaChunked),
+}
+
+impl PropertyMediaUpload {
+    pub fn for_size(byte_size: f64) -> Self {
+        if byte_size <= WHOLE_FILE_LIMIT_BYTES {
+            Self::Whole(PropertyMediaFullUpload)
+        } else {
+            Self::Chunked(PropertyMediaChunked)
+        }
+    }
+}
+
+impl FileEndpoint for PropertyMediaUpload {
+    fn path(&self) -> String {
+        match self {
+            Self::Whole(endpoint) => endpoint.path(),
+            Self::Chunked(endpoint) => endpoint.path(),
+        }
+    }
+
+    fn whole_file(&self) -> bool {
+        match self {
+            Self::Whole(endpoint) => endpoint.whole_file(),
+            Self::Chunked(endpoint) => endpoint.whole_file(),
+        }
     }
 }
 
@@ -271,5 +328,28 @@ impl Endpoint for WebsiteIntake {
     }
     fn body(&self) -> Option<serde_json::Value> {
         Some(self.body.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The switch: a photograph one request can carry goes WHOLE to the new endpoint; a larger one stays on the
+    /// chunked protocol until the edge limit is raised or direct-to-object upload lands. The boundary is
+    /// inclusive because a request of exactly the cap is still carried.
+    #[test]
+    fn a_photograph_travels_whole_until_the_edge_cannot_carry_it() {
+        let small = PropertyMediaUpload::for_size(3.0 * 1024.0 * 1024.0);
+        assert!(small.whole_file());
+        assert_eq!(small.path(), "/api/property-media/full");
+
+        let at_limit = PropertyMediaUpload::for_size(WHOLE_FILE_LIMIT_BYTES);
+        assert!(at_limit.whole_file());
+        assert_eq!(at_limit.path(), "/api/property-media/full");
+
+        let too_large = PropertyMediaUpload::for_size(13.0 * 1024.0 * 1024.0);
+        assert!(!too_large.whole_file());
+        assert_eq!(too_large.path(), "/api/property-media/chunked");
     }
 }

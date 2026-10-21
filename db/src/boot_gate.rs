@@ -66,6 +66,9 @@ pub const REQUIRED_BOOT_MIGRATIONS: &[&str] = &[
     // (corrections, repeat detection, experiment-outcome corrections). Applied to DEV 2026-10-18
     // 17:40Z and PROD by the Lead; code that reports learning corrections needs these rows.
     "295_forge_correction_ledger.sql",
+    // Object-first media: 298 adds the storage metadata and 299 makes file_data nullable.
+    "298_media_object_storage_metadata.sql",
+    "299_media_blob_nullable.sql",
 ];
 
 /// Migrations whose FILE was edited after the ledger recorded an apply, and how the boot gate

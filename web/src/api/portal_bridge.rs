@@ -165,4 +165,11 @@ pub fn router() -> Router<ApiState> {
             axum::routing::post(property_media_chunked)
                 .layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024)),
         )
+        .route(
+            "/api/property-media/full",
+            axum::routing::post(crate::media::property_media_full_upload)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    model::MAX_MEDIA_UPLOAD_BYTES + 1024 * 1024,
+                )),
+        )
 }

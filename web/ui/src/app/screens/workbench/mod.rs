@@ -9,14 +9,16 @@
 //! first — because the answer would replace the draft. Every read carries a sequence number and only the newest answer
 //! is taken, so a slow answer for a record the operator has left can never overwrite the one they are editing.
 //!
-//! PHOTOS are sent with the chunked-upload command (`Cmd::upload`): choosing a file IS the upload.
+//! PHOTOS are sent with the upload command (`Cmd::upload`): choosing a file IS the upload. The endpoint
+//! (`PropertyMediaUpload`) sends the whole file in one request when the edge can carry it — the server derives the
+//! servable copies and stores everything object-first — and the chunked protocol only when it cannot.
 
 mod view;
 
 use yew::prelude::*;
 
 use crate::app::api::{
-    DealPeopleSearch, OpsCommand, OpsRead, PropertyHero, PropertyMediaChunked, PropertyMediaRemove,
+    DealPeopleSearch, OpsCommand, OpsRead, PropertyHero, PropertyMediaRemove, PropertyMediaUpload,
     PropertyMergeParcel,
 };
 use crate::app::cmd::{ApiError, Cmd, Remote};

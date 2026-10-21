@@ -2,6 +2,7 @@
 
 #[allow(unused_imports)]
 use super::*;
+use services::{ServiceFailureClass, ServiceRuntimeError};
 
 #[async_trait]
 pub trait MediaRepository: Send + Sync {
@@ -67,11 +68,22 @@ pub trait MediaRepository: Send + Sync {
         Ok(false)
     }
 
-    /// The storage pointer for a row, without loading `file_data`. Test repositories return None.
+    /// The STORAGE POINTER of the copy a reader should be served (the `web` derivative when the row is an
+    /// original), without loading `file_data`. Test repositories return None.
     async fn media_object_location(
         &self,
         _media_id: &str,
     ) -> DbResult<Option<db::MediaObjectLocation>> {
+        Ok(None)
+    }
+
+    /// Photograph id already attached to this property under this name and size (the full-file retry guard).
+    async fn property_photo_id(
+        &self,
+        _property_id: &str,
+        _filename: &str,
+        _byte_size: i64,
+    ) -> DbResult<Option<String>> {
         Ok(None)
     }
 
@@ -89,6 +101,20 @@ pub trait MediaRepository: Send + Sync {
     ) -> DbResult<UploadPropertyMediaResult> {
         Err(db::DbFailure::configuration(
             "media.save_property_media_object",
+            "object-first uploads are not implemented by this repository",
+        ))
+    }
+
+    /// Object-first full-file upload: every row plus the property link in one transaction. No
+    /// `media_upload`/`media_upload_chunk` rows are written on this path.
+    async fn save_property_media_object_set(
+        &self,
+        _property_id: &str,
+        _role: &str,
+        _rows: &[db::MediaObjectRow],
+    ) -> DbResult<UploadPropertyMediaResult> {
+        Err(db::DbFailure::configuration(
+            "media.save_property_media_object_set",
             "object-first uploads are not implemented by this repository",
         ))
     }
@@ -237,6 +263,15 @@ impl MediaRepository for MediaDao {
         MediaDao::media_object_location(self, media_id).await
     }
 
+    async fn property_photo_id(
+        &self,
+        property_id: &str,
+        filename: &str,
+        byte_size: i64,
+    ) -> DbResult<Option<String>> {
+        MediaDao::property_photo_id(self, property_id, filename, byte_size).await
+    }
+
     async fn property_is_public(&self, property_id: &str) -> DbResult<bool> {
         MediaDao::property_is_public(self, property_id).await
     }
@@ -248,6 +283,15 @@ impl MediaRepository for MediaDao {
         row: &db::MediaObjectRow,
     ) -> DbResult<UploadPropertyMediaResult> {
         MediaDao::save_property_media_object(self, property_id, role, row).await
+    }
+
+    async fn save_property_media_object_set(
+        &self,
+        property_id: &str,
+        role: &str,
+        rows: &[db::MediaObjectRow],
+    ) -> DbResult<UploadPropertyMediaResult> {
+        MediaDao::save_property_media_object_set(self, property_id, role, rows).await
     }
 
     async fn commit_media_object_upload(
@@ -313,6 +357,9 @@ pub enum UploadLookup {
 }
 
 /// What a read route should return for one media id: legacy bytes, or a redirect to the object store.
+/// The bytes variant is only reachable while `object_reads` is off; with the switch on, an
+/// unaddressable object is an error instead.
+#[derive(Debug)]
 pub enum MediaRead {
     Bytes { mime_type: String, bytes: Vec<u8> },
     Redirect { url: String },
@@ -321,9 +368,8 @@ pub enum MediaRead {
 pub struct MediaService<R> {
     pub(super) repository: R,
     pub(super) runtime: ServiceRuntime,
-    /// Present only when the media object store is configured. Shadow writes are additive: the
-    /// Postgres blob is still canonical until the Phase 6 read switch, so a store error never fails
-    /// an upload.
+    /// Present only when the media object store is configured. With `object_reads` off, shadow writes
+    /// are additive and the Postgres blob stays canonical, so a store error never fails an upload.
     pub(super) object_store: Option<Arc<dyn AbstractObjectStoreService>>,
     pub(super) object_reads: bool,
 }
@@ -350,8 +396,9 @@ impl<R> MediaService<R> {
         self
     }
 
-    /// Phase 4 switch. Default false; even when true, a row must be VERIFIED and the object URL
-    /// must be generated successfully, otherwise the legacy blob is served.
+    /// The read cutover switch. Default false, which keeps the legacy blob canonical and the read
+    /// path exactly as it was. When true, object storage is the ONLY source: a missing, unverified or
+    /// unaddressable object is a typed failure, never a fallback to `file_data`.
     pub fn with_object_reads(mut self, enabled: bool) -> Self {
         self.object_reads = enabled;
         self
@@ -359,7 +406,12 @@ impl<R> MediaService<R> {
 }
 
 impl<R: MediaRepository> MediaService<R> {
-    async fn object_row(
+    /// Upload one object, prove it is the bytes we meant to store, and return its metadata row.
+    ///
+    /// Shared by the direct, chunked and whole-file object-first paths. A put that cannot be verified is
+    /// deleted here rather than left in the bucket: an unverified object is not a copy of anything, and the
+    /// caller's failure cleanup only knows about rows that came back.
+    pub(super) async fn object_row(
         &self,
         store: &Arc<dyn AbstractObjectStoreService>,
         bucket: ObjectBucket,
@@ -391,10 +443,10 @@ impl<R: MediaRepository> MediaService<R> {
             .sha256
             .clone()
             .ok_or_else(|| "provider returned no SHA-256".to_owned())?;
-        store
-            .verify_object(bucket, &key, &sha, stored.size)
-            .await
-            .map_err(|error| error.to_string())?;
+        if let Err(error) = store.verify_object(bucket, &key, &sha, stored.size).await {
+            let _ = store.delete_object(bucket, &key).await;
+            return Err(error.to_string());
+        }
         Ok(db::MediaObjectRow {
             id: id.to_owned(),
             filename: filename.to_owned(),
@@ -441,17 +493,8 @@ impl<R: MediaRepository> MediaService<R> {
         let id = uuid::Uuid::new_v4().to_string();
         let row = self
             .object_row(
-                store,
-                bucket,
-                visibility,
-                &id,
-                filename,
-                mime_type,
-                bytes,
-                alt_text,
-                "image",
-                None,
-                None,
+                store, bucket, visibility, &id, filename, mime_type, bytes, alt_text, "image",
+                None, None,
             )
             .await?;
         match self
@@ -512,7 +555,11 @@ impl<R: MediaRepository> MediaService<R> {
                     bucket,
                     visibility,
                     &id,
-                    &format!("{}-{}.jpg", assembly.filename.trim_end_matches(".jpg"), derivative.kind),
+                    &format!(
+                        "{}-{}.jpg",
+                        assembly.filename.trim_end_matches(".jpg"),
+                        derivative.kind
+                    ),
                     "image/jpeg",
                     &derivative.bytes,
                     None,
@@ -525,12 +572,7 @@ impl<R: MediaRepository> MediaService<R> {
         }
         match self
             .repository
-            .commit_media_object_upload(
-                upload_id,
-                &assembly.property_id,
-                &assembly.role,
-                &rows,
-            )
+            .commit_media_object_upload(upload_id, &assembly.property_id, &assembly.role, &rows)
             .await
         {
             Ok(result) => Ok(result),
@@ -543,8 +585,15 @@ impl<R: MediaRepository> MediaService<R> {
         }
     }
 
-    /// Phase 4 resolver:impl<R: MediaRepository> MediaService<R> {
-    /// Phase 4 resolver: verified object first, legacy bytes as the always-available fallback.
+    /// Resolve one media id to what a read route should send: a redirect to the object store, or the
+    /// legacy blob.
+    ///
+    /// TWO MODES, ONE RULE. With `object_reads` OFF (the default) the legacy blob is canonical and this
+    /// is unchanged. With it ON, the object store is the ONLY source: a row with no object, an object
+    /// that is not VERIFIED, or an object whose read URL cannot be generated is a TYPED FAILURE. It is
+    /// never a silent fall back to `file_data` — a fallback would hide a half-migrated row as a working
+    /// read and keep the blob columns load-bearing for every reader, which is exactly what this switch
+    /// exists to end.
     pub async fn media_read(
         &self,
         id: &str,
@@ -562,40 +611,64 @@ impl<R: MediaRepository> MediaService<R> {
         .await?;
 
         let result = async {
-            if self.object_reads {
-                if let Some(store) = self.object_store.as_ref() {
-                    if let Some(location) = self.repository.media_object_location(id).await? {
-                        if location.status == "VERIFIED" && location.visibility != "vault" {
-                            let bucket = ObjectBucket::from_db(&location.bucket);
-                            if let Some(bucket) = bucket.filter(|bucket| *bucket != ObjectBucket::Vault) {
-                                let url = if bucket == ObjectBucket::PropertyMediaPublic
-                                    && location.visibility == "public"
-                                {
-                                    store.public_read_url(bucket, &location.key).await
-                                } else {
-                                    store
-                                        .signed_read_url(
-                                            bucket,
-                                            &location.key,
-                                            Duration::from_secs(300),
-                                        )
-                                        .await
-                                };
-                                match url {
-                                    Ok(url) => return Ok(Some(MediaRead::Redirect { url })),
-                                    Err(error) => tracing::warn!(
-                                        media_id = id,
-                                        %error,
-                                        "media object read URL failed; falling back to legacy blob"
-                                    ),
-                                }
-                            }
-                        }
-                    }
-                }
+            if !self.object_reads {
+                let bytes = self.repository.media_bytes(id).await?;
+                return Ok(bytes.map(|(mime_type, bytes)| MediaRead::Bytes { mime_type, bytes }));
             }
-            let bytes = self.repository.media_bytes(id).await?;
-            Ok(bytes.map(|(mime_type, bytes)| MediaRead::Bytes { mime_type, bytes }))
+
+            let Some(store) = self.object_store.as_ref() else {
+                return Err(CoreServiceError::Runtime(ServiceRuntimeError::Router {
+                    code: "MEDIA_OBJECT_STORE_NOT_CONFIGURED".into(),
+                    message: "media object reads are enabled but no object store is configured".into(),
+                    retryable: false,
+                    class: ServiceFailureClass::Infrastructure,
+                }));
+            };
+            let Some(location) = self.repository.media_object_location(id).await? else {
+                return Err(CoreServiceError::business(
+                    "MEDIA_OBJECT_NOT_FOUND",
+                    "This media has no object-storage copy, and the legacy blob reader is disabled.",
+                ));
+            };
+            if location.status != "VERIFIED" {
+                return Err(CoreServiceError::business(
+                    "MEDIA_OBJECT_NOT_VERIFIED",
+                    format!(
+                        "This media's object is {}, not VERIFIED; refusing to serve it.",
+                        location.status
+                    ),
+                ));
+            }
+            // Vault bytes have their own doors. A media row that points at the Vault bucket must not be
+            // readable here, whatever the row's visibility column says.
+            let Some(bucket) = ObjectBucket::from_db(&location.bucket) else {
+                return Err(CoreServiceError::business(
+                    "MEDIA_OBJECT_BUCKET_UNKNOWN",
+                    "This media's object bucket is not a storage domain this reader serves.",
+                ));
+            };
+            if bucket == ObjectBucket::Vault || location.visibility == "vault" {
+                return Err(CoreServiceError::business(
+                    "MEDIA_OBJECT_NOT_FOUND",
+                    "Not found.",
+                ));
+            }
+            let url = if bucket == ObjectBucket::PropertyMediaPublic
+                && location.visibility == "public"
+            {
+                store.public_read_url(bucket, &location.key).await
+            } else {
+                store
+                    .signed_read_url(bucket, &location.key, Duration::from_secs(300))
+                    .await
+            };
+            match url {
+                Ok(url) => Ok(Some(MediaRead::Redirect { url })),
+                Err(error) => Err(CoreServiceError::infrastructure(
+                    "MEDIA_OBJECT_READ_URL_FAILED",
+                    error.to_string(),
+                )),
+            }
         }
         .await;
 
@@ -679,7 +752,12 @@ impl<R: MediaRepository> MediaService<R> {
                 }
             }
             Err(error) => {
-                tracing::warn!(media_id, key, error, "media object shadow failed; legacy blob remains canonical");
+                tracing::warn!(
+                    media_id,
+                    key,
+                    error,
+                    "media object shadow failed; legacy blob remains canonical"
+                );
                 let failed = db::MediaObjectMetadata {
                     bucket: bucket.as_str().to_owned(),
                     key: key.clone(),

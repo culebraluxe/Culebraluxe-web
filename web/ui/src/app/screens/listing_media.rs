@@ -1,11 +1,12 @@
 //! OPPS — Listing Media (`/portal/property-media`): pick a listing, add a photograph to it.
 //!
 //! The list (search with a pause, paging, selection) and the upload are the screen's. The photograph is sent with the
-//! chunked-upload command, like the Workbench's, so a large file is not refused by the gateway.
+//! same upload command as the Workbench's: whole in one request when the edge can carry it (copies derived and stored
+//! object-first server-side, no staged chunks), in pieces only when it cannot.
 
 use yew::prelude::*;
 
-use crate::app::api::{ListingMediaRead, PropertyMediaChunked};
+use crate::app::api::{ListingMediaRead, PropertyMediaUpload};
 use crate::app::cmd::{ApiError, Cmd, Remote};
 use crate::app::screen::{Link, Screen, ScreenCtx};
 use crate::app::template;
@@ -189,9 +190,10 @@ impl Screen for ListingMedia {
                 if !model.alt.trim().is_empty() {
                     init.push(("altText".to_string(), model.alt.trim().to_string()));
                 }
+                let endpoint = PropertyMediaUpload::for_size(file.size());
                 Cmd::upload(
                     file,
-                    PropertyMediaChunked,
+                    endpoint,
                     vec![("propertyId".to_string(), property_id)],
                     init,
                     Msg::Uploaded,

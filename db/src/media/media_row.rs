@@ -188,13 +188,42 @@ impl MediaDao {
     }
 
     /// Read only the storage pointer, never `file_data`.
+    ///
+    /// The SERVABLE copy is what a reader gets, not the record copy: for a photograph that is the `web`
+    /// derivative when one exists (the same rule `media_bytes` applies to the legacy blob), otherwise the
+    /// row's own object. Object-first uploads give every row its own pointer, so resolving here keeps the
+    /// read path working for callers that only know the media id they attached to the property.
     pub async fn media_object_location(
         &self,
         media_id: &str,
     ) -> DbResult<Option<MediaObjectLocation>> {
-        let row = sqlx::query_as::<_, (Option<String>, Option<String>, String, String)>(
-            "select object_bucket, object_key, storage_status, visibility
-               from media where id = $1::uuid",
+        let row = sqlx::query_as::<
+            _,
+            (
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ),
+        >(
+            r#"
+            select
+                case when copy.id is not null then copy.object_bucket else m.object_bucket end,
+                case when copy.id is not null then copy.object_key else m.object_key end,
+                case when copy.id is not null then copy.storage_status else m.storage_status end,
+                case when copy.id is not null then copy.visibility else m.visibility end
+              from media m
+              join media root on root.id = coalesce(m.derivative_of, m.id)
+              left join lateral (
+                  select d.id, d.object_bucket, d.object_key, d.storage_status, d.visibility
+                    from media d
+                   where d.derivative_of = root.id
+                     and d.derivative_kind = 'web'
+                   limit 1
+              ) copy on true
+             where m.id = $1::uuid
+             limit 1
+            "#,
         )
         .bind(media_id)
         .fetch_optional(self.db.pool())
@@ -204,10 +233,42 @@ impl MediaDao {
             Some(MediaObjectLocation {
                 bucket: bucket?,
                 key: key?,
-                status,
-                visibility,
+                status: status.unwrap_or_else(|| "LEGACY_BLOB".to_owned()),
+                visibility: visibility.unwrap_or_else(|| "private".to_owned()),
             })
         }))
+    }
+
+    /// The id of the photograph this property already shows under this name and size, if any.
+    ///
+    /// The full-file upload path uses this as its retry guard: a request resent after a lost response must
+    /// answer with the row that already exists instead of attaching the same file twice. The rule is the
+    /// same one `property_has_photo` uses for the chunked protocol.
+    pub async fn property_photo_id(
+        &self,
+        property_id: &str,
+        filename: &str,
+        byte_size: i64,
+    ) -> DbResult<Option<String>> {
+        sqlx::query_scalar::<_, String>(
+            r#"
+            select m.id::text
+              from property_media pm
+              join media m on m.id = pm.media_id
+             where pm.property_id = $1::uuid
+               and m.filename = $2
+               and m.file_size = $3
+               and m.derivative_of is null
+             order by pm.created_at asc
+             limit 1
+            "#,
+        )
+        .bind(property_id)
+        .bind(filename)
+        .bind(byte_size)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.property_photo_id", &error))
     }
 
     /// The same publication rule the public listing uses. New uploads on a published property may
@@ -291,7 +352,11 @@ impl MediaDao {
         .map_err(|error| DbFailure::from_sqlx("media.images_missing_copy", &error))
     }
 
-    /// An original photograph's own bytes.
+    /// LEGACY BLOB PATH. An original photograph's own bytes, read from `file_data`.
+    ///
+    /// Only the `cli media-cards` backfill uses this now. The object-first replacement is
+    /// `original_object_location` + `AbstractObjectStoreService::get_object` + `insert_copy_object`; wiring the
+    /// CLI to those is the remaining step (the CLI is outside the media cutover's write scope).
     pub async fn original_bytes(&self, id: &str) -> DbResult<Option<Vec<u8>>> {
         sqlx::query_scalar::<_, Vec<u8>>(
             "select file_data from media where id = $1::uuid and derivative_of is null",
@@ -302,7 +367,76 @@ impl MediaDao {
         .map_err(|error| DbFailure::from_sqlx("media.original_bytes", &error))
     }
 
-    /// Attaches one derived copy (a JPEG) to its original.
+    /// The object pointer of the ORIGINAL row (never a derivative): what an image-copy backfill must read.
+    ///
+    /// `media_object_location` resolves the servable `web` copy, which is not what a backfill that derives a new
+    /// copy wants; this one is the record copy itself.
+    pub async fn original_object_location(
+        &self,
+        media_id: &str,
+    ) -> DbResult<Option<MediaObjectLocation>> {
+        let row = sqlx::query_as::<_, (Option<String>, Option<String>, String, String)>(
+            "select object_bucket, object_key, storage_status, visibility
+               from media
+              where id = $1::uuid and derivative_of is null",
+        )
+        .bind(media_id)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.original_object_location", &error))?;
+        Ok(row.and_then(|(bucket, key, status, visibility)| {
+            Some(MediaObjectLocation {
+                bucket: bucket?,
+                key: key?,
+                status,
+                visibility,
+            })
+        }))
+    }
+
+    /// The object-first mirror of `insert_copy`: record one derivative's object metadata, no bytes.
+    ///
+    /// The caller has already uploaded and verified the object; this is the metadata half, so a backfill can add
+    /// a `card` copy without writing `file_data`.
+    pub async fn insert_copy_object(
+        &self,
+        original_id: &str,
+        kind: &str,
+        filename: Option<&str>,
+        object: &MediaObjectMetadata,
+    ) -> DbResult<String> {
+        sqlx::query_scalar::<_, String>(
+            r#"
+            insert into media (
+                filename, mime_type, file_size, media_type, derivative_of, derivative_kind,
+                object_bucket, object_key, object_etag, object_sha256, object_size,
+                object_migrated_at, storage_status, visibility
+            )
+            values (
+                $1, 'image/jpeg', $2, 'image', $3::uuid, $4,
+                $5, $6, $7, $8, $9, now(), 'VERIFIED', $10
+            )
+            returning id::text
+            "#,
+        )
+        .bind(filename)
+        .bind(object.size)
+        .bind(original_id)
+        .bind(kind)
+        .bind(&object.bucket)
+        .bind(&object.key)
+        .bind(object.etag.as_deref())
+        .bind(object.sha256.as_deref())
+        .bind(object.size)
+        .bind(object.visibility.as_deref())
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("media.insert_copy_object", &error))
+    }
+
+    /// LEGACY BLOB PATH. Attaches one derived copy (a JPEG) to its original, writing the bytes.
+    ///
+    /// The object-first replacement is `insert_copy_object` (see `original_bytes`).
     pub async fn insert_copy(
         &self,
         original_id: &str,

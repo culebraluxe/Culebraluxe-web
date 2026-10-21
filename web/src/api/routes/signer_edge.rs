@@ -165,10 +165,10 @@ pub(super) async fn signer_document(
         .await
         .map_err(|error| error.with_correlation(correlation_id.clone()))?;
     let recipient_id = session.recipient.id.clone();
-    let document = state
+    let read = state
         .services()
         .vault()
-        .signing_document_bytes(
+        .signing_document_read(
             &session.signature_request_id,
             &recipient_id,
             &recipient_context(&recipient_id, &correlation_id),
@@ -183,8 +183,7 @@ pub(super) async fn signer_document(
             .with_correlation(correlation_id.clone())
         })?;
     let download = query.download.as_deref() == Some("1");
-    vault_document_response(document, download)
-        .map_err(|error| error.with_correlation(correlation_id))
+    vault_read_response(read, download, &correlation_id)
 }
 
 /// The SEALED copy of the document, for a recipient of an envelope that has completed: the same verified link, the
@@ -200,10 +199,10 @@ pub(super) async fn signer_signed_copy(
         .await
         .map_err(|error| error.with_correlation(correlation_id.clone()))?;
     let recipient_id = session.recipient.id.clone();
-    let document = state
+    let read = state
         .services()
         .vault()
-        .signing_signed_bytes(
+        .signing_signed_read(
             &session.signature_request_id,
             &recipient_id,
             &recipient_context(&recipient_id, &correlation_id),
@@ -217,7 +216,7 @@ pub(super) async fn signer_signed_copy(
             )
             .with_correlation(correlation_id.clone())
         })?;
-    vault_document_response(document, true).map_err(|error| error.with_correlation(correlation_id))
+    vault_read_response(read, true, &correlation_id)
 }
 
 /// The signing page, drawn as it will be sealed: the verified recipient's own blocks on the original, with the pictures

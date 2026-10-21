@@ -135,13 +135,23 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
             let deliver = deliver.clone();
             spawn_local(async move {
                 let reply = upload.reply;
-                let result = upload_chunked(
-                    upload.file,
-                    &upload.path,
-                    &upload.fields,
-                    &upload.init_fields,
-                )
-                .await;
+                let result = if upload.whole_file {
+                    upload_whole_file(
+                        upload.file,
+                        &upload.path,
+                        &upload.fields,
+                        &upload.init_fields,
+                    )
+                    .await
+                } else {
+                    upload_chunked(
+                        upload.file,
+                        &upload.path,
+                        &upload.fields,
+                        &upload.init_fields,
+                    )
+                    .await
+                };
                 deliver.emit(reply(result));
             });
         }

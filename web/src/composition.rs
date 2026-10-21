@@ -317,11 +317,15 @@ impl ServiceCatalog {
                     None
                 }
             };
-        let signature = Arc::new(SignatureService::new_optional(
+        let mut signature_service = SignatureService::new_optional(
             SignatureDao::new(db.clone()),
             signature_provider,
             infrastructure.clone(),
-        ));
+        );
+        if let Some(store) = media_store.clone() {
+            signature_service = signature_service.with_object_store(store);
+        }
+        let signature = Arc::new(signature_service);
         let email_transport = email_transport_from_env();
         if email_transport.is_none() {
             // LOUD DEGRADED BOOT: transactional email will refuse with
@@ -381,14 +385,18 @@ impl ServiceCatalog {
             signer_codec,
             infrastructure.clone(),
         ));
-        let luxesign = Arc::new(LuxesignService::new(
+        let mut luxesign_service = LuxesignService::new(
             LuxesignDao::new(db.clone()),
             signature.clone(),
             signer.clone(),
             email.clone(),
             vault.clone(),
             infrastructure.clone(),
-        ));
+        );
+        if let Some(store) = media_store.clone() {
+            luxesign_service = luxesign_service.with_object_store(store);
+        }
+        let luxesign = Arc::new(luxesign_service);
         let forge_cockpit = Arc::new(ForgeCockpitService::new(db.clone(), infrastructure.clone()));
         Self {
             clients: Arc::new(ClientService::new(

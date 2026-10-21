@@ -1,15 +1,74 @@
 //! Moved from `signature.rs` (move only): reconcile_completed, insert_signature_media.
+//!
+//! Completion artifacts are object-first: the reconcile service uploads and verifies the signed PDF
+//! and audit trail BEFORE this transaction, then supplies the uploaded object's coordinates. The
+//! legacy byte-backed variant stays for callers that still carry bytes (tests/dev, uninjected store).
+
+use crate::MediaObjectMetadata;
 
 #[allow(unused_imports)]
 use super::*;
 
+/// One completion artifact already uploaded to the Vault:
+/// `(media_id, filename, mime_type, object)`.
+///
+/// The media id is chosen BEFORE the upload, so the object key (`documents/{media_id}/...`) and the
+/// media row this transaction inserts always agree. No bytes cross this boundary.
+type UploadedArtifact<'a> = (&'a str, &'a str, &'a str, &'a MediaObjectMetadata);
+
+/// Where one completion artifact's bytes are: already in the Vault, or still in memory (legacy).
+enum ReconcileArtifact<'a> {
+    Uploaded(UploadedArtifact<'a>),
+    Blob(&'a SignatureArtifactDownload),
+}
+
 impl SignatureDao {
+    /// Legacy byte-backed completion. Kept for callers that have not switched to object-first
+    /// uploads (tests/dev and the not-yet-injected object store).
     pub async fn reconcile_completed(
         &self,
         event_id: &str,
         signature_request_id: &str,
         signed_artifact: Option<&SignatureArtifactDownload>,
         audit_artifact: Option<&SignatureArtifactDownload>,
+        actor_app_user_id: Option<&str>,
+    ) -> DbResult<SignatureCommandResult> {
+        self.reconcile_completed_artifacts(
+            event_id,
+            signature_request_id,
+            signed_artifact.map(ReconcileArtifact::Blob),
+            audit_artifact.map(ReconcileArtifact::Blob),
+            actor_app_user_id,
+        )
+        .await
+    }
+
+    /// Object-first completion: the reconcile service uploads (and verifies) the artifacts BEFORE
+    /// this transaction and passes `(media_id, filename, mime_type, object)` for each one.
+    pub async fn reconcile_completed_with_objects(
+        &self,
+        event_id: &str,
+        signature_request_id: &str,
+        signed_artifact: Option<UploadedArtifact<'_>>,
+        audit_artifact: Option<UploadedArtifact<'_>>,
+        actor_app_user_id: Option<&str>,
+    ) -> DbResult<SignatureCommandResult> {
+        self.reconcile_completed_artifacts(
+            event_id,
+            signature_request_id,
+            signed_artifact.map(ReconcileArtifact::Uploaded),
+            audit_artifact.map(ReconcileArtifact::Uploaded),
+            actor_app_user_id,
+        )
+        .await
+    }
+
+    async fn reconcile_completed_artifacts(
+        &self,
+        event_id: &str,
+        signature_request_id: &str,
+        signed_artifact: Option<ReconcileArtifact<'_>>,
+        audit_artifact: Option<ReconcileArtifact<'_>>,
         actor_app_user_id: Option<&str>,
     ) -> DbResult<SignatureCommandResult> {
         let command_id = format!("signature.reconcile:{event_id}");
@@ -133,8 +192,8 @@ impl SignatureDao {
                 ));
             };
 
-            let signed_media_id = insert_signature_media(tx.connection(), signed_artifact).await?;
-            let audit_media_id = match audit_artifact {
+            let signed_media_id = insert_signature_media(tx.connection(), &signed_artifact).await?;
+            let audit_media_id = match audit_artifact.as_ref() {
                 Some(artifact) => Some(insert_signature_media(tx.connection(), artifact).await?),
                 None => None,
             };
@@ -422,7 +481,29 @@ impl SignatureDao {
     }
 }
 
-pub(super) async fn insert_signature_media(
+/// Insert the media row for one completion artifact.
+///
+/// Object-first: a pre-uploaded artifact only contributes its metadata row (with the id its object
+/// key was built from). The byte-backed insert remains solely for legacy callers.
+async fn insert_signature_media(
+    connection: &mut sqlx::PgConnection,
+    artifact: &ReconcileArtifact<'_>,
+) -> DbResult<String> {
+    match artifact {
+        ReconcileArtifact::Uploaded((media_id, filename, mime_type, object)) => {
+            crate::media::insert_media_object_with_id_conn(
+                connection, media_id, filename, mime_type, object,
+            )
+            .await
+        }
+        ReconcileArtifact::Blob(artifact) => {
+            insert_signature_media_blob(connection, artifact).await
+        }
+    }
+}
+
+/// Byte-backed media insert, kept only for the legacy completion path (tests/dev).
+async fn insert_signature_media_blob(
     connection: &mut sqlx::PgConnection,
     artifact: &SignatureArtifactDownload,
 ) -> DbResult<String> {

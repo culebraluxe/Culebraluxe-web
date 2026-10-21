@@ -52,16 +52,33 @@ impl VaultDao {
         Ok(row.map(|(id, issued_version)| ContractIssuedLineage { id, issued_version }))
     }
 
-    pub async fn issue_from_form_instance<F, Fut>(
+    /// Issue a form as an immutable Vault document — OBJECT-FIRST.
+    ///
+    /// The rendered PDF is uploaded and verified under a media id BEFORE the `media` row that names it is
+    /// written, so a committed document can never point at a missing object. `upload` answers `None` only
+    /// when the deployment has no object store (tests/dev); that is the one case the legacy blob branch
+    /// runs. If the command fails after the upload, `discard` removes the orphan object before the error
+    /// leaves the DAO — the receipt/finalize semantics and the single transaction are unchanged.
+    pub async fn issue_from_form_instance<F, Fut, U, UFut, D, DFut>(
         &self,
         request: &IssueDocumentRequest,
         render: F,
+        upload: U,
+        discard: D,
     ) -> DbResult<VaultCommandResult>
     where
         F: FnOnce(VaultRenderRequest) -> Fut + Send,
         Fut: Future<Output = Result<VaultRenderedArtifact, VaultArtifactFailure>> + Send,
+        U: FnOnce(&str, &str, &[u8]) -> UFut + Send,
+        UFut: Future<Output = Result<Option<crate::MediaObjectMetadata>, VaultArtifactFailure>>
+            + Send,
+        D: FnOnce(&str) -> DFut + Send,
+        DFut: Future<Output = ()> + Send,
     {
         let mut tx = self.db.begin("vault.issue_from_form_instance").await?;
+        // The key of the object this command uploaded, if any: a rolled-back command must not leave it
+        // behind. Set inside the transaction scope, consumed after it.
+        let mut uploaded_object_key: Option<String> = None;
         let result = async {
             if !claim_receipt(
                 &mut tx,
@@ -253,19 +270,58 @@ impl VaultDao {
                 .map(|byte| format!("{byte:02x}"))
                 .collect::<String>();
 
-            let media_id = sqlx::query_scalar::<_, String>(
-                r#"
-                insert into media (file_data, filename, mime_type, file_size, media_type)
-                values ($1,$2,'application/pdf',$3,'document')
-                returning id::text
-                "#,
-            )
-            .bind(&artifact.bytes)
-            .bind(&artifact.filename)
-            .bind(artifact.bytes.len() as i64)
-            .fetch_one(tx.connection())
-            .await
-            .map_err(|error| DbFailure::from_sqlx("vault.issue.media", &error))?;
+            // THE OBJECT COMES FIRST. The PDF is uploaded and verified under its media id before the
+            // `media` row that names it exists, so a committed document can never point at a missing
+            // object. No store configured (tests/dev) answers `None` and takes the legacy blob branch.
+            let media_id = uuid::Uuid::new_v4().to_string();
+            let uploaded = match upload(&media_id, &artifact.filename, &artifact.bytes).await {
+                Ok(uploaded) => uploaded,
+                Err(failure) => {
+                    finalize_receipt(
+                        &mut tx,
+                        &request.command_id,
+                        &failure.outcome,
+                        None,
+                        Some(&failure.message),
+                        request.actor_app_user_id.as_deref(),
+                    )
+                    .await?;
+                    return Ok(outcome_result(
+                        &request.command_id,
+                        failure.outcome,
+                        None,
+                        Some(failure.message),
+                        false,
+                    ));
+                }
+            };
+            uploaded_object_key = uploaded.as_ref().map(|object| object.key.clone());
+
+            let media_id = match uploaded {
+                Some(object) => {
+                    crate::media::insert_media_object_with_id_tx(
+                        &mut tx,
+                        &media_id,
+                        &artifact.filename,
+                        "application/pdf",
+                        &object,
+                    )
+                    .await?
+                }
+                None => sqlx::query_scalar::<_, String>(
+                    r#"
+                    insert into media (file_data, filename, mime_type, file_size, media_type)
+                    values ($1,$2,'application/pdf',$3,'document')
+                    returning id::text
+                    "#,
+                )
+                .bind(&artifact.bytes)
+                .bind(&artifact.filename)
+                .bind(artifact.bytes.len() as i64)
+                .fetch_one(tx.connection())
+                .await
+                .map_err(|error| DbFailure::from_sqlx("vault.issue.media", &error))?,
+            };
 
             if let Some(supersedes_id) = supersedes_id.as_deref() {
                 sqlx::query(
@@ -397,12 +453,22 @@ impl VaultDao {
         .await;
 
         match result {
-            Ok(value) => {
-                tx.commit().await?;
-                Ok(value)
-            }
+            Ok(value) => match tx.commit().await {
+                Ok(()) => Ok(value),
+                Err(error) => {
+                    // A failed commit is ambiguous (the server may have committed before the response was
+                    // lost). Deleting the object here could leave a committed document pointing at nothing,
+                    // so the object is left; an orphan costs storage, a dangling pointer breaks a real
+                    // document.
+                    Err(error)
+                }
+            },
             Err(error) => {
                 let _ = tx.rollback().await;
+                // The command did not commit, so the object it uploaded can never be referenced: remove it.
+                if let Some(key) = uploaded_object_key.as_deref() {
+                    discard(key).await;
+                }
                 Err(error)
             }
         }

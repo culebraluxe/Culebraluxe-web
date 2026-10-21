@@ -59,6 +59,13 @@ pub trait Endpoint {
 /// Like `Endpoint`, it lives in the catalogue (`app/api.rs`), so a screen names it and never writes a path.
 pub trait FileEndpoint {
     fn path(&self) -> String;
+
+    /// Whether the endpoint takes the WHOLE file in one multipart request (`true`) or one piece at a time
+    /// (`false`, the default: the chunk protocol). The server decides which; the screen only names the endpoint.
+    /// Old chunk endpoints stay reachable by implementing this as the default, which is the rollback path.
+    fn whole_file(&self) -> bool {
+        false
+    }
 }
 
 /// A request a screen asked for, with the message its answer becomes.
@@ -180,12 +187,19 @@ pub struct SignatureArt {
     pub signature: String,
 }
 
-/// A file sent in pieces, so no single request reaches the gateway's body limit: `init` declares it (the executor adds
-/// `filename`, `mimeType`, `byteSize`, `chunkCount`, `chunkSize`) and answers an `uploadId`; each `chunk` carries one
-/// piece in order; `complete` assembles and attaches it. `fields` go with every step, `init_fields` with the first only.
+/// A file sent by `Cmd::upload`.
+///
+/// In the default (chunked) mode it is sent in pieces, so no single request reaches the gateway's body limit:
+/// `init` declares it (the executor adds `filename`, `mimeType`, `byteSize`, `chunkCount`, `chunkSize`) and answers
+/// an `uploadId`; each `chunk` carries one piece in order; `complete` assembles and attaches it. `fields` go with
+/// every step, `init_fields` with the first only.
+///
+/// With `whole_file` (an endpoint that implements `FileEndpoint::whole_file`), the file, `fields` and `init_fields`
+/// go in ONE multipart request; the server derives the copies and stores them object-first, with no chunk staging.
 pub struct Upload<Msg> {
     pub file: web_sys::File,
     pub path: String,
+    pub whole_file: bool,
     pub fields: Vec<(String, String)>,
     pub init_fields: Vec<(String, String)>,
     pub reply: Box<dyn FnOnce(Result<(), ApiError>) -> Msg>,
@@ -353,6 +367,7 @@ impl<Msg: 'static> Cmd<Msg> {
         Cmd::Upload(Upload {
             file,
             path: endpoint.path(),
+            whole_file: endpoint.whole_file(),
             fields,
             init_fields,
             reply: Box::new(to_msg),
@@ -466,6 +481,7 @@ impl<Msg: 'static> Cmd<Msg> {
             Cmd::Upload(upload) => Cmd::Upload(Upload {
                 file: upload.file,
                 path: upload.path,
+                whole_file: upload.whole_file,
                 fields: upload.fields,
                 init_fields: upload.init_fields,
                 reply: {

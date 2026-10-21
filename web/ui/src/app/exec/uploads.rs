@@ -15,16 +15,17 @@ pub(super) const REQUEST_SECONDS: u64 = 50;
 /// ridden out instead of costing the photograph.
 pub(super) const ATTEMPTS: u32 = 5;
 
-/// One request, with the way out: it answers, fails, or is aborted at `REQUEST_SECONDS` — never hangs.
-pub(super) async fn post_once(
+/// One request, with the way out: it answers, fails, or is aborted at `seconds` — never hangs.
+pub(super) async fn post_once_within(
     path: &str,
     form: web_sys::FormData,
+    seconds: u64,
 ) -> Result<serde_json::Value, ApiError> {
     let controller = web_sys::AbortController::new()
         .map_err(|_| ApiError::network("The browser could not start the upload."))?;
     let signal = controller.signal();
     yew::platform::spawn_local(async move {
-        yew::platform::time::sleep(std::time::Duration::from_secs(REQUEST_SECONDS)).await;
+        yew::platform::time::sleep(std::time::Duration::from_secs(seconds)).await;
         // Aborting a request that already finished does nothing.
         controller.abort();
     });
@@ -44,14 +45,32 @@ pub(super) async fn post_once(
     interpret(status, response.ok(), &text)
 }
 
+/// One request, with the way out: a short request (a chunk, a status poll) at `REQUEST_SECONDS`.
+pub(super) async fn post_once(
+    path: &str,
+    form: web_sys::FormData,
+) -> Result<serde_json::Value, ApiError> {
+    post_once_within(path, form, REQUEST_SECONDS).await
+}
+
 /// One request, retried: a network failure or a server error is tried again; a refusal is final.
 pub(super) async fn post_form(
     path: &str,
     build: impl Fn() -> Result<web_sys::FormData, ApiError>,
 ) -> Result<serde_json::Value, ApiError> {
+    post_form_within(path, build, REQUEST_SECONDS).await
+}
+
+/// The same retry rule with an explicit per-attempt ceiling: a WHOLE photograph is one long request, not a
+/// short chunk, so it needs more time than a piece does.
+pub(super) async fn post_form_within(
+    path: &str,
+    build: impl Fn() -> Result<web_sys::FormData, ApiError>,
+    seconds: u64,
+) -> Result<serde_json::Value, ApiError> {
     let mut attempt = 1;
     loop {
-        match post_once(path, build()?).await {
+        match post_once_within(path, build()?, seconds).await {
             Err(error)
                 if attempt < ATTEMPTS && (error.code == "NETWORK" || error.status >= 500) =>
             {
@@ -200,6 +219,38 @@ pub(super) async fn upload_chunked(
     }
     Err(ApiError::network("The photo is taking too long to finish."))
 }
+
+/// A whole photograph, in ONE request. The server derives the web/card/thumb copies, writes them and the
+/// original to object storage (verified), then records the rows and attaches the property in one transaction.
+/// Nothing is staged, so no chunk manifest exists to resume — and none is needed: the server answers a
+/// resent upload of a file the property already shows with `skipped: true`, so the whole request is as safe
+/// to retry as a chunk was.
+///
+/// `fields` and `init_fields` all travel with the single request; "first step only" has no meaning here.
+pub(super) async fn upload_whole_file(
+    file: web_sys::File,
+    path: &str,
+    fields: &[(String, String)],
+    init_fields: &[(String, String)],
+) -> Result<(), ApiError> {
+    let form = || -> Result<web_sys::FormData, ApiError> {
+        let form = web_sys::FormData::new()
+            .map_err(|_| ApiError::network("The browser could not create the upload form."))?;
+        for (key, value) in fields.iter().chain(init_fields.iter()) {
+            form.append_with_str(key, value)
+                .map_err(|_| ApiError::network("The browser could not prepare the upload."))?;
+        }
+        form.append_with_blob_and_filename("file", &file, &file.name())
+            .map_err(|_| ApiError::network("The browser could not prepare the upload."))?;
+        Ok(form)
+    };
+    // One long request, not a series of short ones: the ceiling has to fit the whole photograph.
+    post_form_within(path, form, WHOLE_FILE_REQUEST_SECONDS).await?;
+    Ok(())
+}
+
+/// A whole photograph is one request, and may take far longer than a 3 MB chunk: five minutes is the way out.
+pub(super) const WHOLE_FILE_REQUEST_SECONDS: u64 = 300;
 
 /// 8 MiB per request to Mux: a multiple of 256 KiB, as its upload store requires, and short enough on a slow line.
 pub(super) const VIDEO_CHUNK_BYTES: f64 = 8.0 * 1024.0 * 1024.0;

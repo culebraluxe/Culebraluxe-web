@@ -48,9 +48,15 @@ impl DocumentObjectWriter {
             .sha256
             .clone()
             .ok_or_else(|| ObjectStoreError::integrity("provider returned no SHA-256"))?;
-        self.store
+        if let Err(error) = self
+            .store
             .verify_object(ObjectBucket::Vault, &key, &sha, stored.size)
-            .await?;
+            .await
+        {
+            // A verification failure must not leave an unverified object behind.
+            let _ = self.store.delete_object(ObjectBucket::Vault, &key).await;
+            return Err(error);
+        }
         Ok(StoredDocument {
             key,
             metadata: ObjectMetadata {

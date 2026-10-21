@@ -1,4 +1,5 @@
-use crate::{Database, DbFailure, DbResult, DbTransaction};
+use crate::media::insert_media_object_with_id_tx;
+use crate::{Database, DbFailure, DbResult, DbTransaction, MediaObjectMetadata};
 use chrono::{DateTime, Utc};
 use model::{
     LuxesignConfig, LuxesignEnvelopeSummary, LuxesignRecipient, LuxesignSigningMode,
@@ -575,7 +576,39 @@ impl LuxesignDao {
     /// Store a derived audit document and link it to the transaction
     /// document. The completion certificate PDF and any future signed-PDF
     /// renderer both land here; the bytes decide the mime type.
+    ///
+    /// Object-first: the caller uploads the verified object BEFORE this transaction and supplies the
+    /// media id it used for `documents/{media_id}/...` plus the object metadata. Only metadata is
+    /// written here, so dropping `media.file_data` needs no change to this path.
     pub async fn store_audit_artifact_tx(
+        &self,
+        tx: &mut DbTransaction,
+        transaction_document_id: &str,
+        media_id: &str,
+        filename: &str,
+        mime_type: &str,
+        object: &MediaObjectMetadata,
+    ) -> DbResult<String> {
+        insert_media_object_with_id_tx(tx, media_id, filename, mime_type, object).await?;
+        sqlx::query(
+            r#"
+            update transaction_document
+               set signed_audit_media_id = $2::uuid,
+                   updated_at = now()
+             where id = $1::uuid
+            "#,
+        )
+        .bind(transaction_document_id)
+        .bind(media_id)
+        .execute(tx.connection())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("luxesign.audit_link", &error))?;
+        Ok(media_id.to_owned())
+    }
+
+    /// Byte-backed audit artifact storage. Kept ONLY for deployments without an object store
+    /// (tests/dev); production writes objects through [`Self::store_audit_artifact_tx`].
+    pub async fn store_audit_artifact_blob_tx(
         &self,
         tx: &mut DbTransaction,
         transaction_document_id: &str,
@@ -618,7 +651,23 @@ impl LuxesignDao {
     /// [`Self::store_audit_artifact_tx`] here would overwrite
     /// `signed_audit_media_id` and make replay answer with the sealed
     /// artifact instead of the audit certificate.
+    ///
+    /// Object-first, like [`Self::store_audit_artifact_tx`]: the object is already uploaded under
+    /// `media_id`, and only its metadata row is written here.
     pub async fn store_signed_artifact_tx(
+        &self,
+        tx: &mut DbTransaction,
+        media_id: &str,
+        filename: &str,
+        mime_type: &str,
+        object: &MediaObjectMetadata,
+    ) -> DbResult<String> {
+        insert_media_object_with_id_tx(tx, media_id, filename, mime_type, object).await
+    }
+
+    /// Byte-backed signed PDF storage. Kept ONLY for deployments without an object store
+    /// (tests/dev); production writes objects through [`Self::store_signed_artifact_tx`].
+    pub async fn store_signed_artifact_blob_tx(
         &self,
         tx: &mut DbTransaction,
         filename: &str,
