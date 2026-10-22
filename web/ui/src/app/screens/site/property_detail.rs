@@ -635,18 +635,23 @@ mod tests {
     #[test]
     fn every_gallery_slot_asks_for_the_derivative_it_displays() {
         // The UI crate has no SSR renderer (`yew` is compiled for CSR), so the rendered markup cannot be turned into
-        // a string here. The markup is asserted at its source instead: the panel asks for the 1200px card, both
-        // thumbnail strips ask for the 400px thumb and are lazy, and the lightbox keeps web quality through srcset.
+        // a string here. The markup is asserted at its source instead: the panel defaults to the sharp web copy and
+        // offers a card/web srcset with the panel's sizes hint, both thumbnail strips ask for the 400px thumb and are
+        // lazy, and the lightbox keeps web quality through its own srcset.
         let media = include_str!("property_detail/media.rs");
         assert_eq!(
-            media.matches("photo_url(&active, MediaSize::Card)").count(),
+            media.matches("srcset={panel_srcset(&active)}").count(),
             1,
-            "the media panel's active photograph must request the card derivative"
+            "the media panel must offer a card/web srcset"
+        );
+        assert!(
+            media.contains("sizes={PANEL_SIZES}"),
+            "the media panel must tell the browser its layout width"
         );
         assert_eq!(
             media.matches("photo_url(&active, MediaSize::Web)").count(),
-            1,
-            "the lightbox's fallback src must be the web derivative"
+            2,
+            "the panel and lightbox active photographs must default to the sharp web derivative"
         );
         assert_eq!(
             media.matches("photo_url(&photo, MediaSize::Thumb)").count(),

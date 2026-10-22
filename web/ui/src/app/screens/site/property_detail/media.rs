@@ -62,7 +62,7 @@ pub(super) fn media_panel(record: &PropertyRecord, model: &Model, on_msg: &Callb
                 if visible.is_empty() { "h-[282px] sm:h-[362px] lg:h-[424px]" }
                 else { "h-[210px] sm:h-[280px] lg:h-[342px]" }
             )}>
-                <img src={photo_url(&active, MediaSize::Card)} alt={active.alt.clone()}
+                <img src={photo_url(&active, MediaSize::Web)} alt={active.alt.clone()}
                     srcset={panel_srcset(&active)} sizes={PANEL_SIZES}
                     fetchpriority="high" decoding="async"
                     class="absolute inset-0 h-full w-full object-cover" />
