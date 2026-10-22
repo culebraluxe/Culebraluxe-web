@@ -155,3 +155,30 @@ old lane notes and docs still resolve.
 **MiniMax note (2026-10-22):** `opencode/minimax-m3.1-flash-free` appears in `opencode models`
 but the provider rejects it as deprecated; it is retired. The provider's replacement,
 `opencode/deepseek-v4.1-flash-free`, remains the free-model baseline.
+
+## Principal assessments (2026-10-22)
+
+Do not infer scores or promote a model without an eval lane. Assessments live in
+`config/model-roster.json` under `assessments`; blocked models are never called.
+
+| Model | Assessment |
+| --- | --- |
+| `meta/muse-spark-1.3-contributor` | **9/10 — online**, T1 |
+| `opencode/nemotron-3-ultra-free` | **9/10 — online**, T2 |
+| `opencode/deepseek-v4.1-flash-free` | **9/10 — best free baseline**; DSH-equivalent path, do not route DSH through OpenCode just to call itself |
+| `opencode/nemotron-3.5-lightning-free` | **8/10 — evaluate**, T3 experimental |
+| `opencode/mimo-v2.6-flash-free` | **7/10**, used in past |
+| `opencode/longcat-2.5-preview-free` | mixed results in past |
+| `meta/muse-spark-1.3` | **do not touch** |
+| `meta/muse-wonder-1.0` | **do not touch** (frontier/expensive) |
+| `opencode/big-pickle` | **not free — blocked** |
+| `opencode/beam-free`, `opencode/glm-5.3-flash-free`, `opencode/nemotron-3.5-super-vl-free` | unknown; watch/evaluate |
+| `opencode/minimax-m3.1-flash-free` | listed but direct run says deprecated; **blocked pending config refresh**, not deleted |
+
+## Existing DEV lanes
+
+Lane directories are evidence, not authority; never delete one when a model is
+retired from the active list. Current mapping is in `config/model-roster.json`
+under `lanes` (mimo, longcat, lightning, nemotron, muse, spacebunny, Claude, GPT,
+Grok). A new eval lane is `lane-<model>`; the roster gets the result and the
+lane stays in place.

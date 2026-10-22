@@ -68,7 +68,6 @@
     "T1": [
       "opencode/deepseek-v4.1-flash-free",
       "meta/muse-spark-1.3-contributor",
-      "opencode/nemotron-3.5-super-vl-free",
       "Claude Haiku 5.5",
       "opencode/mimo-v2.6-flash-free",
       "GPT 6.0 Luna High",
@@ -82,7 +81,6 @@
       "GPT-6.1 Sol High"
     ],
     "T3_ULTRA": [
-      "meta/muse-wonder-1.0",
       "Claude Fable 5.1",
       "Claude Opus 5.5",
       "Grok",
@@ -93,8 +91,7 @@
       "opencode/glm-5.3-flash-free",
       "opencode/longcat-2.5-preview-free",
       "opencode/nemotron-3.5-lightning-free",
-      "opencode/beam-free",
-      "opencode/big-pickle"
+      "opencode/beam-free"
     ]
   },
   "gate": {
@@ -103,19 +100,112 @@
     "experimental_never_authority": true
   },
   "watchlist": {
-    "note": "Newly observed on an active harness. Available for experiments only until an eval lane promotes or retires it.",
-    "models": []
+    "note": "Newly observed or unknown-quality model. Experiments only until an eval lane records evidence.",
+    "models": [
+      "opencode/nemotron-3.5-super-vl-free",
+      "opencode/beam-free",
+      "opencode/glm-5.3-flash-free"
+    ]
   },
   "retired": [
-    {
-      "id": "opencode/minimax-m3.1-flash-free",
-      "retired": "2026-10-22",
-      "reason": "listed by `opencode models` but provider returns deprecated; replacement opencode/deepseek-v4.1-flash-free"
-    },
     {
       "id": "opencode/space-bunny-free",
       "retired": "2026-10-22",
       "reason": "no longer returned by opencode models; retained in history"
     }
-  ]
+  ],
+  "blocked": [
+    {
+      "id": "opencode/minimax-m3.1-flash-free",
+      "since": "2026-10-22",
+      "reason": "listed by `opencode models` but direct `opencode run` returns deprecated; likely model alias/config under OpenCode 2.1.3; retest after config refresh"
+    },
+    {
+      "id": "opencode/big-pickle",
+      "since": "2026-10-22",
+      "reason": "not free; blocked for free-model lanes"
+    },
+    {
+      "id": "meta/muse-spark-1.3",
+      "since": "2026-10-22",
+      "reason": "principal: do not touch"
+    },
+    {
+      "id": "meta/muse-wonder-1.0",
+      "since": "2026-10-22",
+      "reason": "principal: frontier/expensive; do not touch"
+    }
+  ],
+  "assessments": {
+    "meta/muse-spark-1.3": {
+      "status": "do_not_use",
+      "reason": "principal: do not touch"
+    },
+    "meta/muse-spark-1.3-contributor": {
+      "status": "online",
+      "score": 9,
+      "note": "principal: worth getting online; T1"
+    },
+    "meta/muse-wonder-1.0": {
+      "status": "do_not_use",
+      "reason": "frontier/expensive; do not touch"
+    },
+    "opencode/beam-free": {
+      "status": "unknown",
+      "action": "evaluate",
+      "note": "free; worth checking"
+    },
+    "opencode/big-pickle": {
+      "status": "do_not_use",
+      "reason": "not free"
+    },
+    "opencode/deepseek-v4.1-flash-free": {
+      "status": "online",
+      "score": 9,
+      "note": "OpenCode equivalent of DSH native; best free baseline; no need to call DSH itself through OpenCode"
+    },
+    "opencode/glm-5.3-flash-free": {
+      "status": "unknown",
+      "action": "evaluate"
+    },
+    "opencode/longcat-2.5-preview-free": {
+      "status": "mixed",
+      "note": "used in past; mixed results; T3 experimental"
+    },
+    "opencode/mimo-v2.6-flash-free": {
+      "status": "online",
+      "score": 7,
+      "note": "used in past"
+    },
+    "opencode/minimax-m3.1-flash-free": {
+      "status": "blocked",
+      "note": "listed but direct run deprecated; likely config/alias; retest after OpenCode update"
+    },
+    "opencode/nemotron-3-ultra-free": {
+      "status": "online",
+      "score": 9,
+      "note": "used in past; worth getting online; T2"
+    },
+    "opencode/nemotron-3.5-lightning-free": {
+      "status": "evaluate",
+      "score": 8,
+      "note": "unknown; worth checking; T3 experimental"
+    },
+    "opencode/nemotron-3.5-super-vl-free": {
+      "status": "unknown",
+      "action": "evaluate",
+      "note": "watchlist until tested"
+    }
+  },
+  "lanes": {
+    "opencode/mimo-v2.6-flash-free": "/Users/Shared/dev/src/lane-mimo",
+    "opencode/longcat-2.5-preview-free": "/Users/Shared/dev/src/lane-longcat",
+    "opencode/nemotron-3.5-lightning-free": "/Users/Shared/dev/src/lane-lightning",
+    "opencode/nemotron-3-ultra-free": "/Users/Shared/dev/src/lane-nemotron",
+    "meta/muse-spark-1.3-contributor": "/Users/Shared/dev/src/lane-muse",
+    "opencode/space-bunny-free": "/Users/Shared/dev/src/lane-spacebunny",
+    "Claude Haiku 5.5": "/Users/Shared/dev/src/lane-claude",
+    "GPT 6.0 Luna High": "/Users/Shared/dev/src/lane-gpt",
+    "Grok": "/Users/Shared/dev/src/lane-grok"
+  }
 }

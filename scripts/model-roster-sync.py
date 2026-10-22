@@ -35,7 +35,9 @@ def main() -> int:
     added = sorted(active - registry)
     removed = sorted(registry - active)
     retired = {entry["id"] for entry in roster.get("retired", [])}
+    blocked = {entry["id"] for entry in roster.get("blocked", [])}
     retired_but_listed = [m for m in added if m in retired]
+    blocked_but_listed = [m for m in added if m in blocked]
     result = {
         "registry": len(registry),
         "active": len(active),
@@ -43,6 +45,7 @@ def main() -> int:
         "removed": removed,
         "unregistered_new": [m for m in added if m not in retired],
         "retired_but_listed": retired_but_listed,
+        "blocked_but_listed": blocked_but_listed,
     }
     if args.json:
         print(json.dumps(result, indent=2))
@@ -54,9 +57,11 @@ def main() -> int:
             print(f"  MISSING {m}")
         for m in retired_but_listed:
             print(f"  RETIRED {m} (provider may still list it; do not use)")
+        for m in blocked_but_listed:
+            print(f"  BLOCKED {m} (listed but do not use)")
         if not added and not removed:
             print("  in sync")
-    drift = bool([m for m in added if m not in retired] or removed)
+    drift = bool([m for m in added if m not in retired and m not in blocked] or removed)
     return 0 if args.report_only or not drift else 1
 
 
