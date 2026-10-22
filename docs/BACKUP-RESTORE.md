@@ -48,8 +48,39 @@ As of the 2026-10-22 restore drill:
 - There is therefore **no retained pre-cutover rollback branch**.
 - The current production state restores correctly (see the drill record below).
 
-Create a fresh retained branch before the next destructive change, and do not
-assume an old snapshot still exists without listing it.
+### Recovery posture — action required
+
+The drill was run and passed on 2026-10-22. It has **not** been re-run for this
+documentation update, and there is currently **no retained current backup
+branch** either.
+
+Before the next destructive migration:
+
+- [ ] Create a retained branch from `production` (see “Create a backup branch”).
+- [ ] Confirm it is `ready`.
+- [ ] Record its name/id next to the change request.
+- [ ] Leave it in place; do not give the only recovery point an expiration.
+
+Do not assume an old snapshot still exists without listing branches first.
+
+### Retained backup creation
+
+```bash
+PROJECT=snowy-salad-48970537
+STAMP=$(date -u +%Y%m%d-%H%M%S)
+NAME="prod-safe-$STAMP"
+
+neon branches create \
+  --project-id "$PROJECT" \
+  --name "$NAME" \
+  --parent production \
+  -o json | tee "/tmp/$NAME.json"
+
+neon branches list --project-id "$PROJECT" -o table
+```
+
+Record the name/id in the change ticket. This is a copy-on-write recovery
+point, not a second copy of the data.
 
 ## Create a backup branch
 
