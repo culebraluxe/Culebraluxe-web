@@ -63,6 +63,8 @@ pub(super) fn media_panel(record: &PropertyRecord, model: &Model, on_msg: &Callb
                 else { "h-[210px] sm:h-[280px] lg:h-[342px]" }
             )}>
                 <img src={photo_url(&active, MediaSize::Card)} alt={active.alt.clone()}
+                    srcset={panel_srcset(&active)} sizes={PANEL_SIZES}
+                    fetchpriority="high" decoding="async"
                     class="absolute inset-0 h-full w-full object-cover" />
 
                 if has_navigation {

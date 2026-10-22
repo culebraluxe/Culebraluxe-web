@@ -105,6 +105,11 @@ fn is_media_route(src: &str) -> bool {
 /// `sizes` for the full-screen lightbox image: it is laid out edge to edge.
 pub(super) const LIGHTBOX_SIZES: &str = "100vw";
 
+/// `sizes` for the carousel panel. On desktop the panel is a little over half the content width; on mobile it is
+/// edge to edge. The browser uses this plus the viewport DPR to choose between the 1200px card and 3600px web copy,
+/// so a retina desktop gets its sharp copy while a phone still downloads only the card.
+pub(super) const PANEL_SIZES: &str = "(min-width: 1024px) 52vw, 100vw";
+
 /// The URL a photograph slot should fetch, at the size it displays.
 ///
 /// DIRECT FIRST. The public page resolves the final CDN URLs server-side and carries them on the media item, so a
@@ -126,6 +131,17 @@ fn photo_url(photo: &Photo, size: MediaSize) -> String {
 /// downloads the card; a wide or retina desktop still gets the full web derivative. Both entries use the direct CDN
 /// copy when the page resolved one, so the browser never asks this server for either.
 fn lightbox_srcset(photo: &Photo) -> String {
+    format!(
+        "{} 1200w, {} 3600w",
+        photo_url(photo, MediaSize::Card),
+        photo_url(photo, MediaSize::Web)
+    )
+}
+
+/// The carousel panel's `srcset`: the same two sizes as the lightbox, but the panel's own `sizes` tells the browser
+/// that it only occupies about half the viewport. This is what restores sharpness on a large/retina screen without
+/// putting the 3600px copy on phones.
+fn panel_srcset(photo: &Photo) -> String {
     format!(
         "{} 1200w, {} 3600w",
         photo_url(photo, MediaSize::Card),
@@ -530,6 +546,16 @@ mod tests {
             media_url("/api/media/abc?", MediaSize::Card),
             "/api/media/abc?size=card&v=20261022a"
         );
+    }
+
+    #[test]
+    fn panel_offers_card_and_web_at_the_panel_width() {
+        let photo = api_photo("/api/media/abc");
+        assert_eq!(
+            panel_srcset(&photo),
+            "/api/media/abc?size=card&v=20261022a 1200w, /api/media/abc?size=web&v=20261022a 3600w"
+        );
+        assert_eq!(PANEL_SIZES, "(min-width: 1024px) 52vw, 100vw");
     }
 
     #[test]
