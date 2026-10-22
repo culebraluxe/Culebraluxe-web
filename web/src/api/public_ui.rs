@@ -821,6 +821,18 @@ fn property_detail(
         ("latitude", json!(at(p, "latitude"))),
         ("longitude", json!(at(p, "longitude"))),
         ("heroUrl", json!(hero_id.map(|id| card_url(media_urls, id)))),
+        (
+            "heroCardUrl",
+            json!(hero_id.map(|id| card_url(media_urls, id))),
+        ),
+        (
+            "heroWebUrl",
+            json!(hero_id.and_then(|id| media_urls.get(id).and_then(|u| u.web.clone()))),
+        ),
+        (
+            "heroThumbUrl",
+            json!(hero_id.and_then(|id| media_urls.get(id).and_then(|u| u.thumb.clone()))),
+        ),
         ("gallery", json!(gallery)),
         ("videos", json!(videos)),
         ("documents", json!(documents)),

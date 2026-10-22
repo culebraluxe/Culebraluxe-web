@@ -225,9 +225,18 @@ fn photos(record: &PropertyRecord) -> Vec<Photo> {
                 .unwrap_or(record.title.as_str())
                 .to_string(),
             caption: hero_item.and_then(|item| item.caption.clone()),
-            card_url: hero_item.and_then(|item| item.card_url.clone()),
-            web_url: hero_item.and_then(|item| item.web_url.clone()),
-            thumb_url: hero_item.and_then(|item| item.thumb_url.clone()),
+            card_url: record
+                .hero_card_url
+                .clone()
+                .or_else(|| hero_item.and_then(|item| item.card_url.clone())),
+            web_url: record
+                .hero_web_url
+                .clone()
+                .or_else(|| hero_item.and_then(|item| item.web_url.clone())),
+            thumb_url: record
+                .hero_thumb_url
+                .clone()
+                .or_else(|| hero_item.and_then(|item| item.thumb_url.clone())),
         });
     }
 
