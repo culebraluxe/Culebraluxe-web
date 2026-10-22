@@ -49,7 +49,6 @@ Baseline candidate: `opencode/deepseek-v4.1-flash-free`
 - `opencode/nemotron-3.5-lightning-free`
 - `opencode/beam-free`
 - `opencode/big-pickle`
-- `opencode/minimax-m3.1-flash-free` (watchlist; evaluate before promotion)
 
 ## Exact OpenCode id list (authoritative for that path)
 
@@ -73,7 +72,6 @@ opencode/mimo-v2.6-flash-free
 opencode/nemotron-3-ultra-free
 opencode/nemotron-3.5-lightning-free
 opencode/nemotron-3.5-super-vl-free
-opencode/minimax-m3.1-flash-free
 ```
 
 If a model is not in this list and not a DSH-native model, it is **not available on this path**.
@@ -153,3 +151,7 @@ A new model starts on the **watchlist** or T3 Experimental, never straight into 
 either promoted after an eval lane records evidence in the roster/docs, or moved to `retired`
 with a date and reason. Removing an id from the active list does not erase it from `retired`, so
 old lane notes and docs still resolve.
+
+**MiniMax note (2026-10-22):** `opencode/minimax-m3.1-flash-free` appears in `opencode models`
+but the provider rejects it as deprecated; it is retired. The provider's replacement,
+`opencode/deepseek-v4.1-flash-free`, remains the free-model baseline.

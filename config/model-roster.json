@@ -32,8 +32,7 @@
         "opencode/mimo-v2.6-flash-free",
         "opencode/nemotron-3-ultra-free",
         "opencode/nemotron-3.5-lightning-free",
-        "opencode/nemotron-3.5-super-vl-free",
-        "opencode/minimax-m3.1-flash-free"
+        "opencode/nemotron-3.5-super-vl-free"
       ]
     },
     "claude": {
@@ -95,8 +94,7 @@
       "opencode/longcat-2.5-preview-free",
       "opencode/nemotron-3.5-lightning-free",
       "opencode/beam-free",
-      "opencode/big-pickle",
-      "opencode/minimax-m3.1-flash-free"
+      "opencode/big-pickle"
     ]
   },
   "gate": {
@@ -106,11 +104,14 @@
   },
   "watchlist": {
     "note": "Newly observed on an active harness. Available for experiments only until an eval lane promotes or retires it.",
-    "models": [
-      "opencode/minimax-m3.1-flash-free"
-    ]
+    "models": []
   },
   "retired": [
+    {
+      "id": "opencode/minimax-m3.1-flash-free",
+      "retired": "2026-10-22",
+      "reason": "listed by `opencode models` but provider returns deprecated; replacement opencode/deepseek-v4.1-flash-free"
+    },
     {
       "id": "opencode/space-bunny-free",
       "retired": "2026-10-22",
