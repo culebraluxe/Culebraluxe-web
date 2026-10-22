@@ -1,36 +1,120 @@
 {
-  "version": 1,
-  "updated": "2026-10-19",
+  "version": 2,
+  "updated": "2026-10-22",
   "paths": {
     "dsh": {
       "label": "DeepSeek native harness (DSH)",
       "namespace": "deepseek-official/* (profile/native model; not an OpenCode id)",
-      "models": ["deepseek-official/deepseek-v4-flash", "deepseek-official/deepseek-v4.1-flash"]
+      "models": [
+        "deepseek-official/deepseek-v4-flash",
+        "deepseek-official/deepseek-v4.1-flash"
+      ]
     },
     "opencode": {
       "label": "OpenCode harness (also Maestro path)",
       "namespace": "exact `opencode models` ids",
       "models": [
-        "deepseek/deepseek-flash", "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-flash-vision-exp", "deepseek/deepseek-v4-pro",
-        "meta/muse-spark-1.1", "meta/muse-spark-1.2", "meta/muse-spark-1.2-contributor",
-        "meta/muse-spark-1.3", "meta/muse-spark-1.3-contributor", "meta/muse-wonder-1.0",
-        "opencode/beam-free", "opencode/big-pickle", "opencode/deepseek-v4.1-flash-free",
-        "opencode/glm-5.3-flash-free", "opencode/longcat-2.5-preview-free",
-        "opencode/mimo-v2.6-flash-free", "opencode/nemotron-3-ultra-free",
-        "opencode/nemotron-3.5-lightning-free", "opencode/nemotron-3.5-super-vl-free",
-        "opencode/space-bunny-free"
+        "deepseek/deepseek-flash",
+        "deepseek/deepseek-v4-flash",
+        "deepseek/deepseek-v4-flash-vision-exp",
+        "deepseek/deepseek-v4-pro",
+        "meta/muse-spark-1.1",
+        "meta/muse-spark-1.2",
+        "meta/muse-spark-1.2-contributor",
+        "meta/muse-spark-1.3",
+        "meta/muse-spark-1.3-contributor",
+        "meta/muse-wonder-1.0",
+        "opencode/beam-free",
+        "opencode/big-pickle",
+        "opencode/deepseek-v4.1-flash-free",
+        "opencode/glm-5.3-flash-free",
+        "opencode/longcat-2.5-preview-free",
+        "opencode/mimo-v2.6-flash-free",
+        "opencode/nemotron-3-ultra-free",
+        "opencode/nemotron-3.5-lightning-free",
+        "opencode/nemotron-3.5-super-vl-free",
+        "opencode/minimax-m3.1-flash-free"
       ]
     },
-    "claude": {"label": "Claude private harness", "namespace": "Claude CLI/session", "models": ["Claude Haiku 5.5", "Claude Sonnet 5.5", "Claude Fable 5.1", "Claude Opus 5.5"]},
-    "gpt": {"label": "GPT private harness", "namespace": "GPT/Codex CLI/session", "models": ["GPT 6.0 Luna High", "GPT-6.1 Sol Medium", "GPT-6.1 Sol High", "GPT-6.0 Astra Light", "GPT-6.0 Astra Medium"]},
-    "grok": {"label": "Grok private harness", "namespace": "Grok CLI/session", "models": ["Grok"]}
+    "claude": {
+      "label": "Claude private harness",
+      "namespace": "Claude CLI/session",
+      "models": [
+        "Claude Haiku 5.5",
+        "Claude Sonnet 5.5",
+        "Claude Fable 5.1",
+        "Claude Opus 5.5"
+      ]
+    },
+    "gpt": {
+      "label": "GPT private harness",
+      "namespace": "GPT/Codex CLI/session",
+      "models": [
+        "GPT 6.0 Luna High",
+        "GPT-6.1 Sol Medium",
+        "GPT-6.1 Sol High",
+        "GPT-6.0 Astra Light",
+        "GPT-6.0 Astra Medium"
+      ]
+    },
+    "grok": {
+      "label": "Grok private harness",
+      "namespace": "Grok CLI/session",
+      "models": [
+        "Grok"
+      ]
+    }
   },
   "tiers": {
-    "T1": ["opencode/deepseek-v4.1-flash-free", "meta/muse-spark-1.3-contributor", "opencode/nemotron-3.5-super-vl-free", "Claude Haiku 5.5", "opencode/space-bunny-free", "opencode/mimo-v2.6-flash-free", "GPT 6.0 Luna High", "GPT-6.1 Sol Medium"],
-    "T2": ["opencode/deepseek-v4.1-flash-free", "opencode/nemotron-3-ultra-free", "deepseek/deepseek-v4-pro", "Claude Sonnet 5.5", "GPT-6.1 Sol High"],
-    "T3_ULTRA": ["meta/muse-wonder-1.0", "Claude Fable 5.1", "Claude Opus 5.5", "Grok", "GPT-6.0 Astra Light", "GPT-6.0 Astra Medium"],
-    "T3_EXPERIMENTAL": ["opencode/glm-5.3-flash-free", "opencode/longcat-2.5-preview-free", "opencode/nemotron-3.5-lightning-free", "opencode/beam-free", "opencode/big-pickle"]
+    "T1": [
+      "opencode/deepseek-v4.1-flash-free",
+      "meta/muse-spark-1.3-contributor",
+      "opencode/nemotron-3.5-super-vl-free",
+      "Claude Haiku 5.5",
+      "opencode/mimo-v2.6-flash-free",
+      "GPT 6.0 Luna High",
+      "GPT-6.1 Sol Medium"
+    ],
+    "T2": [
+      "opencode/deepseek-v4.1-flash-free",
+      "opencode/nemotron-3-ultra-free",
+      "deepseek/deepseek-v4-pro",
+      "Claude Sonnet 5.5",
+      "GPT-6.1 Sol High"
+    ],
+    "T3_ULTRA": [
+      "meta/muse-wonder-1.0",
+      "Claude Fable 5.1",
+      "Claude Opus 5.5",
+      "Grok",
+      "GPT-6.0 Astra Light",
+      "GPT-6.0 Astra Medium"
+    ],
+    "T3_EXPERIMENTAL": [
+      "opencode/glm-5.3-flash-free",
+      "opencode/longcat-2.5-preview-free",
+      "opencode/nemotron-3.5-lightning-free",
+      "opencode/beam-free",
+      "opencode/big-pickle",
+      "opencode/minimax-m3.1-flash-free"
+    ]
   },
-  "gate": {"ultra_requires_approval": true, "max_ultra_per_session": 3, "experimental_never_authority": true}
+  "gate": {
+    "ultra_requires_approval": true,
+    "max_ultra_per_session": 3,
+    "experimental_never_authority": true
+  },
+  "watchlist": {
+    "note": "Newly observed on an active harness. Available for experiments only until an eval lane promotes or retires it.",
+    "models": [
+      "opencode/minimax-m3.1-flash-free"
+    ]
+  },
+  "retired": [
+    {
+      "id": "opencode/space-bunny-free",
+      "retired": "2026-10-22",
+      "reason": "no longer returned by opencode models; retained in history"
+    }
+  ]
 }

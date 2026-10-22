@@ -24,7 +24,6 @@ from the OpenCode list below. Never substitute one harness's id for another's.
 2. `meta/muse-spark-1.3-contributor` (OpenCode)
 3. `opencode/nemotron-3.5-super-vl-free` (OpenCode)
 4. Claude Haiku 5.5 (Claude CLI)
-5. `opencode/space-bunny-free` (OpenCode)
 6. `opencode/mimo-v2.6-flash-free` (OpenCode)
 7. GPT 6.0 Luna High (codex CLI)
 8. GPT-6.1 Sol Medium (codex CLI)
@@ -50,6 +49,7 @@ Baseline candidate: `opencode/deepseek-v4.1-flash-free`
 - `opencode/nemotron-3.5-lightning-free`
 - `opencode/beam-free`
 - `opencode/big-pickle`
+- `opencode/minimax-m3.1-flash-free` (watchlist; evaluate before promotion)
 
 ## Exact OpenCode id list (authoritative for that path)
 
@@ -73,7 +73,7 @@ opencode/mimo-v2.6-flash-free
 opencode/nemotron-3-ultra-free
 opencode/nemotron-3.5-lightning-free
 opencode/nemotron-3.5-super-vl-free
-opencode/space-bunny-free
+opencode/minimax-m3.1-flash-free
 ```
 
 If a model is not in this list and not a DSH-native model, it is **not available on this path**.
@@ -126,11 +126,30 @@ gates. `scripts/model-route.py` validates and resolves:
 ```
 python3 scripts/model-route.py list
 python3 scripts/model-route.py resolve --tier T2 --path opencode
-python3 scripts/model-route.py check --path opencode --model opencode/space-bunny-free
-python3 scripts/model-route.py check --path claude --model "Claude Opus 5.5"   # refuses: T3 needs approval
+python3 scripts/model-route.py check --path opencode --model python3 scripts/model-route.py check --path claude --model "Claude Opus 5.5"   # refuses: T3 needs approval
 python3 scripts/model-route.py gate --tier T3_ULTRA --approve-ultra --model "Claude Opus 5.5" --reason "..."
 ```
 
 Rules enforced: model must belong to the named path; T3 Ultra refuses without `--approve-ultra`;
 unknown models are refused. No secrets/network are read. This is the resolver the orchestrator should
 call before spawning/pinning an agent.
+
+
+## Roster maintenance
+
+The registry is `config/model-roster.json` (`version`, `updated`, `paths`, `tiers`, `watchlist`,
+`retired`). Active harness output is the authority for the OpenCode path:
+
+```bash
+# Read-only drift check; exits 1 when the active list and registry disagree.
+python3 scripts/model-roster-sync.py
+python3 scripts/model-roster-sync.py --json
+
+# Preview without failing (useful in a daily pulse).
+python3 scripts/model-roster-sync.py --report-only
+```
+
+A new model starts on the **watchlist** or T3 Experimental, never straight into T1/T2. It is
+either promoted after an eval lane records evidence in the roster/docs, or moved to `retired`
+with a date and reason. Removing an id from the active list does not erase it from `retired`, so
+old lane notes and docs still resolve.
