@@ -285,10 +285,6 @@ fn text_or_empty(value: &Value, key: &str) -> String {
         .to_owned()
 }
 
-/// How many direct-URL resolutions are in flight per page at once. A property page resolves three copies for each
-/// photograph; the cap keeps one page from opening a database query storm while still overlapping the lookups.
-const RESOLVE_CONCURRENCY: usize = 8;
-
 /// The three servable copies, each with the final URL the browser fetches. `None` means the resolver had no direct
 /// URL (missing object, unpublished, store unavailable), and the caller falls back to the guarded `/api/media` route.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -304,72 +300,63 @@ fn api_media_url(id: &str, size: &str) -> String {
     format!("/api/media/{id}?size={size}&v={MEDIA_CACHE_VERSION}")
 }
 
-/// Resolve one size for many media ids with bounded concurrency. Errors and misses are dropped (the caller falls
-/// back); the method itself does not authorize or audit, so this is the cheap per-page lookup the page pays.
-async fn resolve_size(
-    service: &std::sync::Arc<PublicListingService<PublicListingDao>>,
-    ids: &[String],
-    size: &'static str,
-) -> std::collections::HashMap<String, String> {
-    let mut out = std::collections::HashMap::new();
-    let mut set = tokio::task::JoinSet::new();
-    let mut pending = ids.iter().cloned();
-    for _ in 0..RESOLVE_CONCURRENCY {
-        let Some(id) = pending.next() else { break };
-        let service = service.clone();
-        set.spawn(async move {
-            let url = service.media_public_url(&id, size).await.ok().flatten();
-            (id, url)
-        });
-    }
-    while let Some(joined) = set.join_next().await {
-        if let Some(id) = pending.next() {
-            let service = service.clone();
-            set.spawn(async move {
-                let url = service.media_public_url(&id, size).await.ok().flatten();
-                (id, url)
-            });
-        }
-        if let Ok((id, Some(url))) = joined {
-            out.insert(id, url);
-        }
-    }
-    out
-}
-
-/// Every requested copy for every id, resolved once per page. Three passes (card, web, thumb) keep the bounded
-/// concurrency per pass; duplicate ids are resolved once because the caller deduplicates them.
+/// Every requested copy for every id, in ONE batched service call (one SQL query on the real DAO).
+///
+/// The service enforces the public gate and builds the final CDN URLs; no per-image authorization or audit runs.
+/// A batch-level failure (no store, database failure) yields an empty map, so every caller falls back to the guarded
+/// route — exactly the previous failure behavior, with one query instead of three passes of two-figure concurrency.
 async fn resolve_media_urls(
     service: &std::sync::Arc<PublicListingService<PublicListingDao>>,
     ids: &[String],
 ) -> std::collections::HashMap<String, MediaUrls> {
-    let mut out: std::collections::HashMap<String, MediaUrls> = ids
-        .iter()
-        .map(|id| (id.clone(), MediaUrls::default()))
-        .collect();
-    let card = resolve_size(service, ids, "card").await;
-    let web = resolve_size(service, ids, "web").await;
-    let thumb = resolve_size(service, ids, "thumb").await;
-    for (id, urls) in out.iter_mut() {
-        urls.card = card.get(id).cloned();
-        urls.web = web.get(id).cloned();
-        urls.thumb = thumb.get(id).cloned();
+    if ids.is_empty() {
+        return std::collections::HashMap::new();
     }
-    out
+    match service.media_public_urls(ids).await {
+        Ok(urls) => urls
+            .into_iter()
+            .map(|(id, urls)| {
+                (
+                    id,
+                    MediaUrls {
+                        card: urls.card,
+                        web: urls.web,
+                        thumb: urls.thumb,
+                    },
+                )
+            })
+            .collect(),
+        Err(_) => std::collections::HashMap::new(),
+    }
 }
 
-/// The hero-photograph card URLs for a list of listing payloads, resolved once per page and keyed by media id.
-async fn resolve_hero_cards(
-    service: &std::sync::Arc<PublicListingService<PublicListingDao>>,
-    properties: &[Value],
-) -> std::collections::HashMap<String, String> {
+/// The deduplicated hero media ids of many listing payloads, in ONE batch.
+fn hero_ids(properties: &[Value]) -> Vec<String> {
     let mut ids: Vec<String> = properties
         .iter()
         .filter_map(|property| text(property, "heroMediaId").map(str::to_owned))
         .collect();
     ids.sort();
     ids.dedup();
-    resolve_size(service, &ids, "card").await
+    ids
+}
+
+/// The resolved card URLs keyed by media id, for the listing cards that render `imagePath`.
+fn card_urls(
+    urls: &std::collections::HashMap<String, MediaUrls>,
+) -> std::collections::HashMap<String, String> {
+    urls.iter()
+        .filter_map(|(id, urls)| urls.card.clone().map(|card| (id.clone(), card)))
+        .collect()
+}
+
+/// The hero-photograph card URLs for a list of listing payloads, resolved once per page in one batch query.
+async fn resolve_hero_cards(
+    service: &std::sync::Arc<PublicListingService<PublicListingDao>>,
+    properties: &[Value],
+) -> std::collections::HashMap<String, String> {
+    let urls = resolve_media_urls(service, &hero_ids(properties)).await;
+    card_urls(&urls)
 }
 
 /// Deduplicated image ids in payload order, for the property branch.
@@ -641,11 +628,15 @@ async fn public_page(
                 to_json(similar.map_err(ApiError::from)?),
                 to_json(slugs.map_err(ApiError::from)?),
             );
-            // ONE resolution pass for the page, server-side: the direct copy URLs for this property's photographs
-            // and the card URLs of the similar listings. Failures fall back to the guarded `/api/media` route.
-            let media_urls = resolve_media_urls(&listings_service, &image_ids(&property)).await;
+            // ONE media-resolution query for the whole page: this property's photographs AND the similar listings'
+            // hero cards share one deduplicated id set and one batched lookup. Failures fall back to `/api/media`.
             let similar_rows = similar.as_array().cloned().unwrap_or_default();
-            let similar_cards = resolve_hero_cards(&listings_service, &similar_rows).await;
+            let mut ids = image_ids(&property);
+            ids.extend(hero_ids(&similar_rows));
+            ids.sort();
+            ids.dedup();
+            let media_urls = resolve_media_urls(&listings_service, &ids).await;
+            let similar_cards = card_urls(&media_urls);
             property_detail(
                 slug,
                 &property,

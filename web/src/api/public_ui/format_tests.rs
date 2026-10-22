@@ -209,3 +209,40 @@ fn an_unresolved_property_page_still_builds_with_the_guarded_route() {
         ))
     );
 }
+
+#[test]
+fn the_page_collects_one_deduplicated_hero_id_list() {
+    let properties = vec![
+        json!({ "id": "p1", "heroMediaId": "media-a" }),
+        json!({ "id": "p2", "heroMediaId": "media-b" }),
+        json!({ "id": "p3", "heroMediaId": "media-a" }),
+        json!({ "id": "p4", "heroMediaId": null }),
+    ];
+    assert_eq!(
+        hero_ids(&properties),
+        vec!["media-a".to_owned(), "media-b".to_owned()],
+        "each hero is resolved once, in a stable order, and a missing hero is skipped"
+    );
+}
+
+#[test]
+fn only_resolved_cards_become_listing_image_urls() {
+    let mut urls = std::collections::HashMap::new();
+    urls.insert("media-a".to_owned(), resolved("media-a"));
+    urls.insert(
+        "media-b".to_owned(),
+        MediaUrls {
+            card: None,
+            ..Default::default()
+        },
+    );
+    let cards = card_urls(&urls);
+    assert_eq!(
+        cards.get("media-a").map(String::as_str),
+        Some("https://cdn.test/media-cdn/media/media-a/card.jpg")
+    );
+    assert!(
+        !cards.contains_key("media-b"),
+        "a photograph whose card copy did not resolve falls back in the builder instead of entering the map"
+    );
+}

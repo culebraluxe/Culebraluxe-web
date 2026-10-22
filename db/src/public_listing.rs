@@ -82,6 +82,22 @@ impl ListingRow {
     }
 }
 
+/// One copy's pointer, or `None` when the row has no object pointer (bucket/key absent). Mirrors the single-id read:
+/// an absent pointer is not a location, and status/visibility fall back to the same LEGACY/private defaults.
+fn location(
+    bucket: Option<String>,
+    key: Option<String>,
+    status: Option<String>,
+    visibility: Option<String>,
+) -> Option<crate::MediaObjectLocation> {
+    Some(crate::MediaObjectLocation {
+        bucket: bucket?,
+        key: key?,
+        status: status.unwrap_or_else(|| "LEGACY_BLOB".to_owned()),
+        visibility: visibility.unwrap_or_else(|| "private".to_owned()),
+    })
+}
+
 pub struct PublicListingDao {
     db: Database,
 }
@@ -673,6 +689,131 @@ impl PublicListingDao {
         }))
     }
 
+    /// The object pointers for the three servable copies (card, web, thumb) of MANY media ids, in ONE query.
+    ///
+    /// WHY ONE QUERY: a public page asks for every photograph on it at once. The single-id resolver repeated three
+    /// times per photograph was three round trips and three statements per image (93 for a 31-photo page). This
+    /// lateral-join form returns every requested photograph's three chosen copies in a single round trip, with the
+    /// SAME derivative selection and property-visibility rule the single-id read uses:
+    ///
+    /// - card: card, then web, then thumb;
+    /// - web: web, then card, then thumb;
+    /// - thumb: thumb, then card, then web;
+    /// - no derivative at all falls back to the ORIGINAL row's pointer, exactly as the single read does.
+    ///
+    /// Returns one row per id that the public gate knows; unknown ids and photographs of unpublished Properties are
+    /// simply absent (the caller answers `None` for them). The returned tuples are
+    /// `(media id, card, web, thumb)`; each location is `None` when that row has no object pointer yet.
+    pub async fn media_object_locations(
+        &self,
+        ids: &[String],
+    ) -> DbResult<
+        Vec<(
+            String,
+            Option<crate::MediaObjectLocation>,
+            Option<crate::MediaObjectLocation>,
+            Option<crate::MediaObjectLocation>,
+        )>,
+    > {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ),
+        >(
+            r#"
+            select
+                m.id::text,
+                -- card: the requested copy, then web, then thumb; the original only when no copy exists.
+                case when card.id is not null then card.object_bucket else m.object_bucket end,
+                case when card.id is not null then card.object_key else m.object_key end,
+                case when card.id is not null then card.storage_status else m.storage_status end,
+                case when card.id is not null then card.visibility else m.visibility end,
+                -- web: the web copy, then card, then thumb.
+                case when web.id is not null then web.object_bucket else m.object_bucket end,
+                case when web.id is not null then web.object_key else m.object_key end,
+                case when web.id is not null then web.storage_status else m.storage_status end,
+                case when web.id is not null then web.visibility else m.visibility end,
+                -- thumb: the thumb copy, then card, then web (a tile must never pull the 3600px copy).
+                case when thumb.id is not null then thumb.object_bucket else m.object_bucket end,
+                case when thumb.id is not null then thumb.object_key else m.object_key end,
+                case when thumb.id is not null then thumb.storage_status else m.storage_status end,
+                case when thumb.id is not null then thumb.visibility else m.visibility end
+            from media m
+            join media root on root.id = coalesce(m.derivative_of, m.id)
+            left join lateral (
+                select d.id, d.object_bucket, d.object_key, d.storage_status, d.visibility
+                  from media d
+                 where d.derivative_of = root.id
+                   and d.derivative_kind in ('card', 'web', 'thumb')
+                 order by case d.derivative_kind
+                            when 'card' then 0 when 'web' then 1 else 2 end
+                 limit 1
+            ) as card on true
+            left join lateral (
+                select d.id, d.object_bucket, d.object_key, d.storage_status, d.visibility
+                  from media d
+                 where d.derivative_of = root.id
+                   and d.derivative_kind in ('card', 'web', 'thumb')
+                 order by case d.derivative_kind
+                            when 'web' then 0 when 'card' then 1 else 2 end
+                 limit 1
+            ) as web on true
+            left join lateral (
+                select d.id, d.object_bucket, d.object_key, d.storage_status, d.visibility
+                  from media d
+                 where d.derivative_of = root.id
+                   and d.derivative_kind in ('card', 'web', 'thumb')
+                 order by case d.derivative_kind
+                            when 'thumb' then 0 when 'card' then 1 when 'web' then 2 else 3 end
+                 limit 1
+            ) as thumb on true
+            where m.id = any(array(select unnest($1::text[])::uuid))
+              and not exists (
+                    select 1
+                      from property_media pm
+                      join property p on p.id = pm.property_id
+                     where pm.media_id = root.id
+                       and not (
+                             p.archived_at is null
+                             and p.status in ('active', 'under_contract', 'sold')
+                           )
+                  )
+            "#,
+        )
+        .bind(ids)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|error| DbFailure::from_sqlx("public_listing.media_object_locations", &error))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                (
+                    row.0,
+                    location(row.1, row.2, row.3, row.4),
+                    location(row.5, row.6, row.7, row.8),
+                    location(row.9, row.10, row.11, row.12),
+                )
+            })
+            .collect())
+    }
+
     /// Taglines for every published listing that has one. A listing with none is simply absent.
     pub async fn listing_copy(&self) -> DbResult<Vec<PublicListingCopy>> {
         let rows = sqlx::query_as::<_, (String, String)>(
@@ -693,5 +834,112 @@ impl PublicListingDao {
             .into_iter()
             .map(|(slug, tagline)| PublicListingCopy { slug, tagline })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn same(
+        left: &Option<crate::MediaObjectLocation>,
+        right: &Option<crate::MediaObjectLocation>,
+    ) -> bool {
+        match (left, right) {
+            (None, None) => true,
+            (Some(left), Some(right)) => {
+                left.bucket == right.bucket
+                    && left.key == right.key
+                    && left.status == right.status
+                    && left.visibility == right.visibility
+            }
+            _ => false,
+        }
+    }
+
+    /// THE BATCH MUST EQUAL THE SINGLE READS IT REPLACES. Read-only against DEV: pick existing photographs (some with
+    /// derivatives, some without) and compare the one batched query's card/web/thumb pointers with the three
+    /// single-id lookups the page used to make. Also proves unknown ids are absent and no write happens.
+    ///
+    /// Ignored by default; run with DATABASE_URL_DEV present.
+    #[tokio::test]
+    #[ignore = "needs DATABASE_URL_DEV; read-only batch/single equivalence"]
+    async fn the_batch_pointer_read_matches_the_single_lookups() {
+        let database = Database::connect_target(crate::DbTarget::Dev)
+            .await
+            .expect("DATABASE_URL_DEV must reach the disposable DEV branch");
+        let dao = PublicListingDao::new(database);
+
+        // Photographs that DO have at least one derivative (the interesting selection cases).
+        let mut ids: Vec<String> = sqlx::query_scalar::<_, String>(
+            "select distinct d.derivative_of::text
+               from media d
+              where d.derivative_of is not null
+              limit 5",
+        )
+        .fetch_all(dao.db.pool())
+        .await
+        .expect("the derivative parents are readable");
+        // One photograph with NO derivatives (the original-only path).
+        if let Some(plain) = sqlx::query_scalar::<_, String>(
+            "select m.id::text
+               from media m
+              where m.derivative_of is null
+                and not exists (select 1 from media d where d.derivative_of = m.id)
+              limit 1",
+        )
+        .fetch_optional(dao.db.pool())
+        .await
+        .expect("the derivative-free photograph is readable")
+        {
+            ids.push(plain);
+        }
+        assert!(!ids.is_empty(), "DEV must hold at least one media row");
+
+        let batch = dao
+            .media_object_locations(&ids)
+            .await
+            .expect("the batch query runs");
+        assert!(
+            !batch.is_empty(),
+            "at least one requested photograph must be publicly gated"
+        );
+
+        for id in &ids {
+            // A row the public gate refuses (unpublished Property) is absent from the batch; the single lookups
+            // must agree by returning no pointer for every size.
+            let row = batch.iter().find(|(batch_id, ..)| batch_id == id);
+            for (size_index, size) in ["card", "web", "thumb"].iter().enumerate() {
+                let single = dao
+                    .media_object_location(id, size)
+                    .await
+                    .expect("the single lookup runs");
+                let batch_location = row.and_then(|(_, card, web, thumb)| match size_index {
+                    0 => Some(card),
+                    1 => Some(web),
+                    _ => Some(thumb),
+                });
+                assert!(
+                    same(batch_location.unwrap_or(&None), &single),
+                    "batch {size} for {id} must equal the single lookup: {:?} vs {single:?}",
+                    batch_location
+                );
+            }
+        }
+
+        let unknown = dao
+            .media_object_locations(&["00000000-0000-4000-8000-000000000000".to_owned()])
+            .await
+            .expect("an unknown id is a miss, not an error");
+        assert!(
+            unknown.is_empty(),
+            "an unknown id must be absent from the batch"
+        );
+        let empty = dao.media_object_locations(&[]).await.expect("no ids");
+        assert!(empty.is_empty(), "an empty id list issues no rows");
+        eprintln!(
+            "proof: one batch query matched 3 single lookups for each of {} media ids",
+            ids.len()
+        );
     }
 }
