@@ -4,11 +4,12 @@
 
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use serde_json::{json, Value};
+use std::time::Instant;
 
 use super::context::public_guest_context;
 use super::ui_auth::{portal_open, resolve_portal_context};
@@ -450,6 +451,16 @@ fn listing(
     })
 }
 
+/// Format a `Server-Timing` header. DevTools shows these as named phases in the request's Timing tab.
+fn server_timing(timings: &[(&str, f64)]) -> Option<HeaderValue> {
+    let value = timings
+        .iter()
+        .map(|(name, ms)| format!("{name};dur={ms:.1}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    HeaderValue::from_str(&value).ok()
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct PublicPageQuery {
     #[serde(default)]
@@ -463,6 +474,8 @@ async fn public_page(
     headers: HeaderMap,
     Query(query): Query<PublicPageQuery>,
 ) -> Result<Response, ApiError> {
+    let started = Instant::now();
+    let mut timings: Vec<(&'static str, f64)> = Vec::new();
     let context = public_guest_context(&headers);
     let services = state.services();
     let listings_service = services.public_listings();
@@ -507,8 +520,12 @@ async fn public_page(
                 .and_then(|list| list.as_array().cloned())
                 .unwrap_or_default()
             };
+            let phase = Instant::now();
             let (properties, blocks, copy) = tokio::join!(listings(), marketing(), copy);
+            timings.push(("page-data", phase.elapsed().as_secs_f64() * 1000.0));
+            let phase = Instant::now();
             let hero_cards = resolve_hero_cards(&listings_service, &properties).await;
+            timings.push(("media-urls", phase.elapsed().as_secs_f64() * 1000.0));
             let taglines: std::collections::HashMap<String, String> = copy
                 .iter()
                 .filter_map(|entry| {
@@ -538,16 +555,24 @@ async fn public_page(
         }
         "site-about" => json!({ "about": block_by_id(&marketing().await, "home.about") }),
         "site-buyers" => {
+            let phase = Instant::now();
             let properties = listings().await;
+            timings.push(("page-data", phase.elapsed().as_secs_f64() * 1000.0));
+            let phase = Instant::now();
             let hero_cards = resolve_hero_cards(&listings_service, &properties).await;
+            timings.push(("media-urls", phase.elapsed().as_secs_f64() * 1000.0));
             json!({
                 "listings": properties.iter().map(|p| listing(p, &no_taglines, &hero_cards)).collect::<Vec<_>>(),
                 "featured": properties.iter().filter(|p| at(p, "featured").as_bool() == Some(true)).map(|p| listing(p, &no_taglines, &hero_cards)).collect::<Vec<_>>(),
             })
         }
         "site-favorites" => {
+            let phase = Instant::now();
             let properties = listings().await;
+            timings.push(("page-data", phase.elapsed().as_secs_f64() * 1000.0));
+            let phase = Instant::now();
             let hero_cards = resolve_hero_cards(&listings_service, &properties).await;
+            timings.push(("media-urls", phase.elapsed().as_secs_f64() * 1000.0));
             json!({ "listings": properties.iter().map(|p| listing(p, &no_taglines, &hero_cards)).collect::<Vec<_>>() })
         }
         "site-faq" => {
@@ -610,20 +635,24 @@ async fn public_page(
                     "a property record needs a slug",
                 ));
             };
+            let phase = Instant::now();
             let property = listings_service
                 .property(slug, &context)
                 .await
                 .map_err(ApiError::from)?;
+            timings.push(("property", phase.elapsed().as_secs_f64() * 1000.0));
             let Some(property) = property.map(to_json) else {
                 return Err(ApiError::not_found(
                     "PROPERTY_NOT_FOUND",
                     format!("no property with the slug '{slug}'"),
                 ));
             };
+            let phase = Instant::now();
             let (similar, slugs) = tokio::join!(
                 listings_service.similar(slug, 3, &context),
                 listings_service.slugs(&context)
             );
+            timings.push(("related", phase.elapsed().as_secs_f64() * 1000.0));
             let (similar, slugs) = (
                 to_json(similar.map_err(ApiError::from)?),
                 to_json(slugs.map_err(ApiError::from)?),
@@ -635,16 +664,21 @@ async fn public_page(
             ids.extend(hero_ids(&similar_rows));
             ids.sort();
             ids.dedup();
+            let phase = Instant::now();
             let media_urls = resolve_media_urls(&listings_service, &ids).await;
+            timings.push(("media-urls", phase.elapsed().as_secs_f64() * 1000.0));
             let similar_cards = card_urls(&media_urls);
-            property_detail(
+            let phase = Instant::now();
+            let detail = property_detail(
                 slug,
                 &property,
                 &similar,
                 slugs,
                 &media_urls,
                 &similar_cards,
-            )
+            );
+            timings.push(("json", phase.elapsed().as_secs_f64() * 1000.0));
+            detail
         }
         other => {
             return Err(ApiError::bad_request(
@@ -653,7 +687,14 @@ async fn public_page(
             ))
         }
     };
-    Ok(axum::Json(body).into_response())
+    timings.push(("total", started.elapsed().as_secs_f64() * 1000.0));
+    let mut response = axum::Json(body).into_response();
+    if let Some(value) = server_timing(&timings) {
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("server-timing"), value);
+    }
+    Ok(response)
 }
 
 /// One property's public record: the facts, the hero, the gallery, the films, the documents, and similar listings.
