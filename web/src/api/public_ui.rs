@@ -14,6 +14,10 @@ use super::context::public_guest_context;
 use super::ui_auth::{portal_open, resolve_portal_context};
 use super::{ApiError, ApiState};
 
+/// Cache-busting version for public media URLs. Bump when a bucket/derivative target changes, so a browser or
+/// edge cache that already holds an old 302 cannot keep serving the wrong object.
+const MEDIA_CACHE_VERSION: &str = "20261022a";
+
 pub fn router() -> Router<ApiState> {
     Router::new()
         .route("/api/media/{id}", get(media))
@@ -138,7 +142,7 @@ async fn media(
             StatusCode::FOUND,
             [
                 (header::LOCATION, url),
-                (header::CACHE_CONTROL, "public, max-age=31536000, immutable".to_owned()),
+                (header::CACHE_CONTROL, "public, max-age=300, must-revalidate".to_owned()),
             ],
             Body::empty(),
         )
@@ -300,7 +304,7 @@ fn listing(source: &Value, taglines: &std::collections::HashMap<String, String>)
         "price": number("listPrice").map(|price| format_price(Some(price))),
         "kind": at(source, "propertyType"),
         // A card shows the card copy, not the 3600px web copy it once pulled (2-3 MB per card).
-        "imagePath": text(source, "heroMediaId").map(|id| format!("/api/media/{id}?size=card")),
+        "imagePath": text(source, "heroMediaId").map(|id| format!("/api/media/{id}?size=card&v={MEDIA_CACHE_VERSION}")),
         "imageAlt": at(source, "heroAlt"),
         "beds": at(source, "bedrooms"),
         "baths": at(source, "bathrooms"),
@@ -527,7 +531,7 @@ fn property_detail(slug: &str, p: &Value, similar: &Value, public_slugs: Value) 
         .filter(|m| text(m, "id") != hero_id)
         .map(|m| {
             json!({
-                "url": format!("/api/media/{}", text(m, "id").unwrap_or("")),
+                "url": format!("/api/media/{}?v={MEDIA_CACHE_VERSION}", text(m, "id").unwrap_or("")),
                 "alt": m.get("altText").filter(|v| !v.is_null()).unwrap_or(name),
                 "caption": at(m, "caption"),
             })
@@ -655,7 +659,7 @@ fn property_detail(slug: &str, p: &Value, similar: &Value, public_slugs: Value) 
         ("longitude", json!(at(p, "longitude"))),
         (
             "heroUrl",
-            json!(hero_id.map(|id| format!("/api/media/{id}"))),
+            json!(hero_id.map(|id| format!("/api/media/{id}?v={MEDIA_CACHE_VERSION}"))),
         ),
         ("gallery", json!(gallery)),
         ("videos", json!(videos)),

@@ -26,6 +26,9 @@ struct Photo {
 /// A derivative size the media route serves. The route maps `card` to the 1200px copy, `thumb` to the 400px copy
 /// and `web` to the 3600px copy; a request with no `size` gets the `web` copy — and, for a legacy photograph that
 /// has no derivatives at all, the ORIGINAL (up to 6.6MB), which is exactly what a gallery tile must not ask for.
+/// Bump with the server `MEDIA_CACHE_VERSION` when an image target changes.
+const MEDIA_CACHE_VERSION: &str = "20261022a";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MediaSize {
     Card,
@@ -69,7 +72,9 @@ pub(super) fn media_url(src: &str, size: MediaSize) -> String {
         })
         .map(str::to_string)
         .collect();
+    params.retain(|pair| pair.split_once('=').map_or(true, |(key, _)| key != "v"));
     params.push(format!("size={}", size.as_str()));
+    params.push(format!("v={MEDIA_CACHE_VERSION}"));
     let mut out = format!("{base}?{}", params.join("&"));
     if let Some(fragment) = fragment {
         out.push('#');
@@ -360,7 +365,7 @@ fn similar_properties(record: &PropertyRecord) -> Html {
                 html! {
                     <article>
                         <a href={href.clone()} class="relative block aspect-[16/10] overflow-hidden bg-muted">
-                            if let Some(src) = &listing.image_path { <img src={src.clone()} alt={listing.image_alt.clone().unwrap_or_else(|| listing.name.clone())} class="absolute inset-0 h-full w-full object-cover" /> }
+                            if let Some(src) = &listing.image_path { <img src={media_url(src, MediaSize::Card)} alt={listing.image_alt.clone().unwrap_or_else(|| listing.name.clone())} class="absolute inset-0 h-full w-full object-cover" /> }
                         </a>
                         <div class="mt-5 border-t border-border pt-4">
                             <h3 class="font-serif text-xl font-light leading-tight text-foreground md:text-2xl"><a href={href}>{listing.name.clone()}</a></h3>
@@ -426,15 +431,15 @@ mod tests {
     fn media_url_appends_the_size_to_a_bare_media_route() {
         assert_eq!(
             media_url("/api/media/abc", MediaSize::Card),
-            "/api/media/abc?size=card"
+            "/api/media/abc?size=card&v=20261022a"
         );
         assert_eq!(
             media_url("/api/media/abc", MediaSize::Thumb),
-            "/api/media/abc?size=thumb"
+            "/api/media/abc?size=thumb&v=20261022a"
         );
         assert_eq!(
             media_url("/api/media/abc", MediaSize::Web),
-            "/api/media/abc?size=web"
+            "/api/media/abc?size=web&v=20261022a"
         );
     }
 
@@ -442,15 +447,15 @@ mod tests {
     fn media_url_replaces_only_an_existing_size() {
         assert_eq!(
             media_url("/api/media/abc?foo=1", MediaSize::Card),
-            "/api/media/abc?foo=1&size=card"
+            "/api/media/abc?foo=1&size=card&v=20261022a"
         );
         assert_eq!(
             media_url("/api/media/abc?size=web&foo=1", MediaSize::Thumb),
-            "/api/media/abc?foo=1&size=thumb"
+            "/api/media/abc?foo=1&size=thumb&v=20261022a"
         );
         assert_eq!(
             media_url("/api/media/abc?size=web&size=card", MediaSize::Web),
-            "/api/media/abc?size=web"
+            "/api/media/abc?size=web&v=20261022a"
         );
     }
 
@@ -471,19 +476,19 @@ mod tests {
     fn media_url_handles_absolute_media_routes_and_fragments() {
         assert_eq!(
             media_url("https://example.test/api/media/abc", MediaSize::Card),
-            "https://example.test/api/media/abc?size=card"
+            "https://example.test/api/media/abc?size=card&v=20261022a"
         );
         assert_eq!(
             media_url("/api/media/abc#photo", MediaSize::Web),
-            "/api/media/abc?size=web#photo"
+            "/api/media/abc?size=web&v=20261022a#photo"
         );
         assert_eq!(
-            media_url("/api/media/abc?size=web#photo", MediaSize::Card),
-            "/api/media/abc?size=card#photo"
+            media_url("/api/media/abc?size=web&v=20261022a#photo", MediaSize::Card),
+            "/api/media/abc?size=card&v=20261022a#photo"
         );
         assert_eq!(
             media_url("/api/media/abc?", MediaSize::Card),
-            "/api/media/abc?size=card"
+            "/api/media/abc?size=card&v=20261022a"
         );
     }
 
@@ -491,7 +496,7 @@ mod tests {
     fn lightbox_srcset_offers_card_and_web_with_their_widths() {
         assert_eq!(
             lightbox_srcset("/api/media/abc"),
-            "/api/media/abc?size=card 1200w, /api/media/abc?size=web 3600w"
+            "/api/media/abc?size=card&v=20261022a 1200w, /api/media/abc?size=web&v=20261022a 3600w"
         );
         assert_eq!(LIGHTBOX_SIZES, "100vw");
     }
