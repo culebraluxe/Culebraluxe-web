@@ -129,10 +129,60 @@ impl<R: PublicListingRepository> PublicListingService<R> {
         result
     }
 
-    /// The public site's media resolver. OBJECT-ONLY, unconditionally: a VERIFIED, public-visibility object in the
-    /// public bucket becomes a direct URL; everything else is the SAME answer (`None`), so an anonymous visitor can
-    /// never tell "this listing exists but is not published" from "no such media". Infrastructure failures are
-    /// errors, never a silent refusal and never a `file_data` blob.
+    /// The final public CDN URL for one photograph copy, resolved exactly as `media_read` does — same derivative
+    /// choice, same public+VERIFIED gate — WITHOUT the per-image authorization/audit.
+    ///
+    /// WHY NO AUTHORIZE/AUDIT HERE: a page resolves dozens of images, and the door that authorized the page
+    /// (`publicListings`/`publicProperty`, `property.public.read`) already ran and was audited once. Repeating that
+    /// decision per image would add dozens of policy evaluations and audit rows for one page view while changing no
+    /// answer; this method is read-only and returns only a URL for media the public door may already serve.
+    ///
+    /// `None` is the same indistinguishable "not servable" answer as `media_read`: an absent id, an unpublished
+    /// listing, a legacy blob-only row or a non-public copy. Infrastructure failures are errors, so a caller can fall
+    /// back to the guarded route rather than silently drop the photograph.
+    pub async fn media_public_url(
+        &self,
+        id: &str,
+        size: &str,
+    ) -> Result<Option<String>, CoreServiceError> {
+        self.resolve_public_url(id, size).await
+    }
+
+    /// The shared resolver: a VERIFIED object in the public bucket with public visibility becomes its direct CDN
+    /// URL; everything else is `None`. No authorization or audit — the two doors above own those.
+    async fn resolve_public_url(
+        &self,
+        id: &str,
+        size: &str,
+    ) -> Result<Option<String>, CoreServiceError> {
+        let store = self.object_store.as_ref().ok_or_else(|| {
+            CoreServiceError::infrastructure(
+                "MEDIA_OBJECT_STORE_NOT_CONFIGURED",
+                "the public media door requires media object storage",
+            )
+        })?;
+        let Some(location) = self.repository.media_object_location(id, size).await? else {
+            // No row, unpublished listing, legacy blob-only row: one indistinguishable answer.
+            return Ok(None);
+        };
+        if location.status != "VERIFIED" {
+            return Ok(None);
+        }
+        if ObjectBucket::from_db(&location.bucket) != Some(ObjectBucket::PropertyMediaPublic)
+            || location.visibility != "public"
+        {
+            return Ok(None);
+        }
+        store
+            .public_read_url(ObjectBucket::PropertyMediaPublic, &location.key)
+            .await
+            .map(Some)
+            .map_err(|error| {
+                CoreServiceError::infrastructure("MEDIA_OBJECT_READ_URL_FAILED", error.to_string())
+            })
+    }
+
+    /// The public site's media resolver (the `/api/media/{id}` 302 door). Object-only, unconditionally.
     pub async fn media_read(
         &self,
         id: &str,
@@ -149,39 +199,10 @@ impl<R: PublicListingRepository> PublicListingService<R> {
             context,
         )
         .await?;
-
-        let result = async {
-            let store = self.object_store.as_ref().ok_or_else(|| {
-                CoreServiceError::infrastructure(
-                    "MEDIA_OBJECT_STORE_NOT_CONFIGURED",
-                    "the public media door requires media object storage",
-                )
-            })?;
-            let Some(location) = self.repository.media_object_location(id, size).await? else {
-                // No row, unpublished listing, legacy blob-only row: one indistinguishable answer.
-                return Ok(None);
-            };
-            if location.status != "VERIFIED" {
-                return Ok(None);
-            }
-            if ObjectBucket::from_db(&location.bucket) != Some(ObjectBucket::PropertyMediaPublic)
-                || location.visibility != "public"
-            {
-                return Ok(None);
-            }
-            match store
-                .public_read_url(ObjectBucket::PropertyMediaPublic, &location.key)
-                .await
-            {
-                Ok(url) => Ok(Some(crate::media::MediaRead::Redirect { url })),
-                Err(error) => Err(CoreServiceError::infrastructure(
-                    "MEDIA_OBJECT_READ_URL_FAILED",
-                    error.to_string(),
-                )),
-            }
-        }
-        .await;
-
+        let result = self
+            .resolve_public_url(id, size)
+            .await
+            .map(|url| url.map(|url| crate::media::MediaRead::Redirect { url }));
         audit_result(&self.runtime, "property", OP, context, decision, &result).await?;
         result
     }
@@ -348,5 +369,237 @@ mod tests {
             .await
             .expect("a published read is published");
         assert_eq!(copy[0].tagline, "Two pools.");
+    }
+    /// A repository whose only meaningful answer is the object pointer the direct-URL resolver reads.
+    struct ResolverRepository {
+        location: Option<db::MediaObjectLocation>,
+        fail: bool,
+    }
+
+    impl ResolverRepository {
+        fn pointing_at(bucket: &str, visibility: &str, status: &str) -> Self {
+            Self {
+                location: Some(db::MediaObjectLocation {
+                    bucket: bucket.to_owned(),
+                    key: "media/abc/card.jpg".to_owned(),
+                    status: status.to_owned(),
+                    visibility: visibility.to_owned(),
+                }),
+                fail: false,
+            }
+        }
+
+        fn failing() -> Self {
+            Self {
+                location: None,
+                fail: true,
+            }
+        }
+    }
+
+    fn unconfigured<T>(method: &'static str) -> DbResult<T> {
+        Err(db::DbFailure::configuration(
+            "test.public_listings.media_public_url",
+            format!("{method} is outside the direct-URL resolver subject"),
+        ))
+    }
+
+    #[async_trait]
+    impl PublicListingRepository for ResolverRepository {
+        async fn listings(&self) -> DbResult<Vec<PublicListing>> {
+            unconfigured("listings")
+        }
+
+        async fn property(&self, _key: &str) -> DbResult<Option<PublicProperty>> {
+            unconfigured("property")
+        }
+
+        async fn similar(&self, _key: &str, _limit: i64) -> DbResult<Vec<PublicListing>> {
+            unconfigured("similar")
+        }
+
+        async fn slugs(&self) -> DbResult<Vec<String>> {
+            unconfigured("slugs")
+        }
+
+        async fn listing_copy(&self) -> DbResult<Vec<PublicListingCopy>> {
+            unconfigured("listing_copy")
+        }
+
+        async fn media_object_location(
+            &self,
+            _id: &str,
+            _size: &str,
+        ) -> DbResult<Option<db::MediaObjectLocation>> {
+            if self.fail {
+                return unconfigured("media_object_location");
+            }
+            Ok(self.location.clone())
+        }
+    }
+
+    /// A store that only has to answer the one question this resolver asks: the public URL for an object.
+    struct PublicStore;
+
+    #[async_trait]
+    impl AbstractObjectStoreService for PublicStore {
+        async fn put_object(
+            &self,
+            bucket: ObjectBucket,
+            key: &str,
+            bytes: &[u8],
+            content_type: &str,
+        ) -> Result<services::ObjectMetadata, services::ObjectStoreError> {
+            Ok(services::ObjectMetadata {
+                bucket,
+                key: key.to_owned(),
+                size: bytes.len() as i64,
+                content_type: Some(content_type.to_owned()),
+                etag: None,
+                sha256: None,
+            })
+        }
+
+        async fn head_object(
+            &self,
+            bucket: ObjectBucket,
+            key: &str,
+        ) -> Result<services::ObjectMetadata, services::ObjectStoreError> {
+            Ok(services::ObjectMetadata {
+                bucket,
+                key: key.to_owned(),
+                size: 1,
+                content_type: None,
+                etag: None,
+                sha256: None,
+            })
+        }
+
+        async fn delete_object(
+            &self,
+            _bucket: ObjectBucket,
+            _key: &str,
+        ) -> Result<(), services::ObjectStoreError> {
+            Ok(())
+        }
+
+        async fn public_read_url(
+            &self,
+            _bucket: ObjectBucket,
+            key: &str,
+        ) -> Result<String, services::ObjectStoreError> {
+            Ok(format!("https://cdn.example/{key}"))
+        }
+
+        async fn signed_read_url(
+            &self,
+            _bucket: ObjectBucket,
+            key: &str,
+            _ttl: std::time::Duration,
+        ) -> Result<String, services::ObjectStoreError> {
+            Ok(format!("https://signed.example/{key}"))
+        }
+
+        async fn signed_write_url(
+            &self,
+            _bucket: ObjectBucket,
+            key: &str,
+            _content_type: &str,
+            _ttl: std::time::Duration,
+        ) -> Result<String, services::ObjectStoreError> {
+            Ok(format!("https://write.example/{key}"))
+        }
+
+        async fn verify_object(
+            &self,
+            bucket: ObjectBucket,
+            key: &str,
+            _expected_sha256: &str,
+            _expected_size: i64,
+        ) -> Result<services::ObjectMetadata, services::ObjectStoreError> {
+            self.head_object(bucket, key).await
+        }
+    }
+
+    async fn resolver_service(
+        repository: ResolverRepository,
+        with_store: bool,
+    ) -> PublicListingService<ResolverRepository> {
+        let infrastructure = ServiceInfrastructure::new(
+            Arc::new(
+                CasbinAuthorizationPort::new()
+                    .await
+                    .expect("the policy loads"),
+            ),
+            Arc::new(CapturingAuditPort::default()),
+            Arc::new(CapturingDomainEventPort::default()),
+        );
+        let service = PublicListingService::new(repository, infrastructure);
+        if with_store {
+            service.with_object_store(Arc::new(PublicStore))
+        } else {
+            service
+        }
+    }
+
+    /// The direct resolver returns the same derivative choice `media_read` serves, as a final CDN URL, without a
+    /// per-image authorize/audit pass.
+    #[tokio::test]
+    async fn the_direct_resolver_returns_the_public_object_url() {
+        let service = resolver_service(
+            ResolverRepository::pointing_at("property_media_public", "public", "VERIFIED"),
+            true,
+        )
+        .await;
+        let url = service
+            .media_public_url("media-abc", "card")
+            .await
+            .expect("the pointer resolves")
+            .expect("a verified public object has a URL");
+        assert_eq!(url, "https://cdn.example/media/abc/card.jpg");
+    }
+
+    /// The same public+VERIFIED gate as `media_read`: every other shape is the indistinguishable `None`.
+    #[tokio::test]
+    async fn the_direct_resolver_refuses_everything_that_is_not_a_public_verified_object() {
+        for repository in [
+            ResolverRepository::pointing_at("property_media_private", "private", "VERIFIED"),
+            ResolverRepository::pointing_at("property_media_public", "public", "MIGRATION_PENDING"),
+            ResolverRepository::pointing_at("vault", "vault", "VERIFIED"),
+            ResolverRepository {
+                location: None,
+                fail: false,
+            },
+        ] {
+            let service = resolver_service(repository, true).await;
+            assert_eq!(
+                service.media_public_url("media-abc", "card").await.unwrap(),
+                None,
+                "only a VERIFIED public object in the public bucket may become a direct URL"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_direct_resolver_needs_the_object_store_and_surfaces_repository_failures() {
+        let service = resolver_service(ResolverRepository::failing(), true).await;
+        assert_eq!(
+            service
+                .media_public_url("media-abc", "card")
+                .await
+                .expect_err("a repository failure is an error, not a missing photograph")
+                .code(),
+            "DATABASE"
+        );
+
+        let service = resolver_service(ResolverRepository::failing(), false).await;
+        assert_eq!(
+            service
+                .media_public_url("media-abc", "card")
+                .await
+                .expect_err("no store")
+                .code(),
+            "MEDIA_OBJECT_STORE_NOT_CONFIGURED"
+        );
     }
 }

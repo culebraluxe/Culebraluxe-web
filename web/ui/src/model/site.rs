@@ -107,6 +107,11 @@ pub struct MediaItem {
     pub href: Option<String>,
     pub media_url: Option<String>,
     pub media_id: Option<String>,
+    /// Direct CDN copies resolved by the public page: `card` (1200px), `web` (3600px), `thumb` (400px). Absent for
+    /// static images, documents and videos — those keep the guarded `/api/media` route through `media_url()`.
+    pub card_url: Option<String>,
+    pub web_url: Option<String>,
+    pub thumb_url: Option<String>,
     pub alt: Option<String>,
     pub alt_text: Option<String>,
     pub title: Option<String>,

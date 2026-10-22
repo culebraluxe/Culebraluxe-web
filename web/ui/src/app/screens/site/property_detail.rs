@@ -21,6 +21,11 @@ struct Photo {
     src: String,
     alt: String,
     caption: Option<String>,
+    /// Direct CDN copies from the server-resolved page payload. Absent (a static image, an older payload, or a
+    /// photograph the resolver could not serve) falls back to the guarded `/api/media` route.
+    card_url: Option<String>,
+    web_url: Option<String>,
+    thumb_url: Option<String>,
 }
 
 /// A derivative size the media route serves. The route maps `card` to the 1200px copy, `thumb` to the 400px copy
@@ -100,13 +105,31 @@ fn is_media_route(src: &str) -> bool {
 /// `sizes` for the full-screen lightbox image: it is laid out edge to edge.
 pub(super) const LIGHTBOX_SIZES: &str = "100vw";
 
+/// The URL a photograph slot should fetch, at the size it displays.
+///
+/// DIRECT FIRST. The public page resolves the final CDN URLs server-side and carries them on the media item, so a
+/// photograph is fetched straight from the CDN with no `/api/media/{id}` redirect and no database lookup per image.
+/// When a direct URL is absent — a static image, a document, an older payload, or a copy the resolver could not
+/// serve — the slot falls back to the guarded route exactly as before.
+fn photo_url(photo: &Photo, size: MediaSize) -> String {
+    let direct = match size {
+        MediaSize::Card => photo.card_url.as_deref(),
+        MediaSize::Web => photo.web_url.as_deref(),
+        MediaSize::Thumb => photo.thumb_url.as_deref(),
+    };
+    direct
+        .map(str::to_owned)
+        .unwrap_or_else(|| media_url(&photo.src, size))
+}
+
 /// The lightbox `srcset`: the 1200px card copy for narrow screens and the 3600px web copy for large ones. A phone
-/// downloads the card; a wide or retina desktop still gets the full web derivative.
-pub(super) fn lightbox_srcset(src: &str) -> String {
+/// downloads the card; a wide or retina desktop still gets the full web derivative. Both entries use the direct CDN
+/// copy when the page resolved one, so the browser never asks this server for either.
+fn lightbox_srcset(photo: &Photo) -> String {
     format!(
         "{} 1200w, {} 3600w",
-        media_url(src, MediaSize::Card),
-        media_url(src, MediaSize::Web)
+        photo_url(photo, MediaSize::Card),
+        photo_url(photo, MediaSize::Web)
     )
 }
 
@@ -176,10 +199,9 @@ fn photos(record: &PropertyRecord) -> Vec<Photo> {
     let hero = record.hero_url.as_deref();
 
     if let Some(hero_src) = hero {
-        let hero_item = record
-            .gallery
-            .iter()
-            .find(|item| item.src().as_deref() == Some(hero_src));
+        let hero_item = record.gallery.iter().find(|item| {
+            item.src().as_deref() == Some(hero_src) || item.card_url.as_deref() == Some(hero_src)
+        });
         result.push(Photo {
             src: hero_src.to_string(),
             alt: hero_item
@@ -187,6 +209,9 @@ fn photos(record: &PropertyRecord) -> Vec<Photo> {
                 .unwrap_or(record.title.as_str())
                 .to_string(),
             caption: hero_item.and_then(|item| item.caption.clone()),
+            card_url: hero_item.and_then(|item| item.card_url.clone()),
+            web_url: hero_item.and_then(|item| item.web_url.clone()),
+            thumb_url: hero_item.and_then(|item| item.thumb_url.clone()),
         });
     }
 
@@ -201,6 +226,9 @@ fn photos(record: &PropertyRecord) -> Vec<Photo> {
             alt: item.text().unwrap_or(record.title.as_str()).to_string(),
             caption: item.caption.clone(),
             src,
+            card_url: item.card_url.clone(),
+            web_url: item.web_url.clone(),
+            thumb_url: item.thumb_url.clone(),
         });
     }
 
@@ -427,6 +455,18 @@ fn bathrooms_display(record: &PropertyRecord, total: f64) -> String {
 mod tests {
     use super::*;
 
+    /// A photograph with no direct copies: every slot must fall back to the guarded route.
+    fn api_photo(src: &str) -> Photo {
+        Photo {
+            src: src.to_owned(),
+            alt: String::new(),
+            caption: None,
+            card_url: None,
+            web_url: None,
+            thumb_url: None,
+        }
+    }
+
     #[test]
     fn media_url_appends_the_size_to_a_bare_media_route() {
         assert_eq!(
@@ -495,10 +535,75 @@ mod tests {
     #[test]
     fn lightbox_srcset_offers_card_and_web_with_their_widths() {
         assert_eq!(
-            lightbox_srcset("/api/media/abc"),
+            lightbox_srcset(&api_photo("/api/media/abc")),
             "/api/media/abc?size=card&v=20261022a 1200w, /api/media/abc?size=web&v=20261022a 3600w"
         );
         assert_eq!(LIGHTBOX_SIZES, "100vw");
+    }
+
+    /// THE POINT OF THE PAGE PAYLOAD: when the server resolved the CDN copies, every slot fetches them directly —
+    /// no `/api/media` redirect and no per-image database lookup from the browser.
+    #[test]
+    fn a_direct_copy_is_used_without_the_api_route() {
+        let photo = Photo {
+            src: "/api/media/abc?size=card&v=20261022a".into(),
+            alt: "Casa".into(),
+            caption: None,
+            card_url: Some("https://cdn.example.test/media-cdn/media/abc/card.jpg".into()),
+            web_url: Some("https://cdn.example.test/media-cdn/media/abc/web.jpg".into()),
+            thumb_url: Some("https://cdn.example.test/media-cdn/media/abc/thumb.jpg".into()),
+        };
+        assert_eq!(
+            photo_url(&photo, MediaSize::Card),
+            "https://cdn.example.test/media-cdn/media/abc/card.jpg"
+        );
+        assert_eq!(
+            photo_url(&photo, MediaSize::Web),
+            "https://cdn.example.test/media-cdn/media/abc/web.jpg"
+        );
+        assert_eq!(
+            photo_url(&photo, MediaSize::Thumb),
+            "https://cdn.example.test/media-cdn/media/abc/thumb.jpg"
+        );
+        assert_eq!(
+            lightbox_srcset(&photo),
+            "https://cdn.example.test/media-cdn/media/abc/card.jpg 1200w, \
+             https://cdn.example.test/media-cdn/media/abc/web.jpg 3600w"
+        );
+    }
+
+    /// A missing direct copy (old payload, static image, unresolved photograph) is the guarded route, exactly as
+    /// before this change — the fast path is an optimization, never a requirement.
+    #[test]
+    fn a_missing_direct_copy_falls_back_to_the_guarded_route() {
+        let photo = api_photo("/api/media/abc");
+        assert_eq!(
+            photo_url(&photo, MediaSize::Card),
+            "/api/media/abc?size=card&v=20261022a"
+        );
+        assert_eq!(
+            photo_url(&photo, MediaSize::Thumb),
+            "/api/media/abc?size=thumb&v=20261022a"
+        );
+        // A static image (not served by the media route) is untouched at every size.
+        let static_photo = api_photo("/images/hero-villa.png");
+        assert_eq!(
+            photo_url(&static_photo, MediaSize::Web),
+            "/images/hero-villa.png"
+        );
+        // One resolved copy does not force the others: card direct, web still the guarded route.
+        let partial = Photo {
+            card_url: Some("https://cdn.example.test/media-cdn/media/abc/card.jpg".into()),
+            ..api_photo("/api/media/abc")
+        };
+        assert_eq!(
+            photo_url(&partial, MediaSize::Card),
+            "https://cdn.example.test/media-cdn/media/abc/card.jpg"
+        );
+        assert_eq!(
+            photo_url(&partial, MediaSize::Web),
+            "/api/media/abc?size=web&v=20261022a"
+        );
     }
 
     #[test]
@@ -508,23 +613,17 @@ mod tests {
         // thumbnail strips ask for the 400px thumb and are lazy, and the lightbox keeps web quality through srcset.
         let media = include_str!("property_detail/media.rs");
         assert_eq!(
-            media
-                .matches("media_url(&active.src, MediaSize::Card)")
-                .count(),
+            media.matches("photo_url(&active, MediaSize::Card)").count(),
             1,
             "the media panel's active photograph must request the card derivative"
         );
         assert_eq!(
-            media
-                .matches("media_url(&active.src, MediaSize::Web)")
-                .count(),
+            media.matches("photo_url(&active, MediaSize::Web)").count(),
             1,
             "the lightbox's fallback src must be the web derivative"
         );
         assert_eq!(
-            media
-                .matches("media_url(&photo.src, MediaSize::Thumb)")
-                .count(),
+            media.matches("photo_url(&photo, MediaSize::Thumb)").count(),
             2,
             "both thumbnail strips (panel and lightbox) must request the thumb derivative"
         );
@@ -539,7 +638,7 @@ mod tests {
             "the lightbox's active photograph is what the viewer opened the dialog for"
         );
         assert!(
-            media.contains("srcset={lightbox_srcset(&active.src)}")
+            media.contains("srcset={lightbox_srcset(&active)}")
                 && media.contains("sizes={LIGHTBOX_SIZES}"),
             "the lightbox must offer the srcset and tell the browser the layout width"
         );

@@ -13,6 +13,8 @@ use serde_json::{json, Value};
 use super::context::public_guest_context;
 use super::ui_auth::{portal_open, resolve_portal_context};
 use super::{ApiError, ApiState};
+use crate::public_listings::PublicListingService;
+use db::PublicListingDao;
 
 /// Cache-busting version for public media URLs. Bump when a bucket/derivative target changes, so a browser or
 /// edge cache that already holds an old 302 cannot keep serving the wrong object.
@@ -142,7 +144,10 @@ async fn media(
             StatusCode::FOUND,
             [
                 (header::LOCATION, url),
-                (header::CACHE_CONTROL, "public, max-age=300, must-revalidate".to_owned()),
+                (
+                    header::CACHE_CONTROL,
+                    "public, max-age=300, must-revalidate".to_owned(),
+                ),
             ],
             Body::empty(),
         )
@@ -280,8 +285,148 @@ fn text_or_empty(value: &Value, key: &str) -> String {
         .to_owned()
 }
 
+/// How many direct-URL resolutions are in flight per page at once. A property page resolves three copies for each
+/// photograph; the cap keeps one page from opening a database query storm while still overlapping the lookups.
+const RESOLVE_CONCURRENCY: usize = 8;
+
+/// The three servable copies, each with the final URL the browser fetches. `None` means the resolver had no direct
+/// URL (missing object, unpublished, store unavailable), and the caller falls back to the guarded `/api/media` route.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct MediaUrls {
+    card: Option<String>,
+    web: Option<String>,
+    thumb: Option<String>,
+}
+
+/// The guarded route's URL for one copy — the fallback while a direct URL is unavailable, and the only URL static
+/// images and non-photograph media use.
+fn api_media_url(id: &str, size: &str) -> String {
+    format!("/api/media/{id}?size={size}&v={MEDIA_CACHE_VERSION}")
+}
+
+/// Resolve one size for many media ids with bounded concurrency. Errors and misses are dropped (the caller falls
+/// back); the method itself does not authorize or audit, so this is the cheap per-page lookup the page pays.
+async fn resolve_size(
+    service: &std::sync::Arc<PublicListingService<PublicListingDao>>,
+    ids: &[String],
+    size: &'static str,
+) -> std::collections::HashMap<String, String> {
+    let mut out = std::collections::HashMap::new();
+    let mut set = tokio::task::JoinSet::new();
+    let mut pending = ids.iter().cloned();
+    for _ in 0..RESOLVE_CONCURRENCY {
+        let Some(id) = pending.next() else { break };
+        let service = service.clone();
+        set.spawn(async move {
+            let url = service.media_public_url(&id, size).await.ok().flatten();
+            (id, url)
+        });
+    }
+    while let Some(joined) = set.join_next().await {
+        if let Some(id) = pending.next() {
+            let service = service.clone();
+            set.spawn(async move {
+                let url = service.media_public_url(&id, size).await.ok().flatten();
+                (id, url)
+            });
+        }
+        if let Ok((id, Some(url))) = joined {
+            out.insert(id, url);
+        }
+    }
+    out
+}
+
+/// Every requested copy for every id, resolved once per page. Three passes (card, web, thumb) keep the bounded
+/// concurrency per pass; duplicate ids are resolved once because the caller deduplicates them.
+async fn resolve_media_urls(
+    service: &std::sync::Arc<PublicListingService<PublicListingDao>>,
+    ids: &[String],
+) -> std::collections::HashMap<String, MediaUrls> {
+    let mut out: std::collections::HashMap<String, MediaUrls> = ids
+        .iter()
+        .map(|id| (id.clone(), MediaUrls::default()))
+        .collect();
+    let card = resolve_size(service, ids, "card").await;
+    let web = resolve_size(service, ids, "web").await;
+    let thumb = resolve_size(service, ids, "thumb").await;
+    for (id, urls) in out.iter_mut() {
+        urls.card = card.get(id).cloned();
+        urls.web = web.get(id).cloned();
+        urls.thumb = thumb.get(id).cloned();
+    }
+    out
+}
+
+/// The hero-photograph card URLs for a list of listing payloads, resolved once per page and keyed by media id.
+async fn resolve_hero_cards(
+    service: &std::sync::Arc<PublicListingService<PublicListingDao>>,
+    properties: &[Value],
+) -> std::collections::HashMap<String, String> {
+    let mut ids: Vec<String> = properties
+        .iter()
+        .filter_map(|property| text(property, "heroMediaId").map(str::to_owned))
+        .collect();
+    ids.sort();
+    ids.dedup();
+    resolve_size(service, &ids, "card").await
+}
+
+/// Deduplicated image ids in payload order, for the property branch.
+fn image_ids(property: &Value) -> Vec<String> {
+    let mut ids: Vec<String> = property
+        .get("media")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|m| text(m, "mediaType") == Some("image"))
+        .filter_map(|m| text(m, "id").map(str::to_owned))
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+/// The direct card URL for `id`, falling back to the guarded route.
+fn card_url(urls: &std::collections::HashMap<String, MediaUrls>, id: &str) -> String {
+    urls.get(id)
+        .and_then(|urls| urls.card.clone())
+        .unwrap_or_else(|| api_media_url(id, "card"))
+}
+
+/// The direct card URL for a listing's hero, falling back to the guarded route.
+fn hero_card_url(cards: &std::collections::HashMap<String, String>, id: &str) -> String {
+    cards
+        .get(id)
+        .cloned()
+        .unwrap_or_else(|| api_media_url(id, "card"))
+}
+
+/// One gallery frame: the direct copies when resolved, the guarded route as the fallback, and the alt/caption the
+/// site already carried. Photographs only — documents and videos never come through here.
+fn gallery_item(
+    m: &Value,
+    urls: &std::collections::HashMap<String, MediaUrls>,
+    name: &Value,
+) -> Value {
+    let id = text(m, "id").unwrap_or("");
+    let resolved = urls.get(id).cloned().unwrap_or_default();
+    json!({
+        "url": card_url(urls, id),
+        "cardUrl": resolved.card,
+        "webUrl": resolved.web,
+        "thumbUrl": resolved.thumb,
+        "alt": m.get("altText").filter(|v| !v.is_null()).unwrap_or(name),
+        "caption": at(m, "caption"),
+    })
+}
+
 /// One published listing as the site's cards read it.
-fn listing(source: &Value, taglines: &std::collections::HashMap<String, String>) -> Value {
+fn listing(
+    source: &Value,
+    taglines: &std::collections::HashMap<String, String>,
+    hero_cards: &std::collections::HashMap<String, String>,
+) -> Value {
     let region = [text(source, "city"), text(source, "stateOrProvince")]
         .into_iter()
         .flatten()
@@ -303,8 +448,9 @@ fn listing(source: &Value, taglines: &std::collections::HashMap<String, String>)
         "location": location,
         "price": number("listPrice").map(|price| format_price(Some(price))),
         "kind": at(source, "propertyType"),
-        // A card shows the card copy, not the 3600px web copy it once pulled (2-3 MB per card).
-        "imagePath": text(source, "heroMediaId").map(|id| format!("/api/media/{id}?size=card&v={MEDIA_CACHE_VERSION}")),
+        // A card shows the card copy, not the 3600px web copy it once pulled (2-3 MB per card). The URL is the
+        // final CDN URL resolved on the server for this page; the guarded route is the fallback.
+        "imagePath": text(source, "heroMediaId").map(|id| hero_card_url(hero_cards, id)),
         "imageAlt": at(source, "heroAlt"),
         "beds": at(source, "bedrooms"),
         "baths": at(source, "bathrooms"),
@@ -375,6 +521,7 @@ async fn public_page(
                 .unwrap_or_default()
             };
             let (properties, blocks, copy) = tokio::join!(listings(), marketing(), copy);
+            let hero_cards = resolve_hero_cards(&listings_service, &properties).await;
             let taglines: std::collections::HashMap<String, String> = copy
                 .iter()
                 .filter_map(|entry| {
@@ -391,8 +538,8 @@ async fn public_page(
                 "culture": block_by_id(&blocks, "home.culture"),
                 "about": block_by_id(&blocks, "home.about"),
                 "contact": block_by_id(&blocks, "home.contact"),
-                "featured": properties.iter().filter(|p| at(p, "featured").as_bool() == Some(true)).map(|p| listing(p, &taglines)).collect::<Vec<_>>(),
-                "listings": properties.iter().map(|p| listing(p, &taglines)).collect::<Vec<_>>(),
+                "featured": properties.iter().filter(|p| at(p, "featured").as_bool() == Some(true)).map(|p| listing(p, &taglines, &hero_cards)).collect::<Vec<_>>(),
+                "listings": properties.iter().map(|p| listing(p, &taglines, &hero_cards)).collect::<Vec<_>>(),
             })
         }
         "site-services" => {
@@ -405,13 +552,16 @@ async fn public_page(
         "site-about" => json!({ "about": block_by_id(&marketing().await, "home.about") }),
         "site-buyers" => {
             let properties = listings().await;
+            let hero_cards = resolve_hero_cards(&listings_service, &properties).await;
             json!({
-                "listings": properties.iter().map(|p| listing(p, &no_taglines)).collect::<Vec<_>>(),
-                "featured": properties.iter().filter(|p| at(p, "featured").as_bool() == Some(true)).map(|p| listing(p, &no_taglines)).collect::<Vec<_>>(),
+                "listings": properties.iter().map(|p| listing(p, &no_taglines, &hero_cards)).collect::<Vec<_>>(),
+                "featured": properties.iter().filter(|p| at(p, "featured").as_bool() == Some(true)).map(|p| listing(p, &no_taglines, &hero_cards)).collect::<Vec<_>>(),
             })
         }
         "site-favorites" => {
-            json!({ "listings": listings().await.iter().map(|p| listing(p, &no_taglines)).collect::<Vec<_>>() })
+            let properties = listings().await;
+            let hero_cards = resolve_hero_cards(&listings_service, &properties).await;
+            json!({ "listings": properties.iter().map(|p| listing(p, &no_taglines, &hero_cards)).collect::<Vec<_>>() })
         }
         "site-faq" => {
             let blocks = marketing().await;
@@ -491,7 +641,19 @@ async fn public_page(
                 to_json(similar.map_err(ApiError::from)?),
                 to_json(slugs.map_err(ApiError::from)?),
             );
-            property_detail(slug, &property, &similar, slugs)
+            // ONE resolution pass for the page, server-side: the direct copy URLs for this property's photographs
+            // and the card URLs of the similar listings. Failures fall back to the guarded `/api/media` route.
+            let media_urls = resolve_media_urls(&listings_service, &image_ids(&property)).await;
+            let similar_rows = similar.as_array().cloned().unwrap_or_default();
+            let similar_cards = resolve_hero_cards(&listings_service, &similar_rows).await;
+            property_detail(
+                slug,
+                &property,
+                &similar,
+                slugs,
+                &media_urls,
+                &similar_cards,
+            )
         }
         other => {
             return Err(ApiError::bad_request(
@@ -504,7 +666,14 @@ async fn public_page(
 }
 
 /// One property's public record: the facts, the hero, the gallery, the films, the documents, and similar listings.
-fn property_detail(slug: &str, p: &Value, similar: &Value, public_slugs: Value) -> Value {
+fn property_detail(
+    slug: &str,
+    p: &Value,
+    similar: &Value,
+    public_slugs: Value,
+    media_urls: &std::collections::HashMap<String, MediaUrls>,
+    similar_cards: &std::collections::HashMap<String, String>,
+) -> Value {
     let media: Vec<&Value> = p
         .get("media")
         .and_then(Value::as_array)
@@ -529,13 +698,7 @@ fn property_detail(slug: &str, p: &Value, similar: &Value, public_slugs: Value) 
     let gallery: Vec<Value> = images
         .iter()
         .filter(|m| text(m, "id") != hero_id)
-        .map(|m| {
-            json!({
-                "url": format!("/api/media/{}?v={MEDIA_CACHE_VERSION}", text(m, "id").unwrap_or("")),
-                "alt": m.get("altText").filter(|v| !v.is_null()).unwrap_or(name),
-                "caption": at(m, "caption"),
-            })
-        })
+        .map(|m| gallery_item(m, media_urls, name))
         .collect();
     let videos: Vec<Value> = media
         .iter()
@@ -657,10 +820,7 @@ fn property_detail(slug: &str, p: &Value, similar: &Value, public_slugs: Value) 
         ("listingId", json!(at(p, "listingIdentifier"))),
         ("latitude", json!(at(p, "latitude"))),
         ("longitude", json!(at(p, "longitude"))),
-        (
-            "heroUrl",
-            json!(hero_id.map(|id| format!("/api/media/{id}?v={MEDIA_CACHE_VERSION}"))),
-        ),
+        ("heroUrl", json!(hero_id.map(|id| card_url(media_urls, id)))),
         ("gallery", json!(gallery)),
         ("videos", json!(videos)),
         ("documents", json!(documents)),
@@ -670,7 +830,7 @@ fn property_detail(slug: &str, p: &Value, similar: &Value, public_slugs: Value) 
                 .as_array()
                 .into_iter()
                 .flatten()
-                .map(|l| listing(l, &no_taglines))
+                .map(|l| listing(l, &no_taglines, similar_cards))
                 .collect::<Vec<_>>()),
         ),
         ("publicSlugs", json!(public_slugs)),
