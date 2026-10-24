@@ -58,6 +58,13 @@ rsync -a --exclude rust-ui --exclude 'upload/data' --exclude '* 2.*' --exclude '
 cp "$WORK/build/ui.js" "$STAGE/public/rust-ui/ui.js"
 gzip -9 -c "$WORK/build/ui_bg.wasm" > "$STAGE/public/rust-ui/ui_bg.wasm.gz"
 rsync -a middle/model/forms/templates/ "$STAGE/templates/"
+# THE EDGE ROUTES TRAVEL WITH THE ARTIFACT. `vercel.json` is what sends `/media-cdn/:path*` to the public
+# object-store bucket (the base the site's CDN photo links are built from) and gives those responses the
+# immutable cache header. The container serves every other path from the app, so a stage without this file
+# makes `/media-cdn/...` fall through to the SPA shell: every public photo answers `text/html` with a 200,
+# which is exactly how the 2026-10-24 breakage passed every URL check. Vercel reads it from the deploy
+# directory, so it is copied here rather than assumed to live on the project.
+cp vercel.json "$STAGE/vercel.json"
 # THE IMAGE RUNS AS A NON-ROOT USER — devops/Dockerfile.runtime adds `culebra` as uid 10001 and ends with
 # `USER culebra` — and a Docker `COPY` hands the container exactly the modes it is given. So a 600 file or a 700
 # directory in the working tree ships as an asset the server cannot open: every image under /images is unreadable and
@@ -92,5 +99,18 @@ for path in / /buyers /app.css /rust-ui/ui.js /rust-ui/ui_bg.wasm "/api/rust-ui/
   printf '  %s  %s\n' "$code" "$path"
   [ "$code" = "200" ] || bad=1
 done
+# A PHOTO MUST ARRIVE AS A PHOTO. Every check above stayed 200 through the 2026-10-24 breakage, because a
+# missing `/media-cdn` rewrite made the SPA answer image requests with HTML and a 200. Ask the site for the
+# first photo it publishes and require an image content type from wherever that URL points.
+PHOTO="$(curl -fsS "${SITE}/api/rust-ui/public-page?screen=site-home" 2>/dev/null \
+  | grep -o 'https://[^"]*media/[0-9a-f-]*/original\.jpg' | head -1 || true)"
+if [ -n "$PHOTO" ]; then
+  PHOTO_TYPE="$(curl -s -o /dev/null -w '%{content_type}' "$PHOTO")"
+  printf '  %s  %s\n' "${PHOTO_TYPE%%;*}" "$PHOTO"
+  case "$PHOTO_TYPE" in image/*) ;; *) bad=1 ;; esac
+else
+  printf '  no public photo found to probe\n'
+  bad=1
+fi
 [ "$bad" = 0 ] && printf '\nDEPLOY COMPLETE — %s serves the new application.\n' "$SITE" \
   || printf '\nDeployed, but a check above is not 200. To roll back: Vercel -> culebraluxe-web-fp -> Deployments -> promote the previous one.\n'
