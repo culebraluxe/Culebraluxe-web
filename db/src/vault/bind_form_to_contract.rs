@@ -224,34 +224,39 @@ impl VaultDao {
             // OBJECT-FIRST, ALWAYS. The protected signature image is fetched through the caller's store handle
             // and verified against its media record; the legacy blob column is never read here. A missing/unverified
             // object is a refusal rather than a silent blob.
-            let applied_signatures = match self
-                .resolve_applied_signatures_object_first(
+            // THE TRANSACTION'S OWN CONNECTION. This runs inside the mutation scope, where the transaction holds
+            // the scope's connection lease; acquiring another one waits on the non-reentrant mutation lock and
+            // never returns (the 300 s Save hang fixed on 2026-10-27). Same resolution, same policy — handed the
+            // connection the transaction already owns.
+            let applied_signatures =
+                match crate::broker_signature::resolve_applied_signatures_object_first_on(
+                    tx.connection(),
                     &render_request,
                     model::forms_broker_signature::SignatureAuthority::ApplyingActor,
                     read_protected_asset,
                 )
                 .await
-            {
-                Ok(applied) => applied,
-                Err(failure) => {
-                    finalize_receipt(
-                        &mut tx,
-                        &request.command_id,
-                        &failure.outcome,
-                        None,
-                        Some(&failure.message),
-                        request.actor_app_user_id.as_deref(),
-                    )
-                    .await?;
-                    return Ok(outcome_result(
-                        &request.command_id,
-                        failure.outcome,
-                        None,
-                        Some(failure.message),
-                        false,
-                    ));
-                }
-            };
+                {
+                    Ok(applied) => applied,
+                    Err(failure) => {
+                        finalize_receipt(
+                            &mut tx,
+                            &request.command_id,
+                            &failure.outcome,
+                            None,
+                            Some(&failure.message),
+                            request.actor_app_user_id.as_deref(),
+                        )
+                        .await?;
+                        return Ok(outcome_result(
+                            &request.command_id,
+                            failure.outcome,
+                            None,
+                            Some(failure.message),
+                            false,
+                        ));
+                    }
+                };
             render_request.applied_signatures = applied_signatures;
 
             let artifact = match render(render_request).await {

@@ -627,6 +627,41 @@ fn validate_protected_signature_object(
     Ok(())
 }
 
+/// The same object-first resolution, on a connection the caller already holds.
+///
+/// WHY THIS EXISTS (PRODUCTION DEADLOCK, 2026-10-27). Issuance runs inside a `Database::mutation` scope, and the
+/// DAO's transaction holds that scope's connection lease for its whole life. Asking `Database::connection()` from
+/// inside the scope waits on a non-reentrant `tokio::sync::Mutex` that is already held, so the future never wakes:
+/// the Save request hung for the full 300 s platform ceiling and was killed, with the DB session reported
+/// idle-in-transaction. The preview worked only because it calls this outside any mutation scope.
+///
+/// Issuance therefore passes its transaction's connection in, and the browser preview keeps the pool path above.
+/// The policy, the declared-signer check, the slot mapping and the authority rule are identical — one
+/// implementation, two ways to reach the connection.
+pub async fn resolve_applied_signatures_object_first_on<F, Fut>(
+    connection: &mut PgConnection,
+    request: &VaultRenderRequest,
+    authority: SignatureAuthority,
+    read_object: F,
+) -> Result<Vec<FormAppliedSignature>, VaultArtifactFailure>
+where
+    F: Fn(String, String) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<Vec<u8>, String>> + Send + 'static,
+{
+    let slots = model::forms_execution::slots_from_signers(&request.participants);
+    let issuance = SignatureIssuance {
+        template_id: &request.template_id,
+        field_values: &request.field_values,
+        slots: &slots,
+        actor_app_user_id: request.actor_app_user_id.as_deref(),
+        authority,
+        issued_at: request.issued_at.as_deref(),
+        require_execution_slot: false,
+    };
+    let reader = ClosureAssetReader { load: read_object };
+    resolve_for_issuance_from(connection, &issuance, &reader).await
+}
+
 impl VaultDao {
     /// The OBJECT-FIRST resolution the browser preview uses.
     ///
@@ -646,19 +681,13 @@ impl VaultDao {
         F: Fn(String, String) -> Fut + Send + Sync,
         Fut: Future<Output = Result<Vec<u8>, String>> + Send + 'static,
     {
-        let slots = model::forms_execution::slots_from_signers(&request.participants);
-        let issuance = SignatureIssuance {
-            template_id: &request.template_id,
-            field_values: &request.field_values,
-            slots: &slots,
-            actor_app_user_id: request.actor_app_user_id.as_deref(),
-            authority,
-            issued_at: request.issued_at.as_deref(),
-            require_execution_slot: false,
-        };
-        let reader = ClosureAssetReader { load: read_object };
-        let mut connection = self.database().connection().await.map_err(precondition_failure)?;
-        resolve_for_issuance_from(&mut connection, &issuance, &reader).await
+        let mut connection = self
+            .database()
+            .connection()
+            .await
+            .map_err(precondition_failure)?;
+        resolve_applied_signatures_object_first_on(&mut connection, request, authority, read_object)
+            .await
     }
 
     /// Write the protected signature asset as an OBJECT ROW — no `media.file_data` column is named.

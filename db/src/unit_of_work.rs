@@ -59,9 +59,21 @@ impl DerefMut for DbConnection {
 
 impl Database {
     /// Lease the active mutation's connection, otherwise use the shared pool.
+    ///
+    /// `try_lock_owned`, never `lock_owned`. The mutation scope is task-local, so any guard on its mutex was taken
+    /// by THIS task — and the only thing that takes it is a nested `DbTransaction`, which holds it until it
+    /// commits. Waiting would therefore wait for a transaction that cannot finish while it is being waited on: the
+    /// 2026-10-27 production Save hang (300 s platform timeout, DB session idle-in-transaction). Code inside a
+    /// mutation must use the transaction's own connection (`tx.connection()`); asking for a second lease is a
+    /// programming error, and it now answers one instead of hanging.
     pub async fn connection(&self) -> DbResult<DbConnection> {
         if let Some(scope) = current(&self.identity) {
-            let guard = scope.transaction.lock_owned().await;
+            let guard = scope.transaction.try_lock_owned().map_err(|_| {
+                DbFailure::configuration(
+                    "service.transaction",
+                    "the mutation transaction already owns this connection; use the transaction's connection instead of acquiring a second lease",
+                )
+            })?;
             if guard.is_none() || scope.rollback_only.load(Ordering::Acquire) {
                 return Err(DbFailure::configuration(
                     "service.transaction",

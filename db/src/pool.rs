@@ -453,7 +453,14 @@ impl Database {
 
     async fn begin_single_attempt(&self, operation: &'static str) -> DbResult<DbTransaction> {
         if let Some(scope) = crate::unit_of_work::current(&self.identity) {
-            let guard = scope.transaction.clone().lock_owned().await;
+            // `try_lock_owned`: the guard is held by a nested transaction in this same task, which cannot commit
+            // until this call returns. Waiting is an unconditional deadlock — the 2026-10-27 issuance hang.
+            let guard = scope.transaction.try_lock_owned().map_err(|_| {
+                DbFailure::configuration(
+                    operation,
+                    "the mutation transaction already owns this connection; join it with the transaction's connection instead of beginning another",
+                )
+            })?;
             if guard.is_none()
                 || scope
                     .rollback_only
