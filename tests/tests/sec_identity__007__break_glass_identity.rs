@@ -15,7 +15,7 @@
 //!
 //! (`web/src/api/ui_auth.rs:33-35`). Three properties follow, and each is a separate way in if it fails:
 //!
-//! 1. **The environment is the fence.** `production()` reads `APP_ENV`/`VERCEL_ENV` and the stub is off whenever
+//! 1. **The environment is the fence.** `production()` reads `APP_ENV` (and nothing else) and the stub is off whenever
 //!    either says production (:26-30). Setting the stub variable is not sufficient; production overrides it. The test
 //!    asserts the stronger pairing that is easy to regress: the variable set, and the environment says production.
 //! 2. **A session-less request is nobody.** `portal_open(&HeaderMap::new())` is false in production, so an empty
@@ -121,18 +121,24 @@ async fn sec_identity_007__break_glass_identity() {
         "{HARNESS}: a forged session cookie is not break-glass access: {forged:?}"
     );
 
-    // The other spelling of production: the deploy platform's own variable, with APP_ENV saying nothing.
+    // There is ONE spelling of production: `APP_ENV`. The deploy platform's own variable is retired with the
+    // Vercel deploy path, and a stray one must not be able to make the process think it is production.
     std::env::remove_var("APP_ENV");
     std::env::set_var("VERCEL_ENV", "production");
     assert!(
+        !ui_auth::production(),
+        "{HARNESS}: production is NOT recognised from VERCEL_ENV any more"
+    );
+    std::env::remove_var("VERCEL_ENV");
+    std::env::set_var("APP_ENV", "production");
+    assert!(
         ui_auth::production(),
-        "{HARNESS}: production is recognised from VERCEL_ENV"
+        "{HARNESS}: production is recognised from APP_ENV"
     );
     assert!(
         !ui_auth::stub_enabled(),
-        "{HARNESS}: VERCEL_ENV=production refuses the stub too"
+        "{HARNESS}: a production declaration refuses the stub"
     );
-    std::env::remove_var("VERCEL_ENV");
 
     // ── BREAK-GLASS CANNOT WALK IN THROUGH THE GUEST DOOR. ───────────────────────────────────────────────────────
     // Even in development — where the stub IS on — the guest provisioning service refuses the provider, because
