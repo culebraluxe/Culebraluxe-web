@@ -184,3 +184,7 @@ __pycache__/
 # Forge release artifacts (scripts/build-forge.sh)
 /build/
 .vercel
+
+# content-addressed asset names (scripts/asset-hash.sh) — build artifacts, never tracked
+/public/app.*.css
+/public/asset-manifest.json

@@ -323,6 +323,8 @@ pub fn router(state: ApiState) -> Router {
         ))
         // Everything the API does not claim is the website: static files, else the Yew shell (crate::site).
         .fallback_service(crate::site::service(state.clone()))
+        // Cache-Control for every response whose handler did not pick one (crate::site::cache_control_for).
+        .layer(middleware::from_fn(crate::site::cache_policy))
         .with_state(state)
 }
 

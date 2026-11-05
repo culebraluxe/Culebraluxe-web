@@ -6,3 +6,5 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 "$root/scripts/rust-ui-build.sh"
 echo "==> tailwind (web/ui/styles/app.css -> public/app.css)"
 (cd "$root" && npx --no-install tailwindcss -i web/ui/styles/app.css -o public/app.css --minify)
+echo "==> content-addressed asset names (scripts/asset-hash.sh)"
+"$root/scripts/asset-hash.sh" "$root/public"
