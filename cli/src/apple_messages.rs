@@ -253,10 +253,7 @@ pub struct IntakeOptions {
 /// A database failure fails the run. It is never counted and swallowed: a sync that reports success
 /// while writing nothing is the failure mode this command exists to end.
 pub async fn intake_messages(dir: &Path, options: IntakeOptions) -> Result<(), Box<dyn Error>> {
-    let target = resolve_declared_target(
-        std::env::var("VERCEL_ENV").ok().as_deref(),
-        std::env::var("APP_ENV").ok().as_deref(),
-    )?;
+    let target = resolve_declared_target(std::env::var("APP_ENV").ok().as_deref())?;
     let export = load_export_package(dir)?;
     let mut tally = Tally {
         handles: export.handles.len(),

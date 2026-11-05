@@ -1,15 +1,14 @@
 //! RUNTIME.ENV — environment target resolution is deterministic across APP_ENV, EXECUTION_ENV, DATABASE_URL_PROD, DATABASE_URL_DEV, FORGE_STORE, and FORGE_ATTENDED (TST-RUNTIME-ENV-001).
 //!
 //! CONTRACT. The production database target resolution (`db::resolve_declared_target`, `db/src/pool.rs`) is the
-//! single authority for which database a process connects to. It reads `VERCEL_ENV` (priority) then `APP_ENV`
-//! and must:
+//! single authority for which database a process connects to. It reads `APP_ENV` and nothing else (W2.1: the
+//! Vercel environment name is retired with the Vercel deploy path) and must:
 //!
-//!   1. Return `DbTarget::Prod` for `VERCEL_ENV=production` (regardless of APP_ENV).
-//!   2. Return `DbTarget::Dev` for `VERCEL_ENV=preview` or `VERCEL_ENV=development`.
-//!   3. Return `DbTarget::Prod` for `APP_ENV=production` or `APP_ENV=prod` (when VERCEL_ENV not set).
-//!   4. Return `DbTarget::Dev` for `APP_ENV=development`, `dev`, `test`, or `testing`.
-//!   5. Refuse (configuration error) when neither is set or when set to an unknown value.
-//!   6. Be deterministic: the same inputs always produce the same output, with no external I/O.
+//!   1. Return `DbTarget::Prod` for `APP_ENV=production` or `APP_ENV=prod`.
+//!   2. Return `DbTarget::Dev` for `APP_ENV=development`, `dev`, `test`, or `testing`.
+//!   3. Refuse (configuration error) when it is unset or set to an unknown value — including `preview`, which was
+//!      a Vercel environment name and is not a declaration here.
+//!   4. Be deterministic: the same inputs always produce the same output, with no external I/O.
 //!
 //! THE BOUNDARY UNDER TEST IS PRODUCTION'S OWN. The test exercises the actual `resolve_declared_target` function
 //! with controlled environment variables via `RuntimeHarness`, not a re-implementation.

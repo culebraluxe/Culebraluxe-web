@@ -14,7 +14,7 @@
 //! partial one that falls through. So the test also exercises:
 //! - A declaration of `APP_ENV=development` with `DATABASE_URL_DEV` set (must be refused at layer 1).
 //! - A declaration of `APP_ENV=production` with `DATABASE_URL_DEV` set but `DATABASE_URL_PROD` absent (must be refused at layer 2/3).
-//! - A declaration of `VERCEL_ENV=preview` with `APP_ENV=production` (must be refused at layer 1 because VERCEL wins).
+//! - A declaration of `APP_ENV=preview` — a Vercel environment name, not a target (must be refused at layer 1).
 //! - The decoy `DATABASE_URL_DEV` must NOT satisfy any layer when PROD is declared but PROD URL is absent.
 //!
 //! NO EXTERNAL I/O. `RuntimeHarness` scopes the process environment; no connection is opened. Level: L0 Pure,
@@ -52,16 +52,10 @@ fn runtime_env_002__forge_plus_dev_database_is_refused() {
         "{api}: APP_ENV=dev must be refused by resolve_forge_target"
     );
 
-    // VERCEL_ENV=preview (wins over APP_ENV)
+    // `preview` is a Vercel environment name, not a declaration (W2.1): refused, not guessed at.
     assert!(
         resolve_forge_target(Some("preview")).is_err(),
-        "{api}: VERCEL_ENV=preview must be refused even with APP_ENV=production"
-    );
-
-    // VERCEL_ENV=development
-    assert!(
-        resolve_forge_target(Some("development")).is_err(),
-        "{api}: VERCEL_ENV=development must be refused even with APP_ENV=production"
+        "{api}: preview is not a declaration and must be refused"
     );
 
     // Silence is refused (by resolve_declared_target)
@@ -135,7 +129,7 @@ fn runtime_env_002__forge_plus_dev_database_is_refused() {
         "{api}: DEV declaration refused even with DATABASE_URL_DEV set"
     );
 
-    // ---- NEGATIVE: VERCEL_ENV=preview with APP_ENV=prod still refused ----
+    // ---- NEGATIVE: a Vercel-shaped environment name is not a declaration ----
     env.set("VERCEL_ENV", "preview");
     env.set("APP_ENV", "production");
     env.remove("DATABASE_URL_PROD");
@@ -143,6 +137,6 @@ fn runtime_env_002__forge_plus_dev_database_is_refused() {
 
     assert!(
         resolve_forge_target(Some("preview")).is_err(),
-        "{api}: VERCEL_ENV=preview refused even with APP_ENV=production and DATABASE_URL_DEV"
+        "{api}: preview is not a declaration, so Forge refuses it"
     );
 }

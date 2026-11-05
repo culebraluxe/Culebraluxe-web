@@ -693,11 +693,7 @@ fn short_id(id: &str) -> &str {
 /// (`APP_ENV=production` -> prod); silence defaults to DEV, which is the free environment. The resolved
 /// target is always printed by `connect` before anything executes, so a default is never a surprise.
 fn default_target() -> DbTarget {
-    db::resolve_declared_target(
-        std::env::var("VERCEL_ENV").ok().as_deref(),
-        std::env::var("APP_ENV").ok().as_deref(),
-    )
-    .unwrap_or(DbTarget::Dev)
+    db::resolve_declared_target(std::env::var("APP_ENV").ok().as_deref()).unwrap_or(DbTarget::Dev)
 }
 
 fn hex_digest(value: &str) -> String {

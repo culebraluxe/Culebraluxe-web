@@ -13,7 +13,6 @@ pub(crate) fn target_arg(args: &[String]) -> Result<DbTarget, Box<dyn Error>> {
         Some(value) if value == "prod" => Ok(DbTarget::Prod),
         Some(_) => Ok(DbTarget::Dev),
         None => Ok(db::resolve_declared_target(
-            std::env::var("VERCEL_ENV").ok().as_deref(),
             std::env::var("APP_ENV").ok().as_deref(),
         )?),
     }
