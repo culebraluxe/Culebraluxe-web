@@ -6,9 +6,13 @@
 //! same `ok` + `databaseTarget` (`routes/security_service.rs::ready`), and the DB target has been resolvable from the
 //! environment since the pool was written (`db::resolve_declared_target`).
 //!
-//! The stamp is READ, never invented. `scripts/deploy-prod.sh` writes `CULEBRALUXE_BUILD_SHA` and
+//! The stamp is READ, never invented. `scripts/deploy-fly.sh` writes `CULEBRALUXE_BUILD_SHA` and
 //! `CULEBRALUXE_BUILT_AT` into the runtime image at deploy time, so the stamp is the commit that was deployed rather
-//! than a compile-time guess. `VERCEL_GIT_COMMIT_SHA` and `GIT_COMMIT_SHA` are honoured for a local or CI run.
+//! than a compile-time guess. `GIT_COMMIT_SHA` is honoured for a local or CI run.
+//!
+//! A Scion-sourced deploy (`--source scion`) has no git sha to stamp: the build is named by the changeset it exported,
+//! which the deploy writes as `CULEBRALUXE_SCION_CHANGESET`. This reports it as `changeset`, and labels `version` with
+//! it when `sha` is empty, so a release gate can still name the build against `/api/build-info`.
 //!
 //! When a stamp is set but is not a commit sha, this reports the reason in `note` instead of something plausible: an
 //! unstamped build and a mis-stamped one must both fail a release check loudly, not pass quietly.
@@ -23,6 +27,9 @@ pub struct BuildInfo {
     ok: bool,
     /// The deployed commit: 7..=40 lowercase hex digits, or empty when nothing was stamped.
     sha: String,
+    /// The Scion changeset the image was built from (`CULEBRALUXE_SCION_CHANGESET`), or empty. A changeset is a
+    /// 64-digit hex digest; it names the build when there is no commit behind it.
+    changeset: String,
     /// Never empty, even unstamped — the crate version is real either way.
     version: String,
     /// When the stamp was written (RFC3339), or empty.
@@ -43,15 +50,14 @@ pub async fn build_info(State(state): State<ApiState>) -> Json<BuildInfo> {
             "CULEBRALUXE_BUILD_SHA",
             std::env::var("CULEBRALUXE_BUILD_SHA").ok(),
         ),
-        (
-            "VERCEL_GIT_COMMIT_SHA",
-            std::env::var("VERCEL_GIT_COMMIT_SHA").ok(),
-        ),
         ("GIT_COMMIT_SHA", std::env::var("GIT_COMMIT_SHA").ok()),
     ]);
+    let changeset = as_changeset(&trimmed_env("CULEBRALUXE_SCION_CHANGESET"));
+    let stamp = compose_stamp(stamp, &changeset);
     Json(BuildInfo {
         ok: true,
         sha: stamp.sha,
+        changeset,
         version: stamp.version,
         built_at: trimmed_env("CULEBRALUXE_BUILT_AT"),
         database_target: state.db().target().as_str().to_owned(),
@@ -90,7 +96,7 @@ pub const MIN_SHA: usize = 7;
 /// refusal without fall-through, never-invented stamp) instead of a copy of it.
 ///
 /// Candidates are `(variable name, value)` in precedence order. A candidate that is set but not a sha does not fall
-/// through to the next one — that would let a tag in `VERCEL_GIT_COMMIT_SHA` quietly outrank the real stamp in
+/// through to the next one — that would let a tag in `GIT_COMMIT_SHA` quietly outrank the real stamp in
 /// `CULEBRALUXE_BUILD_SHA` — it is refused with the reason named.
 pub fn resolve_stamp(candidates: &[(&str, Option<String>)]) -> Stamp {
     let mut refusal: Option<String> = None;
@@ -119,10 +125,40 @@ pub fn resolve_stamp(candidates: &[(&str, Option<String>)]) -> Stamp {
         sha: String::new(),
         note: Some(refusal.unwrap_or_else(|| {
             format!(
-                "no build stamp: set CULEBRALUXE_BUILD_SHA (or VERCEL_GIT_COMMIT_SHA) to the deployed commit, \
-                 {MIN_SHA}..={MAX_SHA} hex digits"
+                "no build stamp: set CULEBRALUXE_BUILD_SHA (or GIT_COMMIT_SHA) to the deployed commit, or \
+                 CULEBRALUXE_SCION_CHANGESET when the build came from Scion; {MIN_SHA}..={MAX_SHA} hex digits for a \
+                 commit"
             )
         })),
+    }
+}
+
+/// The Scion changeset this image was built from: lowercase hex, `MIN_SHA`..=64 digits, else empty.
+///
+/// A changeset id is a 64-digit digest, so the commit-sha ceiling does not apply. Anything that is not hex is not a
+/// changeset and is dropped rather than reported.
+pub fn as_changeset(value: &str) -> String {
+    let hex =
+        value.len() >= MIN_SHA && value.len() <= 64 && value.chars().all(|c| c.is_ascii_hexdigit());
+    hex.then(|| value.to_ascii_lowercase()).unwrap_or_default()
+}
+
+/// The stamp the route serves: a commit names the build when there is one, otherwise the Scion changeset does.
+///
+/// TEST SEAM (TST-RUNTIME-DEPLOY-001): the harness and the route share this resolution, so a Scion-sourced deploy is
+/// nameable without inventing a commit that does not exist.
+pub fn compose_stamp(stamp: Stamp, changeset: &str) -> Stamp {
+    if !stamp.sha.is_empty() || changeset.is_empty() {
+        return stamp;
+    }
+    Stamp {
+        sha: String::new(),
+        version: format!(
+            "{} (scion {})",
+            env!("CARGO_PKG_VERSION"),
+            &changeset[..MIN_SHA]
+        ),
+        note: None,
     }
 }
 
@@ -183,7 +219,7 @@ mod tests {
     fn an_empty_candidate_does_not_block_the_next() {
         let stamp = resolve_stamp(&[
             ("CULEBRALUXE_BUILD_SHA", Some("  ".to_owned())),
-            ("VERCEL_GIT_COMMIT_SHA", Some("9ea50f32".to_owned())),
+            ("GIT_COMMIT_SHA", Some("9ea50f32".to_owned())),
         ]);
         assert_eq!(stamp.sha, "9ea50f32");
     }
@@ -209,7 +245,7 @@ mod tests {
     fn a_refused_stamp_does_not_fall_through_to_the_next_variable() {
         let stamp = resolve_stamp(&[
             ("CULEBRALUXE_BUILD_SHA", Some("v1.2.3".to_owned())),
-            ("VERCEL_GIT_COMMIT_SHA", Some("9ea50f32".to_owned())),
+            ("GIT_COMMIT_SHA", Some("9ea50f32".to_owned())),
         ]);
         assert!(
             stamp.sha.is_empty(),
@@ -236,6 +272,46 @@ mod tests {
     }
 
     #[test]
+    fn a_changeset_names_the_build_when_there_is_no_commit() {
+        let changeset = "c104f0addc3ce76b9c9be93032d1f9370835813b184dac8fbdfd32f231fa2a2530";
+        let stamp = compose_stamp(resolve_stamp(&[("CULEBRALUXE_BUILD_SHA", None)]), changeset);
+        assert!(stamp.sha.is_empty(), "no commit is invented");
+        assert_eq!(
+            stamp.version,
+            format!("{} (scion c104f0a)", env!("CARGO_PKG_VERSION"))
+        );
+        assert_eq!(stamp.note, None, "a named build is a healthy answer");
+    }
+
+    #[test]
+    fn a_commit_outranks_a_changeset_and_they_are_reported_apart() {
+        let commit = resolve_stamp(&[("CULEBRALUXE_BUILD_SHA", Some(FULL.to_owned()))]);
+        let stamp = compose_stamp(commit, "c104f0addc3ce76b");
+        assert_eq!(stamp.sha, FULL);
+        assert_eq!(
+            stamp.version,
+            format!("{} (9ea50f3)", env!("CARGO_PKG_VERSION"))
+        );
+    }
+
+    #[test]
+    fn a_changeset_must_be_hex_and_the_ceiling_is_sixty_four() {
+        assert_eq!(as_changeset("c104f0a"), "c104f0a");
+        assert_eq!(
+            as_changeset("  C104F0A  "),
+            "",
+            "trimming happens before this"
+        );
+        assert_eq!(as_changeset("not-hex"), "");
+        assert_eq!(as_changeset(&"a".repeat(64)).len(), 64);
+        assert_eq!(
+            as_changeset(&"a".repeat(65)),
+            "",
+            "65 digits is not a changeset"
+        );
+    }
+
+    #[test]
     fn the_json_keys_are_the_ones_the_release_gate_reads() {
         // The smoke parses `sha`, `version` and `builtAt` out of this body by name (`cli/src/smoke.rs`), and
         // the ready route it calls next reads `databaseTarget`. Renaming a field here is silent at compile time and
@@ -243,6 +319,7 @@ mod tests {
         let body = serde_json::to_value(BuildInfo {
             ok: true,
             sha: "9ea50f32".to_owned(),
+            changeset: String::new(),
             version: "0.1.0 (9ea50f3)".to_owned(),
             built_at: "2026-09-28T00:00:00Z".to_owned(),
             database_target: "prod".to_owned(),
@@ -252,6 +329,10 @@ mod tests {
 
         assert_eq!(body["ok"], true);
         assert_eq!(body["sha"], "9ea50f32");
+        assert_eq!(
+            body["changeset"], "",
+            "no changeset stamped: an empty string, not absent"
+        );
         assert_eq!(body["version"], "0.1.0 (9ea50f3)");
         assert_eq!(body["builtAt"], "2026-09-28T00:00:00Z");
         assert_eq!(body["databaseTarget"], "prod");
