@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# DR DEPLOY — the CulebraLuxe application to Fly.io, the standby site beside Vercel (devops/DR-FLY.md).
+# DEPLOY — the CulebraLuxe application to Fly.io, the production site (devops/DR-FLY.md).
 #
 # Same build as scripts/deploy-prod.sh, different last mile. Everything is compiled HERE, on this Mac, for free
 # (devops/Dockerfile.build cross-compiles the server for x86_64 Linux and builds the Yew UI to wasm). The finished
 # files are packed into the same Debian bookworm-slim runtime image (devops/Dockerfile.runtime), built on this Mac
-# for linux/amd64, pushed to Fly's registry, and Fly runs that exact image. Production on Vercel is not touched.
+# for linux/amd64, pushed to Fly's registry, and Fly runs that exact image.
 #
 #   scripts/deploy-fly.sh                        # source = Scion (ForgeVCS culebraluxe-web @ main)
 #   scripts/deploy-fly.sh --source auto          # try Scion, fall back to this checkout if Scion fails
-#   scripts/deploy-fly.sh --source local         # source = this checkout (use when Vercel/ForgeVCS is down)
-#   scripts/deploy-fly.sh --sync-secrets         # also copy production env vars Vercel -> Fly
+#   scripts/deploy-fly.sh --source local         # source = this checkout (use when ForgeVCS is down)
 #   scripts/deploy-fly.sh --resume <tag>         # skip the build: push + deploy an image already built on this Mac
 #   (default)                                    # compile AND build the image on this Mac, push it from this Mac, and
 #                                                # `fly deploy --image` it. Fly builds nothing.
@@ -29,7 +28,6 @@ set -euo pipefail
 
 FLY_APP="${FLY_APP:-culebraluxe-dr}"
 SOURCE="scion"
-SYNC_SECRETS=0
 DEPLOY=1
 VERBOSE=0
 TRACE=0
@@ -39,10 +37,6 @@ FORGEVCS_BASE_URL="${FORGEVCS_BASE_URL:-https://culebraluxe-forgevcs.fly.dev}"
 FORGEVCS_REPO="${FORGEVCS_REPO:-culebraluxe-web}"
 FORGEVCS_REF="${FORGEVCS_REF:-main}"
 FORGEVCS_SECRET_FILE="${FORGEVCS_SECRET_FILE:-/Users/Shared/dev/.forgevcs-maestro.secret}"
-BYPASS="${FORGEVCS_BYPASS:-}"
-TEAM_ID="team_xk8vFaeSyY6CuSkS3OK55tTc"
-PROJECT_ID="prj_RHzXYauXOgIh2abiEsMiQJ1V3jlV"   # culebraluxe-web-fp (only read, for --sync-secrets)
-VERCEL_CLI_VERSION="59.25.4"
 PUSH_ATTEMPTS="${DEPLOY_FLY_PUSH_ATTEMPTS:-6}"
 PUSH_ATTEMPT_TIMEOUT="${DEPLOY_FLY_PUSH_TIMEOUT:-5400}"   # per layer-set, unchanged
 PUSH_BUDGET_SECS="${DEPLOY_FLY_PUSH_BUDGET:-7200}"        # total, so 6 attempts cannot mean nine hours
@@ -61,61 +55,10 @@ elapsed() { local s=$(( $(date +%s) - $1 )); printf '%dm%02ds' $((s / 60)) $((s 
 say() { printf '  [%s] %s\n' "$(date +%H:%M:%S)" "$*"; [ -z "$LOG" ] || printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" >>"$LOG"; }
 note() { NOTES+=("$*"); say "note: $*"; }
 
-# ---- helpers for the config preflight, the deploy gate and the smoke test -----------------------------------------
-# A .env value may be quoted by `vercel env pull`. This dequotes a copy for testing; it never rewrites the file.
-dequote() { local v="$1"; case "$v" in \"*\") v="${v%\"}"; v="${v#\"}" ;; \'*\') v="${v%\'}"; v="${v#\'}" ;; esac; printf '%s' "$v"; }
-# Vercel cannot export "sensitive" variables: the CLI writes the literal placeholder instead of a value. On
-# 2026-11-03 that placeholder was imported as DATABASE_URL_PROD and the app crash-looped on boot. It is NOT an empty
-# value, so the old empty-value check never saw it. This is the test that would have stopped that run in 4 seconds.
-is_placeholder() { [ "$(dequote "$1")" = "[SENSITIVE]" ]; }
+# ---- helpers for the deploy gate and the smoke test -----------------------------------------------------------------
 # `set -x` prints the Fly and ForgeVCS tokens; --trace must not put them in the log.
 trace_off() { if [ "$TRACE" = 1 ]; then set +x; fi; }
 trace_on()  { if [ "$TRACE" = 1 ]; then set -x; fi; }
-# `fly secrets list` reports names and digests, never values. Cached: at most one call per run.
-FLY_SECRET_NAMES=""
-fly_secret_names() {
-  # --json, not the table: the table's middle column is a `│` rule, so a field-number filter silently matched
-  # nothing (and a preflight that never sees a name fails every deploy).
-  if [ -z "$FLY_SECRET_NAMES" ]; then
-    FLY_SECRET_NAMES="$(with_timeout 45 "$FLY" secrets list --app "$FLY_APP" --json </dev/null 2>/dev/null | python3 -c 'import json,sys
-try:
-    for s in json.load(sys.stdin):
-        n = s.get("name") or ""
-        if n: print(n)
-except Exception:
-    pass' || true)"
-  fi
-  printf '%s\n' "$FLY_SECRET_NAMES"
-}
-fly_has_secret() {
-  fly_secret_names >/dev/null   # fills the cache in THIS shell; piping it would run the function in a subshell
-  grep -qx "$1" <<<"$FLY_SECRET_NAMES"
-}
-# `fly secrets list --json` exposes a digest per name (never a value). Two names with one digest hold one value — and
-# Vercel's placeholder for every unexportable secret is exactly that: many names, one value.
-FLY_SECRETS_JSON=""
-fly_secrets_json_load() { [ -n "$FLY_SECRETS_JSON" ] || FLY_SECRETS_JSON="$(with_timeout 45 "$FLY" secrets list --app "$FLY_APP" --json </dev/null 2>/dev/null || true)"; }
-secret_digest() {  # $1 = name -> digest, or empty
-  fly_secrets_json_load
-  printf '%s' "$FLY_SECRETS_JSON" | python3 -c 'import json,sys
-n = sys.argv[1]
-try:
-    print(next((r.get("digest") or "" for r in json.load(sys.stdin) if r.get("name") == n), ""))
-except Exception:
-    print("")' "$1"
-}
-placeholder_digest_on_fly() {  # $1 = name; true when another unexportable name holds the same value
-  local want other digest
-  [ "${#BAD_SECRETS[@]}" -gt 0 ] || return 1
-  want="$(secret_digest "$1")"
-  [ -n "$want" ] || return 1
-  for other in "${BAD_SECRETS[@]}"; do
-    if [ "$other" = "$1" ]; then continue; fi
-    digest="$(secret_digest "$other")"
-    if [ -n "$digest" ] && [ "$digest" = "$want" ]; then return 0; fi
-  done
-  return 1
-}
 close_step() {  # close_step OK|FAILED|SKIPPED
   [ "$CUR" -ge 0 ] || return 0
   [ "${STEP_RESULTS[$CUR]}" = "RUNNING" ] || return 0
@@ -242,7 +185,6 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --source) SOURCE="${2:-}"; shift 2 ;;
     --source=*) SOURCE="${1#*=}"; shift ;;
-    --sync-secrets) SYNC_SECRETS=1; shift ;;
     --no-deploy) DEPLOY=0; shift ;;
     --resume) RESUME_TAG="${2:-}"; shift 2 ;;
     --remote-build) REMOTE_BUILD=1; shift ;;
@@ -286,133 +228,17 @@ printf '  checkout: %s\n  log:      %s\n' "$ROOT_DIR" "$LOG"
 { printf 'flyctl: %s\n' "$("$FLY" version 2>/dev/null | head -1)"
   printf 'docker: %s\n' "$(docker version --format '{{.Server.Version}} {{.Server.Arch}}' 2>/dev/null)"; } >>"$LOG"
 
-# The app has to exist before the preflight reads its secrets, and DR-FLY.md's first-run instruction is
-# `--sync-secrets` (which used to create the app only after the 9-minute build, so a first run could never get here).
+# The app has to exist before anything reads its secrets; create it here so a first run can get this far.
 with_timeout 60 "$FLY" status --app "$FLY_APP" </dev/null >/dev/null 2>&1 \
   || quiet "creating the Fly app $FLY_APP" with_timeout 120 "$FLY" apps create "$FLY_APP" \
   || fail "could not create the Fly app $FLY_APP"
-
-# ---------------------------------------------------------------------------------------------------------------
-# PRODUCTION CONFIG, READ AND CHECKED BEFORE ANYTHING IS BUILT OR PUSHED.
-#
-# 2026-11-03: this ran AFTER the 9-minute push, and it imported whatever `vercel env pull` wrote. Vercel cannot
-# export "sensitive" variables — it writes the literal string [SENSITIVE] — and 45 of this app's 53 secrets came
-# back that way, DATABASE_URL_PROD among them. The image booted, failed to parse its own database URL
-# (`DbFailure … "invalid database connection URL"`), crash-looped ten times and was stopped by Fly: 13 minutes and a
-# dead standby. Importing a placeholder is worse than importing nothing, so placeholders and empty values are now
-# SKIPPED (the value already on Fly is left alone), and the database URL the app will actually resolve is proved to
-# parse before the uplink is touched.
-PROD_ENV="$WORK/prod.env"          # exactly as Vercel wrote it; removed with $WORK
-PROD_ENV_FLY="$WORK/prod.env.fly"  # the subset that is safe to import
-BAD_SECRETS=(); EMPTY_SECRETS=()
-
-db_target_env_name() {  # mirrors db::resolve_declared_target: VERCEL_ENV first, then APP_ENV
-  local v a
-  v="$(sed -n 's/^VERCEL_ENV=//p' "$PROD_ENV" 2>/dev/null | head -1)"
-  v="$(printf '%s' "$(dequote "$v")" | tr '[:upper:]' '[:lower:]')"
-  case "$v" in
-    production) printf 'DATABASE_URL_PROD'; return 0 ;;
-    preview|development) printf 'DATABASE_URL_DEV'; return 0 ;;
-  esac
-  a="$(sed -n 's/^APP_ENV=//p' "$PROD_ENV" 2>/dev/null | head -1)"
-  a="$(printf '%s' "$(dequote "$a")" | tr '[:upper:]' '[:lower:]')"
-  case "$a" in
-    production|prod) printf 'DATABASE_URL_PROD' ;;
-    development|dev|test|testing) printf 'DATABASE_URL_DEV' ;;
-    *) printf '' ;;
-  esac
-}
-
-validate_db_url() {  # the server exits 1 on boot if this does not parse as Postgres
-  local var="$1" url
-  url="$(dequote "$(sed -n "s/^${var}=//p" "$PROD_ENV_FLY" 2>/dev/null | head -1)")"
-  case "$url" in
-    postgres://*|postgresql://*) ;;
-    *) fail "$var is not a Postgres URL (starts '${url:0:18}…') — the server exits 1 on boot with DbFailure \"invalid database connection URL\"" \
-            "fly secrets set --app $FLY_APP $var='postgres://…'   then re-run without --sync-secrets" ;;
-  esac
-  printf '%s' "$url" | python3 -c 'import sys, urllib.parse as u
-p = u.urlparse(sys.stdin.read().strip())
-sys.exit(0 if p.scheme in ("postgres", "postgresql") and p.hostname and p.path not in ("", "/") else 1)' \
-    || fail "$var does not parse as a database URL (missing host, path or scheme) — the server exits 1 on boot" \
-            "fly secrets set --app $FLY_APP $var='postgres://…'   then re-run without --sync-secrets"
-}
-
-pull_production_config() {
-  ( umask 077 && cd "$WORK" && VERCEL_ORG_ID="$TEAM_ID" VERCEL_PROJECT_ID="$PROJECT_ID" \
-    with_timeout 300 npx --yes "vercel@${VERCEL_CLI_VERSION}" env pull "$PROD_ENV" --environment=production --yes \
-      </dev/null >"$WORK/vercel-env.log" 2>&1 ) \
-    || { sed -E 's/(=).*/\1<redacted>/' "$WORK/vercel-env.log" | tail -15 >&2
-         fail "vercel env pull failed or timed out" "vercel login   (or re-run without --sync-secrets: the image then deploys against the secrets Fly already has)"; }
-  [ -s "$PROD_ENV" ] || fail "vercel env pull wrote nothing" "vercel login"
-
-  local line name value plain
-  ( umask 077; : >"$PROD_ENV_FLY" )
-  while IFS= read -r line || [ -n "$line" ]; do
-    [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
-    name="${BASH_REMATCH[1]}"; value="${BASH_REMATCH[2]}"
-    # Drop Vercel's own runtime variables and anything the image already sets itself.
-    case "$name" in
-      VERCEL|VERCEL_*|TURBO|TURBO_*|NX|NX_*) continue ;;
-      PORT|CULEBRA_SITE_DIR|FORMS_TEMPLATES_DIR|CULEBRALUXE_BUILD_SHA|CULEBRALUXE_BUILT_AT) continue ;;
-    esac
-    plain="$(dequote "$value")"
-    if is_placeholder "$value"; then BAD_SECRETS+=("$name"); continue; fi
-    if [ -z "$plain" ]; then EMPTY_SECRETS+=("$name"); continue; fi
-    printf '%s=%s\n' "$name" "$value" >>"$PROD_ENV_FLY"
-  done <"$PROD_ENV"
-  # The database target selector is filtered out above (it starts with VERCEL_); the server needs it back.
-  grep -E '^VERCEL_ENV=' "$PROD_ENV" >>"$PROD_ENV_FLY" || true
-
-  local db_var; db_var="$(db_target_env_name)"
-  [ -n "$db_var" ] || fail "neither VERCEL_ENV nor APP_ENV names a database target in the production variables" \
-      "fly secrets set --app $FLY_APP APP_ENV=production"
-  [ "$db_var" = "DATABASE_URL_PROD" ] || fail "the production variables resolve the database target to DEV ($db_var) — this deploy is the production standby and the server will not fall back to PROD" \
-      "check VERCEL_ENV in the Vercel production environment (it must be 'production')"
-  if grep -qE "^${db_var}=" "$PROD_ENV_FLY"; then
-    validate_db_url "$db_var"
-  elif fly_has_secret "$db_var"; then
-    # Vercel will not export it and Fly already holds a value; skipping the import IS the fix. But "a value exists" is
-    # not "the value is good": the 2026-11-03 run wrote the placeholder ONTO Fly, and every unexportable name holds
-    # that one same value — so their digests match. That is deterministic and needs no knowledge of the hash.
-    if placeholder_digest_on_fly "$db_var"; then
-      [ "${DEPLOY_FLY_ALLOW_UNVERIFIED_DB:-0}" = 1 ] || fail "$db_var on $FLY_APP holds the same value as the other unexportable secrets — i.e. the [SENSITIVE] placeholder an earlier --sync-secrets run imported, not a database URL. The app exits 1 on boot." \
-          "fly secrets set --app $FLY_APP $db_var='postgres://…'   (repeat for the other names in NOTES)   then re-run without --sync-secrets"
-    fi
-    say "$db_var is a placeholder in Vercel and is already set on $FLY_APP — left untouched"
-    note "$db_var: Vercel cannot export it, so the value already on $FLY_APP was kept (it cannot be checked from here)"
-  else
-    fail "$db_var is the [SENSITIVE] placeholder in Vercel and $FLY_APP has no value for it — the app exits 1 on boot" \
-        "fly secrets set --app $FLY_APP $db_var='postgres://…'   then re-run without --sync-secrets"
-  fi
-  say "$(wc -l <"$PROD_ENV_FLY" | tr -d ' ') variables will be staged; ${#BAD_SECRETS[@]} skipped as unexportable, ${#EMPTY_SECRETS[@]} as empty"
-  note "this run re-stages secrets on $FLY_APP and the deploy applies them: rolling back the IMAGE later will not restore the previous environment"
-  [ "${#BAD_SECRETS[@]}" -eq 0 ] || note "Vercel cannot export these ${#BAD_SECRETS[@]} variables. They are NOT imported, so whatever $FLY_APP already has is kept; set them by hand if it has nothing: ${BAD_SECRETS[*]}"
-  [ "${#EMPTY_SECRETS[@]}" -eq 0 ] || note "Vercel returned these ${#EMPTY_SECRETS[@]} variables empty. They are not imported: ${EMPTY_SECRETS[*]}"
-}
-
-if [ "$SYNC_SECRETS" = 1 ]; then
-  say "reading the production configuration from Vercel (values are never printed)..."
-  trace_off   # `set -x` would echo every value the loop reads (BASH_REMATCH) and the URL as it is validated
-  pull_production_config
-  trace_on
-else
-  : >"$PROD_ENV_FLY"
-  # No pull this run, so the VALUE cannot be checked — but the NAME can, and it has to be the exact one. With
-  # VERCEL_ENV=production, db::Database::connect_from_env reads DATABASE_URL_PROD and refuses to fall back, so the
-  # generic DATABASE_URL (which the 2026-11-03 pull staged as well) is not a substitute for it.
-  if ! fly_has_secret DATABASE_URL_PROD; then
-    fail "$FLY_APP has no DATABASE_URL_PROD secret — the server reads that exact name for production and will not fall back to another, so it exits 1 on boot" \
-        "scripts/deploy-fly.sh --sync-secrets   (or: fly secrets set --app $FLY_APP DATABASE_URL_PROD='postgres://…')"
-  fi
-fi
 
 if [ -n "$RESUME_TAG" ]; then
   # ---- resume: the image is already built and tagged on this Mac -------------------------------------------------
   TAG="${RESUME_TAG##*:}"
   if [ "$REMOTE_BUILD" = 1 ]; then
     # Resume = deploy the files the last build left in the stable stage dir, through the remote builder.
-    [ -f "$STAGE_FINAL/Dockerfile" ] || fail "no previous stage at $STAGE_FINAL to resume" "scripts/deploy-fly.sh --source auto --sync-secrets"
+    [ -f "$STAGE_FINAL/Dockerfile" ] || fail "no previous stage at $STAGE_FINAL to resume" "scripts/deploy-fly.sh --source auto"
     STAGE="$STAGE_FINAL"
     SOURCE_USED="resumed stage $STAGE_FINAL"
     BUILD_SHA="$(sed -n 's/^ENV CULEBRALUXE_BUILD_SHA=//p' "$STAGE/Dockerfile")"
@@ -431,28 +257,24 @@ if [ -n "$RESUME_TAG" ]; then
     SCION_CHANGESET="$(printf '%s\n' "$IMG_ENV" | sed -n 's/^CULEBRALUXE_SCION_CHANGESET=//p')"
     BUILT_AT="$(printf '%s\n' "$IMG_ENV" | sed -n 's/^CULEBRALUXE_BUILT_AT=//p')"
   fi
-  for s in "1/7|Getting the source" "2/7|Building the stylesheet" "3/7|Compiling the application" "4/7|Packing the finished files"; do
+  for s in "1/6|Getting the source" "2/6|Building the stylesheet" "3/6|Compiling the application" "4/6|Packing the finished files"; do
     skip_step "${s%%|*}" "${s#*|} (skipped: --resume)"
   done
-  if [ "$REMOTE_BUILD" = 1 ]; then step 5/7 "Image: the Fly remote builder rebuilds it from $STAGE_FINAL"; else step 5/7 "Pushing the image to Fly..."; fi
+  if [ "$REMOTE_BUILD" = 1 ]; then step 5/6 "Image: the Fly remote builder rebuilds it from $STAGE_FINAL"; else step 5/6 "Pushing the image to Fly..."; fi
 else
 # ---------------------------------------------------------------------------------------------------------------
-step 1/7 "Getting the source..."
+step 1/6 "Getting the source..."
 # Returns non-zero (never exits) so --source auto can fall back to the local checkout.
 get_scion_source() {
   [ -f "$FORGEVCS_SECRET_FILE" ] || { say "no ForgeVCS secret at $FORGEVCS_SECRET_FILE"; return 1; }
-  # No `vercel project protection` lookup: that call hung for 41 minutes on 2026-11-03 (a hidden prompt), and the
-  # hosted ForgeVCS answers without a bypass header. If protection is ever enabled, export FORGEVCS_BYPASS=<secret>.
-  local hdr=()
-  [ -z "$BYPASS" ] || hdr=(-H "x-vercel-protection-bypass: $BYPASS")
-  local health
-  health="$(curl -s -o /dev/null -w '%{http_code} %{time_total}s' --max-time 15 ${hdr[@]+"${hdr[@]}"} \
+    local health
+  health="$(curl -s -o /dev/null -w '%{http_code} %{time_total}s' --max-time 15 \
     "$FORGEVCS_BASE_URL/health" </dev/null || true)"
   say "ForgeVCS health: ${health:-no answer}"
-  case "$health" in 200*) ;; *) say "ForgeVCS at $FORGEVCS_BASE_URL is not answering (it is hosted on Vercel)"; return 1 ;; esac
+  case "$health" in 200*) ;; *) say "ForgeVCS at $FORGEVCS_BASE_URL is not answering (it is hosted on Fly)"; return 1 ;; esac
   TOKEN="$(python3 -c 'import json,sys; print(json.dumps({"service":"maestro","secret":open(sys.argv[1]).read().strip()}))' \
       "$FORGEVCS_SECRET_FILE" |
-    curl -sS --max-time 30 ${hdr[@]+"${hdr[@]}"} -H 'content-type: application/json' \
+    curl -sS --max-time 30 -H 'content-type: application/json' \
       -X POST --data-binary @- "$FORGEVCS_BASE_URL/auth/token" 2>>"$LOG" |
     python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))' 2>/dev/null || true)"
   [ -n "$TOKEN" ] || { say "could not mint a ForgeVCS token"; return 1; }
@@ -492,7 +314,7 @@ use_local_source() {
   SRC="$ROOT_DIR"; SCION_CHANGESET=""
   BUILD_SHA="$(git rev-parse HEAD)"
   # THIS WORKTREE IS OFTEN NOT ON main. On 2026-11-03 lane-claude was a DETACHED HEAD 214 commits behind main, and
-  # `--source local` is the documented path for when Vercel/ForgeVCS is down — so the one run that matters most would
+  # `--source local` is the documented path for when ForgeVCS is down — so the one run that matters most would
   # have deployed three weeks of stale code and said nothing. Say it in the report.
   if [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "HEAD" ]; then
     note "the local checkout is a DETACHED HEAD (${BUILD_SHA:0:12}) — this build is that commit, not main"
@@ -505,7 +327,7 @@ use_local_source() {
   TAG="git-${BUILD_SHA:0:12}-$(date -u +%Y%m%d%H%M%S)"
 }
 case "$SOURCE" in
-  scion) get_scion_source || fail "could not get the source from Scion" "scripts/deploy-fly.sh --source auto --sync-secrets" ;;
+  scion) get_scion_source || fail "could not get the source from Scion" "scripts/deploy-fly.sh --source auto" ;;
   auto)
     if ! get_scion_source; then
       note "Scion failed, so this build FELL BACK to the local checkout (--source auto)"
@@ -525,11 +347,11 @@ MISSING="$(awk '/^COPY / && $2 !~ /^--/ { for (i = 2; i < NF; i++) print $i }' "
 say "build-file check: every COPY source is present"
 
 # ---------------------------------------------------------------------------------------------------------------
-step 2/7 "Building the stylesheet..."
+step 2/6 "Building the stylesheet..."
 quiet "tailwindcss -> public/app.css" bash -c 'cd "$1" && "$2" -i web/ui/styles/app.css -o public/app.css --minify' _ "$SRC" "$TAILWIND" \
   || fail "the stylesheet build failed"
 
-step 3/7 "Compiling the application on this Mac (first run ~10 min, cached after)..."
+step 3/6 "Compiling the application on this Mac (first run ~10 min, cached after)..."
 quiet "docker build (Rust server + wasm UI, cross-compiled for x86_64)" \
   docker build --progress=plain -f "$SRC/devops/Dockerfile.build" --output "type=local,dest=$WORK/build" "$SRC" \
   || fail "the local compile failed (the cargo/docker error is shown above)"
@@ -537,7 +359,7 @@ quiet "docker build (Rust server + wasm UI, cross-compiled for x86_64)" \
 say "server binary $(du -h "$WORK/build/culebraluxe" | cut -f1), wasm $(du -h "$WORK/build/ui_bg.wasm" | cut -f1)"
 
 # ---------------------------------------------------------------------------------------------------------------
-step 4/7 "Packing the finished files..."
+step 4/6 "Packing the finished files..."
 # Identical to deploy-prod.sh step 3 (same exclusions, same mode normalization, same fail-closed private-data probe).
 # Built in a scratch dir, then synced into a STABLE stage dir. The stable path is what makes uploads small: BuildKit
 # keys its context cache by the context directory, and with the same path and unchanged mtimes it only sends files that
@@ -569,10 +391,10 @@ say "private-data probe: clean; stage $(du -sh "$STAGE" | cut -f1) at $STAGE ($C
 
 # ---------------------------------------------------------------------------------------------------------------
 if [ "$REMOTE_BUILD" = 1 ]; then
-  step 5/7 "Image: built by a Fly remote builder from the packed files (--remote-build; no docker push)"
+  step 5/6 "Image: built by a Fly remote builder from the packed files (--remote-build; no docker push)"
   [ "$DEPLOY" = 1 ] || fail "--remote-build needs the deploy step (do not combine with --no-deploy)"
 else
-step 5/7 "Building the runtime image and pushing it to Fly..."
+step 5/6 "Building the runtime image and pushing it to Fly..."
 # Fly machines are x86_64; the Mac is ARM, so the platform is explicit (the runtime stage only unpacks files).
 quiet "docker buildx (linux/amd64 runtime image $TAG)" \
   docker buildx build --progress=plain --platform linux/amd64 --load -t "$IMAGE_REPO:$TAG" "$STAGE" \
@@ -645,22 +467,6 @@ fi
 [ -n "$CRANE" ] || note "install crane (brew install crane) for pushes that tolerate slow uploads; this run used docker push"
 
 # ---------------------------------------------------------------------------------------------------------------
-if [ "$SYNC_SECRETS" = 1 ]; then
-  step 6/7 "Copying production environment variables Vercel -> Fly (values never printed)..."
-  # Read, filtered and validated by the preflight before the image was pushed; importing the raw pull is what put
-  # the [SENSITIVE] placeholder into DATABASE_URL_PROD on 2026-11-03.
-  [ -s "$PROD_ENV_FLY" ] || fail "the production configuration was not read (see the preflight above)" \
-      "scripts/deploy-fly.sh --sync-secrets"
-  printf 'secret names staged: %s\n' "$(cut -d= -f1 "$PROD_ENV_FLY" | tr '\n' ' ')" >>"$LOG"
-  with_timeout 120 "$FLY" secrets import --app "$FLY_APP" --stage < "$PROD_ENV_FLY" >/dev/null 2>>"$LOG" \
-    || fail "fly secrets import failed (see the log)"
-  COUNT="$(wc -l < "$PROD_ENV_FLY" | tr -d ' ')"
-  say "$COUNT variables staged on $FLY_APP (names are in the log; values never written anywhere but Fly)"
-  rm -f "$PROD_ENV" "$PROD_ENV_FLY"
-  [ "${#BAD_SECRETS[@]}" -eq 0 ] || say "${#BAD_SECRETS[@]} unexportable variables were left as they are on $FLY_APP (see NOTES)"
-else
-  skip_step 6/7 "Secrets (skipped: pass --sync-secrets to copy them from Vercel)"
-fi
 
 # ---------------------------------------------------------------------------------------------------------------
 # What is serving RIGHT NOW, so a bad release can name the image to go back to. The old failure path told the
@@ -669,11 +475,11 @@ fi
 PREV_IMAGE="$(with_timeout 45 "$FLY" releases --app "$FLY_APP" --image </dev/null 2>/dev/null | awk '$3 == "complete" && $NF ~ /^registry\./ {print $NF; exit}' || true)"
 
 if [ "$DEPLOY" = 0 ]; then
-  skip_step 7/7 "Deploy (skipped: --no-deploy)"
+  skip_step 6/6 "Deploy (skipped: --no-deploy)"
   NEXT_HINT="scripts/deploy-fly.sh --resume $TAG"
   exit 0
 fi
-step 7/7 "Deploying to Fly and running the smoke test..."
+step 6/6 "Deploying to Fly and running the smoke test..."
 # BLUEGREEN, not rolling: there is exactly ONE standby machine, so a rolling update takes the only copy down for the
 # whole pull and boot — and leaves it down if the image crash-loops. Bluegreen starts the new machine, waits for its
 # /healthz, and only then removes the old one, so a bad release keeps the previous version serving.

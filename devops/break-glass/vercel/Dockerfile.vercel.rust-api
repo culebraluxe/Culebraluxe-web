@@ -1,0 +1,1 @@
+FROM vcr.vercel.com/culebraluxe-4460s-projects/culebraluxe-web-fp/rust_api@sha256:9e21f39ba8e490f0b44dbadaa7e62d5bd320557b83ae4df4044df2bcb38888e4

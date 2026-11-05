@@ -31,7 +31,9 @@ fn smoke_source() -> String {
 }
 
 fn deploy_script() -> String {
-    repo_source("scripts/deploy-prod.sh")
+    // The production deploy is scripts/deploy-fly.sh; scripts/deploy-prod.sh is a shim that execs it (the Vercel
+    // deploy it used to implement is archived in devops/break-glass/vercel/). The stamp contract lives in the real one.
+    repo_source("scripts/deploy-fly.sh")
 }
 
 /// The variable that carries the deployed commit from the deploy to the running container. Named once here so a rename
@@ -93,15 +95,16 @@ fn the_build_stamp_variable_is_the_one_the_server_reads() {
         handler.contains(STAMP_VARIABLE),
         "build_info.rs no longer reads {STAMP_VARIABLE}"
     );
+    // The Vercel fallback is retired with the Vercel deploy path; a Scion-sourced build names itself by changeset.
     assert!(
-        handler.contains("VERCEL_GIT_COMMIT_SHA"),
-        "the fallback a Vercel build stamp arrives in is gone"
+        handler.contains("CULEBRALUXE_SCION_CHANGESET"),
+        "the changeset a Scion build arrives in is gone"
     );
 
     let deploy = deploy_script();
     assert!(
         deploy.contains(STAMP_VARIABLE),
-        "scripts/deploy-prod.sh no longer writes {STAMP_VARIABLE}: the live build would answer with no sha"
+        "scripts/deploy-fly.sh no longer writes {STAMP_VARIABLE}: the live build would answer with no sha"
     );
     assert!(
         deploy.contains("CULEBRALUXE_BUILT_AT"),

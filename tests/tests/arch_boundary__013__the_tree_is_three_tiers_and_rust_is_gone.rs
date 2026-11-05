@@ -64,13 +64,13 @@ const WORKSPACE_MEMBERS: [&str; 12] = [
     "tests",
 ];
 
-/// The container files: all of them under `devops/` except the one the Vercel build reads from the repository root.
-const CONTAINER_FILES: [&str; 5] = [
+/// The container files: all of them under `devops/`. The Vercel runtime image that used to be read from the
+/// repository root was archived with the rest of the Vercel deploy path (`devops/break-glass/vercel/`).
+const CONTAINER_FILES: [&str; 4] = [
     "Dockerfile",
     "devops/Dockerfile",
     "devops/Dockerfile.build",
     "devops/Dockerfile.runtime",
-    "devops/Dockerfile.vercel",
 ];
 
 /// The paths that must NOT exist. Each is where the old layout lived, and any one of them back is the move coming

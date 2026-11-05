@@ -1,116 +1,17 @@
 #!/usr/bin/env bash
-# PRODUCTION DEPLOY — the CulebraLuxe application to its one Vercel project, culebraluxe-web-fp, which serves
-# culebraluxe.com and www.culebraluxe.com and holds every production setting.
+# PRODUCTION DEPLOY — the name every script, doc and habit already uses, now pointing at Fly.
 #
-# Everything is compiled HERE, on this Mac, for free (devops/Dockerfile.build: the Yew UI to WebAssembly, and the
-# server cross-compiled for Vercel's x86_64 Linux). Vercel only unpacks the finished files (devops/Dockerfile.runtime),
-# so it spends seconds, not a paid 14-minute compile.
+# The Vercel deploy this file used to implement is retired (W2.4/W2.5). It lives, verbatim, in
+# `devops/break-glass/vercel/` because the Captain asked for it to survive as an emergency exit — read that
+# directory's README before considering it, and expect to rebuild its environment from scratch.
+#
+# Production is `culebraluxe-dr` on Fly, deployed by `scripts/deploy-fly.sh`. This shim keeps
+# `pnpm deploy:prod`, a launchd job, or a hand-typed `scripts/deploy-prod.sh` meaning "deploy production"
+# instead of failing with "no such file".
+#
+#   scripts/deploy-prod.sh                  # the Fly deploy, as deploy-fly.sh runs it
+#   scripts/deploy-prod.sh --source scion   # flags pass straight through
 set -euo pipefail
-
-TEAM_ID="team_xk8vFaeSyY6CuSkS3OK55tTc"
-PROJECT_ID="prj_RHzXYauXOgIh2abiEsMiQJ1V3jlV"   # culebraluxe-web-fp
-SITE="https://www.culebraluxe.com"
-VERCEL_CLI_VERSION="59.25.4"
-
-vc() { npx --yes "vercel@${VERCEL_CLI_VERSION}" "$@"; }
-fail() { printf '\nERROR: %s\n' "$1" >&2; exit 1; }
-
-ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || fail "Run this inside the CulebraLuxe repository"
-cd "$ROOT_DIR"
-vc whoami >/dev/null 2>&1 || fail "Vercel CLI is not authenticated. Run: vercel login"
-docker info >/dev/null 2>&1 || fail "Docker is not running. Start Docker Desktop."
-printf '\nCulebraLuxe production deploy\n  commit: %s\n' "$(git rev-parse --short HEAD)"
-
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
-
-printf '\n1/5 Building the stylesheet...\n'
-npx --no-install tailwindcss -i web/ui/styles/app.css -o public/app.css --minify || fail "The stylesheet build failed."
-
-printf '\n2/5 Compiling the application on this Mac (the first run is slow; later runs reuse the cache)...\n'
-docker build -f devops/Dockerfile.build --output "type=local,dest=$WORK/build" . || fail "The local compile failed."
-[ -f "$WORK/build/culebraluxe" ] && [ -f "$WORK/build/ui_bg.wasm" ] || fail "The compile produced no server or no wasm."
-
-printf '\n3/5 Packing the finished files...\n'
-STAGE="$WORK/stage"
-mkdir -p "$STAGE/public/rust-ui" "$STAGE/templates"
-cp devops/Dockerfile.runtime "$STAGE/Dockerfile"
-# THE BUILD STAMP IS THE DEPLOYED COMMIT, written into the image that serves it. `/api/build-info` reads these two at
-# runtime; the production smoke asserts the sha it reports is HEAD (or names the commits it is behind). Stamping here
-# rather than at compile time is what makes the answer true: the binary is built once and the container is rebuilt per
-# deploy, so the commit that travels with the image is the commit that is live. If this line is ever skipped the
-# endpoint answers with no sha AND SAYS SO, and the release check fails loudly instead of comparing against nothing.
-printf 'ENV CULEBRALUXE_BUILD_SHA=%s\nENV CULEBRALUXE_BUILT_AT=%s\n' \
-  "$(git rev-parse HEAD)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$STAGE/Dockerfile"
-gzip -9 -c "$WORK/build/culebraluxe" > "$STAGE/culebraluxe.gz"
-# PRIVATE LOCAL DATA MUST NOT SHIP. `public/` is the webroot AND an rsync source, and rsync does not read
-# `.gitignore` — so `public/upload/data/`, which `.gitignore:42` calls private ("private export data (never
-# commit)"), was copied into the image byte for byte. It stayed harmless only for as long as mode-600 files
-# were unreadable to the container's non-root user; the day the stage started normalizing modes the whole Apple
-# Messages export became a public 64 MB download (2026-10-05, found by the post-deploy sweep). The sibling
-# artifact path already refuses exactly this and fails its build when the export is traced in
-# (scripts/vercel-build-prod.sh:143-154, "Private local data was traced into the prebuilt artifact"); the
-# container path lost that check in the layout refactor. It gets both halves back here: the exclusion below, and
-# the fail-closed probe after the stage is filled. Excluding `upload/data` closes the class, not the one file —
-# it is the staging root the exporters write to, and the only other thing in it is `macdatabridge.swift`, a
-# helper source, plus empty placeholders, so nothing the site serves is lost.
-rsync -a --exclude rust-ui --exclude 'upload/data' --exclude '* 2.*' --exclude '* 2' public/ "$STAGE/public/"
-cp "$WORK/build/ui.js" "$STAGE/public/rust-ui/ui.js"
-gzip -9 -c "$WORK/build/ui_bg.wasm" > "$STAGE/public/rust-ui/ui_bg.wasm.gz"
-rsync -a middle/model/forms/templates/ "$STAGE/templates/"
-# THE EDGE ROUTES TRAVEL WITH THE ARTIFACT. `vercel.json` is what sends `/media-cdn/:path*` to the public
-# object-store bucket (the base the site's CDN photo links are built from) and gives those responses the
-# immutable cache header. The container serves every other path from the app, so a stage without this file
-# makes `/media-cdn/...` fall through to the SPA shell: every public photo answers `text/html` with a 200,
-# which is exactly how the 2026-10-24 breakage passed every URL check. Vercel reads it from the deploy
-# directory, so it is copied here rather than assumed to live on the project.
-cp vercel.json "$STAGE/vercel.json"
-# THE IMAGE RUNS AS A NON-ROOT USER — devops/Dockerfile.runtime adds `culebra` as uid 10001 and ends with
-# `USER culebra` — and a Docker `COPY` hands the container exactly the modes it is given. So a 600 file or a 700
-# directory in the working tree ships as an asset the server cannot open: every image under /images is unreadable and
-# every form template fails to load, while this script's own checks (all of which are HTML, wasm or API paths) stay
-# green and report a clean deploy. The working tree is not the right place to fix it — a developer's umask, or a copy
-# made by iCloud, is not a release decision, and `rsync -a` deliberately preserves what it finds — so the STAGE is
-# normalized instead, after everything has been copied into it and before any of it is packed.
-chmod -R a+rX "$STAGE/public" "$STAGE/templates"
-# FAIL CLOSED, never warn: an artifact carrying private local data is not deployed — the same posture the sibling
-# path takes. The paths are the sibling's list, widened to the whole staging root so a future export cannot slip
-# through under a new filename.
-PRIVATE_MATCH="$(find "$STAGE" \( -path '*/upload/data/*' -o -path '*/apple-messages-export/*' \
-  -o -path '*/contact-export/*' -o -path '*/apple-messages-output/*' -o -name 'culebraluxe-calendar*.json' \) \
-  -print -quit 2>/dev/null || true)"
-[ -z "$PRIVATE_MATCH" ] || fail "Private local data reached the deploy stage: $PRIVATE_MATCH — do not deploy this artifact."
-printf '  private-data probe: clean\n'
-printf '  upload size: %s\n' "$(du -sh "$STAGE" | cut -f1)"
-
-printf '\n4/5 Making sure the project runs the application container...\n'
-printf '{"framework":"container"}' > "$WORK/project.json"
-vc api "/v9/projects/${PROJECT_ID}?teamId=${TEAM_ID}" -X PATCH --input "$WORK/project.json" >/dev/null \
-  || fail "Could not set the project to run a container."
-
-printf '\n5/5 Deploying...\n'
-(cd "$STAGE" && VERCEL_ORG_ID="$TEAM_ID" VERCEL_PROJECT_ID="$PROJECT_ID" vc deploy --prod --yes) \
-  || fail "The deploy failed. Production is unchanged."
-
-printf '\nChecking %s...\n' "$SITE"
-bad=0
-for path in / /buyers /app.css /rust-ui/ui.js /rust-ui/ui_bg.wasm "/api/rust-ui/public-page?screen=site-home" /login; do
-  code="$(curl -s -o /dev/null -w '%{http_code}' "${SITE}${path}")"
-  printf '  %s  %s\n' "$code" "$path"
-  [ "$code" = "200" ] || bad=1
-done
-# A PHOTO MUST ARRIVE AS A PHOTO. Every check above stayed 200 through the 2026-10-24 breakage, because a
-# missing `/media-cdn` rewrite made the SPA answer image requests with HTML and a 200. Ask the site for the
-# first photo it publishes and require an image content type from wherever that URL points.
-PHOTO="$(curl -fsS "${SITE}/api/rust-ui/public-page?screen=site-home" 2>/dev/null \
-  | grep -o 'https://[^"]*media/[0-9a-f-]*/original\.jpg' | head -1 || true)"
-if [ -n "$PHOTO" ]; then
-  PHOTO_TYPE="$(curl -s -o /dev/null -w '%{content_type}' "$PHOTO")"
-  printf '  %s  %s\n' "${PHOTO_TYPE%%;*}" "$PHOTO"
-  case "$PHOTO_TYPE" in image/*) ;; *) bad=1 ;; esac
-else
-  printf '  no public photo found to probe\n'
-  bad=1
-fi
-[ "$bad" = 0 ] && printf '\nDEPLOY COMPLETE — %s serves the new application.\n' "$SITE" \
-  || printf '\nDeployed, but a check above is not 200. To roll back: Vercel -> culebraluxe-web-fp -> Deployments -> promote the previous one.\n'
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+printf 'deploy-prod.sh is the Fly deploy now; running scripts/deploy-fly.sh.\n' >&2
+exec "$ROOT_DIR/scripts/deploy-fly.sh" "$@"

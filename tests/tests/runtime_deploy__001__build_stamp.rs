@@ -1,8 +1,9 @@
 //! RUNTIME.deploy — build stamp (TST-RUNTIME-DEPLOY-001).
 //!
 //! Contract: the release gate's first question — "which build is live" — is answered by the stamp the deploy
-//! wrote, in precedence order `CULEBRALUXE_BUILD_SHA`, `VERCEL_GIT_COMMIT_SHA`, `GIT_COMMIT_SHA`. The first
-//! candidate that IS a commit sha is served with a version labelled by its 7-char abbreviation; a candidate that
+//! wrote, in precedence order `CULEBRALUXE_BUILD_SHA`, then `GIT_COMMIT_SHA`. (The Vercel deploy path is retired,
+//! so `VERCEL_GIT_COMMIT_SHA` is no longer honoured.) The first candidate that IS a commit sha is served with a
+//! version labelled by its 7-char abbreviation; a candidate that
 //! is set but is NOT a sha does not fall through — it is refused with the reason named, so a tag can neither
 //! outrank the real stamp nor hide behind the next variable; nothing stamped means an empty sha with a note
 //! saying which variable to set; and a stamp is never invented from nothing. The crate version is real either
@@ -14,7 +15,7 @@
 //! Run with:
 //!   cargo test --manifest-path Cargo.toml -p test-harness --test runtime_deploy__001__build_stamp
 
-use web::api::build_info::{resolve_stamp, MAX_SHA, MIN_SHA};
+use web::api::build_info::{compose_stamp, resolve_stamp, MAX_SHA, MIN_SHA};
 
 const FULL: &str = "9ea50f32b1c4d5e6f708192a3b4c5d6e7f8091a2";
 
@@ -39,10 +40,6 @@ fn runtime_deploy_001__build_stamp() {
     let stamp = resolve_stamp(&[
         ("CULEBRALUXE_BUILD_SHA", Some("9ea50f32".to_owned())),
         (
-            "VERCEL_GIT_COMMIT_SHA",
-            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned()),
-        ),
-        (
             "GIT_COMMIT_SHA",
             Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_owned()),
         ),
@@ -51,7 +48,7 @@ fn runtime_deploy_001__build_stamp() {
     // An empty first candidate does not block the next.
     let stamp = resolve_stamp(&[
         ("CULEBRALUXE_BUILD_SHA", Some("  ".to_owned())),
-        ("VERCEL_GIT_COMMIT_SHA", Some("9ea50f32".to_owned())),
+        ("GIT_COMMIT_SHA", Some("9ea50f32".to_owned())),
     ]);
     assert_eq!(stamp.sha, "9ea50f32");
 
@@ -69,7 +66,7 @@ fn runtime_deploy_001__build_stamp() {
     );
     let blocked = resolve_stamp(&[
         ("CULEBRALUXE_BUILD_SHA", Some("v1.2.3".to_owned())),
-        ("VERCEL_GIT_COMMIT_SHA", Some("9ea50f32".to_owned())),
+        ("GIT_COMMIT_SHA", Some("9ea50f32".to_owned())),
     ]);
     assert!(
         blocked.sha.is_empty(),
@@ -87,6 +84,17 @@ fn runtime_deploy_001__build_stamp() {
     // A stamp is never invented from nothing: no environment, no sha. Not "unknown", not HEAD.
     let stamp = resolve_stamp(&[]);
     assert!(stamp.sha.is_empty());
+
+    // A Scion-sourced build has no commit. The changeset names it, and nothing is invented.
+    let changeset = "c104f0addc3ce76b9c9be93032d1f9370835813b184dac8fbdfd32f231fa2a2530";
+    let composed = compose_stamp(resolve_stamp(&[("CULEBRALUXE_BUILD_SHA", None)]), changeset);
+    assert!(composed.sha.is_empty(), "no commit is invented");
+    assert!(
+        composed.version.contains("(scion c104f0a)"),
+        "the changeset labels the build: {}",
+        composed.version
+    );
+    assert_eq!(composed.note, None, "a named build is a healthy answer");
 
     // The bounds the predicate enforces are git's own: 7..=40.
     assert_eq!(MIN_SHA, 7);
