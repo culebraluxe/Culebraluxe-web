@@ -1,0 +1,35 @@
+# Fly.io PRODUCTION for CulebraLuxe — deployed by scripts/deploy-fly.sh with a prebuilt image (`fly deploy --image`).
+# Fly never builds: there is deliberately no [build] section. See devops/DR-FLY.md.
+app = "culebraluxe-dr"
+primary_region = "iad"   # Ashburn (AWS us-east-1). Match the Neon region in DATABASE_URL: us-east-1/us-east-2 -> iad, us-west-2 -> sea, eu-central-1 -> fra.
+
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[env]
+  PORT = "8080"
+  CULEBRA_SITE_DIR = "/app/public"
+  FORMS_TEMPLATES_DIR = "/app/templates"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"     # always on: a DR site that sleeps is not a DR site
+  auto_start_machines = true
+  min_machines_running = 1       # raise to 2 with `fly scale count 2` for redundancy (Lisa)
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "15s"
+    timeout = "3s"
+    method = "GET"
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
