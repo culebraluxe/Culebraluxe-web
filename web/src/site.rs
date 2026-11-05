@@ -146,7 +146,8 @@ async fn shell_now(
     } else {
         String::new()
     };
-    shell(path, &actor)
+    let head = page_head(&state, path, &headers, &uri).await;
+    shell_with_head(path, &actor, &head)
 }
 
 /// The answers that need no page: an API address nobody answers is a 404 (never a web page a caller would try to parse
@@ -161,8 +162,14 @@ fn early_answer(path: &str) -> Option<Response> {
     None
 }
 
-/// The application shell for `path`.
+/// The application shell for `path`, with the site's default share metadata.
 pub fn shell(path: &str, actor: &str) -> Response {
+    let head = default_head("", path);
+    shell_with_head(path, actor, &head)
+}
+
+/// The shell with `head` (title, description and the `og:`/`twitter:` card) supplied by the caller.
+fn shell_with_head(path: &str, actor: &str, head: &str) -> Response {
     let portal = path == "/portal" || path.starts_with("/portal/");
     let actor_script = if actor.is_empty() {
         String::new()
@@ -187,8 +194,7 @@ pub fn shell(path: &str, actor: &str) -> Response {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#f5f2ec">
-<title>CulebraLuxe — Culebra Caribbean Estates</title>
-<meta name="description" content="CulebraLuxe presents an editorial collection of architectural estates and beachfront residences on the island of Culebra, Puerto Rico.">
+{head}
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -256,6 +262,166 @@ pub async fn cache_policy(request: Request<Body>, next: Next) -> Response {
         response.headers_mut().insert(header::CACHE_CONTROL, value);
     }
     response
+}
+
+/// The share metadata a page carries: `<title>`, the description, and the Open Graph / Twitter card.
+///
+/// WHY THE SERVER AND NOT THE BROWSER: a link preview is fetched by the receiving app (Messages, WhatsApp, Mail) as
+/// plain HTML — it never runs the Yew application. Without these tags a shared property link has nothing to show, and
+/// the apps fall back to whatever they cached from a previous host (the Vercel-era card a person saw in November).
+/// The property page resolves its own record here so the card carries that property's name and hero photograph.
+fn head_tags(title: &str, description: &str, url: &str, image: &str) -> String {
+    let (title, description, url, image) = (
+        escape_attr(title),
+        escape_attr(description),
+        escape_attr(url),
+        escape_attr(image),
+    );
+    format!(
+        r#"<title>{title}</title>
+<meta name="description" content="{description}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CulebraLuxe">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="{description}">
+<meta property="og:url" content="{url}">
+<meta property="og:image" content="{image}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{title}">
+<meta name="twitter:description" content="{description}">
+<meta name="twitter:image" content="{image}">"#
+    )
+}
+
+/// The site's own card, for every page that is not a property.
+fn default_head(base: &str, path: &str) -> String {
+    head_tags(
+        "CulebraLuxe — Culebra Caribbean Estates",
+        "CulebraLuxe presents an editorial collection of architectural estates and beachfront residences on the island of Culebra, Puerto Rico.",
+        &format!("{base}{path}"),
+        &format!("{base}/images/culebraluxe-email-logo.png"),
+    )
+}
+
+/// The card for one page: a property's own record when the address names one, the site's card otherwise.
+async fn page_head(
+    state: &crate::api::ApiState,
+    path: &str,
+    headers: &HeaderMap,
+    uri: &Uri,
+) -> String {
+    let base = base_url(headers);
+    let Some(key) = path.strip_prefix("/properties/") else {
+        return default_head(&base, path);
+    };
+    let key = key.trim_end_matches('/');
+    if key.is_empty() {
+        return default_head(&base, path);
+    }
+    let context = crate::api::public_guest_context(headers);
+    let Ok(Some(record)) = state
+        .services()
+        .public_listings()
+        .property(key, &context)
+        .await
+    else {
+        return default_head(&base, path);
+    };
+    let image = match record.hero_media_id.as_deref() {
+        Some(id) if !id.is_empty() => match state
+            .services()
+            .public_listings()
+            .media_public_url(id, "card")
+            .await
+        {
+            Ok(Some(url)) => url,
+            _ => format!("{base}/images/culebraluxe-email-logo.png"),
+        },
+        _ => format!("{base}/images/culebraluxe-email-logo.png"),
+    };
+    // The card's description: the property's own copy when it has any, else a sentence built from the facts a
+    // person reading the preview can use — the kind, the place. "Culebra" alone is not a description.
+    let description = record
+        .short_description
+        .as_deref()
+        .map(str::trim)
+        .filter(|copy| !copy.is_empty())
+        .map(|copy| truncate_words(copy, 200))
+        .unwrap_or_else(|| {
+            let place = [record.city.as_deref(), record.state_or_province.as_deref()]
+                .into_iter()
+                .flatten()
+                .map(str::trim)
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let kind = record
+                .property_type
+                .as_deref()
+                .map(str::trim)
+                .filter(|kind| !kind.is_empty());
+            match (kind, place.is_empty()) {
+                (Some(kind), false) => format!("{kind} in {place}, represented by CulebraLuxe."),
+                (None, false) => format!("A property in {place}, represented by CulebraLuxe."),
+                _ => "A property represented by CulebraLuxe on the island of Culebra, Puerto Rico."
+                    .to_owned(),
+            }
+        });
+    head_tags(
+        &format!("{} — CulebraLuxe", record.name),
+        &description,
+        &format!("{base}{}", uri.path()),
+        &image,
+    )
+}
+
+/// The absolute origin the page was requested on: `https://` plus the `Host` header, or the configured site.
+fn base_url(headers: &HeaderMap) -> String {
+    let host = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|host| !host.is_empty() && !host.contains('/'))
+        .unwrap_or("www.culebraluxe.com");
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("https");
+    format!("{scheme}://{host}")
+}
+
+/// `value`, cut to at most `max` characters on a word boundary — a description tag, not a paragraph.
+fn truncate_words(value: &str, max: usize) -> String {
+    if value.chars().count() <= max {
+        return value.to_owned();
+    }
+    let mut out = String::new();
+    for word in value.split_whitespace() {
+        if out.chars().count() + word.chars().count() + 1 > max {
+            break;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    out
+}
+
+/// Attribute-safe text: the model's own copy reaches a `content="..."`, so `&`, `<`, `>`, `"` and `'` are escaped.
+fn escape_attr(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -356,6 +522,64 @@ mod tests {
                 "{personal}"
             );
         }
+    }
+
+    #[test]
+    fn the_default_card_names_the_site_and_an_image() {
+        let head = default_head("https://www.culebraluxe.com", "/buyers");
+        assert!(head.contains(
+            r#"<meta property="og:title" content="CulebraLuxe — Culebra Caribbean Estates">"#
+        ));
+        assert!(head
+            .contains(r#"<meta property="og:url" content="https://www.culebraluxe.com/buyers">"#));
+        assert!(head.contains(r#"<meta property="og:image" content="https://www.culebraluxe.com/images/culebraluxe-email-logo.png">"#));
+        assert!(head.contains(r#"<meta name="twitter:card" content="summary_large_image">"#));
+    }
+
+    #[test]
+    fn a_property_card_carries_its_own_title_and_hero() {
+        let head = head_tags(
+            "Sea to Soul — CulebraLuxe",
+            "A beachfront parcel at Playa Sardinas II.",
+            "https://www.culebraluxe.com/properties/80b65fa3",
+            "https://br-snowy-fog-axg3jae2.storage.c-4.us-east-2.aws.neon.tech/culebraluxe-property-media-public/media/80b65fa3/web.jpg",
+        );
+        assert!(head.contains("Sea to Soul — CulebraLuxe"));
+        assert!(head.contains("culebraluxe-property-media-public"));
+        assert!(head.contains("https://www.culebraluxe.com/properties/80b65fa3"));
+    }
+
+    #[test]
+    fn model_copy_cannot_break_out_of_a_content_attribute() {
+        let head = head_tags(
+            r#"A "quoted" & <tagged> name's"#,
+            "text",
+            "https://example.test/x",
+            "https://example.test/i.png",
+        );
+        assert!(head.contains("&quot;quoted&quot;"));
+        assert!(head.contains("&amp;"));
+        assert!(head.contains("&lt;tagged&gt;"));
+        assert!(head.contains("&#39;"));
+        assert!(!head.contains(r#"content="A "quoted""#));
+    }
+
+    #[test]
+    fn a_long_description_is_cut_on_a_word_boundary() {
+        let text = "word ".repeat(100);
+        let cut = truncate_words(&text, 40);
+        assert!(cut.chars().count() <= 40);
+        assert!(cut.ends_with("word"));
+        assert_eq!(truncate_words("short", 40), "short");
+    }
+
+    #[test]
+    fn the_origin_comes_from_the_request_host() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, "culebraluxe-prod.fly.dev".parse().unwrap());
+        assert_eq!(base_url(&headers), "https://culebraluxe-prod.fly.dev");
+        let empty = HeaderMap::new();
+        assert_eq!(base_url(&empty), "https://www.culebraluxe.com");
     }
 
     #[tokio::test]

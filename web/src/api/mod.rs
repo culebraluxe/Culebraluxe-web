@@ -19,6 +19,7 @@ mod routes;
 mod tech_page;
 pub mod ui_auth;
 
+pub(crate) use context::public_guest_context;
 pub use error::ApiError;
 
 #[derive(Clone)]
